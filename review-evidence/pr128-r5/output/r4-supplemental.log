@@ -1,0 +1,40 @@
+.......F......                                                           [100%]
+=================================== FAILURES ===================================
+_ test_real_schema_and_unknown_grants_are_reachable_on_card_and_sheet[codex-write-stdin] _
+
+r4_grants = ([{'id': 'codex-write-stdin', 'kind': 'command', 'definition': 'CommandExecutionRequestApprovalParams', 'display': {'c...entId: remote-production\n\nparams.kind: writeStdin\n\nAdd a note Deny Allow\nDetails\n'}, ...}, 'visible_windows': 0})
+scenario = 'codex-write-stdin'
+
+    @pytest.mark.parametrize("scenario", ["codex-write-stdin", "codex-file-change", "codex-permissions", "claude-bash", "claude-tool-description", "claude-write", "claude-edit"])
+    def test_real_schema_and_unknown_grants_are_reachable_on_card_and_sheet(r4_grants, scenario):
+        rows,result = r4_grants
+        row = next(r for r in rows if r["id"] == scenario)
+        entry = result["approvals"][scenario]
+        actual = dict(field.split(": ",1) for field in entry["fields_loaded"])
+        assert actual == row["expected"]
+        normalize = lambda text: re.sub(r"[^a-z0-9]", "", text.lower().replace("@", "0"))
+        for surface in ("card", "sheet"):
+            text = normalize(entry["light"][surface+"_ocr"])
+            assert entry["light"][surface+"_height"] <= 400
+            assert "allow" in text and "deny" in text
+            for value in row["expected"].values():
+                if normalize(value):
+>                   assert normalize(value) in text, (scenario,surface,value,entry["light"][surface+"_ocr"])
+E                   AssertionError: ('codex-write-stdin', 'card', "/bin/zsh -lc 'python3 manage.py migrate'", 'W Runacommand?
+E                     
+E                     futureGrant.commandAction...tyGrant: []
+E                     
+E                     params.environmentId: remote-production
+E                     
+E                     params.kind: writeStdin
+E                     
+E                     Add a note Deny Allow
+E                     Details
+E                     ')
+E                   assert 'binzshlcpython3managepymigrate' in 'wrunacommandfuturegrantcommandactions0pathreviewfutureparamscwdrepoparamsproposedexecpolicyamendment0python3paramspro...artedatmsgrantclockvisiblenewemptygrantparamsenvironmentidremoteproductionparamskindwritestdinaddanotedenyallowdetails'
+E                    +  where 'binzshlcpython3managepymigrate' = <function test_real_schema_and_unknown_grants_are_reachable_on_card_and_sheet.<locals>.<lambda> at 0x1090fb1c0>("/bin/zsh -lc 'python3 manage.py migrate'")
+
+.review-tmp/r4tests/test_r4_grants.py:66: AssertionError
+=========================== short test summary info ============================
+FAILED .review-tmp/r4tests/test_r4_grants.py::test_real_schema_and_unknown_grants_are_reachable_on_card_and_sheet[codex-write-stdin]
+1 failed, 13 passed in 335.14s (0:05:35)

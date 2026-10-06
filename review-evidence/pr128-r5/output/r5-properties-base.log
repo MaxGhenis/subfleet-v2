@@ -1,0 +1,226 @@
+F.                                                                       [100%]
+=================================== FAILURES ===================================
+_______________ test_loaded_rows_match_the_reference_projection ________________
+
+property_probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-12/r5-property0/probe')
+tmp_path = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-12/test_loaded_rows_match_the_ref0')
+
+    @needs_swift
+>   @settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture,
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                                   HealthCheck.too_slow, HealthCheck.data_too_large])
+
+r5/test_r5_null_grants.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+property_probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-12/r5-property0/probe')
+tmp_path = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-12/test_loaded_rows_match_the_ref0')
+batch = [{'kind': 'command', 'display': {}, 'request': {'method': 'item/commandExecution/requestApproval', 'params': {'threadI...xecution/requestApproval', 'params': {'threadId': 'thr-1', 'turnId': 'turn-1', 'itemId': 'i', 'startedAtMs': 1}}}, ...]
+
+    @needs_swift
+    @settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture,
+                                                                   HealthCheck.too_slow, HealthCheck.data_too_large])
+    @given(batch=st.lists(scenes(), min_size=25, max_size=25))
+    def test_loaded_rows_match_the_reference_projection(property_probe, tmp_path, batch):
+        path = tmp_path / "scenes.json"
+        path.write_text(json.dumps(batch))
+        output = run_probe(property_probe, path)
+        for scene, result in zip(batch, output):
+            actual = [tuple(row) for row in result["rows"]]
+            keys = [key for key, _ in actual]
+            assert len(keys) == len(set(keys)), (scene, actual)
+            expected = reference(scene["kind"], scene["display"].get("tool"), scene["request"])
+>           assert sorted(actual) == sorted(expected), (scene, actual, expected)
+E           AssertionError: ({'kind': 'command', 'display': {}, 'request': {'method': 'item/commandExecution/requestApproval', 'params': {'threadId': 'thr-1', 'turnId': 'turn-1', 'itemId': 'i', 'startedAtMs': 1, ...}}}, [], [('params.data_source_id', 'null')])
+E           assert [] == [('params.dat..._id', 'null')]
+E             
+E             Right contains one more item: ('params.data_source_id', 'null')
+E             Use -v to get more diff
+E           Failing test case: test_loaded_rows_match_the_reference_projection(
+E               property_probe=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-12/r5-property0/probe'),
+E               tmp_path=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-12/test_loaded_rows_match_the_ref0'),
+E               batch=[{'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1}}},
+E                {'kind': 'command',
+E                 'display': {},
+E                 'request': {'method': 'item/commandExecution/requestApproval',
+E                  'params': {'threadId': 'thr-1',
+E                   'turnId': 'turn-1',
+E                   'itemId': 'i',
+E                   'startedAtMs': 1,
+E                   'data_source_id': None}}}],
+E           )
+E           Explanation:
+E               These lines were always and only run by failing test cases:
+E                   /Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/base/r5/test_r5_null_grants.py:42
+
+r5/test_r5_null_grants.py:125: AssertionError
+=========================== short test summary info ============================
+FAILED r5/test_r5_null_grants.py::test_loaded_rows_match_the_reference_projection
+1 failed, 1 passed in 42.42s

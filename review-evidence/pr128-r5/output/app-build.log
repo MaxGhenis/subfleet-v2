@@ -1,0 +1,70 @@
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/UIModel.swift:193:31: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+ 191 |         guard let engine else { return }
+ 192 |         Thread.detachNewThread { [weak self] in
+ 193 |             WatchLoop(engine: engine,
+     |                               `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+ 194 |                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
+ 195 |                       deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+ 858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+ 859 | /// (it owns the outbox).
+ 860 | final class ConversationEngine {
+     |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+ 861 |     let client: DaemonCalling
+ 862 |     let outbox: Outbox
+
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/UIModel.swift:262:36: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+ 260 |                 guard let cursor else { return }
+ 261 |                 do {
+ 262 |                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+     |                                    `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+ 263 |                     failures = 0
+ 264 |                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
+
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+ 858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+ 859 | /// (it owns the outbox).
+ 860 | final class ConversationEngine {
+     |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+ 861 |     let client: DaemonCalling
+ 862 |     let outbox: Outbox
+
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/UIModel.swift:474:25: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+ 472 |         await loadHistoryPages(
+ 473 |             pages: Self.historyPagesFollowed, follow: follow,
+ 474 |             timeline: { await self.timeline(conversationID) },
+     |                         `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+ 475 |             fetch: { before in
+ 476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/UIModel.swift:478:30: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+ 476 |                 try await self.onOutbox { try engine.history(conversationID: conversationID, before: before) }
+ 477 |             },
+ 478 |             apply: { page in await self.applyHistory(page, conversationID) })
+     |                              `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+ 479 |     }
+ 480 | 
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/UISearchPalette.swift:284:54: warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+282 |         return await withCheckedContinuation { continuation in
+283 |             DispatchQueue.global(qos: .userInitiated).async {
+284 |                 continuation.resume(returning: (try? engine.list(query: word, provider: nil, limit: limit))?.catalog?.items)
+    |                                                      `- warning: capture of 'engine' with non-Sendable type 'ConversationEngine' in a '@Sendable' closure [#SendableClosureCaptures]
+285 |             }
+286 |         }
+
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/app/Sources/ConversationStore.swift:860:13: note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+ 858 | /// The daemon calls behind the store. Blocking; confine to one serial queue
+ 859 | /// (it owns the outbox).
+ 860 | final class ConversationEngine {
+     |             `- note: class 'ConversationEngine' does not conform to the 'Sendable' protocol
+ 861 |     let client: DaemonCalling
+ 862 |     let outbox: Outbox
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/product/.subfleet-build.r8OcZ7/Subfleet.app/Contents/Info.plist: OK
+/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/product/.subfleet-build.r8OcZ7/Subfleet.app: replacing existing signature
+Built: /Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/product/Subfleet.app (org.maxghenis.subfleet)

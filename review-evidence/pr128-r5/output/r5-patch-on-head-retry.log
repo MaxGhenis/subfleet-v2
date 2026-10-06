@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.venv/bin/python
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/r5patchcheck
+configfile: pyproject.toml
+plugins: hypothesis-6.168.1
+collecting ... collected 2 items
+
+tests/frontend/test_visual_round_five.py::test_loaded_rows_match_the_reference_projection 

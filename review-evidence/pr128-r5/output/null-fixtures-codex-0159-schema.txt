@@ -1,0 +1,6 @@
+fixture codex-null-root errors: none
+fixture codex-null-permissions errors: none
+fixture codex-null-command errors: none
+review scene codex-command errors: none
+review scene codex-file-change errors: none
+review scene codex-permissions errors: none

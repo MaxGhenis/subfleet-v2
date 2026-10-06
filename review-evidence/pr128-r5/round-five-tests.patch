@@ -1,0 +1,199 @@
+diff --git a/tests/frontend/R5PropertyProbe.swift b/tests/frontend/R5PropertyProbe.swift
+new file mode 100644
+index 0000000..ec3f8e3
+--- /dev/null
++++ b/tests/frontend/R5PropertyProbe.swift
+@@ -0,0 +1,20 @@
++import Foundation
++
++// Loaded-request grant rows, in display order, for each generated scene.
++@main struct R5PropertyProbe {
++    static func main() throws {
++        let scenes = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))).array!
++        var result: [[String: Any]] = []
++        for scene in scenes {
++            let card = ApprovalCard(approvalID: "p", kind: scene["kind"]!.string!,
++                                    display: ApprovalDisplay(fields: scene["display"]!.object!),
++                                    options: ["allow", "deny"], state: .pending)
++            let request = scene["request"]!
++            result.append([
++                "rows": ApprovalPresentation.grantedFields(card, request: request).map { [$0.key, $0.value] },
++                "summary": ApprovalPresentation.grantedFields(card, request: nil).map { [$0.key, $0.value] },
++            ])
++        }
++        print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
++    }
++}
+diff --git a/tests/frontend/test_visual_round_five.py b/tests/frontend/test_visual_round_five.py
+new file mode 100644
+index 0000000..f2d6524
+--- /dev/null
++++ b/tests/frontend/test_visual_round_five.py
+@@ -0,0 +1,167 @@
++"""Round-five review checks for explicit null grants (PR #128).
++
++1. Differential property: for generated Claude/Codex requests, the loaded card's
++   rows equal a reference projection of the stated rule: every leaf, including
++   null and empty containers, under its exact path, except the named plumbing
++   keys in their own container. Keys must be unique (the view uses them as ids).
++2. Regression: the history summary built by the real adapters must not show
++   adapter placeholders (absent fields spelled None) as `null` grant rows.
++"""
++from __future__ import annotations
++
++import json
++
++from hypothesis import HealthCheck, given, settings, strategies as st
++import pytest
++
++from tests.frontend.conftest import needs_swift, run_probe
++from tests.frontend.swift import ROOT, compile_probe
++
++PROBE = ROOT / "tests/frontend/R5PropertyProbe.swift"
++HIDDEN_REQUEST = {"agent_id", "classifier_approvable", "subtype", "tool_use_id", "tool_name", "display_name", "title",
++                  "description", "decision_reason", "decision_reason_type", "suppress_always_allow_rule",
++                  "requires_user_interaction", "method"}
++HIDDEN_PARAMS = {"threadId", "turnId", "itemId", "startedAtMs", "reason", "approvalId", "commandActions"}
++HIDDEN_DISPLAY = {"tool", "title", "description", "reason"}
++EMPTY_AMENDMENTS = {"permission_suggestions", "execpolicy_amendment", "network_amendments",
++                    "proposedExecpolicyAmendment", "proposedNetworkPolicyAmendments"}
++
++
++def child(path: str, key: str) -> str:
++    if key == "" or any(c in key for c in ".[]"):
++        return path + "[" + json.dumps(key, ensure_ascii=False) + "]"
++    return key if path == "" else path + "." + key
++
++
++def leaf(value) -> str:
++    if value is None:
++        return "null"
++    if value == "":
++        return '""'
++    if isinstance(value, bool):
++        return "true" if value else "false"
++    if isinstance(value, (dict, list)):
++        return "{}" if isinstance(value, dict) else "[]"
++    return str(value)
++
++
++def reference(kind: str, display_tool: str | None, request) -> list[tuple[str, str]]:
++    tool = request.get("tool_name") if isinstance(request.get("tool_name"), str) else display_tool
++    rows: list[tuple[str, str]] = []
++
++    def walk(value, path):
++        if isinstance(value, dict) and value:
++            for key in sorted(value):
++                hidden = (HIDDEN_REQUEST | HIDDEN_DISPLAY | HIDDEN_PARAMS if path == ""
++                          else HIDDEN_PARAMS if path == "params"
++                          else {"description"} if path == "input" and tool == "Bash" else set())
++                if key in hidden:
++                    continue
++                if path in ("", "params") and key in EMPTY_AMENDMENTS and value[key] == []:
++                    continue
++                if kind == "question" and path in ("", "input") and key in ("questions", "answers"):
++                    continue
++                walk(value[key], child(path, key))
++        elif isinstance(value, list) and value:
++            for index, item in enumerate(value):
++                walk(item, f"{path}[{index}]")
++        else:
++            rows.append((path, leaf(value)))
++
++    walk(request, "")
++    return rows
++
++
++KEYS = st.sampled_from(["data_source_id", "properties", "Salary", "Owner", "a.b", "x[0]", "", "method", "description",
++                        "approvalId", "commandActions", "reason", "threadId", "agent_id", "title", "kind", "cwd",
++                        "grantRoot", "environmentId", "permissions", "fileSystem", "write", "network", "enabled",
++                        "blocked_path", "permission_suggestions", "futureGrant", "content", "command"])
++LEAVES = st.none() | st.booleans() | st.integers(-5, 5) | st.sampled_from(["", "/repo", "make", "null", "0"])
++JSONS = st.recursive(LEAVES, lambda inner: st.lists(inner, max_size=3) | st.dictionaries(KEYS, inner, max_size=4),
++                     max_leaves=12)
++
++
++@st.composite
++def scenes(draw):
++    if draw(st.booleans()):
++        tool = draw(st.sampled_from(["Bash", "Write", "mcp__notion__API-update-a-data-source", "AskUserQuestion"]))
++        request = {"subtype": "can_use_tool", "tool_name": tool, "tool_use_id": "toolu-p",
++                   "input": draw(st.dictionaries(KEYS, JSONS, max_size=5))}
++        request.update(draw(st.dictionaries(KEYS, JSONS, max_size=4)))
++        request["tool_name"] = tool
++        return {"kind": "question" if tool == "AskUserQuestion" else "tool", "display": {"tool": tool},
++                "request": request}
++    method = draw(st.sampled_from(["item/commandExecution/requestApproval", "item/fileChange/requestApproval",
++                                   "item/permissions/requestApproval"]))
++    params = {"threadId": "thr-1", "turnId": "turn-1", "itemId": "i", "startedAtMs": 1}
++    params.update(draw(st.dictionaries(KEYS, JSONS, max_size=6)))
++    kind = {"item/commandExecution/requestApproval": "command", "item/fileChange/requestApproval": "file-change",
++            "item/permissions/requestApproval": "permissions"}[method]
++    return {"kind": kind, "display": {}, "request": {"method": method, "params": params}}
++
++
++@pytest.fixture(scope="session")
++def property_probe(tmp_path_factory):
++    return compile_probe(tmp_path_factory.mktemp("r5-property") / "probe", PROBE, "SUBFLEET_MODEL_TEST")
++
++
++@needs_swift
++@settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture,
++                                                               HealthCheck.too_slow, HealthCheck.data_too_large])
++@given(batch=st.lists(scenes(), min_size=25, max_size=25))
++def test_loaded_rows_match_the_reference_projection(property_probe, tmp_path, batch):
++    path = tmp_path / "scenes.json"
++    path.write_text(json.dumps(batch))
++    output = run_probe(property_probe, path)
++    for scene, result in zip(batch, output):
++        actual = [tuple(row) for row in result["rows"]]
++        keys = [key for key, _ in actual]
++        assert len(keys) == len(set(keys)), (scene, actual)
++        expected = reference(scene["kind"], scene["display"].get("tool"), scene["request"])
++        assert sorted(actual) == sorted(expected), (scene, actual, expected)
++
++
++@needs_swift
++def test_history_summaries_from_real_adapters_show_no_placeholder_nulls(property_probe, tmp_path):
++    from tests.unit.test_claude_turn import ClaudeTurn, line, spec as claude_spec, started
++    from tests.unit.test_codex_turn import CodexTurn, spec as codex_spec, to_running
++
++    claude = {
++        "bash": {"subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "t1",
++                 "input": {"command": "make test", "description": "Run the tests"}},
++        "question": {"subtype": "can_use_tool", "tool_name": "AskUserQuestion", "tool_use_id": "t2",
++                     "input": {"questions": [{"question": "Which first?", "header": "Order", "multiSelect": False,
++                                              "options": [{"label": "Notes", "description": "n"}]}]}},
++    }
++    codex = {
++        "command": {"method": "item/commandExecution/requestApproval",
++                    "params": {"kind": "command", "threadId": "thr-1", "turnId": "turn-1", "itemId": "i",
++                               "startedAtMs": 1, "environmentId": None, "command": "make test", "cwd": "/repo"}},
++        "file-change": {"method": "item/fileChange/requestApproval",
++                        "params": {"threadId": "thr-1", "turnId": "turn-1", "itemId": "i", "startedAtMs": 1}},
++    }
++    batch, names = [], []
++    for name, request in claude.items():
++        turn = ClaudeTurn(claude_spec(), read_bytes=lambda p: b"")
++        started(turn)
++        step = turn.feed(line(type="control_request", request_id="r-" + name, request=request), 80)
++        names.append(name)
++        batch.append(step)
++    for name, request in codex.items():
++        turn = CodexTurn(codex_spec())
++        to_running(turn)
++        names.append(name)
++        batch.append(turn.feed(json.dumps({"id": "r-" + name, **request}), 20))
++    scenes_ = []
++    for step in batch:
++        event = json.loads(json.dumps(next(e for e in step.events if e.kind == "approval.requested").data))
++        kind = event.pop("kind")
++        event.pop("options"), event.pop("request_id")
++        scenes_.append({"kind": kind, "display": event, "request": json.loads(json.dumps(step.approvals[0].request))})
++    path = tmp_path / "scenes.json"
++    path.write_text(json.dumps(scenes_))
++    output = run_probe(property_probe, path)
++    for name, scene, result in zip(names, scenes_, output):
++        placeholders = [key for key, value in result["summary"] if value == "null" and "." not in key
++                        and "[" not in key and scene["display"].get(key, 0) is None]
++        assert not placeholders, (name, result["summary"])

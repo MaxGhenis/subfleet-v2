@@ -1,0 +1,261 @@
+{
+  "approval_gets" : [
+    "claude-bash",
+    "claude-bash",
+    "claude-bash",
+    "claude-bash",
+    "claude-notion",
+    "claude-notion",
+    "claude-notion",
+    "claude-notion",
+    "claude-question",
+    "claude-question",
+    "claude-question",
+    "claude-question",
+    "codex-command",
+    "codex-command",
+    "codex-command",
+    "codex-command",
+    "codex-file-change",
+    "codex-file-change",
+    "codex-file-change",
+    "codex-file-change",
+    "codex-permissions",
+    "codex-permissions",
+    "codex-permissions",
+    "codex-permissions"
+  ],
+  "approvals" : {
+    "claude-bash" : {
+      "answered_card_height" : 130,
+      "answered_card_ocr" : "W Run the tests Answered\ninput: make test\n\ndescription: Run the tests\n\n> Details\n",
+      "answered_dark" : {
+        "height" : 130,
+        "ocr" : "W Run the tests Answered\ninput: make test\n\ndescription: Run the tests\n\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 130,
+        "ocr" : "W Run the tests Answered\ninput: make test\ndescription: Run the tests\n\nDetails\n"
+      },
+      "card_height" : 268,
+      "card_ocr" : "W Run the tests\n\npermission_suggestions[@].behavior: allow\npermission_suggestions[@].destination: localSettings\npermission_suggestions[@].rules[@].ruleContent: make test\npermission_suggestions[@].rules[@].toolName: Bash\npermission_suggestions[@].type: addRules\n\nmake test\n\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : "make test",
+      "dark" : {
+        "card_height" : 268,
+        "card_ocr" : "W Run the tests\n\npermission_suggestions[@].behavior: allow\npermission_suggestions[@].destination: localSettings\npermission_suggestions[@].rules[@].ruleContent: make test\npermission_suggestions[@].rules[@].toolName: Bash\npermission_suggestions[@].type: addRules\n\nmake test\n\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 332,
+        "sheet_ocr" : "Run the tests\npermission_suggestions[@].behavior: allow\npermission_suggestions[@].destination: localSettings\npermission_suggestions[@].rules[@].ruleContent: make test\npermission_suggestions[@].rules[@].toolName: Bash\npermission_suggestions[@].type: addRules\n\nmake test\n> Details\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "fields_before_load" : [
+        "input: make test\ndescription: Run the tests"
+      ],
+      "fields_loaded" : [
+        "permission_suggestions[0].behavior: allow",
+        "permission_suggestions[0].destination: localSettings",
+        "permission_suggestions[0].rules[0].ruleContent: make test",
+        "permission_suggestions[0].rules[0].toolName: Bash",
+        "permission_suggestions[0].type: addRules",
+        "input.command: make test"
+      ],
+      "light" : {
+        "card_height" : 268,
+        "card_ocr" : "W Run the tests\n\npermission_suggestions[@].behavior: allow\n\npermission_suggestions[@].destination: localSettings\n\npermission_suggestions[@].rules[@].ruleContent: make test\n\npermission_suggestions[@].rules[@].toolName: Bash\n\npermission_suggestions[@].type: addRules\n\nmake test\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 332,
+        "sheet_ocr" : "Run the tests\npermission_suggestions[@].behavior: allow\npermission_suggestions[@].destination: localSettings\npermission_suggestions[@].rules[@].ruleContent: make test\npermission_suggestions[@].rules[@].toolName: Bash\npermission_suggestions[@].type: addRules\n\nmake test\n\nDetails\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet_height" : 332,
+      "sheet_ocr" : "Run the tests\npermission_suggestions[@].behavior: allow\npermission_suggestions[@].destination: localSettings\npermission_suggestions[@].rules[@].ruleContent: make test\npermission_suggestions[@].rules[@].toolName: Bash\npermission_suggestions[@].type: addRules\n\nmake test\n> Details\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+    },
+    "claude-notion" : {
+      "answered_card_height" : 130,
+      "answered_card_ocr" : "W Use mcp__notion__API-update-a-data-source? Answered\ninput.data_source_id: f336d@bc-b841-465b-8045-024475c@79dd\n> Details\n",
+      "answered_dark" : {
+        "height" : 130,
+        "ocr" : "W Use mcp__notion__API-update-a-data-source? Answered\ninput.data_source_id: f336d@bc-b841-465b-8045-024475c@79dd\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 130,
+        "ocr" : "W Use mcp__notion__API-update-a-data-source? Answered\ninput.data_source_id: f336d@bc-—b841-465b-8045-024475c079dd\nDetails\n"
+      },
+      "card_height" : 164,
+      "card_ocr" : "W Use mcp__notion__API-update-a-data-source?\n\ninput.data_source_id: f336d@bc-b841-465b-8045-024475c@79dd\n\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "dark" : {
+        "card_height" : 164,
+        "card_ocr" : "W Use mcp__notion__API-update-a-data-source?\n\ninput.data_source_id: f336d@bc-b841-465b-8045-024475c@79dd\n\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 206,
+        "sheet_ocr" : "Use mcp__notion__AP!-update-a-data-source?\ninput.data_source_id: f336d@bc-—b841-465b-8045-024475c079dd\n> Details\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "fields_before_load" : [
+        "input.data_source_id: f336d0bc-b841-465b-8045-024475c079dd"
+      ],
+      "fields_loaded" : [
+        "input.data_source_id: f336d0bc-b841-465b-8045-024475c079dd"
+      ],
+      "light" : {
+        "card_height" : 164,
+        "card_ocr" : "W Use mcp__notion__API-update-a-data-source?\n\ninput.data_source_id: f336d@bc-—b841-465b-8045-024475c079dd\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 206,
+        "sheet_ocr" : "Use mcp__notion__AP!-update-a-data-source?\ninput.data_source_id: f336d@bc-—b841-465b-8045-024475c079dd\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet_height" : 206,
+      "sheet_ocr" : "Use mcp__notion__AP!-update-a-data-source?\ninput.data_source_id: f336d@bc-—b841-465b-8045-024475c079dd\n> Details\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+    },
+    "claude-question" : {
+      "answered_card_height" : 132,
+      "answered_card_ocr" : "@ AskUserQuestion Answered\nWhich release task should go first?\n\nAnswer: Notes\n\n> Details\n",
+      "answered_dark" : {
+        "height" : 132,
+        "ocr" : "@ AskUserQuestion Answered\nWhich release task should go first?\n\nAnswer: Notes\n\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 132,
+        "ocr" : "® AskUserQuestion Answered\nWhich release task should go first?\nAnswer: Notes\n\nDetails\n"
+      },
+      "card_height" : 429,
+      "card_ocr" : "® AskUserQuestion\n0 of 1 questions answered 1\/1\nOrder\nWhich release task should go first?\nChoose one\nO 1 Notes\nWrite notes\n© 2 Tag\nCut the tag\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "dark" : {
+        "card_height" : 429,
+        "card_ocr" : "® AskUserQuestion\n0 of 1 questions answered 1\/1\nOrder\nWhich release task should go first?\nChoose one\nO 1 Notes\nWrite notes\n© 2 Tag\nCut the tag\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\n> Details\n",
+        "sheet_height" : 192.5,
+        "sheet_ocr" : "AskUserQuestion\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "fields_before_load" : [
+
+      ],
+      "fields_loaded" : [
+
+      ],
+      "light" : {
+        "card_height" : 429,
+        "card_ocr" : "® AskUserQuestion\n0 of 1 questions answered 1\/1\nOrder\nWhich release task should go first?\nChoose one\nO 1 Notes\nWrite notes\n© 2 Tag\nCut the tag\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\nDetails\n",
+        "sheet_height" : 192.5,
+        "sheet_ocr" : "AskUserQuestion\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "sheet_height" : 192.5,
+      "sheet_ocr" : "AskUserQuestion\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+    },
+    "codex-command" : {
+      "answered_card_height" : 168,
+      "answered_card_ocr" : "W Runacommand? Answered\ncwd: \/repo\n\n\/bin\/zsh -lc 'make test'\n\ninput_kind: command\n\n> Details\n",
+      "answered_dark" : {
+        "height" : 168,
+        "ocr" : "W Runacommand? Answered\ncwd: \/repo\n\n\/bin\/zsh -lc 'make test'\n\ninput_kind: command\n\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 168,
+        "ocr" : "W Runacommand? Answered\ncwd: \/repo\n\n\/bin\/zsh -lc 'make test'\ninput_kind: command\n\nDetails\n"
+      },
+      "card_height" : 202,
+      "card_ocr" : "W Runacommand?\nparams.cwd: \/repo\n\/bin\/zsh -lc 'make test'\nparams.kind: command\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : "\/bin\/zsh -lc 'make test'",
+      "command_loaded" : "\/bin\/zsh -lc 'make test'",
+      "dark" : {
+        "card_height" : 202,
+        "card_ocr" : "W Runacommand?\nparams.cwd: \/repo\n\/bin\/zsh -lc 'make test'\nparams.kind: command\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 344,
+        "sheet_ocr" : "Run a command?\nparams.cwd: \/repo\n\/bin\/zsh -lc 'make test'\nparams.kind: command\n> Details\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+      },
+      "fields_before_load" : [
+        "cwd: \/repo",
+        "command: \/bin\/zsh -lc 'make test'",
+        "input_kind: command"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/repo",
+        "params.command: \/bin\/zsh -lc 'make test'",
+        "params.kind: command"
+      ],
+      "light" : {
+        "card_height" : 202,
+        "card_ocr" : "W Runacommand?\nparams.cwd: \/repo\n\/bin\/zsh -lc 'make test'\nparams.kind: command\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 344,
+        "sheet_ocr" : "Run a command?\nparams.cwd: \/repo\n\/bin\/zsh -lc 'make test!\nparams.kind: command\nDetails\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+      },
+      "sheet_height" : 344,
+      "sheet_ocr" : "Run a command?\nparams.cwd: \/repo\n\/bin\/zsh -lc 'make test'\nparams.kind: command\n> Details\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+    },
+    "codex-file-change" : {
+      "answered_card_height" : 80,
+      "answered_card_ocr" : "W Change files? Answered\n> Details\n",
+      "answered_dark" : {
+        "height" : 80,
+        "ocr" : "W Change files? Answered\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 80,
+        "ocr" : "W Change files? Answered\nDetails\n"
+      },
+      "card_height" : 114,
+      "card_ocr" : "W Change files?\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "dark" : {
+        "card_height" : 114,
+        "card_ocr" : "W Change files?\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 270.5,
+        "sheet_ocr" : "Change files?\n> Details\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+      },
+      "fields_before_load" : [
+
+      ],
+      "fields_loaded" : [
+
+      ],
+      "light" : {
+        "card_height" : 114,
+        "card_ocr" : "W Change files?\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 270.5,
+        "sheet_ocr" : "Change files?\nDetails\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+      },
+      "sheet_height" : 270.5,
+      "sheet_ocr" : "Change files?\n> Details\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+    },
+    "codex-permissions" : {
+      "answered_card_height" : 130,
+      "answered_card_ocr" : "W Grant permissions? Answered\ncwd: \/repo\n\npermissions.network.enabled: true\n\n> Details\n",
+      "answered_dark" : {
+        "height" : 130,
+        "ocr" : "W Grant permissions? Answered\ncwd: \/repo\n\npermissions.network.enabled: true\n\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 130,
+        "ocr" : "W Grant permissions? Answered\ncwd: \/repo\npermissions.network.enabled: true\n\nDetails\n"
+      },
+      "card_height" : 164,
+      "card_ocr" : "W Grant permissions?\n\nparams.cwd: \/repo\n\nparams.permissions.network.enabled: true\n\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "dark" : {
+        "card_height" : 164,
+        "card_ocr" : "W Grant permissions?\n\nparams.cwd: \/repo\n\nparams.permissions.network.enabled: true\n\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 228,
+        "sheet_ocr" : "Grant permissions?\nparams.cwd: \/repo\nparams.permissions.network.enabled: true\n> Details\n\nNote to the agent (optional)\n\nCancel Deny Allow for this turn\n"
+      },
+      "fields_before_load" : [
+        "cwd: \/repo",
+        "permissions.network.enabled: true"
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/repo",
+        "params.permissions.network.enabled: true"
+      ],
+      "light" : {
+        "card_height" : 164,
+        "card_ocr" : "W Grant permissions?\n\nparams.cwd: \/repo\n\nparams.permissions.network.enabled: true\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 228,
+        "sheet_ocr" : "Grant permissions?\nparams.cwd: \/repo\nparams.permissions.network.enabled: true\nDetails\nNote to the agent (optional)\nCancel Deny Allow for this turn\n"
+      },
+      "sheet_height" : 228,
+      "sheet_ocr" : "Grant permissions?\nparams.cwd: \/repo\nparams.permissions.network.enabled: true\n> Details\n\nNote to the agent (optional)\n\nCancel Deny Allow for this turn\n"
+    }
+  },
+  "scrolling" : {
+
+  },
+  "visible_windows" : 0
+}

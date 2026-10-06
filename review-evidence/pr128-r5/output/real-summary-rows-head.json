@@ -1,0 +1,74 @@
+{
+  "claude-bash" : {
+    "loaded" : [
+      "permission_suggestions[0].behavior: allow",
+      "permission_suggestions[0].destination: localSettings",
+      "permission_suggestions[0].rules[0].ruleContent: make test",
+      "permission_suggestions[0].rules[0].toolName: Bash",
+      "permission_suggestions[0].type: addRules",
+      "input.command: make test"
+    ],
+    "summary" : [
+      "blocked_path: null",
+      "input: make test\ndescription: Run the tests"
+    ]
+  },
+  "claude-notion" : {
+    "loaded" : [
+      "input.data_source_id: f336d0bc-b841-465b-8045-024475c079dd",
+      "input.properties.Owner: null",
+      "input.properties.Salary: null"
+    ],
+    "summary" : [
+      "blocked_path: null",
+      "input.data_source_id: f336d0bc-b841-465b-8045-024475c079dd",
+      "input.properties.Owner: null",
+      "input.properties.Salary: null"
+    ]
+  },
+  "claude-question" : {
+    "loaded" : [
+
+    ],
+    "summary" : [
+      "blocked_path: null"
+    ]
+  },
+  "codex-command" : {
+    "loaded" : [
+      "params.cwd: \/repo",
+      "params.command: \/bin\/zsh -lc 'make test'",
+      "params.environmentId: null",
+      "params.kind: command"
+    ],
+    "summary" : [
+      "cwd: \/repo",
+      "execpolicy_amendment: null",
+      "network: null",
+      "network_amendments: null",
+      "command: \/bin\/zsh -lc 'make test'",
+      "input_kind: command"
+    ]
+  },
+  "codex-file-change" : {
+    "loaded" : [
+
+    ],
+    "summary" : [
+      "grant_root: null"
+    ]
+  },
+  "codex-permissions" : {
+    "loaded" : [
+      "params.cwd: \/repo",
+      "params.permissions.fileSystem: null",
+      "params.permissions.network.enabled: true",
+      "params.environmentId: null"
+    ],
+    "summary" : [
+      "cwd: \/repo",
+      "permissions.fileSystem: null",
+      "permissions.network.enabled: true"
+    ]
+  }
+}

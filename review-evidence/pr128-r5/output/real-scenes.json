@@ -1,0 +1,223 @@
+{
+  "claude-bash": {
+    "display": {
+      "blocked_path": null,
+      "description": "Run the tests",
+      "input": "make test\ndescription: Run the tests",
+      "reason": null,
+      "title": "Bash",
+      "tool": "Bash"
+    },
+    "kind": "tool",
+    "options": [
+      "allow",
+      "deny",
+      "cancel-turn"
+    ],
+    "request": {
+      "decision_reason_type": "rule",
+      "description": "Run the tests",
+      "display_name": "Bash",
+      "input": {
+        "command": "make test",
+        "description": "Run the tests"
+      },
+      "permission_suggestions": [
+        {
+          "behavior": "allow",
+          "destination": "localSettings",
+          "rules": [
+            {
+              "ruleContent": "make test",
+              "toolName": "Bash"
+            }
+          ],
+          "type": "addRules"
+        }
+      ],
+      "subtype": "can_use_tool",
+      "tool_name": "Bash",
+      "tool_use_id": "toolu-bash"
+    }
+  },
+  "claude-notion": {
+    "display": {
+      "blocked_path": null,
+      "description": null,
+      "input": "{\"data_source_id\": \"f336d0bc-b841-465b-8045-024475c079dd\", \"properties\": {\"Owner\": null, \"Salary\": null}}",
+      "reason": null,
+      "title": null,
+      "tool": "mcp__notion__API-update-a-data-source"
+    },
+    "kind": "tool",
+    "options": [
+      "allow",
+      "deny",
+      "cancel-turn"
+    ],
+    "request": {
+      "input": {
+        "data_source_id": "f336d0bc-b841-465b-8045-024475c079dd",
+        "properties": {
+          "Owner": null,
+          "Salary": null
+        }
+      },
+      "subtype": "can_use_tool",
+      "tool_name": "mcp__notion__API-update-a-data-source",
+      "tool_use_id": "toolu-review-delete"
+    }
+  },
+  "claude-question": {
+    "display": {
+      "blocked_path": null,
+      "description": null,
+      "input": "{\"questions\": [{\"header\": \"Order\", \"multiSelect\": false, \"options\": [{\"description\": \"Write notes\", \"label\": \"Notes\"}, {\"description\": \"Cut the tag\", \"label\": \"Tag\"}], \"question\": \"Which release task should go first?\"}]}",
+      "questions": [
+        {
+          "header": "Order",
+          "multiSelect": false,
+          "options": [
+            {
+              "description": "Write notes",
+              "label": "Notes"
+            },
+            {
+              "description": "Cut the tag",
+              "label": "Tag"
+            }
+          ],
+          "question": "Which release task should go first?"
+        }
+      ],
+      "reason": null,
+      "title": "AskUserQuestion",
+      "tool": "AskUserQuestion"
+    },
+    "kind": "question",
+    "options": [
+      "answer",
+      "deny",
+      "cancel-turn"
+    ],
+    "request": {
+      "display_name": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "header": "Order",
+            "multiSelect": false,
+            "options": [
+              {
+                "description": "Write notes",
+                "label": "Notes"
+              },
+              {
+                "description": "Cut the tag",
+                "label": "Tag"
+              }
+            ],
+            "question": "Which release task should go first?"
+          }
+        ]
+      },
+      "subtype": "can_use_tool",
+      "tool_name": "AskUserQuestion",
+      "tool_use_id": "toolu-question"
+    }
+  },
+  "codex-command": {
+    "display": {
+      "command": "/bin/zsh -lc 'make test'",
+      "cwd": "/repo",
+      "execpolicy_amendment": null,
+      "input_kind": "command",
+      "network": null,
+      "network_amendments": null,
+      "reason": null
+    },
+    "kind": "command",
+    "options": [
+      "allow",
+      "allow-session",
+      "deny",
+      "cancel-turn"
+    ],
+    "request": {
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "command": "/bin/zsh -lc 'make test'",
+        "commandActions": [
+          {
+            "command": "make test",
+            "type": "unknown"
+          }
+        ],
+        "cwd": "/repo",
+        "environmentId": null,
+        "itemId": "item-1",
+        "kind": "command",
+        "startedAtMs": 1791100000000,
+        "threadId": "thr-1",
+        "turnId": "turn-1"
+      }
+    }
+  },
+  "codex-file-change": {
+    "display": {
+      "grant_root": null,
+      "reason": null
+    },
+    "kind": "file-change",
+    "options": [
+      "allow",
+      "allow-session",
+      "deny",
+      "cancel-turn"
+    ],
+    "request": {
+      "method": "item/fileChange/requestApproval",
+      "params": {
+        "itemId": "item-2",
+        "startedAtMs": 1791100000000,
+        "threadId": "thr-1",
+        "turnId": "turn-1"
+      }
+    }
+  },
+  "codex-permissions": {
+    "display": {
+      "cwd": "/repo",
+      "permissions": {
+        "fileSystem": null,
+        "network": {
+          "enabled": true
+        }
+      },
+      "reason": null
+    },
+    "kind": "permissions",
+    "options": [
+      "allow-turn",
+      "deny"
+    ],
+    "request": {
+      "method": "item/permissions/requestApproval",
+      "params": {
+        "cwd": "/repo",
+        "environmentId": null,
+        "itemId": "item-3",
+        "permissions": {
+          "fileSystem": null,
+          "network": {
+            "enabled": true
+          }
+        },
+        "reason": null,
+        "startedAtMs": 1791100000000,
+        "threadId": "thr-1",
+        "turnId": "turn-1"
+      }
+    }
+  }
+}

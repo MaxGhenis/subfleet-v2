@@ -1,0 +1,331 @@
+{
+  "approval_gets" : [
+    "claude-short-bash",
+    "claude-short-bash",
+    "claude-short-bash",
+    "claude-short-bash",
+    "claude-write-120-lines",
+    "claude-write-120-lines",
+    "claude-write-120-lines",
+    "claude-write-120-lines",
+    "codex-long-command",
+    "codex-long-command",
+    "codex-long-command",
+    "codex-long-command",
+    "masked-write-120-lines",
+    "masked-write-120-lines",
+    "masked-write-120-lines",
+    "masked-write-120-lines",
+    "masked-write-120-lines",
+    "masked-write-120-lines",
+    "question-two",
+    "question-two",
+    "question-two",
+    "question-two"
+  ],
+  "approvals" : {
+    "claude-short-bash" : {
+      "answered_card_height" : 130,
+      "answered_card_ocr" : "W Show completion Answered\ninput: echo done\n> Details\n",
+      "answered_dark" : {
+        "height" : 130,
+        "ocr" : "W Show completion Answered\ninput: echo done\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 130,
+        "ocr" : "W Show completion Answered\ninput: echo done\nDetails\n"
+      },
+      "card_height" : 164,
+      "card_ocr" : "W Show completion\n\necho done\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : "echo done",
+      "dark" : {
+        "card_height" : 164,
+        "card_ocr" : "W Show completion\n\necho done\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 222,
+        "sheet_ocr" : "Show completion\necho done\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "fields_before_load" : [
+        "input: echo done"
+      ],
+      "fields_loaded" : [
+        "input.command: echo done"
+      ],
+      "light" : {
+        "card_height" : 164,
+        "card_ocr" : "W Show completion\n\necho done\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 222,
+        "sheet_ocr" : "Show completion\necho done\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet_height" : 222,
+      "sheet_ocr" : "Show completion\necho done\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+    },
+    "claude-write-120-lines" : {
+      "answered_card_height" : 130,
+      "answered_card_ocr" : "W Write Answered\ninput: file_path: \/Users\/example\/project\/src\/values.ts\n> Details\n",
+      "answered_dark" : {
+        "height" : 130,
+        "ocr" : "W Write Answered\ninput: file_path: \/Users\/example\/project\/src\/values.ts\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 130,
+        "ocr" : "W Write Answered\ninput: file_path: \/Users\/example\/project\/src\/values.ts\nDetails\n"
+      },
+      "card_height" : 364,
+      "card_ocr" : "WU Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @@@: export const value@ = compute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\n\nline @@2: export const value2 = compute(2, 'payload');\n\nline @@3: export const value3 = compute(3, 'payload');\n\nline @@4: export const value4 = compute(4, 'payload');\n\nline @@5: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline @@7: export const value7 = compute(7, 'payload');\n\nline @@8: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(1@, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "dark" : {
+        "card_height" : 364,
+        "card_ocr" : "WU Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @@@: export const value@ = compute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\n\nline @@2: export const value2 = compute(2, 'payload');\n\nline @@3: export const value3 = compute(3, 'payload');\n\nline @@4: export const value4 = compute(4, 'payload');\n\nline @@5: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline @@7: export const value7 = compute(7, 'payload');\n\nline @@8: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(1@, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 389,
+        "sheet_ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @00: export const value@ = compute(@,\n'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\nline @@7: export const value7 = compute(7, 'payload');\nline @@8: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, '‘payload');\nline 010: export const value1@ = compute(1@, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const value6 = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value10 = compute(10, 'payload');\nline 011: export const value11 = compute(11, 'payload');\nline 012: export const value12 = compute(12, 'payload');\nline 013: export const value13 = compute(13, 'payload');\nline 014: export const value14 = compute(14, 'payload');\nline 015: export const value15 = compute(15, 'payload');\nline 016: export const value16 = compute(16, 'payload');\nline 017: export const value17 = compute(17, 'payload');\nline 018: export const value18 = compute(18, 'payload');\nline 019: export const value19 = compute(19, 'payload');\nline 020: export const value20 = compute(20, 'payload');\nline 021: export const value21 = compute(21, 'payload');\nline 022: export const value22 = compute(22, 'payload');\nline 023: export const value23 = compute(23, 'payload');\nline 024: export const value24 = compute(24, 'payload');\nline 025: export const value25 = compute(25, 'payload');\nline 026: export const value26 = compute(26, 'payload');\nline 027: export const value27 = compute(27, 'payload');\nline 028: export const value28 = compute(28, 'payload');\nline 029: export const value29 = compute(29, 'payload');\nline 030: export const value30 = compute(30, 'payload');\nline 031: export const value31 = compute(31, 'payload');\nline 032: export const value32 = compute(32, 'payload');\nline 033: export const value33 = compute(33, 'payload');\nline 034: export const value34 = compute(34, 'payload');\nline 035: export const value35 = compute(35, 'payload');\nline 036: export const value36 = compute(36, 'payload');\nline 037: export const value37 = compute(37, 'payload');\nline 038: export const value38 = compute(38, 'payload');\nline 039: export const value39 = compute(39, 'payload');\nline 040: export const value40 = compute(40, 'payload');\nline 041: export const value41 = compute(41, 'payload');\nline 042: export const value42 = compute(42, 'payload');\nline 043: export const value43 = compute(43, 'payload');\nline 044: export const value44 = compute(44, 'payload');\nline 045: export const value45 = compute(45, 'payload');\nline 046: export const value46 = compute(46, 'payload');\nline 047: export const value47 = compute(47, 'payload');\nline 048: export const value48 = compute(48, 'payload');\nline 049: export const value49 = compute(49, 'payload');\nline 050: export const value50 = compute(50, 'payload');\nline 051: export const value51 = compute(51, 'payload');\nline 052: export const value52 = compute(52, 'payload');\nline 053: export const value53 = compute(53, 'payload');\nline 054: export const value54 = compute(54, 'payload');\nline 055: export const value55 = compute(55, 'payload');\nline 056: export const value56 = compute(56, 'payload');\nline 057: export const value57 = compute(57, 'payload');\nline 058: export const value58 = compute(58, 'payload');\nline 059: export const value59 = compute(59, 'payload');\nline 060: export const value60 = compute(60, 'payload');\nline 061: export const value61 = compute(61, 'payload');\nline 062: export const value62 = compute(62, 'payload');\nline 063: export const value63 = compute(63, 'payload');\nline 064: export const value64 = compute(64, 'payload');\nline 065: export const value65 = compute(65, 'payload');\nline 066: export const value66 = compute(66, 'payload');\nline 067: export const value67 = compute(67, 'payload');\nline 068: export const value68 = compute(68, 'payload');\nline 069: export const value69 = compute(69, 'payload');\nline 070: export const value70 = compute(70, 'payload');\nline 071: export const value71 = compute(71, 'payload');\nline 072: export const value72 = compute(72, 'payload');\nline 073: export const value73 = compute(73, 'payload');\nline 074: export const value74 = compute(74, 'payload');\nline 075: export const value75 = compute(75, 'payload');\nline 076: export const value76 = compute(76, 'payload');\nline 077: export const value77 = compute(77, 'payload');\nline 078: export const value78 = compute(78, 'payload');\nline 079: export const value79 = compute(79, 'payload');\nline 080: export const value80 = compute(80, 'payload');\nline 081: export const value81 = compute(81, 'payload');\nline 082: export const value82 = compute(82, 'payload');\nline 083: export const value83 = compute(83, 'payload');\nline 084: export const value84 = compute(84, 'payload');\nline 085: export const value85 = compute(85, 'payload');\nline 086: export const value86 = compute(86, 'payload');\nline 087: export const value87 = compute(87, 'payload');\nline 088: export const value88 = compute(88, 'payload');\nline 089: export const value89 = compute(89, 'payload');\nline 090: export const value90 = compute(90, 'payload');\nline 091: export const value91 = compute(91, 'payload');\nline 092: export const value92 = compute(92, 'payload');\nline 093: export const value93 = compute(93, 'payload');\nline 094: export const value94 = compute(94, 'payload');\nline 095: export const value95 = compute(95, 'payload');\nline 096: export const value96 = compute(96, 'payload');\nline 097: export const value97 = compute(97, 'payload');\nline 098: export const value98 = compute(98, 'payload');\nline 099: export const value99 = compute(99, 'payload');\nline 100: export const value100 = compute(100, 'payload');\nline 101: export const value101 = compute(101, 'payload');\nline 102: export const value102 = compute(102, 'payload');\nline 103: export const value103 = compute(103, 'payload');\nline 104: export const value104 = compute(104, 'payload');\nline 105: export const value105 = compute(105, 'payload');\nline 106: export const value106 = compute(106, 'payload');\nline 107: export const value107 = compute(107, 'payload');\nline 108: export const value108 = compute(108, 'payload');\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value110 = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');"
+      ],
+      "light" : {
+        "card_height" : 364,
+        "card_ocr" : "WU Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @00: export const value@ = compute(@, 'payload');\n\nline @@1: export const value1 = compute(1, 'payload');\n\nline 002: export const value2 = compute(2, 'payload');\n\nline 003: export const value3 = compute(3, 'payload');\n\nline 004: export const value4 = compute(4, 'payload');\n\nline 005: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline 007: export const value7 = compute(7, 'payload');\n\nline 008: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 389,
+        "sheet_ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ = compute(@,\n'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value1@ = compute(10, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "sheet_height" : 389,
+      "sheet_ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @00: export const value@ = compute(@,\n'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\nline @@7: export const value7 = compute(7, 'payload');\nline @@8: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, '‘payload');\nline 010: export const value1@ = compute(1@, 'payload');\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+    },
+    "codex-long-command" : {
+      "answered_card_height" : 330,
+      "answered_card_ocr" : "W Review a recorded Codex command Answered\ncwd: \/Users\/example\/subfleet\n\nexecpolicy_amendment[@]: rm\n\nexecpolicy_amendment[1]: -rf\n\nnetwork.host: pypi.org\n\nnetwork.protocol: https\n\nnetwork_amendments[@].action: allow\n\nnetwork_amendments[@].host: pypi.org\n\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\!'subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\n> Details\n",
+      "answered_dark" : {
+        "height" : 330,
+        "ocr" : "W Review a recorded Codex command Answered\ncwd: \/Users\/example\/subfleet\n\nexecpolicy_amendment[@]: rm\n\nexecpolicy_amendment[1]: -rf\n\nnetwork.host: pypi.org\n\nnetwork.protocol: https\n\nnetwork_amendments[@].action: allow\n\nnetwork_amendments[@].host: pypi.org\n\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\!'subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 330,
+        "ocr" : "W Review a recorded Codex command Answered\ncwd: \/Users\/example\/subfleet\nexecpolicy_amendment[@]: rm\nexecpolicy_amendment[1]: -rf\nnetwork.host: pypi.org\nnetwork.protocol: https\nnetwork_amendments[@].action: allow\nnetwork_amendments[@].host: pypi.org\n\n\/bin\/zsh —c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'', '\\\\''subfleet\/client.py'\\\\'','\\\nDetails\n"
+      },
+      "card_height" : 364,
+      "card_ocr" : "W Review a recorded Codex command\n\nparams.cwd: \/Users\/example\/subfleet\n\nparams.proposedExecpolicyAmendment[@]: rm\n\nparams .proposedExecpolicyAmendment[1]: -rf\n\nparams .networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\n\nparams .proposedNetworkPolicyAmendments[@].action: allow\n\nparams .proposedNetworkPolicyAmendments[@].host: pypi.org\n\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\!'subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : "\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet\/daemon.py'\\\\'','\\\\''subfleet\/conversations\/service.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\\''subfleet\/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed\/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs\/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\"",
+      "command_loaded" : "\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet\/daemon.py'\\\\'','\\\\''subfleet\/conversations\/service.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\\''subfleet\/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed\/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs\/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\"",
+      "dark" : {
+        "card_height" : 364,
+        "card_ocr" : "W Review a recorded Codex command\n\nparams.cwd: \/Users\/example\/subfleet\n\nparams.proposedExecpolicyAmendment[@]: rm\n\nparams .proposedExecpolicyAmendment[1]: -rf\n\nparams .networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\n\nparams .proposedNetworkPolicyAmendments[@].action: allow\n\nparams .proposedNetworkPolicyAmendments[@].host: pypi.org\n\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\!'subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 400,
+        "sheet_ocr" : "Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams .proposedExecpolicyAmendment[1]: -rf\nparams .networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams .proposedNetworkPolicyAmendments[@].action: allow\nparams .proposedNetworkPolicyAmendments[@].host: pypi.org\nThin\/7zch —e \"DYTHANNANTWRTITERVTERANF=1 nuthan2® —e\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+      },
+      "fields_before_load" : [
+        "cwd: \/Users\/example\/subfleet",
+        "execpolicy_amendment[0]: rm",
+        "execpolicy_amendment[1]: -rf",
+        "network.host: pypi.org",
+        "network.protocol: https",
+        "network_amendments[0].action: allow",
+        "network_amendments[0].host: pypi.org",
+        "command: \/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet\/daemon.py'\\\\'','\\\\''subfleet\/conversations\/service.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\\''subfleet\/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed\/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs\/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\""
+      ],
+      "fields_loaded" : [
+        "params.cwd: \/Users\/example\/subfleet",
+        "params.proposedExecpolicyAmendment[0]: rm",
+        "params.proposedExecpolicyAmendment[1]: -rf",
+        "params.networkApprovalContext.host: pypi.org",
+        "params.networkApprovalContext.protocol: https",
+        "params.proposedNetworkPolicyAmendments[0].action: allow",
+        "params.proposedNetworkPolicyAmendments[0].host: pypi.org",
+        "params.command: \/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet\/daemon.py'\\\\'','\\\\''subfleet\/conversations\/service.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'','\\\\''subfleet\/client.py'\\\\'','\\\\''subfleet\/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed\/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs\/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\""
+      ],
+      "light" : {
+        "card_height" : 364,
+        "card_ocr" : "W Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams.proposedExecpolicyAmendment[1]: -rf\nparams.networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams. proposedNetworkPolicyAmendments[@].action: allow\nparams. proposedNetworkPolicyAmendments[@].host: pypi.org\n\n\/bin\/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c ‘import ast, subprocess\nfrom pathlib import Path\n\nfiles=['\\\\''subfleet\/daemon.py'\\\\'', '\\\\''subfleet\/conversations\/\nservice.py'\\\\'','\\\\''subfleet\/cli.py'\\\\'', '\\\\''subfleet\/client.py'\\\\'','\\\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 400,
+        "sheet_ocr" : "Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams.proposedExecpolicyAmendment[1]: -rf\nparams.networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams. proposedNetworkPolicyAmendments[@].action: allow\nparams .proposedNetworkPolicyAmendments[@].host: pypi.org\nJhin\/7ch —e \"DVTHANNANTWRTTFERVTECOANF=1 nvthan2 —e\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+      },
+      "sheet_height" : 400,
+      "sheet_ocr" : "Review a recorded Codex command\nparams.cwd: \/Users\/example\/subfleet\nparams.proposedExecpolicyAmendment[@]: rm\nparams .proposedExecpolicyAmendment[1]: -rf\nparams .networkApprovalContext.host: pypi.org\nparams.networkApprovalContext.protocol: https\nparams .proposedNetworkPolicyAmendments[@].action: allow\nparams .proposedNetworkPolicyAmendments[@].host: pypi.org\nThin\/7zch —e \"DYTHANNANTWRTITERVTERANF=1 nuthan2® —e\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+    },
+    "masked-write-120-lines" : {
+      "answered_card_height" : 130,
+      "answered_card_ocr" : "W Write Answered\ninput: file_path: \/Users\/example\/project\/src\/values.ts\n> Details\n",
+      "answered_dark" : {
+        "height" : 130,
+        "ocr" : "W Write Answered\ninput: file_path: \/Users\/example\/project\/src\/values.ts\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 130,
+        "ocr" : "W Write Answered\ninput: file_path: \/Users\/example\/project\/src\/values.ts\nDetails\n"
+      },
+      "card_height" : 390.5,
+      "card_ocr" : "W Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @@@: export const value@ = compute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\n\nline @@2: export const value2 = compute(2, 'payload');\n\nline @@3: export const value3 = compute(3, 'payload');\n\nline @@4: export const value4 = compute(4, 'payload');\n\nline @@5: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline @@7: export const value7 = compute(7, 'payload');\n\nline @@8: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(1@, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "confirmed_dark" : {
+        "height" : 400,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @00: export const value@ = compute(@,\n'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\nTina AAT* avnart enanet walia7 = eamnital7 'navwinad!\\)>\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "confirmed_light" : {
+        "height" : 400,
+        "ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ = compute(@,\n'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nTina AAT* avnart eanet walita7 = eamniital7 'navinad!\\>\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+      },
+      "dark" : {
+        "card_height" : 390.5,
+        "card_ocr" : "W Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @@@: export const value@ = compute(@, 'payload');\nline @@1: export const value1 = compute(1, 'payload');\n\nline @@2: export const value2 = compute(2, 'payload');\n\nline @@3: export const value3 = compute(3, 'payload');\n\nline @@4: export const value4 = compute(4, 'payload');\n\nline @@5: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline @@7: export const value7 = compute(7, 'payload');\n\nline @@8: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(1@, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height" : 400,
+        "sheet_ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @00: export const value@ = compute(@,\n'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\nTina AAT* avnart enanet walia7 = eamnital7 'navwinad!\\)>\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "fields_before_load" : [
+        "input: file_path: \/Users\/example\/project\/src\/values.ts"
+      ],
+      "fields_loaded" : [
+        "input.file_path: \/Users\/example\/project\/src\/values.ts",
+        "input.content: line 000: export const value0 = compute(0, 'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const value6 = compute(6, 'payload');\nline 007: export const value7 = compute(7, 'payload');\nline 008: export const value8 = compute(8, 'payload');\nline 009: export const value9 = compute(9, 'payload');\nline 010: export const value10 = compute(10, 'payload');\nline 011: export const value11 = compute(11, 'payload');\nline 012: export const value12 = compute(12, 'payload');\nline 013: export const value13 = compute(13, 'payload');\nline 014: export const value14 = compute(14, 'payload');\nline 015: export const value15 = compute(15, 'payload');\nline 016: export const value16 = compute(16, 'payload');\nline 017: export const value17 = compute(17, 'payload');\nline 018: export const value18 = compute(18, 'payload');\nline 019: export const value19 = compute(19, 'payload');\nline 020: export const value20 = compute(20, 'payload');\nline 021: export const value21 = compute(21, 'payload');\nline 022: export const value22 = compute(22, 'payload');\nline 023: export const value23 = compute(23, 'payload');\nline 024: export const value24 = compute(24, 'payload');\nline 025: export const value25 = compute(25, 'payload');\nline 026: export const value26 = compute(26, 'payload');\nline 027: export const value27 = compute(27, 'payload');\nline 028: export const value28 = compute(28, 'payload');\nline 029: export const value29 = compute(29, 'payload');\nline 030: export const value30 = compute(30, 'payload');\nline 031: export const value31 = compute(31, 'payload');\nline 032: export const value32 = compute(32, 'payload');\nline 033: export const value33 = compute(33, 'payload');\nline 034: export const value34 = compute(34, 'payload');\nline 035: export const value35 = compute(35, 'payload');\nline 036: export const value36 = compute(36, 'payload');\nline 037: export const value37 = compute(37, 'payload');\nline 038: export const value38 = compute(38, 'payload');\nline 039: export const value39 = compute(39, 'payload');\nline 040: export const value40 = compute(40, 'payload');\nline 041: export const value41 = compute(41, 'payload');\nline 042: export const value42 = compute(42, 'payload');\nline 043: export const value43 = compute(43, 'payload');\nline 044: export const value44 = compute(44, 'payload');\nline 045: export const value45 = compute(45, 'payload');\nline 046: export const value46 = compute(46, 'payload');\nline 047: export const value47 = compute(47, 'payload');\nline 048: export const value48 = compute(48, 'payload');\nline 049: export const value49 = compute(49, 'payload');\nline 050: export const value50 = compute(50, 'payload');\nline 051: export const value51 = compute(51, 'payload');\nline 052: export const value52 = compute(52, 'payload');\nline 053: export const value53 = compute(53, 'payload');\nline 054: export const value54 = compute(54, 'payload');\nline 055: export const value55 = compute(55, 'payload');\nline 056: export const value56 = compute(56, 'payload');\nline 057: export const value57 = compute(57, 'payload');\nline 058: export const value58 = compute(58, 'payload');\nline 059: export const value59 = compute(59, 'payload');\nline 060: export const value60 = compute(60, 'payload');\nline 061: export const value61 = compute(61, 'payload');\nline 062: export const value62 = compute(62, 'payload');\nline 063: export const value63 = compute(63, 'payload');\nline 064: export const value64 = compute(64, 'payload');\nline 065: export const value65 = compute(65, 'payload');\nline 066: export const value66 = compute(66, 'payload');\nline 067: export const value67 = compute(67, 'payload');\nline 068: export const value68 = compute(68, 'payload');\nline 069: export const value69 = compute(69, 'payload');\nline 070: export const value70 = compute(70, 'payload');\nline 071: export const value71 = compute(71, 'payload');\nline 072: export const value72 = compute(72, 'payload');\nline 073: export const value73 = compute(73, 'payload');\nline 074: export const value74 = compute(74, 'payload');\nline 075: export const value75 = compute(75, 'payload');\nline 076: export const value76 = compute(76, 'payload');\nline 077: export const value77 = compute(77, 'payload');\nline 078: export const value78 = compute(78, 'payload');\nline 079: export const value79 = compute(79, 'payload');\nline 080: export const value80 = compute(80, 'payload');\nline 081: export const value81 = compute(81, 'payload');\nline 082: export const value82 = compute(82, 'payload');\nline 083: export const value83 = compute(83, 'payload');\nline 084: export const value84 = compute(84, 'payload');\nline 085: export const value85 = compute(85, 'payload');\nline 086: export const value86 = compute(86, 'payload');\nline 087: export const value87 = compute(87, 'payload');\nline 088: export const value88 = compute(88, 'payload');\nline 089: export const value89 = compute(89, 'payload');\nline 090: export const value90 = compute(90, 'payload');\nline 091: export const value91 = compute(91, 'payload');\nline 092: export const value92 = compute(92, 'payload');\nline 093: export const value93 = compute(93, 'payload');\nline 094: export const value94 = compute(94, 'payload');\nline 095: export const value95 = compute(95, 'payload');\nline 096: export const value96 = compute(96, 'payload');\nline 097: export const value97 = compute(97, 'payload');\nline 098: export const value98 = compute(98, 'payload');\nline 099: export const value99 = compute(99, 'payload');\nline 100: export const value100 = compute(100, 'payload');\nline 101: export const value101 = compute(101, 'payload');\nline 102: export const value102 = compute(102, 'payload');\nline 103: export const value103 = compute(103, 'payload');\nline 104: export const value104 = compute(104, 'payload');\nline 105: export const value105 = compute(105, 'payload');\nline 106: export const value106 = compute(106, 'payload');\nline 107: export const value107 = compute(107, 'payload');\nline 108: export const value108 = compute(108, 'payload');\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value110 = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]"
+      ],
+      "light" : {
+        "card_height" : 390.5,
+        "card_ocr" : "W Write\n\ninput.file_path: \/Users\/example\/project\/src\/values.ts\n\ninput.content: line @00: export const value@ = compute(@, 'payload');\n\nline @@1: export const value1 = compute(1, 'payload');\n\nline 002: export const value2 = compute(2, 'payload');\n\nline 003: export const value3 = compute(3, 'payload');\n\nline 004: export const value4 = compute(4, 'payload');\n\nline 005: export const value5 = compute(5, 'payload');\n\nline 006: export const valueé = compute(6, 'payload');\n\nline 007: export const value7 = compute(7, 'payload');\n\nline 008: export const value8 = compute(8, 'payload');\n\nline 009: export const value9 = compute(9, 'payload');\n\nline 010: export const value1@ = compute(10, 'payload');\n\nline @11: export const value11 = compute(11, 'payload');\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height" : 400,
+        "sheet_ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @@@: export const value@ = compute(@,\n'payload');\nline 001: export const value1 = compute(1, 'payload');\nline 002: export const value2 = compute(2, 'payload');\nline 003: export const value3 = compute(3, 'payload');\nline 004: export const value4 = compute(4, 'payload');\nline 005: export const value5 = compute(5, 'payload');\nline 006: export const valueé = compute(6, 'payload');\nTina AAT* avnart eanet walita7 = eamniital7 'navinad!\\>\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+      },
+      "sheet_height" : 400,
+      "sheet_ocr" : "Write\ninput.file_path: \/Users\/example\/project\/src\/values.ts\ninput.content: line @00: export const value@ = compute(@,\n'payload');\nline @@1: export const value1 = compute(1, 'payload');\nline @@2: export const value2 = compute(2, '‘payload');\nline @@3: export const value3 = compute(3, 'payload');\nline @0@4: export const value4 = compute(4, 'payload');\nline @@5: export const value5 = compute(5, 'payload');\nline @@6: export const valueé = compute(6, 'payload');\nTina AAT* avnart enanet walia7 = eamnital7 'navwinad!\\)>\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+    },
+    "question-two" : {
+      "answered_card_height" : 184,
+      "answered_card_ocr" : "® AskUserQuestion Answered\nWhich release task should go first?\n\nAnswer: Option 0\n\nWhen should the notes go out?\n\nAnswer: Window 0\n\n> Details\n",
+      "answered_dark" : {
+        "height" : 184,
+        "ocr" : "® AskUserQuestion Answered\nWhich release task should go first?\n\nAnswer: Option 0\n\nWhen should the notes go out?\n\nAnswer: Window 0\n\n> Details\n"
+      },
+      "answered_light" : {
+        "height" : 184,
+        "ocr" : "® AskUserQuestion Answered\nWhich release task should go first?\nAnswer: Option 0\nWhen should the notes go out?\nAnswer: Window 0\nDetails\n"
+      },
+      "card_height" : 554,
+      "card_ocr" : "® AskUserQuestion\n0 of 2 questions answered 1\/2\nScope\nWhich release task should go first?\nChoose one\nO 1 Option oO\nDescription 0: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© 2 Option1\nDescription 1: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\nO 3 Option 2\nDescription 2: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\n> Details\n",
+      "command_before_load" : null,
+      "command_loaded" : null,
+      "dark" : {
+        "card_height" : 554,
+        "card_ocr" : "® AskUserQuestion\n0 of 2 questions answered 1\/2\nScope\nWhich release task should go first?\nChoose one\nO 1 Option oO\nDescription 0: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© 2 Option1\nDescription 1: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\nO 3 Option 2\nDescription 2: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\n> Details\n",
+        "sheet_height" : 192.5,
+        "sheet_ocr" : "AskUserQuestion\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "fields_before_load" : [
+
+      ],
+      "fields_loaded" : [
+
+      ],
+      "light" : {
+        "card_height" : 554,
+        "card_ocr" : "® AskUserQuestion\n0 of 2 questions answered 1\/2\nScope\nWhich release task should go first?\nChoose one\nO 1 Option oO\nDescription 0: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© 2 Option1\nDescription 1: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\nO 3 Option 2\nDescription 2: covers a longer explanation of the trade-off. covers a longer explanation of\nthe trade-off. covers a longer explanation of the trade-off.\n© Other\nUse number keys 1-9 while the choices are focused.\nSkip\nDetails\n",
+        "sheet_height" : 192.5,
+        "sheet_ocr" : "AskUserQuestion\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+      },
+      "sheet_height" : 192.5,
+      "sheet_ocr" : "AskUserQuestion\n> Details\nNote to the agent (optional)\nCancel Deny and stop Deny Answer\n"
+    }
+  },
+  "scrolling" : {
+    "card-answered-codex-long-command-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "W Review a recorded Codex command Answered\n\\' '3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n\nreturn {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if\nline.startswith('\\\\''— **C-'\\\\'')}\na,b,c=map(clauses, (old, release, head) )\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',1len(changed),'\\\n\\' 'preserved:'\\\\'',sum(bL[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',\n[k for k in changed if b[k]\"!!=c.get(k)], flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not\nin c], flush=True)\n> Details\n"
+    },
+    "card-answered-codex-long-command-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "W Review a recorded Codex command Answered\n\\''3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n\nreturn {line.split('\\\\''*k'\\\\'')[1]:line for line in s.splitlines() if\nline.startswith('\\\\''— *«C-'\\\\'')}\na,b,c=map(clauses, (old, release, head) )\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',len(changed),'\\\n\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',\n[k for k in changed if b[k]\"!!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not\nin c],flush=True)\nDetails\n"
+    },
+    "card-claude-write-120-lines-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "WU Write\n\nline 107: export const value1@7 = compute(107, 'payload');\nline 108: export const value1@8 = compute(108, 'payload');\nline 109: export const value1@9 = compute(109, 'payload');\nline 110: export const value11@ = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\nAdd a note Deny Allow\n> Details\n"
+    },
+    "card-claude-write-120-lines-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "WU Write\n\nwae eee en p eee See pee eee vee sees, pez eeee oe\nline 107: export const value1@7 = compute(107, 'payload');\nline 108: export const value1@8 = compute(108, 'payload');\nline 109: export const value1@9 = compute(109, 'payload');\nline 110: export const value11@ = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\nAdd a note Deny Allow\n\nDetails\n"
+    },
+    "card-codex-long-command-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "W Review a recorded Codex command\n\n\\' '3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\n\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\n\ndef clauses(s):\nreturn {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if\n\nline.startswith('\\\\''— **C-'\\\\'')}\n\na,b,c=map(clauses, (old, release, head) )\n\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\n\nprint('\"'\\\\''contract release changed\/added:'\\\\'',1len(changed),'\\\n\n\\' 'preserved:'\\\\'',sum(bL[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',\n\n[k for k in changed if b[k]\"!!=c.get(k)], flush=True)\n\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not\n\nin c], flush=True)\n\nAdd a note Deny Allow\n\n> Details\n"
+    },
+    "card-codex-long-command-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "W Review a recorded Codex command\n\\''3e13ecde:docs\/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs\/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n\nreturn {line.split('\\\\''*k'\\\\'')[1]:line for line in s.splitlines() if\nline.startswith('\\\\''— *«C-'\\\\'')}\na,b,c=map(clauses, (old, release, head) )\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed\/added:'\\\\'',len(changed),'\\\n\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',\n[k for k in changed if b[k]\"!!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not\nin c],flush=True)\n\nAdd a note Deny Allow\nDetails\n"
+    },
+    "card-masked-write-120-lines-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "WU Write\n\nline 108: export const value1@8 = compute(108, 'payload');\nline 109: export const value1@9 = compute(109, 'payload');\nline 110: export const value11@ = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]\n\n© Some values are masked. Allow opens details for review.\n\nAdd a note Deny Allow\n> Details\n"
+    },
+    "card-masked-write-120-lines-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "WU Write\nee ee Capen Seen ree wep eee peewee ry\nline 108: export const value1@8 = compute(108, 'payload');\nline 109: export const value1@9 = compute(109, 'payload');\nline 110: export const value11@ = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]\n© Some values are masked. Allow opens details for review.\nAdd a note Deny Allow\nDetails\n"
+    },
+    "sheet-claude-write-120-lines-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Write\nline 109: export const value109 = compute(109, 'payload'):\nline 110: export const value11@ = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n> Details\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+    },
+    "sheet-claude-write-120-lines-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Write\nline 109: export const value109 = compute(109, 'payload');\nline 110: export const value11@ = compute(110, 'payload');\nline 111: export const value111 = compute(111, 'payload');\nline 112: export const value112 = compute(112, 'payload');\nline 113: export const value113 = compute(113, 'payload');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\nDetails\nNote to the agent (optional)\nCancel Deny and stop Deny Allow\n"
+    },
+    "sheet-codex-long-command-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Review a recorded Codex command\nprint('\"'\\\\''contract release changed\/added:'\\\n\\'', len(changed), '\\\\''preserved:'\\\\'',sum(bLk]==c.get(k)\nfor k in changed),'\\\\''overlap:'\\\\'',[k for k in changed\nif b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k\nfor k in b if k not in cl], flush=True)\n> Details\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+    },
+    "sheet-codex-long-command-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Review a recorded Codex command\nprint('\"'\\\\''contract release changed\/added:'\\\n\\'', len(changed), '\\\\''preserved:'\\\\'',sum(bLk]==c.get(k)\nfor k in changed),'\\\\''overlap:'\\\\'',[k for k in changed\nif bL[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k\nfor k in b if k not in cl], flush=True)\nDetails\nNote to the agent (optional)\nCancel Deny and stop\nDeny Allow for this session\nAllow\n"
+    },
+    "sheet-masked-write-120-lines-dark-confirmed.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Write\n\nline 113: export const valuelis = compute(1is, ‘payloaa');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]\n\n> Details\n\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+    },
+    "sheet-masked-write-120-lines-dark.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Write\nline 113: export const valuelis = compute(1is, ‘payloaa');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]\n> Details\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+    },
+    "sheet-masked-write-120-lines-light-confirmed.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Write\n4ine 113: export const valuells = compute(113, ‘payloaa');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]\n\nDetails\n@® 1 value(s) that look like secrets are masked Reveal\nv | have reviewed the masked values\n\nNote to the agent (optional)\n\nCancel Deny and stop Deny Allow\n"
+    },
+    "sheet-masked-write-120-lines-light.png" : {
+      "scroll_count" : 1,
+      "tail_ocr" : "Write\n4ine 113: export const valuells = compute(113, ‘payloaa');\nline 114: export const value114 = compute(114, 'payload');\nline 115: export const value115 = compute(115, 'payload');\nline 116: export const value116 = compute(116, 'payload');\nline 117: export const value117 = compute(117, 'payload');\nline 118: export const value118 = compute(118, 'payload');\nline 119: export const value119 = compute(119, 'payload');\n[MASKED]\nDetails\n@® 1 value(s) that look like secrets are masked Reveal\n| have reviewed the masked values\nNote to the agent (optional)\nCancel Deny and stop Deny\n"
+    }
+  },
+  "sheetfit" : {
+    "claude-short-bash" : {
+      "fits_in_400" : 400,
+      "fits_in_800" : 400,
+      "fits_in_1117" : 400,
+      "preferred" : 222
+    },
+    "claude-write-120-lines" : {
+      "fits_in_400" : 400,
+      "fits_in_800" : 400,
+      "fits_in_1117" : 400,
+      "preferred" : 389
+    },
+    "codex-long-command" : {
+      "fits_in_400" : 400,
+      "fits_in_800" : 400,
+      "fits_in_1117" : 400,
+      "preferred" : 400
+    },
+    "masked-write-120-lines" : {
+      "fits_in_400" : 400,
+      "fits_in_800" : 400,
+      "fits_in_1117" : 400,
+      "preferred" : 400
+    },
+    "question-two" : {
+      "fits_in_400" : 400,
+      "fits_in_800" : 400,
+      "fits_in_1117" : 400,
+      "preferred" : 192.5
+    }
+  },
+  "visible_windows" : 0
+}

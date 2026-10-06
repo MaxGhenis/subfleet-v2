@@ -1,0 +1,40 @@
+{
+  "approval_gets": [
+    "claude-null-property-delete",
+    "claude-null-property-delete",
+    "claude-null-property-delete",
+    "claude-null-property-delete"
+  ],
+  "approvals": {
+    "claude-null-property-delete": {
+      "answered_card_height": 80,
+      "answered_card_ocr": "",
+      "card_height": 186,
+      "card_ocr": "W Update a data source\n\ninput.data_source_id: f336d@bc-b841-465b-8045-024475c@79dd\ninput.properties.Owner: null\n\ninput.properties.Salary: null\n\nAdd a note Deny Allow\n> Details\n",
+      "command_before_load": null,
+      "command_loaded": null,
+      "dark": {
+        "card_height": 186,
+        "card_ocr": "W Update a data source\n\ninput.data_source_id: f336d@bc-b841-465b-8045-024475c@79dd\ninput.properties.Owner: null\n\ninput.properties.Salary: null\n\nAdd a note Deny Allow\n> Details\n",
+        "sheet_height": 250,
+        "sheet_ocr": "Update a data source\ninput.data_source_id: f336d@bc-\u2014b841-465b-8045-024475c079dd\ninput.properties.Owner: null\ninput.properties.Salary: null\n> Details\nNote to the agent (optional)\nCancel Deny Allow\n"
+      },
+      "fields_before_load": [],
+      "fields_loaded": [
+        "input.data_source_id: f336d0bc-b841-465b-8045-024475c079dd",
+        "input.properties.Owner: null",
+        "input.properties.Salary: null"
+      ],
+      "light": {
+        "card_height": 186,
+        "card_ocr": "W Update a data source\n\ninput.data_source_id: f336d@bc-\u2014b841-465b-8045-024475c079dd\n\ninput.properties.Owner: null\n\ninput.properties.Salary: null\n\nAdd a note Deny Allow\nDetails\n",
+        "sheet_height": 250,
+        "sheet_ocr": "Update a data source\ninput.data_source_id: f336d@bc-\u2014b841-465b-8045-024475c079dd\ninput.properties.Owner: null\ninput.properties.Salary: null\nDetails\nNote to the agent (optional)\nCancel Deny Allow\n"
+      },
+      "sheet_height": 250,
+      "sheet_ocr": "Update a data source\ninput.data_source_id: f336d@bc-\u2014b841-465b-8045-024475c079dd\ninput.properties.Owner: null\ninput.properties.Salary: null\n> Details\nNote to the agent (optional)\nCancel Deny Allow\n"
+    }
+  },
+  "scrolling": {},
+  "visible_windows": 0
+}

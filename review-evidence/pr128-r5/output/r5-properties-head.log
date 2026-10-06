@@ -1,0 +1,59 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+_____ test_history_summaries_from_real_adapters_show_no_placeholder_nulls ______
+
+property_probe = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-11/r5-property0/probe')
+tmp_path = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261006-045619-pr128-review-r5/.review-tmp/pytest-of-maxghenis/pytest-11/test_history_summaries_from_re0')
+
+    @needs_swift
+    def test_history_summaries_from_real_adapters_show_no_placeholder_nulls(property_probe, tmp_path):
+        from tests.unit.test_claude_turn import ClaudeTurn, line, spec as claude_spec, started
+        from tests.unit.test_codex_turn import CodexTurn, spec as codex_spec, to_running
+    
+        claude = {
+            "bash": {"subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "t1",
+                     "input": {"command": "make test", "description": "Run the tests"}},
+            "question": {"subtype": "can_use_tool", "tool_name": "AskUserQuestion", "tool_use_id": "t2",
+                         "input": {"questions": [{"question": "Which first?", "header": "Order", "multiSelect": False,
+                                                  "options": [{"label": "Notes", "description": "n"}]}]}},
+        }
+        codex = {
+            "command": {"method": "item/commandExecution/requestApproval",
+                        "params": {"kind": "command", "threadId": "thr-1", "turnId": "turn-1", "itemId": "i",
+                                   "startedAtMs": 1, "environmentId": None, "command": "make test", "cwd": "/repo"}},
+            "file-change": {"method": "item/fileChange/requestApproval",
+                            "params": {"threadId": "thr-1", "turnId": "turn-1", "itemId": "i", "startedAtMs": 1}},
+        }
+        batch, names = [], []
+        for name, request in claude.items():
+            turn = ClaudeTurn(claude_spec(), read_bytes=lambda p: b"")
+            started(turn)
+            step = turn.feed(line(type="control_request", request_id="r-" + name, request=request), 80)
+            names.append(name)
+            batch.append(step)
+        for name, request in codex.items():
+            turn = CodexTurn(codex_spec())
+            to_running(turn)
+            names.append(name)
+            batch.append(turn.feed(json.dumps({"id": "r-" + name, **request}), 20))
+        scenes_ = []
+        for step in batch:
+            event = json.loads(json.dumps(next(e for e in step.events if e.kind == "approval.requested").data))
+            kind = event.pop("kind")
+            event.pop("options"), event.pop("request_id")
+            scenes_.append({"kind": kind, "display": event, "request": json.loads(json.dumps(step.approvals[0].request))})
+        path = tmp_path / "scenes.json"
+        path.write_text(json.dumps(scenes_))
+        output = run_probe(property_probe, path)
+        for name, scene, result in zip(names, scenes_, output):
+            placeholders = [key for key, value in result["summary"] if value == "null" and "." not in key
+                            and "[" not in key and scene["display"].get(key, 0) is None]
+>           assert not placeholders, (name, result["summary"])
+E           AssertionError: ('bash', [['blocked_path', 'null'], ['input', 'make test
+E             description: Run the tests']])
+E           assert not ['blocked_path']
+
+review-evidence/pr128-r5/probes/test_r5_null_grants.py:171: AssertionError
+=========================== short test summary info ============================
+FAILED review-evidence/pr128-r5/probes/test_r5_null_grants.py::test_history_summaries_from_real_adapters_show_no_placeholder_nulls
+1 failed, 1 passed in 47.51s
