@@ -23,7 +23,7 @@ does not hold, and the archive is read back before the job's rows go. A pass:
 5. checks holders again, re-validates every signature, commits, and deletes.
 
 A busy, changed or failing job is put back and deferred, so the queue keeps
-moving; a pass that made progress never raises.
+moving; progress survives an interruption so the driver can retry promptly.
 """
 
 from __future__ import annotations
@@ -74,10 +74,11 @@ class _Interrupted(Exception):
     pass
 
 
-def _checkpoint(cancel: threading.Event | None, deadline: float | None) -> None:
+def _checkpoint(cancel: threading.Event | None, deadline: float | None, *,
+                clock: Callable[[], float] | None = None) -> None:
     if cancel is not None and cancel.is_set():
         raise _Interrupted("cancelled")
-    if deadline is not None and time.monotonic() >= deadline:
+    if deadline is not None and (clock or time.monotonic)() >= deadline:
         raise _Interrupted("deadline")
 
 
@@ -330,6 +331,9 @@ class RetentionState:
     #: sliced least recently sliced first, so one that parks pass after pass
     #: does not keep the others waiting behind it (review of a9a6cbf4, N3).
     sliced: dict[str, float] = field(default_factory=dict)
+    #: Orphan leases recovered before an interruption or a full batch. Keep
+    #: their priority until selection, even though the leases were released.
+    leftovers: set[str] = field(default_factory=set)
 
     def defer(self, job_id: str, seconds: float, reason: str, now: float) -> None:
         self.deferred[job_id] = (now + seconds, reason)
@@ -356,7 +360,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 cancel: threading.Event | None = None, deadline: float | None = None,
                 state: RetentionState | None = None,
                 holders: Callable[..., dict[str, list[str]]] | None = None,
-                clock: Callable[[], float] = time.monotonic, batch: int = BATCH,
+                clock: Callable[[], float] | None = None, batch: int = BATCH,
                 slice_s: float = SLICE_S, measure_s: float | None = None,
                 remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES) -> dict[str, Any]:
     """Retire the oldest unpinned terminal jobs of each pool over its budget.
@@ -378,11 +382,12 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
         raise ValueError("retention limits must be nonnegative")
     state = state if state is not None else RetentionState()
+    clock = clock or time.monotonic
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
-                                **dict.fromkeys(FREED_KEYS, 0)}
+                                "progressed": False, **dict.fromkeys(FREED_KEYS, 0)}
     try:
-        _checkpoint(cancel, deadline)
+        _checkpoint(cancel, deadline, clock=clock)
     except _Interrupted as exc:
         jobs = store.list_jobs()
         return {**progress, "protected": sorted(job["job_id"] for job in jobs), "jobs_after": len(jobs),
@@ -398,7 +403,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         jobs = store.list_jobs()
         return {**progress, "protected": sorted(job["job_id"] for job in jobs), "bytes_after": None,
                 "jobs_after": len(jobs), "interrupted": "cancelled" if "cancel" in str(exc) else str(exc),
-                "more": True}
+                "more": True, "progressed": run.acted > 0}
 
 
 class _Pass:
@@ -429,12 +434,14 @@ class _Pass:
         self.unknown: set[str] = set()
         #: What this pass changed (a size measured, a job started, archived with
         #: new work, deferred, retired or reclaimed). A pass that reports more
-        #: work but changed nothing tells the daemon to back off.
+        #: work but changed nothing tells the daemon to wait the hour.
         self.acted = 0
         #: pool -> what this pass's reclaims freed and moved into the archive (d635 accounting).
         self.freed_by_pool: dict[str, dict[str, int]] = {}
         #: host job -> jobs registered in a repository inside its tree (`nested_hosts`, N4).
         self.hosted: dict[str, set[str]] = {}
+        #: Journal-less retention leases left by selection or old half-removal.
+        self.leftovers = state.leftovers
 
     # pins ------------------------------------------------------------------------
 
@@ -482,6 +489,7 @@ class _Pass:
         for job in jobs:
             counts[_pool(job)] += 1
         self._measure(jobs, in_flight, counts, protected)
+        _checkpoint(self.cancel, self.deadline, clock=self.clock)
         totals = {name: 0 for name in self.budgets}
         unmeasured = {name: 0 for name in self.budgets}
         unknown = {name: 0 for name in self.budgets}
@@ -513,7 +521,7 @@ class _Pass:
         now = self.clock()
         waiting = False
         chosen: list[str] = []
-        for job in jobs:
+        for job in sorted(jobs, key=lambda job: job["job_id"] not in self.leftovers):
             job_id = job["job_id"]
             pool = _pool(job)
             if job_id in in_flight or job_id in protected or not over(pool):
@@ -535,9 +543,11 @@ class _Pass:
         retirements = {job_id: rarch.Retirement(self.ctx, job_id) for job_id in in_flight}
         for n, job_id in enumerate(chosen):
             self.ctx.check()
-            if self.deadline is not None and self.clock() >= self.deadline and retirements:
-                waiting = True
-                break
+            if self.deadline is not None and self.clock() >= self.deadline:
+                if retirements:
+                    waiting = True
+                    break
+                raise _Interrupted("deadline")
             retirement = self._start(by_id[job_id], protected)
             if retirement is not None:
                 retirements[job_id] = retirement
@@ -572,7 +582,7 @@ class _Pass:
                 archived[job_id] = retirement
         self._check_holders(archived, second=True)
         for job_id, retirement in archived.items():
-            self.ctx.check()
+            _checkpoint(self.cancel, self.deadline, clock=self.clock)
             if retirement.state == "archived":
                 self._finish(retirement, protected)
         after = {name: pools[name]["bytes_before"] for name in pools}
@@ -598,10 +608,13 @@ class _Pass:
         for job_id in self.progress["deferred"]:
             protected.add(job_id)
         remaining = [job["job_id"] for job in jobs if job["job_id"] not in self.progress["pruned"]]
-        return {**self.progress, "protected": sorted(protected - set(self.progress["pruned"])),
+        result = {**self.progress, "protected": sorted(protected - set(self.progress["pruned"])),
                 "bytes_before": before, "bytes_after": sum(after.values()),
                 "jobs_after": len(remaining), "pools": pools, "more": more, "progressed": self.acted > 0,
                 "pin_reasons": reasons}
+        if more and self.deadline is not None and self.clock() >= self.deadline:
+            result["interrupted"] = "deadline"
+        return result
 
     # recovery --------------------------------------------------------------------
 
@@ -611,10 +624,12 @@ class _Pass:
         found = rarch.journals(self.root)
         # A `retention:` lease with no journal was taken by a selection that
         # died before its journal, or by the old proof-based retention killed
-        # mid-removal (design 5.6): nothing of the job has moved; release it.
+        # mid-removal (design 5.6). Release the orphan lease, but take the job
+        # before ordinary candidates, archiving every remaining byte first.
         for row in self.store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'retention:%'"):
             job_id = row["holder"][len("retention:"):]
             if job_id not in found:
+                self.leftovers.add(job_id)
                 with self.store.transaction("retention.lease_released", job_id=job_id,
                                             data={"lease_key": row["lease_key"], "reason": "no journal"}) as conn:
                     conn.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (row["lease_key"], row["holder"]))
@@ -685,6 +700,8 @@ class _Pass:
         if budget is None and self.deadline is not None:
             budget = MEASURE_S
         stop = None if budget is None else now + budget
+        if self.deadline is not None:
+            stop = self.deadline if stop is None else min(stop, self.deadline)
         known = {name: 0 for name in self.budgets}
         todo: list[dict[str, Any]] = []
         for job in jobs:
@@ -713,7 +730,6 @@ class _Pass:
             job_id = job["job_id"]
             if Path(job_id).name != job_id or job_id in (".", ".."):
                 continue
-            self.acted += 1
             try:
                 size = _size(self.root / "jobs" / job_id, cancel=self.cancel)
                 worktree = _owned_worktree(job, self.root)
@@ -725,6 +741,7 @@ class _Pass:
                 previous = self.state.unmeasurable.get(job_id)
                 backoff = SIZE_ERROR_S if previous is None else min(SIZE_ERROR_MAX_S, previous[1] * 2)
                 self.state.unmeasurable[job_id] = (self.clock() + backoff, backoff, str(exc))
+                self.acted += 1
                 self.errors.append({"job_id": job_id, "error": str(exc)})
                 self.unknown.add(job_id)
                 protected.add(job_id)
@@ -733,6 +750,7 @@ class _Pass:
             known[pool] += size - self.sizes.get(job_id, 0)
             self.sizes[job_id] = size
             self.state.sizes[job_id] = (size, self.clock())
+            self.acted += 1
 
     # one job ---------------------------------------------------------------------
 
@@ -773,6 +791,7 @@ class _Pass:
             retirement.begin(job, _pool(job))
             retirement.lock()
             retirement.quarantine()
+            self.leftovers.discard(job_id)
         except rarch.Defer as exc:
             self._rollback(retirement, exc.reason, exc.seconds, exc.detail)
             return None
@@ -838,10 +857,13 @@ class _Pass:
         try:
             if retirement.state == "committed":
                 retirement.publish()
+                self.acted += 1       # publishing a committed archive is durable advancement
             report = retirement.reclaim()
         except (OSError, ValueError, rgit.GitError) as exc:
             self._incomplete(retirement, f"{type(exc).__name__}: {exc}")
             return
+        if report["deleted"]:
+            self.acted += 1       # resumed verified deletion advanced, even if a remnant remains
         if not report["done"]:
             self._incomplete(retirement, "; ".join(e["error"] for e in report["errors"][:3]))
             return
@@ -876,6 +898,7 @@ class _Pass:
         """Deletion could not finish (a permission, a flag): the journal keeps it
         for the next pass; the event is written once per retirement."""
         job_id = retirement.job_id
+        self.progress["in_flight"].append(job_id)
         self.errors.append({"job_id": job_id, "error": f"reclaim: {error}"[:500]})
         if retirement.journal is not None and not retirement.journal.get("incomplete_reported"):
             self.store.add_event("retention.reclaim_incomplete", job_id=job_id, data={"error": error[:500]})
