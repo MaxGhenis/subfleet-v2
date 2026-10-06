@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import example, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import folders, retention
 from subfleet import retention_archive as rarch
@@ -352,7 +352,7 @@ phase = st.sampled_from(["select", "begin", "lock", "archive", "verify", "delete
 operation = st.tuples(phase, st.sampled_from(["start", "end"]), st.booleans(), st.sampled_from(["tree", "nested"]))
 
 
-@settings(max_examples=40, deadline=None, derandomize=True)
+@settings(max_examples=40, deadline=None, derandomize=True, suppress_health_check=[HealthCheck.too_slow])
 @example([("select", "start", True, "tree")])
 @example([("select", "start", False, "tree")])
 @example([("begin", "start", True, "tree"), ("archive", "end", True, "tree"), ("delete", "start", False, "tree")])
