@@ -833,8 +833,22 @@ descriptors, and deliberately adversarial same-user tricks):
   (including after commit) has the same consequence: its stored copy may be
   the only remaining copy. Metadata identities are a shortcut, not hashes;
   corruption that leaves device, inode, size, mtime and ctime unchanged can
-  evade it at any time. Neither case is protection against later storage
-  failure or deliberately forged metadata.
+  evade it at any time. One ordinary way to do that is an in-place write
+  through a shared memory mapping of a stored copy, which on APFS leaves all
+  five unchanged until the mapping is unmapped (review of fcb16008). The
+  stored copies are Subfleet's private files (mode 0600 under
+  `<state>/retention/`); no Subfleet path and no tool Max runs writes them, and
+  they are clones, so writing to a source file never changes its copy. Any
+  process that does write them, by any method, is outside damage to the
+  archive: the same class as damage after commit, which no archive-then-delete
+  design without a second copy can survive. Neither case is protection against
+  later storage failure or deliberately forged metadata.
+- Outside interference that makes a kept cache unusable in ways eviction does
+  not repair (the `files/` directory made mode 000, a mode-000 directory at a
+  stored copy's name, a corrupted copy marked `UF_IMMUTABLE`) keeps that job's
+  tree on disk at every retry (review of fcb16008, P2). This fails safe: no
+  byte is lost and the tree is kept, and removing the cache by hand lets the
+  next pass rebuild it from the intact source.
 - A writable descriptor passed over a Unix socket and held by no process at the
   moment of a listing.
 - Deliberately adversarial same-user tricks, among them: a forged RECORD, or a
