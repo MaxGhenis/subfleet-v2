@@ -44,8 +44,10 @@ import Foundation
         ])
         let questions = [ApprovalQuestion(question: "Which scope?", options: [.init(label: "Local")])]
         let questionJSON = try JSONValue.from(questions)
+        // claude_turn writes an absent blocked_path as null in every summary.
         var question = ApprovalCard(requestID: "r", approvalID: "q", kind: "question",
-            display: ApprovalDisplay(fields: ["questions": questionJSON, "input": .string("{\"questions\":[{\"question\":\"Which scope?\"}]}")]),
+            display: ApprovalDisplay(fields: ["questions": questionJSON, "input": .string("{\"questions\":[{\"question\":\"Which scope?\"}]}"),
+                                              "blocked_path": .null]),
             options: ["answer", "deny"], state: .pending)
         let summaryInput: JSONValue = .object(["questions": questionJSON, "newGrant": .string("/future/root")])
         var objectQuestion = question

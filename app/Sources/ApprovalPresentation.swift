@@ -49,7 +49,11 @@ enum ApprovalPresentation {
 
     private static func source(_ card: ApprovalCard, request: JSONValue?) -> JSONValue {
         if let request { return request }
-        var fields = card.display.fields
+        // The adapters write every absent summary field as null (claude_turn's
+        // blocked_path; codex_turn's network, amendments and grant_root), so a
+        // top-level null says nothing about the request. Nulls nested in a
+        // copied value, e.g. input.properties.Salary, are request values.
+        var fields = card.display.fields.filter { !$0.value.isNull }
         // Older summaries store input as a JSON string. Decode it before
         // filtering so answered questions don't repeat the entire question tree.
         if let text = fields["input"]?.string,
@@ -76,6 +80,8 @@ enum ApprovalPresentation {
     /// The complete envelope is retained by the caller under Details.
     static func grantedFields(_ card: ApprovalCard, request: JSONValue?) -> [(key: String, value: String)] {
         let source = source(card, request: request)
+        // A summary of placeholders alone grants nothing; it is not an empty value.
+        if request == nil, source.object?.isEmpty == true { return [] }
         func childPath(_ path: String, key: String) -> String {
             if key.isEmpty || key.contains(".") || key.contains("[") || key.contains("]") {
                 let encoder = JSONEncoder()

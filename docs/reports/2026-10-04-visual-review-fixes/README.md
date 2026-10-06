@@ -6,7 +6,7 @@ Approval and question cards keep the plain-English headline and show the exact m
 
 ## Finding-by-finding response
 
-Paths below are relative to the repository. Test names refer to [test_visual_review_fixes.py](../../../tests/frontend/test_visual_review_fixes.py), except the two snapshot regressions in [test_visual_snapshots.py](../../../tests/frontend/test_visual_snapshots.py). Baseline runs compile the new probes against the **unchanged production sources** at `b6c5e9af`; [source verification](source-baselines.json) checks all 37 reviewed-head and all 30 PR-base source files against their git objects. Tests use synthetic requests; no recorded command executes.
+Paths below are relative to the repository. Test names refer to [test_visual_review_fixes.py](../../../tests/frontend/test_visual_review_fixes.py), except the two snapshot regressions in [test_visual_snapshots.py](../../../tests/frontend/test_visual_snapshots.py). Baseline runs compile the new probes against the **unchanged production sources** at `b6c5e9af`; source verification (`source-baselines.json`) checks all 37 reviewed-head and all 30 PR-base source files against their git objects. Tests use synthetic requests; no recorded command executes.
 
 | Finding | Fix, file:line | Test and result on `b6c5e9af` | Mutation check |
 | --- | --- | --- | --- |
@@ -25,32 +25,32 @@ The reviewed-head regressions select **45 tests: 43 fail and 2 pass**, with zero
 
 ## Validation and mutation results
 
-All **12 final functional mutations were killed by runtime assertions**, with zero setup/compiler errors and no deadline expiry. They ran against isolated copies. There are **39 expected failing assertions and 2 passing controls** across 41 mutation-test invocations; repeated cases are not additional suite coverage. [Machine-readable results](mutations.json), [exact diffs](mutations.patch), and [per-slice commands/logs](slices/).
+All **12 final functional mutations were killed by runtime assertions**, with zero setup/compiler errors and no deadline expiry. They ran against isolated copies. There are **39 expected failing assertions and 2 passing controls** across 41 mutation-test invocations; repeated cases are not additional suite coverage. Machine-readable results (`mutations.json`), [exact diffs](mutations.patch) and per-slice commands and logs (`slices/`).
 
 | Mutation | Result | Foreground seconds |
 | --- | --- | --- |
-| command | [1 failed, 2 passed](mutation-command.xml), killed | 28.06 |
-| grants | [7 failed](mutation-grants.xml), killed | 135.76 |
-| outcomes | [6 failed](mutation-outcomes.xml), killed | 45.88 |
-| work-outcome | [1 failed](mutation-work-outcome.xml), killed | 16.67 |
-| tool-labels | [10 failed](mutation-tool-labels.xml), killed | 8.63 |
-| serving | [7 failed](mutation-serving.xml), killed | 53.04 |
-| sidebar | [2 failed](mutation-sidebar.xml), killed | 98.84 |
-| badge-control | [1 failed](mutation-badge-control.xml), killed | 95.54 |
-| disabled | [1 failed](mutation-disabled.xml), killed | 111.50 |
-| amber | [1 failed](mutation-amber.xml), killed | 90.96 |
-| snapshot-scale | [1 failed](mutation-snapshot-scale.xml), killed | 68.63 |
-| snapshot-capability | [1 failed](mutation-snapshot-capability.xml), killed | 95.71 |
+| command | 1 failed, 2 passed, killed | 28.06 |
+| grants | 7 failed, killed | 135.76 |
+| outcomes | 6 failed, killed | 45.88 |
+| work-outcome | 1 failed, killed | 16.67 |
+| tool-labels | 10 failed, killed | 8.63 |
+| serving | 7 failed, killed | 53.04 |
+| sidebar | 2 failed, killed | 98.84 |
+| badge-control | 1 failed, killed | 95.54 |
+| disabled | 1 failed, killed | 111.50 |
+| amber | 1 failed, killed | 90.96 |
+| snapshot-scale | 1 failed, killed | 68.63 |
+| snapshot-capability | 1 failed, killed | 95.71 |
 
-An additional **exploratory row-button nesting mutation survived** ([1 passing test](exploratory-badge-nesting.xml)). The native hierarchy/hit/action checks do not detect that SwiftUI nesting in an unshown window; this is a coverage limit, not a claimed kill. The final `badge-control` mutation instead removes the hand action and fails while native focus and arrow selection remain true. The implementation has no enclosing row button. Physical pointer tracking remains a manual visible-window check.
+An additional **exploratory row-button nesting mutation survived** (1 passing test). The native hierarchy/hit/action checks do not detect that SwiftUI nesting in an unshown window; this is a coverage limit, not a claimed kill. The final `badge-control` mutation instead removes the hand action and fails while native focus and arrow selection remain true. The implementation has no enclosing row button. Physical pointer tracking remains a manual visible-window check.
 
-The complete **395-case frontend suite finished: 394 passed, 1 skipped, zero failures/errors**, in **32 foreground slices** totalling 946.37 seconds; the longest slice was 247.90 seconds. All 46 added cases passed. The required **28 protocol tests passed** ([JUnit](fixed-protocol.xml)) in a 396.40-second slice. That is **422 passed + 1 skipped across 423 distinct required cases**. Targeted repeats, baseline runs and mutation invocations are excluded from this unique count. [Count summary](test-summary.json), [frontend commands/results](frontend-suite.json), and the 32 `frontend-NN.xml` files preserve the case-level evidence.
+The complete **395-case frontend suite finished: 394 passed, 1 skipped, zero failures/errors**, in **32 foreground slices** totalling 946.37 seconds; the longest slice was 247.90 seconds. All 46 added cases passed. The required **28 protocol tests passed** in a 396.40-second slice. That is **422 passed + 1 skipped across 423 distinct required cases**. Targeted repeats, baseline runs and mutation invocations are excluded from this unique count. The count summary (`test-summary.json`), frontend commands and results (`frontend-suite.json`) and the 32 `frontend-NN.xml` files preserve the case-level evidence.
 
-The single live daemon case skipped because this sandbox cannot read the macOS boot identity needed by `ps/sysctl` process checks. The **same test skips for the same reason at the PR base** ([base JUnit](pr-base-core-live.xml)); no product failure is hidden by this classification. Its live integration path remains unexecuted here. No failing required test remains.
+The single live daemon case skipped because this sandbox cannot read the macOS boot identity needed by `ps/sysctl` process checks. The **same test skips for the same reason at the PR base** (`pr-base-core-live.xml`); no product failure is hidden by this classification. Its live integration path remains unexecuted here. No failing required test remains.
 
-`app/build.sh build/visual-review-fixes-product` **passed in 120.06 seconds** under a 900-second foreground limit. **`codesign --verify --deep --strict` passed**; bundle ID **`org.maxghenis.subfleet`**. There were five Swift warning diagnostics, with their statements unchanged from the PR base, plus the existing wrapper's missing Swift search-path warning (11 warning-tagged log lines including repeated source excerpts), and no errors. [Build/signature/source comparison](app-build.json), [log](slices/app-build.log). The app was neither installed nor launched.
+`app/build.sh build/visual-review-fixes-product` **passed in 120.06 seconds** under a 900-second foreground limit. **`codesign --verify --deep --strict` passed**; bundle ID **`org.maxghenis.subfleet`**. There were five Swift warning diagnostics, with their statements unchanged from the PR base, plus the existing wrapper's missing Swift search-path warning (11 warning-tagged log lines including repeated source excerpts), and no errors. The build, signature and source comparison are in `app-build.json`, with the log in `slices/app-build.log`. The app was neither installed nor launched.
 
-Every test/baseline/mutation slice used a **580-second deadline**, below the requested ten minutes. Compiles used the existing foreground frontend wrapper with four jobs and task-local output caches; fresh wrapper syntax, SDK and compiler queries also passed ([result](compiler-wrapper-check.json)).
+Every test/baseline/mutation slice used a **580-second deadline**, below the requested ten minutes. Compiles used the existing foreground frontend wrapper with four jobs and task-local output caches; fresh wrapper syntax, SDK and compiler queries also passed (`compiler-wrapper-check.json`).
 
 ## Comparison with the PR base
 
@@ -65,16 +65,20 @@ The expected red regression runs above demonstrate the findings on the reviewed 
 - **Filter:** the base had a visible segmented provider Picker (`app/Sources/UIWindow.swift:78`). The PR replaced it with an icon-only menu.
 - **Snapshots:** the renderer was introduced in this PR, so its natural-scale assertion and incomplete fixture are PR defects. The current host's natural 1× capture initially passed; the controlled 2× test reproduces the Retina failure consistently.
 
-One preliminary snapshot compile had **3 setup errors** because the shared filesystem ran out of space (`ld: write() failed, errno=28`). This is an environment failure independent of either source baseline, excluded from successful test/mutation counts. [Log](infrastructure-disk-full.log), [JUnit](infrastructure-disk-full.xml), and [owned-artifact cleanup](disk-cleanup.json) preserve it. The runner now releases its completed temporary raster/object files after each slice. Earlier probe-development errors (unavailable sandbox Vision services, coordinate/OCR assertions, or editing a compiler input during an early compile) were verification-harness issues; none is counted as a product failure or mutation kill.
+One preliminary snapshot compile had **3 setup errors** because the shared filesystem ran out of space (`ld: write() failed, errno=28`). This is an environment failure independent of either source baseline, excluded from successful test/mutation counts. `infrastructure-disk-full.log`, `infrastructure-disk-full.xml` and the owned-artifact cleanup in `disk-cleanup.json` preserve it. The runner now releases its completed temporary raster/object files after each slice. Earlier probe-development errors (unavailable sandbox Vision services, coordinate/OCR assertions, or editing a compiler input during an early compile) were verification-harness issues; none is counted as a product failure or mutation kill.
 
 ## Snapshots and interaction evidence
 
-All original **20 captures** were re-rendered, plus **20 additional captures** for Codex command/file-change/permissions, Claude Write, Codex progress, failed, stopped, withdrawn, completed-before-stop and text-only scenes. See the [40-image gallery](GALLERY.md) and [SHA-256/dimension manifest](snapshots.json). Every image is 2880×1800 pixels. Actual card/sheet and turn text is preserved in [rendered-text.json](rendered-text.json).
+All original **20 captures** were re-rendered, plus **20 additional captures** for Codex command/file-change/permissions, Claude Write, Codex progress, failed, stopped, withdrawn, completed-before-stop and text-only scenes. See the [40-image gallery](GALLERY.md); the SHA-256 and dimension manifest is `snapshots.json`. Every image is 2880×1800 pixels. Actual card/sheet and turn text is preserved in `rendered-text.json`.
 
 All rendering uses isolated fixture storage and unshown backing windows, with activation prohibited. The full-sidebar test verifies the native hit target and action; it does **not** claim a physical mouse-tracking test in a visible window. Native tracking ignores an unshown window. Visible keyboard-focus appearance with Full Keyboard Access enabled remains a manual desktop check; key handling and selection are tested without changing the operator's settings.
+
+## Run evidence
+
+The JUnit, JSON and log files this report names are generated run evidence, absent from the current PR tree; only this prose, the renders and `mutations.patch` are tracked. The original evidence is preserved at the paths named above in historical local commit `5e73e4ea402895f43ca51157fdacce4052917695` ("Record PR 128 review fixes, regression evidence and all rendered scenes"), on `feat/visual-pass-r1fix` in the Subfleet repository. For example, `git show 5e73e4ea:docs/reports/2026-10-04-visual-review-fixes/snapshots.json` reads the manifest without adding run artifacts to the checkout.
 
 ## Delivery
 
 Commits use the required `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer. Shared worktree git metadata is read-only, so commits are on **`refs/heads/fix/pr128-visual-review` in `.git-local`**. The delivery artifact is **`docs/reports/2026-10-04-visual-review-fixes.bundle`**, with prerequisite **`b6c5e9af7aa1f2e06d1617805b4963f366a86e7f`**. Its header names the exact final head, which is also provided in the delivery response.
 
-No live `~/.subfleet`, running daemon, installed app, Application Support, default policy or routing aliases were written. No caller checkout was written and nothing was pushed. The release build remains in this workspace. All foreground commands and recorded test/compiler children completed. [Completion audit](process-completion.json) reports zero unmatched started processes; every OCR child was awaited by its probe. Nothing is left running.
+No live `~/.subfleet`, running daemon, installed app, Application Support, default policy or routing aliases were written. No caller checkout was written and nothing was pushed. The release build remains in this workspace. All foreground commands and recorded test/compiler children completed. The completion audit (`process-completion.json`) reports zero unmatched started processes; every OCR child was awaited by its probe. Nothing is left running.

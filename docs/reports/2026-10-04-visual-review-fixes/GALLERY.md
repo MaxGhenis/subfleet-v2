@@ -1,6 +1,6 @@
 # Re-rendered scenes
 
-Source: `ffa061abdd1a0f0de92f367c87cb59659eea330c`. Every capture is 2880×1800 pixels; every backing window remained unshown. Hashes and dimensions are in [snapshots.json](snapshots.json).
+Source: `ffa061abdd1a0f0de92f367c87cb59659eea330c`. Every capture is 2880×1800 pixels; every backing window remained unshown. Hashes and dimensions are in `snapshots.json`, which is run evidence kept outside the repository (see [Run evidence](README.md#run-evidence)).
 
 | Scene | Dark | Light |
 | --- | --- | --- |
