@@ -4857,7 +4857,7 @@ class Daemon:
                             # fence of retention's that folds alike above it holds it, as the
                             # fence on its spelling would; with none it reserves nothing.
                             blockers.extend(folders.retiring(read, named, folded=True))
-                        revive_key =(revive_lease_key(job["caller_session"])
+                        revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
                             # C-23.55: the census the sweep skips on is the lease rows,
