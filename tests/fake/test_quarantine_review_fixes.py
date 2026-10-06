@@ -96,6 +96,27 @@ def test_corrupt_owned_evidence_cannot_establish_death(state_daemon, monkeypatch
     assert daemon.store.list_leases()
 
 
+@pytest.mark.parametrize('boots', [None, 'old-boot', ['old-boot', None], {'boot': 'old-boot'}])
+@pytest.mark.parametrize('operator', [False, True])
+def test_corrupt_diagnostic_boot_observations_do_not_pin_an_empty_census(
+        state_daemon, monkeypatch, boots, operator):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness, held={'300': ident(300, 'writer')})
+    reason = json.loads(a['quarantine_reason'])
+    reason['lineage_boot_ids'] = boots
+    daemon.store.update_attempt(a['attempt_id'], quarantine_reason=json.dumps(reason),
+                                evidence_json=json.dumps({'lineage_boot_ids': boots}))
+    a = daemon.store.get_attempt(a['attempt_id'])
+    script_table(monkeypatch, {})
+    clock.advance()
+    if operator:
+        assert confirm_dead(daemon, a) == 'lost'
+    else:
+        daemon._recheck_quarantines()
+    assert_released(daemon, a)
+
+
 def test_legacy_child_without_identity_still_holds_conservatively(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     a = quarantine(daemon, harness)
@@ -106,7 +127,7 @@ def test_legacy_child_without_identity_still_holds_conservatively(state_daemon, 
     assert daemon.store.list_leases()
 
 
-@pytest.mark.parametrize('start,expected', [('provider-start', 'quarantined'), ('unrelated', 'quarantined')])
+@pytest.mark.parametrize('start,expected', [('provider-start', 'quarantined'), ('unrelated', 'lost')])
 def test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse(
         state_daemon, monkeypatch, start, expected):
     daemon, harness = state_daemon
@@ -120,8 +141,7 @@ def test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse(
     assert confirm_dead(daemon, a) == expected
     if expected == 'quarantined':
         census = daemon._contain(a)
-        assert ({500, 501} <= census.live_pids) if start == 'provider-start' else not census.live_pids
-        # PID reuse cannot prove an unobserved descendant dead on this boot.
+        assert {500, 501} <= census.live_pids
         assert not census.verified_empty
         assert daemon.store.list_leases()
     else:

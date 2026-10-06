@@ -62,7 +62,7 @@ def assert_released(daemon, a):
 def scripted_census(monkeypatch, daemon, *, writer="old-start", unverifiable=False):
     # Exercise the production three-source census and its recorded identities.
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(
-        {WRITER.pid: (1, WRITER.pid, "S", writer)} if writer is not None else {}, boot_id=NEXT_BOOT if writer is None else WRITER.boot_id))
+        {WRITER.pid: (1, WRITER.pid, "S", writer)} if writer is not None else {}, boot_id=WRITER.boot_id))
     def read(argv, **kwargs):
         assert "pid=,command=" in argv
         if unverifiable:
@@ -151,7 +151,7 @@ def test_live_or_unverifiable_census_never_releases_across_many_paces(state_daem
     assert not daemon.store.one("SELECT 1 FROM events WHERE kind='quarantine.self_resolved'")
 
 
-def test_pid_reuse_does_not_prove_unobserved_descendants_gone(state_daemon, monkeypatch):
+def test_pid_reuse_with_different_start_time_counts_as_gone(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     _, a, _ = quarantined(daemon, harness)
@@ -162,9 +162,7 @@ def test_pid_reuse_does_not_prove_unobserved_descendants_gone(state_daemon, monk
     scripted_census(monkeypatch, daemon, writer="new-start")
     clock.advance()
     daemon._recheck_quarantines()
-    # Reusing the parent PID cannot close the fork gap.
-    assert daemon.store.get_attempt(a["attempt_id"])["state"] == "quarantined"
-    assert daemon.store.list_leases()
+    assert_released(daemon, a)
 
 
 def test_notification_failure_does_not_starve_other_quarantine_checks(state_daemon, monkeypatch):
@@ -330,6 +328,7 @@ def test_status_names_old_quarantines_age_and_latest_reason(state_daemon, monkey
 
 @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @example(actions=["tick", "exit0", "unverifiable", "exit1", "restart", "kill", "verifiable", "tick", "restart", "kill"])
+@example(actions=["exit0", "exit1", "tick"])
 @given(actions=st.lists(st.sampled_from(["exit0", "exit1", "reuse0", "reuse1", "unverifiable", "verifiable", "tick", "restart", "kill", "reboot"]), min_size=1, max_size=35))
 def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most_once(state_daemon, monkeypatch, actions):
     daemon, harness = state_daemon
@@ -395,7 +394,7 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
             if released:
                 if not was_released:
                     verified, unknown, observed, observed_boot = proofs[-1]
-                    assert verified and not unknown and observed_boot == NEXT_BOOT
+                    assert verified and not unknown and all(state != "live" for state in observed)
                 assert not current.store.one("SELECT 1 FROM leases WHERE holder=?", (aid,))
                 data = json.loads(events[0]["data_json"])
                 assert not data["override"] and not data["containment"]["unverifiable"] and not data["containment"]["live_pids"]
