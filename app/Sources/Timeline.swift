@@ -150,6 +150,8 @@ struct TurnTimeline: Equatable {
     var eventServed = Served()
     var receiptServed: Served?
     var outcome: TurnOutcome?
+    /// Display timing from the existing public event timestamps.
+    var completedTS: String?
     var limits: JSONValue?
     var diff: String?
     var items: [TimelineItem] = []
@@ -578,6 +580,7 @@ struct Timeline: Equatable {
                 turn.state = MessageState.running.rawValue
             }
         case "turn.completed":
+            turn.completedTS = event.ts
             turn.outcome = TurnOutcome(state: data["state"]?.string ?? "unknown", reason: data["reason"]?.string,
                                        detail: data["detail"]?.string, servedModel: data["served_model"]?.string,
                                        data: data)

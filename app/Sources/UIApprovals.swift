@@ -15,15 +15,15 @@ struct ApprovalCardView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: card.kind == "question" ? "questionmark.bubble.fill" : "hand.raised.fill")
-                    .foregroundStyle(.orange)
-                Text(title).bold()
+                   .foregroundStyle(Theme.state.attention)
+                Text(ApprovalPresentation.headline(card)).bold()
                 Spacer()
                 switch card.state {
                 case .pending: EmptyView()
                 case .answered(let decision):
                     Text(card.kind == "question" && decision == "deny" ? "Skipped" : "Answered")
                         .readingFont(.caption)
-                case .withdrawn: Text("Withdrawn").readingFont(.caption).foregroundStyle(.secondary)
+                case .withdrawn: Text("Withdrawn").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 }
             }
             if card.kind == "question" {
@@ -34,37 +34,22 @@ struct ApprovalCardView: View {
                         Text(question.question).readingFont(.secondary)
                     }
                 }
+                requestDetails
             } else {
-                if card.isPending, let detail {
-                    // The full request includes grant roots, permissions and command
-                    // text that a provider's display summary may omit or truncate.
-                    ScrollView {
-                        Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(minHeight: 60, maxHeight: 240)
-                    if !detail.masked.isEmpty {
-                        Label("Some values are masked. Allow opens details for review.", systemImage: "eye.slash")
-                            .readingFont(.caption).foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(card.display.shownFields, id: \.key) { field in
-                        Text("\(field.key): \(field.value)").readingFont(.code, design: .monospaced)
-                            .textSelection(.enabled)
-                    }
-                    if card.isPending {
-                        if loadFailed {
-                            Button("Reload request") { Task { await load() } }
-                        } else {
-                            ProgressView("Loading the request…").controlSize(.small)
-                        }
+                ApprovalCommandView(command: ApprovalPresentation.command(card, request: detail?.request))
+                if card.isPending && detail == nil {
+                    if loadFailed {
+                        Button("Reload request") { Task { await load() } }
+                    } else {
+                        ProgressView("Loading the request…").controlSize(.small)
                     }
                 }
-                if let reason = card.display.reason ?? card.display.description {
-                    Text(reason).readingFont(.secondary).foregroundStyle(.secondary)
+                if let detail, !detail.masked.isEmpty {
+                    Label("Some values are masked. Allow opens details for review.", systemImage: "eye.slash")
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 }
                 if card.isActionable {
                     HStack {
-                        Button("Details / add a note", action: review).buttonStyle(.link)
                         Spacer()
                         if card.options.contains("deny") {
                             Button("Deny") { Task { await respond("deny") } }.buttonStyle(.bordered)
@@ -76,9 +61,10 @@ struct ApprovalCardView: View {
                         if sending { ProgressView().controlSize(.small) }
                     }.disabled(sending)
                 }
+                requestDetails
             }
             if card.isPending && !card.isActionable {
-                Text("Waiting for the request to be identified…").readingFont(.caption).foregroundStyle(.secondary)
+                Text("Waiting for the request to be identified…").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 if card.kind == "question" && loadFailed {
                     Button("Reload request") { Task { await load() } }
                 }
@@ -86,7 +72,7 @@ struct ApprovalCardView: View {
         }
         .readingFont(.body)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(card.isPending ? 0.12 : 0.05)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.raised.color))
         .task(id: card.approvalID ?? card.requestID) {
             if card.isPending { await load() }
         }
@@ -115,14 +101,21 @@ struct ApprovalCardView: View {
         _ = await model.respond(detail, decision: decision, answers: nil, message: nil, reviewedMasked: false)
     }
 
-    private var title: String {
-        switch card.kind {
-        case "question": return "Question"
-        case "command": return "Run a command?"
-        case "file-change": return "Change files?"
-        case "permissions": return "Grant permissions?"
-        default: return "Use \(card.display.tool ?? "a tool")?"
-        }
+    private var requestDetails: some View {
+        DisclosureGroup("Details") {
+            if let detail {
+                Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
+                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(card.display.shownFields, id: \.key) { field in
+                    Text("\(field.key): \(field.value)").readingFont(.code, design: .monospaced)
+                        .textSelection(.enabled)
+                }
+            }
+            if card.isActionable && card.kind != "question" {
+                Button("Add a note", action: review).buttonStyle(.link)
+            }
+        }.readingFont(.secondary)
     }
 }
 
@@ -153,11 +146,11 @@ struct QuestionCardView: View {
                     Text("\(state.answeredCount) of \(state.questions.count) questions answered")
                     Spacer()
                     Text("\(state.currentIndex + 1) / \(state.questions.count)")
-                }.readingFont(.caption).foregroundStyle(.secondary)
-                if let header = question.header { Text(header).readingFont(.caption, weight: .bold).foregroundStyle(.secondary) }
+                }.readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                if let header = question.header { Text(header).readingFont(.caption, weight: .bold).foregroundStyle(Theme.text.secondary.color) }
                 Text(question.question).readingFont(.subheading).textSelection(.enabled)
                 Text(question.multiSelect == true ? "Choose all that apply" : "Choose one")
-                    .readingFont(.caption).foregroundStyle(.secondary)
+                    .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array((question.options ?? []).enumerated()), id: \.offset) { index, option in
                         optionButton(index, option: option, selected: draft.selectedOptionIndices.contains(index),
@@ -170,8 +163,8 @@ struct QuestionCardView: View {
                         Label("Other", systemImage: selectionSymbol(draft.usesOther, multiple: question.multiSelect == true))
                             .frame(maxWidth: .infinity, alignment: .leading).padding(8)
                             .contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+                    }.buttonStyle(QuietButtonStyle())
+                        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.hover.color))
                         .accessibilityValue(draft.usesOther ? "Selected" : "Not selected")
                 }
                 .focusable().focused($focus, equals: .options)
@@ -185,12 +178,12 @@ struct QuestionCardView: View {
                         get: { state.currentAnswer?.otherText ?? "" }, set: { state.setOtherText($0) }), axis: .vertical)
                         .textFieldStyle(.roundedBorder).lineLimit(2...6).focused($focus, equals: .other)
                 }
-                if draft.skipped { Text("Skipped").readingFont(.caption).foregroundStyle(.secondary) }
+                if draft.skipped { Text("Skipped").readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
                 Text("Use number keys 1–9 while the choices are focused.")
-                    .readingFont(.caption).foregroundStyle(.secondary)
+                    .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 if needsMaskedReview {
                     if let detail = reviewDetail {
-                        DisclosureGroup("Review the question request") {
+                        DisclosureGroup("Details") {
                             Text(prettyApprovalRequest(detail.request))
                                 .readingFont(.code, design: .monospaced).textSelection(.enabled)
                             Button("Reveal masked values") {
@@ -225,7 +218,7 @@ struct QuestionCardView: View {
                     }
                 }
             } else {
-                Text("No questions were supplied.").foregroundStyle(.secondary)
+                Text("No questions were supplied.").foregroundStyle(Theme.text.secondary.color)
                 Button("Skip") { Task { await submitEmpty() } }
             }
         }.disabled(sending)
@@ -241,20 +234,20 @@ struct QuestionCardView: View {
         } label: {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: selectionSymbol(selected, multiple: multiple))
-                if index < 9 { Text("\(index + 1)").monospacedDigit().foregroundStyle(.secondary) }
+                if index < 9 { Text("\(index + 1)").monospacedDigit().foregroundStyle(Theme.text.secondary.color) }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(option.label).bold()
-                    if let description = option.description { Text(description).readingFont(.secondary).foregroundStyle(.secondary) }
+                    if let description = option.description { Text(description).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color) }
                     if let preview = option.preview {
-                        Text(preview).readingFont(.code, design: .monospaced).foregroundStyle(.secondary)
+                        Text(preview).readingFont(.code, design: .monospaced).foregroundStyle(Theme.text.secondary.color)
                     }
                 }
                 Spacer(minLength: 0)
             }.padding(10).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.accentColor : Color.clear))
+        .buttonStyle(QuietButtonStyle())
+        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(selected ? Theme.surface.selected.color : Theme.surface.hover.color))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius.control).stroke(selected ? Theme.accent : Theme.clear))
         .accessibilityValue(selected ? "Selected" : "Not selected")
     }
 
@@ -286,6 +279,17 @@ struct QuestionCardView: View {
     }
 }
 
+private struct ApprovalCommandView: View {
+    let command: String?
+    var body: some View {
+        if let command, !command.isEmpty {
+            Text(command).readingFont(.code, design: .monospaced).textSelection(.enabled)
+                .padding(Theme.space.inset).frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.hover.color))
+        }
+    }
+}
+
 // MARK: - Approval sheet
 
 struct ApprovalSheet: View {
@@ -301,15 +305,18 @@ struct ApprovalSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Approve this request?").readingFont(.subheading, weight: .bold)
+            Text(ApprovalPresentation.headline(card)).readingFont(.subheading, weight: .bold)
             if let detail {
-                ScrollView {
-                    Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                ApprovalCommandView(command: ApprovalPresentation.command(card, request: detail.request))
+                DisclosureGroup("Details") {
+                    ScrollView {
+                        Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minHeight: 120, maxHeight: 320)
+                    .padding(6)
+                    .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.hover.color))
                 }
-                .frame(minHeight: 120, maxHeight: 320)
-                .padding(6)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
                 if !detail.masked.isEmpty && !revealed {
                     HStack {
                         Label("\(detail.masked.count) value(s) that look like secrets are masked",
@@ -327,7 +334,7 @@ struct ApprovalSheet: View {
                         Button(label(option)) { Task { await answer(option, detail: detail) } }
                             .disabled(sending || !canChoose(option, detail: detail))
                             .buttonStyle(.bordered)
-                            .tint(option == primaryOption(detail) ? Color.accentColor : nil)
+                            .tint(option == primaryOption(detail) ? Theme.accent : nil)
                     }
                 }
             } else {
