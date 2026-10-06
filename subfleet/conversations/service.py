@@ -304,9 +304,8 @@ class ConversationService:
             offered = [m for m in models if m["provider"] == name and not m["retired"]]
             preferred = ["opus"] if name == "claude" else hard_models
             default = next((m for short in preferred for m in offered if m["short"] == short), None)
-            # Astra remains available for explicit pins and a policy that routes
-            # hard work to it, but is never an incidental catalog-order default.
-            fallback = [m for m in offered if name != "codex" or m["id"] != "gpt-6-astra"]
+            # Retirement is defined by the loaded policy, for every model id.
+            fallback = offered
             if default is None and fallback:
                 default = next((m for m in fallback if not policy["models"][m["short"]].get("scope")), fallback[0])
             if default:
