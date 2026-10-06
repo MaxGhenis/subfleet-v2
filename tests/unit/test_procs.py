@@ -4,16 +4,37 @@ import errno
 import fcntl
 import itertools
 import json
+import re
 import signal
 import subprocess
+import sys
 import threading
 from unittest import mock
 
+import time
+
 import pytest
+from hypothesis import given, settings, strategies as st
 
 import os
 
 from subfleet import client, procs
+
+
+REAL_POPEN = subprocess.Popen
+
+
+def answering(monkeypatch, answer, seen=None):
+    """Stand a real child in for the reader `_read` starts: `answer(argv, env)` gives (rc, stdout, stderr), which the
+    child writes to the descriptors `_read` hands it, so the socket, the drain and the reaping are the real ones."""
+    def spawn(argv, **kwargs):
+        if seen is not None:
+            seen.append((list(argv), dict(kwargs)))
+        rc, out, err = answer(list(argv), dict(kwargs.get("env") or {}))
+        script = ("import sys; sys.stdout.write(%r); sys.stdout.flush(); sys.stderr.write(%r); sys.exit(%d)"
+                  % (out, err, rc))
+        return REAL_POPEN([sys.executable, "-I", "-c", script], **kwargs)
+    monkeypatch.setattr(procs, "_spawn", spawn)
 
 
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session=None):
@@ -56,16 +77,20 @@ def test_daemon_identity_matches_cli_outside_utc(monkeypatch, parent_path):
         monkeypatch.setenv("PATH", parent_path)
     calls = []
 
-    def ps(argv, **kwargs):
-        env = kwargs.get("env", os.environ)
+    def rendered(argv, env):
         calls.append(dict(env))
         utc = env.get("TZ") == "UTC" and env.get("LC_ALL") == "C"
         # Model ps rendering the same process under two parent environments.
         started = "Sat Sep  5 14:00:00 2026" if utc else "sam. sept.  5 10:00:00 2026"
         prefix = "S " if argv[-1] == "state=,lstart=" else ""
-        return subprocess.CompletedProcess(argv, 0, prefix + started + "\n", "")
+        return 0, prefix + started + "\n", ""
 
-    monkeypatch.setattr(procs.subprocess, "run", ps)
+    def ps(argv, **kwargs):                               # the CLI's own reader
+        rc, out, err = rendered(argv, kwargs.get("env", os.environ))
+        return subprocess.CompletedProcess(argv, rc, out, err)
+
+    monkeypatch.setattr(client.subprocess, "run", ps)
+    answering(monkeypatch, rendered)                      # the daemon's
     recorded = procs.proc_start(4242)
     assert client.same_process(4242, None, recorded) is True
     assert " ".join(recorded.split()) == client.proc_start(4242)
@@ -158,13 +183,13 @@ def test_signal_survivor_rechecks_original_identity(monkeypatch):
 
 def test_empty_bsd_ps_selector_is_not_inspection_failure(monkeypatch):
     """C-5.5 BSD ps status 1 with empty output means a valid empty selection."""
-    monkeypatch.setattr(procs.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", ""))
+    answering(monkeypatch, lambda argv, env: (1, "", ""))
     assert procs._read(["/bin/ps", "-p", "99999"], empty_ok=True) == ""
 
 
 def test_ps_permission_denial_is_not_empty(monkeypatch):
     """C-5.5 permission failures remain unverifiable, even with no process rows."""
-    monkeypatch.setattr(procs.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", "denied"))
+    answering(monkeypatch, lambda argv, env: (1, "", "denied"))
     with pytest.raises(procs.InspectionError):
         procs._read(["/bin/ps"], empty_ok=True)
 
@@ -439,14 +464,10 @@ def test_c5_12_a_boot_mismatch_is_read_again_before_a_process_is_called_dead(mon
 
 def test_c5_12_ps_and_sysctl_are_started_without_a_fork(monkeypatch):
     """C-5.12 `close_fds=False` is the condition under which CPython uses posix_spawn on macOS."""
-    seen = {}
-
-    def run(argv, **kwargs):
-        seen.update(kwargs)
-        return subprocess.CompletedProcess(argv, 0, "ok", "")
-    monkeypatch.setattr(procs.subprocess, "run", run)
+    seen = []
+    answering(monkeypatch, lambda argv, env: (0, "ok", ""), seen)
     assert procs._read(["/bin/ps"]) == "ok"
-    assert seen["close_fds"] is False
+    assert seen[0][1]["close_fds"] is False
     # posix_spawn also needs an executable named by path, not found on PATH.
     assert os.path.isabs(procs.TABLE_ARGV[0])
 
@@ -677,3 +698,161 @@ def test_a_pipe_is_returned_empty_whatever_its_raw_ends_took_in(monkeypatch):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+# --- C-5.5, C-5.12: the reader under load (incident 2026-09-27) -------------------------------------------------
+#
+# From 10:00 to 11:17Z the daemon quarantined 44 probes in one hour on "marker enumeration unavailable" while the
+# same census, taken by a process outside it, came back verified empty in 0.07 s. The daemon runs at the `utility`
+# QoS launchd gives it (priority 20) with ~140 threads; its `ps -axEww` answer (1.3 MB) came back through a pipe of
+# 16 to 64 KiB, so it was read in 45 to 80 pieces, each a wait for the interpreter lock, and `ps` could not finish
+# writing until the daemon had read all but the last piece. `tools/census_under_load.py` reproduces it.
+
+def writer(script: str) -> list[str]:
+    """A reader `_read` can start in place of `ps`: `python -c script`, run on the descriptors `_read` gives it."""
+    return [sys.executable, "-I", "-c", script]
+
+
+READER = os.path.basename(sys.executable)
+
+
+def test_c5_5_ps_writes_its_whole_answer_without_waiting_for_the_reader(monkeypatch, tmp_path):
+    """C-5.5, C-5.12 the reader's output end holds a whole census, so `ps` finishes writing and exits before this
+    process reads a byte: a reader starved of the interpreter lock no longer holds `ps` (and its 10 s cap) open.
+
+    On release/217 (a pipe) the child blocks on the full pipe, never writes its mark, and the first read times out."""
+    mark = tmp_path / "written"
+    size = 2_000_000                                      # a busier machine's `ps -axEww` than the incident's 1.3 MB
+    argv = writer("import sys, pathlib\n"
+                  f"sys.stdout.buffer.write(b'x' * {size} + b'\\n'); sys.stdout.flush()\n"
+                  f"pathlib.Path({str(mark)!r}).write_text('done')\n")
+    real_read, reads = os.read, []
+
+    def starved_read(fd, n):                              # this process reads nothing until `ps` has finished
+        if threading.current_thread() is threading.main_thread():
+            deadline = time.monotonic() + 5
+            while not mark.exists():
+                assert time.monotonic() < deadline, "ps waited for the reader to drain its answer"
+                time.sleep(.01)
+            reads.append(n)
+        return real_read(fd, n)
+    monkeypatch.setattr(os, "read", starved_read)
+    assert procs._read(argv) == "x" * size + "\n"
+    assert len(reads) <= 4                                 # the answer, its end, and standard error's end
+
+
+def test_c5_12_a_reader_that_answered_by_its_cap_is_not_timed_out(monkeypatch):
+    """C-5.12 the cap is on the reader, not on this process: a `ps` that exited in time has answered, however late
+    a starved daemon gets to its output. On release/217 the cap covered the whole read and the answer was lost."""
+    monkeypatch.setattr(procs, "READ_TIMEOUT_S", .3)
+    real_read = os.read
+
+    def late(fd, n):
+        if threading.current_thread() is threading.main_thread():
+            time.sleep(.2)                                 # each wake comes late: .6 s in all, past the cap
+        return real_read(fd, n)
+    monkeypatch.setattr(os, "read", late)
+    row = "4242 1 4242 Ss Sat Sep  5 10:00:00 2026"
+    assert procs._read(writer(f"import sys; sys.stdout.write({row + chr(10)!r})")) == row + "\n"
+
+
+def test_c5_12_a_reader_still_running_at_its_cap_is_killed_reaped_and_named(monkeypatch, tmp_path):
+    """C-5.12 a `ps` still running at its cap is killed and reaped, and the error says so."""
+    monkeypatch.setattr(procs, "READ_TIMEOUT_S", .5)
+    mark = tmp_path / "pid"
+    started = time.monotonic()
+    with pytest.raises(procs.InspectionError, match=rf"^{re.escape(READER)} timed out: still running after 0\.5 s$"):
+        procs._read(writer(f"import os, pathlib, time; pathlib.Path({str(mark)!r}).write_text(str(os.getpid())); "
+                           "time.sleep(30)"))
+    assert time.monotonic() - started < 10
+    pid = int(mark.read_text())
+    with pytest.raises(ChildProcessError):                # reaped: no zombie left behind
+        os.waitpid(pid, os.WNOHANG)
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_c5_12_a_reader_that_exited_is_not_waited_for_past_an_inherited_output_end(tmp_path):
+    """C-5.12 an end of the reader's output that another process holds (another thread's spawn can inherit it in the
+    instant before it is made close-on-exec) holds off end-of-file, not the answer: once the reader has exited, what
+    it wrote is read within `EXIT_CHECK_S`. On release/217 the read waited for end-of-file and failed at the cap."""
+    mark = tmp_path / "holder"
+    started = time.monotonic()
+    try:
+        out = procs._read(writer("import os, pathlib, subprocess, sys\n"
+                                 "sys.stdout.write('4242 answered\\n'); sys.stdout.flush()\n"
+                                 "holder = subprocess.Popen(['/bin/sleep', '30'])\n"     # inherits stdout and stderr
+                                 f"pathlib.Path({str(mark)!r}).write_text(str(holder.pid))\n"))
+        assert out == "4242 answered\n"
+        assert time.monotonic() - started < procs.EXIT_CHECK_S + 4
+    finally:
+        if mark.exists():
+            os.kill(int(mark.read_text()), signal.SIGKILL)
+
+
+def test_c5_5_a_reader_that_fails_says_why_without_any_ps_text():
+    """C-5.5 a failed read names its exit status and the head of its error output, with every word that could be an
+    environment entry or a command's path replaced; release/217 said only "ps inspection failed (1)"."""
+    text = "ps: sysctl: Cannot allocate memory TOKEN=sentinel-secret /Users/someone/bin/claude --print\nmore\n"
+    with pytest.raises(procs.InspectionError) as raised:
+        procs._read(writer(f"import sys; sys.stderr.write({text!r}); sys.exit(1)"))
+    message = str(raised.value)
+    assert message == f"{READER} exited 1: ps: sysctl: Cannot allocate memory <redacted> <redacted> --print"
+    assert "sentinel-secret" not in message and "someone" not in message
+
+
+def test_c5_5_a_reader_that_cannot_start_names_the_errno(tmp_path):
+    """C-5.5 an OS error at spawn is named by its errno (EAGAIN under a full process table), never its message."""
+    with pytest.raises(procs.InspectionError, match=r"^ps could not start \(ENOENT\)$"):
+        procs._read([str(tmp_path / "missing" / "ps"), "-axo", "pid="])
+
+
+def test_c5_5_output_that_is_not_utf8_is_no_failure():
+    """C-5.5 `ps` in the C locale escapes every byte of a command or environment, but a byte that slips through
+    is kept, not an error: on release/217 strict decoding raised, which the census reported as unavailable."""
+    out = procs._read(writer("import sys; sys.stdout.buffer.write(b'42 python caf\\xff SUBFLEET_ATTEMPT=job/a1\\n')"))
+    assert out.startswith("42 python caf") and out.endswith("SUBFLEET_ATTEMPT=job/a1\n")
+
+
+@pytest.mark.parametrize(("failed", "errors"), [
+    ("pid=,command=", ["marker enumeration unavailable: ps timed out: still running after 10 s"]),
+    ("pid=,ppid=,pgid=,stat=,lstart=", ["group enumeration unavailable: ps timed out: still running after 10 s",
+                                        "descendant enumeration unavailable: ps timed out: still running after 10 s"]),
+])
+def test_c5_5_the_census_records_why_a_source_could_not_be_read(monkeypatch, failed, errors):
+    """C-5.5 the census keeps the cause beside the source (release/217 kept "marker enumeration unavailable" alone,
+    so the incident could not say whether it was the cap, an exit status or a parse)."""
+    def read(argv, *, empty_ok=False):
+        if failed in argv:
+            raise procs.InspectionError("ps timed out: still running after 10 s")
+        return ""
+    monkeypatch.setattr(procs, "_read", read)
+    result = procs.containment(42, 42, None, "job/a1", root="/state")
+    assert list(result.errors) == errors
+    assert result.unverifiable and result.inconclusive and not result.live_pids
+
+
+def test_c5_5_a_marker_row_that_is_not_a_process_is_named_by_its_number_only(monkeypatch):
+    """C-5.5 a matching row whose pid does not parse makes the source unavailable, and says which row, not what."""
+    census(monkeypatch, markers="4242 ok\nnot-a-pid SUBFLEET_ATTEMPT=job/a1 SECRET=sentinel\n")
+    result = procs.containment(42, 42, None, "job/a1")
+    assert list(result.errors) == ["marker enumeration unavailable: ps printed a row that is not a process (row 2)"]
+    assert "sentinel" not in json.dumps(result.to_dict())
+
+
+def test_c5_5_a_census_that_sees_a_writer_is_not_inconclusive(monkeypatch):
+    """C-5.5 a census that could not read one source but shows a live process in another is evidence, and decides."""
+    census(monkeypatch, parents="42 1 42 S\n", fail="pid=,command=")
+    result = procs.containment(42, 42, None, "job/a1")
+    assert result.unverifiable and result.live_pids == {42} and not result.inconclusive
+
+
+@given(st.binary(max_size=600))
+@settings(max_examples=300, deadline=None)
+def test_c5_5_an_error_head_never_carries_an_environment_entry_or_a_path(data):
+    """C-5.5, for every stderr: the head is one printable-ASCII line of at most 160 characters, and none of its words
+    holds `=` or `/`, so no environment entry or command path from the reader's error output is ever kept."""
+    head = procs.stderr_head(data)
+    assert len(head) <= procs.STDERR_HEAD_CHARS
+    assert "\n" not in head and all(char.isprintable() and char.isascii() for char in head)
+    assert not any("=" in word or "/" in word for word in head.split())

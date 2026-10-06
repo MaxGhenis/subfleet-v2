@@ -35,6 +35,14 @@ GUARDIAN_ONLY = Containment(frozenset({4242}), frozenset({4242}), frozenset(), F
                             {4242: {"ppid": 1, "pgid": 4242, "stat": "S"}})
 UNVERIFIABLE = Containment(unverifiable=True, errors=("group enumeration unavailable",
                                                       "descendant enumeration unavailable"))
+# C-5.5: the incident's census, 2026-09-27: the marker source could not be read, and nothing else was seen.
+MARKER_TIMED_OUT = Containment(unverifiable=True, errors=(
+    "marker enumeration unavailable: ps timed out: still running after 10 s",))
+# A source failed, but another shows a live process: evidence, not an inconclusive census.
+BUSY_UNVERIFIABLE = Containment(frozenset({4243}), frozenset({4243}), frozenset(), True,
+                                {4243: ProcessIdentity(4243, "boot", STARTED)},
+                                ("marker enumeration unavailable: ps exited 1: ps: out of memory",),
+                                {4243: {"ppid": 4242, "pgid": 4242, "stat": "R"}})
 EMPTY = Containment()
 
 
@@ -48,6 +56,7 @@ def daemon(tmp_path, monkeypatch):
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
     core._exit_settle = {}
+    core._census_deferrals, core._kill_resumed = {}, set()        # C-5.5
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
@@ -161,10 +170,11 @@ def test_c5_6_kill_quarantines_only_after_the_settle_window(daemon):
     assert "attempt.quarantined" in kinds
 
 
-@pytest.mark.parametrize("census", [BUSY, GUARDIAN_ONLY, UNVERIFIABLE],
-                         ids=["survivor", "guardian-only", "unverifiable"])
+@pytest.mark.parametrize("census", [BUSY, GUARDIAN_ONLY, BUSY_UNVERIFIABLE],
+                         ids=["survivor", "guardian-only", "survivor-and-a-source-unread"])
 def test_c5_9_exit_receipt_census_waits_out_exit_settle_before_quarantining(daemon, census):
-    """C-5.9 after exit.json the census may drain for exit_settle_s; past it, writers remain."""
+    """C-5.9 after exit.json the census may drain for exit_settle_s; past it, a census that shows a writer quarantines
+    (one that shows none and could not be read is deferred instead: the C-5.5 tests below)."""
     daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
     atomic_publish(attempt_dir(daemon.root, JOB, 1) / "exit.json",
                    json.dumps({"rc": 0, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 60,
@@ -784,3 +794,140 @@ def test_c5_12_the_control_loop_forgets_the_inspection_clock_of_an_attempt_that_
     daemon._control()                                          # one tick
     assert daemon._inspect_next == {ATTEMPT: 5.0}
     assert ATTEMPT in scheduled and ended not in scheduled
+
+
+# --- C-5.5: an inconclusive census decides nothing (incident 2026-09-27) -----------------------------------------
+#
+# Every census that decides (start grace, a dead guardian, the kill protocol, C-5.9's window) quarantined on
+# "not verified empty", which included a census that could not be read and saw nothing. An attempt's quarantine
+# ends its job `lost` (rc 125). On release/217 each of these tests quarantines.
+
+def deferred_events(core) -> list[dict]:
+    """The `attempt.census_deferred` records (`add_event` also writes the kind's empty audit row, C-3.2)."""
+    rows = [json.loads(row["data_json"]) for row in core.store.list_events(JOB) if row["kind"] == "attempt.census_deferred"]
+    return [data for data in rows if data]
+
+
+def kinds(core) -> list[str]:
+    return [row["kind"] for row in core.store.list_events(JOB)]
+
+
+def test_c5_5_an_inconclusive_census_past_exit_settle_defers_until_one_can_decide(daemon, monkeypatch):
+    """C-5.5, C-5.9 past the window, a census that could not be read and saw nothing is deferred (C-5.10 retries the
+    pass), with its cause on record on the 1st, 2nd and 4th deferral; the census that can be read then decides."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
+    publish_receipt(daemon, rc=0)
+    daemon._contain = lambda a: MARKER_TIMED_OUT
+    daemon._finalize(attempt(daemon))                          # inside the window: nothing yet
+    daemon._exit_settle[ATTEMPT] -= 1.0                         # the window is spent
+    for n in range(1, 6):
+        with pytest.raises(daemon_module.CensusDeferred, match=rf"exit receipt: census inconclusive \({n} in a row\)"):
+            daemon._finalize(attempt(daemon))
+        assert attempt(daemon)["state"] == "finalizing"
+    assert daemon.store.get_job(JOB)["state"] == "running"
+    assert [event["deferrals"] for event in deferred_events(daemon)] == [1, 2, 4]
+    assert deferred_events(daemon)[0]["where"] == "exit receipt"
+    assert deferred_events(daemon)[0]["containment"]["errors"] == list(MARKER_TIMED_OUT.errors)
+    assert "attempt.quarantined" not in kinds(daemon)
+    daemon._contain = lambda a: EMPTY                          # `ps` answers again
+    daemon._finalize(attempt(daemon))
+    assert attempt(daemon)["state"] == "succeeded"
+    assert daemon.store.get_job(JOB)["state"] == "succeeded"
+    assert ATTEMPT not in daemon._census_deferrals and ATTEMPT not in daemon._exit_settle
+
+
+def test_c5_5_after_deferring_a_census_that_shows_a_writer_quarantines_at_once(daemon, monkeypatch):
+    """C-5.5, C-5.9 the deferral never widens the window: once spent, the first census to show a writer quarantines."""
+    daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
+    publish_receipt(daemon, rc=0)
+    daemon._contain = lambda a: MARKER_TIMED_OUT
+    daemon._finalize(attempt(daemon))
+    daemon._exit_settle[ATTEMPT] -= 1.0
+    with pytest.raises(daemon_module.CensusDeferred):
+        daemon._finalize(attempt(daemon))
+    daemon._contain = lambda a: BUSY_UNVERIFIABLE
+    daemon._finalize(attempt(daemon))
+    a = attempt(daemon)
+    assert a["state"] == "quarantined"
+    assert json.loads(a["quarantine_reason"])["reason"] == "writers remain after exit receipt"
+    assert ATTEMPT not in daemon._census_deferrals
+
+
+@pytest.mark.parametrize(("census", "state"), [(MARKER_TIMED_OUT, "starting"), (UNVERIFIABLE, "starting"),
+                                               (BUSY_UNVERIFIABLE, "quarantined")],
+                         ids=["marker-unread", "table-unread", "writer-seen"])
+def test_c5_5_start_grace_defers_an_inconclusive_census(daemon, monkeypatch, census, state):
+    """C-4.2, C-5.5 start grace with no receipt: an inconclusive census leaves the attempt `starting` for C-5.10's
+    retry; one that shows a process still quarantines, and an empty one releases it (the C-4.2 tests above)."""
+    with_launch(daemon, monkeypatch)
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
+    daemon._contain = lambda a: census
+    if census.inconclusive:
+        with pytest.raises(daemon_module.CensusDeferred, match="start grace"):
+            daemon._process_attempt(ATTEMPT)
+    else:
+        daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == state
+    if census.inconclusive:
+        daemon._contain = lambda a: EMPTY                      # the retry's census can be read
+        daemon._process_attempt(ATTEMPT)
+        assert attempt(daemon)["state"] == "failed" and attempt(daemon)["outcome_detail"] == "starting-no-receipt"
+        assert "attempt.quarantined" not in kinds(daemon)
+
+
+def test_c5_5_a_dead_guardian_with_an_inconclusive_census_is_neither_lost_nor_killed(daemon, monkeypatch):
+    """C-4.2, C-5.5, C-5.11 the guardian is gone and the census saw nothing but could not be read: no loss, no kill.
+    The pass raises for C-5.10, and the retry repeats the inspection in full (it is in `_inspect_retry`)."""
+    with_launch(daemon, monkeypatch)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    daemon._contain = lambda a: MARKER_TIMED_OUT
+    with pytest.raises(daemon_module.CensusDeferred, match="dead guardian"):
+        daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "running"
+    assert ATTEMPT in daemon._inspect_retry and ATTEMPT not in daemon._inspect_next
+    assert "attempt.kill_started" not in kinds(daemon) and "attempt.quarantined" not in kinds(daemon)
+    daemon._contain = lambda a: EMPTY
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "lost"
+
+
+def test_c5_5_a_kill_whose_census_stays_inconclusive_defers_then_resumes_from_its_sigkill(daemon, monkeypatch):
+    """C-5.5, C-5.6 a kill protocol that ends with an inconclusive census is deferred, not quarantined; its retry sends
+    no second SIGTERM and waits out no second grace, and finishes when a census verifies the group gone."""
+    signals = []
+    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda pgid, sig, **identity: signals.append(sig) or True)
+    daemon._contain = lambda a: MARKER_TIMED_OUT
+    with pytest.raises(daemon_module.CensusDeferred, match="termination"):
+        daemon._kill_attempt(attempt(daemon))
+    assert attempt(daemon)["state"] == "running" and ATTEMPT in daemon._kill_resumed
+    assert signals == [signal.SIGTERM, signal.SIGKILL]
+    assert "attempt.quarantined" not in kinds(daemon)
+    daemon.term_grace_s = 30                                   # a second grace would show
+    daemon._contain = lambda a: EMPTY
+    started = time.monotonic()
+    daemon._kill_attempt(attempt(daemon))
+    assert time.monotonic() - started < 5
+    assert signals == [signal.SIGTERM, signal.SIGKILL, signal.SIGKILL]
+    assert attempt(daemon)["state"] == "finalizing"
+    receipt = json.loads(receipt_path(daemon).read_text())
+    assert receipt["signal"] == 9 and receipt["killed_by"] == "operator"
+    assert ATTEMPT not in daemon._kill_resumed
+
+
+def test_c5_5_a_kill_whose_census_shows_a_survivor_still_quarantines(daemon):
+    """C-5.6 unchanged where the census is evidence: a process seen past the settle window quarantines."""
+    daemon._contain = lambda a: BUSY_UNVERIFIABLE
+    daemon._kill_attempt(attempt(daemon))
+    a = attempt(daemon)
+    assert a["state"] == "quarantined"
+    assert json.loads(a["quarantine_reason"])["reason"] == "termination could not verify containment"
+
+
+def test_c5_5_deferral_state_is_dropped_once_an_attempt_is_no_longer_live(daemon):
+    """C-5.5 the deferral count and a resumed kill are in memory per live attempt, pruned like C-5.11's pacing."""
+    daemon._census_deferrals = {ATTEMPT: 3, "20260905-090000-gone/a1": 5}
+    daemon._kill_resumed = {ATTEMPT, "20260905-090000-gone/a1"}
+    daemon._forget_paced({ATTEMPT})
+    assert daemon._census_deferrals == {ATTEMPT: 3} and daemon._kill_resumed == {ATTEMPT}

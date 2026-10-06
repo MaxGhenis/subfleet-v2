@@ -75,6 +75,8 @@ class FakePs:
                     f"{CHILD} {PGID} R    {self.starts[CHILD]}\n"
                     f"4300 4300 S    {self.starts[4300]}\n4301 4300 Z    {STARTED}\n")
         if "pid=,command=" in argv:
+            if "marker" in self.failing:     # C-5.5: the 2026-09-27 census, as the daemon read it
+                raise procs.InspectionError("ps timed out: still running after 10 s")
             return ""
         if argv[1:2] == ["-p"] and argv[-1] == "lstart=":
             return self.starts.get(int(argv[2]), "") + "\n"
@@ -578,3 +580,42 @@ def test_store_generation_counts_committed_changes_only(tmp_path):
         assert store.generation == start + 1
     finally:
         store.close()
+
+
+def test_an_inconclusive_census_is_retried_at_the_worker_backoff_and_logged_as_deferred(daemon, monkeypatch):
+    """C-5.5, C-5.10, C-5.11 the 2026-09-27 census, through the real `_schedule`: the guardian is gone, the table
+    shows nothing of the attempt, and the environment scan times out. The attempt is neither lost nor killed; each
+    retry repeats the inspection in full, the count grows 1, 2, 3 with C-5.10's backoff, and `daemon.log` says
+    "deferred" on the 1st and 2nd. When the census can be read, it decides, and the count clears."""
+    ps = FakePs()
+    ps.hidden = {GUARDIAN, CHILD}
+    del ps.starts[GUARDIAN], ps.starts[CHILD]
+    ps.failing = {"marker"}
+    monkeypatch.setattr(procs, "_read", ps)
+    warned, errors = [], []
+    monkeypatch.setattr(daemon.log, "warning", lambda msg, *args: warned.append(msg % args))
+    monkeypatch.setattr(daemon.log, "error", lambda msg, *args: errors.append(msg % args))
+    counts, delays = [], []
+    for _ in range(3):
+        before = time.monotonic()
+        counts.append(scheduled(daemon))
+        delays.append(round(daemon._worker_retry_at[ATTEMPT] - before, 1))
+    assert counts == [1, 2, 3]
+    assert delays == [.5, 1.0, 2.0]
+    assert [line for line in warned if ATTEMPT in line] == [
+        f"worker {ATTEMPT} deferred: CensusDeferred (1 in a row, next try in 0.5 s)",
+        f"worker {ATTEMPT} deferred: CensusDeferred (2 in a row, next try in 1 s)"]
+    assert not [line for line in errors if ATTEMPT in line]
+    assert daemon.store.get_attempt(ATTEMPT)["state"] == "running"
+    kinds = [row["kind"] for row in daemon.store.list_events(JOB)]
+    assert "attempt.quarantined" not in kinds and "attempt.kill_started" not in kinds
+    recorded = [json.loads(row["data_json"]) for row in daemon.store.list_events(JOB)
+                if row["kind"] == "attempt.census_deferred" and row["data_json"] != "{}"]
+    assert [row["deferrals"] for row in recorded] == [1, 2]
+    assert recorded[0]["containment"]["errors"] == [
+        "marker enumeration unavailable: ps timed out: still running after 10 s"]
+    ps.failing = set()                                        # `ps` answers again: the census decides
+    lost = []
+    monkeypatch.setattr(daemon, "_lost", lambda a: lost.append(a["attempt_id"]))
+    assert scheduled(daemon) == 0
+    assert lost == [ATTEMPT] and ATTEMPT not in daemon._census_deferrals
