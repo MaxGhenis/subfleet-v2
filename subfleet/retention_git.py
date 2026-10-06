@@ -158,15 +158,19 @@ def is_remnant(admin: Path) -> bool:
     return True
 
 
-def registration(tree: Path) -> tuple[Registration | None, str | None]:
+def registration(tree: Path, read: tuple[Path | None, bytes, str | None] | None = None
+                 ) -> tuple[Registration | None, str | None]:
     """(registration, None), or (None, why) when the tree has none we may use.
 
     The tree's ``.git`` must be a gitdir file naming an admin directory directly
     under ``<common>/worktrees/``, whose ``gitdir`` backlink names this tree:
     we never act on someone else's registration (design 5.2 step 2). An admin
     directory that is only a remnant (`is_remnant`) answers ``admin-remnant``.
+    `read` is the tree's `gitfile_admin`, when the caller already read it: the
+    answer is then about those bytes, not a second read of a gitfile that
+    another tool may have moved in between.
     """
-    admin, gitfile, why = gitfile_admin(tree)
+    admin, gitfile, why = read if read is not None else gitfile_admin(tree)
     if admin is None:
         return None, why
     if not admin.is_dir():
@@ -184,6 +188,17 @@ def registration(tree: Path) -> tuple[Registration | None, str | None]:
     if admin.parent != common / "worktrees":
         return None, "registration-not-direct"
     return Registration(admin, common, gitfile), None
+
+
+def backlink(admin: Path) -> Path | None:
+    """The tree's ``.git`` an admin directory's ``gitdir`` backlink names
+    (resolved), or None when it cannot be read. `git worktree move` rewrites it
+    to the tree's new place, and moving the tree back rewrites it again."""
+    try:
+        text = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+    except OSError:
+        return None
+    return _resolve(admin, text)
 
 
 def common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None = None) -> Path | None:
