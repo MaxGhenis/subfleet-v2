@@ -286,8 +286,9 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
     result = procs.containment(42, 42, None, "job/a1")
     # 50 kept the group after reparenting to launchd; 60 is its child in a new group.
     assert result.group_pids == {42, 43, 50}
-    assert result.descendant_pids == {42, 43}
-    assert result.live_pids == {42, 43, 50}
+    # Omitting retained group member 50 from the walk lost its escaped child.
+    assert result.descendant_pids == {42, 43, 50, 60}
+    assert result.live_pids == {42, 43, 50, 60}
     assert result.shapes[50] == {"ppid": 1, "pgid": 42, "stat": "S"}
     assert sum(1 for argv in reads if "pid=,ppid=,pgid=,stat=,lstart=" in argv) == 1
     assert not any("-g" in argv for argv in reads)
@@ -741,3 +742,56 @@ def test_a_pipe_is_returned_empty_whatever_its_raw_ends_took_in(monkeypatch):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+BOOT_OLD = '6F1C0F2E-1111-4222-8333-944455556666'
+BOOT_NEW = '7F1C0F2E-1111-4222-8333-944455556666'
+
+
+@pytest.mark.parametrize('root_kind', ['child', 'leaderless-group'])
+def test_proven_reboot_discards_unqualified_old_roots(monkeypatch, root_kind):
+    rows = ({500: (1, 500, 'S', 'new-service')} if root_kind == 'child' else
+            {200: (1, 100, 'S', 'new-service'), 300: (200, 300, 'S', 'child')})
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable(rows, boot_id=BOOT_NEW))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    result = procs.containment(100, 100, 500, 'job/a1', launch_boot_id=BOOT_OLD,
+                               lineage_boot_ids=(BOOT_OLD,))
+    assert result.verified_empty, result.to_dict()
+
+
+@pytest.mark.parametrize('known,current', [(BOOT_OLD, BOOT_OLD), ('1700000000', BOOT_NEW),
+                                           ('invalid', BOOT_NEW), ('', BOOT_NEW),
+                                           (BOOT_OLD, '1700000000')])
+def test_empty_snapshot_cannot_close_a_writer_lineage_without_proven_reboot(monkeypatch, known, current):
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=current))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=known,
+                               lineage_boot_ids=(known,))
+    assert not result.live_pids and not result.verified_empty
+    assert any('writer lineage' in error for error in result.errors)
+
+
+def test_reboot_must_prove_every_observed_writer_boot_gone(monkeypatch):
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=BOOT_NEW))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=BOOT_OLD,
+                               lineage_boot_ids=(BOOT_OLD, BOOT_NEW))
+    assert not result.verified_empty
+
+
+@pytest.mark.parametrize('capture', ['gone', 'uninspectable', 'stat-gone', 'zombie'])
+def test_marked_writer_observation_keeps_its_boot_even_without_pid_identity(monkeypatch, capture):
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=BOOT_NEW))
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs:
+                        '600 writer SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/fixture\n')
+    monkeypatch.setattr(procs, '_stat', lambda pid:
+                        None if capture == 'stat-gone' else 'Z' if capture == 'zombie' else 'S')
+    def identify(pid):
+        if capture == 'uninspectable':
+            raise procs.InspectionError('identity unavailable')
+        return None
+    monkeypatch.setattr(procs, 'identity', identify)
+    result = procs.containment(100, 100, None, 'job/a1', root='/fixture',
+                              launch_boot_id=BOOT_OLD, lineage_boot_ids=(BOOT_OLD,))
+    assert not result.verified_empty
+    assert BOOT_NEW in result.to_dict()['lineage_boot_ids']

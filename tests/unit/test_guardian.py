@@ -78,8 +78,14 @@ def test_provider_identity_is_durable_before_wait_or_relay(tmp_path, monkeypatch
             return None
         def wait(self):
             check()
+            assert os.read(self.gate_read, 1) == b'1'
+            os.close(self.gate_read)
             return 0
-    monkeypatch.setattr(guardian.subprocess, 'Popen', lambda *args, **kwargs: Child())
+    def spawn(*args, **kwargs):
+        child = Child()
+        child.gate_read = os.dup(kwargs['pass_fds'][0])
+        return child
+    monkeypatch.setattr(guardian.subprocess, 'Popen', spawn)
     class Relay:
         def __init__(self, *args, **kwargs):
             pass
@@ -98,6 +104,8 @@ def test_provider_identity_is_durable_before_wait_or_relay(tmp_path, monkeypatch
 
 
 def test_child_identity_inspection_failure_still_waits_and_writes_exit(tmp_path, monkeypatch, guardian_identity):
+    # Execution without a launch identity permits an unrecorded writer after
+    # a guardian crash. Reap the refused launcher and report the spawn failure.
     from subfleet.procs import InspectionError
     def start(pid):
         if pid == 500:
@@ -114,9 +122,10 @@ def test_child_identity_inspection_failure_still_waits_and_writes_exit(tmp_path,
             return 0
     monkeypatch.setattr(guardian.subprocess, 'Popen', lambda *args, **kwargs: Child())
     assert guardian.run_guardian(['provider'], attempt_dir=tmp_path, cwd=str(tmp_path),
-        stdin_path=None, stdout_path=str(tmp_path / 'stdout'), stderr_path=str(tmp_path / 'stderr')) == 0
+        stdin_path=None, stdout_path=str(tmp_path / 'stdout'), stderr_path=str(tmp_path / 'stderr')) == 127
     assert waited == [True]
-    assert json.loads((tmp_path / 'exit.json').read_text())['child_pid'] == 500
+    receipt = json.loads((tmp_path / 'exit.json').read_text())
+    assert receipt['child_pid'] is None and 'execution gate refused' in receipt['spawn_error']
 
 
 def test_guardian_launch_gate_eof_prevents_unrecorded_provider(tmp_path, guardian_identity):

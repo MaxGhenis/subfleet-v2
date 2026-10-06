@@ -99,6 +99,24 @@ def _identity_history(*sources: dict) -> dict[str, list[dict]]:
     return {str(pid): [dataclasses.asdict(ident) for ident in records]
             for pid, records in _identity_union(*sources).items()}
 
+
+def _lineage_boot_union(*sources: dict) -> set[str]:
+    """Boot observations are ownership evidence, independent of display text."""
+    boots: set[str] = set()
+    for source in sources:
+        observed = source.get("lineage_boot_ids", [])
+        if not isinstance(observed, list) or any(not isinstance(boot, str) for boot in observed):
+            raise ValueError("corrupt writer lineage boot evidence")
+        boots.update(observed)
+    return boots
+
+
+def _retain_lineage(evidence: dict, census: dict) -> dict:
+    boots = _lineage_boot_union(evidence, census)
+    boots.update(ident.boot_id for records in _identity_union(census["identities"]).values()
+                 for ident in records)
+    return {**evidence, "lineage_boot_ids": sorted(boots)} if boots else evidence
+
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
 
@@ -154,12 +172,10 @@ READ_CONNECTIONS = 6
 #: d635: seconds a retention pass may start new work; a started job gets its
 #: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
 RETENTION_PASS_S = 180
+#: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
+RETENTION_INTERVAL_S = 3600
 #: d635: seconds between passes while a backlog is being worked off.
 RETENTION_CATCH_UP_S = 5
-#: A pass that reports more work but changed nothing doubles the wait before the
-#: next, up to this (review of a9a6cbf4, N2: one unmeasurable job kept retention
-#: in 5-second catch-up for ever).
-RETENTION_CATCH_UP_MAX_S = 3600
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -619,7 +635,6 @@ class Daemon:
         self._last_maintenance = time.monotonic()
         # d635: deferrals and measured sizes carried between retention passes.
         self._retention_state = RetentionState()
-        self._retention_catch_up_s = RETENTION_CATCH_UP_S
         # C-16.7: every client connection held, from `accept` until its last
         # reply has been written; what the cap counts, and what `close()` shuts.
         self._connections: set[socket.socket] = set()
@@ -3439,7 +3454,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= 3600:
+                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -3517,6 +3532,11 @@ class Daemon:
         # retirement archives before it deletes; a pass retires a bounded batch,
         # oldest first, and says when more is waiting, so a backlog is worked
         # off in catch-up passes seconds apart instead of timing out hourly.
+        # Once per retention call (one bounded batch), including interruptions.
+        try:
+            self._prune_service_notices()
+        except Exception as exc:
+            self.log.warning("retention: service notices were not pruned: %s", type(exc).__name__)
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
@@ -3525,20 +3545,36 @@ class Daemon:
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                              state=self._retention_state,
                              remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
-        if result.get("interrupted"):
-            if result["interrupted"] == "cancelled":
-                self.timers.mark("retention", error="CancelledError", next_due=after(3600))
+        pruned = len(result.get("pruned") or ())
+        progressed = bool(pruned or result.get("progressed"))
+        interrupted = result.get("interrupted")
+        if interrupted == "cancelled":
+            self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
+            self._last_maintenance = time.monotonic()
+            return
+        if result.get("holder_scan_failed"):
+            # Quarantining and rolling back is action, but another batch cannot
+            # retire jobs while the shared process listing is unavailable.
+            self.timers.mark("retention", error="ScanFailed", next_due=after(RETENTION_INTERVAL_S))
+            self.log.warning("retention: holder scan failed; %d jobs in the store; next pass in an hour",
+                             result.get("jobs_after", 0))
+            self._last_maintenance = time.monotonic()
+            return
+        if interrupted:
+            if not progressed:
+                self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+                self.log.warning("retention: deadline reached before it pruned a job or advanced; "
+                                 "%d jobs in the store; next pass in an hour", result.get("jobs_after", 0))
+                self._last_maintenance = time.monotonic()
                 return
-            raise TimeoutError("retention deadline reached")
-        self._prune_service_notices()
+            self.log.warning("retention: deadline reached after progress (%d jobs pruned); "
+                             "%d jobs in the store; retrying on the worker clock", pruned, result.get("jobs_after", 0))
+            # Stay due. _schedule records the error and applies C-5.10.
+            raise TimeoutError("retention deadline reached after progress")
         for error in (result.get("errors") or [])[:5]:
             self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
-        if result.get("more"):
-            if result.get("progressed", True):
-                self._retention_catch_up_s = RETENTION_CATCH_UP_S
-            else:
-                self._retention_catch_up_s = min(RETENTION_CATCH_UP_MAX_S, 2 * self._retention_catch_up_s)
-            delay = self._retention_catch_up_s
+        if result.get("more") and progressed:
+            delay = RETENTION_CATCH_UP_S
             self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
                           "archive, which added %d bytes; net %d on disk), %d in flight, %d deferred; "
                           "continuing in %g seconds",
@@ -3548,18 +3584,17 @@ class Daemon:
                           (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0),
                           len(result.get("in_flight") or ()), len(result.get("deferred") or {}), delay)
             self.timers.mark("retention", next_due=after(delay))
-            self._last_maintenance = time.monotonic() - 3600 + delay
+            self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
             return
-        self._retention_catch_up_s = RETENTION_CATCH_UP_S
         if result.get("pruned"):
             self.log.info("retention: retired %d jobs; freed %d bytes (%d on disk), moved %d bytes into the archive, "
                           "which added %d bytes (bundles, manifests, rows); net %d on disk",
                           len(result["pruned"]), result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
                           result.get("archived_bytes") or 0, result.get("added_bytes") or 0,
                           (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0))
-        self.timers.mark("retention", next_due=after(3600))
+        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
         # A raising pass remains due so the worker retry clock can re-offer it.
-        # Only a completed pass rearms the ordinary hourly interval.
+        # Completed and non-advancing passes rearm the hourly interval last.
         self._last_maintenance = time.monotonic()
 
     def _prune_service_notices(self) -> int:
@@ -5855,8 +5890,24 @@ class Daemon:
         recorded = _identity_union(evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
+        launch_boot = a.get("boot_id") or start.get("boot_id")
+        # Once quarantined, neither an exit receipt nor absent recorded PIDs
+        # prove an unobserved descendant dead. Include every observed boot so
+        # a current-boot marked writer cannot be forgotten after an old reboot.
+        lineage_boots = ()
+        if a["state"] == "quarantined":
+            boots = {known.boot_id for records in recorded.values() for known in records}
+            boots.update(_lineage_boot_union(evidence, held))
+            if launch_boot:
+                boots.add(launch_boot)
+            elif a.get("guardian_pid") or a.get("pgid") or child_pid:
+                boots.add("")
+            if start.get("boot_id"):
+                boots.add(start["boot_id"])
+            lineage_boots = tuple(sorted(boots or {""}))
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
-                                 a["attempt_id"], root=str(self.root), recorded=recorded)
+                                 a["attempt_id"], root=str(self.root), recorded=recorded,
+                                 launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots)
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
@@ -6082,8 +6133,10 @@ class Daemon:
         detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
         with self.store.transaction("attempt.quarantined", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"containment": census.to_dict()}) as tx:
             job = self._job(a["job_id"])
-            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,finished_at=?,quarantine_recheck_at=? WHERE attempt_id=?",
-                       (detail, utcnow(), quarantine_time(self.policy.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)), a["attempt_id"]))
+            actual = self.store.get_attempt(a["attempt_id"])
+            evidence = _retain_lineage(json.loads(actual["evidence_json"] or "{}"), census.to_dict())
+            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,evidence_json=?,finished_at=?,quarantine_recheck_at=? WHERE attempt_id=?",
+                       (detail, json.dumps(evidence), utcnow(), quarantine_time(self.policy.get("quarantine_recheck_s", QUARANTINE_RECHECK_S)), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
@@ -6154,9 +6207,13 @@ class Daemon:
                       "identities": {**previous.get("identities", {}), **current["identities"]},
                       "identity_history": _identity_history(previous.get("identity_history", {}),
                                                             previous.get("identities", {}), current["identities"])}
-            if detail != previous:
+            evidence = json.loads(a["evidence_json"] or "{}")
+            if detail != previous or _retain_lineage(evidence, current) != evidence:
                 with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=current) as tx:
-                    tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(detail), a["attempt_id"]))
+                    actual = self.store.get_attempt(a["attempt_id"])
+                    evidence = _retain_lineage(json.loads(actual["evidence_json"] or "{}"), current)
+                    tx.execute("UPDATE attempts SET quarantine_reason=?,evidence_json=? WHERE attempt_id=?",
+                               (json.dumps(detail), json.dumps(evidence), a["attempt_id"]))
             return
         artifacts, salvage_evidence = [], {}
         job = self._job(a["job_id"])

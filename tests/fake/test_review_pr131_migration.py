@@ -60,19 +60,23 @@ def test_live_shaped_v6_store_migrates_and_every_gone_attempt_is_released_fairly
         live = {f"20260922-{n:06d}-fixture/a1": n for n in range(211) if n % 4 != 3 and n % 25 == 1}
         assert len(unverifiable) == 52 and len(live) == 7
         current = {}
+        rebooted = [False]
         def snapshot():
             n = current.get("live")
             return procs.ProcessTable({23050 + n: (1, 23050 + n, "S", f"Sat Oct  3 23:51:{(23050 + n) % 60:02d} 2026")}
-                                      if n is not None else {}, boot_id="6F1C0F2E-1111-4222-8333-944455556666")
+                                      if n is not None else {}, boot_id=("7F1C0F2E-1111-4222-8333-944455556666" if rebooted[0] else
+                                                "6F1C0F2E-1111-4222-8333-944455556666"))
         def read(argv, **kwargs):
             if current.get("unverifiable"):
                 raise procs.InspectionError("marker enumeration unavailable")
+            if rebooted[0] and current.get("live") is not None:
+                return f"{23050 + current['live']} writer SUBFLEET_ATTEMPT={current['attempt']} SUBFLEET_ROOT={root}\n"
             return ""
         censused = []
         def census(pgid, guardian, child, attempt_id, root=None, **kwargs):
             censused.append(attempt_id)
             current.clear()
-            current.update(unverifiable=attempt_id in unverifiable, live=live.get(attempt_id))
+            current.update(unverifiable=attempt_id in unverifiable, live=live.get(attempt_id), attempt=attempt_id)
             return ORIGINAL_CENSUS(pgid, guardian, child, attempt_id, root=root, **kwargs)
         monkeypatch.setattr(procs, "snapshot", snapshot)
         monkeypatch.setattr(procs, "_read", read)
@@ -86,6 +90,21 @@ def test_live_shaped_v6_store_migrates_and_every_gone_attempt_is_released_fairly
             assert passes <= 30
         assert passes == math.ceil(211 / QUARANTINE_RECHECK_BATCH) == 27
         assert len(censused) == 211 and len(set(censused)) == 211          # each once, oldest first
+        # Empty same-boot snapshots cannot prove descendants dead. All 211
+        # leases stay held until a proven reboot; legacy receipts cannot supply
+        # the missing lineage retroactively.
+        assert len(store.query("SELECT 1 FROM attempts WHERE state='quarantined'")) == 211
+        assert store.one("SELECT COUNT(*) n FROM leases")["n"] == 493
+        rebooted[0] = True
+        now[0] += timedelta(seconds=daemon.policy["quarantine_recheck_s"])
+        censused.clear()
+        passes = 0
+        while store.one("SELECT 1 FROM attempts WHERE state='quarantined' AND quarantine_recheck_at<=?",
+                        (dm.quarantine_time(),)):
+            daemon._recheck_quarantines()
+            passes += 1
+            assert passes <= 30
+        assert passes == 27 and len(set(censused)) == 211
         held = {r["attempt_id"] for r in store.query("SELECT attempt_id FROM attempts WHERE state='quarantined'")}
         assert held == unverifiable | set(live)
         released = [r for r in store.query("SELECT * FROM attempts WHERE state!='quarantined'")]

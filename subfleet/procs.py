@@ -330,6 +330,9 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # A matching marker can disappear before identity capture, after forking.
+    # Its observed boot still owns that possible lineage, even with no PID.
+    lineage_boot_ids: tuple[str, ...] = ()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -349,6 +352,7 @@ class Containment:
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
+            "lineage_boot_ids": list(self.lineage_boot_ids),
         }
 
 
@@ -383,7 +387,9 @@ def group_members(pgid: int) -> dict[int, str]:
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
                 attempt_id: str, root: str | None = None, *,
-                recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None) -> Containment:
+                recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None,
+                launch_boot_id: str | None = None,
+                lineage_boot_ids: Sequence[str] = ()) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -414,6 +420,23 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return pid in table and not table[pid][2].startswith("Z")
 
     if seen is not None:
+        def rebooted(known: str | None) -> bool:
+            # Only distinct kernel boot-session UUIDs prove every old writer
+            # dead. Legacy wall-clock seconds and malformed IDs cannot do so.
+            previous = boot_identity.session_uuid(known)
+            if previous is None:
+                return False
+            try:
+                current = boot_identity.session_uuid(seen.boot())
+            except InspectionError:
+                return False
+            return current is not None and previous != current
+
+        if any(not rebooted(known) for known in lineage_boot_ids):
+            # A writer can fork, setsid and scrub its markers between reads,
+            # then exit before the next census. No number of empty snapshots
+            # closes that lineage gap. Keep this uncertainty across restarts.
+            errors.append("writer lineage requires a proven reboot or operator force release")
         # C-5.3/C-5.7: a PID's new incarnation is not a recorded writer.
         # Read all recorded writers from this same snapshot, including escaped
         # writers whose parent links and markers no longer identify them.
@@ -447,7 +470,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                         gone.add(pid)
             except InspectionError:
                 errors.append(f"recorded identity inspection unavailable for pid {pid}")
-        groups = set(seen.group(pgid))
+        roots_rebooted = rebooted(launch_boot_id)
+        groups = set() if roots_rebooted else set(seen.group(pgid))
         # A live reused group leader heads an unrelated group; an absent leader
         # can still leave its original group members behind.
         # Only the leader's pid says so: XNU never hands out a pid that names a
@@ -457,13 +481,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             groups.clear()
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0 and pid not in gone} | owned
+        roots = ({pid for pid in (guardian_pid, child_pid)
+                  if pid and pid > 0 and pid not in gone and not roots_rebooted}
+                 | owned | groups)
         found = set(roots)
         frontier = roots
         while frontier:
             frontier = {pid for pid, row in table.items() if row[0] in frontier and pid not in found}
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
+    observed_writer = bool(groups | descendants)
+    observed_boots = set(lineage_boot_ids)
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
@@ -477,12 +505,24 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
             pid_text, _, command = row.strip().partition(" ")
             if marker.search(command) and (root_marker is None or root_marker.search(command)):
+                observed_writer = True
                 pid = int(pid_text)
                 state = table[pid][2] if pid in table else _stat(pid)
                 if state and not state.startswith("Z"):
                     markers.add(pid)
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
+    if observed_writer:
+        try:
+            observed_boots.add(seen.boot() if seen is not None else boot_id())
+        except InspectionError:
+            # Missing boot evidence can never be discharged by a later reboot.
+            observed_boots.add("")
+    if (lineage_boot_ids and observed_boots != set(lineage_boot_ids)
+            and (seen is None or any(not rebooted(known) for known in observed_boots))):
+        error = "writer lineage requires a proven reboot or operator force release"
+        if error not in errors:
+            errors.append(error)
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers:
         try:
@@ -501,7 +541,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes)
+                       bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

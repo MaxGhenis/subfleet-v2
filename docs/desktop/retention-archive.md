@@ -118,7 +118,7 @@ evidence are in `docs/reports/2026-10-01-retention-81-notes.md`.
 | N3: work inside a tool's own entries was deleted without a copy | A tool's own top-level entries (a venv's `lib/`, a package in `node_modules`, a `__pycache__`, `.pytest_cache/v/`) were dropped whole | Inside them each file is judged by its kind's rule, and only a file the rule proves regenerable is dropped (section 7); section 15 no longer calls this class accepted |
 | N4: a job registered in a repository inside another job's tree retired without its own anchor | Both chosen in one pass, the host was quarantined first and the hosted job archived bytes-only | The host is pinned while the hosted job has rows (`nested-host`, at selection and at commit), and a hosted job whose host tree is not there is kept, so it retires first with its own anchor and bundle (sections 4, 10) |
 | N5: a registration reduced to `index` and `logs/` kept its job for ever | Deferred every day as `admin-unreadable` (the four `mstat6-g*` jobs, whose /tmp clones lost every file) | Such a remnant is no registration: the tree and the remnant's bytes are archived, the remnant removed with the tree (section 4, step 2) |
-| N6: every published archive kept its progress log | About 357 bytes per stored file, redundant with the manifest | Removed at publish (section 3) |
+| N6: every published archive kept its progress log | About 357 bytes per stored file, redundant after reclamation | Moved beside the journal at publish, removed after reclamation (section 3) |
 | N9: retention's children ran at the operator's priority | `lsof`, git and the object readers spawned directly by a default-QoS daemon | Each starts under `taskpolicy -c utility`; the in-process steps lower their thread's disk I/O policy (section 12) |
 
 The build was then reviewed (`~/reviews/retention-2026-09-28/r4-evidence/review-opus.md`,
@@ -168,7 +168,7 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
 |---|---|---|
 | B1: a salvage commit a network remote already held could never retire | Salvage refs were bundle heads; `git bundle` drops a head a remote holds, so the bundle lacked it, or was empty without a registration, and every attempt rolled back | The anchor is built whenever the repository is known (parents: the admin-named commits, the salvage commits, the baseline) and is the bundle's only head. The manifest records each salvage `{artifact_id, ref, commit}` and which commits are ancestors of the anchor; a salvage artifact counts as archived when its commit is one. An anchor a remote already reaches needs no bundle. Restore recreates `refs/subfleet-restored/<job>/<ref>` from the manifest |
 | B2: the conversation service ran a repository-wide `git worktree prune` | `_cut_worktree` pruned before re-adding a broken worktree | `retention_git.discard_registration` removes only the tree's own unlocked registration; the daemon and the conversation service both call it |
-| N2: one job that could not be measured kept retention in 5-second catch-up | Counted as unmeasured for ever | Its size is unknown, which decides it; it is measured again after 1 h, doubling to 24 h. A pass reports `progressed`; the daemon doubles the catch-up wait, up to an hour, while passes report more work but change nothing |
+| N2: one job that could not be measured kept retention in 5-second catch-up | Counted as unmeasured for ever | Its size is unknown, which decides it; it is measured again after 1 h, doubling to 24 h. A pass reports `progressed`; the daemon waits the hour when a pass changes nothing, and retries advancing batches promptly (2.1.11 pacing port) |
 | N10: an error dropped the archive cache | The whole tree was read again every 6 h | The cache is kept on every rollback except when the job is in use again (pinned, rows or leases changed); a repeated error doubles its deferral to 24 h; a stored copy that does not read back is removed so the next attempt clones it anew |
 | N8 (jobs with a cache): deferrals lived only in memory | A restart retried every deferred job at once | The idle journal records the error count and, in wall-clock time, when the job may be tried again; a restarted daemon recalls it |
 | N3: a slice could stop making progress, and parked jobs queued behind the first | A slice stopped mid-file, or before its cached re-walk reached anything new, and the next started over; in-flight jobs were sliced in name order | One file's read runs to its end; a slice parks only after it has written new progress; in-flight jobs are sliced least recently sliced first, so they take turns at a pass's time |
@@ -202,7 +202,7 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
 <state>/retention/<job>/worktree/      the quarantined worktree
 <state>/retention/<job>/job/           the quarantined job directory
 <state>/retention/<job>/archive/       the archive while it is built (progress.jsonl makes it resumable;
-                                       removed at publish, since a published archive never resumes)
+                                       moved beside journal.json at publish until reclamation finishes)
 <state>/archive/<job>/                 the verified archive, published once the rows are gone:
     manifest.json    every entry of every tree: path, lstat signature, and the sha256 and stored name,
                      the omitted blob id, or the regenerable mark (with the sha256 a RECORD vouched
@@ -350,9 +350,9 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    anchor reaches), check both leases are still retention's, then delete the
    rows and the leases. This is the point of no return. While the rows exist,
    no byte of the job has been deleted.
-10. **Publish**: rename the archive to `<state>/archive/<job>`, then remove
-    its `progress.jsonl` (a crash between the two is finished by the next
-    pass).
+10. **Publish**: rename the archive to `<state>/archive/<job>`, then move
+    its `progress.jsonl` beside the retirement journal (a crash between the
+    two is finished by the next pass). Completed archives retain no log.
 11. **Reclaim**: verified deletion (section 9) of the worktree, the job
     directory and the admin directory, which removes the registration. If
     anything in the admin directory changed after the final check, it is kept
@@ -362,6 +362,11 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
     beside it under another tool's quarantine name, or where the admin's
     current backlink points. If so, keep the registration and release only
     retention's own lock so that checkout stays usable.
+    Each stored copy's recorded identity is checked again immediately before
+    its source file is unlinked, with a readback when it changed or has no
+    recorded identity. A damaged or unusable copy sends that source file to
+    conflicts. Successful readbacks persist across cancellation, and the
+    progress log is removed when reclamation finishes.
 
 **The external sweep**: `disk-guard` and `worktree-archive-sweep` hold the
 guard's own `state/disk-guard.lock`; retention does not share it. Both move
@@ -389,7 +394,9 @@ when the job is in use again (pinned, its rows or leases changed), when its
 rows are gone, or after two idle days. Anchor refs stay; they are harmless.
 
 **Recovery** (start of every pass): a `retention:` lease with no journal is
-released (the old retention's, or a selection that died before its journal); a
+released and its job is selected before ordinary candidates (the old retention's,
+or a selection that died before its journal). This priority survives an interrupted
+pass in `RetentionState.leftovers`; pins and archive verification still apply. A
 journal in `committing` is resolved by whether the rows exist; everything
 committed is published and reclaimed; everything before commit continues; an
 idle journal's deferral is recalled once per daemon.
@@ -658,14 +665,27 @@ until they expire.
   finishes. In-flight jobs are sliced least recently sliced first (never
   sliced first, oldest first among those), so jobs that park take turns
   instead of queueing behind the first.
+- **Deadlines.** A started batch finishes committing its verified archives,
+  even past the deadline. Slow pre-selection work still permits the first job
+  and at least one archive slice; subsequent starts and slices remain bounded.
 - **Deferral.** A busy, changed or failing job is put back and skipped until its
   deferral ends, so the queue never waits on it.
-- **Pacing.** The daemon runs a pass hourly; while a pass reports more waiting
-  (a parked job, a full batch, undecided sizes) the next runs 5 s later
-  ("retention catch-up: ..." in the daemon log). A pass that reports more but
-  changed nothing (`progressed` false) doubles that wait, up to an hour; one
-  that made progress sets it back to 5 s. A pass that did work never raises
-  `TimeoutError`; the daemon's worker pool has one more thread for it.
+- **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
+  (a parked job, a full batch, undecided sizes) and advances, the next runs 5 s
+  later ("retention catch-up: ..." in the daemon log). A newly cached size,
+  archive work, publication, deferral or verified deletion is advancement, even
+  before the first prune or while a committed journal has a blocked remnant.
+  A deadline after advancement warns and raises `TimeoutError`, so C-5.10 retries
+  it (0.5 s, doubling to 60 s); interrupted results retain `progressed` and
+  committed `pruned` jobs. A deadline with no advancement marks `TimeoutError`,
+  warns once with the job count, rearms the hour and returns. Cancellation takes
+  precedence, marks `CancelledError` and rearms the hour. A completed or
+  non-advancing batch also waits the hour. A failed batch holder scan marks
+  `ScanFailed` and waits the hour even after quarantine or rollback, since another
+  batch would need the same unavailable listing. Status is marked before the hour is
+  rearmed; failed bookkeeping leaves retention due. The service-notice prune
+  runs first, once per retention call (one bounded batch), and its failure is
+  logged without failing job retention. The worker pool has one more thread for retention.
 - **Below the operator's apps** (final review of e50716e8, N9). The daemon
   runs at the default QoS, and a thread's QoS reaches no child
   (`docs/reports/2026-09-27-daemon-qos.md`), so every child retention starts
@@ -798,6 +818,23 @@ descriptors, and deliberately adversarial same-user tricks):
   unlink (for a file that had other links and whose ctime alone moved: between
   the read that hashes it and its unlink; and a tree another tool moves back
   between the final check and the commit).
+- Damage to a stored copy (unlink, rewrite, replacement, or loss of access)
+  between its last pathname/stat check and the corresponding source unlink.
+  Reclamation checks each source file's copy immediately before unlinking it,
+  re-reading its hash when the recorded identity changed; a failed check moves
+  the source to `retention-conflicts`, including after row deletion and across
+  a restart. This closes the interval during the final-check loop and from
+  final check through commit, publish and the rest of reclamation.
+  A final source stat follows the copy check, so a source write during a slow
+  copy readback also goes to conflicts. There is still no atomic filesystem
+  operation coupling the copy check to the source
+  unlink: external damage in that narrow interval can lose the bytes if no
+  other source link survives. Damage to the archive after that source unlink
+  (including after commit) has the same consequence: its stored copy may be
+  the only remaining copy. Metadata identities are a shortcut, not hashes;
+  corruption that leaves device, inode, size, mtime and ctime unchanged can
+  evade it at any time. Neither case is protection against later storage
+  failure or deliberately forged metadata.
 - A writable descriptor passed over a Unix socket and held by no process at the
   moment of a listing.
 - Deliberately adversarial same-user tricks, among them: a forged RECORD, or a
@@ -882,7 +919,7 @@ finding:
 | N12, bundle cache | `test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move` |
 | Nothing written after the final check deleted | `test_file_written_after_the_final_check_is_kept_in_conflicts`, `test_new_file_before_commit_rolls_back_the_job`, `test_a_swapped_directory_sends_nothing_outside`, `test_a_file_written_into_regenerable_output_after_the_check_is_kept` |
 | Slow or interrupted checks defer, no livelock | `test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass`, `test_a_busy_oldest_job_does_not_block_the_queue`, `test_a_failed_process_listing_defers_the_batch`, `test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree`, `test_a_slice_moves_forward_when_one_file_outlasts_it`, `test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it`, `test_parked_jobs_take_turns_at_the_pass_time` |
-| N2, unmeasurable job; daemon backoff | `test_an_unmeasurable_job_is_decided_and_backs_off`, `test_retention_catch_up_backs_off_while_a_pass_changes_nothing` |
+| N2, unmeasurable job; daemon backoff | `test_an_unmeasurable_job_is_decided_and_backs_off`, `test_retention_catch_up_waits_the_hour_only_when_a_pass_changes_nothing` |
 | N10, cache kept on error | `test_a_persistent_error_keeps_the_cache_and_backs_off`, `test_an_archive_that_does_not_read_back_authorizes_nothing` |
 | Staged, resumable removal | `test_interrupted_removal_resumes_and_leaves_no_half_tree`, `test_a_crash_at_any_step_is_recovered_by_the_next_pass[7 steps]`, `test_an_entry_deletion_cannot_remove_is_set_aside_not_left_half_deleted` |
 | No repository-wide prune (B2) | `test_retention_never_prunes_other_registrations`, `test_discarding_a_broken_allocation_removes_only_its_own_registration`, `test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory, detached-worktree]` |
