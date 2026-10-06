@@ -659,7 +659,8 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
         assert not _live(daemon, turn)
         hold = dict(daemon._holds[turn])
         hold.pop("next_check_at")
-        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)], "folder": nested}, hold
+        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)],
+                        "retiring": [folders.exclusive_key(tree)], "folder": nested}, hold
         assert prepared == [turn] and any(ran_in(spawn, tree) for spawn in spawned), (prepared, spawned)
 
 
