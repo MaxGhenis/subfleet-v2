@@ -1914,7 +1914,8 @@ class Daemon:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
                     digest = turn["digest"]
-                # C-8.4, C-6.5: the workdir is recorded in its one spelling. Retention's
+                # C-8.4, C-6.5: the workdir is recorded in its one spelling, as far as each
+                # name in it can be looked up now (a name that cannot stays as typed). Retention's
                 # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
                 # whose workdir was typed in another case or Unicode form than its volume
                 # stores (`stäte` in NFD under a tree spelled NFC) kept no tree: a writer or
