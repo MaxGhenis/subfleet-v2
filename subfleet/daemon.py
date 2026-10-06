@@ -101,7 +101,7 @@ def _identity_history(*sources: dict) -> dict[str, list[dict]]:
 
 
 def _lineage_boot_union(*sources: dict) -> set[str]:
-    """Boot observations are ownership evidence, independent of display text."""
+    """Diagnostic boot observations survive changes to the display text."""
     boots: set[str] = set()
     for source in sources:
         observed = source.get("lineage_boot_ids", [])

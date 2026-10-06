@@ -299,6 +299,31 @@ def test_current_boot_marked_writer_survives_old_reboot_proof(state_daemon, monk
 
 
 @pytest.mark.parametrize('operator', [False, True])
+@pytest.mark.parametrize('child_published', [False, True])
+def test_launch_publication_hold_ends_when_child_is_known_or_guardian_waited(
+        state_daemon, monkeypatch, operator, child_published):
+    daemon, harness = state_daemon
+    clock = Clock(monkeypatch, daemon)
+    a = quarantine(daemon, harness)
+    adir = daemon.root / 'jobs' / a['job_id'] / 'a1'
+    start = {'guardian_pid': 100, 'pgid': 100, 'boot_id': BOOT, 'proc_start': 'guardian-start'}
+    if child_published:
+        start.update(child_pid=500, child_identity=ident(500, 'provider-start'))
+    (adir / 'start.json').write_text(json.dumps(start))
+    script_table(monkeypatch, {})
+    clock.advance()
+    actual, leases = resolve(daemon, a, operator)
+    if not child_published:
+        assert actual['state'] == 'quarantined' and leases
+        assert 'guardian child publication unavailable' in actual['quarantine_reason']
+        # A legacy guardian's exit receipt attests that it waited for its child.
+        (adir / 'exit.json').write_text(json.dumps({'rc': 0, 'child_pid': 500}))
+        clock.advance()
+        actual, leases = resolve(daemon, actual, operator)
+    assert actual['state'] == 'lost' and not leases
+
+
+@pytest.mark.parametrize('operator', [False, True])
 @pytest.mark.parametrize('capture', ['gone', 'uninspectable'])
 def test_marker_identity_race_retries_inspection_errors_without_requiring_reboot(
         state_daemon, monkeypatch, operator, capture):
@@ -335,7 +360,7 @@ def test_marker_identity_race_retries_inspection_errors_without_requiring_reboot
 
 
 @pytest.mark.parametrize('reason', ['held', 'null'])
-def test_plain_reason_keeps_owned_evidence_without_pinning_a_gone_marker(state_daemon, monkeypatch, reason):
+def test_plain_reason_keeps_diagnostic_boot_evidence_without_pinning_a_gone_marker(state_daemon, monkeypatch, reason):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     a = quarantine(daemon, harness)

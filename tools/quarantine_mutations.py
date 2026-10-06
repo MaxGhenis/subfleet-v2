@@ -10,12 +10,32 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
+ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("same-boot reboot gate restored", "subfleet/procs.py",
+     "        roots_rebooted = rebooted(launch_boot_id)",
+     '        if any(not rebooted(known) for known in lineage_boot_ids):\n'
+     '            errors.append("writer lineage requires a proven reboot")\n'
+     '        roots_rebooted = rebooted(launch_boot_id)',
+     ROUND2 + "test_empty_same_boot_census_releases_within_one_pace_after_restart"),
+    ("marker scan ignored", "subfleet/procs.py",
+     "if marker.search(command) and (root_marker is None or root_marker.search(command)):",
+     "if False and marker.search(command) and (root_marker is None or root_marker.search(command)):",
+     ROUND2 + "test_forked_child_keeping_markers_holds_across_many_paces_after_parent_exits"),
+    ("missing child publication accepted", "subfleet/procs.py",
+     "if child_unrecorded and not roots_rebooted:", "if False and child_unrecorded and not roots_rebooted:",
+     ROUND2 + "test_real_legacy_start_format_holds_unobserved_child_after_guardian_dies[False-False]"),
+    ("retained group descendant roots omitted", "subfleet/procs.py",
+     "| owned | groups)", "| owned)",
+     ROUND2 + "test_census_walks_descendants_of_a_recycled_orphan_group_member"),
+    ("pre-reboot group roots retained", "subfleet/procs.py",
+     "groups = set() if roots_rebooted else set(seen.group(pgid))", "groups = set(seen.group(pgid))",
+     ROUND2 + "test_pre_reboot_roots_do_not_own_new_boot_processes[False-group]"),
     ("unverifiable census accepted", "subfleet/procs.py",
      "return not self.unverifiable and not self.errors and not self.live_pids", "return not self.live_pids",
      FAKE + "test_live_or_unverifiable_census_never_releases_across_many_paces[True]"),
     ("PID reuse ignored", "subfleet/procs.py",
-     "elif table[pid][3] != known.proc_start:", "elif False:",
+     "if table[pid][3] != known.proc_start:", "if False:",
      FAKE + "test_pid_reuse_with_different_start_time_counts_as_gone"),
     ("leases retained after release", "subfleet/daemon.py",
      'tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))',
@@ -33,8 +53,10 @@ MUTATIONS = (
 
 
 def main():
+    selected = MUTATIONS if len(sys.argv) == 1 else tuple(m for m in MUTATIONS if m[0] in sys.argv[1:])
+    assert selected, "no mutations selected"
     killed = 0
-    for name, filename, old, new, node in MUTATIONS:
+    for name, filename, old, new, node in selected:
         path = ROOT / filename
         original = path.read_text()
         assert original.count(old) == 1, (name, original.count(old))
@@ -53,7 +75,7 @@ def main():
         finally:
             path.write_text(original)
             assert path.read_text() == original
-    print(f"{killed}/{len(MUTATIONS)} mutations killed; production source restored", flush=True)
+    print(f"{killed}/{len(selected)} mutations killed; production source restored", flush=True)
 
 
 if __name__ == "__main__":

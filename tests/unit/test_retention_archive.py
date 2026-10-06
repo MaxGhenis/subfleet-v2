@@ -1519,6 +1519,41 @@ def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world):
         holder.wait()
 
 
+@pytest.mark.real_lsof
+@pytest.mark.skipif(not os.access("/usr/sbin/lsof", os.X_OK), reason="needs lsof")
+def test_real_lsof_protects_a_file_held_by_an_unmarked_detached_writer(world):
+    """C-5.7 residual: retention still sees open files held by an invisible
+    orphan, even outside the worktree cwd/group and without Subfleet markers.
+    """
+    import select
+    import sys
+    w = world
+    wt = w.job("job-file-holder")
+    held_file = wt / "held-file"
+    held_file.write_text("writer progress")
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"SUBFLEET_ATTEMPT", "SUBFLEET_ROOT"}}
+    holder = subprocess.Popen(
+        [sys.executable, "-I", "-c",
+         "import sys; f=open(sys.argv[1], 'r+b'); print('ready', flush=True); sys.stdin.buffer.read()",
+         str(held_file)], cwd=w.root, env=env, start_new_session=True,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        assert select.select([holder.stdout], [], [], 10)[0], "holder failed to open its file"
+        assert holder.stdout.readline() == b"ready\n"
+        result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
+        assert result["pruned"] == [] and "busy" in result["deferred"]["job-file-holder"], result
+        assert held_file.is_file() and w.store.get_job("job-file-holder")
+    finally:
+        holder.stdin.close()
+        try:
+            holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            holder.kill()
+            holder.wait()
+        holder.stdout.close()
+
+
 # --- the survey and the command line ---------------------------------------------------
 
 def _tree_state(path: Path) -> dict:
