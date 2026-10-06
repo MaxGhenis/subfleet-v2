@@ -141,8 +141,9 @@ def card_condition(warning: Mapping[str, Any], now: datetime) -> dict[str, Any] 
     home = f"claude-cards:{login}"
     never = "Subfleet never redeems or claims; using it is your call."
     # A card kept through a read that listed none is as last listed, not as read now.
-    listed = (f"This is the card as last listed {warning.get('listed_at') or 'before'}; the latest read listed "
-              f"none ({warning.get('unlisted')}), so check Settings, Usage. " if warning.get("unlisted") else "")
+    listed = (f"This is the card as last listed {warning.get('listed_at') or 'before'}; the read at "
+              f"{warning.get('unlisted_at') or 'a later time'} listed none ({warning.get('unlisted')}), so check "
+              f"Settings, Usage. " if warning.get("unlisted") else "")
     if kind == "card-expiring":
         subject = f"claude: unused limit reset on {login} expires soon"
         body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}) "

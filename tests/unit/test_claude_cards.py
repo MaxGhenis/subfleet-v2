@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import claude_cards as cc
 
@@ -966,8 +966,9 @@ def test_a_read_that_lists_no_cards_keeps_the_last_listed_grants(tmp_path):
         [warning] = shown["warnings"]
         assert warning["listed_at"] == listed["read_at"] and warning["key"] == f"{listed['login']}:{CARD}"
         why = "no cards block" if missing else "ineligible: surface"
-        assert (f"This is the card as last listed {listed['read_at']}; the latest read listed none ({why})"
-                in card_condition(warning, when)["body"])
+        assert warning["unlisted_at"] == cc.iso_utc(when)
+        assert (f"This is the card as last listed {listed['read_at']}; the read at {cc.iso_utc(when)} listed "
+                f"none ({why})" in card_condition(warning, when)["body"])
         # Another read that lists nothing still knows when the cards were last listed ...
         again = _pass(login, Wire(_blind(cedar)), when + timedelta(hours=6), later, tmp_path)
         assert again["accounts"][0]["cards_unlisted"]["listed_at"] == listed["read_at"]
@@ -1095,6 +1096,8 @@ def _cedar(kind):
 
 
 @given(_READS)
+@example([("a", "unused", True), ("a", "ineligible", True), ("b", "fails", True)])   # a's record, b's failed read
+@example([("a", "unused", True), ("b", "unused", False)])                           # b's claim read fails
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_kept_cards_and_claims_never_cross_accounts(tmp_path, reads):
     """C-9.10 invariants over any run of reads, by a model of the rules:
@@ -1151,18 +1154,85 @@ def _fails_usage():
     return {**healthy(), cc.CARDS_USAGE_URL: [(OSError("down"), None, None)]}
 
 
-@pytest.mark.parametrize("between", ["blind", "failed"])
+_BETWEEN = {"blind": lambda: _blind({"eligible": False, "ineligible_reason": "surface", "grants": []}),
+            "missing": lambda: _blind(None), "failed": lambda: _fails_usage()}
+
+
+@pytest.mark.parametrize("between", sorted(_BETWEEN))
 def test_a_card_that_ends_while_reads_list_none_is_lost_at_the_next_listing(tmp_path, between):
     """C-9.10: a card the last listing held unused, that ends while the reads between list no cards
-    (or fail), is recorded lost by the next read that lists it unused after its end."""
+    (an ineligible or a missing block) or fail, is recorded lost by the next read that lists it
+    unused after its end."""
     login = Login(expires_in_s=90 * 86400)
     good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
-    middle = _blind({"eligible": False, "ineligible_reason": "surface", "grants": []}) if between == "blind" \
-        else _fails_usage()
-    mid = _pass(login, Wire(middle), NOW + timedelta(days=18), good, tmp_path)       # the card ended Oct 22
+    mid = _pass(login, Wire(_BETWEEN[between]()), NOW + timedelta(days=18), good, tmp_path)   # the card ended Oct 22
     after = _pass(login, Wire(healthy()), NOW + timedelta(days=19), mid, tmp_path)
     assert after["accounts"][0]["lost"] == [{"grant": CARD, "at": cc.iso_utc(NOW + timedelta(days=19)),
                                              "reason": "expired"}]
+
+
+@pytest.mark.parametrize("between", sorted(_BETWEEN))
+def test_a_lapse_after_reads_that_list_none_over_a_cards_end(tmp_path, between):
+    """C-9.10: a lapse after reads that listed none (or failed) across a card's end records the card
+    the last listing held unused, `lapse`, whichever kind the reads between were."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    mid = _pass(login, Wire(_BETWEEN[between]()), NOW + timedelta(days=18), good, tmp_path)
+    lapsed = _pass(login, Wire({cc.PROFILE_URL: [(200, fixture("profile_lapsed"), None)]}),
+                   NOW + timedelta(days=19), mid, tmp_path)
+    assert [item["reason"] for item in lapsed["accounts"][0]["lost"] if item.get("grant") == CARD] == ["lapse"]
+
+
+def test_credits_are_judged_from_the_read_that_last_read_them(tmp_path):
+    """C-9.10: a read that lists no cards still reads credits, so a credit is judged from that read,
+    not from when the cards were last listed: one it first shows already ended was never held with
+    money left, and is never recorded lost."""
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    answers = _blind({"eligible": False, "ineligible_reason": "surface", "grants": []})
+    answers[cc.CARDS_USAGE_URL][0][1]["zephyr_promo"] = {
+        "limit_dollars": 50, "remaining_dollars": 50.0, "used_dollars": 0.0, "resets_at": "2026-10-07T00:00:00+00:00"}
+    blind = _pass(login, Wire(answers), NOW + timedelta(days=3), good, tmp_path)
+    after = _pass(login, Wire(healthy()), NOW + timedelta(days=4), blind, tmp_path)
+    assert not [item for item in after["accounts"][0].get("lost") or [] if item.get("credit")]
+
+
+def test_a_kept_cards_lapse_risk_says_when_it_was_listed_and_keeps_its_key(tmp_path):
+    """C-9.10: a `card-lapse-risk` built from kept cards carries `listed_at` and `unlisted`, its alert
+    says the card is as last listed, and its key is the listed card's; a credit, read by that same
+    read, carries neither."""
+    from subfleet.alerts import card_condition
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    profile = json.loads(json.dumps(fixture("profile_active")))
+    profile["organization"]["subscription_status"] = "past_due"
+    answers = _blind({"eligible": False, "ineligible_reason": "surface", "grants": []})
+    answers[cc.PROFILE_URL] = [(200, profile, None)]
+    when = NOW + timedelta(days=1)
+    kept = cc.view(_pass(login, Wire(answers), when, good, tmp_path), when, warn_days=5)["warnings"]
+    [risk] = [warning for warning in kept if warning["kind"] == "card-lapse-risk"]
+    assert risk["key"] == f"a:{CARD}:lapse" and risk["listed_at"] == good["accounts"][0]["read_at"]
+    assert risk["unlisted"] == "ineligible: surface"
+    assert f"the read at {cc.iso_utc(when)} listed none (ineligible: surface)" in card_condition(risk, when)["body"]
+    [credit] = [warning for warning in kept if warning["kind"] == "credit-lapse-risk"]
+    assert "unlisted" not in credit and "listed none" not in card_condition(credit, when)["body"]
+
+
+def test_a_kept_cards_alert_names_the_read_that_listed_none_not_a_later_failed_one(tmp_path):
+    """C-9.10: after a read that listed none, a failed read leaves the cards kept; the alert names
+    the read that listed none, never calls the failed one the read that listed none, and keeps its key."""
+    from subfleet.alerts import card_condition
+    login = Login(expires_in_s=90 * 86400)
+    good = _pass(login, Wire(healthy()), NOW, None, tmp_path)
+    blind_at = NOW + timedelta(days=13)          # the card ends 2026-10-22T16:00Z, inside five days
+    blind = _pass(login, Wire(_BETWEEN["blind"]()), blind_at, good, tmp_path)
+    failed_at = blind_at + timedelta(hours=6)
+    failed = _pass(login, Wire(_fails_usage()), failed_at, blind, tmp_path)
+    assert failed["accounts"][0]["status"] == "unavailable"
+    [warning] = cc.view(failed, failed_at, warn_days=5)["warnings"]
+    assert warning["key"] == f"a:{CARD}" and warning["unlisted_at"] == cc.iso_utc(blind_at)
+    body = card_condition(warning, failed_at)["body"]
+    assert f"the read at {cc.iso_utc(blind_at)} listed none (ineligible: surface)" in body and "latest" not in body
 
 
 def test_reads_that_list_none_keep_when_cards_were_listed_and_name_the_latest(tmp_path):
@@ -1264,6 +1334,7 @@ def _card_answers(kind):
 
 
 @given(_CARD_READS)
+@example([("unused", 1), ("blind", 18), ("unused", 1)])      # a card that ends inside a blind spell
 @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_a_read_that_lists_no_cards_counts_as_a_failed_one_for_card_loss(tmp_path, reads):
     """C-9.10, differential: for the cards' loss record, an `ok` read whose cards block lists none is

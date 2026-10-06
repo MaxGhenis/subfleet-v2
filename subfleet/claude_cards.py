@@ -362,8 +362,8 @@ def warnings(accounts: Iterable[Mapping[str, Any]], now: datetime, *, warn_days:
 
     Kinds, each keyed so a repeat is recognisable:
     * `card-expiring`: an unused card ends within `warn_days`. A card kept
-      through a read that listed none carries `listed_at` and `unlisted`, as a
-      `card-lapse-risk` does.
+      through a read that listed none carries `listed_at`, `unlisted_at` and
+      `unlisted`, as a `card-lapse-risk` does.
     * `card-lapse-risk`: an unused card on an account whose plan is lapsing: a
       subscription status other than `active`, or a declared plan end within
       `warn_days` and before the card's own end. (A lapsed plan's usage cannot be
@@ -391,9 +391,10 @@ def warnings(accounts: Iterable[Mapping[str, Any]], now: datetime, *, warn_days:
         declared = plan_end_for(account, plan_ends)
         status = plan.get("subscription_status")
         # Cards kept through a read that listed none say when they were last
-        # listed and why the latest read listed none, so an alert can say so.
+        # listed, and which read listed none and why, so an alert can say so. A
+        # failed read since does not change which read that was.
         unlisted = account.get("cards_unlisted") or {}
-        listing = {"listed_at": unlisted.get("listed_at"),
+        listing = {"listed_at": unlisted.get("listed_at"), "unlisted_at": unlisted.get("at"),
                    "unlisted": "no cards block" if unlisted.get("missing")
                    else f"ineligible: {unlisted.get('ineligible_reason') or 'unknown'}"} if unlisted else {}
 
