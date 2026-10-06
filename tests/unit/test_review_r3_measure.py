@@ -12,10 +12,13 @@ from tests.unit.test_review_r2_repro import (T0, bound, fake_gh, iso, pr_node, r
 def forty_waiting(svc, runs_each):
     for n in range(40):
         cid = bound(svc)
-        t = turn_job(svc, cid, n)
         ids = [f"w{n}-{i}" for i in range(runs_each)]
-        for job_id in ids:
-            run_under(svc, cid, t, job_id, state="running")
+        # Seed before the measurement with one durable commit per conversation;
+        # per-job setup fsyncs are not part of the idle-control cost being measured.
+        with svc.daemon.store.transaction("fixture.waiting-runs"):
+            t = turn_job(svc, cid, n)
+            for job_id in ids:
+                run_under(svc, cid, t, job_id, state="running")
         svc.wakes.register(cid, str(uuid.uuid4()), wakes.normalize(runs=ids or None, at=iso(T0 + 6 * 3600), now=T0))
 
 
@@ -105,8 +108,10 @@ def test_r3_completion_scan_cost_grows_with_delivered_history(svc):
     cid = bound(svc)
     for batch in range(3):
         t = turn_job(svc, cid, f"h{batch}")
-        for i in range(1000):
-            run_under(svc, cid, t, f"hist-{batch}-{i}")        # finished and announced
+        # Preserve all 3,000 history rows and commit each batch before evaluation.
+        with svc.daemon.store.transaction("fixture.delivered-history"):
+            for i in range(1000):
+                run_under(svc, cid, t, f"hist-{batch}-{i}")    # finished and announced
         svc.wakes.tick()
         settle_wakes(svc, cid)
         with svc.store.transaction() as tx:                    # keep the throttle out of the way
