@@ -10,15 +10,19 @@ local sends and steer answers):
   T4. A message is drawn inside a host turn only while it is steering or steered
       (or has no receipt yet), after its host's own bubble.
 
-Outbox (the Swift outbox against the real service, `message.steer` recorded in the
-section 6 shape, with lost answers, busy answers and refusals):
+Outbox (the Swift outbox against the real service and its own `message.steer`,
+steering into a real runner for each conversation's first message, with lost answers,
+busy answers, and refusals from their causes: a conversation with no running turn,
+a `/` command, or a steer of the running message itself):
   O1. At most one thing per conversation may be sent at any moment.
   O2. A conversation's submits are first sent in journal order; a steer is never
       sent before its own message's submit was answered.
   O3. Nothing stays open: every submit is acknowledged and every steer closes, a
       refused one holding nothing behind it.
   O4. Exactly once: a message is steering in the daemon iff its steer was
-      acknowledged; a refused steer leaves it queued; no message is stored twice.
+      acknowledged, and then its runner writes it to the provider once; a refused
+      steer leaves it where it was, for the reason its cause gives; no message is
+      stored twice.
 """
 
 from __future__ import annotations
@@ -30,7 +34,9 @@ import uuid
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
-from tests.frontend.daemon_harness import STEER_REFUSALS, RecordedSteer, ServiceHarness, ServiceServer
+from tests.frontend.daemon_harness import (
+    STEER_REFUSALS, ServiceHarness, ServiceServer, go_live_when_submitted, steer_frames,
+)
 
 pytestmark = needs_swift
 
@@ -129,23 +135,6 @@ def test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says(core_probe, hist
 
 # --- O1-O4 -------------------------------------------------------------------------------
 
-HOST = "0f0f0f0f-0000-4000-8000-000000000000"
-
-
-class PlannedSteer(RecordedSteer):
-    """The recorded op, refusing the messages the plan names, every time they are steered."""
-
-    def __init__(self, harness, plan: dict[str, str]):
-        super().__init__(harness, HOST)
-        self.plan = plan
-
-    def __call__(self, args, peer):
-        code = self.plan.get(args["message_id"])
-        if code:
-            self.refuse = [code]
-        return super().__call__(args, peer)
-
-
 op = st.one_of(
     st.tuples(st.just("submit"), st.sampled_from("AB"), st.booleans()),
     st.tuples(st.just("steer"), st.sampled_from("AB"), st.integers(0, 5)),
@@ -153,35 +142,60 @@ op = st.one_of(
     st.tuples(st.just("advance"), st.just(None), st.sampled_from([0.4, 1, 5])),
     st.tuples(st.just("sendable"), st.just(None), st.just(None)),
 )
-fate = st.sampled_from(["ok", "ok", "drop", "busy", *STEER_REFUSALS])
+#: How a message's steer fares: answered, its answer lost or the daemon busy once, or
+#: refused for a cause the message carries (a `/` command). A narrower permission is
+#: the example test's: a narrower message narrows its conversation, so every later
+#: message would have to be narrower too.
+fate = st.sampled_from(["ok", "ok", "drop", "busy", "slash"])
+
+
+def expected_refusal(kind: str, live: bool, host: bool) -> str | None:
+    """The daemon's refusal for a steer, from `op_message_steer`'s order of checks."""
+    if host and live:
+        return "not-queued"                     # the conversation's running message itself
+    if kind == "slash":
+        return "not-steerable"
+    if not live:
+        return "no-live-turn"
+    return None
 
 
 @settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
-@given(ops=st.lists(op, min_size=1, max_size=16), fates=st.lists(fate, min_size=12, max_size=12))
-def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, ops, fates):
+@given(ops=st.lists(op, min_size=1, max_size=16), fates=st.lists(fate, min_size=16, max_size=16),
+       b_live=st.booleans())
+def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, ops, fates, b_live):
     root = Path(tempfile.mkdtemp(prefix="sf-steer-o-", dir="/tmp"))
     harness = ServiceHarness(root / "daemon")
     server = ServiceServer(harness)
     try:
-        run_outbox_history(core_probe, root, harness, server, ops, fates)
+        run_outbox_history(core_probe, root, harness, server, ops, fates, b_live)
     finally:
         server.close()
         harness.close()
 
 
-def run_outbox_history(core_probe, root: Path, harness, server, ops, fates) -> None:
-    pool = [str(uuid.uuid4()) for _ in range(len(ops))]
+def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_live) -> None:
+    pool = [str(uuid.uuid4()) for _ in range(len(ops) + 2)]
     messages: dict[str, list[str]] = {"A": [], "B": []}
-    plan: dict[str, str] = {}
+    kinds: dict[str, str] = {}                  # each message's fate (`fate`), drawn when it is submitted
+    hosts = {c: pool.pop() for c in "AB"}       # each conversation's first message: its running turn
+    live = {"A": True, "B": b_live}
+    runners = go_live_when_submitted(harness, *[hosts[c] for c in "AB" if live[c]])
     steps = [{"do": "create", "request_id": f"req-{c}", "workspace": str(harness.workspace)} for c in "AB"]
+    steps += [{"do": "submit", "conversation": f"@draft:req-{c}", "message_id": hosts[c], "text": "the turn"}
+              for c in "AB"]
     steps.append({"do": "pump"})
+    for c in "AB":
+        messages[c].append(hosts[c])
+        kinds[hosts[c]] = "ok"
     steered: list[str] = []
     for kind, conversation, arg in ops:
         if kind == "submit":
             mid = pool.pop()
             messages[conversation].append(mid)
+            kinds[mid] = fates[len(kinds) % len(fates)]
             steps.append({"do": "submit", "conversation": f"@conv:req-{conversation}", "message_id": mid,
-                          "text": f"m{len(steps)}", "steer": arg})
+                          "text": ("/compact " if kinds[mid] == "slash" else "") + f"m{len(steps)}", "steer": arg})
             if arg:
                 steered.append(mid)
         elif kind == "steer":
@@ -194,13 +208,9 @@ def run_outbox_history(core_probe, root: Path, harness, server, ops, fates) -> N
             steps.append({"do": "advance", "seconds": arg})
         else:
             steps.append({"do": kind})
-    for index, mid in enumerate(dict.fromkeys(steered)):
-        how = fates[index % len(fates)]
-        if how in ("drop", "busy"):
-            server.faults[("message.steer", mid)] = how            # once: the next try is answered
-        elif how != "ok":
-            plan[mid] = how
-    harness.service.op_message_steer = PlannedSteer(harness, plan)
+    for mid in dict.fromkeys(steered):
+        if kinds[mid] in ("drop", "busy"):
+            server.faults[("message.steer", mid)] = kinds[mid]     # once: the next try is answered
     # Then time passes and the app keeps pumping until nothing is left.
     steps += [s for _ in range(8) for s in ({"do": "advance", "seconds": 40}, {"do": "pump"})]
     out = run_probe(core_probe, "outbox", server.path, root / "support" / "outbox.json",
@@ -233,14 +243,24 @@ def run_outbox_history(core_probe, root: Path, harness, server, ops, fates) -> N
     assert all(e["state"] == "acknowledged" for e in out["entries"]), out["entries"]      # O3
     assert all(s["state"] in ("acknowledged", "refused") for s in out["steers"]), out["steers"]
 
+    conversation_of_message = {m: c for c, ms in messages.items() for m in ms}
+    written = {c: steer_frames(runners[hosts[c]]) if hosts[c] in runners else [] for c in "AB"}
     for mid, steer in steers.items():                                                       # O4
-        stored = harness.store.message(mid)
+        stored, c = harness.store.message(mid), conversation_of_message[mid]
+        refusal = expected_refusal(kinds[mid], live[c], mid == hosts[c])
         if steer["state"] == "acknowledged":
-            assert stored["state"] == "steering" and steer["receipt"]["steered_into"] == HOST, (steer, stored)
+            assert refusal is None, (steer, kinds[mid])
+            assert stored["state"] == "steering" and steer["receipt"]["steered_into"] == hosts[c], (steer, stored)
+            assert written[c].count(mid) == 1, (mid, written)
         else:
-            assert stored["state"] == "queued" and steer["failure"]["reason"] == plan[mid], (steer, stored)
+            assert steer["failure"]["reason"] == refusal, (steer, kinds[mid], live[c])
+            assert stored["state"] == ("running" if mid in runners else "queued"), (steer, stored)
+            assert mid not in written[c]
+    for c in "AB":
+        assert sorted(written[c]) == sorted(m for m in steers if conversation_of_message[m] == c
+                                            and steers[m]["state"] == "acknowledged")
     for mid in [m for ms in messages.values() for m in ms if m not in steers]:
-        assert harness.store.message(mid)["state"] == "queued"
+        assert harness.store.message(mid)["state"] == ("running" if mid in runners else "queued")
     rows = harness.store.query("SELECT message_id FROM messages")
     assert len(rows) == len({r["message_id"] for r in rows}) == sum(map(len, messages.values()))
     for conversation, mids in messages.items():

@@ -242,6 +242,9 @@ def validate_settings(provider: str, settings: Any) -> dict:
 
 # Messages Subfleet writes to repair a session; they go ahead of queued person messages.
 REPAIR_ORIGINS = ("unblock-note", "failover")
+#: The `state_reason` prefix of a steer back in the queue after its turn ended
+#: without it (C-24.9); it runs next, behind only a repair message.
+MISSED_STEER = "steer-missed:"
 
 #: The legacy import's hold (C-30.4, design D-17): the legacy cockpit may be using
 #: the conversation's session. It lives in its own column, `legacy_hold`, beside
@@ -779,15 +782,21 @@ class ConversationStore:
             if source is None or source["blocked_by"] not in (None, fence):
                 return restored
             for item in restores:
+                # A steer that missed its turn keeps the mark the queue orders it by, so
+                # it still runs next (C-24.5): its last change back to `queued` has it.
+                last = tx.execute("SELECT state_reason FROM changes WHERE message_id=? AND state=? "
+                                  "ORDER BY seq DESC LIMIT 1", (item["message_id"], QUEUED)).fetchone()
+                missed = last is not None and (last["state_reason"] or "").startswith(MISSED_STEER)
+                reason = f"{MISSED_STEER} handoff-rolled-back" if missed else "handoff-rolled-back"
                 done = tx.execute(
-                    "UPDATE messages SET state='queued', state_reason='handoff-rolled-back', turn_seq=turn_seq+1, "
+                    "UPDATE messages SET state='queued', state_reason=?, turn_seq=turn_seq+1, "
                     "job_id=NULL, updated_at=? WHERE message_id=? AND conversation_id=? AND turn_seq=? "
                     "AND (job_id IS NULL OR job_id=?) AND state IN ('queued','waiting','cancelled') "
                     "AND COALESCE(state_reason,'') NOT LIKE 'handed-off:%'",
-                    (now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
+                    (reason, now, item["message_id"], conversation_id, item["turn_seq"], item["job_id"])).rowcount
                 if done:
                     restored.append(item["message_id"])
-                    self._change(tx, conversation_id, item["message_id"], QUEUED)
+                    self._change(tx, conversation_id, item["message_id"], QUEUED, reason=reason)
             if tx.execute("UPDATE conversations SET blocked_by=NULL, updated_at=? WHERE conversation_id=? "
                           "AND blocked_by=?", (now, conversation_id, fence)).rowcount:
                 self._change(tx, conversation_id, None, None)
@@ -1113,7 +1122,9 @@ class ConversationStore:
         """For each unblocked conversation with no live message, its next queued one
         (C-24.5): a repair message first (an unblock note, a failover continuation;
         C-24.8, C-26.7), since the person's queued messages were written expecting
-        it; otherwise the lowest sequence."""
+        it; then a steer that missed its turn (C-24.9: it was meant for the running
+        turn, so it runs next, ahead of messages queued for later, as Claude Code
+        runs it); otherwise the lowest sequence."""
         repair = ",".join(f"'{origin}'" for origin in REPAIR_ORIGINS)
         source = "AND m.conversation_id=? " if conversation_id is not None else ""
         rows = self.query(
@@ -1121,7 +1132,8 @@ class ConversationStore:
             f"WHERE m.state='queued' AND {UNBLOCKED} AND c.archived_at IS NULL "
             f"{source}"
             "AND m.message_id = (SELECT q.message_id FROM messages q WHERE q.conversation_id=m.conversation_id "
-            f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, q.seq LIMIT 1) "
+            f"AND q.state='queued' ORDER BY q.origin IN ({repair}) DESC, "
+            f"COALESCE(q.state_reason LIKE '{MISSED_STEER}%', 0) DESC, q.seq LIMIT 1) "
             f"AND NOT EXISTS (SELECT 1 FROM messages l WHERE l.conversation_id=m.conversation_id AND l.state IN ({','.join('?' * len(LIVE_STATES))})) "
             "ORDER BY m.created_at", ((conversation_id,) if conversation_id is not None else ()) + LIVE_STATES)
         return [_decode_message(r) for r in rows]
@@ -1583,6 +1595,20 @@ def _decode_message(row: dict) -> dict:
     out["resolution"] = json.loads(out.pop("resolution_json")) if out.get("resolution_json") else None
     out["steered_into"] = steered_into(out.get("state_reason"))
     return out
+
+
+#: Unicode White_Space, the property Swift's `Character.isWhitespace` reads, so the
+#: daemon and the app's `steerable(text:)` agree on where a text starts.
+WHITE_SPACE = frozenset("\t\n\x0b\x0c\r \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007"
+                        "\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000")
+
+
+def steerable_text(text: str) -> bool:
+    """Whether a message's text may steer a running turn (C-24.9, DESIGN.md section 9):
+    not a `/` command or `!` shell input, which wait for the turn to end, as in
+    Claude Code. The app's `steerable(text:)` applies the same rule."""
+    first = next((char for char in text if char not in WHITE_SPACE), "")
+    return first not in ("/", "!")
 
 
 def steered_into(reason: str | None) -> str | None:

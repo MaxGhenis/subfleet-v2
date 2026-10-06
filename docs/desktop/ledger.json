@@ -140,7 +140,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "Daemon-side steer.v1 is implemented with driver, runner, settlement, replay and invariant tests; see docs/steer-implementation-report.md. App UI integration and live provider verification remain pending."
+      "notes": "Daemon and app sides of steer.v1 are implemented, and the 2026-09-28 steer review's findings are resolved (image steers, the Claude watchdog, queue position, late steers, Esc, the contract). Live provider verification remains: the Claude fold and Codex turn/steer behaviour against real CLIs (docs/steer-provider-claims.md) and test_core_live step 14, which cannot run inside a Subfleet lane."
     },
     {
       "id": "M-10",

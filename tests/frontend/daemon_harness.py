@@ -220,29 +220,115 @@ def claude_result(ok: bool = True, subtype: str = "success") -> dict:
             "errors": [], "permission_denials": [], "duration_ms": 5}
 
 
-# --- steer (C-24.9), in the shapes DESIGN.md section 6 fixes ---------------------------
+# --- steer (C-24.9): the daemon's real `message.steer`, into a real runner ------------------
 #
-# Until the daemon serves `message.steer` and the `steering`/`steered` states, these
-# write what it will, through the real store: a message's state and reason and its
-# change row (the store's `set_state` does not know the new states yet), and the steer
-# events the driver puts on the host message's stream. Receipts, change rows and events
-# then come back through the real `_receipt`, `conversation.watch` and
-# `conversation.events` handlers.
+# `message.steer` is the service's own op. It steers only into a live host: a message
+# running or asking whose `TurnRunner` takes steers. `make_live` builds that runner
+# for a host message, its driver fed the provider's answers up to a steerable turn
+# and its relay a journal (no guardian socket, no provider process); the op then
+# claims, refuses and answers exactly as the daemon does. `go_live_when_submitted`
+# does it the moment the app's own `message.submit` of the host lands, for tests
+# whose conversation the app creates. `record_state` and `record_steer_event` still
+# write what a settlement or the driver would, where a test needs a later state.
 
 STEER_REFUSALS = ("not-queued", "not-next", "no-live-turn", "settings-narrower", "not-steerable")
+STEER_CAPS = {"type": "system", "subtype": "init", "capabilities": ["msg_lifecycle_v1", "interrupt_receipt_v1",
+                                                                    "interrupt_cancel_queued_v1"]}
+
+
+class JournalRelay:
+    """The guardian's relay log (intent, then written) without a provider pipe."""
+
+    def __init__(self, adir: Path):
+        self.path = adir / "stdin.jsonl"
+
+    def send(self, seq, op, *, line=None, tag=None, sig=None):
+        from subfleet.relay import Ack, frame_sha256
+        with self.path.open("a") as stream:
+            stream.write(json.dumps({"kind": "intent", "seq": seq, "op": op, "tag": tag,
+                                     "sha256": frame_sha256(op, line, sig), "line": line}) + "\n")
+            stream.write(json.dumps({"kind": "written", "seq": seq}) + "\n")
+        return Ack(seq, True)
+
+    def close(self) -> None:
+        pass
+
+
+def make_live(harness: ServiceHarness, cid: str, mid: str):
+    """A running host with a real runner that takes steers (C-24.9). Returns the runner."""
+    from subfleet.conversations.runner import TurnRunner
+    harness.store.set_state(mid, RUNNING, expect=("queued", "waiting", "starting"))
+    message = harness.store.message(mid)
+    attempt_id = f"job-{mid[:8]}/a1"
+    adir = harness.root / "jobs" / attempt_id
+    adir.mkdir(parents=True, exist_ok=True)
+    spec = TurnSpec(provider="claude", message_id=mid, text="host", model_id=message["settings"]["model"],
+                    permission=message["settings"]["permission"], native_session_id=None,
+                    new_session_id=str(uuid.uuid4()), cwd=str(harness.workspace))
+    runner = TurnRunner(store=harness.store, attempt={"attempt_id": attempt_id, "lane_id": "claude-1"}, spec=spec,
+                        conversation_id=cid, attempt_dir=adir, control_socket=str(adir / "unused.sock"),
+                        on_outcome=lambda r: None, on_contain=lambda a: None)
+    runner.relay = JournalRelay(adir)
+    runner.handshaken = runner.handshake_done_once = runner.replay_caught_up = True
+    runner._restore_steers()
+    runner._apply(runner.driver.start())
+    for offset, row in enumerate((claude_init(), STEER_CAPS)):
+        runner._apply(runner.driver.feed(json.dumps(row), offset))
+    assert runner.steerable
+    harness.service.runners[attempt_id] = runner
+    return runner
+
+
+def steer_frames(runner) -> list[str]:
+    """The steer frames the runner wrote to its relay, in order (after draining its commands)."""
+    from subfleet.relay import read_log
+    runner._drain_commands()
+    return [r["tag"].removeprefix("steer:") for r in read_log(runner.adir / "stdin.jsonl")
+            if str(r.get("tag")).startswith("steer:")]
+
+
+def go_live_when_submitted(harness: ServiceHarness, *mids: str, then: Callable[[str, str], None] | None = None) -> dict:
+    """Make each named message a live host (`make_live`) when the app's submit of it
+    lands; `then(cid, mid)` runs after. Returns the runners, filled as it happens."""
+    real = harness.service.op_message_submit
+    waiting, runners = set(mids), {}
+
+    def submit(args, peer):
+        receipt = real(args, peer)
+        mid = receipt["message_id"]
+        if mid in waiting and receipt["state"] == "queued":
+            waiting.discard(mid)
+            runners[mid] = make_live(harness, receipt["conversation_id"], mid)
+            if then is not None:
+                then(receipt["conversation_id"], mid)
+        return receipt
+
+    harness.service.op_message_submit = submit
+    return runners
+
+
+def after_submitted(harness: ServiceHarness, mid: str, action: Callable[[dict], None]) -> None:
+    """Run `action(receipt)` once the app's submit of `mid` lands (before its steer)."""
+    real = harness.service.op_message_submit
+
+    def submit(args, peer):
+        receipt = real(args, peer)
+        if receipt["message_id"] == mid:
+            action(receipt)
+        return receipt
+
+    harness.service.op_message_submit = submit
+
+
+def steer_requests(server: "ServiceServer") -> list[str]:
+    return [r["args"].get("message_id") for r in server.requests if r["op"] == "message.steer"]
 
 
 def record_state(harness: ServiceHarness, mid: str, state: str, reason: str | None = None,
                  served: dict | None = None) -> None:
-    """What `set_state` records for a message moving to `state`: its row and its change row."""
-    with harness.store.transaction() as tx:
-        sets, params = "state=?, state_reason=?, updated_at=?", [state, reason, "2026-09-28T12:00:00.000Z"]
-        if served is not None:
-            sets += ", served_json=?"
-            params.append(json.dumps(served))
-        tx.execute(f"UPDATE messages SET {sets} WHERE message_id=?", (*params, mid))
-        row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (mid,)).fetchone()
-        harness.store._change(tx, row["conversation_id"], mid, state, reason=reason)
+    """A message's state as the daemon records it (the store's `set_state`: its row and change row)."""
+    fields = {"served": served} if served is not None else {}
+    harness.store.set_state(mid, state, reason=reason, **fields)
 
 
 def record_steer_event(turn: "Attempt", kind: str, steered: str, **data) -> None:
@@ -250,47 +336,6 @@ def record_steer_event(turn: "Attempt", kind: str, steered: str, **data) -> None
     turn.store.append_events(conversation_id=turn.cid, message_id=turn.mid, attempt_id=turn.attempt_id,
                              events=[("stdout", f"{kind}:{steered}", 0, kind, {"message_id": steered, **data})],
                              stdout_offset=turn.offset, stdin_seq=turn.stdin_seq)
-
-
-def steered_into(reason: str | None) -> str | None:
-    for prefix in ("steer:", "steered:", "steered-unanswered:"):
-        if reason and reason.startswith(prefix):
-            return reason[len(prefix):].strip() or None
-    return None
-
-
-class RecordedSteer:
-    """`message.steer` as section 6 fixes it, answered from the real store until the
-    daemon serves it. A queued message becomes `steering` (`steer:<host>`) and the
-    answer is `_receipt`'s with `steered_into`; a repeat answers the same receipt; a
-    refusal code in `refuse` (one per call, in order) is answered instead and the
-    message stays queued. Install as `harness.service.op_message_steer`."""
-
-    def __init__(self, harness: ServiceHarness, host: str, refuse: list[str] | None = None):
-        self.harness, self.host, self.refuse = harness, host, list(refuse or [])
-        self.calls: list[str] = []
-
-    def receipt(self, mid: str) -> dict:
-        out = self.harness.service._receipt(self.harness.store.message(mid))
-        out["steered_into"] = steered_into(out["state_reason"])
-        return out
-
-    def __call__(self, args: dict, peer) -> dict:
-        from subfleet.conversations.store import ConversationError, canonical_uuid
-        mid = canonical_uuid(args["message_id"])
-        self.calls.append(mid)
-        if self.refuse:
-            reason = self.refuse.pop(0)
-            raise ConversationError(reason, f"the message stays queued ({reason})")
-        message = self.harness.store.find_message(mid)
-        if message is None:
-            raise ConversationError("unknown-message", "no such message")
-        if message["state"] in ("steering", "steered"):
-            return self.receipt(mid)
-        if message["state"] != "queued":
-            raise ConversationError("not-queued", f"the message is {message['state']}")
-        record_state(self.harness, mid, "steering", f"steer:{self.host}")
-        return self.receipt(mid)
 
 
 # --- a socket server around the service ---------------------------------------------

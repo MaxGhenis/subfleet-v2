@@ -116,6 +116,8 @@ struct OutboxSteer: Codable, Equatable, Identifiable {
     var failure: OutboxFailure?
     var receipt: Receipt?
     var createdAt: String
+    /// The running turn it was sent to (C-24.9); absent from older journals.
+    var into: String?
 
     var key: String { OutboxSteer.keyPrefix + messageID }
     var id: String { key }
@@ -188,9 +190,10 @@ enum OutboxError: Error, Equatable {
 
 final class Outbox {
     static let draftPrefix = "draft:"
-    /// A steer that gets no answer this many times is given up: it is worth
-    /// something only while the turn runs, and it must not hold the messages the
-    /// person sends after it. The message stays queued; nothing is lost either way.
+    /// A steer tried this many times (no answer, or a turn that could not take it
+    /// yet) is given up: it is worth something only while the turn runs, and it may
+    /// hold the messages the person sends after it only briefly (0.5 s doubling:
+    /// 7.5 s at most). The message stays queued; nothing is lost either way.
     static let steerAttempts = 5
 
     private(set) var journal: OutboxJournal
@@ -272,11 +275,11 @@ final class Outbox {
     @discardableResult
     func enqueueSubmit(conversation: String, messageID: String = Outbox.newMessageID(), text: String,
                        attachments: [String] = [], staged: [StagedAttachment] = [],
-                       settings: ConversationSettings, steer: Bool = false) throws -> OutboxEntry {
+                       settings: ConversationSettings, steer: Bool = false, into: String? = nil) throws -> OutboxEntry {
         try Outbox.checkMessageID(messageID)
         if let existing = entry(messageID) {
             if steer && !existing.conversation.hasPrefix(Outbox.draftPrefix) {
-                try enqueueSteer(conversation: existing.conversation, messageID: messageID)
+                try enqueueSteer(conversation: existing.conversation, messageID: messageID, into: into)
             }
             return existing
         }
@@ -288,7 +291,9 @@ final class Outbox {
                                 state: .queued, createdAt: stamp())
         journal.nextOrder += 1
         journal.entries.append(entry)
-        if steer && !conversation.hasPrefix(Outbox.draftPrefix) { appendSteer(conversation: conversation, messageID: messageID) }
+        if steer && !conversation.hasPrefix(Outbox.draftPrefix) {
+            appendSteer(conversation: conversation, messageID: messageID, into: into)
+        }
         try save()
         return entry
     }
@@ -315,21 +320,21 @@ final class Outbox {
     /// withdrawn, or answered and since back in the queue) is journaled again at
     /// the end, since the person asked again.
     @discardableResult
-    func enqueueSteer(conversation: String, messageID: String) throws -> OutboxSteer {
+    func enqueueSteer(conversation: String, messageID: String, into: String? = nil) throws -> OutboxSteer {
         try Outbox.checkMessageID(messageID)
         guard !conversation.hasPrefix(Outbox.draftPrefix) else {
             throw OutboxError.notSendable("\(messageID): a conversation not created yet has no running turn")
         }
         if let existing = steer(messageID), existing.isOpen { return existing }
-        let steer = appendSteer(conversation: conversation, messageID: messageID)
+        let steer = appendSteer(conversation: conversation, messageID: messageID, into: into)
         try save()
         return steer
     }
 
     @discardableResult
-    private func appendSteer(conversation: String, messageID: String) -> OutboxSteer {
+    private func appendSteer(conversation: String, messageID: String, into: String?) -> OutboxSteer {
         let steer = OutboxSteer(messageID: messageID, conversation: conversation, order: journal.nextOrder,
-                                state: .queued, createdAt: stamp())
+                                state: .queued, createdAt: stamp(), into: into)
         journal.nextOrder += 1
         journal.steers.removeAll { $0.messageID == messageID }
         journal.steers.append(steer)
@@ -352,11 +357,13 @@ final class Outbox {
         journal.steers[index].state = .sending
         journal.steers[index].attempts += 1
         try save()
-        return MessageSteerArgs(message_id: messageID)
+        return MessageSteerArgs(message_id: messageID, into: journal.steers[index].into)
     }
 
     /// Record the daemon's answer to a steer. A refusal closes it: the message
     /// stays queued in the daemon, and nothing later in the conversation waits.
+    /// A lost answer, or `not-steerable` for a steer that names its turn, is
+    /// asked again briefly first (`steerAttempts`).
     @discardableResult
     func finishSteer(_ messageID: String, _ outcome: OutboxSteerOutcome) throws -> OutboxSteer {
         let index = try steerIndex(messageID)
@@ -383,6 +390,14 @@ final class Outbox {
                     steer.failure?.retryable = true
                     steer.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: steer.attempts)
                 }
+            } else if daemon?.reason == "not-steerable" && steer.into != nil && steer.attempts < Outbox.steerAttempts {
+                // The turn could not take a steer at that moment: its runner still
+                // catching up after a daemon restart, or the provider not ready yet.
+                // It is asked again briefly (0.5 s doubling, `steerAttempts` in all);
+                // `into` has the daemon refuse any try that comes after that turn ended.
+                steer.state = .queued
+                steer.failure?.retryable = true
+                steer.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: steer.attempts)
             } else {
                 steer.state = .refused
             }
