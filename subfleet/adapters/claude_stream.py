@@ -41,6 +41,8 @@ import json
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable
 
+from ..usage import parse_usage
+
 # The closed `error` enum Claude Code stamps on assistant / api_retry frames.
 ERROR_KINDS = (
     "authentication_failed",
@@ -222,6 +224,7 @@ class StreamSummary:
     bad_lines: int = 0
     truncated_tail: bool = False
     unknown_types: tuple[str, ...] = ()
+    usage: dict[str, Any] | None = None   # C-12.10: result segments and distinct main requests
 
     # --- convenience the classifier leans on --------------------------------
 
@@ -404,12 +407,21 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
     bad = 0
     session_id: str | None = None
 
+    usage_rows: list[str] = []
+
     for row in rows:
         if not isinstance(row, dict):
             bad += 1
             continue
         session_id = session_id or _as_str(row.get("session_id"))
         kind = row.get("type")
+        if kind == "result":
+            usage_rows.append(json.dumps({key: row.get(key) for key in ("type", "uuid", "usage", "modelUsage")}))
+        elif kind == "assistant":
+            message = row.get("message")
+            if isinstance(message, dict):
+                usage_rows.append(json.dumps({"type": kind, "parent_tool_use_id": row.get("parent_tool_use_id"),
+                                               "message": {key: message.get(key) for key in ("id", "model", "usage")}}))
 
         if kind == "system":
             subtype = row.get("subtype")
@@ -497,6 +509,7 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
         bad_lines=max(0, bad + counts["total"] - counts["parsed"] - (1 if counts["truncated"] else 0)),
         truncated_tail=counts["truncated"],
         unknown_types=tuple(dict.fromkeys(unknown)),
+        usage=parse_usage(usage_rows, "claude"),
     )
 
 

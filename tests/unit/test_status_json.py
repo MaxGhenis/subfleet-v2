@@ -397,15 +397,15 @@ def test_c18_1_a_lane_a_probe_holds_is_not_dispatchable(state):
 
 
 def test_c18_1_probe_fields_are_additions_only():
-    """C-18.1 the fields the menu bar app decodes keep their names and values; the probe fields are the only new ones."""
+    """C-18.1, C-18.5: the menu's existing fields keep their names and values beside probe and usage additions."""
     rows = [reading(window="seven_day", utilization=0.8), reading("claude", window="five_hour", utilization=0.2)]
     result = build_status(build_view([lane(), lane("claude")], rows, now=NOW))
     codex, claude = result["codex"]["homes"][0], result["claude"]["accounts"][0]
     assert set(result) == {"generated_at", "offline", "jobs", "conversations", "alerts", "codex", "claude"}
     assert result["alerts"] == []                       # C-18.4: always present, empty with none in force
     assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes"}
-    assert set(codex) == V1_CODEX_ROW | PROBE_ROW
-    assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW
+    assert set(codex) == V1_CODEX_ROW | PROBE_ROW | {"usage_24h"}
+    assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW | {"usage_24h"}
     assert set(result["codex"]["fleet"]) == V1_FLEET | {"probe_held"}
     assert set(result["claude"]["lanes"]) == V1_CLAUDE_LANES | {"probe_held"}
     assert codex["probe_state"] is None and codex["probe_holder"] is None and claude["probe_state"] is None
@@ -831,3 +831,108 @@ def test_c6_4_c18_1_with_no_fleet_cap_probe_leases_take_out_only_their_own_lanes
     fleet_row = status["codex"]["fleet"]
     assert (fleet_row["dispatchable_now"], fleet_row["probe_held"], fleet_row["best_home"]) == (
         1, 5, homes["codex-6"]["home"])
+
+
+def _attempt_usage(lane_id, at=NOW, *, prompt=100, cache_read=60, cache_write=30, output=12,
+                   cumulative=False, **clocks):
+    usage = {"provider": lane_id.partition("-")[0], "raw": {},
+             "normalized": {"prompt": prompt, "cache_read": cache_read, "cache_write": cache_write,
+                            "output": output, "cache_ttl": None,
+                            "cache_hit_share": cache_read / prompt if prompt and cache_read is not None else None}}
+    if cumulative:
+        usage["cumulative_thread"] = True
+    return {"job_id": "fixture-job", "seq": 1, "lane_id": lane_id, "finished_at": at,
+            "evidence_json": json.dumps({"usage": usage}), **clocks}
+
+
+def test_c18_5_c29_6_lane_usage_is_a_24_hour_sum_with_observed_counts():
+    """C-18.5, C-29.6: each lane sums all attempt kinds in the inclusive recent window only."""
+    rows = [_attempt_usage("codex-1", "2026-09-04T12:00:00Z"),
+            _attempt_usage("codex-1", prompt=200, cache_read=100, cache_write=50, output=15),
+            {"job_id": "fixture-old-job", "lane_id": "codex-1", "reserved_at": NOW, "evidence_json": "{}"},
+            _attempt_usage("codex-1", "2026-09-04T11:59:59Z", prompt=900),
+            _attempt_usage("codex-1", "2026-09-05T12:00:01Z", prompt=900),
+            _attempt_usage("claude-1", None, started_at="2026-09-05T11:00:00Z", kind="turn")]
+    snapshot = {"lanes": [lane(), lane("claude")], "attempts": rows, "now": NOW}
+    before = copy.deepcopy(snapshot)
+    result = build_status(snapshot)
+    usage = result["codex"]["homes"][0]["usage_24h"]
+    assert usage["since"] == "2026-09-04T12:00:00Z" and usage["until"] == NOW
+    assert (usage["attempts"], usage["attempts_with_usage"], usage["attempts_without_usage"]) == (3, 2, 1)
+    assert {field: usage[field] for field in ("prompt", "cache_read", "cache_write", "output")} == {
+        "prompt": 300, "cache_read": 160, "cache_write": 80, "output": 27}
+    assert usage["cache_hit_share"] == 160 / 300
+    claude = result["claude"]["accounts"][0]["usage_24h"]
+    assert claude["attempts_with_usage"] == 1 and claude["prompt"] == 100
+    assert snapshot == before
+
+
+@pytest.mark.parametrize("now", ["2026-09-05T12:00:00.500Z", AT.replace(microsecond=500000)])
+def test_c18_5_c29_6_lane_usage_selects_the_advertised_second_precision_window(now):
+    """C-18.5, C-29.6: fractional clocks select exactly the inclusive window `generated_at` advertises."""
+    rows = [_attempt_usage("codex-1", "2026-09-04T12:00:00.250Z"),
+            _attempt_usage("codex-1", NOW, prompt=200, cache_read=100, cache_write=50, output=15),
+            _attempt_usage("codex-1", "2026-09-04T11:59:59.999999Z", prompt=900),
+            _attempt_usage("codex-1", "2026-09-05T12:00:00.000001Z", prompt=900),
+            _attempt_usage("codex-1", "2026-09-05T12:00:00.250Z", prompt=900)]
+    result = build_status({"lanes": [lane()], "attempts": rows}, now=now)
+    usage = result["codex"]["homes"][0]["usage_24h"]
+    assert result["generated_at"] == usage["until"] == NOW
+    assert usage["since"] == "2026-09-04T12:00:00Z"
+    assert usage["attempts"] == usage["attempts_with_usage"] == 2
+    assert {field: usage[field] for field in ("prompt", "cache_read", "cache_write", "output")} == {
+        "prompt": 300, "cache_read": 160, "cache_write": 80, "output": 27}
+    assert usage["cache_hit_share"] == 160 / 300
+
+
+def test_c18_5_c29_6_empty_history_missing_fields_and_bad_clocks_remain_unknown():
+    """C-18.5, C-29.6: an absent counter is null, while counts of observed rows may be zero."""
+    result = build_status({"lanes": [lane(), lane("claude")], "now": NOW,
+                           "attempts": [_attempt_usage("codex-1", cache_write=None),
+                                        _attempt_usage("claude-1", "invalid"),
+                                        _attempt_usage("claude-1", None),
+                                        _attempt_usage("claude-1", 12345)]})
+    codex = result["codex"]["homes"][0]["usage_24h"]
+    assert codex["cache_write"] is None and codex["field_attempts"]["cache_write"] == 0
+    assert codex["prompt"] == 100 and codex["cache_hit_share"] == .6
+    claude = result["claude"]["accounts"][0]["usage_24h"]
+    assert claude["attempts"] == claude["attempts_with_usage"] == claude["attempts_without_usage"] == 0
+    assert all(claude[field] is None for field in ("prompt", "cache_read", "cache_write", "output", "cache_hit_share"))
+
+
+def test_c18_5_c29_6_cumulative_thread_usage_is_observed_but_not_charged_to_the_lane():
+    """C-18.5, C-29.6: a resumed thread counter cannot inflate attempt sums or the lane's cache share."""
+    result = build_status({"lanes": [lane()], "now": NOW,
+                           "attempts": [_attempt_usage("codex-1"),
+                                        _attempt_usage("codex-1", prompt=1000, cumulative=True)]})
+    usage = result["codex"]["homes"][0]["usage_24h"]
+    assert usage["attempts_with_usage"] == 2 and usage["cumulative_thread_attempts"] == 1
+    assert (usage["prompt"], usage["cache_read"], usage["cache_hit_share"]) == (100, 60, .6)
+    only_cumulative = build_status({"lanes": [lane()], "now": NOW,
+                                    "attempts": [_attempt_usage("codex-1", cumulative=True)]})
+    assert only_cumulative["codex"]["homes"][0]["usage_24h"]["prompt"] is None
+
+
+@st.composite
+def _usage_counters(draw):
+    prompt = draw(st.integers(0, 10**12))
+    return {"prompt": prompt, "cache_read": draw(st.integers(0, prompt)),
+            "cache_write": draw(st.integers(0, prompt)), "output": draw(st.integers(0, 10**12))}
+
+
+@settings(deadline=None)
+@given(st.lists(_usage_counters(), max_size=30))
+def test_c18_5_c29_6_status_sums_equal_attempt_rows_and_share_stays_bounded(counters):
+    """C-18.5, C-29.6: every accepted attempt enters each lane sum once; share is [0, 1] or null."""
+    result = build_status({"lanes": [lane()], "now": NOW,
+                           "attempts": [_attempt_usage("codex-1", **row) for row in counters]})
+    usage = result["codex"]["homes"][0]["usage_24h"]
+    assert usage["attempts_with_usage"] == len(counters)
+    for field in ("prompt", "cache_read", "cache_write", "output"):
+        assert usage[field] == (sum(row[field] for row in counters) if counters else None)
+    share = usage["cache_hit_share"]
+    assert share is None or 0 <= share <= 1
+    if usage["prompt"]:
+        assert share == usage["cache_read"] / usage["prompt"]
+    else:
+        assert share is None

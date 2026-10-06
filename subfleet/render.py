@@ -106,6 +106,32 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join([line(headers), line(["-" * width for width in widths]), *(line(row) for row in rows)])
 
 
+def attempt_usage(usage: Mapping[str, Any] | None) -> list[str]:
+    """C-12.10, C-17.8: the usage an attempt's stream reported, including nulls.
+
+    The normalized counters and cache share are shown beside their raw provider
+    fields. First and last main-thread request usage remain separate from the
+    attempt totals. A resumed Codex exec whose counter includes earlier turns
+    explicitly says `cumulative thread totals`; no display estimates a delta.
+    An attempt with no record adds no usage lines.
+    """
+    if not isinstance(usage, Mapping):
+        return []
+    normalized = usage.get("normalized") or {}
+    fields = ("prompt", "cache_read", "cache_write", "output", "cache_ttl")
+    parts = [f"{field}={json.dumps(normalized.get(field), ensure_ascii=False)}" for field in fields]
+    share = normalized.get("cache_hit_share")
+    parts.append(f"cache_hit_share={share * 100:g}%" if isinstance(share, (int, float))
+                 and not isinstance(share, bool) else "cache_hit_share=null")
+    qualifier = " (cumulative thread totals)" if usage.get("cumulative_thread") is True else ""
+    lines = [f"usage{qualifier}: " + "; ".join(parts)]
+    for key in ("first_request", "last_request"):
+        if key in usage:
+            lines.append(f"{key}: " + json.dumps(usage[key], sort_keys=True, ensure_ascii=False))
+    lines.append("usage raw: " + json.dumps(usage.get("raw"), sort_keys=True, ensure_ascii=False))
+    return lines
+
+
 def status(view: Mapping[str, Any]) -> str:
     """C-9.1, C-11.3: show evidence and attempts in the Codex reset waterfall."""
     # Rebuild only from supplied rows, for the same time, so offline and online
