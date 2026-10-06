@@ -37,6 +37,7 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -336,8 +337,9 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
-    lanes = rows_of(data.get("lanes"))
-    readings = rows_of(data.get("readings"))
+    lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
+    readings = [dict(row) for row in rows_of(data.get("readings"))]
+    at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
     closures = rows_of(data.get("closures"))
     # `daemon.status` carries every job the store holds as `jobs` (it is the
     # capacity view); only the live ones belong under this heading. A turn job
@@ -352,7 +354,7 @@ def format_status(data: dict[str, Any]) -> str:
     for reading in readings:
         by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
         reading["label"] = age_adjusted_label(reading.get("label"),
-                                              reading.get("observed_at"))
+                                              reading.get("observed_at"), now=at)
 
     if not lanes:
         lines.append("no lanes enrolled — subfleet lanes enroll <credential>")
@@ -361,13 +363,19 @@ def format_status(data: dict[str, Any]) -> str:
                      f"{'flight':>6}  windows")
         for lane in lanes:
             marks = []
+            lane["weekly_projections"] = render.weekly_projections(
+                {**lane, "readings": by_lane.get(str(lane.get("lane_id")), [])}, now=at,
+                samples=data.get("weekly_samples"))
             for reading in sorted(by_lane.get(str(lane.get("lane_id")), []),
                                   key=lambda r: str(r.get("window"))):
                 label = reading.get("label")
                 stale = " stale" if label == "stale-provider" else ""
                 if label in {"provider", "stale-provider"}:
-                    marks.append(f"{reading.get('window')} "
-                                 f"{_percent(reading.get('utilization'))}{stale}")
+                    mark = f"{reading.get('window')} {_percent(reading.get('utilization'))}{stale}"
+                    projection = lane["weekly_projections"].get(reading.get("scope", "account"))
+                    if reading.get("window") == "seven_day" and projection is not None:
+                        mark += " · " + render.projection_text(projection)
+                    marks.append(mark)
                 else:
                     marks.append(f"{reading.get('window')} {label}")
             flags = []
@@ -387,6 +395,7 @@ def format_status(data: dict[str, Any]) -> str:
                 f"{' · '.join(marks) or 'no reading'}"
                 + (f"  [{', '.join(flags)}]" if flags else "")
             )
+    lines.extend(render.projection_totals(lanes))
     cards = data.get("claude_cards")
     if isinstance(cards, dict):
         # C-9.10: what each Claude account holds that can be lost.
