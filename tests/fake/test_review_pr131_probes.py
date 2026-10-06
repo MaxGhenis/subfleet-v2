@@ -12,7 +12,8 @@ from subfleet import daemon as dm, procs, protocol
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 
 ORIGINAL_CENSUS = procs.containment
-BOOT = "fixture-boot"
+BOOT = "6F1C0F2E-1111-4222-8333-944455556666"
+NEXT_BOOT = "7F1C0F2E-1111-4222-8333-944455556666"
 
 
 def ident(pid, start, boot=BOOT):
@@ -155,7 +156,7 @@ def test_after_a_reboot_recorded_pids_are_gone_and_a_reused_leader_group_is_igno
     a = quarantine(daemon, harness, held={"42099": ident(42099, "old-start")})
     # New boot: pid 100 leads an unrelated group, 42099 is an unrelated process.
     script_table(monkeypatch, {100: (1, 100, "Ss", "new-boot-a"), 101: (100, 100, "S", "new-boot-b"),
-                               42099: (1, 42099, "S", "new-boot-c")}, boot="another-boot")
+                               42099: (1, 42099, "S", "new-boot-c")}, boot=NEXT_BOOT)
     assert daemon._contain(a).verified_empty
     assert confirm_dead(daemon, a) == "lost"
 
@@ -164,7 +165,7 @@ def test_after_a_reboot_a_marked_process_still_holds(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     a = quarantine(daemon, harness, held={"42099": ident(42099, "old-start")})
     marker = f"SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={daemon.root}"
-    script_table(monkeypatch, {555: (1, 555, "S", "new")}, markers=f"555 node {marker}\n", boot="another-boot")
+    script_table(monkeypatch, {555: (1, 555, "S", "new")}, markers=f"555 node {marker}\n", boot=NEXT_BOOT)
     assert daemon._contain(a).marker_pids == {555}
     assert confirm_dead(daemon, a) == "quarantined"
 
@@ -192,7 +193,8 @@ def test_an_unrelated_process_on_the_child_pid_does_not_hold_for_ever(state_daem
     a = daemon.store.get_attempt(a["attempt_id"])
     script_table(monkeypatch, {500: (1, 500, "Ss", "unrelated")})
     census = daemon._contain(a)
-    assert census.verified_empty, census.to_dict()
+    # A changed PID identity says nothing about unobserved descendants.
+    assert not census.live_pids and not census.verified_empty, census.to_dict()
 
 
 # --- 5. Salvage on automatic release: a worktree whose admin dir was pruned ---
@@ -215,7 +217,7 @@ def test_a_pruned_worktree_is_released_with_its_salvage_error_and_left_on_disk(s
                                identities={42099: procs.ProcessIdentity(42099, BOOT, "old-start")})
     daemon._quarantine(daemon.store.get_attempt(a["attempt_id"]), census, "writers remain after exit receipt")
     daemon.store.update_attempt(a["attempt_id"], quarantine_recheck_at="")
-    script_table(monkeypatch, {})
+    script_table(monkeypatch, {}, boot=NEXT_BOOT)
     daemon._recheck_quarantines()
     row = daemon.store.get_attempt(a["attempt_id"])
     assert row["state"] == "lost"
@@ -235,7 +237,7 @@ def test_a_plain_text_quarantine_reason_does_not_wedge_resolution(state_daemon, 
     daemon, harness = state_daemon
     a = quarantine(daemon, harness)
     daemon.store.update_attempt(a["attempt_id"], quarantine_reason="held", quarantine_recheck_at="")
-    script_table(monkeypatch, {})
+    script_table(monkeypatch, {}, boot=NEXT_BOOT)
     daemon._recheck_quarantines()
     assert daemon.store.get_attempt(a["attempt_id"])["state"] == "lost"
 

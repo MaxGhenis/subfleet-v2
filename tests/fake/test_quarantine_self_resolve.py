@@ -19,7 +19,9 @@ from tests.fake.test_state_contract import state_daemon, reserve  # noqa: F401
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
 
-WRITER = procs.ProcessIdentity(42099, "fixture-boot", "old-start")
+BOOT = "6F1C0F2E-1111-4222-8333-944455556666"
+NEXT_BOOT = "7F1C0F2E-1111-4222-8333-944455556666"
+WRITER = procs.ProcessIdentity(42099, BOOT, "old-start")
 LIVE = procs.Containment(marker_pids=frozenset({WRITER.pid}), identities={WRITER.pid: WRITER})
 TURN_SETTINGS = {"model": "gpt-6-astra", "effort": None, "fast": False,
                  "permission": "accept-edits", "auto_continue": True}
@@ -60,7 +62,7 @@ def assert_released(daemon, a):
 def scripted_census(monkeypatch, daemon, *, writer="old-start", unverifiable=False):
     # Exercise the production three-source census and its recorded identities.
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(
-        {WRITER.pid: (1, WRITER.pid, "S", writer)} if writer is not None else {}, boot_id=WRITER.boot_id))
+        {WRITER.pid: (1, WRITER.pid, "S", writer)} if writer is not None else {}, boot_id=NEXT_BOOT if writer is None else WRITER.boot_id))
     def read(argv, **kwargs):
         assert "pid=,command=" in argv
         if unverifiable:
@@ -149,7 +151,7 @@ def test_live_or_unverifiable_census_never_releases_across_many_paces(state_daem
     assert not daemon.store.one("SELECT 1 FROM events WHERE kind='quarantine.self_resolved'")
 
 
-def test_pid_reuse_with_different_start_time_counts_as_gone(state_daemon, monkeypatch):
+def test_pid_reuse_does_not_prove_unobserved_descendants_gone(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     _, a, _ = quarantined(daemon, harness)
@@ -160,7 +162,9 @@ def test_pid_reuse_with_different_start_time_counts_as_gone(state_daemon, monkey
     scripted_census(monkeypatch, daemon, writer="new-start")
     clock.advance()
     daemon._recheck_quarantines()
-    assert_released(daemon, a)
+    # Reusing the parent PID cannot close the fork gap.
+    assert daemon.store.get_attempt(a["attempt_id"])["state"] == "quarantined"
+    assert daemon.store.list_leases()
 
 
 def test_notification_failure_does_not_starve_other_quarantine_checks(state_daemon, monkeypatch):
@@ -326,7 +330,7 @@ def test_status_names_old_quarantines_age_and_latest_reason(state_daemon, monkey
 
 @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @example(actions=["tick", "exit0", "unverifiable", "exit1", "restart", "kill", "verifiable", "tick", "restart", "kill"])
-@given(actions=st.lists(st.sampled_from(["exit0", "exit1", "reuse0", "reuse1", "unverifiable", "verifiable", "tick", "restart", "kill"]), min_size=1, max_size=35))
+@given(actions=st.lists(st.sampled_from(["exit0", "exit1", "reuse0", "reuse1", "unverifiable", "verifiable", "tick", "restart", "kill", "reboot"]), min_size=1, max_size=35))
 def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most_once(state_daemon, monkeypatch, actions):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
@@ -341,18 +345,19 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
                              state="quarantined", quarantine_reason=json.dumps({"identities": {str(w.pid): {"pid": w.pid, "boot_id": w.boot_id, "proc_start": w.proc_start} for w in writers}}))
     daemon.store.acquire_lease(f"worktree:property:{job}", aid)
     states, unavailable, proofs = ["live", "live"], False, []
+    current_boot = BOOT
     original_read = procs._read
     current = daemon
     def snapshot():
         return procs.ProcessTable({w.pid: (1, w.pid, "S", w.proc_start if state == "live" else "reused-start")
-                                   for w, state in zip(writers, states) if state != "gone"}, boot_id=WRITER.boot_id)
+                                   for w, state in zip(writers, states) if state != "gone"}, boot_id=current_boot)
     def read(argv, **kwargs):
         if unavailable:
             raise procs.InspectionError("marker enumeration unavailable")
         return ""
     def census(*args, **kwargs):
         result = ORIGINAL_CENSUS(*args, **kwargs)
-        proofs.append((result.verified_empty, unavailable, tuple(states)))
+        proofs.append((result.verified_empty, unavailable, tuple(states), current_boot))
         return result
     monkeypatch.setattr(procs, "snapshot", snapshot)
     monkeypatch.setattr(procs, "_read", read)
@@ -360,7 +365,10 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
     try:
         was_released = False
         for action in actions:
-            if action.startswith("exit"):
+            if action == "reboot":
+                current_boot = NEXT_BOOT
+                states[:] = ["gone", "gone"]
+            elif action.startswith("exit"):
                 states[int(action[-1])] = "gone"
             elif action.startswith("reuse"):
                 states[int(action[-1])] = "reused"
@@ -386,8 +394,8 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
             assert released == bool(events)
             if released:
                 if not was_released:
-                    verified, unknown, observed = proofs[-1]
-                    assert verified and not unknown and all(s != "live" for s in observed)
+                    verified, unknown, observed, observed_boot = proofs[-1]
+                    assert verified and not unknown and observed_boot == NEXT_BOOT
                 assert not current.store.one("SELECT 1 FROM leases WHERE holder=?", (aid,))
                 data = json.loads(events[0]["data_json"])
                 assert not data["override"] and not data["containment"]["unverifiable"] and not data["containment"]["live_pids"]

@@ -5,7 +5,7 @@ import pytest
 
 from subfleet import procs
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
-from tests.fake.test_review_pr131_probes import confirm_dead, ident, quarantine as review_quarantine, script_table
+from tests.fake.test_review_pr131_probes import NEXT_BOOT, confirm_dead, ident, quarantine as review_quarantine, script_table
 from tests.fake.test_quarantine_self_resolve import Clock, assert_released
 
 
@@ -90,7 +90,7 @@ def test_corrupt_owned_evidence_cannot_establish_death(state_daemon, monkeypatch
     daemon, harness = state_daemon
     a = quarantine(daemon, harness)
     daemon.store.update_attempt(a['attempt_id'], evidence_json='{broken', quarantine_recheck_at='')
-    script_table(monkeypatch, {})
+    script_table(monkeypatch, {}, boot=NEXT_BOOT)
     daemon._recheck_quarantines()
     assert daemon.store.get_attempt(a['attempt_id'])['state'] == 'quarantined'
     assert daemon.store.list_leases()
@@ -106,7 +106,7 @@ def test_legacy_child_without_identity_still_holds_conservatively(state_daemon, 
     assert daemon.store.list_leases()
 
 
-@pytest.mark.parametrize('start,expected', [('provider-start', 'quarantined'), ('unrelated', 'lost')])
+@pytest.mark.parametrize('start,expected', [('provider-start', 'quarantined'), ('unrelated', 'quarantined')])
 def test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse(
         state_daemon, monkeypatch, start, expected):
     daemon, harness = state_daemon
@@ -119,7 +119,10 @@ def test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse(
     script_table(monkeypatch, {500: (1, 500, 'Ss', start), 501: (500, 501, 'S', 'child')})
     assert confirm_dead(daemon, a) == expected
     if expected == 'quarantined':
-        assert {500, 501} <= daemon._contain(a).live_pids
+        census = daemon._contain(a)
+        assert ({500, 501} <= census.live_pids) if start == 'provider-start' else not census.live_pids
+        # PID reuse cannot prove an unobserved descendant dead on this boot.
+        assert not census.verified_empty
         assert daemon.store.list_leases()
     else:
         assert_released(daemon, a)
@@ -132,7 +135,7 @@ def test_legacy_quarantine_reasons_do_not_wedge_either_resolver(state_daemon, mo
     a = quarantine(daemon, harness)
     daemon.store.update_attempt(a['attempt_id'], quarantine_reason=reason, quarantine_recheck_at='')
     a = daemon.store.get_attempt(a['attempt_id'])
-    script_table(monkeypatch, {})
+    script_table(monkeypatch, {}, boot=NEXT_BOOT)
     if operator:
         assert confirm_dead(daemon, a) == 'lost'
     else:

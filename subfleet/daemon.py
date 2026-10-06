@@ -5872,8 +5872,23 @@ class Daemon:
         recorded = _identity_union(evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
+        launch_boot = a.get("boot_id") or start.get("boot_id")
+        # Once quarantined, neither an exit receipt nor absent recorded PIDs
+        # prove an unobserved descendant dead. Include every observed boot so
+        # a current-boot marked writer cannot be forgotten after an old reboot.
+        lineage_boots = ()
+        if a["state"] == "quarantined":
+            boots = {known.boot_id for records in recorded.values() for known in records}
+            if launch_boot:
+                boots.add(launch_boot)
+            elif a.get("guardian_pid") or a.get("pgid") or child_pid:
+                boots.add("")
+            if start.get("boot_id"):
+                boots.add(start["boot_id"])
+            lineage_boots = tuple(sorted(boots or {""}))
         return procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
-                                 a["attempt_id"], root=str(self.root), recorded=recorded)
+                                 a["attempt_id"], root=str(self.root), recorded=recorded,
+                                 launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots)
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
