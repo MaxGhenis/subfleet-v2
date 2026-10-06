@@ -86,7 +86,6 @@ enum ApprovalPresentation {
             return path.isEmpty ? key : path + "." + key
         }
         func flatten(_ value: JSONValue, path: String, ancestors: [String] = []) -> [(key: String, value: String, priority: Int)] {
-            if value.isNull { return [] }
             if let object = value.object, !object.isEmpty {
                 return object.keys.sorted().flatMap { key -> [(key: String, value: String, priority: Int)] in
                     let hidden: Set<String> = path.isEmpty
@@ -112,7 +111,10 @@ enum ApprovalPresentation {
             else if keys.contains(where: { ["path", "file_path", "blocked_path", "notebook_path"].contains($0) }) { priority = 0 }
             else if keys.contains("command") { priority = 5 }
             else { priority = 6 }
-            return [(path, value.string == "" ? "\"\"" : value.displayText, priority)]
+            // An explicit null can remove a property (e.g. a Notion MCP input).
+            // Only the named plumbing filters above may omit it; displayText
+            // renders null as empty for other callers, so spell it out here.
+            return [(path, value.isNull ? "null" : value.string == "" ? "\"\"" : value.displayText, priority)]
         }
         return flatten(source, path: "").sorted {
             // Natural comparison preserves array order: [2] precedes [10].
