@@ -28,7 +28,7 @@ from typing import Any, Iterator
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import APPROVAL_NEEDED, CANCELLED, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
+from .turn import APPROVAL_NEEDED, CANCELLED, COMPLETE, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS messages (
   UNIQUE (conversation_id, seq)
 );
 CREATE INDEX IF NOT EXISTS messages_by_state ON messages(conversation_id, state, seq);
+CREATE TABLE IF NOT EXISTS final_wake_intents (
+  message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
+  final_text TEXT NOT NULL, settled_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS approvals (
   approval_id         TEXT PRIMARY KEY,
   message_id          TEXT NOT NULL REFERENCES messages(message_id),
@@ -1109,13 +1113,21 @@ class ConversationStore:
 
     def set_state(self, message_id: str, state: str, *, reason: str | None = None,
                   expect: tuple[str, ...] | None = None, unbound: bool = False,
-                  expect_turn_seq: int | None = None, **fields: Any) -> bool:
+                  expect_turn_seq: int | None = None,
+                  final_wake: tuple[str, float] | None = None, **fields: Any) -> bool:
         """Move a message; with `expect`, only from those states, with `unbound`,
         only while no job is bound to it, and with `expect_turn_seq`, only at that
-        turn sequence. Returns whether it moved."""
+        turn sequence. Returns whether it moved. `final_wake` records final text
+        and its settlement time for wake registration in the completion transaction.
+        """
+        if final_wake is not None and state != COMPLETE:
+            raise ValueError("final wakes require a complete message")
         with self.transaction() as tx:
-            return self._set_state(tx, message_id, state, reason=reason, expect=expect, unbound=unbound,
-                                   expect_turn_seq=expect_turn_seq, **fields)
+            changed = self._set_state(tx, message_id, state, reason=reason, expect=expect, unbound=unbound,
+                                      expect_turn_seq=expect_turn_seq, **fields)
+            if changed and final_wake is not None:
+                tx.execute("INSERT INTO final_wake_intents VALUES(?,?,?)", (message_id, *final_wake))
+            return changed
 
     def _set_state(self, tx: sqlite3.Connection, message_id: str, state: str, *, reason: str | None = None,
                    expect: tuple[str, ...] | None = None, unbound: bool = False,

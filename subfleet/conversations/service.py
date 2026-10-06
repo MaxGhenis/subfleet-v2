@@ -2065,6 +2065,10 @@ class ConversationService:
         good, and its conversation with it (review of 585ea41..4d3d3ea). Each such
         attempt is replayed once by a runner that takes its provider as gone; one
         never started is `_settle_unstarted`'s."""
+        # Completion and this intent commit together. A completed message needs
+        # no runner replay, but its final-text requests may still need registering.
+        with self._lock:
+            self.wakes.replay_final()
         live = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED)
         rows = self.store.query(f"SELECT message_id, job_id FROM messages WHERE state IN ({','.join('?' * len(live))}) "
                                 "AND job_id IS NOT NULL", live)
@@ -2335,6 +2339,8 @@ class ConversationService:
             fields: dict[str, Any] = {"served": served}
             if settlement.state == COMPLETE:
                 fields["turn_ref"] = turn.get("turn_id") or message.get("turn_ref")
+                if turn.get("final_text"):
+                    fields["final_wake"] = (turn["final_text"], self.wakes.now())
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
         if settlement.state == COMPLETE and turn.get("final_text"):
