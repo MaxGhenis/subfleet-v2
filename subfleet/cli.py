@@ -1290,7 +1290,6 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 if job.get("state") in TERMINAL_STATES:
                     if job_id not in finished:
                         progress = True
-                        _ack_notices(client, job)
                     finished[job_id] = job
                     pending.discard(job_id)
                 elif job_id not in pending:
@@ -1581,8 +1580,7 @@ def _format_job(job: dict[str, Any]) -> str:
 
 
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:
-    """C-15.3 acknowledge notices when their session receives a terminal wait
-    result or runs `runs show <job>`.
+    """C-15.3 acknowledge notices when their session runs `runs show <job>`.
 
     Best effort: the job was already shown, so a failed acknowledgement must not
     change what the caller sees or the exit code.

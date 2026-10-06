@@ -23,6 +23,7 @@ COOLDOWN_S = 30 * 60
 PR_INTERVAL_S = 60
 MIN_TIMER_S = 300
 MAX_TARGETS = 16
+EVALUATION_INTERVAL_S = 1.0
 PR = re.compile(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]*)\Z")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wake_requests (
@@ -41,6 +42,10 @@ CREATE TABLE IF NOT EXISTS wake_notice_repairs (
 );
 CREATE TABLE IF NOT EXISTS wake_historical_runs (job_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS wake_meta (key TEXT PRIMARY KEY, value REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS wake_pr_refusals (
+ conversation_id TEXT NOT NULL, target TEXT NOT NULL, error TEXT NOT NULL,
+ PRIMARY KEY(conversation_id,target)
+);
 """
 
 
@@ -171,6 +176,17 @@ class WakeEngine:
         self._poll_future = None
         self._next_poll = 0.0
         self._next_completions = 0.0
+        self._next_requests = 0.0
+        self._started = False
+        # Catalog-only services can be constructed before a job store exists.
+        # Start immediately when possible to snapshot historical completions
+        # before any new work; otherwise resolve the store on the first tick.
+        if getattr(service.daemon, "store", None) is not None:
+            self.start()
+
+    def start(self) -> None:
+        if self._started:
+            return
         activation = self.now()
         historical = self.service.daemon.store.query(
             "SELECT job_id FROM jobs WHERE kind<>'turn' AND state IN "
@@ -185,6 +201,7 @@ class WakeEngine:
                 tx.execute("INSERT OR IGNORE INTO wake_notice_repairs SELECT w.job_id,m.created_at "
                            "FROM wake_runs w JOIN messages m USING(message_id)")
                 tx.execute("INSERT INTO wake_meta VALUES('notice-queue-v1',?)", (self.now(),))
+        self._started = True
 
     def close(self) -> None:
         # gh has a hard timeout. The worker must end before its stores close.
@@ -199,16 +216,20 @@ class WakeEngine:
                 self.service.log.warning("PR wake worker failed: %s", exc)
             self._poll_future = None
         if self._poll_future is None and self.now() >= self._next_poll:
+            self._next_poll = self.now() + PR_INTERVAL_S
             pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending' AND kind='pr' AND ready_json IS NULL")
             if pending:
-                self._next_poll = self.now() + PR_INTERVAL_S
                 self._poll_future = self.poller.submit(self._poll_prs, pending)
-        scan_completions = self.now() >= self._next_completions
+        now = self.now()
+        scan_completions = now >= self._next_completions
         if scan_completions:
-            self._next_completions = self.now() + 1.0
-        self.tick(poll=False, scan_completions=scan_completions)
+            self._next_completions = now + EVALUATION_INTERVAL_S
+        scan_requests = scan_completions or now >= self._next_requests
+        if scan_requests:
+            self._next_requests = now + EVALUATION_INTERVAL_S
+        self.tick(poll=False, scan_completions=scan_completions, scan_requests=scan_requests)
 
-    def register(self, cid: str, request_id: str, spec: dict) -> dict:
+    def register(self, cid: str, request_id: str, spec: dict, *, event_since: float | None = None) -> dict:
         conversation = self.store.conversation(cid)
         for job_id in spec.get("runs", {}).get("targets", []):
             if self.store.one("SELECT 1 FROM wake_requests WHERE conversation_id=? AND request_id=? AND kind='runs'",
@@ -228,6 +249,14 @@ class WakeEngine:
                 if existing != spec:
                     raise ConversationError("wake-id-conflict", "request id already has another payload")
                 return {"request_id": request_id, "kinds": list(spec)}
+            for target in spec.get("pr", {}).get("targets", []):
+                refused = tx.execute("SELECT error FROM wake_pr_refusals WHERE conversation_id=? AND target=?",
+                                     (cid, target)).fetchone()
+                if refused:
+                    raise ConversationError("bad-wake", f"PR watch already refused: {target} ({refused['error']}). Correct the reference.")
+            previous_pr = tx.execute("SELECT observed_json FROM wake_requests WHERE conversation_id=? AND kind='pr' "
+                                     "AND state='fired' AND observed_json IS NOT NULL ORDER BY rowid DESC LIMIT 1", (cid,)).fetchone()
+            baseline = json.loads(previous_pr["observed_json"]) if previous_pr else {}
             for kind, payload in spec.items():
                 encoded = json.dumps(payload, sort_keys=True)
                 previous = tx.execute("SELECT payload_json FROM wake_requests WHERE conversation_id=? AND request_id=? AND kind=?",
@@ -237,8 +266,11 @@ class WakeEngine:
                         raise ConversationError("wake-id-conflict", "request id already has another payload")
                     continue
                 tx.execute("UPDATE wake_requests SET state='superseded' WHERE conversation_id=? AND kind=? AND state='pending'", (cid, kind))
-                tx.execute("INSERT INTO wake_requests(conversation_id,request_id,kind,payload_json,created_at) VALUES(?,?,?,?,?)",
-                           (cid, request_id, kind, encoded, datetime.fromtimestamp(self.now(), UTC).isoformat()))
+                observed = {p: baseline[p] for p in payload["targets"] if p in baseline} if kind == "pr" else None
+                threshold = self.now() if event_since is None else event_since
+                tx.execute("INSERT INTO wake_requests(conversation_id,request_id,kind,payload_json,created_at,observed_json) VALUES(?,?,?,?,?,?)",
+                           (cid, request_id, kind, encoded, datetime.fromtimestamp(threshold, UTC).isoformat(),
+                            json.dumps(observed) if observed else None))
         return {"request_id": request_id, "kinds": list(spec)}
 
     def from_final(self, cid: str, mid: str, text: str) -> None:
@@ -265,7 +297,8 @@ class WakeEngine:
                 continue
             try:
                 args = trailing_requests(line)[0]
-                self.register(cid, request_id, normalize(**args, now=min(self.now(), validation_time)))
+                self.register(cid, request_id, normalize(**args, now=max(self.now(), validation_time)),
+                              event_since=validation_time)
             except (ConversationError, ValueError) as exc:
                 self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
                 if message:
@@ -331,13 +364,19 @@ class WakeEngine:
                 tx.execute("UPDATE wake_requests SET observed_json=?,ready_json=? WHERE conversation_id=? AND request_id=? "
                            "AND kind='pr' AND state='pending'", (json.dumps(observed), json.dumps(changed) if changed else None,
                                                                r["conversation_id"], r["request_id"]))
+                tx.executemany("INSERT OR REPLACE INTO wake_pr_refusals VALUES(?,?,?)",
+                               [(r["conversation_id"], p, snapshots[p]["error"]) for p in watched
+                                if p in snapshots and snapshots[p].get("error")])
 
-    def tick(self, *, poll: bool = True, scan_completions: bool = True) -> None:
+    def tick(self, *, poll: bool = True, scan_completions: bool = True, scan_requests: bool = True) -> None:
+        self.start()
         self._surface_notices()
-        pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
+        if not scan_requests and not scan_completions:
+            return
+        pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'") if scan_requests else []
         if poll:
             self._poll_prs(pending)
-        pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
+            pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'")
         completions = self._completions() if scan_completions else {}
         covered = {r["conversation_id"]: set() for r in pending if r["kind"] == "runs"}
         for r in pending:
@@ -346,37 +385,49 @@ class WakeEngine:
         grouped = {}
         for r in pending:
             grouped.setdefault(r["conversation_id"], []).append(r)
-        for cid in grouped.keys() | completions.keys():
-            now = self.now()
-            with self.store.transaction() as tx:
-                if not eligible(tx, cid, now):
-                    continue
+        now = self.now()
+        with self.store.read() as db:
+            candidates = [cid for cid in grouped.keys() | completions.keys() if eligible(db, cid, now)]
+        if not candidates:
+            return
+        # Read each target set in bounded batches, not one round trip per run
+        # and per conversation. Claim rechecks conversation guards on write.
+        job_store = self.service.daemon.store
+        active_turns = {r["name"] for r in _target_rows(job_store,
+            "SELECT name FROM jobs WHERE kind='turn' AND state NOT IN ('succeeded','failed','cancelled','lost') AND name IN ({})",
+            [f"turn-{cid}" for cid in candidates])}
+        leases = {r["lease_key"] for r in _target_rows(job_store,
+            "SELECT lease_key FROM leases WHERE lease_key IN ({})", [f"conversation:{cid}" for cid in candidates])}
+        targets = sorted({j for cid in candidates for j in covered.get(cid, set())})
+        jobs_by_id = {j["job_id"]: j for j in _target_rows(job_store,
+            "SELECT job_id,state,out_path,accepted_attempt_id FROM jobs WHERE job_id IN ({})", targets)}
+        delivered = {(r["conversation_id"], r["job_id"]) for r in _target_rows(self.store,
+            "SELECT conversation_id,job_id FROM wake_runs WHERE job_id IN ({})", targets)}
+        noticed = {r["job_id"] for r in _target_rows(job_store,
+            "SELECT job_id FROM notices WHERE state IN ('acknowledged','surfaced') "
+            "AND COALESCE(transport,'')<>'conversation' AND job_id IN ({})", targets)}
+        for cid in candidates:
             # Job leases and finalization may lag the message's terminal receipt.
-            if self.service.daemon.store.one("SELECT 1 FROM jobs WHERE kind='turn' AND name=? "
-                    "AND state NOT IN ('succeeded','failed','cancelled','lost')", (f"turn-{cid}",)):
-                continue
-            if self.service.daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?", (f"conversation:{cid}",)):
+            if f"turn-{cid}" in active_turns or f"conversation:{cid}" in leases:
                 continue
             runs = {j["job_id"]: j for j in completions.get(cid, []) if j["job_id"] not in covered.get(cid, set())}
             ready, notes = [], []
-            satisfied = set()
             for r in sorted(grouped.get(cid, []), key=lambda r: r["kind"] != "runs"):
-                if r["request_id"] in satisfied:
-                    continue
                 payload = json.loads(r["payload_json"])
                 kind = r["kind"]
                 if kind == "runs":
-                    jobs = [self.service.daemon.store.one("SELECT * FROM jobs WHERE job_id=?", (j,)) for j in payload["targets"]]
-                    if not all(j and j["state"] in ('succeeded','failed','cancelled','lost','quarantined') for j in jobs):
+                    jobs = [jobs_by_id.get(j) or
+                            {"job_id": j, "state": "pruned"} for j in payload["targets"]]
+                    if not all(j["state"] in ('succeeded','failed','cancelled','lost','quarantined','pruned') for j in jobs):
                         continue
-                    undelivered = {j["job_id"]: j for j in jobs if not self._delivered(cid, j["job_id"])}
+                    undelivered = {j["job_id"]: j for j in jobs
+                                   if (cid, j["job_id"]) not in delivered and j["job_id"] not in noticed}
                     if not undelivered:
-                        # This all-of request already has its answer. Consuming it
-                        # silently also consumes its alternative triggers.
+                        # Only these runs already have their answer. Alternative
+                        # timer and PR triggers still need delivery or resolution.
                         with self.store.transaction() as tx:
                             tx.execute("UPDATE wake_requests SET state='satisfied' WHERE conversation_id=? "
-                                       "AND request_id=? AND state='pending'", (cid, r["request_id"]))
-                        satisfied.add(r["request_id"])
+                                       "AND request_id=? AND kind='runs' AND state='pending'", (cid, r["request_id"]))
                         continue
                     runs.update(undelivered)
                 elif kind == "time":
@@ -420,11 +471,6 @@ class WakeEngine:
                 self._surface_notices()
                 self.service.daemon._notify()
 
-    def _delivered(self, cid: str, job_id: str) -> bool:
-        return bool(self.store.one("SELECT 1 FROM wake_runs WHERE conversation_id=? AND job_id=?", (cid, job_id)) or
-                    self.service.daemon.store.one("SELECT 1 FROM notices WHERE job_id=? AND state IN ('acknowledged','surfaced') "
-                                                  "AND COALESCE(transport,'')<>'conversation'", (job_id,)))
-
     def _surface_notices(self) -> None:
         """Repair only outstanding deliveries, in bounded batches across stores."""
         rows = self.store.query("SELECT job_id,delivered_at FROM wake_notice_repairs LIMIT 500")
@@ -438,6 +484,14 @@ class WakeEngine:
         with self.store.transaction() as tx:
             tx.executemany("DELETE FROM wake_notice_repairs WHERE job_id=? AND delivered_at=?",
                            [(r["job_id"], r["delivered_at"]) for r in rows])
+
+
+def _target_rows(store, sql: str, targets: list[str]) -> list[dict]:
+    rows = []
+    for offset in range(0, len(targets), 500):
+        batch = targets[offset:offset + 500]
+        rows.extend(store.query(sql.format(",".join("?" for _ in batch)), tuple(batch)))
+    return rows
 
 
 def pr_changed(before: dict | None, after: dict) -> bool:

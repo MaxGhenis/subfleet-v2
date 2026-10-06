@@ -1308,6 +1308,9 @@ It waits for the running turn to end because the steer interface intentionally
 accepts only person messages, binds each steer to its host, and requires a
 person's peer check. A service wake has its own visible origin and the same
 durable message/turn dispatch path. Hooks do not repeat notices it carries.
+`subfleet wait` and `run --wait` return receipts without acknowledging notices;
+only `notice.ack` and `runs show` acknowledge (C-15.3), so a waiter returning
+after a turn ends cannot consume the only wake.
 
 An agent can call:
 
@@ -1330,14 +1333,16 @@ one trigger is required. Empty run/PR placeholders are ignored when another trig
 message id, so it does not register twice. Each conversation has at most one
 pending wake per kind; replacement consumes the older kind. A trigger kind
 lists at most 16 targets and a note has at most 4,000 characters. Times must
-have a timezone and be at least five minutes away on first acceptance; final-text timers use turn creation rather than settlement for this floor.
+have a timezone and be at least five minutes away on first acceptance.
+Final-text timers must meet this floor both from now and from turn-job creation
+(message creation if no job exists); a replay keeps its original acceptance.
 
 PR state is read by one batched `gh api graphql --input -` invocation across
 conversations per cycle, at least 60 seconds apart (persisted even across
 restart), with a 20-second timeout. Head checks, PR state and submitted review
 ids form a durable baseline. Merge/close, completed check transitions and new
 submitted reviews latch readiness even when a conversation cannot wake yet.
-First observations establish baselines; dated events strictly after registration cover the gap before that observation. Partial alias errors preserve other watches and refuse the inaccessible watch once, with an explicit message. Transport failures and incomplete check sets prove no event. The bounded PR worker never holds dispatch and is joined on shutdown. A pending all-of run request gathers its targets into one wake; a request for already-delivered results is satisfied silently. A durable activation timestamp and one-time snapshot exclude historical completions on upgrade while retaining new completions within that same stored second. Notice repair uses a durable queue with batches of at most 500, and completed repairs cause no writes; job lookups are indexed and automatic discovery is paced to once per second.
+Re-arms retain the last fired request's snapshot; an observation that never reached a wake cannot become a new baseline. With no previous snapshot, dated events strictly after registration cover the gap before the first observation; final-text watches use turn-job creation (or message creation) so an event during the turn is still announced. Partial alias errors preserve other watches and refuse the inaccessible watch once, with an explicit message. Refused targets persist per conversation; a re-arm is refused visibly without creating another wake. Transport failures and incomplete check sets prove no event. The bounded PR worker never holds dispatch and is joined on shutdown. A pending all-of run request gathers its targets into one wake; only the runs kind of a request for already-delivered results is satisfied silently, leaving its timer and PR alternatives armed. A registered run whose row has been pruned counts as finished with state `pruned`. A durable activation timestamp and one-time snapshot exclude historical completions on upgrade while retaining new completions within that same stored second. Notice repair uses a durable queue with batches of at most 500, and completed repairs cause no writes; job lookups are indexed and automatic discovery and request evaluation are paced to once per second. Eligibility is read without a write transaction and target reads are batched. An idle evaluation commits nothing and does not wake long-poll readers.
 
 Wakes wait behind blocks, legacy holds, archives, personal input, turns and
 leases. The same transaction rechecks these guards when it accepts a wake and

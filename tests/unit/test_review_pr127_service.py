@@ -90,7 +90,7 @@ def test_resumed_codex_launch_preserves_its_own_session_marker(tmp_path):
 
 
 @pytest.mark.parametrize("state,exit_code", [("succeeded", 0), ("failed", 1)])
-def test_wait_acknowledges_only_finished_results_it_returns(monkeypatch, state, exit_code):
+def test_wait_preserves_notices_for_finished_results_it_returns(monkeypatch, state, exit_code):
     monkeypatch.setattr(cli, "session_id", lambda: "session")
     job = {"job_id": "job", "state": state, "rc": exit_code,
            "notices": [{"notice_id": 7, "session_id": "session", "state": "pending"},
@@ -98,16 +98,15 @@ def test_wait_acknowledges_only_finished_results_it_returns(monkeypatch, state, 
     def call(op, args, **kw):
         if op == "wait":
             return {"jobs": [job], "timeout": False}
-        assert op == "notice.ack" and args == {"session_id": "session", "notice_ids": [7]}
-        return {"acknowledged": [7]}
+        raise AssertionError(f"wait must not acknowledge notices: {op}")
     client = SimpleNamespace(call=Mock(side_effect=call))
     monkeypatch.setattr(cli, "_client", lambda *a, **kw: client)
     args = cli.build_parser().parse_args(["wait", "job", "--json"])
     assert args.handler(args) == exit_code
-    assert [c.args[0] for c in client.call.call_args_list] == ["wait", "notice.ack"]
+    assert [c.args[0] for c in client.call.call_args_list] == ["wait"]
 
 
-def test_wait_receipt_ack_prevents_a_second_conversation_wake(svc, monkeypatch):
+def test_wait_receipt_preserves_the_conversation_wake(svc, monkeypatch):
     from subfleet.daemon import Daemon
     from tests.unit.test_conversation_wakes import finish, rows
     cid = bound(svc)
@@ -118,14 +117,14 @@ def test_wait_receipt_ack_prevents_a_second_conversation_wake(svc, monkeypatch):
     def call(op, args, **kw):
         if op == "wait":
             return Daemon._wait_answer(backend, args["job_ids"])
-        return {"acknowledged": svc.daemon.store.acknowledge_notices(args["session_id"], args["notice_ids"])}
+        raise AssertionError(f"wait must not acknowledge notices: {op}")
     monkeypatch.setattr(cli, "_client", lambda *a, **kw: SimpleNamespace(call=call))
     monkeypatch.setattr(cli, "session_id", lambda: sid)
     args = cli.build_parser().parse_args(["wait", "run-one", "--json"])
     assert args.handler(args) == 0
-    assert svc.daemon.store.list_notices()[0]["state"] == "acknowledged"
+    assert svc.daemon.store.list_notices()[0]["state"] == "pending"
     svc.wakes.tick()
-    assert rows(svc, cid) == []
+    assert len(rows(svc, cid)) == 1
 
 
 def test_control_loop_paces_completion_scans(svc, monkeypatch):

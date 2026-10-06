@@ -454,6 +454,16 @@ class ConversationStore:
     # --- plumbing --------------------------------------------------------------
 
     @contextlib.contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """Inspect under the store lock without a write or reader notification.
+
+        Any later mutation must recheck its guards in its own transaction.
+        """
+        with self._lock:
+            self._open()
+            yield self._db
+
+    @contextlib.contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
             self._open()
