@@ -397,7 +397,7 @@ def test_c18_1_a_lane_a_probe_holds_is_not_dispatchable(state):
 
 
 def test_c18_1_probe_fields_are_additions_only():
-    """C-18.1 the fields the menu bar app decodes keep their names and values; the probe fields are the only new ones."""
+    """C-18.1, C-11.9: v1 fields retain their shape beside probe and projection additions."""
     rows = [reading(window="seven_day", utilization=0.8), reading("claude", window="five_hour", utilization=0.2)]
     result = build_status(build_view([lane(), lane("claude")], rows, now=NOW))
     codex, claude = result["codex"]["homes"][0], result["claude"]["accounts"][0]
@@ -405,8 +405,10 @@ def test_c18_1_probe_fields_are_additions_only():
     assert result["alerts"] == []                       # C-18.4: always present, empty with none in force
     assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes", "cards"}   # C-9.10
     assert result["claude"]["cards"] == {"read_at": None, "disabled": False, "accounts": [], "warnings": []}
-    assert set(codex) == V1_CODEX_ROW | PROBE_ROW
-    assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW
+    assert set(codex) == V1_CODEX_ROW | PROBE_ROW | {"weekly_projections"}
+    assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW | {"weekly_projections"}
+    assert codex["weekly_projections"]["account"]["used"] == .8
+    assert claude["weekly_projections"] == {}
     assert set(result["codex"]["fleet"]) == V1_FLEET | {"probe_held"}
     assert set(result["claude"]["lanes"]) == V1_CLAUDE_LANES | {"probe_held"}
     assert codex["probe_state"] is None and codex["probe_holder"] is None and claude["probe_state"] is None

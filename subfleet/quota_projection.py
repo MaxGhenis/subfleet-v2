@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -67,7 +67,7 @@ def project_unused(samples: Iterable[tuple[str | datetime, float] | Mapping[str,
             observed = instant(observed_at)
         except (AttributeError, TypeError, ValueError):
             continue
-        if reset - timedelta(days=7) <= observed <= at:
+        if observed <= at:
             observations.append((observed, float(utilization)))
     if not observations:
         return None
@@ -88,3 +88,39 @@ def project_unused(samples: Iterable[tuple[str | datetime, float] | Mapping[str,
     unused = min(1 - used, max(0.0, 1 - used - (rate or 0.0) * hours))
     return Projection(used, unused, rate, reset.isoformat().replace("+00:00", "Z"),
                       "rate unknown" if rate is None else "trend")
+
+
+def weekly_projections(lane: Mapping[str, Any], *, now: str | datetime,
+                       samples: Iterable[Mapping[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
+    """Forecast current weekly scopes separately, keeping reported usage numeric."""
+    readings = lane.get("readings", ())
+    history = list(samples) if samples is not None else readings
+    result = {}
+    for row in readings:
+        used = row.get("utilization")
+        if (row.get("window") != "seven_day" or row.get("label") not in {"provider", "stale-provider"}
+                or not row.get("resets_at") or not isinstance(used, (int, float))
+                or isinstance(used, bool) or not math.isfinite(used) or not 0 <= used <= 1):
+            continue
+        scope = row.get("scope", "account")
+        try:
+            observed = instant(row["observed_at"])
+            if observed > instant(now):
+                continue
+            matching = []
+            for sample in history:
+                if (sample.get("lane_id") == lane["lane_id"]
+                        and sample.get("scope", "account") == scope):
+                    try:
+                        # The snapshot selected its current row by reading id
+                        # too; an older poll at the same instant cannot replace it.
+                        if instant(sample["observed_at"]) < observed:
+                            matching.append(sample)
+                    except (AttributeError, KeyError, TypeError, ValueError):
+                        continue
+            projection = project_unused([*matching, row], row["resets_at"], now)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        if projection is not None:
+            result[scope] = asdict(projection)
+    return result

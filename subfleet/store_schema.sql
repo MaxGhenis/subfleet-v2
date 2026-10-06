@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS readings (
   attempt_id TEXT
 );
 CREATE INDEX IF NOT EXISTS readings_latest ON readings(lane_id, scope, window, observed_at DESC);
+CREATE INDEX IF NOT EXISTS readings_weekly_history ON readings(observed_at)
+  WHERE window='seven_day' AND label IN ('provider','stale-provider');
 
 -- C-9.6
 CREATE TABLE IF NOT EXISTS closures (

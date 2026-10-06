@@ -17,16 +17,17 @@ def sample(observed_at, utilization, **extra):
             "window": "seven_day", "label": "provider", **extra}
 
 
-@given(st.lists(st.tuples(st.integers(0, 4 * 86400), FRACTIONS), min_size=1, max_size=30))
+@given(st.lists(st.tuples(st.integers(0, 10 * 86400), FRACTIONS), min_size=1, max_size=30))
 def test_projected_unused_is_bounded(values):
     result = project_unused([(NOW - timedelta(seconds=age), u) for age, u in values], RESET, NOW)
     assert result is not None
     assert 0 <= result.projected_unused <= 1 - result.used
 
 
-@given(FRACTIONS, st.integers(1, 24))
-def test_zero_rate_leaves_all_remaining_quota_unused(used, span):
-    result = project_unused([(NOW - timedelta(hours=span), used), (NOW, used)], RESET, NOW)
+@given(FRACTIONS, st.integers(1, 24), FRACTIONS)
+def test_zero_rate_leaves_all_remaining_quota_unused(used, span, drop):
+    previous = used + (1 - used) * drop
+    result = project_unused([(NOW - timedelta(hours=span), previous), (NOW, used)], RESET, NOW)
     assert result.rate_per_hour == 0
     assert result.projected_unused == 1 - used
 
@@ -89,6 +90,14 @@ def test_negative_rate_is_zero():
     assert result.projected_unused == 1 - .34
 
 
+def test_other_reset_window_does_not_supply_a_rate():
+    rows = [sample(NOW, .34), sample(NOW - timedelta(hours=24), 0,
+                                   resets_at=RESET + timedelta(days=7))]
+    result = project_unused(rows, RESET, NOW)
+    assert result.basis == "rate unknown"
+    assert result.projected_unused == 1 - .34
+
+
 def test_clamp_when_trend_would_exhaust_quota():
     result = project_unused([(NOW - timedelta(hours=1), 0), (NOW, .8)], RESET, NOW)
     assert result.projected_unused == 0
@@ -131,6 +140,14 @@ def test_equivalent_reset_instants_and_stale_provider_are_accepted():
     assert project_unused([row], RESET, NOW).used == .34
 
 
-def test_nonweekly_and_before_window_samples_are_ignored():
+def test_nonweekly_samples_are_ignored():
     assert project_unused([sample(NOW, .34, window="five_hour")], RESET, NOW) is None
-    assert project_unused([(RESET - timedelta(days=8), .34)], RESET, NOW) is None
+
+
+def test_window_identity_uses_provider_reset_without_inventing_a_start():
+    # Provider reset identity defines the window; old readings still supply
+    # current utilization when too old to establish a trailing-24-hour rate.
+    result = project_unused([(RESET - timedelta(days=8), .34)], RESET, NOW)
+    assert result.used == .34 and result.basis == "rate unknown"
+    assert result.projected_unused == 1 - .34
+    assert project_unused([(NOW, .34)], NOW + timedelta(days=10), NOW).used == .34
