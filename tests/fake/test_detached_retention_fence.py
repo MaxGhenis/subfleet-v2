@@ -553,6 +553,39 @@ def test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_t
             assert not failures, failures
 
 
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too(tmp_path, shape):
+    """The admitting transaction's own read of a legacy job's fence is folded, as the
+    look before the workspace's is. With the tree away (moved aside, as a quarantine
+    does) the job's case-variant workdir spells as typed; a fence that lands after the
+    early look found none, before the reserving transaction, holds the job there with
+    the fence named as retention's. An exact read in the transaction misses it."""
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = retiring_tree(daemon, harness)
+        typed = nested.replace("/worktrees/retired/", "/worktrees/rETIRED/")
+        if not os.path.isdir(typed) or not os.path.samefile(typed, nested):
+            pytest.skip("this volume does not fold case")
+        fence = folders.exclusive_key(tree)
+        job_id = detached_in(daemon, harness, typed, shape)
+        make_legacy(daemon, job_id, typed)
+        Path(tree).rename(tree + ".aside")                   # the tree away, as in quarantine
+        try:
+            assert folders.canonical(typed) == typed
+            workspaces = Workspaces(daemon, patch, real=False)
+
+            def lands(job):
+                assert daemon.store.acquire_lease(fence, "retention:retired")
+                return workspaces(job)
+
+            patch.setattr(daemon, "_workspace", lands)
+            hold = look(daemon, job_id)
+            assert not _live(daemon, job_id), hold
+            assert hold.get("retiring") == [fence] and hold.get("folder") == typed, hold
+        finally:
+            Path(tree + ".aside").rename(tree)
+
+
 @pytest.mark.parametrize("submitted", ["recorded", "legacy"])
 def test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves(tmp_path, submitted):
     """The review of 49651181 (P2, its test, adapted, and the same for a job whose folder
@@ -593,6 +626,10 @@ folder_names = st.lists(st.sampled_from(["retired", "RETIRED", "Retired", "rETIR
 
 
 @settings(max_examples=300, deadline=None, derandomize=True)
+@example(folder=["\u00e9t\u00e9", "lib"], fences=[(["e\u0301te\u0301"], "retention:a")])        # NFC folder, NFD fence
+@example(folder=["e\u0301te\u0301"], fences=[(["\u00c9T\u00c9"], "retention:a")])              # NFD folder, capitals
+@example(folder=["rETIRED", "vendor", "lib"], fences=[(["retired"], "retention:a"), (["retired2"], "retention:a")])
+@example(folder=["retired"], fences=[(["RETIRED"], "gate-round:g")])
 @given(folder=folder_names, fences=st.lists(st.tuples(folder_names, st.sampled_from(["retention:a", "gate-round:g"])),
                                             max_size=4))
 def test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded(folder, fences):
