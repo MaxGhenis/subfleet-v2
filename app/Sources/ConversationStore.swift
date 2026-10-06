@@ -529,6 +529,7 @@ struct ConversationStoreState: Equatable {
         let id = open.conversation.conversation_id
         var timeline = timelines[id] ?? Timeline(conversationID: id)
         timeline.apply(receipts: open.messages)
+        if let history = open.history { timeline.apply(history: history) }
         timeline.attach(approvals: open.pending_approvals)
         timeline.reconcile(pending: open.pending_approvals)
         timelines[id] = timeline

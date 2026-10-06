@@ -35,7 +35,7 @@ CONVERSATION_READS = {"capabilities", "models.list", "conversation.list", "conve
 CONVERSATION_WRITES = {"conversation.create", "conversation.settings", "conversation.unblock",
                        "conversation.rename", "message.submit", "message.steer", "message.cancel",
                        "turn.interrupt", "message.resolve", "approval.respond", "attachment.add",
-                       "catalog.refresh", "conversation.handoff"}
+                       "catalog.refresh", "conversation.handoff", "conversation.wake"}
 
 
 def test_c16_7_every_conversation_op_is_classified_once():

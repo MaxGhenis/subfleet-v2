@@ -115,7 +115,22 @@ def fail(code: Exit | int, message: str, fix: str | None = None) -> int:
 
 def session_id(env: dict[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
-    return (env.get("CLAUDE_CODE_SESSION_ID") or "").strip() or None
+    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID") or "").strip() or None
+
+
+def cmd_wake(args: argparse.Namespace) -> int:
+    session = session_id()
+    if not session and not os.environ.get("SUBFLEET_TURN_JOB"):
+        return fail(Exit.INVALID_INPUT, "wake needs the calling conversation's session id")
+    try:
+        result = Client(_root(args)).call("conversation.wake", {
+            "session_id": session, "request_id": args.request_id or str(uuid.uuid4()),
+            "calling_job": os.environ.get("SUBFLEET_TURN_JOB"),
+            "runs": args.runs, "prs": args.pr, "at": args.at, "note": args.note})
+    except (DaemonError, DaemonUnavailable) as exc:
+        return fail(getattr(exc, "code", Exit.OPERATIONAL), str(exc))
+    emit(result) if args.json else out("Wake recorded: " + result["request_id"])
+    return 0
 
 
 def in_claude_session(env: dict[str, str] | None = None) -> bool:
@@ -709,7 +724,7 @@ def _prepare_submit(args: argparse.Namespace,
         allow_tmp=bool(args.allow_tmp),
         in_place=bool(args.in_place),
         independent=bool(args.independent),
-        parent_job_id=args.parent,
+        parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(),
         caller_pid=caller_pid(),
         no_preamble=bool(args.no_preamble),
@@ -1593,7 +1608,7 @@ def _format_job(job: dict[str, Any]) -> str:
 
 
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:
-    """C-15.3 a notice is acknowledged when its session runs `runs show <job>`.
+    """C-15.3 acknowledge notices when their session runs `runs show <job>`.
 
     Best effort: the job was already shown, so a failed acknowledgement must not
     change what the caller sees or the exit code.
@@ -2987,6 +3002,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p_reap, nested=True)
 
     p_wait = sub.add_parser("wait", help="long-poll until jobs are terminal")
+    p_wake = sub.add_parser("wake", help="wake this conversation on runs, PR changes, or a time")
+    p_wake.add_argument("--runs", nargs="+")
+    p_wake.add_argument("--pr", nargs="+", action="extend")
+    p_wake.add_argument("--at")
+    p_wake.add_argument("--note", default="")
+    p_wake.add_argument("--request-id")
+    _add_json(p_wake, nested=True)
+    p_wake.set_defaults(handler=cmd_wake)
     p_wait.add_argument("ids", nargs="*")
     p_wait.add_argument("--mine", action="store_true", help="this session's jobs")
     p_wait.add_argument("--last", action="store_true", help="the most recent job")
