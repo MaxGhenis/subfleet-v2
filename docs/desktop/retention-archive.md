@@ -660,6 +660,9 @@ until they expire.
   finishes. In-flight jobs are sliced least recently sliced first (never
   sliced first, oldest first among those), so jobs that park take turns
   instead of queueing behind the first.
+- **Deadlines.** A started batch finishes committing its verified archives,
+  even past the deadline. Slow pre-selection work still permits the first job
+  and at least one archive slice; subsequent starts and slices remain bounded.
 - **Deferral.** A busy, changed or failing job is put back and skipped until its
   deferral ends, so the queue never waits on it.
 - **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
@@ -672,10 +675,12 @@ until they expire.
   committed `pruned` jobs. A deadline with no advancement marks `TimeoutError`,
   warns once with the job count, rearms the hour and returns. Cancellation takes
   precedence, marks `CancelledError` and rearms the hour. A completed or
-  non-advancing batch also waits the hour. Status is marked before the hour is
+  non-advancing batch also waits the hour. A failed batch holder scan marks
+  `ScanFailed` and waits the hour even after quarantine or rollback, since another
+  batch would need the same unavailable listing. Status is marked before the hour is
   rearmed; failed bookkeeping leaves retention due. The service-notice prune
-  runs first, once per daemon pass, and its failure is logged without failing
-  job retention. The worker pool has one more thread for retention.
+  runs first, once per retention call (one bounded batch), and its failure is
+  logged without failing job retention. The worker pool has one more thread for retention.
 - **Below the operator's apps** (final review of e50716e8, N9). The daemon
   runs at the default QoS, and a thread's QoS reaches no child
   (`docs/reports/2026-09-27-daemon-qos.md`), so every child retention starts

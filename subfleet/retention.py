@@ -47,6 +47,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
+from . import folders
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
 
@@ -257,6 +258,13 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
+    # I5 (C-8.4, C-13.4): turns and readers have per-turn rows rather than
+    # `worktree:` leases. Compare recorded spellings only: this function also
+    # runs inside the archive commit transaction, where filesystem work is forbidden.
+    in_use = folders.turn_folders(store.query)
+    for row in jobs:
+        if row["worktree"] in in_use:
+            add(row["job_id"], "turn-folder")
     if root is not None:
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
@@ -385,7 +393,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     clock = clock or time.monotonic
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
-                                "progressed": False, **dict.fromkeys(FREED_KEYS, 0)}
+                                "progressed": False, "holder_scan_failed": False, **dict.fromkeys(FREED_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline, clock=clock)
     except _Interrupted as exc:
@@ -489,7 +497,7 @@ class _Pass:
         for job in jobs:
             counts[_pool(job)] += 1
         self._measure(jobs, in_flight, counts, protected)
-        _checkpoint(self.cancel, self.deadline, clock=self.clock)
+        self.ctx.check()
         totals = {name: 0 for name in self.budgets}
         unmeasured = {name: 0 for name in self.budgets}
         unknown = {name: 0 for name in self.budgets}
@@ -541,18 +549,18 @@ class _Pass:
             counts[pool] -= 1
             totals[pool] -= self.sizes.get(job_id, 0)
         retirements = {job_id: rarch.Retirement(self.ctx, job_id) for job_id in in_flight}
-        for n, job_id in enumerate(chosen):
+        for job_id in chosen:
             self.ctx.check()
-            if self.deadline is not None and self.clock() >= self.deadline:
-                if retirements:
-                    waiting = True
-                    break
-                raise _Interrupted("deadline")
+            # Slow recovery or pin reads must still permit the first job.
+            if self.deadline is not None and self.clock() >= self.deadline and retirements:
+                waiting = True
+                break
             retirement = self._start(by_id[job_id], protected)
             if retirement is not None:
                 retirements[job_id] = retirement
         self._check_holders(retirements, second=False)
         archived: dict[str, rarch.Retirement] = {}
+        sliced = False
         # Least recently sliced first (never sliced first of all, oldest first
         # among them): the pass's time goes round the in-flight jobs (N3).
         for job_id in sorted(retirements, key=lambda job_id: self.state.sliced.get(job_id, float("-inf"))):
@@ -561,9 +569,12 @@ class _Pass:
             if retirement.state == "archived":
                 archived[job_id] = retirement
                 continue
-            if self.deadline is not None and self.clock() >= self.deadline + self.slice_s:
+            # Give at least one job its slice even if pre-selection work used
+            # the entire deadline and grace. Later slices keep the pass bound.
+            if sliced and self.deadline is not None and self.clock() >= self.deadline + self.slice_s:
                 self.progress["in_flight"].append(job_id)
                 continue
+            sliced = True
             self.state.sliced[job_id] = self.clock()
             try:
                 outcome = retirement.archive(self.clock() + self.slice_s)
@@ -582,7 +593,8 @@ class _Pass:
                 archived[job_id] = retirement
         self._check_holders(archived, second=True)
         for job_id, retirement in archived.items():
-            _checkpoint(self.cancel, self.deadline, clock=self.clock)
+            # The deadline limits starts; verified archives finish this pass.
+            self.ctx.check()
             if retirement.state == "archived":
                 self._finish(retirement, protected)
         after = {name: pools[name]["bytes_before"] for name in pools}
@@ -758,16 +770,24 @@ class _Pass:
         job_id = job["job_id"]
         try:
             worktree = _owned_worktree(job, self.root)
+            # Match admission's spelling before taking the store lock (C-6.5).
+            folder = folders.canonical(worktree) if worktree is not None else None
         except ValueError as exc:
             self.errors.append({"job_id": job_id, "error": str(exc)})
             protected.add(job_id)
             return None
         holder = f"retention:{job_id}"
-        keys = [f"retire:{job_id}"] + ([f"worktree:{worktree}"] if worktree is not None else [])
+        keys = [f"retire:{job_id}"] + ([folders.exclusive_key(folder)] if folder is not None else [])
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
                                   only=job_id, hosted=self.hosted, root=self.root).get(job_id)
+            # A turn may register after selection. Read its rows and acquire
+            # the fence atomically; daemon reservation checks this same fence
+            # before inserting either a TURN or READER row (I5).
+            if reason is None and folder is not None and folders.turn_holds(
+                    lambda sql, params: conn.execute(sql, params).fetchall(), folder):
+                reason = "turn-folder"
             if reason is None:
                 for key in keys:
                     current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
@@ -788,7 +808,10 @@ class _Pass:
         self.acted += 1
         retirement = rarch.Retirement(self.ctx, job_id)
         try:
-            retirement.begin(job, _pool(job))
+            # The journal's worktree and its commit-time lease check must use
+            # the fence's spelling too, even for an older, differently spelled
+            # recorded path. The archived database rows keep the original value.
+            retirement.begin({**job, "worktree": folder} if folder is not None else job, _pool(job))
             retirement.lock()
             retirement.quarantine()
             self.leftovers.discard(job_id)
@@ -811,11 +834,13 @@ class _Pass:
         except ScanFailed as exc:
             if self.cancel is not None and self.cancel.is_set():
                 raise rarch.Interrupted("cancelled") from exc
+            self.progress["holder_scan_failed"] = True
             for job_id, retirement in wanted.items():
                 self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, str(exc))
                 retirements.pop(job_id, None)
             return
         except (OSError, ValueError) as exc:
+            self.progress["holder_scan_failed"] = True
             for job_id, retirement in wanted.items():
                 self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, str(exc))
                 retirements.pop(job_id, None)

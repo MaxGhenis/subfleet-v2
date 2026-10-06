@@ -187,3 +187,45 @@ def test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job(
     assert "salvage not archivable" in result["deferred"]["job"]
     assert worktree.exists()
     assert store.get_job("job") is not None
+
+
+@pytest.mark.parametrize("writable", [True, False])
+@pytest.mark.parametrize("seen_by", ["pins", "fence"])
+def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monkeypatch, writable, seen_by):
+    """I5 (C-8.4, C-13.4, C-24.5): a conversation turn in a detached job's allocated worktree
+    (a person continued the job's session in the app) holds a row of its own on the folder,
+    writable or read-only, not `worktree:<folder>`. Retention keeps the job and its worktree
+    while the row exists, whether only its pins see the row (`_pins`) or only the selection
+    fence does (a recorded path spelled otherwise), runs no git there, and reclaims both once
+    it is gone. Each layer is tested alone, the other one blinded: review of 5e9f2fbd (P3-3)
+    found the pins' check survived being emptied, since the fence alone kept this green."""
+    from subfleet import folders
+    store, root, repository, worktree = owned
+    key = folders.turn_key(str(worktree.resolve()), "20260929-120000-turn", writable=writable)
+    assert store.acquire_lease(key, "20260929-120000-turn")
+    if seen_by == "fence":
+        monkeypatch.setattr(retention.folders, "turn_folders", lambda read: set())
+    else:
+        monkeypatch.setattr(retention.folders, "turn_holds", lambda read, folder, kinds=folders.SHARED: [])
+    original = subprocess.run
+    monkeypatch.setattr(retention.subprocess, "run",
+                        lambda *args, **kwargs: pytest.fail("no git while a turn works in the worktree"))
+    result = retention.maintenance(store, root, max_jobs=0)
+    assert result["pruned"] == [] and "job" in result["protected"] and result["errors"] == []
+    assert worktree.exists() and store.get_job("job") is not None
+    assert [row["lease_key"] for row in store.list_leases()] == [key]      # the fence was not left behind
+    store.release_leases("20260929-120000-turn")
+    monkeypatch.setattr(retention.subprocess, "run", original)
+    assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]
+    assert not worktree.exists()
+
+
+def test_c8_4_i5_a_turn_row_on_a_longer_folder_name_protects_nothing_here(owned):
+    """`folders.turn_holds` names a folder exactly: a turn in `<worktree>:x` (a real path
+    may hold a colon) is not a turn in `<worktree>`."""
+    from subfleet import folders
+    store, root, _, worktree = owned
+    assert store.acquire_lease(folders.turn_key(f"{worktree.resolve()}:x", "20260929-120000-turn", writable=True),
+                               "20260929-120000-turn")
+    assert folders.turn_holds(store.query, str(worktree.resolve())) == []
+    assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]

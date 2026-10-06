@@ -102,6 +102,32 @@ def _require_file_bytes(entry: dict[str, Any], label: str) -> None:
         raise Defer("unarchived path", DEFER_ERROR_S, f"{label}/{entry['p']}")
 
 
+def _copy_sig(files_fd: int, name: str) -> str | None:
+    """The stat identity of one stored copy (any write or replacement changes it)."""
+    try:
+        return rfs.sig_key(os.stat(name, dir_fd=files_fd, follow_symlinks=False))
+    except FileNotFoundError:
+        return None
+
+
+def _read_back(files_fd: int, name: str, entry: dict[str, Any], check: rfs.Check | None) -> tuple[str | None, str | None]:
+    """A stored copy's sha256 (None if it is gone, the wrong size or unreadable) and its identity."""
+    try:
+        handle = os.open(name, rfs.O_FILE, dir_fd=files_fd)
+    except FileNotFoundError:
+        return None, None
+    try:
+        st = os.fstat(handle)
+        digest = None
+        if st.st_size == entry["size"]:
+            digest, _ = rfs.read_hashes(handle, st.st_size, None, check)
+    except rfs.TreeError:
+        digest = None
+    finally:
+        os.close(handle)
+    return digest, rfs.sig_key(st)
+
+
 @dataclass
 class Context:
     root: Path
@@ -719,12 +745,50 @@ class Retirement:
         for label in manifest["trees"]:
             if label not in dict(self.trees()):
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label} vanished")
+        self._check_copies(manifest)
         # Last: the archive holds the tree as it is, which a `.git` rewritten
         # before the archive read it passes; the tree and its registration
         # must also still be the ones `begin` read.
         changed = self._identity_changed()
         if changed is not None:
             raise Defer("changed after archive", DEFER_CHANGED_S, changed)
+
+    def _check_copies(self, manifest: dict[str, Any]) -> None:
+        """C-8.4: every stored copy is still the one that read back. A resumed
+        retirement skips the builder, so a copy lost or rewritten since its
+        readback is caught here, before the rows go: one whose identity moved
+        is read again, and one that does not read back keeps the job."""
+        verified: dict[str, dict[str, Any]] = {}
+        try:
+            text = rfs.read_regular(self.building / PROGRESS, limit=4 << 30).decode()
+        except FileNotFoundError:
+            text = ""
+        for line in text.splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(record, dict) and str(record.get("k", "")).startswith("v:"):
+                verified.setdefault(record["k"][2:], {}).update(record)
+        fd = rfs.open_dir(self.building / "files")
+        try:
+            checked: set[str] = set()
+            for label, tree in manifest["trees"].items():
+                for entry in tree["entries"]:
+                    name = entry.get("store")
+                    if not name or name in checked:
+                        continue
+                    checked.add(name)
+                    seen = verified.get(name, {})
+                    if seen.get("sig") is not None and seen.get("sha256") == entry["sha256"] \
+                            and seen["sig"] == _copy_sig(fd, name):
+                        continue
+                    self.ctx.check()
+                    digest, _ = _read_back(fd, name, entry, self.ctx.check)
+                    if digest != entry["sha256"]:
+                        raise Defer("archive did not read back", DEFER_ERROR_S, f"{label}/{entry['p']}")
+        finally:
+            os.close(fd)
 
     # --- step 6: commit ------------------------------------------------------------------
 
@@ -1786,24 +1850,18 @@ class _Builder:
                     if not name or name in checked:
                         continue
                     checked.add(name)
-                    if self.progress.get("v:" + name, {}).get("sha256") == entry["sha256"]:
+                    seen = self.progress.get("v:" + name, {})
+                    if seen.get("sha256") == entry["sha256"] and seen.get("sig") is not None \
+                            and seen["sig"] == _copy_sig(fd, name):
                         continue
                     self._tick()
-                    handle = os.open(name, rfs.O_FILE, dir_fd=fd)
-                    try:
-                        st = os.fstat(handle)
-                        digest = None
-                        if st.st_size == entry["size"]:
-                            digest, _ = rfs.read_hashes(handle, st.st_size, None, self.ctx.check)
-                    except rfs.TreeError:
-                        digest = None
-                    finally:
-                        os.close(handle)
+                    digest, sig = _read_back(fd, name, entry, self.ctx.check)
                     if digest != entry["sha256"]:
-                        os.unlink(name, dir_fd=fd)
+                        if sig is not None:
+                            os.unlink(name, dir_fd=fd)
                         bad.append(entry["p"])
                         continue
-                    self._note({"k": "v:" + name, "sha256": digest})
+                    self._note({"k": "v:" + name, "sha256": digest, "sig": sig})
         finally:
             os.close(fd)
         if bad:
