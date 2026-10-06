@@ -8,7 +8,9 @@ The probe hosts `QueueTray` offscreen with rows built directly. SwiftUI builds
 no accessibility tree without an assistive client and a link button's AppKit
 title is empty, so a tray control is named by what its click fired (the closures
 log "withdraw:<id>" and "steer:<id>") and by its width, matched against link
-buttons the probe draws with each label the tray uses.
+buttons the probe draws with each label the tray uses. The same limit hides the
+buttons' VoiceOver labels (`.accessibilityLabel`) and tooltips (`.help`); no test
+here checks them.
 """
 
 from __future__ import annotations
@@ -85,6 +87,16 @@ def ids(prefix: str, count: int) -> list[str]:
     return [f"{prefix}{n:02d}" for n in range(1, count + 1)]
 
 
+def withdrawn_top_down(shown: dict) -> list[str]:
+    """The messages one pass's Withdraw buttons withdraw, from the top of the
+    tray down. Each row sits below the one before it, so no two Withdraw
+    buttons share a top."""
+    pairs = [(top, click[0].removeprefix("withdraw:")) for top, click in zip(shown["tops"], shown["clicks"])
+             if len(click) == 1 and click[0].startswith("withdraw:")]
+    assert len({top for top, _ in pairs}) == len(pairs)
+    return [mid for _, mid in sorted(pairs)]
+
+
 def test_c29_7_a_lone_queued_message_has_one_withdraw_that_withdraws_it(trays, views):
     """C-29.7: one queued message shows one AppKit button, Withdraw; clicking it
     withdraws that message once and fires nothing else. The tray holds no rows of
@@ -110,15 +122,18 @@ def test_c29_7_an_unblock_note_has_no_withdraw(trays):
         assert all(len(click) == 1 for click in shown["clicks"])
         assert sorted(fired(shown["clicks"])) == ["withdraw:q1", "withdraw:q2"]
         assert "withdraw:note" not in fired(shown["clicks"])
+        assert withdrawn_top_down(shown) == ["q1", "q2"]
         # No button sits in the note's row, the first, where a lone row's Withdraw sits.
         assert one["passes"][0]["tops"][0] not in shown["tops"]
 
 
-def test_c29_7_a_row_being_withdrawn_offers_no_second_withdraw(trays):
+def test_c29_7_a_row_being_withdrawn_offers_no_second_withdraw(trays, views):
     """C-29.7: a row whose Withdraw the daemon has not answered (`withdrawing`)
     has no Withdraw button; the row after it keeps its own, in its own row. The
-    busy row shows a progress indicator instead; where AppKit draws it there is
-    one, and no tray without a busy row has one."""
+    busy row shows a progress indicator instead: each busy tray draws as many
+    AppKit progress indicators as the row's `ProgressView().controlSize(.mini)`
+    hosted alone does (one on macOS 26.6), on every pass, and no tray without a
+    busy row draws one."""
     busy, alone, pair = trays["busy"], trays["busy-only"], trays["steer-no-closure"]
     for shown in busy["passes"]:
         assert shown["buttons"] == 1
@@ -126,10 +141,24 @@ def test_c29_7_a_row_being_withdrawn_offers_no_second_withdraw(trays):
         assert shown["tops"] == [pair["passes"][0]["tops"][1]]
     for shown in alone["passes"]:
         assert shown["buttons"] == 0 and shown["clicks"] == []
-    assert busy["passes"][0]["spinners"] == alone["passes"][0]["spinners"] <= 1
+    reference = views["spinner_reference"]
+    assert reference <= 1
+    assert {name for name, tray in trays.items() if tray["withdrawing"]} == {"busy", "busy-only", "steer-busy"}
     for name, tray in trays.items():
-        if name not in ("busy", "busy-only"):
-            assert all(shown["spinners"] == 0 for shown in tray["passes"]), name
+        assert all(shown["spinners"] == (reference if tray["withdrawing"] else 0) for shown in tray["passes"]), name
+
+
+def test_c29_7_a_row_being_withdrawn_cannot_be_steered(trays):
+    """C-29.7: the head row the daemon offers to steer (canSteer, with a steer
+    closure) has neither Steer nor Withdraw while its Withdraw is under way, so
+    no click steers a message on its way out; the only button is the next
+    row's Withdraw, in that row."""
+    busy, pair = trays["steer-busy"], trays["steer-no-closure"]
+    assert busy["rows"] == ["q1", "q2"] and busy["withdrawing"] == ["q1"]
+    for shown in busy["passes"]:
+        assert shown["buttons"] == 1
+        assert shown["clicks"] == [["withdraw:q2"]]
+        assert shown["tops"] == [pair["passes"][0]["tops"][1]]
 
 
 def test_c29_7_twelve_queued_show_three_and_show_nine_more(trays, views):
@@ -147,6 +176,7 @@ def test_c29_7_twelve_queued_show_three_and_show_nine_more(trays, views):
         collapsed = tray["passes"][0]
         assert collapsed["buttons"] == 4
         assert sorted(fired(collapsed["clicks"])) == [f"withdraw:{mid}" for mid in ids("q", 3)]
+        assert withdrawn_top_down(collapsed) == ids("q", 3)
         assert all(len(click) == 1 for click in collapsed["clicks"] if click)
         more = [index for index, click in enumerate(collapsed["clicks"]) if not click]
         assert len(more) == 1
@@ -160,7 +190,8 @@ def test_c29_7_twelve_queued_show_three_and_show_nine_more(trays, views):
 
 def test_c29_7_show_more_expands_and_a_long_queue_scrolls_inside_the_tray(trays, views, tray_overhead):
     """C-29.7: after Show 9 more, all twelve rows have their Withdraw (each
-    withdraws its row once) and the header has Show fewer. The tray is at most
+    withdraws its row once), top to bottom in the order the daemon sends them,
+    and the header has Show fewer. The tray is at most
     200 pt of rows plus its header: the rows scroll inside it, so twelve and
     forty queued messages take the same room. Show fewer collapses it again."""
     labels = views["label_widths"]
@@ -169,6 +200,7 @@ def test_c29_7_show_more_expands_and_a_long_queue_scrolls_inside_the_tray(trays,
         collapsed, expanded, again = tray["passes"]
         assert expanded["buttons"] == count + 1
         assert sorted(fired(expanded["clicks"])) == [f"withdraw:{mid}" for mid in ids("q", count)]
+        assert withdrawn_top_down(expanded) == ids("q", count)
         fewer = [index for index, click in enumerate(expanded["clicks"]) if not click]
         assert len(fewer) == 1 and expanded["widths"][fewer[0]] == labels["Show fewer"]
         # In the header, above every row.
@@ -178,18 +210,29 @@ def test_c29_7_show_more_expands_and_a_long_queue_scrolls_inside_the_tray(trays,
         assert scroll["visible"] == 200 < scroll["document"]
         # Show fewer: back to three rows and Show N more.
         assert (again["buttons"], again["height"], again["tops"]) == (4, collapsed["height"], collapsed["tops"])
+        assert withdrawn_top_down(again) == ids("q", 3)
     twelve, forty = trays["twelve"]["passes"][1], trays["forty"]["passes"][1]
     assert twelve["height"] == forty["height"]
     assert forty["scrolls"][0]["document"] > twelve["scrolls"][0]["document"]
 
 
-def test_c29_7_the_collapsed_tray_shows_what_queue_tray_visible_says(trays):
-    """C-29.7: for 1 to 9, 12 and 40 queued messages the collapsed tray shows
-    every row up to four; past four, the first three and one Show N more link
-    (`queueTrayVisible`, limit 4). Show N more expands to every row's Withdraw;
-    a tray of four or fewer has no link and the same rows on every pass."""
-    names = [f"count-{n}" for n in range(1, 10)] + ["twelve", "forty"]
+def test_c29_7_the_collapsed_tray_shows_what_queue_tray_visible_says(trays, views):
+    """C-29.7: for 1 to 9, 12, 13 and 40 queued messages the collapsed tray
+    shows every row up to four; past four, the first three and one Show N more
+    link (`queueTrayVisible`, limit 4), N the rows it hides. Show N more expands
+    to every row's Withdraw; a tray of four or fewer has no link and the same
+    rows on every pass. Rows run top to bottom in the order the daemon sends
+    them, collapsed and expanded.
+
+    The link's N is read from its width, which equals a link labelled with the
+    hidden count. Digits are not all as wide as each other, so the test also
+    checks that some tray would draw a different width with N one short (13
+    hides 10, "Show 9 more" is a digit narrower) and some with N one over (12
+    hides 9, "Show 10 more" is a digit wider)."""
+    labels = views["label_widths"]
+    names = [f"count-{n}" for n in (*range(1, 10), 13)] + ["twelve", "forty"]
     heights = {}
+    one_short_differs = one_over_differs = False
     for name in names:
         tray = trays[name]
         count = len(tray["rows"])
@@ -199,17 +242,26 @@ def test_c29_7_the_collapsed_tray_shows_what_queue_tray_visible_says(trays):
         link = 1 if count > shown else 0
         assert collapsed["buttons"] == shown + link
         assert sorted(fired(collapsed["clicks"])) == [f"withdraw:{mid}" for mid in tray["rows"][:shown]]
+        assert withdrawn_top_down(collapsed) == withdrawn_top_down(again) == tray["rows"][:shown]
         assert sum(1 for click in collapsed["clicks"] if not click) == link
         if link:
+            hidden = count - shown
+            [more] = [index for index, click in enumerate(collapsed["clicks"]) if not click]
+            assert collapsed["widths"][more] == labels[f"Show {hidden} more"], name
+            one_short_differs |= labels[f"Show {hidden - 1} more"] != labels[f"Show {hidden} more"]
+            one_over_differs |= labels[f"Show {hidden + 1} more"] != labels[f"Show {hidden} more"]
             assert expanded["buttons"] == count + 1
             assert sorted(fired(expanded["clicks"])) == [f"withdraw:{mid}" for mid in tray["rows"]]
+            assert withdrawn_top_down(expanded) == tray["rows"]
         else:
             assert collapsed == expanded == again
-        assert again["buttons"] == collapsed["buttons"]
+        assert (again["buttons"], again["widths"]) == (collapsed["buttons"], collapsed["widths"])
         heights[count] = collapsed["height"]
+    assert one_short_differs and one_over_differs
+    assert labels["Show 9 more"] < labels["Show 10 more"]
     # Each row up to four takes room; past four the collapsed tray stays the same size.
     assert heights[1] < heights[2] < heights[3] < heights[4]
-    assert len({heights[n] for n in (5, 6, 7, 8, 9, 12, 40)}) == 1
+    assert len({heights[n] for n in (5, 6, 7, 8, 9, 12, 13, 40)}) == 1
 
 
 EXPANDED_FRAME_BUG = (
@@ -309,6 +361,7 @@ def test_c29_7_steer_shows_only_where_the_daemon_offers_it(trays, views):
         [head] = [i for i, click in enumerate(shown["clicks"]) if click == ["withdraw:q1"]]
         assert shown["widths"][index] == labels["Steer"]
         assert shown["tops"][index] == shown["tops"][head]
+        assert withdrawn_top_down(shown) == ["q1", "q2"]
     for name in ("steer-no-closure", "steer-not-offered"):
         for shown in trays[name]["passes"]:
             assert shown["buttons"] == 2

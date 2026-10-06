@@ -4,7 +4,10 @@
 // its rows (C-29.7). SwiftUI builds no accessibility tree
 // without an assistive client, so a control is seen by the room it takes, and
 // each AppKit-backed one (link and borderless buttons; bordered ones too before
-// macOS 26) is clicked and named by the action it fired.
+// macOS 26) is clicked and named by the action it fired. The same limit hides
+// what a control says to VoiceOver (`.accessibilityLabel`) and its tooltip
+// (`.help`): on macOS 26.6 the hosting view reports no accessibility children
+// and the buttons no label, help or tooltip, so nothing here reads them.
 import AppKit
 import SwiftUI
 
@@ -156,6 +159,8 @@ struct HostedTray: View {
         TrayConfiguration(name: "note", rows: [note, first, sending]),
         TrayConfiguration(name: "busy", rows: [first, second], withdrawing: ["q1"]),
         TrayConfiguration(name: "busy-only", rows: [first], withdrawing: ["q1"]),
+        // The head row the daemon offers to steer, while its Withdraw is under way.
+        TrayConfiguration(name: "steer-busy", rows: [head, second], withdrawing: ["q1"], steer: true),
         TrayConfiguration(name: "twelve", rows: numbered(12)),
         TrayConfiguration(name: "forty", rows: numbered(40)),
         TrayConfiguration(name: "twelve-held-narrow", rows: numbered(12), held: true, width: 300),
@@ -166,7 +171,8 @@ struct HostedTray: View {
         TrayConfiguration(name: "column-5", rows: numbered(5), column: 700),
         TrayConfiguration(name: "column-12", rows: numbered(12), column: 700),
     ]
-    configurations += (1...9).map { TrayConfiguration(name: "count-\($0)", rows: numbered($0)) }
+    // Thirteen hides ten: a count one short of it ("Show 9 more") is a digit narrower.
+    configurations += (Array(1...9) + [13]).map { TrayConfiguration(name: "count-\($0)", rows: numbered($0)) }
     var out: [[String: Any]] = []
     for configuration in configurations {
         let log = TrayLog()
@@ -190,6 +196,7 @@ struct HostedTray: View {
         }
         let visible = queueTrayVisible(count: configuration.rows.count, expanded: false)
         out.append(["name": configuration.name, "rows": configuration.rows.map(\.id), "title": title,
+                    "withdrawing": configuration.withdrawing.sorted(),
                     "width": configuration.width, "shown": visible.shown, "hidden": visible.hidden,
                     "passes": passes, "visible_windows": NSApp.windows.filter(\.isVisible).count])
     }
@@ -199,15 +206,26 @@ struct HostedTray: View {
 /// How wide a link button in the tray's caption font is for each label the
 /// tray draws. The drawn label is not readable from AppKit (the button's title
 /// is empty and there is no accessibility tree), so a tray button is named by
-/// matching its width to these.
-@MainActor func labelWidths(windows: inout [NSWindow]) -> [String: CGFloat] {
+/// matching its width to these. For each count of hidden rows a tray has, the
+/// Show N more labels one short and one over are measured too, so a test can
+/// tell where a wrong count would draw a different width.
+@MainActor func labelWidths(hidden: [Int], windows: inout [NSWindow]) -> [String: CGFloat] {
     var out: [String: CGFloat] = [:]
-    for label in ["Withdraw", "Steer", "Show fewer", "Show 9 more", "Show 37 more", "Show 2 more"] {
+    let counts = Set(hidden.flatMap { [$0 - 1, $0, $0 + 1] }).sorted()
+    for label in ["Withdraw", "Steer", "Show fewer"] + counts.map({ "Show \($0) more" }) {
         let hosted = FixedWidthHost(Button(label) {}.buttonStyle(.link).font(.caption), width: 480)
         windows.append(hosted.window)
         out[label] = hosted.layout().buttons.first?.frame.width ?? 0
     }
     return out
+}
+
+/// How many progress indicators AppKit draws for the busy row's
+/// `ProgressView().controlSize(.mini)` hosted alone, laid out as a tray is.
+@MainActor func spinnerReference(windows: inout [NSWindow]) -> Int {
+    let hosted = FixedWidthHost(ProgressView().controlSize(.mini), width: 480)
+    windows.append(hosted.window)
+    return hosted.layout().spinners
 }
 
 /// One tray row's height at the tray's width for each preview the tests compare (C-29.7).
@@ -289,9 +307,11 @@ struct ConversationViewProbe {
                          "spoken": approvalsWaitingWords(pending)])
         }
         let trays = trayConfigurations(windows: &windows)
+        let hidden = trays.compactMap { $0["hidden"] as? Int }.filter { $0 > 0 }
         let result: [String: Any] = ["strips": strips, "rows": rows, "trays": trays,
                                      "tray_rows": rowHeights(windows: &windows),
-                                     "label_widths": labelWidths(windows: &windows),
+                                     "label_widths": labelWidths(hidden: hidden, windows: &windows),
+                                     "spinner_reference": spinnerReference(windows: &windows),
                                      "visible_windows": NSApp.windows.filter(\.isVisible).count]
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
         withExtendedLifetime(windows) {}
