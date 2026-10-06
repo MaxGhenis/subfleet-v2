@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import uuid
 
 import pytest
@@ -56,6 +57,10 @@ def test_p3_4_two_spellings_of_one_scratch_folder_hold_and_record_one_folder(tmp
     be searched but not listed (0111), where the spelling read from listings kept each
     as typed: two lease keys, two `target`s, and neither turn marked as sharing."""
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        # A nested TMPDIR must not make these scratch folders part of the
+        # caller's checkout; the bare boundary has no worktree of its own.
+        subprocess.run(["git", "init", "--bare", "--initial-branch=fixture", "--quiet", str(harness.root)],
+                       check=True, capture_output=True)
         parent = harness.root / "Secret-Parent"
         scratch = parent / "Scratch-Folder"
         scratch.mkdir(parents=True)
@@ -97,6 +102,8 @@ def test_p3_4_read_only_turns_in_two_spellings_of_one_folder_hold_rows_on_one_fo
     writable turn's (`read_folder`, daemon.py), so `folders.turn_holds` finds both
     conversations' rows on the folder whichever case each was typed in."""
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        subprocess.run(["git", "init", "--bare", "--initial-branch=fixture", "--quiet", str(harness.root)],
+                       check=True, capture_output=True)
         scratch = harness.root / "Scratch-Folder"
         scratch.mkdir()
         if not case_insensitive(harness.root):

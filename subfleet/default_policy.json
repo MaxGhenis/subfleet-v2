@@ -121,6 +121,14 @@
     "headroom_floor_pct": 15,
     "min_interval_min": 30
   },
+  "claude_cards": {
+    "enabled": true,
+    "interval_min": 360,
+    "heal": true,
+    "heal_interval_min": 60,
+    "warn_days": 5,
+    "logins_dir": "logins"
+  },
   "timers": {
     "probe_interval_s": 60,
     "keepalive_interval_s": 18300

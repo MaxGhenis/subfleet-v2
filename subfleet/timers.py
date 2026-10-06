@@ -14,7 +14,7 @@ import threading
 import time
 from uuid import uuid4
 
-from . import capacity
+from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
@@ -39,7 +39,7 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None):
+                 deliver=None, now=None, cards_sensor=None):
         from .actions import ResetCredits
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
@@ -66,6 +66,11 @@ class Timers:
         self._session_mirror = None
         self._lanes = ThreadPoolExecutor(max_workers=min(4, policy.get('caps', {}).get('keepalive_workers', 4)),
                                          thread_name_prefix='subfleet-timer-lane')
+        # C-9.10: the card sensor reads every login in turn and may spend a heal
+        # turn on some; minutes in the worst case, so it never takes a cycle
+        # worker a probe or a keepalive is waiting for.
+        self._cards = ThreadPoolExecutor(max_workers=1, thread_name_prefix='subfleet-cards')
+        self._cards_sensor = cards_sensor
         self._running = set()
         self.active_holders = set()
         self._probe_holders = {}
@@ -95,9 +100,12 @@ class Timers:
             hot_interval = policy.get('sessions', {}).get('mirror_hot_interval_s', 2)
             if hot_interval:
                 self.intervals['mirror_hot'] = hot_interval
+        cards = claude_cards.settings(policy)
+        if cards['enabled']:
+            self.intervals['claude_cards'] = float(cards['interval_min']) * 60
         self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
                         for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
-                                     'retention', 'mirror', 'mirror_hot')}
+                                     'retention', 'mirror', 'mirror_hot', 'claude_cards')}
         self.metadata = self._latest('timer.verdict')
         # Failure pacing is sensor state, not a credential/admission verdict.
         # Busy failures are withheld from metadata but still need a durable
@@ -129,6 +137,9 @@ class Timers:
                 return
             self.started = True
             for name, interval in self.intervals.items():
+                # C-9.10: the first card read comes a minute after start, not a
+                # whole interval later; a restart must not hide a card for hours.
+                interval = min(interval, 60) if name == 'claude_cards' else interval
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
                 self._due[name] = time.monotonic() + interval
             self._status['retention']['next_due'] = iso(self.now() + timedelta(hours=1))
@@ -162,13 +173,17 @@ class Timers:
                 # Timestamp precision is seconds in the store; monotonic deadlines
                 # below still bound fractional test intervals and per-lane work.
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
-                pool = self._mirror if name in ('mirror', 'mirror_hot') else self._cycles
+                pool = (self._mirror if name in ('mirror', 'mirror_hot')
+                        else self._cards if name == 'claude_cards' else self._cycles)
                 pool.submit(self._run, name)
 
     def request(self, name, *, target=None):
         """Queue operator maintenance on the same workers and overlap guard."""
-        if name not in ('probe', 'keepalive', 'reset_credits'):
+        if name not in ('probe', 'keepalive', 'reset_credits', 'claude_cards'):
             raise ValueError('unknown maintenance timer')
+        if name == 'claude_cards' and 'claude_cards' not in self.intervals:
+            return {'status': 'disabled', 'timer': name,
+                    'detail': 'claude_cards.enabled is false in the policy; nothing was read.'}
         with self._lock:
             if self.cancel.is_set():
                 return {'status': 'stopping', 'timer': name}
@@ -190,7 +205,7 @@ class Timers:
                 self._running.discard(name)
             raise
         callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
-        self._cycles.submit(self._run, name, callback)
+        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run, name, callback)
         return {'status': 'scheduled', 'timer': name, 'target': target}
 
     def _run(self, name, callback=None):
@@ -302,6 +317,8 @@ class Timers:
                                    if isinstance(entry, dict) and entry.get('id')}
         self.fence_probes(snapshot)
         snapshot['alerts'] = self.alerts.active()          # C-18.4: every publication
+        if 'claude_cards' not in snapshot:
+            snapshot['claude_cards'] = self.cards_view()   # C-9.10: every publication
         return write_status(self.root, snapshot, now=self.now())
 
     def probe_rows(self):
@@ -341,12 +358,106 @@ class Timers:
         return (fleet_cap is not None and
                 sum(view.get('in_flight', {}).values()) + view.get('reserved_probes', 0) >= fleet_cap)
 
+    # --- Claude limit-reset cards and promotional credits (C-9.10) -----------
+
+    def cards_view(self):
+        """The card snapshot as status, `status.json` and alerts read it. A
+        file that cannot be read is an empty view, never a failed publication;
+        a sensor switched off shows nothing, so no alert outlives its reads."""
+        if not claude_cards.settings(self.policy)['enabled']:
+            return {'read_at': None, 'accounts': [], 'warnings': [], 'disabled': True}
+        try:
+            return claude_cards.load_view(self.root, self.policy, self.now())
+        except Exception as exc:                        # noqa: BLE001 - see docstring
+            return {'read_at': None, 'accounts': [], 'warnings': [], 'error_type': type(exc).__name__}
+
+    def _card_lanes(self):
+        """C-9.10: the Claude lanes, each marked `held` when an operator hold is in force.
+
+        A hold is read from the closures and from its own `lane.held` and
+        `lane.released` events: `Store.put_closure` keeps one open closure per
+        lane and scope, so a hold that ends before an open provider limit on the
+        account scope leaves no `operator-hold` row, though it is in force.
+        Releasing such a hold changes no row and so writes no `lane.released`
+        event; the hold then lasts until its own end, which errs toward spending
+        nothing.
+        """
+        now = iso(self.now())
+        held = {row['lane_id'] for row in self.store.query(
+            "SELECT DISTINCT lane_id FROM closures WHERE reason='operator-hold' AND released_at IS NULL AND until_at>?",
+            (now,))}
+        until = {}
+        for row in self.store.query("SELECT lane_id,kind,data_json FROM events WHERE kind IN ('lane.held','lane.released') "
+                                    "ORDER BY event_id"):
+            if row['kind'] == 'lane.released':
+                until.pop(row['lane_id'], None)
+                continue
+            try:
+                value = json.loads(row['data_json'] or '{}').get('until')
+            except ValueError:
+                continue
+            if isinstance(value, str) and value > until.get(row['lane_id'], ''):
+                until[row['lane_id']] = value
+        held |= {lane_id for lane_id, value in until.items() if value > now}
+        return [{'lane_id': row['lane_id'], 'identity': row['identity'], 'label': row['label'],
+                 'account_key': row['account_key'], 'enabled': bool(row['enabled']),
+                 'held': row['lane_id'] in held}
+                for row in self.store.query("SELECT lane_id,identity,label,account_key,enabled FROM lanes "
+                                            "WHERE provider='claude' ORDER BY created_at,rowid")]
+
+    def _card_sensor(self):
+        if self._cards_sensor is None:
+            from .adapters.claude import ENROLL_MODEL, ENROLL_PROMPT, home_login
+            claude_bin = getattr(self.adapter_factory('claude'), 'claude_bin', 'claude')
+            # C-23.47: the CLI renews its own login when it runs; one minimal
+            # turn under the login's folder is the heal, and the sensor only
+            # reads the store the CLI wrote.
+            self._cards_sensor = claude_cards.Sensor(
+                login_reader=home_login,
+                heal=lambda home: claude_cards.heal_turn(home, claude_bin=claude_bin, model=ENROLL_MODEL,
+                                                         prompt=ENROLL_PROMPT, cancel=self.cancel),
+                version=lambda: claude_cards.cli_version(claude_bin),
+                now=self.now)
+        return self._cards_sensor
+
+    def claude_cards_cycle(self):
+        """C-9.10: read every login's cards, credits and plan; publish the snapshot.
+
+        Its requests are GETs, never a claim: no code path here or in
+        `claude_cards` can redeem a card or claim a credit. It is not free of
+        cost: it may spend one heal turn (C-23.47) on each expired login that
+        backs a lane, unless an operator hold covers one of its lanes, at most
+        once per `claude_cards.heal_interval_min` per login. Usage reads are
+        paced with the probe's (C-9.9).
+        """
+        if self.cancel.is_set():
+            return None
+        config = claude_cards.settings(self.policy)
+        path = self.root / claude_cards.SNAPSHOT_FILE
+        previous = claude_cards.read_snapshot(path)
+        snapshot = claude_cards.refresh(
+            self._card_sensor(),
+            logins=claude_cards.discover_logins(claude_cards.logins_folder(self.root, self.policy)),
+            lanes=self._card_lanes, previous=previous, heal=bool(config['heal']),
+            heal_after_s=float(config['heal_interval_min']) * 60, pace=self._pace_usage,
+            stop=self.cancel.is_set, checkpoint=lambda partial: claude_cards.write_snapshot(path, partial))
+        claude_cards.write_snapshot(path, snapshot)
+        summary = {'read_at': snapshot['read_at'],
+                   'accounts': {row['login']: {'status': row.get('status'), 'lanes': row.get('lanes', []),
+                                               'unused': sum(grant['resets_left'] for grant in
+                                                             claude_cards.unused_cards(row, self.now()))}
+                                for row in snapshot['accounts']},
+                   'heals': sorted(row['login'] for row in snapshot['accounts'] if row.get('healed'))}
+        self.store.add_event('timer.claude-cards', data=summary)
+        return summary
+
     def stop(self):
         with self._lock:
             self.cancel.set()
         self._cycles.shutdown(wait=True, cancel_futures=True)
         self._lanes.shutdown(wait=True, cancel_futures=True)
         self._mirror.shutdown(wait=True, cancel_futures=True)
+        self._cards.shutdown(wait=True, cancel_futures=True)
 
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
@@ -917,6 +1028,7 @@ class Timers:
             snapshot = self.snapshot()
             snapshot['reset_policy'] = result
         snapshot['offline'] = offline
+        snapshot['claude_cards'] = self.cards_view()       # C-9.10: alerts and status.json read it
         self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
         self.publish_status(snapshot)
