@@ -1,7 +1,0 @@
-{
-  "exit_code": 0,
-  "seconds": 349.16,
-  "output": "build/visual-pass-product/Subfleet.app",
-  "codesign_verification": "passed",
-  "source_commit": "ccacf66"
-}

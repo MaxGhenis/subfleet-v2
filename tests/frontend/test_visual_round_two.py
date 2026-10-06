@@ -59,14 +59,15 @@ def test_empty_known_amendments_are_omitted_but_unknown_empty_fields_survive(r2_
 
 def test_scope_precedes_command_and_bulk_content(r2_models):
     assert r2_models["order"] == ["input.file_path", "cwd", "grantRoot", "permissions.fileSystem.write[0]",
-                                  "permissions.network.enabled", "input.command", "futureGrant.method", "input.content"]
+                                  "permissions.network.enabled", "input.command", "futureGrant.method", "nullable", "input.content"]
     assert r2_models["fields"]["input.command"] == "echo [MASKED]"
-    assert "nullable" not in r2_models["fields"]
+    assert r2_models["fields"]["nullable"] == "null"
     assert r2_models["fields"]["futureGrant.method"] == "must stay visible"
 
 
 def test_questions_have_one_presentation_and_answers_survive_resolution(r2_models):
-    assert r2_models["question_fields"] == r2_models["question_summary_fields"] == []
+    assert r2_models["question_fields"] == ["blocked_path"]
+    assert r2_models["question_summary_fields"] == []
     assert r2_models["answers"] == {"Which scope?": "Local"}
     assert not r2_models["question_pending"]
 
@@ -134,7 +135,9 @@ def test_answered_questions_show_question_and_answer_once(r2_views):
     for question in ("Which release task should go first?", "When should the notes go out?"):
         assert text.count(question) == 1
     assert text.count("Answer: Option 0") == 1 and text.count("Answer: Window 0") == 1
-    assert "input.questions" not in text and "null" not in text
+    assert "input.questions" not in text
+    # This history summary explicitly supplies a nullable scope; retain it.
+    assert "blocked_path: null" in " ".join(text.split())
 
 
 @pytest.mark.parametrize("mode", ["dark", "light"])
