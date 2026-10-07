@@ -521,10 +521,13 @@ class ConversationService:
     def _check_native_open(tx, provider: str, session_id: str) -> None:
         read = lambda sql, params: tx.execute(sql, params).fetchall()  # noqa: E731
         for _, holder in resource_leases.native_holds(read, resource_leases.native_key(provider, session_id)):
-            live = tx.execute("SELECT job_id FROM jobs WHERE job_id=? "
-                              "AND state NOT IN ('succeeded','failed','cancelled','lost') "
+            live = tx.execute("SELECT job_id FROM jobs WHERE job_id=? AND "
+                              "(state NOT IN ('succeeded','failed','cancelled','lost') OR EXISTS "
+                              "(SELECT 1 FROM attempts WHERE attempts.job_id=jobs.job_id AND "
+                              "state IN ('reserved','starting','running','finalizing','quarantined'))) "
                               "UNION SELECT j.job_id FROM jobs j JOIN attempts a USING(job_id) "
-                              "WHERE a.attempt_id=? AND j.state NOT IN ('succeeded','failed','cancelled','lost')",
+                              "WHERE a.attempt_id=? AND (j.state NOT IN ('succeeded','failed','cancelled','lost') "
+                              "OR a.state IN ('reserved','starting','running','finalizing','quarantined'))",
                               (holder, holder)).fetchone()
             if live:
                 raise ConversationError("native-held", f"native session is held by live job {live[0]}",

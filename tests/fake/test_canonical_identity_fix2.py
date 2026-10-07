@@ -141,6 +141,28 @@ def test_public_open_between_reservation_and_launch_refuses_live_native_lease(tm
         assert service.conversations.store.by_native("claude", MINIMAL) is None
 
 
+def test_public_open_refuses_a_quarantined_native_owner_even_after_job_is_lost(tmp_path):
+    from subfleet.conversations import catalog
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        configure(service, patch)
+        job = revive(service, harness, MINIMAL)
+        service._admit()
+        attempt = service.store.list_attempts(job)[0]
+        service.store.update_job(job, state="lost")
+        service.store.update_attempt(attempt["attempt_id"], state="quarantined")
+        patch.setattr(catalog, "native_session", lambda *_args, **_kw: {
+            "continuable": True, "model_value": "haiku", "permission": "read-only",
+            "cwd": str(harness.workdir), "title": "Native", "lane_id": None})
+        with pytest.raises(ConversationError, match="live job"):
+            service.conversations.handle("conversation.open", {
+                "native": {"provider": "claude", "session_id": MINIMAL}}, None)
+        assert service.store.list_leases(job)
+        service.store.release_leases(job)
+        opened = service.conversations.handle("conversation.open", {
+            "native": {"provider": "claude", "session_id": MINIMAL}}, None)
+        assert opened["conversation"]["native_session_id"] == MINIMAL
+
+
 @pytest.mark.parametrize("alias", ["{" + MINIMAL.upper() + "}", "urn:uuid:" + MINIMAL, MINIMAL.replace("-", "")])
 def test_uuid_parseable_aliases_collide_through_submit_and_admit(tmp_path, alias):
     from subfleet.adapters.base import AdapterError
