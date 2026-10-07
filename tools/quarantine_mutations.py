@@ -15,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("failed confirmation drops the conservative group", "subfleet/procs.py",
+     'current.proc_start if current else "", group or 0))',
+     'current.proc_start if current else "", 0))',
+     "tests/fake/test_review_pr131_round5.py::test_group_capture_race_keeps_children_of_observed_writer[reaped-marker-False]"),
     ("later observations reuse the old identity", "subfleet/procs.py",
      "            current = identity(pid)\n            if current is None:",
      "            current = (seen.identity(pid) if seen is not None and seen.live(pid) else identity(pid))\n            if current is None:",

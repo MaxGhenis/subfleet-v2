@@ -33,7 +33,7 @@ def test_all_three_reads_retain_distinct_incarnations_of_one_pid(monkeypatch):
 
 
 @pytest.mark.parametrize("change", ["start", "boot"])
-def test_reuse_during_group_capture_holds_without_attaching_the_wrong_group(monkeypatch, change):
+def test_reuse_during_group_capture_retains_group_as_conservative_evidence(monkeypatch, change):
     first = procs.ProcessIdentity(99, BOOT, "first")
     second = procs.ProcessIdentity(99, NEXT_BOOT if change == "boot" else BOOT,
                                    "first" if change == "boot" else "second")
@@ -45,7 +45,11 @@ def test_reuse_during_group_capture_holds_without_attaching_the_wrong_group(monk
     census = procs.containment(None, None, None, "a1")
     assert census.unverifiable and not census.verified_empty
     assert {root.identity for root in census.lineage_roots} == {first, second}
-    assert {root.pgid for root in census.lineage_roots} == {0}
+    assert {(root.identity, root.pgid) for root in census.lineage_roots} == {
+        (first, 700), (second, 0)}
+    # The sampled group is evidence for the first observation; confirmation
+    # never assigns it to the replacement incarnation or grants ownership.
+    assert census.identities == {99: second}
 
 
 @pytest.mark.parametrize("source", ["group", "descendant", "marker", "cwd"])

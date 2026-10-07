@@ -676,6 +676,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def observe_later(pid: int, source: set[int]) -> None:
         source.add(pid)
         current = None
+        group = None
         try:
             # A later positive match never borrows the earlier incarnation's
             # zombie verdict, start identity, or group. Bracket the group read
@@ -706,9 +707,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             errors.append(f"identity inspection unavailable for pid {pid}")
             shapes.pop(pid, None)
             # The failed later read has no entitlement to the old table row.
-            # Even a known start with an unreadable group remains a root.
+            # A sampled group remains conservative evidence if confirmation
+            # fails; even an unreadable group leaves the identity as a root.
+            # These roots never grant signal authority (C-5.3).
             incomplete_roots.append(CensusRoot(pid, current.boot_id if current else "",
-                                                current.proc_start if current else "", 0))
+                                                current.proc_start if current else "", group or 0))
 
     observed_writer = bool(groups | descendants)
     observed_boots = set(lineage_boot_ids)
