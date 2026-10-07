@@ -374,8 +374,12 @@ The cited review/evidence files supply the requirement or calibration, not
 measurements establishing these exact new limits. The rationale explains
 why the proposal selects them. Shadow validation must measure the resulting
 cost and hold time before activation. Existing release constants are quoted
-separately above; replay thresholds remain sourced to
-[replay_states.py, RULES C][replay].
+separately above and cite the code at `release/217` by file and line, because
+the shipped code, not a review, is the source for current behaviour (for
+example the first-answer reader's 1 s, 256 KiB and 4 MiB bounds at
+[subfleet/daemon.py:206–208][release-daemon]). Figures measured in the outage
+study cite the study's files under the reviews directory. Replay thresholds
+remain sourced to [replay_states.py, RULES C][replay].
 
 | Proposed choice | Rationale | Source requirement or calibration |
 |---|---|---|
@@ -957,4 +961,4 @@ valid. Rows for the first round include the later corrections where required.
 | R2-2 | Correct default fleet cap to `null`; make fleet-cap starvation conditional on a configured cap; quote shipped policy | Release compatibility; Acceptance-contract clause: Queue waits and fairness; Rollout and acceptance criteria |
 | R2-3 | Quote the live first-answer reader and its caller; specify a continuous observer with compatible offset, partial-line and skip handling and separate cursor lifecycle | Release compatibility; Acceptance-contract clause: Signal sources |
 | R2-4 | Quote and preserve explicit resume/revive `resume_launch` semantics; network classification itself adds no native continuation | Release compatibility; Acceptance-contract clause: Retry pins and route-clock precedence; Companion amendments; Integration coverage |
-| R2-5 | Cite evidence/review source files for numerical choices; label new caps and observer limits as proposals with rationale; quote release defaults | Numerical choices and provenance; Release compatibility; Acceptance-contract clause; Rollout and acceptance criteria |
+| R2-5 | Cite evidence/review source files for measured figures and the release code by file and line for shipped constants; label new caps and observer limits as proposals with rationale; quote release defaults | Numerical choices and provenance; Release compatibility; Acceptance-contract clause; Rollout and acceptance criteria |
