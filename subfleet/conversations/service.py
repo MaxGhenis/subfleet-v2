@@ -41,7 +41,7 @@ from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
 from . import codex_brief, waits
-from .. import folders
+from .. import folders, resource_leases
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
@@ -496,6 +496,8 @@ class ConversationService:
         session_id = canonical_native(session_id)          # one spelling per session (review L1)
         existing = self.store.by_native(provider, session_id)
         if existing:
+            with self.daemon.store.transaction("conversation.native_checked") as tx:
+                self._check_native_open(tx, provider, session_id)
             return existing
         found = native_session(provider, session_id, home=native.get("home"), root=self.root,
                                lanes=self.daemon.store.lane_rows())
@@ -506,10 +508,27 @@ class ConversationService:
                                     code=7, fix="use a handoff")
         settings = {"model": found["model_value"], "effort": None, "fast": False,
                     "permission": found["permission"], "auto_continue": True}
-        conversation, _ = self.store.create_conversation(
-            provider=provider, workspace=found["cwd"], workspace_kind="in-place", settings=settings, origin="native",
-            native_session_id=session_id, title=found.get("title"), lane_id=found.get("lane_id"))
+        # C-26.13: serialize the binding with reservation. Catalog/filesystem
+        # work is already finished; only SQL runs while the main lock is held.
+        with self.daemon.store.transaction("conversation.native_checked") as tx:
+            self._check_native_open(tx, provider, session_id)
+            conversation, _ = self.store.create_conversation(
+                provider=provider, workspace=found["cwd"], workspace_kind="in-place", settings=settings, origin="native",
+                native_session_id=session_id, title=found.get("title"), lane_id=found.get("lane_id"))
         return conversation
+
+    @staticmethod
+    def _check_native_open(tx, provider: str, session_id: str) -> None:
+        read = lambda sql, params: tx.execute(sql, params).fetchall()  # noqa: E731
+        for _, holder in resource_leases.native_holds(read, resource_leases.native_key(provider, session_id)):
+            live = tx.execute("SELECT job_id FROM jobs WHERE job_id=? "
+                              "AND state NOT IN ('succeeded','failed','cancelled','lost') "
+                              "UNION SELECT j.job_id FROM jobs j JOIN attempts a USING(job_id) "
+                              "WHERE a.attempt_id=? AND j.state NOT IN ('succeeded','failed','cancelled','lost')",
+                              (holder, holder)).fetchone()
+            if live:
+                raise ConversationError("native-held", f"native session is held by live job {live[0]}",
+                                        code=7, fix="wait for that job to finish")
 
     def op_conversation_create(self, args, peer) -> dict:
         provider = args.get("provider") or "claude"

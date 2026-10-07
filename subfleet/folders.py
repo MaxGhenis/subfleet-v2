@@ -35,7 +35,7 @@ and a mount point by its own name, where ATTR_CMN_NAME gives the volume's
 (`/` is "Macintosh HD"). What a path cannot be spelled by, `spelling` says.
 
 `identity` reuses that spelling for comparison and reservations of outputs
-that may not exist yet: NFC, then casefold on a case-insensitive volume. The
+that may not exist yet: canonical caseless matching on insensitive volumes. The
 display helpers keep the kernel's spelling, including an absent name as typed.
 """
 
@@ -44,8 +44,11 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import errno
+import logging
 import os
+import re
 import sys
+import threading
 import unicodedata
 from typing import Any, Callable, Iterable
 
@@ -53,6 +56,26 @@ EXCLUSIVE = "worktree:"
 TURN = "worktree-turn:"
 READER = "worktree-read:"
 SHARED = (TURN, READER)
+
+# Unicode Default_Ignorable_Code_Point, DerivedCoreProperties 17.0.0.
+# HFS+ ignores a subset; ignoring the superset on every insensitive volume
+# deliberately refuses some distinct writers rather than missing an alias.
+_DEFAULT_IGNORABLES = re.compile(
+    "[\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180f"
+    "\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f"
+    "\ufeff\uffa0\ufff0-\ufff8\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0000-\U000e0fff]")
+_identity_warned: set[str] = set()
+_identity_warning_lock = threading.Lock()
+
+
+def identity_fallback(path: str, error: OSError) -> str:
+    """2.1.11's exact-string guard when the filesystem cannot answer; log once."""
+    with _identity_warning_lock:
+        first = path not in _identity_warned
+        _identity_warned.add(path)
+    if first:
+        logging.getLogger(__name__).warning("resource identity unavailable for %s: %s; using exact string", path, error)
+    return path
 
 
 def canonical(path: str | os.PathLike[str]) -> str:
@@ -65,14 +88,25 @@ def canonical(path: str | os.PathLike[str]) -> str:
 def identity(path: str | os.PathLike[str]) -> str:
     """A comparison key, including names that have not been created yet.
 
-    Reuse the resolved kernel spelling that identifies folders; NFC also
-    unifies an absent filename's normalization. Fold case only on a volume
-    whose pathconf says names are case-insensitive. Display and publication
-    keep their supplied spelling (`canonical`/`spelling` are unchanged).
+    Sensitive volumes retain case and use NFC. Insensitive volumes use
+    Unicode canonical caseless matching, NFD(casefold(NFD(path))), with
+    conservative dotless-i and default-ignorable equivalence. Display and
+    publication retain their spelling. Any OSError (including TimeoutError)
+    falls back to the supplied string, as the 2.1.11 conflict checks did.
     """
-    spelled = canonical(path)
-    normalized = unicodedata.normalize("NFC", spelled)
-    return normalized if _case_sensitive(spelled) else normalized.casefold()
+    raw = os.fspath(path)
+    try:
+        spelled, problem = spelling(raw)
+        if problem and sys.platform == "darwin":
+            raise OSError(problem)
+        if _case_sensitive(spelled):
+            return unicodedata.normalize("NFC", spelled)
+        # Dotless i is equivalent under exFAT's uppercase comparison. APFS
+        # can distinguish it; that over-collision is intentional (C-6.5).
+        comparable = _DEFAULT_IGNORABLES.sub("", spelled).replace("ı", "i")
+        return unicodedata.normalize("NFD", unicodedata.normalize("NFD", comparable).casefold())
+    except OSError as exc:
+        return identity_fallback(raw, exc)
 
 
 def _case_sensitive(path: str | os.PathLike[str]) -> bool:

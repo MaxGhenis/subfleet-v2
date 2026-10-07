@@ -1,5 +1,6 @@
 """Comparison keys are stable; opaque native ids retain their exact identity."""
 from pathlib import Path
+import errno
 import tempfile
 import unicodedata
 
@@ -43,10 +44,28 @@ def test_opaque_native_ids_are_distinct_and_stable(left, right):
 
 
 @settings(max_examples=80, deadline=None, derandomize=True, database=None)
-@given(value=st.uuids(), upper=st.booleans())
-def test_native_keys_are_idempotent_and_provider_scoped(value, upper):
-    session = str(value).upper() if upper else str(value)
+@given(value=st.uuids(), upper=st.booleans(), form=st.sampled_from(["hyphenated", "braced", "urn", "hex"]))
+def test_native_keys_are_idempotent_and_provider_scoped(value, upper, form):
+    session = value.hex if form == "hex" else str(value)
+    session = session.upper() if upper else session
+    if form == "braced":
+        session = "{" + session + "}"
+    elif form == "urn":
+        session = "urn:uuid:" + session
     key = resource_leases.native_key("claude", session)
     assert key == resource_leases.native_key("claude", str(value))
     assert resource_leases.canonical_native_key(key) == key
     assert resource_leases.native_key("codex", session) != key
+
+
+@settings(max_examples=32, deadline=None, derandomize=True, database=None)
+@given(name=st.text(alphabet="abcABCéΐİßı\u200b\u0345012-_", min_size=1, max_size=12),
+       code=st.sampled_from([errno.EACCES, errno.EIO, errno.ELOOP, errno.ETIMEDOUT]))
+def test_unavailable_identity_never_raises_and_preserves_exact_string(name, code):
+    with tempfile.TemporaryDirectory(prefix="identity-fallback-") as directory, pytest.MonkeyPatch.context() as patch:
+        def unavailable(_):
+            raise OSError(code, "fixture")
+        patch.setattr(folders, "_case_sensitive", unavailable)
+        path = str(Path(directory) / name)
+        assert folders.identity(path) == path
+        assert folders.identity(path) == folders.identity(path)

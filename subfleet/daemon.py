@@ -4351,6 +4351,7 @@ class Daemon:
 
     def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
         """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
+        output_identities: dict[str, str] = {}
         if kind == "detached":
             self._recover_probes()
         desktop_account = self._desktop_identity()
@@ -4735,7 +4736,8 @@ class Daemon:
                 # change it places by is recorded (review of PR #72).
                 self._desktop_in_use()
                 self._record_desktop_use()
-                output_claim = (resource_leases.OutputClaim.prepare(self.store.query, job["out_path"])
+                output_claim = (resource_leases.OutputClaim.prepare(self.store.query, job["out_path"],
+                                                                    identities=output_identities)
                                 if job["out_path"] else None)
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
@@ -6671,36 +6673,66 @@ class Daemon:
 
     def _export_locked(self, job_id: str) -> None:
         job = self._job(job_id)
-        if not job["accepted_attempt_id"]:
-            return
-        if job["out_path"]:
-            claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"])
-            held = claim.holds(self.store.query)
-            if not held or any(holder != job_id for _, holder in held):
-                return  # A replay cannot overwrite a newer owner's output.
-        a = self.store.get_attempt(job["accepted_attempt_id"])
-        artifact = self.store.one("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'", (a["attempt_id"],))
-        export_error = None
+        aid = job["accepted_attempt_id"]
+        a = self.store.get_attempt(aid) if aid else None
+        export_error = None if a else "export failed: no accepted attempt"
+        if not aid:
+            ended = self.store.one("SELECT attempt_id FROM attempts WHERE job_id=? "
+                                   "AND state IN ('succeeded','failed','cancelled','lost') ORDER BY seq DESC LIMIT 1",
+                                   (job_id,))
+            aid = ended["attempt_id"] if ended else None
         exported = None
-        if job["out_path"] and not self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (a["attempt_id"],)):
+        already = aid and self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (aid,))
+        if job["out_path"] and a and not already:
+            claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"])
+            with self.store.transaction("job.export_decided", job_id=job_id) as tx:
+                read = lambda sql, params: tx.execute(sql, params).fetchall()  # noqa: E731
+                held = claim.holds(read)  # oldest acquired_at, then holder and key
+                # Re-read after the lease census: another export may have
+                # committed its decision and released its lease meanwhile.
+                export_error = tx.execute("SELECT export_error FROM jobs WHERE job_id=?", (job_id,)).fetchone()[0]
+                if not export_error:
+                    if not held:
+                        export_error = "export failed: output lease not held"
+                    elif held[0][1] != job_id:
+                        export_error = f"superseded by {held[0][1]}"
+                    else:
+                        # Persist the winner before it releases its guard. A
+                        # legacy loser still holds its leases while running,
+                        # but cannot publish after the winner has finished.
+                        for holder in sorted({holder for _, holder in held} - {job_id}):
+                            self._export_error(tx, holder, f"superseded by {job_id}")
+        if job["out_path"] and a and not already and not export_error:
             try:
+                artifact = self.store.one("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'", (aid,))
+                if not artifact:
+                    raise OSError("accepted deliverable is missing")
                 contents = read_regular(artifact["path"])          # only a regular file, never waiting in open()
                 destination = Path(job["out_path"])
                 if hashlib.sha256(contents).hexdigest() != artifact["sha256"]:
                     raise OSError("accepted deliverable digest changed")
                 self._publish("export", destination, contents)
-                self._boundary("export", job_id, a["attempt_id"])
+                self._boundary("export", job_id, aid)
                 exported = {"role": "export", "path": str(destination), "sha256": artifact["sha256"], "bytes": artifact["bytes"]}
             except OSError as exc:
                 export_error = f"export failed: {type(exc).__name__} (errno={exc.errno})"
-        with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=a["attempt_id"]) as tx:
+        with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=aid) as tx:
             if exported:
-                self.store.add_artifact(a["attempt_id"], **exported)
+                self.store.add_artifact(aid, **exported)
             if export_error:
-                tx.execute("UPDATE jobs SET export_error=? WHERE job_id=?", (export_error, job_id))
-                tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + export_error, job_id))
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
+                self._export_error(tx, job_id, export_error)
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, aid))
         self._notify()
+
+    @staticmethod
+    def _export_error(tx, job_id: str, error: str) -> None:
+        """Persist the refusal and annotate an existing notice once, even on replay."""
+        tx.execute("UPDATE jobs SET export_error=? WHERE job_id=? AND "
+                   "(export_error IS NULL OR export_error<>?)", (error, job_id, error))
+        # A legacy loser may still be running when the winner decides. Its
+        # completion notice then appears later, before the loser's own export.
+        tx.execute("UPDATE notices SET text=text || ? WHERE job_id=? AND instr(text,?)=0",
+                   ("\n" + error, job_id, error))
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
                  arrived: float | None = None) -> None:

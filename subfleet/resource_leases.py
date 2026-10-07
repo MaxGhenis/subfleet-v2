@@ -65,12 +65,18 @@ class OutputClaim:
     jobs: tuple[str, ...]
 
     @classmethod
-    def prepare(cls, read: Callable, path: str) -> OutputClaim:
-        identities = {}
+    def prepare(cls, read: Callable, path: str, *, identities: dict[str, str] | None = None) -> OutputClaim:
+        # A submit/export owns one memo; every reservation in an admission
+        # pass shares one. No filesystem answers survive the operation.
+        if identities is None:
+            identities = {}
 
         def identity(value):
             if value not in identities:
-                identities[value] = folders.identity(value)
+                try:
+                    identities[value] = folders.identity(value)
+                except OSError as exc:
+                    identities[value] = folders.identity_fallback(value, exc)
             return identities[value]
 
         wanted = identity(path)
@@ -88,7 +94,8 @@ class OutputClaim:
 
     def holds(self, read: Callable) -> list[tuple[str, str]]:
         return [_pair(row) for row in read(
-            f"SELECT lease_key,holder FROM leases WHERE lease_key IN ({','.join('?' for _ in self.keys)})",
+            f"SELECT lease_key,holder FROM leases WHERE lease_key IN ({','.join('?' for _ in self.keys)}) "
+            "ORDER BY acquired_at,holder,lease_key",
             self.keys)]
 
     def live_jobs(self, read: Callable) -> Iterable:

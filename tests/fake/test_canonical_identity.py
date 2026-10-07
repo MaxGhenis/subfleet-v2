@@ -282,7 +282,7 @@ def test_binding_during_preparation_is_refused_inside_reservation(tmp_path, kind
 
 def accept_for_export(service, job, contents):
     attempt = service.store.list_attempts(job)[0]
-    path = service.root / "accepted.md"
+    path = service.root / f"accepted-{job}.md"
     path.write_bytes(contents)
     service.store.add_artifact(attempt["attempt_id"], role="deliverable", path=str(path),
                                sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents))
@@ -315,7 +315,7 @@ def test_export_and_recovery_use_legacy_output_alias_ownership(tmp_path, old_own
         assert len(exports) == int(old_owner)
 
 
-def test_two_legacy_alias_holders_both_remain_guards(tmp_path):
+def test_two_legacy_alias_holders_oldest_exports_and_releases(tmp_path):
     require_case_aliases(tmp_path)
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         configure(service, patch)
@@ -326,8 +326,9 @@ def test_two_legacy_alias_holders_both_remain_guards(tmp_path):
         service.store.acquire_lease(f"out:{right}", "newer-job")
         right.write_bytes(b"NEWER\n")
         service._export(job)
-        assert right.read_bytes() == b"NEWER\n"
-        assert {holder for _, holder in resource_leases.OutputClaim.prepare(service.store.query, str(left)).holds(service.store.query)} == {job, "newer-job"}
+        assert right.read_bytes() == b"OLDER\n"
+        assert not service.store.list_leases(job)
+        assert {holder for _, holder in resource_leases.OutputClaim.prepare(service.store.query, str(left)).holds(service.store.query)} == {"newer-job"}
 
 
 def test_output_identity_is_never_resolved_under_the_store_writer_lock(tmp_path):
