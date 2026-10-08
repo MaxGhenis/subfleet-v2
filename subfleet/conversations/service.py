@@ -11,6 +11,7 @@ from its turn's outcome. `daemon.py` calls it through a handful of seams:
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -496,9 +497,8 @@ class ConversationService:
         session_id = canonical_native(session_id)          # one spelling per session (review L1)
         existing = self.store.by_native(provider, session_id)
         if existing:
-            with self.daemon.store.transaction("conversation.native_checked") as tx:
-                self._check_native_open(tx, provider, session_id)
-            return existing
+            with self._native_open_guard(provider, session_id):
+                return existing
         found = native_session(provider, session_id, home=native.get("home"), root=self.root,
                                lanes=self.daemon.store.lane_rows())
         if found is None:
@@ -510,27 +510,38 @@ class ConversationService:
                     "permission": found["permission"], "auto_continue": True}
         # C-26.13: serialize the binding with reservation. Catalog/filesystem
         # work is already finished; only SQL runs while the main lock is held.
-        with self.daemon.store.transaction("conversation.native_checked") as tx:
-            self._check_native_open(tx, provider, session_id)
+        with self._native_open_guard(provider, session_id):
             conversation, _ = self.store.create_conversation(
                 provider=provider, workspace=found["cwd"], workspace_kind="in-place", settings=settings, origin="native",
                 native_session_id=session_id, title=found.get("title"), lane_id=found.get("lane_id"))
         return conversation
 
+    @contextlib.contextmanager
+    def _native_open_guard(self, provider: str, session_id: str):
+        """Use the job store's read interface, under its writer guard when available."""
+        jobs = self.daemon.store
+        transaction = getattr(jobs, "transaction", None)
+        # The daemon's Store routes query/one to its writing connection while
+        # this transaction is held (C-3.7). Read-only store adapters have no
+        # reservation writer to serialize with, but still check ownership.
+        guard = transaction("conversation.native_checked") if transaction else contextlib.nullcontext()
+        with guard:
+            self._check_native_open(jobs, provider, session_id)
+            yield
+
     @staticmethod
-    def _check_native_open(tx, provider: str, session_id: str) -> None:
-        read = lambda sql, params: tx.execute(sql, params).fetchall()  # noqa: E731
-        for _, holder in resource_leases.native_holds(read, resource_leases.native_key(provider, session_id)):
-            live = tx.execute("SELECT job_id FROM jobs WHERE job_id=? AND "
+    def _check_native_open(jobs, provider: str, session_id: str) -> None:
+        for _, holder in resource_leases.native_holds(jobs.query, resource_leases.native_key(provider, session_id)):
+            live = jobs.one("SELECT job_id FROM jobs WHERE job_id=? AND "
                               "(state NOT IN ('succeeded','failed','cancelled','lost') OR EXISTS "
                               "(SELECT 1 FROM attempts WHERE attempts.job_id=jobs.job_id AND "
                               "state IN ('reserved','starting','running','finalizing','quarantined'))) "
                               "UNION SELECT j.job_id FROM jobs j JOIN attempts a USING(job_id) "
                               "WHERE a.attempt_id=? AND (j.state NOT IN ('succeeded','failed','cancelled','lost') "
                               "OR a.state IN ('reserved','starting','running','finalizing','quarantined'))",
-                              (holder, holder)).fetchone()
+                            (holder, holder))
             if live:
-                raise ConversationError("native-held", f"native session is held by live job {live[0]}",
+                raise ConversationError("native-held", f"native session is held by live job {live['job_id']}",
                                         code=7, fix="wait for that job to finish")
 
     def op_conversation_create(self, args, peer) -> dict:

@@ -270,3 +270,55 @@ def test_one_owner_per_real_object_and_every_finished_output_settles(pair, paren
                 assert not service.store.list_leases(job)
                 assert not service.store.list_leases(attempt["attempt_id"])
                 assert folders.identity(str(left)) == folders.identity(str(left))
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["new-binding", "existing-binding"])
+@pytest.mark.parametrize("transactional", [False, True], ids=["read-interface", "writer-transaction"])
+def test_native_open_keeps_ownership_checks_through_the_job_store_read_interface(tmp_path, existing, transactional):
+    """The read interface never bypasses a lease; the daemon also holds its writer lock."""
+    from types import SimpleNamespace
+    from subfleet.conversations import catalog
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        configure(service, patch)
+        jobs = service.store
+        patch.setattr(catalog, "native_session", lambda *_args, **_kw: {
+            "continuable": True, "model_value": "haiku", "permission": "read-only",
+            "cwd": str(harness.workdir), "title": "Native", "lane_id": None})
+        native = {"provider": "claude", "session_id": MINIMAL.upper()}
+        if existing:
+            bound, _ = service.conversations.store.create_conversation(
+                provider="claude", workspace=str(harness.workdir), workspace_kind="in-place",
+                settings={"model": "haiku", "effort": None, "fast": False,
+                          "permission": "read-only", "auto_continue": True},
+                origin="native", native_session_id=MINIMAL)
+        job = submit(service, harness)
+        jobs.acquire_lease(f"native:claude:{MINIMAL.upper()}", job)
+        reads = []
+        def query(sql, params=()):
+            reads.append(jobs._holds_writer())
+            return jobs.query(sql, params)
+        def one(sql, params=()):
+            reads.append(jobs._holds_writer())
+            return jobs.one(sql, params)
+        adapter = SimpleNamespace(query=query, one=one, lane_rows=jobs.lane_rows)
+        if transactional:
+            adapter.transaction = jobs.transaction
+        # Both adapters run the real ownership SQL. The transactional adapter
+        # must read on the writer connection for the complete guarded open.
+        create = service.conversations.store.create_conversation
+        def guarded_create(**kwargs):
+            assert jobs._holds_writer() == transactional
+            return create(**kwargs)
+        with patch.context() as opened_patch:
+            opened_patch.setattr(service, "store", adapter)
+            opened_patch.setattr(service.conversations.store, "create_conversation", guarded_create)
+            with pytest.raises(ConversationError, match="live job") as refused:
+                service.conversations._open_native(native)
+            assert refused.value.code == 7
+            assert reads and all(held == transactional for held in reads)
+            assert bool(service.conversations.store.by_native("claude", MINIMAL)) == existing
+            jobs.release_leases(job)
+            opened = service.conversations._open_native(native)
+            assert opened["native_session_id"] == MINIMAL
+            if existing:
+                assert opened["conversation_id"] == bound["conversation_id"]
