@@ -181,10 +181,11 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
 
 
 #: C-6.9: who gets the next lane, first to last. `attended` is a conversation
-#: turn from the Subfleet app; `session` a detached job someone is waiting on
+#: turn from the Subfleet app; `priority` detached work chosen by the operator
+#: (C-6.16); `session` a detached job someone is waiting on
 #: now; `background` one nobody is (Max, 2026-09-27: "uncap everything and
 #: instead use prioritization").
-PRIORITY_CLASSES = ("attended", "session", "background")
+PRIORITY_CLASSES = ("attended", "priority", "session", "background")
 
 
 @dataclass(frozen=True)
@@ -199,21 +200,40 @@ class Liveness:
     jobs: frozenset[str] = frozenset()
 
 
-def priority_class(job: Any, live: Liveness | None = None) -> str:
+def priority_class(job: Any, live: Liveness | None = None, *,
+                   policy: Mapping[str, Any] | None = None,
+                   jobs: Mapping[str, Any] | None = None) -> str:
     """C-6.9: a job's class, from what it records and who is live now.
 
-    A turn is `attended`. A gate round is `session`: a gate is always waited on
+    A turn is `attended`. Detached work whose caller or any ancestor's caller
+    is in `admission.priority_callers` is `priority` (C-6.16), regardless of
+    liveness. `jobs` supplies ancestor rows, including finished jobs; missing
+    parents end the walk, and a visited set terminates cycles.
+    Otherwise a gate round is `session`: a gate is always waited on
     by the `subfleet gate` that asked for it. Any other job is `session` while its
     caller's Claude Code session is live (a validated registry row names
     `caller_session`) or its parent job is unfinished; otherwise `background`. A
     caller's pid alone is not evidence: a live pid proves a process, not the
-    caller. With no liveness to read (`live` None) every detached job is
-    `session`, which orders as before.
+    caller. With no liveness to read (`live` None) every other detached job is
+    `session`, which orders as before when priority callers are unset.
     """
     job = _row(job)
     kind = job.get("kind")
     if kind == "turn":
         return "attended"
+    callers = {item.strip().lower() for item in admission_settings(policy or {})["priority_callers"] or ()}
+    if callers:
+        current = job
+        seen: set[str] = set()
+        while current:
+            session = str(current.get("caller_session") or "").strip().lower()
+            if session and session in callers:
+                return "priority"
+            parent = current.get("parent_job_id")
+            if not parent or parent in seen:
+                break
+            seen.add(parent)
+            current = _row((jobs or {}).get(parent, {}))
     if kind == "gate-review" or live is None:
         return "session"
     session = str(job.get("caller_session") or "").strip().lower()
@@ -224,11 +244,13 @@ def priority_class(job: Any, live: Liveness | None = None) -> str:
     return "background"
 
 
-def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness | None = None) -> list[dict[str, Any]]:
+def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness | None = None, *,
+                 ancestors: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     """C-4.1, C-6.9, C-26.9; plan amendment 11: class, then tier, then FIFO.
 
-    Classes go `attended`, `session`, `background` (`priority_class`); tiers
-    follow the policy's declared order; within both, oldest first. Stable
+    Classes go `attended`, `priority`, `session`, `background` (`priority_class`);
+    priority work is FIFO regardless of tier (C-6.16). Other classes keep the
+    policy's tier order, then oldest first. Stable
     sorting preserves the store's submission order when second-precision
     timestamps are tied.
     """
@@ -236,9 +258,15 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness 
     default = "standard" if "standard" in tiers else tiers[0]
     rank = {tier: index for index, tier in enumerate(tiers)}
     classes = {name: index for index, name in enumerate(PRIORITY_CLASSES)}
-    return sorted((_row(job) for job in jobs), key=lambda job: (
-        classes[priority_class(job, live)], rank.get(job.get("tier") or default, len(tiers)),
-        job.get("created_at") or ""))
+    rows = [_row(job) for job in jobs]
+    family = {**(ancestors or {}), **{job["job_id"]: job for job in rows if job.get("job_id")}}
+
+    def key(job: dict[str, Any]) -> tuple[int, int, str]:
+        klass = priority_class(job, live, policy=policy, jobs=family)
+        tier = 0 if klass == "priority" else rank.get(job.get("tier") or default, len(tiers))
+        return classes[klass], tier, job.get("created_at") or ""
+
+    return sorted(rows, key=key)
 
 
 def pool_capped(policy: Mapping[str, Any], job: Any) -> bool:
@@ -287,12 +315,12 @@ def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, k
     A class's threshold is met while the larger of the 1- and 5-minute load
     averages per logical CPU is at or above its `load_per_cpu`, or the kernel's
     memory pressure is at or above its `memory_pressure`. The larger average
-    holds quickly and lets go slowly, so a dip does not release a burst. A turn
-    is never held, nor is any class the guard does not name, and nothing is
-    held on a reading that is missing.
+    holds quickly and lets go slowly, so a dip does not release a burst. An
+    `attended` turn or `priority` job is never held, nor is any class the guard
+    does not name, and nothing is held on a reading that is missing.
     """
     guard = admission_settings(policy).get("machine_guard")
-    limits = (guard or {}).get(klass) if klass != "attended" else None
+    limits = (guard or {}).get(klass) if klass not in ("attended", "priority") else None
     if not limits or not machine:
         return None
     hold: dict[str, Any] = {}

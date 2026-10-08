@@ -409,6 +409,11 @@ def format_status(data: dict[str, Any]) -> str:
                          f"until {closure.get('until_at')} "
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
     lines.append("")
+    callers = rows_of(data.get("priority_callers"))
+    if callers:
+        lines.append("priority callers: " + ", ".join(
+            f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
+            for row in callers))
     admission = data.get("admission")
     if isinstance(admission, dict) and admission.get("idle_for_s") is not None:
         # C-6.11: jobs are pending and admission has placed none of them.

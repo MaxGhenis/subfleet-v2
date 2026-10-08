@@ -420,6 +420,23 @@ def test_invalid_caps_name_the_key(tmp_path, policy_data, key, value):
     assert caught.value.key == f"caps.{key}"
 
 
+@pytest.mark.parametrize("callers,expected", [
+    (None, None), ([], []), (["92EC8BE9-ABCD", "  Other  "], ["92ec8be9-abcd", "other"]),
+])
+def test_priority_callers_validate_and_canonicalize(tmp_path, policy_data, callers, expected):
+    policy_data["admission"] = {"priority_callers": callers}
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["admission"]["priority_callers"] == expected
+
+
+@pytest.mark.parametrize("callers", ["session", {}, True, 12, [""], [" "], [None], [1], [True], [[], "ok"]])
+def test_priority_callers_reject_invalid_values(tmp_path, policy_data, callers):
+    policy_data["admission"] = {"priority_callers": callers}
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == "admission.priority_callers"
+
+
 def test_admission_settings_default_and_validate(tmp_path, policy_data):
     """C-6.13, C-10.3, C-11.3: the `admission` section's defaults, and what it keeps."""
     from subfleet.policy import ADMISSION_DEFAULTS, admission_settings
@@ -430,6 +447,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert admission_settings({})["lane_spread"] == 2
     assert admission_settings({})["weekly_reserve"] == .02
     assert admission_settings({})["five_hour_reserve"] == .10
+    assert admission_settings({})["priority_callers"] is None
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
     assert admission_settings({})["prove_idle_s"] == 900          # C-6.14: on unless a policy turns it off
     assert admission_settings({})["prove_wait_s"] == 300          # C-6.14: how long a silent pilot holds its lane
@@ -439,7 +457,8 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
                                    "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
-                                   "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10}
+                                   "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10,
+                                   "priority_callers": None}
     policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans
     loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
     assert (loaded["prove_idle_s"], loaded["prove_wait_s"]) == (0.5, 0.25)
@@ -480,6 +499,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"prove_wait_s": False}, "admission.prove_wait_s"),
     ({"machine_guard": []}, "admission.machine_guard"),
     ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
+    ({"machine_guard": {"priority": {"load_per_cpu": 2}}}, "admission.machine_guard.priority"),
     ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),
     ({"machine_guard": {"background": {"load_per_cpu": 0}}}, "admission.machine_guard.background.load_per_cpu"),
     ({"machine_guard": {"session": {"memory_pressure": "normal"}}}, "admission.machine_guard.session.memory_pressure"),
