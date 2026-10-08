@@ -6,9 +6,9 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 
 ## Changes in version 3
 
+- C-7.4 (2026-10-06, invariants audit A1): admission probe reservation and gate decisions re-read cancellation and terminal state inside their Store transactions; a refused gate contains the probe and releases its lease only after verified containment.
 - C-6.16 (2026-10-06, Max: "give axiom promise maximum priority"): `admission.priority_callers` selects caller sessions case-insensitively, including their descendants. Their detached jobs sort ahead of session and background work, FIFO across tiers, and bypass the machine guard. `why` names the class and policy key; `status` names the configured callers from the registry when available. The default is null.
 - C-11.9 (2026-10-06): human status and `status.json` show projected unused weekly quota per lane and scope from the provider's own readings, with an explicit unknown rate and provider totals. These forecasts are projections, not promises; admission does not use them.
-
 - C-8.4 (2026-10-06, the 2.1.11 cut): with `SUBFLEET_RETENTION_DORMANT=1` in the daemon's environment, a retention pass prunes delivered service notices and nothing else. It selects, archives and deletes no job, marks the timer without an error, and logs once per daemon that retention is dormant. Any other value, or none, leaves retention as specified. 2.1.11's installer sets it in the launchd plist, not in `policy.json` (d574), because retention's fences still match a job's own tree exactly (design `docs/desktop/retention-archive.md` §15). The 2.1.12 install removes it once the fence fixes stacked on #134 land.
 - C-8.4, C-13.4 (2026-10-05, shared folders on 2.1.11): port I5 to the retention-by-archive driver. Its pin census and archive commit recheck protect `folders.TURN` and `folders.READER` rows as `turn-folder`; its selecting transaction checks those rows again before taking the exclusive retirement fence. Admission checks that fence before reserving a writer or reader. The fence and archive journal use the same canonical spelling, established outside the store transaction. The archive, verification, byte-signature reclaim and registration-preservation rules remain binding. The historical shared-folder note about not-yet-started jobs is superseded by #76's `worktree-in-use` pin for recorded queued jobs.
 
@@ -219,7 +219,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 - **C-7.1** `kill` inserts a cancel request in the job row (`cancel_requested_at`) in one transaction and returns; the daemon performs C-5.6 asynchronously. `kill --wait` blocks until terminal.
 - **C-7.2** If the cancel commits before acceptance, the job becomes `cancelled` even if an attempt later reaches `finalizing`; that attempt's artifacts are kept and it is marked `interrupted`. If acceptance commits first, `kill` returns 0 and prints "already finished".
 - **C-7.3** A parent's cancel cancels every child job not submitted with `--independent`, in the same transaction that records the parent's request.
-- **C-7.4** A job that is `queued` when cancelled becomes `cancelled` immediately and releases its leases.
+- **C-7.4** A job that is `queued` when cancelled becomes `cancelled` immediately and releases its leases. An admission probe is never reserved, and its gate never opened, for a job whose cancellation has completed.
 
 ## 8. Artifacts and export
 

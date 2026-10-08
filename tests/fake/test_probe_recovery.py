@@ -172,7 +172,7 @@ def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_
         assert stored["state"] == "starting"
         assert stored["guardian_pid"] == 900001
         assert stored["proc_start"] == "fixture-start"
-        assert not service.store.conn.in_transaction
+        assert service.store.conn.in_transaction  # Gate and cancellation serialize.
         writes.append((fd, value))
     monkeypatch.setattr(daemon_module.os, "write", release)
     def spawn(command, **kwargs):
