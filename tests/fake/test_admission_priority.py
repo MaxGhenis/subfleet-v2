@@ -54,6 +54,61 @@ def reservation_order(daemon) -> list[str]:
     return [row["job_id"] for row in daemon.store.query("SELECT job_id FROM attempts ORDER BY rowid")]
 
 
+def test_c6_16_priority_caller_jumps_live_sessions_and_uses_fifo(state_daemon, tmp_path, monkeypatch):
+    from tests.fake.test_resume_contract import measured_lane
+    daemon, harness = state_daemon
+    measured_lane(daemon)  # Keep the hard-tier probe rule separate from queue order.
+    live_session(tmp_path, monkeypatch)
+    daemon.policy["admission"]["priority_callers"] = ["CHOSEN"]
+    background = submit(daemon, harness, "background", caller_session="gone")
+    live = submit(daemon, harness, "live", caller_session=LIVE_SESSION)
+    hard = submit(daemon, harness, "priority-hard", tier="hard", caller_session="chosen")
+    cheap = submit(daemon, harness, "priority-cheap", tier="trivial", caller_session="chosen")
+    daemon.store.update_job(hard, created_at="2026-10-06T10:00:00Z")
+    daemon.store.update_job(cheap, created_at="2026-10-06T11:00:00Z")
+    daemon._admit()
+    assert reservation_order(daemon) == [hard, cheap, live, background]
+
+
+def test_c6_16_descendant_of_finished_priority_caller_bypasses_guard(state_daemon, tmp_path, monkeypatch):
+    daemon, harness = state_daemon
+    live_session(tmp_path, monkeypatch)
+    daemon.policy["admission"].update(priority_callers=["CHOSEN"], machine_guard=copy.deepcopy(MACHINE_GUARD_PROPOSAL))
+    monkeypatch.setattr("subfleet.machine.read", lambda: dict(BUSY, load1=400, memory_pressure=4))
+    root = submit(daemon, harness, "root", caller_session="chosen")
+    parent = submit(daemon, harness, "parent", caller_session="other", parent_job_id=root)
+    daemon.store.update_job(root, state="succeeded")
+    daemon.store.update_job(parent, state="succeeded")
+    child = submit(daemon, harness, "child", caller_session="other", parent_job_id=parent)
+    live = submit(daemon, harness, "live", caller_session=LIVE_SESSION)
+    background = submit(daemon, harness, "background", caller_session="gone")
+    daemon._admit()
+    assert reservation_order(daemon) == [child]
+    assert daemon._holds[live]["class"] == "session"
+    assert daemon._holds[background]["class"] == "background"
+
+
+def test_c6_16_stored_parent_cycle_terminates(state_daemon):
+    daemon, harness = state_daemon
+    daemon.policy["admission"]["priority_callers"] = ["chosen"]
+    first = submit(daemon, harness, "first", caller_session="other")
+    second = submit(daemon, harness, "second", caller_session="chosen", parent_job_id=first)
+    daemon.store.update_job(first, parent_job_id=second)
+    family = daemon._priority_jobs([daemon.store.get_job(first)])
+    assert set(family) == {first, second}
+    from subfleet import scheduler
+    assert scheduler.priority_class(family[first], policy=daemon.policy, jobs=family) == "priority"
+
+
+def test_c6_16_null_priority_callers_reads_no_ancestry(state_daemon, monkeypatch):
+    daemon, _ = state_daemon
+    def unexpected_query(*args, **kwargs):
+        raise AssertionError("null priority_callers must not query parents")
+    with monkeypatch.context() as scoped:
+        scoped.setattr(daemon.store, "query", unexpected_query)
+        assert daemon._priority_jobs([{"job_id": "child", "parent_job_id": "parent"}]) == {}
+
+
 def test_c6_4_c6_9_one_pass_places_every_job_on_one_lane_by_class(state_daemon, tmp_path, monkeypatch):
     """Uncapped (the shipped policy), one unmeasured lane takes all five jobs in one
     pass, where the caps of before took one; jobs whose caller is live go first,
