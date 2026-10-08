@@ -21,7 +21,9 @@ jobs:
     # Retention by archive (#76) adds about 22 minutes: its real-filesystem tests
     # took the 3.14 job to 26.5 minutes on 2026-10-04, and the 2.1.11 integration
     # ran past 30. Raised until those tests are made faster (hub follow-up).
-    timeout-minutes: 50
+    # On the public runners the suite takes 42 to 46 minutes, and on 2026-10-08
+    # two jobs were cancelled at 50 with no failing test (97% through).
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
