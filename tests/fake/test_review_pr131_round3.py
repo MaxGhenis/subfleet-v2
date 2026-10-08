@@ -165,7 +165,8 @@ def test_a_detached_platform_shell_writer_keeps_its_markers_and_the_quarantine(
         observed = shell_seen or any(r["pid"] == shell.pid or r["pgid"] == shell.pid for r in roots)
         if (not observed and writing and actual["state"] == "lost" and not leases
                 and evidence["release_census"] and not evidence["release_census"]["live_pids"]
-                and not evidence["release_census"]["unverifiable"]):
+                and not evidence["release_census"]["unverifiable"]
+                and not evidence["release_census"]["errors"]):
             pytest.xfail("C-5.7 residual: platform hid an entirely unobserved outside-cwd writer")
         assert actual["state"] == "quarantined" and leases, evidence
     finally:
