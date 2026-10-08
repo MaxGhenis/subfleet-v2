@@ -1,0 +1,33 @@
+selection	passed	failed	skipped	xfailed	errors	deselected	notes
+tests/unit/test_ci131_marker_scope.py	17	0	0	0	0	0	
+tests/fake/test_ci131_marker_finalization.py	2	0	0	0	0	0	
+tests/unit/test_reserve_authorization_plumbing.py	6	0	0	0	0	0	
+tests/unit/test_procs.py	96	0	0	0	0	0	
+tests/unit/test_census_interleavings.py	8	0	0	0	0	0	
+tests/unit/test_provider_gate.py	6	0	0	0	0	0	
+tests/unit/test_quarantine_migration.py	1	0	0	0	0	0	
+tests/unit/test_quarantine_mutations.py	6	0	0	0	0	0	
+tests/unit/test_quarantine_pacing_store.py	1	0	0	0	0	0	
+tests/unit/test_review_pr131_census_property.py	1	0	0	0	0	0	
+tests/fake/test_quarantine_identity_invariants.py	1	0	0	0	0	0	
+tests/fake/test_quarantine_review_fixes.py	38	0	0	0	0	0	
+tests/fake/test_quarantine_self_resolve.py	12	0	0	0	0	0	1 Git write-tree timeout on first run; failed case passed on unchanged retry
+tests/fake/test_review_pr131_migration.py	1	0	0	0	0	0	
+tests/fake/test_review_pr131_probes.py	21	0	0	0	0	0	
+tests/fake/test_review_pr131_round2.py	31	0	0	0	0	0	
+tests/fake/test_review_pr131_round4.py	10	0	0	0	0	0	
+tests/fake/test_review_pr131_round5.py	24	0	0	0	0	0	
+tests/fake/test_review_pr131_round6.py	16	0	0	0	0	0	
+tests/fake/test_quarantine_detached_writers.py	29	0	20	0	0	0	5 lsof timeouts on first run; all 5 passed on unchanged retry
+tests/fake/test_review_pr131_round3.py	7	0	6	1	0	0	
+tests/e2e/test_conversation_wakes_e2e.py	0	0	4	0	0	0	
+tests/e2e/test_review_r2_strand_e2e.py	0	0	2	0	0	0	
+tests/e2e/test_review_r3_strand_timing_e2e.py	0	0	2	0	0	0	
+tests/fake/test_notice_header.py -k test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc	1	0	0	0	0	22	
+tests/fake/test_state_contract.py -k test_c4_4_state_missing_exit_receipt_never_accepts_success	1	0	0	0	0	36	
+tests/frontend/test_core_timeline.py -k test_quarantine_release_is_a_labelled_subfleet_system_notice	1	0	0	0	0	21	module-cache sandbox denial on first run; passed with CLANG_MODULE_CACHE_PATH beneath TMPDIR
+tests/unit/test_conversation_service.py -k test_a_worktree_needs_a_repository_and_creates_nothing_without_one	1	0	0	0	0	96	
+tests/unit/test_guardian.py -k test_provider_identity_is_durable_before_wait_or_relay or test_child_identity_inspection_failure_still_waits_and_writes_exit	3	0	0	0	0	10	
+tests/unit/test_policy.py -k test_quarantine_recheck_pace_must_be_positive_and_finite or test_quarantine_pace_defaults_in_code_and_accepts_subseconds	8	0	0	0	0	164	
+tests/unit/test_retention_archive.py -k test_real_lsof_protects_a_file_held_by_an_unmarked_detached_writer	1	0	0	0	0	110	
+tests/unit/test_retention_turns.py -k test_a_released_turns_notification_survives_retention_until_delivered	1	0	0	0	0	7	
