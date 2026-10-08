@@ -862,11 +862,12 @@ class Timers:
         self._set_verdict(lane.lane_id, meta)
 
     def snapshot(self):
+        at = self.now()
         # One committed state for the whole view. C-3.7: a read snapshot, not a
         # write transaction, and only for the reads: the view (every lane,
         # reading, closure, attempt and job) is built after it, holding nothing.
         with self.store.snapshot():
-            rows = capacity.store_rows(self.store)
+            rows = capacity.store_rows(self.store, now=at)
             extra = self.view_rows(rows['lanes'])
             # C-18.1: read with the rows; laid only for status.json, after the
             # reset-credit policy and the alerts judged the view (`publish_status`).
@@ -875,7 +876,7 @@ class Timers:
         # admission does (review of PR #72's plan: without the signal it read the
         # lane excluded while admission placed work there).
         in_use = self.desktop_in_use() if self.desktop_in_use is not None else None
-        view = capacity.build_view(**rows, now=self.now(), reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
+        view = capacity.build_view(**rows, now=at, reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
                                    desktop_in_use=in_use)
         view = self.enrich_view(view, extra)
         view['probe_rows'] = probes

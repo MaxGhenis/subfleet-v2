@@ -133,7 +133,9 @@ def test_completion_intent_all_transaction_boundaries(svc, monkeypatch, upgrade,
 @pytest.mark.parametrize("crash_after_first", [False, True], ids=["no-crash", "partial-registration"])
 def test_service_tick_finishes_final_batch_before_firing_superseded_timer(svc, monkeypatch, crash_after_first):
     cid = bound(svc)
-    now = time.time()
+    # Whole seconds: `iso` keeps microseconds, so a float `now` can land a hair short of
+    # `now + 300` after the round trip and fail the 5-minute floor (about 1 run in 6).
+    now = float(int(time.time()))
     clock = [now]
     svc.wakes.now = lambda: clock[0]
     text = (f'WAKE-ME: at={iso(now + 300)} note="Superseded earlier timer"\n'
