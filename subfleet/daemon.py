@@ -4161,8 +4161,16 @@ class Daemon:
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
             self._save_probe(record)
-            if not record.get("timer_kind") or not self.timers.cancel.is_set():
-                os.write(write_fd, b"1")  # Committed ownership is required to open the gate.
+            # Ownership has committed. Serialize the gate decision and byte with
+            # cancellation too: a completed queued cancel must start no provider.
+            with self.store.transaction("probe.gate", job_id=record["job_id"], lane_id=lane.lane_id):
+                if record.get("timer_kind"):
+                    allowed = not self.timers.cancel.is_set()
+                else:
+                    current = self.store.get_job(record["job_id"])
+                    allowed = bool(current and not current["cancel_requested_at"]
+                                   and current["state"] not in TERMINAL)
+                os.write(write_fd, b"1" if allowed else b"0")
         except (OSError, procs.InspectionError) as exc:
             record["launch_error"] = type(exc).__name__
         finally:
@@ -4299,6 +4307,9 @@ class Daemon:
             reserved = False
             try:
                 with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
+                    current = self._job(job["job_id"])
+                    if current["cancel_requested_at"] or current["state"] in TERMINAL:
+                        return None, desktop
                     # Selection precedes this transaction. Ownership transfer and
                     # probe admission must serialize on the same current lane row.
                     lane = self.store.get_lane(decision.chosen_lane)
