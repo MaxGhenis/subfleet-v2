@@ -1,0 +1,760 @@
+....FFFFFFFF........FFFF                                                 [100%]
+=================================== FAILURES ===================================
+_ test_failed_confirmation_group_reuse_waits_for_verified_empty[marker-False] __
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7f858d090>, <tests.fake.conftest.Harness object at 0x5a7fc80a290>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7fc809d90>
+operator = False, source = 'marker'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_failed_confirmation_group_reuse_waits_for_verified_empty(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = capture_failed_group(monkeypatch, daemon, harness, clock, operator, source)
+        # The old group empties between samples; its number is then reused. The
+        # unconfirmed identity/group pair is evidence, not an incarnation proof.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "unrelated-leader"),
+            300: (99, 99, "S", "unrelated-member"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7fc809d90>
+daemon = <subfleet.daemon.Daemon object at 0x5a7f858d090>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7fc80ab50>
+a = {'attempt_id': '20261008-192519-astra/a1', 'job_id': '20261008-192519-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = False
+rows = {99: (1, 99, 'S', 'unrelated-leader'), 300: (99, 99, 'S', 'unrelated-member')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192519-astra/a1', 'job_id': '20261008-192519-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6218984247440:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+__ test_failed_confirmation_group_reuse_waits_for_verified_empty[marker-True] __
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd060790>, <tests.fake.conftest.Harness object at 0x5a7fc80b190>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8729a10>
+operator = True, source = 'marker'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_failed_confirmation_group_reuse_waits_for_verified_empty(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = capture_failed_group(monkeypatch, daemon, harness, clock, operator, source)
+        # The old group empties between samples; its number is then reused. The
+        # unconfirmed identity/group pair is evidence, not an incarnation proof.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "unrelated-leader"),
+            300: (99, 99, "S", "unrelated-member"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8729a10>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd060790>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7fc80c310>
+a = {'attempt_id': '20261008-192529-astra/a1', 'job_id': '20261008-192529-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = True
+rows = {99: (1, 99, 'S', 'unrelated-leader'), 300: (99, 99, 'S', 'unrelated-member')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192529-astra/a1', 'job_id': '20261008-192529-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062708112:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+___ test_failed_confirmation_group_reuse_waits_for_verified_empty[cwd-False] ___
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd061210>, <tests.fake.conftest.Harness object at 0x5a7fc80ca90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8728e10>
+operator = False, source = 'cwd'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_failed_confirmation_group_reuse_waits_for_verified_empty(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = capture_failed_group(monkeypatch, daemon, harness, clock, operator, source)
+        # The old group empties between samples; its number is then reused. The
+        # unconfirmed identity/group pair is evidence, not an incarnation proof.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "unrelated-leader"),
+            300: (99, 99, "S", "unrelated-member"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8728e10>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd061210>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7fc80e110>
+a = {'attempt_id': '20261008-192532-astra/a1', 'job_id': '20261008-192532-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = False
+rows = {99: (1, 99, 'S', 'unrelated-leader'), 300: (99, 99, 'S', 'unrelated-member')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192532-astra/a1', 'job_id': '20261008-192532-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062710800:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+___ test_failed_confirmation_group_reuse_waits_for_verified_empty[cwd-True] ____
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd061690>, <tests.fake.conftest.Harness object at 0x5a7fc80eb10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8729310>
+operator = True, source = 'cwd'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_failed_confirmation_group_reuse_waits_for_verified_empty(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = capture_failed_group(monkeypatch, daemon, harness, clock, operator, source)
+        # The old group empties between samples; its number is then reused. The
+        # unconfirmed identity/group pair is evidence, not an incarnation proof.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "unrelated-leader"),
+            300: (99, 99, "S", "unrelated-member"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8729310>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd061690>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7f859f790>
+a = {'attempt_id': '20261008-192537-astra/a1', 'job_id': '20261008-192537-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = True
+rows = {99: (1, 99, 'S', 'unrelated-leader'), 300: (99, 99, 'S', 'unrelated-member')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192537-astra/a1', 'job_id': '20261008-192537-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062711952:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_ test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[marker-False] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd061b10>, <tests.fake.conftest.Harness object at 0x5a7f8729710>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f872a010>
+operator = False, source = 'marker'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = attempt_with_retained_lease(daemon, harness)
+        writer = procs.ProcessIdentity(99, BOOT, "first-writer")
+        # The marker/cwd and first identity read see non-leader writer 99 in
+        # group/session 700. It exits; another surviving attempt process spawns
+        # writer 99, which calls setsid and leads group/session 99. The kernel
+        # group lookup samples that new group, but the confirmation read fails.
+        # Neither old-group 700 nor new-group 99 exists in the initial table.
+        late_scan(monkeypatch, a, [writer], group=99, source=source)
+        reads = iter([writer, procs.InspectionError("confirmation unavailable")])
+    
+        def identify(pid):
+            value = next(reads)
+            if isinstance(value, procs.InspectionError):
+                raise value
+            return value
+    
+        monkeypatch.setattr(procs, "identity", identify)
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+        assert actual["state"] == "quarantined" and leases
+        roots = json.loads(actual["evidence_json"])["lineage_roots"]
+        assert {"pid": 99, "boot_id": BOOT, "proc_start": writer.proc_start, "pgid": 99} in roots
+        # Positive group evidence describes the second writer's populated group.
+        # Its hidden markers/outside cwd leave the retained group as sole source.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "second-writer"),
+            300: (99, 99, "S", "second-writer-child"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f872a010>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd061b10>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7f872a910>
+a = {'attempt_id': '20261008-192543-astra/a1', 'job_id': '20261008-192543-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = False
+rows = {99: (1, 99, 'S', 'second-writer'), 300: (99, 99, 'S', 'second-writer-child')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192543-astra/a1', 'job_id': '20261008-192543-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062713104:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_ test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[marker-True] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd061f90>, <tests.fake.conftest.Harness object at 0x5a7f872ab10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8794c30>
+operator = True, source = 'marker'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = attempt_with_retained_lease(daemon, harness)
+        writer = procs.ProcessIdentity(99, BOOT, "first-writer")
+        # The marker/cwd and first identity read see non-leader writer 99 in
+        # group/session 700. It exits; another surviving attempt process spawns
+        # writer 99, which calls setsid and leads group/session 99. The kernel
+        # group lookup samples that new group, but the confirmation read fails.
+        # Neither old-group 700 nor new-group 99 exists in the initial table.
+        late_scan(monkeypatch, a, [writer], group=99, source=source)
+        reads = iter([writer, procs.InspectionError("confirmation unavailable")])
+    
+        def identify(pid):
+            value = next(reads)
+            if isinstance(value, procs.InspectionError):
+                raise value
+            return value
+    
+        monkeypatch.setattr(procs, "identity", identify)
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+        assert actual["state"] == "quarantined" and leases
+        roots = json.loads(actual["evidence_json"])["lineage_roots"]
+        assert {"pid": 99, "boot_id": BOOT, "proc_start": writer.proc_start, "pgid": 99} in roots
+        # Positive group evidence describes the second writer's populated group.
+        # Its hidden markers/outside cwd leave the retained group as sole source.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "second-writer"),
+            300: (99, 99, "S", "second-writer-child"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8794c30>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd061f90>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7f872bd10>
+a = {'attempt_id': '20261008-192548-astra/a1', 'job_id': '20261008-192548-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = True
+rows = {99: (1, 99, 'S', 'second-writer'), 300: (99, 99, 'S', 'second-writer-child')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192548-astra/a1', 'job_id': '20261008-192548-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062714256:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_ test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[cwd-False] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd062410>, <tests.fake.conftest.Harness object at 0x5a7f872c210>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8795b10>
+operator = False, source = 'cwd'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = attempt_with_retained_lease(daemon, harness)
+        writer = procs.ProcessIdentity(99, BOOT, "first-writer")
+        # The marker/cwd and first identity read see non-leader writer 99 in
+        # group/session 700. It exits; another surviving attempt process spawns
+        # writer 99, which calls setsid and leads group/session 99. The kernel
+        # group lookup samples that new group, but the confirmation read fails.
+        # Neither old-group 700 nor new-group 99 exists in the initial table.
+        late_scan(monkeypatch, a, [writer], group=99, source=source)
+        reads = iter([writer, procs.InspectionError("confirmation unavailable")])
+    
+        def identify(pid):
+            value = next(reads)
+            if isinstance(value, procs.InspectionError):
+                raise value
+            return value
+    
+        monkeypatch.setattr(procs, "identity", identify)
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+        assert actual["state"] == "quarantined" and leases
+        roots = json.loads(actual["evidence_json"])["lineage_roots"]
+        assert {"pid": 99, "boot_id": BOOT, "proc_start": writer.proc_start, "pgid": 99} in roots
+        # Positive group evidence describes the second writer's populated group.
+        # Its hidden markers/outside cwd leave the retained group as sole source.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "second-writer"),
+            300: (99, 99, "S", "second-writer-child"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f8795b10>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd062410>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7f872cf10>
+a = {'attempt_id': '20261008-192555-astra/a1', 'job_id': '20261008-192555-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = False
+rows = {99: (1, 99, 'S', 'second-writer'), 300: (99, 99, 'S', 'second-writer-child')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192555-astra/a1', 'job_id': '20261008-192555-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062715408:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_ test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[cwd-True] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd062890>, <tests.fake.conftest.Harness object at 0x5a7f872d010>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f87956b0>
+operator = True, source = 'cwd'
+
+    @pytest.mark.parametrize("operator", [False, True])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    def test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity(state_daemon, monkeypatch, operator, source):
+        daemon, harness = state_daemon
+        clock = Clock(monkeypatch, daemon)
+        forbid_signals(monkeypatch)
+        a = attempt_with_retained_lease(daemon, harness)
+        writer = procs.ProcessIdentity(99, BOOT, "first-writer")
+        # The marker/cwd and first identity read see non-leader writer 99 in
+        # group/session 700. It exits; another surviving attempt process spawns
+        # writer 99, which calls setsid and leads group/session 99. The kernel
+        # group lookup samples that new group, but the confirmation read fails.
+        # Neither old-group 700 nor new-group 99 exists in the initial table.
+        late_scan(monkeypatch, a, [writer], group=99, source=source)
+        reads = iter([writer, procs.InspectionError("confirmation unavailable")])
+    
+        def identify(pid):
+            value = next(reads)
+            if isinstance(value, procs.InspectionError):
+                raise value
+            return value
+    
+        monkeypatch.setattr(procs, "identity", identify)
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+        assert actual["state"] == "quarantined" and leases
+        roots = json.loads(actual["evidence_json"])["lineage_roots"]
+        assert {"pid": 99, "boot_id": BOOT, "proc_start": writer.proc_start, "pgid": 99} in roots
+        # Positive group evidence describes the second writer's populated group.
+        # Its hidden markers/outside cwd leave the retained group as sole source.
+>       pace(monkeypatch, daemon, clock, a, operator, {
+            99: (1, 99, "S", "second-writer"),
+            300: (99, 99, "S", "second-writer-child"),
+        }, held=True)
+
+tests/fake/test_review_pr131_round6b.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f87956b0>
+daemon = <subfleet.daemon.Daemon object at 0x5a7fd062890>
+clock = <tests.fake.test_quarantine_self_resolve.Clock object at 0x5a7f872dd10>
+a = {'attempt_id': '20261008-192603-astra/a1', 'job_id': '20261008-192603-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+operator = True
+rows = {99: (1, 99, 'S', 'second-writer'), 300: (99, 99, 'S', 'second-writer-child')}
+held = True
+
+    def pace(monkeypatch, daemon, clock, a, operator, rows, *, held):
+        script_table(monkeypatch, rows)
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: set())
+        clock.advance()
+        actual, leases = resolve(daemon, a, operator)
+>       assert actual["state"] == ("quarantined" if held else "lost"), actual
+E       AssertionError: {'attempt_id': '20261008-192603-astra/a1', 'job_id': '20261008-192603-astra', 'seq': 1, 'lane_id': 'codex-1', ...}
+E       assert 'lost' == 'quarantined'
+E         
+E         - quarantined
+E         + lost
+
+tests/fake/test_review_pr131_round6b.py:38: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062716560:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_ test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-attempt] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd065110>, <tests.fake.conftest.Harness object at 0x5a7fcc606f0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f88e5410>
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr131-fix7.WGYfHkpz/pytest-of-maxghenis/pytest-0/test_failed_confirmation_canno4')
+consumer = 'attempt', source = 'marker', confirmation = 'unavailable'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    @pytest.mark.parametrize("confirmation", ["stable", "unavailable"])
+    def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
+            state_daemon, monkeypatch, tmp_path, consumer, source, confirmation):
+        daemon, harness = state_daemon
+        a = running(daemon, harness)
+        record = {"holder": "probe:" + a["job_id"], "job_id": a["job_id"], "lane_id": a["lane_id"],
+                  "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
+                  "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
+        writer = procs.ProcessIdentity(99, BOOT, "observed-writer")
+        late_scan(monkeypatch, a, [writer, None], group=700, source=source)
+        if consumer == "probe":
+            # Probe markers use their holder as the attempt marker.
+            monkeypatch.setattr(procs, "_read", lambda *args, **kwargs:
+                                f"99 writer SUBFLEET_ATTEMPT={record['holder']}\n" if source == "marker" else "")
+            captured = daemon._probe_census(record)
+            evidence = record
+        else:
+            captured = daemon._contain(a)
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert captured.unverifiable
+        assert any(r["pid"] == 99 and r["pgid"] == 700 for r in evidence["lineage_roots"])
+        assert "99" not in evidence.get("owned_identities", {})
+    
+        # The sampled writer exits; only member 200 remains in its retained group.
+        # The verified guardian is alive in its separate, owned group 100.
+        marker = record["holder"] if consumer == "probe" else a["attempt_id"]
+        script_table(monkeypatch, {100: (1, 100, "S", "guardian"),
+                                  200: (1, 700, "S", "retained-member")},
+                     markers=f"200 writer SUBFLEET_ATTEMPT={marker}\n" if source == "marker" else "")
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {200} if source == "cwd" else set())
+        member = procs.ProcessIdentity(200, BOOT, "retained-member")
+        reads = 0
+    
+        def identity(pid):
+            nonlocal reads
+            assert pid == 200
+            reads += 1
+            if confirmation == "unavailable" and reads % 2 == 0:
+                raise procs.InspectionError("confirmation unavailable")
+            return member
+    
+        monkeypatch.setattr(procs, "identity", identity)
+        monkeypatch.setattr(procs, "same_process", lambda pid, *args, **kwargs: pid in {100, 200})
+        signalled_groups, signalled_members = [], []
+        monkeypatch.setattr(procs, "signal_group", lambda group, *args, **kwargs: signalled_groups.append(group))
+        monkeypatch.setattr(procs, "signal_process", lambda ident, *args, **kwargs: signalled_members.append(ident.pid))
+        daemon.term_grace_s = daemon.kill_settle_s = 0
+        if consumer == "probe":
+            assert not daemon._contain_probe(record)
+            evidence = record
+        else:
+            daemon._kill_attempt(daemon.store.get_attempt(a["attempt_id"]))
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert set(signalled_groups) <= {100}
+        print("AUTHORITY", consumer, source, confirmation, signalled_members, evidence.get("owned_identities"))
+>       assert 200 not in signalled_members, "retained group member was signalled without recorded ownership"
+E       AssertionError: retained group member was signalled without recorded ownership
+E       assert 200 not in [200, 100]
+
+tests/fake/test_review_pr131_round6b_authority.py:71: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062726928:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+----------------------------- Captured stdout call -----------------------------
+AUTHORITY attempt marker unavailable [200, 100] {'100': {'pid': 100, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'guardian'}, '200': {'pid': 200, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'retained-member'}}
+_ test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-probe] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd065590>, <tests.fake.conftest.Harness object at 0x5a7fcc60b50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f88d51e0>
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr131-fix7.WGYfHkpz/pytest-of-maxghenis/pytest-0/test_failed_confirmation_canno5')
+consumer = 'probe', source = 'marker', confirmation = 'unavailable'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    @pytest.mark.parametrize("confirmation", ["stable", "unavailable"])
+    def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
+            state_daemon, monkeypatch, tmp_path, consumer, source, confirmation):
+        daemon, harness = state_daemon
+        a = running(daemon, harness)
+        record = {"holder": "probe:" + a["job_id"], "job_id": a["job_id"], "lane_id": a["lane_id"],
+                  "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
+                  "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
+        writer = procs.ProcessIdentity(99, BOOT, "observed-writer")
+        late_scan(monkeypatch, a, [writer, None], group=700, source=source)
+        if consumer == "probe":
+            # Probe markers use their holder as the attempt marker.
+            monkeypatch.setattr(procs, "_read", lambda *args, **kwargs:
+                                f"99 writer SUBFLEET_ATTEMPT={record['holder']}\n" if source == "marker" else "")
+            captured = daemon._probe_census(record)
+            evidence = record
+        else:
+            captured = daemon._contain(a)
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert captured.unverifiable
+        assert any(r["pid"] == 99 and r["pgid"] == 700 for r in evidence["lineage_roots"])
+        assert "99" not in evidence.get("owned_identities", {})
+    
+        # The sampled writer exits; only member 200 remains in its retained group.
+        # The verified guardian is alive in its separate, owned group 100.
+        marker = record["holder"] if consumer == "probe" else a["attempt_id"]
+        script_table(monkeypatch, {100: (1, 100, "S", "guardian"),
+                                  200: (1, 700, "S", "retained-member")},
+                     markers=f"200 writer SUBFLEET_ATTEMPT={marker}\n" if source == "marker" else "")
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {200} if source == "cwd" else set())
+        member = procs.ProcessIdentity(200, BOOT, "retained-member")
+        reads = 0
+    
+        def identity(pid):
+            nonlocal reads
+            assert pid == 200
+            reads += 1
+            if confirmation == "unavailable" and reads % 2 == 0:
+                raise procs.InspectionError("confirmation unavailable")
+            return member
+    
+        monkeypatch.setattr(procs, "identity", identity)
+        monkeypatch.setattr(procs, "same_process", lambda pid, *args, **kwargs: pid in {100, 200})
+        signalled_groups, signalled_members = [], []
+        monkeypatch.setattr(procs, "signal_group", lambda group, *args, **kwargs: signalled_groups.append(group))
+        monkeypatch.setattr(procs, "signal_process", lambda ident, *args, **kwargs: signalled_members.append(ident.pid))
+        daemon.term_grace_s = daemon.kill_settle_s = 0
+        if consumer == "probe":
+            assert not daemon._contain_probe(record)
+            evidence = record
+        else:
+            daemon._kill_attempt(daemon.store.get_attempt(a["attempt_id"]))
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert set(signalled_groups) <= {100}
+        print("AUTHORITY", consumer, source, confirmation, signalled_members, evidence.get("owned_identities"))
+>       assert 200 not in signalled_members, "retained group member was signalled without recorded ownership"
+E       AssertionError: retained group member was signalled without recorded ownership
+E       assert 200 not in [200, 100]
+
+tests/fake/test_review_pr131_round6b_authority.py:71: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062728080:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+----------------------------- Captured stdout call -----------------------------
+AUTHORITY probe marker unavailable [200, 100] {'100': {'pid': 100, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'guardian'}, '200': {'pid': 200, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'retained-member'}}
+_ test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-cwd-attempt] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd065a10>, <tests.fake.conftest.Harness object at 0x5a7f88e5490>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f88d4140>
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr131-fix7.WGYfHkpz/pytest-of-maxghenis/pytest-0/test_failed_confirmation_canno6')
+consumer = 'attempt', source = 'cwd', confirmation = 'unavailable'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    @pytest.mark.parametrize("confirmation", ["stable", "unavailable"])
+    def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
+            state_daemon, monkeypatch, tmp_path, consumer, source, confirmation):
+        daemon, harness = state_daemon
+        a = running(daemon, harness)
+        record = {"holder": "probe:" + a["job_id"], "job_id": a["job_id"], "lane_id": a["lane_id"],
+                  "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
+                  "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
+        writer = procs.ProcessIdentity(99, BOOT, "observed-writer")
+        late_scan(monkeypatch, a, [writer, None], group=700, source=source)
+        if consumer == "probe":
+            # Probe markers use their holder as the attempt marker.
+            monkeypatch.setattr(procs, "_read", lambda *args, **kwargs:
+                                f"99 writer SUBFLEET_ATTEMPT={record['holder']}\n" if source == "marker" else "")
+            captured = daemon._probe_census(record)
+            evidence = record
+        else:
+            captured = daemon._contain(a)
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert captured.unverifiable
+        assert any(r["pid"] == 99 and r["pgid"] == 700 for r in evidence["lineage_roots"])
+        assert "99" not in evidence.get("owned_identities", {})
+    
+        # The sampled writer exits; only member 200 remains in its retained group.
+        # The verified guardian is alive in its separate, owned group 100.
+        marker = record["holder"] if consumer == "probe" else a["attempt_id"]
+        script_table(monkeypatch, {100: (1, 100, "S", "guardian"),
+                                  200: (1, 700, "S", "retained-member")},
+                     markers=f"200 writer SUBFLEET_ATTEMPT={marker}\n" if source == "marker" else "")
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {200} if source == "cwd" else set())
+        member = procs.ProcessIdentity(200, BOOT, "retained-member")
+        reads = 0
+    
+        def identity(pid):
+            nonlocal reads
+            assert pid == 200
+            reads += 1
+            if confirmation == "unavailable" and reads % 2 == 0:
+                raise procs.InspectionError("confirmation unavailable")
+            return member
+    
+        monkeypatch.setattr(procs, "identity", identity)
+        monkeypatch.setattr(procs, "same_process", lambda pid, *args, **kwargs: pid in {100, 200})
+        signalled_groups, signalled_members = [], []
+        monkeypatch.setattr(procs, "signal_group", lambda group, *args, **kwargs: signalled_groups.append(group))
+        monkeypatch.setattr(procs, "signal_process", lambda ident, *args, **kwargs: signalled_members.append(ident.pid))
+        daemon.term_grace_s = daemon.kill_settle_s = 0
+        if consumer == "probe":
+            assert not daemon._contain_probe(record)
+            evidence = record
+        else:
+            daemon._kill_attempt(daemon.store.get_attempt(a["attempt_id"]))
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert set(signalled_groups) <= {100}
+        print("AUTHORITY", consumer, source, confirmation, signalled_members, evidence.get("owned_identities"))
+>       assert 200 not in signalled_members, "retained group member was signalled without recorded ownership"
+E       AssertionError: retained group member was signalled without recorded ownership
+E       assert 200 not in [200, 100]
+
+tests/fake/test_review_pr131_round6b_authority.py:71: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062729232:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+----------------------------- Captured stdout call -----------------------------
+AUTHORITY attempt cwd unavailable [200, 100] {'100': {'pid': 100, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'guardian'}, '200': {'pid': 200, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'retained-member'}}
+_ test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-cwd-probe] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x5a7fd060490>, <tests.fake.conftest.Harness object at 0x5a7f88e5690>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x5a7f88d5100>
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr131-fix7.WGYfHkpz/pytest-of-maxghenis/pytest-0/test_failed_confirmation_canno7')
+consumer = 'probe', source = 'cwd', confirmation = 'unavailable'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["marker", "cwd"])
+    @pytest.mark.parametrize("confirmation", ["stable", "unavailable"])
+    def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
+            state_daemon, monkeypatch, tmp_path, consumer, source, confirmation):
+        daemon, harness = state_daemon
+        a = running(daemon, harness)
+        record = {"holder": "probe:" + a["job_id"], "job_id": a["job_id"], "lane_id": a["lane_id"],
+                  "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
+                  "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
+        writer = procs.ProcessIdentity(99, BOOT, "observed-writer")
+        late_scan(monkeypatch, a, [writer, None], group=700, source=source)
+        if consumer == "probe":
+            # Probe markers use their holder as the attempt marker.
+            monkeypatch.setattr(procs, "_read", lambda *args, **kwargs:
+                                f"99 writer SUBFLEET_ATTEMPT={record['holder']}\n" if source == "marker" else "")
+            captured = daemon._probe_census(record)
+            evidence = record
+        else:
+            captured = daemon._contain(a)
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert captured.unverifiable
+        assert any(r["pid"] == 99 and r["pgid"] == 700 for r in evidence["lineage_roots"])
+        assert "99" not in evidence.get("owned_identities", {})
+    
+        # The sampled writer exits; only member 200 remains in its retained group.
+        # The verified guardian is alive in its separate, owned group 100.
+        marker = record["holder"] if consumer == "probe" else a["attempt_id"]
+        script_table(monkeypatch, {100: (1, 100, "S", "guardian"),
+                                  200: (1, 700, "S", "retained-member")},
+                     markers=f"200 writer SUBFLEET_ATTEMPT={marker}\n" if source == "marker" else "")
+        monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {200} if source == "cwd" else set())
+        member = procs.ProcessIdentity(200, BOOT, "retained-member")
+        reads = 0
+    
+        def identity(pid):
+            nonlocal reads
+            assert pid == 200
+            reads += 1
+            if confirmation == "unavailable" and reads % 2 == 0:
+                raise procs.InspectionError("confirmation unavailable")
+            return member
+    
+        monkeypatch.setattr(procs, "identity", identity)
+        monkeypatch.setattr(procs, "same_process", lambda pid, *args, **kwargs: pid in {100, 200})
+        signalled_groups, signalled_members = [], []
+        monkeypatch.setattr(procs, "signal_group", lambda group, *args, **kwargs: signalled_groups.append(group))
+        monkeypatch.setattr(procs, "signal_process", lambda ident, *args, **kwargs: signalled_members.append(ident.pid))
+        daemon.term_grace_s = daemon.kill_settle_s = 0
+        if consumer == "probe":
+            assert not daemon._contain_probe(record)
+            evidence = record
+        else:
+            daemon._kill_attempt(daemon.store.get_attempt(a["attempt_id"]))
+            evidence = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+        assert set(signalled_groups) <= {100}
+        print("AUTHORITY", consumer, source, confirmation, signalled_members, evidence.get("owned_identities"))
+>       assert 200 not in signalled_members, "retained group member was signalled without recorded ownership"
+E       AssertionError: retained group member was signalled without recorded ownership
+E       assert 200 not in [200, 100]
+
+tests/fake/test_review_pr131_round6b_authority.py:71: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.6219062707344:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+----------------------------- Captured stdout call -----------------------------
+AUTHORITY probe cwd unavailable [200, 100] {'100': {'pid': 100, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'guardian'}, '200': {'pid': 200, 'boot_id': '6F1C0F2E-1111-4222-8333-944455556666', 'proc_start': 'retained-member'}}
+=========================== short test summary info ============================
+FAILED tests/fake/test_review_pr131_round6b.py::test_failed_confirmation_group_reuse_waits_for_verified_empty[marker-False]
+FAILED tests/fake/test_review_pr131_round6b.py::test_failed_confirmation_group_reuse_waits_for_verified_empty[marker-True]
+FAILED tests/fake/test_review_pr131_round6b.py::test_failed_confirmation_group_reuse_waits_for_verified_empty[cwd-False]
+FAILED tests/fake/test_review_pr131_round6b.py::test_failed_confirmation_group_reuse_waits_for_verified_empty[cwd-True]
+FAILED tests/fake/test_review_pr131_round6b.py::test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[marker-False]
+FAILED tests/fake/test_review_pr131_round6b.py::test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[marker-True]
+FAILED tests/fake/test_review_pr131_round6b.py::test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[cwd-False]
+FAILED tests/fake/test_review_pr131_round6b.py::test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[cwd-True]
+FAILED tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-attempt]
+FAILED tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-probe]
+FAILED tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-cwd-attempt]
+FAILED tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-cwd-probe]
+12 failed, 12 passed in 257.51s (0:04:17)
