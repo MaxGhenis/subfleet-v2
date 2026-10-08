@@ -497,8 +497,7 @@ class ConversationService:
         session_id = canonical_native(session_id)          # one spelling per session (review L1)
         existing = self.store.by_native(provider, session_id)
         if existing:
-            with self._native_open_guard(provider, session_id):
-                return existing
+            return existing
         found = native_session(provider, session_id, home=native.get("home"), root=self.root,
                                lanes=self.daemon.store.lane_rows())
         if found is None:

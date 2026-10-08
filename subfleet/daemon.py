@@ -1874,7 +1874,13 @@ class Daemon:
                 # Only a regular file, never waiting in open(): a FIFO (or a device, which
                 # never ends) named here held this submit, `_submit_lock` and every submit after.
                 prompt = read_regular(Path(args.prompt_path).expanduser())
-                out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
+                try:
+                    out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
+                except (RuntimeError, OSError) as exc:
+                    if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
+                        raise
+                    raise AdapterError(f"cannot resolve output path: {exc}", code=7,
+                                       fix="remove the symlink loop or choose a different -o path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
@@ -2003,7 +2009,7 @@ class Daemon:
             # C-3.3: the instance and worktree questions need `ps` and `git`, so
             # they are answered here, under the submit lock and outside the
             # transaction; the transaction below re-checks with SQL alone.
-            output_claim = (resource_leases.OutputClaim.prepare(self.store.query, out) if out else None)
+            output_claim = (resource_leases.OutputClaim.prepare(self.store.query, out, census=True) if out else None)
             instance = (self._caller_instance(args.caller_pid)
                         if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
             if turn is None:
@@ -2532,7 +2538,7 @@ class Daemon:
         if job.get("out_path"):
             if output_claim is None:
                 assert not self.store._holds_writer(), "output identity must be prepared outside the transaction"
-                output_claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"])
+                output_claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"], census=True)
             if output_claim.holds(self.store.query):
                 raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine")
             if output_claim.live_jobs(self.store.query):
@@ -6763,7 +6769,7 @@ class Daemon:
             claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"])
             with self.store.transaction("job.export_decided", job_id=job_id) as tx:
                 read = lambda sql, params: tx.execute(sql, params).fetchall()  # noqa: E731
-                held = claim.holds(read)  # oldest acquired_at, then holder and key
+                held = claim.holds(read, owner=job_id)  # oldest acquired_at, then holder and key
                 # Re-read after the lease census: another export may have
                 # committed its decision and released its lease meanwhile.
                 export_error = tx.execute("SELECT export_error FROM jobs WHERE job_id=?", (job_id,)).fetchone()[0]

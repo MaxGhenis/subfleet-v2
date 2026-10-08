@@ -55,8 +55,8 @@ def continuation_holds(read: Callable, session_id: str) -> list[tuple[str, str]]
 class OutputClaim:
     """Filesystem identity established off the store lock; rechecked with SQL.
 
-    Submit holds its submit lock while preparing this snapshot, so no output
-    job can appear between the live-job census and its insertion. Admission
+    Only submit requests a live-job census. It holds its submit lock while
+    preparing this snapshot, so no output job can appear between the live-job census and its insertion. Admission
     can add leases meanwhile, but this daemon writes only canonical keys,
     which are always included. Old raw rows never change their keys.
     """
@@ -65,7 +65,8 @@ class OutputClaim:
     jobs: tuple[str, ...]
 
     @classmethod
-    def prepare(cls, read: Callable, path: str, *, identities: dict[str, str] | None = None) -> OutputClaim:
+    def prepare(cls, read: Callable, path: str, *, identities: dict[str, str] | None = None,
+                census: bool = False) -> OutputClaim:
         # A submit/export owns one memo; every reservation in an admission
         # pass shares one. No filesystem answers survive the operation.
         if identities is None:
@@ -73,15 +74,17 @@ class OutputClaim:
 
         def identity(value):
             if value not in identities:
-                try:
-                    identities[value] = folders.identity(value)
-                except OSError as exc:
-                    identities[value] = folders.identity_fallback(value, exc)
+                identities[value] = folders.identity(value)
             return identities[value]
 
         wanted = identity(path)
         key = f"out:{wanted}"
-        keys = {key}
+        keys = {key, f"out:{path}"}
+        # An unavailable identity must still refuse the identical stored path,
+        # including a terminal job whose quarantine keeps its canonical lease.
+        keys.update(row["lease_key"] for row in read(
+            "SELECT l.lease_key FROM leases l JOIN jobs j ON l.holder=j.job_id "
+            "WHERE j.out_path=? AND l.lease_key>=? AND l.lease_key<?", (path, "out:", "out;")))
         for row in read("SELECT lease_key FROM leases WHERE lease_key>=? AND lease_key<?", ("out:", "out;")):
             raw = row["lease_key"]
             if identity(raw[4:]) == wanted:
@@ -89,14 +92,15 @@ class OutputClaim:
         jobs = tuple(row["job_id"] for row in read(
             "SELECT job_id,out_path FROM jobs WHERE out_path IS NOT NULL "
             "AND state NOT IN ('succeeded','failed','cancelled','lost')", ())
-            if identity(row["out_path"]) == wanted)
+            if row["out_path"] == path or identity(row["out_path"]) == wanted) if census else ()
         return cls(key, tuple(sorted(keys)), jobs)
 
-    def holds(self, read: Callable) -> list[tuple[str, str]]:
+    def holds(self, read: Callable, *, owner: str | None = None) -> list[tuple[str, str]]:
         return [_pair(row) for row in read(
             f"SELECT lease_key,holder FROM leases WHERE lease_key IN ({','.join('?' for _ in self.keys)}) "
+            "OR (holder=? AND lease_key>= 'out:' AND lease_key< 'out;') "
             "ORDER BY acquired_at,holder,lease_key",
-            self.keys)]
+            (*self.keys, owner))]
 
     def live_jobs(self, read: Callable) -> Iterable:
         if not self.jobs:

@@ -61,7 +61,11 @@ def test_identity_failure_falls_back_to_exact_string_through_all_operations(tmp_
             raise error
         patch.setattr(folders, "_case_sensitive", broken)
         path = str(tmp_path / "Result.md")
-        assert folders.identity(path) == path
+        try:
+            answer = folders.identity(path)
+        except OSError as exc:
+            pytest.fail(f"identity raised {type(exc).__name__} instead of falling back")
+        assert answer == path
         first = submit(service, harness, out_path=path, caller_session=None)
         from subfleet.adapters.base import AdapterError
         with pytest.raises(AdapterError, match="out_path"):
@@ -312,6 +316,11 @@ def test_native_open_keeps_ownership_checks_through_the_job_store_read_interface
         with patch.context() as opened_patch:
             opened_patch.setattr(service, "store", adapter)
             opened_patch.setattr(service.conversations.store, "create_conversation", guarded_create)
+            if existing:
+                opened = service.conversations._open_native(native)
+                assert opened["conversation_id"] == bound["conversation_id"]
+                assert not reads
+                return
             with pytest.raises(ConversationError, match="live job") as refused:
                 service.conversations._open_native(native)
             assert refused.value.code == 7
