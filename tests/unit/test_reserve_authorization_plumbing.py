@@ -69,9 +69,9 @@ def test_migration_preserves_old_jobs_without_authorizing_them(version_4_store):
     with Store(version_4_store) as store:
         assert store.get_job("authorized")["unmeasured_reserve_reason"] == REASON
         assert store.get_job("old")["unmeasured_reserve_reason"] is None
-        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == [4, 5, 6]
+        assert [row["version"] for row in store.query("SELECT * FROM schema_version ORDER BY version")] == list(range(4, SCHEMA_VERSION + 1))
         assert [json.loads(row["data_json"]) for row in store.list_events()
-                if row["kind"] == "schema.migrated"] == [{"version": 5}, {"version": 6}]
+                if row["kind"] == "schema.migrated"] == [{"version": step} for step in range(5, SCHEMA_VERSION + 1)]
 
 
 def test_readonly_old_store_does_not_migrate_or_invent_authorization(version_4_store):
@@ -90,3 +90,13 @@ def test_fresh_store_defaults_authorization_to_null_and_matches_migrated_shape(t
         assert fresh.one("SELECT MAX(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
         assert {row["name"] for row in fresh.query("PRAGMA table_info(jobs)")} == {
             row["name"] for row in migrated.query("PRAGMA table_info(jobs)")}
+
+
+def test_quarantine_migration_keeps_old_jobs_unauthorized(version_4_store):
+    """C-3.1: the quarantine schema step changes attempts, never job consent."""
+    with Store(version_4_store) as store:
+        old = store.get_job("old")
+        assert old["unmeasured_reserve_reason"] is None
+        assert old["mcp_servers"] == "[]"
+        assert old["state"] == "waiting" and old["wait_reason"] == "reserve unknown"
+        assert store.one("SELECT MAX(version) v FROM schema_version")["v"] == SCHEMA_VERSION

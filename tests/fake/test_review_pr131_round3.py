@@ -105,14 +105,14 @@ def writable_attempt(daemon, harness):
 
 # --- Check 3: the residual is broader than documented on this host -----------------
 
-@pytest.mark.xfail(strict=True, reason="Accepted residual: never observed, cwd outside workdir, platform binary hides markers")
 @pytest.mark.skipif(sys.platform != "darwin" or not REAL_INSPECTION, reason="sandbox blocks ps/boot inspection")
 @pytest.mark.parametrize("operator", [False, True])
 def test_a_detached_platform_shell_writer_keeps_its_markers_and_the_quarantine(
         state_daemon, monkeypatch, operator):
     """C-5.7 says ordinary detached children keep their environment markers and
-    stay held. This original probe is an accepted residual: it never observes
-    the detached shell's lineage and starts it outside the workdir. Nothing is
+    stay held when visible to the census. The documented residual applies
+    only if the platform hides every observation; the macOS CI runner may
+    expose the shell's markers. The shell starts outside the workdir. Nothing is
     scrubbed: /bin/zsh is exec'd with both markers in a new session (as a Claude
     Code Bash tool shell runs), and it appends to the job's folder."""
     daemon, harness = state_daemon
@@ -161,6 +161,12 @@ def test_a_detached_platform_shell_writer_keeps_its_markers_and_the_quarantine(
                     "log_lines_before_after": (before, after), "release_event": event and event["kind"],
                     "release_census": event and json.loads(event["data_json"])["containment"]}
         print("EVIDENCE " + json.dumps(evidence, default=str))
+        roots = json.loads(actual["evidence_json"] or "{}").get("lineage_roots", [])
+        observed = shell_seen or any(r["pid"] == shell.pid or r["pgid"] == shell.pid for r in roots)
+        if (not observed and writing and actual["state"] == "lost" and not leases
+                and evidence["release_census"] and not evidence["release_census"]["live_pids"]
+                and not evidence["release_census"]["unverifiable"]):
+            pytest.xfail("C-5.7 residual: platform hid an entirely unobserved outside-cwd writer")
         assert actual["state"] == "quarantined" and leases, evidence
     finally:
         stop_group(shell)

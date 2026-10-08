@@ -15,6 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("shared cwd mistakes another attempt for a writer", "subfleet/procs.py",
+     "            if current == foreign:", "            if False and current == foreign:",
+     "tests/unit/test_ci131_marker_scope.py::test_shared_cwd_excludes_only_an_identified_different_attempt[True]"),
+    ("shared root mistakes another attempt for a writer", "subfleet/procs.py",
+     "            if attempt_marker.search(command) and not marker.search(command):",
+     "            if False and attempt_marker.search(command) and not marker.search(command):",
+     "tests/fake/test_ci131_marker_finalization.py::test_completed_run_finalizes_with_parent_attempt_still_live[turn-and-waiter]"),
     ("failed confirmation drops the conservative group", "subfleet/procs.py",
      'current.proc_start if current else "", group or 0))',
      'current.proc_start if current else "", 0))',
@@ -155,6 +162,7 @@ def main():
             print(f"NO CONTROL: {name}: baseline did not pass", flush=True)
             print(control.stdout[-6000:], control.stderr[-2000:], flush=True)
             continue
+        print(f"CONTROL: {name}: {control.stdout.strip().splitlines()[-1]}", flush=True)
         try:
             path.write_text(original.replace(old, new))
             result = run(node)

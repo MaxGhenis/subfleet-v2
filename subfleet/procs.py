@@ -673,7 +673,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             errors.append(f"identity inspection unavailable for pid {pid}")
             incomplete_roots.append(seen.census_root(pid))
 
-    def observe_later(pid: int, source: set[int]) -> None:
+    def observe_later(pid: int, source: set[int], *, foreign: ProcessIdentity | None = None) -> None:
         source.add(pid)
         current = None
         group = None
@@ -688,6 +688,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     source.discard(pid)
                     return
                 raise InspectionError("missing process start identity")
+            # A shared cwd does not make another attempt our writer. Exclude
+            # only the same incarnation observed with its different marker.
+            if current == foreign:
+                source.discard(pid)
+                return
             group = process_group(pid)
             confirmed = identity(pid)
             if confirmed != current or group is None:
@@ -714,19 +719,33 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                                                 current.proc_start if current else "", group or 0))
 
     observed_writer = bool(groups | descendants)
+    foreign_attempts: dict[int, ProcessIdentity] = {}
     observed_boots = set(lineage_boot_ids)
     try:
         if not attempt_id or any(char.isspace() for char in attempt_id):
             raise ValueError("invalid attempt marker")
         marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
-        # Either exact marker holds. Attempt-id collisions between state roots
-        # and unrelated attempts under this root can conservatively delay
-        # release; a partial match must never silently discharge a writer.
+        # An explicit different attempt belongs to another run (including
+        # a parent turn waiting for this one). Fall back to the state root only
+        # when no nonempty attempt marker is visible; partial markers still hold.
+        attempt_marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=\S+")
         root_marker = (re.compile(r"(?:^|\s)SUBFLEET_ROOT=" + re.escape(root) + r"(?=\s|$)")
                        if root else None)
         # Never retain or report these command/environment strings.
         for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
             pid_text, _, command = row.strip().partition(" ")
+            if attempt_marker.search(command) and not marker.search(command):
+                # Qualify cwd exclusions by full identity, never by bare PID.
+                # A new or unreadable incarnation remains a cwd census root.
+                pid = int(pid_text)
+                if seen is not None and pid in table:
+                    try:
+                        earlier = seen.identity(pid)
+                        if earlier is not None and identity(pid) == earlier:
+                            foreign_attempts[pid] = earlier
+                    except InspectionError:
+                        pass
+                continue
             if marker.search(command) or (root_marker is not None and root_marker.search(command)):
                 observed_writer = True
                 pid = int(pid_text)
@@ -736,7 +755,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     if workdir is not None:
         try:
             for pid in cwd_pids(workdir):
-                observe_later(pid, cwds)
+                observe_later(pid, cwds, foreign=foreign_attempts.get(pid))
         except InspectionError:
             errors.append("cwd enumeration unavailable")
     observed_writer = observed_writer or bool(cwds)
