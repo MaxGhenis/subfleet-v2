@@ -14,7 +14,7 @@ import time
 import pytest
 
 from subfleet import daemon as daemon_module
-from subfleet import protocol, render
+from subfleet import folders, protocol, render
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
 from tests.caps import capped
@@ -395,8 +395,9 @@ def test_c6_11_a_pass_that_does_not_look_keeps_the_whole_hold(fleet):
     service._admit()
     service.store.update_job(waiting, next_check_at=after(3600))
     service._admit()                                                 # not due: nothing is looked at
-    assert service._holds[waiting]["leases"] == [f"out:{out}"]
-    assert f"held by another job: out:{out}" in service.dispatch("why", {"job_id": waiting})["text"]
+    key = f"out:{folders.identity(out)}"
+    assert service._holds[waiting]["leases"] == [key]
+    assert f"held by another job: {key}" in service.dispatch("why", {"job_id": waiting})["text"]
 
 
 def test_c6_11_the_reason_is_the_latest_looks_even_when_the_verdict_repeats(fleet, monkeypatch):
