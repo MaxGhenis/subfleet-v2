@@ -397,7 +397,7 @@ def test_c18_1_a_lane_a_probe_holds_is_not_dispatchable(state):
 
 
 def test_c18_1_probe_fields_are_additions_only():
-    """C-18.1 the fields the menu bar app decodes keep their names and values; the probe fields are the only new ones."""
+    """C-18.1, C-11.9: v1 fields retain their shape beside probe and projection additions."""
     rows = [reading(window="seven_day", utilization=0.8), reading("claude", window="five_hour", utilization=0.2)]
     result = build_status(build_view([lane(), lane("claude")], rows, now=NOW))
     codex, claude = result["codex"]["homes"][0], result["claude"]["accounts"][0]
@@ -405,8 +405,10 @@ def test_c18_1_probe_fields_are_additions_only():
     assert result["alerts"] == []                       # C-18.4: always present, empty with none in force
     assert set(result["claude"]) == {"accounts", "earliest_reset", "lanes", "cards"}   # C-9.10
     assert result["claude"]["cards"] == {"read_at": None, "disabled": False, "accounts": [], "warnings": []}
-    assert set(codex) == V1_CODEX_ROW | PROBE_ROW
-    assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW
+    assert set(codex) == V1_CODEX_ROW | PROBE_ROW | {"weekly_projections"}
+    assert set(claude) == V1_CLAUDE_ROW | PROBE_ROW | {"weekly_projections"}
+    assert codex["weekly_projections"]["account"]["used"] == .8
+    assert claude["weekly_projections"] == {}
     assert set(result["codex"]["fleet"]) == V1_FLEET | {"probe_held"}
     assert set(result["claude"]["lanes"]) == V1_CLAUDE_LANES | {"probe_held"}
     assert codex["probe_state"] is None and codex["probe_holder"] is None and claude["probe_state"] is None
@@ -440,7 +442,7 @@ def _roster(specs):
     return lanes
 
 
-@settings(max_examples=300, deadline=None)
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(ROSTER)
 def test_c18_1_the_probe_fence_takes_out_exactly_the_held_lanes(specs):
     """C-18.1 for every roster: no held lane is dispatchable; the fence takes out the held lanes and nothing else;
@@ -601,7 +603,8 @@ def _cap(values):
     return st.one_of(st.just(ABSENT), st.none(), values)
 
 
-@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(max_examples=200, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(cases=st.lists(LANE_CASE, min_size=3, max_size=3), fleet_cap=_cap(st.integers(1, 8)),
        per_lane=_cap(st.integers(1, 3)), unmeasured=_cap(st.integers(1, 2)))
 def test_c18_1_status_json_and_admission_judge_probe_leases_alike(fleet, cases, fleet_cap, per_lane, unmeasured):

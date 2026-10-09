@@ -318,7 +318,7 @@ struct SearchPaletteOverlay: View {
     var body: some View {
         if palette.isPresented {
             ZStack(alignment: .top) {
-                Color.black.opacity(0.18)
+                Theme.scrim
                     .contentShape(Rectangle())
                     .onTapGesture { palette.close() }
                     .accessibilityHidden(true)
@@ -342,7 +342,7 @@ struct SearchPaletteView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).readingFont(.subheading)
+                Image(systemName: "magnifyingglass").foregroundStyle(Theme.text.secondary.color).readingFont(.subheading)
                 PaletteSearchField(text: $palette.query, placeholder: "Search conversations and messages",
                                    font: ReadingStyle.subheading.nsFont(scale: scale).withWeight(.regular),
                                    onMove: { palette.move($0) }, onSubmit: { palette.activate() },
@@ -358,17 +358,17 @@ struct SearchPaletteView: View {
             footer
         }
         .frame(maxWidth: 680)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .windowBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+        .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.conversation.color))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius.card).stroke(Theme.line.hairline))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius.card))
+        .shadow(color: Theme.shadow, radius: 24, y: 10)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Search conversations")
     }
 
     @ViewBuilder private var content: some View {
         if palette.results.isEmpty {
-            Text(emptyWords).readingFont(.secondary).foregroundStyle(.secondary)
+            Text(emptyWords).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
@@ -386,7 +386,7 @@ struct SearchPaletteView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if palette.outcome.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("Recent").readingFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+                        Text("Recent").readingFont(.caption, weight: .semibold).foregroundStyle(Theme.text.secondary.color)
                             .padding(.horizontal, 14).padding(.top, 6).padding(.bottom, 2)
                     }
                     ForEach(palette.results) { result in
@@ -411,14 +411,14 @@ struct SearchPaletteView: View {
     private var newConversationRow: some View {
         let selected = palette.selection == SearchPaletteModel.newConversationID
         return HStack(spacing: 10) {
-            Image(systemName: "square.and.pencil").foregroundStyle(.secondary).frame(width: 22)
+            Image(systemName: "square.and.pencil").foregroundStyle(Theme.text.secondary.color).frame(width: 22)
             Text("Start a new conversation").readingFont(.body)
             Spacer()
-            Text("⌘N").readingFont(.caption).foregroundStyle(.secondary)
+            Text("⌘N").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 7).fill(selected ? Color.accentColor.opacity(0.2) : .clear)
+        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(selected ? Theme.surface.selected.color : Theme.clear)
             .padding(.horizontal, 6))
         .contentShape(Rectangle())
         .onTapGesture { palette.startConversation() }
@@ -441,10 +441,10 @@ struct SearchPaletteView: View {
                 KeyHint(keys: "esc", action: "close")
                 Spacer()
                 if let count = countWords {
-                    Text(count).readingFont(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    Text(count).readingFont(.caption).foregroundStyle(Theme.text.secondary.color).monospacedDigit()
                 }
             }
-            Text(coverageWords).readingFont(.footnote).foregroundStyle(.tertiary)
+            Text(coverageWords).readingFont(.footnote).foregroundStyle(Theme.text.tertiary.color)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -478,10 +478,10 @@ private struct KeyHint: View {
         HStack(spacing: 4) {
             Text(keys).readingFont(.caption, weight: .semibold)
                 .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.14)))
+                .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.raised.color))
             Text(action).readingFont(.caption)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Theme.text.secondary.color)
     }
 }
 
@@ -492,42 +492,41 @@ struct SearchResultRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            ProviderBadge(provider: result.entry.provider).padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(highlightedText(result.entry.title, result.titleHighlights))
                         .readingFont(.body, weight: .medium).lineLimit(1)
                     if case .native = result.entry.target {
-                        Text("Session").readingFont(.footnote).foregroundStyle(.secondary)
+                        Text("Session").readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
                             .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.secondary.opacity(0.14)))
+                            .background(Capsule().fill(Theme.surface.raised.color))
                             .help("An existing \(providerName) session; opening it continues it here")
                     }
                 }
-                Text(detailLine).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Text(detailLine).readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(1).truncationMode(.middle)
                 if let snippet = result.snippet {
                     Text(snippetLine(snippet)).readingFont(.secondary).lineLimit(2)
                 }
             }
             Spacer(minLength: 8)
             if result.entry.pendingApprovals > 0 {
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange).help("Waiting for your approval")
+                Image(systemName: "hand.raised.fill").foregroundStyle(Theme.state.attention).help("Waiting for your approval")
             }
             if result.entry.active { ProgressView().controlSize(.mini) }
             if !result.entry.continuable {
-                Image(systemName: "lock").foregroundStyle(.secondary).help(result.entry.continueBlocker ?? "Cannot continue here")
+                Image(systemName: "lock").foregroundStyle(Theme.text.secondary.color).help(result.entry.continueBlocker ?? "Cannot continue here")
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 7).fill(background).padding(.horizontal, 6))
+        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(background).padding(.horizontal, 6))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
 
     private var background: Color {
-        selected ? Color.accentColor.opacity(0.2) : hovered ? Color.secondary.opacity(0.08) : .clear
+        selected ? Theme.surface.selected.color : hovered ? Theme.surface.hover.color : Theme.clear
     }
 
     private var providerName: String { result.entry.provider == "codex" ? "Codex" : "Claude" }
@@ -551,7 +550,7 @@ struct SearchResultRow: View {
 
     private func snippetLine(_ snippet: SearchSnippet) -> AttributedString {
         var author = AttributedString(snippet.author + ": ")
-        author.swiftUI.foregroundColor = .secondary
+        author.swiftUI.foregroundColor = Theme.text.secondary.color
         return author + highlightedText(snippet.text, snippet.highlights)
     }
 }
@@ -563,7 +562,7 @@ func highlightedText(_ text: String, _ ranges: [Range<String.Index>]) -> Attribu
         var run = AttributedString(String(segment.text))
         if segment.highlighted {
             run.inlinePresentationIntent = .stronglyEmphasized
-            run.swiftUI.backgroundColor = Color.yellow.opacity(0.4)
+            run.swiftUI.backgroundColor = Theme.state.search
         }
         out += run
     }
@@ -714,7 +713,7 @@ struct SearchRevealer: View {
         }
 
         var body: some View {
-            Color.clear.accessibilityHidden(true)
+            Theme.clear.accessibilityHidden(true)
                 .task(id: Key(reveal: palette.reveal, conversationID: conversationID)) {
                     guard let reveal = palette.reveal, reveal.conversationID == conversationID else { return }
                     // After the switch's own scroll to the end, and again once the

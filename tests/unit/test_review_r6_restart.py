@@ -41,7 +41,9 @@ def test_tick_replays_all_recorded_finals_before_first_wake_evaluation(svc, monk
 
 def test_recorded_finals_replay_in_message_order_after_partial_registration(svc, monkeypatch):
     cid = bound(svc)
-    now = time.time()
+    # Whole seconds: `iso` keeps microseconds, so a float `now` can land a hair short of
+    # `now + 300` after the round trip and fail the 5-minute floor (about 1 run in 6).
+    now = float(int(time.time()))
     clock = [now]
     svc.wakes.now = lambda: clock[0]
     older_text = (f'WAKE-ME: at={iso(now + 300)} note="Partial older intent"\n'

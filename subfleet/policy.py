@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +20,17 @@ from .contracts import (
 )
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
+
+
+def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
+    """C-11.2: candidates from this tier upward, in first-preference order.
+
+    Slice tiers before flattening: a model repeated below the job's tier must
+    not suppress its occurrence in an eligible tier. Each model is tried once.
+    """
+    return list(dict.fromkeys(name for entry in chain[tier_index:]
+                             for name in (entry if isinstance(entry, list) else [entry])))
+
 
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
@@ -162,9 +173,12 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
+#: `priority_callers` names Claude Code caller session ids whose detached work,
+#: including descendants, goes first in FIFO order (C-6.16); null is no override.
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
-#: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
-#: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
+#: saturated (C-6.13). It never holds `attended` turns or `priority` jobs,
+#: and it is off (null) by default: Max, 2026-09-28, "remove *all* caps" and
+#: "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
 #: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
 #: it waits for that to change before it fails with rc 3 (C-11.8); null never
@@ -191,6 +205,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "priority_callers": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
@@ -308,9 +323,17 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(key, "task name must be nonempty")
         if not isinstance(chain, list) or len(chain) != len(tiers):
             fail(key, "must be a list with one short model name per tier")
-        for index, model in enumerate(chain):
-            if not _name(model) or model not in models:
-                fail(f"{key}[{index}]", f"unknown model {model!r}; expected a models key")
+        for index, entry in enumerate(chain):
+            entry_key = f"{key}[{index}]"
+            if isinstance(entry, list) and not entry:
+                fail(entry_key, f"unknown model {entry!r}; expected a models key")
+            names = entry if isinstance(entry, list) else [entry]
+            for offset, model in enumerate(names):
+                model_key = f"{entry_key}[{offset}]" if isinstance(entry, list) else entry_key
+                if not _name(model) or model not in models:
+                    fail(model_key, f"unknown model {model!r}; expected a models key")
+                if model in names[:offset]:
+                    fail(model_key, f"duplicate model {model!r}")
     if value["fallback"] != "upward-only":
         fail("fallback", 'must be "upward-only"')
     if value["desktop_login"] != "never":
@@ -370,6 +393,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
     guard = settings["machine_guard"]
+    callers = settings["priority_callers"]
+    if callers is not None:
+        if not isinstance(callers, list) or any(not isinstance(item, str) or not item.strip() for item in callers):
+            fail("admission.priority_callers", "must be a list of nonempty caller session ids, or null")
+        settings["priority_callers"] = [item.strip().lower() for item in callers]
     if guard is not None:
         if not isinstance(guard, dict):
             fail("admission.machine_guard", "must be an object of per-class thresholds, or null")
@@ -377,7 +405,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             where = f"admission.machine_guard.{klass}"
             if klass not in GUARDED_CLASSES:
                 fail(where, f"is not a class the guard may hold ({', '.join(GUARDED_CLASSES)}); "
-                            "a conversation turn is never held")
+                            "attended turns and priority jobs are never held")
             if limits is None:
                 continue
             if not isinstance(limits, dict) or not limits:

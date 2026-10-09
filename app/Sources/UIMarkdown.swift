@@ -11,12 +11,12 @@ struct MarkdownView: View {
 
     var body: some View {
         let parsed = MarkdownBounds.blocks(Markdown.parse(text))
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space.paragraph) {
             ForEach(Array(parsed.shown.enumerated()), id: \.offset) { _, block in
                 MarkdownBlockView(block: block)
             }
             if parsed.hidden > 0 {
-                Text("\(parsed.hidden) more blocks not shown").readingFont(.caption).foregroundStyle(.secondary)
+                Text("\(parsed.hidden) more blocks not shown").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
             }
         }
         // Paragraphs, list items and table cells take the body size from here.
@@ -41,9 +41,9 @@ struct MarkdownBlockView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if let checked = item.checked {
-                            Image(systemName: checked ? "checkmark.square" : "square").foregroundStyle(.secondary)
+                            Image(systemName: checked ? "checkmark.square" : "square").foregroundStyle(Theme.text.secondary.color)
                         } else {
-                            Text(ordered ? "\(start + index)." : "•").foregroundStyle(.secondary)
+                            Text(ordered ? "\(start + index)." : "•").foregroundStyle(Theme.text.secondary.color)
                                 .monospacedDigit()
                         }
                         VStack(alignment: .leading, spacing: 4) {
@@ -58,12 +58,12 @@ struct MarkdownBlockView: View {
             CodeBlockView(language: language, text: text)
         case .quote(let blocks):
             HStack(alignment: .top, spacing: 8) {
-                Rectangle().fill(Color.secondary.opacity(0.4)).frame(width: 3)
+                Rectangle().fill(Theme.line.hairline).frame(width: 3)
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(blocks.enumerated()), id: \.offset) { _, child in
                         MarkdownBlockView(block: child)
                     }
-                }.foregroundStyle(.secondary)
+                } .foregroundStyle(Theme.text.secondary.color)
             }
         case .table(let header, _, let rows):
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
@@ -82,7 +82,7 @@ struct MarkdownBlockView: View {
                 }
             }
             .padding(6)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radius.card).stroke(Theme.line.hairline))
         case .rule:
             Divider()
         }
@@ -103,13 +103,13 @@ struct CodeBlockView: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
                 if let language, !language.isEmpty {
-                    Text(language).readingFont(.footnote).foregroundStyle(.secondary)
+                    Text(language).readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
                 }
                 Spacer()
                 Button(action: copy) {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
-                .buttonStyle(.borderless).readingFont(.footnote).foregroundStyle(.secondary)
+                .buttonStyle(.borderless).readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
                 .help("Copy the whole block")
             }
             .padding(.horizontal, 8).padding(.top, 5)
@@ -125,9 +125,9 @@ struct CodeBlockView: View {
                 .padding(.horizontal, 8).padding(.bottom, 6)
             }
         }
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .background(Theme.surface.raised.color)
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius.card).stroke(Theme.line.hairline))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius.card))
     }
 
     private func moreWords(hidden: Int) -> String {
