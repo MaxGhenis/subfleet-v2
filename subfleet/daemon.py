@@ -464,10 +464,11 @@ class Daemon:
         self._capacity_waits: dict[str, dict] = {}
         # C-11.4: job id -> model -> the lanes whose probe for the job said nothing
         # this round (`_rotate_probe`), and job id -> the lanes the route
-        # `_prepare_route` settled on left out, for the reservation's evaluation.
-        # In memory as C-6.10's records are; replaced whole on each change.
+        # `_prepare_route` settled on left out and the model it chose, for the
+        # reservation's evaluation. In memory as C-6.10's records are; replaced
+        # whole on each change.
         self._probe_misses: dict[str, dict[str, frozenset[str]]] = {}
-        self._probe_rotation: dict[str, tuple[str, ...]] = {}
+        self._probe_rotation: dict[str, tuple[tuple[str, ...], str | None]] = {}
         # C-6.10: job id -> the clock an inconclusive probe set, which may be due at
         # once; the pass keeps it rather than backing the job off.
         self._probe_clocks: dict[str, str] = {}
@@ -2727,6 +2728,10 @@ class Daemon:
                                    "rc": receipt.get("rc"), "signal": receipt.get("signal")})
 
     def _finish_probe(self, record: dict, outcome: Outcome) -> None:
+        if record.get("stopped") and "stopped" not in outcome.evidence:
+            # C-11.4: on every way a probe completes, not only the one that
+            # classified its receipt: recovery, an adapter that raised.
+            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, "stopped": record["stopped"]})
         if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
             outcome = dataclasses.replace(outcome, closure=Closure(
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
@@ -2855,7 +2860,7 @@ class Daemon:
             if not self._needs_probe(decision, job) or pair in approved:
                 # C-11.4: the reservation evaluates the route again and must leave the
                 # same lanes out, or it would choose the lane the probe said nothing on.
-                self._probe_rotation[job["job_id"]] = rotation
+                self._probe_rotation[job["job_id"]] = (rotation, decision.chosen_model)
                 return approved, desktop
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
@@ -3151,7 +3156,7 @@ class Daemon:
                 continue
             finally:
                 # C-11.4: the lanes the route `_prepare_route` settled on left out.
-                rotation = self._probe_rotation.pop(job["job_id"], ())
+                rotation, rotated_model = self._probe_rotation.pop(job["job_id"], ((), None))
                 probe_clock = self._probe_clocks.pop(job["job_id"], None)
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
@@ -3189,6 +3194,19 @@ class Daemon:
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._route(decision_job, extra_exclusions=(*extra_exclusions, *rotation),
                                        desktop=desktop_account)
+                if rotation and (not decision.chosen_lane or decision.chosen_model != rotated_model):
+                    # C-11.4: the lane rotation chose stopped taking the job between its
+                    # probe and this reservation. Rotation never promotes a job, nor
+                    # refuses it a lane it left out: the job looks again, and the next
+                    # pass starts a new round when no other lane of the model will take it.
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                    hold = {"reason": "probe-pending"}
+                    rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                               (next_check, job["job_id"]))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                    continue
                 needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 saturated = live >= cap
