@@ -78,7 +78,7 @@ natural flake rate or a substitute for the requested e2e proof.
 The driver and regression suite passed **70 tests under load**. The final
 regression verification passed **10/10 tests** after the burner stopped.
 Raw repetition outcomes, logs, driver events and burner records are under
-[`2026-10-09-stream-flake/`](2026-10-09-stream-flake/).
+`~/reviews/subfleet-2110/stream-flake/evidence/` (on the hub's machine; not in the repository).
 
 For the outstanding e2e proof on a host permitting process inspection:
 
