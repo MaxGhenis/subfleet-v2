@@ -20,7 +20,8 @@ import pytest
 from subfleet import procs, protocol
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import BOOT, ORIGINAL_CENSUS, quarantine
-from tests.fake.test_state_contract import state_daemon
+from tests.fake.test_state_contract import reserve, state_daemon
+from tests.fake.test_workspace_contract import repository
 
 
 @dataclass
@@ -241,9 +242,11 @@ class World:
 
     def signal(self, pid, sig, *, via_group=False):
         p = self.processes.get(pid)
+        leader = self.processes.get(100)
+        original_group = leader is None or leader.start == "guardian-start"
         assert not self.resolving, "resolvers must never signal"
         assert p is not None and not p.zombie and (
-            p.pgid == 100 or (pid, p.start) in self.owned), (
+            (p.pgid == 100 and original_group) or (pid, p.start) in self.owned), (
             "S2 stray signal", pid, self.rows(), self.trace)
         authority = self.processes.get(100) if via_group else p
         assert authority is not None and self.signal_checks.get(authority.pid) == (BOOT, authority.start), (
@@ -264,10 +267,29 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         self.patch = pytest.MonkeyPatch()
         self.fixture = state_daemon.__wrapped__(Path(self.directory.name), self.patch)
         self.daemon, self.harness = next(self.fixture)
+        # This kernel model exercises committed state, not power-loss recovery.
+        self.daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
         self.clock = Clock(self.patch, self.daemon)
-        self.attempts = [quarantine(self.daemon, self.harness) for _ in range(2)]
+        self.attempts = [quarantine(self.daemon, self.harness)]
+        repository(self.daemon, self.harness)
+        _, writable, _ = reserve(self.daemon, self.harness, sandbox="workspace-write")
+        self.daemon.store.update_attempt(writable["attempt_id"], guardian_pid=100, pgid=100,
+                                         boot_id=BOOT, proc_start="guardian-start")
+        self.daemon._quarantine(self.daemon.store.get_attempt(writable["attempt_id"]),
+                                procs.Containment(), "writers remain after exit receipt")
+        self.attempts.append(self.daemon.store.get_attempt(writable["attempt_id"]))
         for a in self.attempts:
             self.daemon.store.acquire_lease("native:" + a["attempt_id"], a["attempt_id"])
+        self.protected_leases = {}
+        self.protected_workspaces = {}
+        for a in self.attempts:
+            self.protected_leases[a["attempt_id"]] = frozenset(
+                (lease["lease_key"], lease["holder"]) for lease in self.daemon.store.list_leases()
+                if lease["holder"] in {a["attempt_id"], a["job_id"]})
+            job = self.daemon.store.get_job(a["job_id"])
+            self.protected_workspaces[a["attempt_id"]] = {Path(job["workdir"])}
+            if job["worktree"]:
+                self.protected_workspaces[a["attempt_id"]].add(Path(job["worktree"]))
         self.world = World()
         self.last_verdicts = [False, False]
         self.daemon.term_grace_s = self.daemon.kill_settle_s = 0
@@ -463,8 +485,12 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         alive = [p for p in self.world.processes.values() if p.writer and not p.zombie]
         for a in self.attempts:
             actual = self.daemon.store.get_attempt(a["attempt_id"])
-            leases = [l for l in self.daemon.store.list_leases() if l["holder"] in {a["attempt_id"], a["job_id"]}]
-            assert not alive or (actual["state"] == "quarantined" and leases and self.harness.workdir.exists()), (
+            leases = {(l["lease_key"], l["holder"]) for l in self.daemon.store.list_leases()
+                      if l["holder"] in {a["attempt_id"], a["job_id"]}}
+            held = actual["state"] == "quarantined"
+            assert (not alive or held) and (not held or (
+                self.protected_leases[a["attempt_id"]] <= leases
+                and all(path.exists() for path in self.protected_workspaces[a["attempt_id"]]))), (
                 "S1 premature release", actual["state"], self.world.rows(), self.world.trace)
         assert self.last_verdicts[0] == self.last_verdicts[1], "P1 parity"
 

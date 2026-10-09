@@ -4,6 +4,8 @@ Read visibility is part of the primary model; kernel start identities stay intac
 No real processes are started or signalled.
 """
 import json
+from pathlib import Path
+import shutil
 
 import pytest
 
@@ -67,26 +69,72 @@ def test_s1_oracle_rejects_complete_lease_loss():
         machine.teardown()
 
 
-@pytest.mark.xfail(strict=True, reason="Round-8 item 3: S1 still checks only one lease survives")
-def test_s1_oracle_rejects_loss_of_one_protected_lease():
+@pytest.mark.parametrize("prefix", ["worktree:", "native:"])
+def test_s1_oracle_rejects_loss_of_one_protected_lease(prefix):
     """C-5.7 loss of a protected lease is unsafe even when another remains."""
     machine = ProcessWorldMachine()
     try:
         machine.world.spawn(99)
-        a = machine.attempts[0]
-        # The base model uses read-only attempts and a single synthetic native
-        # lease. Add a required worktree lease before injecting partial loss.
-        machine.daemon.store.acquire_lease("worktree:" + str(machine.harness.workdir), a["attempt_id"])
+        a = machine.attempts[1]
+        job = machine.daemon.store.get_job(a["job_id"])
+        assert job["sandbox"] == "workspace-write" and Path(job["worktree"]).is_dir()
         machine.safety()
         leases = [l for l in machine.daemon.store.list_leases()
                   if l["holder"] in {a["attempt_id"], a["job_id"]}]
-        protected = [l for l in leases if not l["lease_key"].startswith("native:")]
+        protected = [l for l in leases if l["lease_key"].startswith(prefix)]
         assert protected, leases
         with machine.daemon.store.transaction() as tx:
             tx.execute("DELETE FROM leases WHERE lease_key=?", (protected[0]["lease_key"],))
-        assert any(l["lease_key"].startswith("native:") for l in machine.daemon.store.list_leases())
+        assert any(l["lease_key"] != protected[0]["lease_key"] for l in leases)
         with pytest.raises(AssertionError, match="S1 premature release"):
             machine.safety()
+    finally:
+        machine.teardown()
+
+
+def test_s1_oracle_rejects_loss_of_the_actual_writable_worktree():
+    machine = ProcessWorldMachine()
+    try:
+        machine.world.spawn(99)
+        job = machine.daemon.store.get_job(machine.attempts[1]["job_id"])
+        worktree = Path(job["worktree"])
+        assert worktree != machine.harness.workdir and worktree.is_dir()
+        machine.safety()
+        shutil.rmtree(worktree)
+        assert machine.harness.workdir.exists()
+        with pytest.raises(AssertionError, match="S1 premature release"):
+            machine.safety()
+    finally:
+        machine.teardown()
+
+
+def test_s1_keeps_every_lease_until_verified_release_even_without_visible_writers():
+    machine = ProcessWorldMachine()
+    try:
+        machine.world.failures.add("table")
+        machine.pair(resolve=True)
+        assert not any(machine.last_verdicts)
+        a = machine.attempts[1]
+        key = next(key for key, holder in machine.protected_leases[a["attempt_id"]]
+                   if key.startswith("worktree:"))
+        with machine.daemon.store.transaction() as tx:
+            tx.execute("DELETE FROM leases WHERE lease_key=?", (key,))
+        with pytest.raises(AssertionError, match="S1 premature release"):
+            machine.safety()
+    finally:
+        machine.teardown()
+
+
+def test_writable_worktree_leases_release_when_all_evidence_is_empty():
+    machine = ProcessWorldMachine()
+    try:
+        machine.world.fork(100, 200)
+        machine.pair(resolve=True)
+        machine.safety()
+        machine.quiesce_and_check_liveness()
+        for a in machine.attempts:
+            assert not any((l["lease_key"], l["holder"]) in machine.protected_leases[a["attempt_id"]]
+                           for l in machine.daemon.store.list_leases())
     finally:
         machine.teardown()
 
@@ -95,6 +143,16 @@ def test_s2_oracle_rejects_foreign_group_signal():
     """C-5.3 identity confirmation alone cannot authorize a foreign group."""
     world = World()
     world.spawn(200, pgid=700, marked=False, writer=False)
+    assert world.same_process(200, BOOT, world.processes[200].start)
+    with pytest.raises(AssertionError, match="S2 stray signal"):
+        world.signal(200, 9)
+
+
+def test_s2_oracle_rejects_the_original_group_number_after_leader_reuse():
+    world = World()
+    world.exit(100)
+    world.spawn(100, marked=False, writer=False)
+    world.fork(100, 200)
     assert world.same_process(200, BOOT, world.processes[200].start)
     with pytest.raises(AssertionError, match="S2 stray signal"):
         world.signal(200, 9)

@@ -18,13 +18,17 @@ MUTATIONS = (
      "if p.writer and not p.zombie and p.marked]",
      "tests/fake/test_quarantine_process_world.py::test_unconditional_s1_has_the_documented_invisible_writer_counterexample"),
     ("S2 accepts confirmed foreign-group identities",
-     "p.pgid == 100 or (pid, p.start) in self.owned",
+     "(p.pgid == 100 and original_group) or (pid, p.start) in self.owned",
      "True",
      "tests/fake/test_review_pr131_round7_model.py::test_s2_oracle_rejects_foreign_group_signal"),
     ("S2 rejects a confirmed previously owned escape",
-     "p.pgid == 100 or (pid, p.start) in self.owned",
-     "p.pgid == 100",
+     "(p.pgid == 100 and original_group) or (pid, p.start) in self.owned",
+     "p.pgid == 100 and original_group",
      "tests/fake/test_review_pr131_round7_model.py::test_previously_owned_escape_is_a_valid_signal_target[attempt]"),
+    ("S1 accepts losing one protected lease",
+     'self.protected_leases[a["attempt_id"]] <= leases',
+     'bool(leases)',
+     "tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease[worktree:]"),
 )
 
 
