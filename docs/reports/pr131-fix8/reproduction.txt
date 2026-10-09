@@ -1,0 +1,88 @@
+....F.F.                                                                 [100%]
+=================================== FAILURES ===================================
+______________ test_s1_oracle_rejects_loss_of_one_protected_lease ______________
+
+    def test_s1_oracle_rejects_loss_of_one_protected_lease():
+        """C-5.7 loss of a protected lease is unsafe even when another remains."""
+        machine = ProcessWorldMachine()
+        try:
+            machine.world.spawn(99)
+            a = machine.attempts[0]
+            # The base model uses read-only attempts and a single synthetic native
+            # lease. Add a required worktree lease before injecting partial loss.
+            machine.daemon.store.acquire_lease("worktree:" + str(machine.harness.workdir), a["attempt_id"])
+            machine.safety()
+            leases = [l for l in machine.daemon.store.list_leases()
+                      if l["holder"] in {a["attempt_id"], a["job_id"]}]
+            protected = [l for l in leases if not l["lease_key"].startswith("native:")]
+            assert protected, leases
+            with machine.daemon.store.transaction() as tx:
+                tx.execute("DELETE FROM leases WHERE lease_key=?", (protected[0]["lease_key"],))
+            assert any(l["lease_key"].startswith("native:") for l in machine.daemon.store.list_leases())
+>           with pytest.raises(AssertionError, match="S1 premature release"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE AssertionError
+
+tests/fake/test_review_pr131_round7_model.py:129: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.3688292227856:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+____________ test_previously_owned_escape_is_a_valid_signal_target _____________
+
+    def test_previously_owned_escape_is_a_valid_signal_target():
+        """C-5.6 a confirmed formerly owned member may be signalled after escape."""
+        machine = ProcessWorldMachine()
+        try:
+            machine.world.fork(100, 200)
+            # Record ownership during ordinary inspection, before any signal.
+            table = machine.world.snapshot()
+            for a in machine.attempts:
+                machine.daemon._record_owned(a, table)
+                evidence = json.loads(machine.daemon.store.get_attempt(a["attempt_id"])["evidence_json"])
+                assert evidence["owned_identities"]["200"]["proc_start"] == machine.world.processes[200].start
+            machine.world.change("setsid", 200)
+            assert machine.world.processes[200].pgid == 200
+>           machine.kill("attempt")
+
+tests/fake/test_review_pr131_round7_model.py:157: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_quarantine_process_world.py:365: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14t/site-packages/hypothesis/stateful.py:1061: in precondition_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:365: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14t/site-packages/hypothesis/stateful.py:934: in rule_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:372: in kill
+    self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
+subfleet/daemon.py:6318: in _kill_attempt
+    procs.signal_process(owned[pid], signal.SIGKILL)
+subfleet/procs.py:789: in signal_process
+    os.kill(recorded.pid, sig)
+tests/fake/test_quarantine_process_world.py:255: in <lambda>
+    self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
+                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.fake.test_quarantine_process_world.World object at 0x35abc7d78d0>
+pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
+
+    def signal(self, pid, sig, *, via_group=False):
+        p = self.processes.get(pid)
+        assert not self.resolving, "resolvers must never signal"
+>       assert p is not None and not p.zombie and p.pgid == 100, (
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            "S2 stray signal", pid, self.rows(), self.trace)
+E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (100, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('setsid', 200, 300), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1), ('read', 'table', 2), ('read', 'markers', 2), ('read', 'cwd', 2)])
+
+tests/fake/test_quarantine_process_world.py:219: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.3688292230544:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease
+FAILED tests/fake/test_review_pr131_round7_model.py::test_previously_owned_escape_is_a_valid_signal_target
+2 failed, 6 passed, 1 deselected in 52.80s

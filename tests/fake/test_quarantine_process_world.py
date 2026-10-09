@@ -61,6 +61,10 @@ class World:
         self.signal_checks = {}
         self.resolving = False
         self.confirming = set()
+        # Signal ownership is independent of conservative census roots. Only
+        # complete identities observed in the original, verified group count.
+        self.owned = {(100, "guardian-start")}
+        self.capturing_ownership = False
 
     def free(self, pid):
         # XNU reserves live group/session numbers, including leaderless groups.
@@ -157,6 +161,8 @@ class World:
         if "table" in self.failures:
             raise procs.InspectionError("world ps unavailable")
         table = procs.ProcessTable(self.rows(), BOOT)
+        if self.capturing_ownership:
+            self.record_ownership(table)
         roots = [p.pid for p in self.processes.values() if
                  (p.pid, p.start) in self.observed or p.pgid in self.groups]
         for pid in table.descendants(roots):
@@ -165,6 +171,13 @@ class World:
             self.groups.add(p.pgid)
         self.after("table")
         return table
+
+    def record_ownership(self, table):
+        leader = table.rows.get(100)
+        if table.boot_id != BOOT or not leader or leader[1:] != (100, "S", "guardian-start"):
+            return
+        self.owned.update((pid, row[3]) for pid, row in table.rows.items()
+                          if row[1] == 100 and not row[2].startswith("Z") and row[3])
 
     def identity(self, pid):
         phase = "confirm" if pid in self.confirming else "identity"
@@ -216,7 +229,8 @@ class World:
     def signal(self, pid, sig, *, via_group=False):
         p = self.processes.get(pid)
         assert not self.resolving, "resolvers must never signal"
-        assert p is not None and not p.zombie and p.pgid == 100, (
+        assert p is not None and not p.zombie and (
+            p.pgid == 100 or (pid, p.start) in self.owned), (
             "S2 stray signal", pid, self.rows(), self.trace)
         authority = self.processes.get(100) if via_group else p
         assert authority is not None and self.signal_checks.get(authority.pid) == (BOOT, authority.start), (
@@ -257,6 +271,12 @@ class ProcessWorldMachine(RuleBasedStateMachine):
 
     def active(self):
         return not any(self.last_verdicts)
+
+    def ownership_pace(self):
+        table = self.world.snapshot()
+        self.world.record_ownership(table)
+        for a in self.attempts:
+            self.daemon._record_owned(self.daemon.store.get_attempt(a["attempt_id"]), table)
 
     def pair(self, *, resolve=False):
         baseline = deepcopy(self.world)
@@ -368,6 +388,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         self.world.marker = a["attempt_id"]
         self.world.read_counts = {}
         self.world.confirming.clear()
+        self.world.capturing_ownership = True
         if consumer == "attempt":
             self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
         else:
@@ -377,6 +398,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
                       "guardian_pid": 100, "pgid": 100, "boot_id": BOOT,
                       "proc_start": "guardian-start", "state": "running"}
             self.daemon._contain_probe(record)
+        self.world.capturing_ownership = False
         # Kill evidence may have changed only one twin; copy the durable roots
         # to keep future parity checks about equal inputs.
         actual = self.daemon.store.get_attempt(a["attempt_id"])

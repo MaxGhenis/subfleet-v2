@@ -1,0 +1,23 @@
+Round-8 item 1 — S2 signal authority
+
+Reproduced round-7 probes against 169f6b6c17ae: 2 failed, 6 passed;
+reproduction.txt preserves both the valid-owned-escape rejection and the
+partial-lease-loss miss. The identity visibility controls passed.
+
+The kernel oracle now keeps full ownership identities independently of census
+verdicts and retained groups. A current original-group member or recorded owned
+identity is eligible only with the production helper's fresh identity check.
+Paced capture and kill-time original-group observation populate ownership;
+conservative observation alone does not. Both kill consumers are exercised by
+positive owned-escape and negative unowned-escape probes.
+
+item1-controls.txt and item1-oracle-mutations.txt are sequential reruns. An
+initial control/mutation overlap was excluded by overwriting its logs. Three
+oracle mutations include the reviewer's two challenges plus restoring S2's
+incorrect original-group-only guard. Exact model restoration is checked.
+
+The reproduced S1 partial-loss probe is temporarily strict-xfailed pending
+item 3, which will capture the complete protected lease set and remove xfail.
+No production code changed. Shared Git metadata rejected index.lock creation;
+commits use .git-local on feat/quarantine-self-resolve, with a final verified
+bundle prerequisite 169f6b6c17ae.
