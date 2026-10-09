@@ -64,7 +64,12 @@ class PreparedWorld:
 
     def track_publication(self, role, path):
         path = Path(path).absolute()
-        assert path.is_relative_to(Path(self.directory.name)), "pooled world publication outside its fixture"
+        # Compare resolved folders: macOS spells the same temporary directory
+        # `/var/...` and `/private/var/...`, and the Harness and Daemon resolve
+        # theirs (review r9 P2; CI at e4a45640). The file's own name is kept
+        # unresolved, so a published symlink is judged by where it sits.
+        assert (path.parent.resolve() / path.name).is_relative_to(Path(self.directory.name).resolve()), \
+            "pooled world publication outside its fixture"
         if path not in self.published:
             self.published[path] = path.read_bytes() if path.exists() else None
 
