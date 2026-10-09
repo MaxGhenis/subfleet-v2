@@ -2073,9 +2073,10 @@ class ConversationService:
         if key.startswith(folders.EXCLUSIVE):
             if holder.startswith(folders.RETENTION):
                 tree = key[len(folders.EXCLUSIVE):]
+                kind = "job directory" if tree == str(self.daemon.root / "jobs" / str(job_id)) else "worktree"
                 if folder and tree != folder:
-                    return f"retention is removing a finished job's worktree that this folder is in ({tree})"
-                return "retention is removing a finished job's worktree in this folder"
+                    return f"retention is removing a finished job's {kind} that this folder is in ({tree})"
+                return f"retention is removing a finished job's {kind} in this folder ({tree})"
             job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
             if job and job["kind"] == "turn":
                 # A turn a daemon before 2026-09-29 admitted still holds the folder alone.

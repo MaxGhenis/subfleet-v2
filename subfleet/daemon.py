@@ -4842,9 +4842,12 @@ class Daemon:
                 continue
             self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
-            # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
+            # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
+            # Git's persisted core.worktree can put the hold outside the cwd
+            # the provider runs in. Spell that cwd before taking the store lock.
+            run_folder = folders.canonical(workspace) if job["kind"] == "turn" else None
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -5149,6 +5152,12 @@ class Daemon:
                             # the tree it is nested in.
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
                             blockers.extend(folders.retiring(read, read_folder))
+                        run_fences = folders.retiring(read, run_folder) if run_folder else []
+                        blockers.extend(run_fences)
+                        if run_folder and run_folder != (write_target or read_folder):
+                            # Preserve the Git hold's writer rules. This extra
+                            # reader row only keeps the provider's cwd in place.
+                            leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -5186,7 +5195,7 @@ class Daemon:
                             # A turn's hold names its folder: a fence it waits for may be
                             # on a tree that folder is in, which its reason says (C-6.11).
                             hold = {"reason": "lease-held", "leases": contested + blocked,
-                                    **({"folder": write_target or read_folder}
+                                    **({"folder": run_folder if run_fences else write_target or read_folder}
                                        if job["kind"] == "turn" and (write_target or read_folder) else {}),
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}

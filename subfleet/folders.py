@@ -10,6 +10,8 @@ release site frees a turn's row with the job's other leases.
   while one exists, and a turn waits while `worktree:<folder>` is held.
 - `worktree-read:<folder>:<job id>`: a read-only turn. It excludes no writer;
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
+  A turn whose provider cwd differs from its Git hold also has a reader row
+  on that canonical cwd, preserving the Git hold's exact-folder writer rules.
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
   job's tree. No turn, writable or read-only, starts on that folder or on one
   inside it while it is held (`retiring`, C-8.4).
