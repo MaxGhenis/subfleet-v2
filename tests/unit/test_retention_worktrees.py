@@ -189,16 +189,37 @@ def test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job(
     assert store.get_job("job") is not None
 
 
+@pytest.fixture
+def begun(monkeypatch):
+    """The jobs whose retirement began (`Retirement.begin`), as in
+    test_retention_shared_folders.py: the archive commit rechecks turn rows too
+    (8a112986), but only by rolling back a tree it had moved from under the
+    turn, so a selection-layer test asserts this stays empty."""
+    started = []
+    real = rarch.Retirement.begin
+
+    def begin(retirement, job, pool):
+        started.append(retirement.job_id)
+        return real(retirement, job, pool)
+
+    monkeypatch.setattr(rarch.Retirement, "begin", begin)
+    return started
+
+
 @pytest.mark.parametrize("writable", [True, False])
 @pytest.mark.parametrize("seen_by", ["pins", "fence"])
-def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monkeypatch, writable, seen_by):
+def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monkeypatch, begun, writable, seen_by):
     """I5 (C-8.4, C-13.4, C-24.5): a conversation turn in a detached job's allocated worktree
     (a person continued the job's session in the app) holds a row of its own on the folder,
     writable or read-only, not `worktree:<folder>`. Retention keeps the job and its worktree
     while the row exists, whether only its pins see the row (`_pins`) or only the selection
-    fence does (a recorded path spelled otherwise), runs no git there, and reclaims both once
-    it is gone. Each layer is tested alone, the other one blinded: review of 5e9f2fbd (P3-3)
-    found the pins' check survived being emptied, since the fence alone kept this green."""
+    fence does (as when the recorded path is spelled otherwise), never begins its retirement,
+    starts no git (nor any other process) there, and reclaims both once it is gone. Each layer
+    is tested alone, the other one blinded: review of 5e9f2fbd (P3-3) found the pins' check
+    survived being emptied, since the fence alone kept this green. Review of 52f6e654: the
+    guard patched `subprocess.run`, which archive git never calls, and the commit's own turn
+    check kept the tree, so the fence cases passed with the selecting transaction's check
+    removed."""
     from subfleet import folders
     store, root, repository, worktree = owned
     key = folders.turn_key(str(worktree.resolve()), "20260929-120000-turn", writable=writable)
@@ -207,16 +228,35 @@ def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monke
         monkeypatch.setattr(retention.folders, "turn_folders", lambda read: set())
     else:
         monkeypatch.setattr(retention.folders, "turn_holds", lambda read, folder, kinds=folders.SHARED, **_: [])
-    original = subprocess.run
-    monkeypatch.setattr(retention.subprocess, "run",
-                        lambda *args, **kwargs: pytest.fail("no git while a turn works in the worktree"))
-    result = retention.maintenance(store, root, max_jobs=0)
+    started = []
+
+    def no_process(argv, *args, **kwargs):
+        started.append(argv)
+        pytest.fail(f"retention started {argv} while a turn works in the worktree")
+
+    with monkeypatch.context() as scoped:
+        # Archive git (`retention_git.run` and the `cat-file --batch` readers) starts
+        # through `subprocess.Popen`, as `subprocess.run` does; tests/conftest.py stubs
+        # the holder scan for every test not marked `real_lsof`, this one included.
+        scoped.setattr(rgit.subprocess, "Popen", no_process)
+        result = retention.maintenance(store, root, max_jobs=0)
+    assert started == []
+    assert begun == [], f"the {seen_by} layer let the retirement begin under a live turn"
     assert result["pruned"] == [] and "job" in result["protected"] and result["errors"] == []
     assert worktree.exists() and store.get_job("job") is not None
     assert [row["lease_key"] for row in store.list_leases()] == [key]      # the fence was not left behind
     store.release_leases("20260929-120000-turn")
-    monkeypatch.setattr(retention.subprocess, "run", original)
-    assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]
+    real = rgit.subprocess.Popen
+
+    def counted(argv, *args, **kwargs):
+        started.append(argv)
+        return real(argv, *args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(rgit.subprocess, "Popen", counted)
+        assert retention.maintenance(store, root, max_jobs=0)["pruned"] == ["job"]
+    # Both spies watched the real entry points: the retirement begins, and its git starts there.
+    assert begun == ["job"] and any("git" in argv for argv in started)
     assert not worktree.exists()
 
 
