@@ -164,7 +164,7 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     return min(limits) if limits else None
 
 
-#: `admission.*` (C-6.9, C-6.13, C-10.3, C-11.3): how admission orders and places
+#: `admission.*` (C-6.9, C-6.13, C-6.17, C-10.3, C-11.3): how admission orders and places
 #: work once no count caps it (2026-09-27).
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
@@ -199,18 +199,38 @@ MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
 }
+#: C-6.17: disk admission is opt-in. GB is decimal (1e9 bytes). A detached
+#: placement needs room for its reserve above the floor; a low refusal latches
+#: until effective free reaches floor + margin. Budgets expire at attempt end
+#: or TTL. An omitted path measures the state root's volume.
+DISK_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "floor_gb": 40,
+    "resume_margin_gb": 5,
+    "placement_reserve_gb": 1.5,
+    "reserve_ttl_s": 600,
+    "path": None,
+}
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
     "weekly_reserve": 0.02,
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "disk": DISK_DEFAULTS,
     "priority_callers": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
     "prove_wait_s": 300,
 }
+
+
+def disk_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-6.17: omitted disk settings leave admission off, including raw policies."""
+    return {**DISK_DEFAULTS, **((policy.get("admission") or {}).get("disk") or {})}
+
+
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
 GUARDED_CLASSES = ("session", "background")
@@ -219,7 +239,7 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
-    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}), "disk": disk_settings(policy)}
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -383,6 +403,25 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if key not in ADMISSION_DEFAULTS:
             fail(f"admission.{key}", f"is not an admission setting ({', '.join(sorted(ADMISSION_DEFAULTS))})")
     settings = {**ADMISSION_DEFAULTS, **admission}
+    disk = settings["disk"]
+    if not isinstance(disk, dict):
+        fail("admission.disk", "must be an object")
+    for key in disk:
+        if key not in DISK_DEFAULTS:
+            fail(f"admission.disk.{key}", "is not a disk admission setting")
+    disk = {**DISK_DEFAULTS, **disk}
+    if not isinstance(disk["enabled"], bool):
+        fail("admission.disk.enabled", "must be a boolean")
+    for key in ("floor_gb", "resume_margin_gb", "placement_reserve_gb", "reserve_ttl_s"):
+        item = disk[key]
+        positive = key in ("placement_reserve_gb", "reserve_ttl_s")
+        if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
+                or item < 0 or (positive and item == 0)):
+            fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
+                 + " finite number")
+    if disk["path"] is not None and not _name(disk["path"]):
+        fail("admission.disk.path", "must be a nonempty path string, or null for the state root's volume")
+    settings["disk"] = disk
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
