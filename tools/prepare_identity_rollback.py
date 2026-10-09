@@ -65,7 +65,7 @@ def prepare(root: Path, *, apply: bool = False) -> list[tuple[str, str]]:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError("daemon is running; stop it before preparing rollback") from None
-        with contextlib.closing(sqlite3.connect(f"file:{database}?mode=rw", uri=True)) as conn, conn:
+        with contextlib.closing(sqlite3.connect(database.as_uri() + "?mode=rw", uri=True)) as conn, conn:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA synchronous=FULL")
             conn.execute("BEGIN IMMEDIATE")

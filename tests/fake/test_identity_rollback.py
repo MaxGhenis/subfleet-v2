@@ -102,3 +102,43 @@ def test_rollback_collision_refuses_atomically(tmp_path):
     with sqlite3.connect(root / "state.sqlite3") as conn:
         assert list(conn.execute("SELECT lease_key,holder,acquired_at,expires_at FROM leases ORDER BY lease_key")) == sorted(
             tuple(row[key] for key in ("lease_key", "holder", "acquired_at", "expires_at")) for row in before)
+
+
+@pytest.mark.parametrize("requested_name,peer_name", [
+    ("state%2Fpeer", "state/peer"),
+    ("peer/state.sqlite3?ignored#%2Ftail", "peer"),
+    ("peer/state.sqlite3#ignored?%2Ftail", "peer"),
+], ids=["percent", "query", "fragment"])
+def test_rollback_uri_repairs_only_the_requested_locked_store(tmp_path, requested_name, peer_name):
+    requested, peer = tmp_path / requested_name, tmp_path / peer_name
+
+    def snapshot(root):
+        with sqlite3.connect(root / "state.sqlite3") as conn:
+            return (list(conn.execute("SELECT * FROM leases ORDER BY lease_key")),
+                    list(conn.execute("SELECT * FROM events ORDER BY event_id")))
+
+    with fleet_daemon(peer) as (service, harness, patch):
+        configure(service, patch)
+        peer_job = submit(service, harness, out_path=str(tmp_path / "Peer-Result.md"), caller_session=None)
+        service._admit()
+        accept_for_export(service, peer_job, b"peer\n")
+        peer_before = snapshot(peer)
+        with fleet_daemon(requested) as (intended, harness, patch):
+            configure(intended, patch)
+            job = submit(intended, harness, out_path=str(tmp_path / "Intended-Result.md"), caller_session=None)
+            intended._admit()
+            accept_for_export(intended, job, b"intended\n")
+            stored_path = intended.store.get_job(job)["out_path"]
+        intended_before = snapshot(requested)
+        with pytest.raises(ValueError, match="daemon is running"):
+            prepare(peer, apply=True)
+        expected = [("out:" + folders.identity(stored_path), "out:" + stored_path)]
+        assert prepare(requested) == expected
+        assert snapshot(requested) == intended_before
+        assert snapshot(peer) == peer_before
+        assert prepare(requested, apply=True) == expected
+        assert prepare(requested, apply=True) == []
+        intended_after = snapshot(requested)
+        assert "out:" + stored_path in {row[0] for row in intended_after[0]}
+        assert len(intended_after[1]) == len(intended_before[1]) + 1
+        assert snapshot(peer) == peer_before, "repair changed a different daemon's live store"
