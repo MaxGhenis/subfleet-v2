@@ -2882,8 +2882,11 @@ class Daemon:
         # A restart during recovery must not forget a low-space refusal. Only
         # transitions write an event; disabled admission writes nothing.
         if self._disk.holding != self._disk_saved_hold:
-            with self.store.transaction("admission.disk_latch", data={"holding": self._disk.holding}):
-                pass
+            # Empty transactions emit no audit record. The explicit event's
+            # kind also differs from its audit, which must not shadow it.
+            with self.store.transaction("admission.disk_latch.recorded") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), "admission.disk_latch", json.dumps({"holding": self._disk.holding})))
             self._disk_saved_hold = self._disk.holding
 
     def _disk_hold(self, klass: str) -> dict | None:
