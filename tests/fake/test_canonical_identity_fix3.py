@@ -174,13 +174,38 @@ def test_reopening_bound_native_returns_conversation_during_its_own_turn(tmp_pat
         assert opened["conversation"]["conversation_id"] == conversation["conversation_id"]
 
 
-def test_submit_refuses_output_symlink_loop_with_exit_7_and_fix(tmp_path):
+@pytest.mark.parametrize("location", ["parent", "file"])
+def test_submit_refuses_output_symlink_loop_with_exit_7_and_fix(tmp_path, location):
     loop = tmp_path / "loop"
     loop.symlink_to(loop)
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         configure(service, patch)
         with pytest.raises(AdapterError) as refused:
-            submit(service, harness, out_path=str(loop / "result.md"), caller_session=None)
+            submit(service, harness, out_path=str(loop / "result.md" if location == "parent" else loop),
+                   caller_session=None)
+        assert refused.value.code == 7
+        assert "symlink loop" in refused.value.fix
+        assert not service.store.list_jobs()
+
+
+@pytest.mark.parametrize("location", ["parent", "file"])
+def test_submit_refuses_loops_when_nonstrict_resolve_suppresses_errors(tmp_path, location):
+    """Python 3.13+ suppresses ELOOP for resolve(strict=False)."""
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    out = loop / "result.md" if location == "parent" else loop
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        configure(service, patch)
+        real = Path.resolve
+        def modern_resolve(path, strict=False):
+            if path == out:
+                if strict:
+                    raise OSError(errno.ELOOP, "symlink loop", str(path))
+                return path.absolute()
+            return real(path, strict=strict)
+        patch.setattr(Path, "resolve", modern_resolve)
+        with pytest.raises(AdapterError) as refused:
+            submit(service, harness, out_path=str(out), caller_session=None)
         assert refused.value.code == 7
         assert "symlink loop" in refused.value.fix
         assert not service.store.list_jobs()

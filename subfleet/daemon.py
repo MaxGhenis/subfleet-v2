@@ -1875,12 +1875,16 @@ class Daemon:
                 # never ends) named here held this submit, `_submit_lock` and every submit after.
                 prompt = read_regular(Path(args.prompt_path).expanduser())
                 try:
-                    out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
+                    # Python 3.13+ suppresses ELOOP in non-strict resolution.
+                    # Probe strictly first; absent or unreadable destinations
+                    # retain the existing non-strict spelling fallback.
+                    out = str(Path(args.out_path).expanduser().resolve(strict=True)) if args.out_path else None
                 except (RuntimeError, OSError) as exc:
                     if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
-                        raise
-                    raise AdapterError(f"cannot resolve output path: {exc}", code=7,
-                                       fix="remove the symlink loop or choose a different -o path") from exc
+                        out = str(Path(args.out_path).expanduser().resolve())
+                    else:
+                        raise AdapterError(f"cannot resolve output path: {exc}", code=7,
+                                           fix="remove the symlink loop or choose a different -o path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
