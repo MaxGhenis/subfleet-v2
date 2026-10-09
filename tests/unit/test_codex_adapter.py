@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from hypothesis import assume, given, strategies as st
 
 from subfleet.adapters import codex as codex_module
 from subfleet.adapters.base import AdapterError
@@ -304,6 +306,49 @@ def test_content_filter_variants_are_not_transient(tmp_path, message):
     outcome = CodexAdapter().classify(tmp_path, launch, _exit())
     assert outcome.cls == OutcomeClass.CONTENT_FILTER
     assert outcome.closure is None
+
+
+CYBER_FLAGS = (
+    "This content was flagged for possible cybersecurity risk.",
+    "If you're doing authorized security work, apply for Daybreak access before retrying.",
+    "flagged for possible cyber risk",
+)
+SURROUNDING = st.text(alphabet=st.characters(categories=("Ll", "Lu", "Nd", "Zs", "Po")), max_size=60)
+CASES = st.sampled_from((str, str.lower, str.upper))
+
+
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       as_event=st.booleans())
+def test_cyber_flag_anywhere_in_a_failed_turn_is_content_filter(flag, case, before, after, as_event):
+    """C-9.2 C-4.5 invariant: the provider's cyber flag, in any case and any surrounding text, in a
+    turn.failed or on stderr, is `content-filter` with no closure. Authentication and an old CLI
+    still come first (C-9.2 precedence), so messages matching those are set aside."""
+    message = before + case(flag) + after
+    assume(not codex_module.AUTH_RE.search(message) and not codex_module.OLD_CLI_RE.search(message))
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        if as_event:
+            launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD},
+                             {"type": "turn.failed", "error": {"message": message}})
+        else:
+            launch = _events(attempt, stderr=message + "\n")
+        outcome = CodexAdapter().classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.CONTENT_FILTER
+    assert outcome.closure is None
+
+
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING)
+def test_cyber_flag_in_a_completed_answer_is_not_a_refusal(flag, case, before, after):
+    """C-9.2 C-12.6 invariant: the model quoting the flag in its own answer on a completed turn
+    is a successful deliverable, never a refusal."""
+    text = "Report: " + before + case(flag) + after
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD},
+                         {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
+                         {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}})
+        outcome = CodexAdapter().classify(attempt, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
 
 
 def test_model_scoped_limit_keeps_reported_reset(tmp_path):
