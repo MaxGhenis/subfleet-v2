@@ -35,6 +35,8 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -45,6 +47,7 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from .. import lane_identity
 from ..contracts import (
     GUESSED_CLOSURE_S, HEADLESS_MARKER, IDENTITY_EVIDENCE, READING_TTL_S, Attestation,
     AttestationResult, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
@@ -102,6 +105,25 @@ PROFILE_OK = "ok"                    # 200 with an account and an organization
 PROFILE_NO_SCOPE = "no-scope"        # 403: a setup token, which cannot ask
 PROFILE_UNAVAILABLE = "unavailable"  # network, timeout, 5xx, or any other status
 PROFILE_INVALID = "invalid"          # 200 without the fields that name an account
+
+#: C-10.6, D-ID1 (2026-10-09): what a setup token can say about itself. Its scope
+#: is `user:inference` alone, so the profile, and every endpoint tried that
+#: names an account, refuse it (403). `GET /v1/models` answers it (200, or 403 for
+#: some accounts, which still carries the header) with the organization the token
+#: belongs to in this response header, and spends no model turn. Observed for 16
+#: lane tokens that day; `docs/decisions/2026-10-09-lane-identity.md`.
+ORG_PROBE_URL = "https://api.anthropic.com/v1/models?limit=1"
+ORG_HEADER = "anthropic-organization-id"
+ORG_API_VERSION = "2023-06-01"
+ORG_TIMEOUT_S = 15.0
+#: A token's organization never changes, so one answer serves for hours; the
+#: cache is keyed by a digest of the token, which a new token changes at once.
+ORG_CACHE_S = 6 * 3600
+
+#: `OrgResult.status`.
+ORG_OK = "ok"                        # the header named an organization
+ORG_UNAVAILABLE = "unavailable"      # network, timeout, 401, 5xx, or no header
+ORG_INVALID = "invalid"              # a header that is not an organization id
 
 #: `Reading.source` for anything the stream sensor produced.
 SOURCE_RATE_LIMIT_EVENT = "rate_limit_event"
@@ -350,6 +372,55 @@ def _urlopen(request: urllib.request.Request, timeout: float) -> tuple[int, byte
         return int(response.status), response.read(PROFILE_MAX_BYTES)
 
 
+def _urlopen_org(request: urllib.request.Request, timeout: float) -> tuple[int, str | None]:
+    """The organization probe's one network call; replaced whole in tests.
+
+    Returns `(status, anthropic-organization-id or None)`. The header is read from
+    an error response too: some accounts' tokens get 403 here and the answer
+    still names the organization. The body is never read.
+    """
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (fixed https URL)
+            return int(response.status), response.headers.get(ORG_HEADER)
+    except urllib.error.HTTPError as error:
+        try:
+            return int(error.code), (error.headers.get(ORG_HEADER) if error.headers else None)
+        finally:
+            error.close()
+
+
+@dataclass(frozen=True)
+class OrgResult:
+    """What a credential's own response header said about its organization.
+
+    Never carries the token or an exception's text (C-10.5).
+    """
+
+    status: str
+    org_uuid: str | None = None
+    detail: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == ORG_OK and bool(self.org_uuid)
+
+    @property
+    def identity(self) -> str | None:
+        """C-1.4's organization-level identity, `org:<org_uuid>`, or nothing."""
+        return lane_identity.org_identity(self.org_uuid) if self.ok else None
+
+
+_ORG_LOCK = threading.Lock()
+#: sha256(token) -> (monotonic seconds, OrgResult): successful answers only.
+_ORG_CACHE: dict[str, tuple[float, OrgResult]] = {}
+
+
+def forget_org_cache() -> None:
+    """Drop every cached organization answer (tests, and nothing else, need this)."""
+    with _ORG_LOCK:
+        _ORG_CACHE.clear()
+
+
 @dataclass(frozen=True)
 class UsageResult:
     """What the usage endpoint said about a lane's windows (C-9.9). Never carries
@@ -360,12 +431,18 @@ class UsageResult:
     limit_reached: bool | None = None
     retry_after_s: int | None = None
     detail: str | None = None
+    #: C-10.6: the identity check made beside this read (`IdentityCheck.evidence`),
+    #: whatever it found, so the timers keep it on the lane row; None when no check ran.
+    identity: dict[str, Any] | None = None
 
     def as_probe(self) -> dict[str, Any]:
         """The shape `timers._read_probe` stores: status, readings, limit_reached."""
-        return {"status": self.status, "readings": self.readings,
-                "limit_reached": self.limit_reached, "retry_after_s": self.retry_after_s,
-                "detail": self.detail}
+        probe = {"status": self.status, "readings": self.readings,
+                 "limit_reached": self.limit_reached, "retry_after_s": self.retry_after_s,
+                 "detail": self.detail}
+        if self.identity is not None:
+            probe["identity"] = self.identity
+        return probe
 
 
 #: Claude Code on macOS keeps a config directory's login in the keychain, not in
@@ -444,6 +521,9 @@ class ProfileResult:
     account_uuid: str | None = None
     org_uuid: str | None = None
     detail: str | None = None
+    #: `organization.organization_type` (`claude_max`, `claude_team`, ...): whether
+    #: the organization is one person's (C-10.6's facts use it), when it says.
+    org_type: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -482,11 +562,17 @@ class IdentityCheck:
     status: IdentityStatus | None
     profile_status: str | None
     expected: str | None
+    #: The identity the credential answered with: `<account>:<org>` from its
+    #: profile, or `org:<org>` from its own response header (C-1.4), or None.
     observed: str | None
     observed_email: str | None
     observed_account_uuid: str | None
     observed_org_uuid: str | None
     checked_at: str
+    #: Where `observed` came from: "profile", "org-header", or None.
+    source: str | None = None
+    org_type: str | None = None
+    org_status: str | None = None    # the organization probe's status, when it ran
 
     @property
     def checked(self) -> bool:
@@ -501,15 +587,22 @@ class IdentityCheck:
         """The record C-10.6 keeps instead of a reading, in the clause's words."""
         if self.status is None:
             return None
-        return {
+        evidence = {
             "status": IDENTITY_EVIDENCE[self.status],
             "profile_status": self.profile_status,
             "checked_at": self.checked_at,
             "expected": self.expected,
+            "observed": self.observed,
+            "source": self.source,
             "identity": {"email": self.observed_email,
                          "account_uuid": self.observed_account_uuid,
                          "org_uuid": self.observed_org_uuid},
         }
+        if self.org_type:
+            evidence["org_type"] = self.org_type
+        if self.org_status:
+            evidence["org_status"] = self.org_status
+        return evidence
 
 
 # --- the adapter -------------------------------------------------------------
@@ -532,6 +625,7 @@ class ClaudeAdapter(Adapter):
         profile_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
         reading_ttl_s: int = READING_TTL_S,
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
+        org_opener: Callable[[urllib.request.Request, float], tuple[int, str | None]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
         self._runner = runner
@@ -542,6 +636,7 @@ class ClaudeAdapter(Adapter):
         self._profile_opener = profile_opener
         self._reading_ttl_s = reading_ttl_s
         self._usage_opener = usage_opener
+        self._org_opener = org_opener
         # C-10.6: one profile request per credential per reading window, so the
         # identity beside a reading was fetched in the same probe cycle. Keyed by
         # a digest of the token: the cache never holds the credential itself.
@@ -697,8 +792,63 @@ class ClaudeAdapter(Adapter):
         if not all(isinstance(value, str) and value.strip() for value in values):
             return ProfileResult(PROFILE_INVALID, detail="no account and organization")
         email, account_uuid, org_uuid = (str(value).strip() for value in values)
+        org_type = organization.get("organization_type") if isinstance(organization, dict) else None
         return ProfileResult(PROFILE_OK, email=email, account_uuid=account_uuid,
-                             org_uuid=org_uuid)
+                             org_uuid=org_uuid,
+                             org_type=org_type.strip() if isinstance(org_type, str) and org_type.strip() else None)
+
+    def _fetch_org(self, token: str) -> OrgResult:
+        """C-10.6, D-ID1: one GET of `/v1/models` with the token, read for its
+        `anthropic-organization-id` header. Standard library only, 15 s, and
+        nothing logged; an exception is reduced to its type (C-10.5)."""
+        request = urllib.request.Request(ORG_PROBE_URL, headers={
+            "Authorization": f"Bearer {token}",
+            "anthropic-version": ORG_API_VERSION,
+            "anthropic-beta": OAUTH_USAGE_BETA,
+            "Accept": "application/json",
+        })
+        opener = self._org_opener or _urlopen_org
+        try:
+            status, header = opener(request, ORG_TIMEOUT_S)
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            return OrgResult(ORG_UNAVAILABLE, detail=type(error).__name__)
+        if status == 401 or status >= 500:
+            # Unauthenticated or unanswered: whatever a header says then is not
+            # the token's own organization.
+            return OrgResult(ORG_UNAVAILABLE, detail=f"http-{status}")
+        if not header:
+            return OrgResult(ORG_UNAVAILABLE, detail=f"http-{status}, no {ORG_HEADER}")
+        if token in header or (len(header.strip()) >= 8 and header.strip() in token):
+            # Never a server's answer, and never to be recorded as an identity (C-10.5).
+            return OrgResult(ORG_INVALID, detail=f"http-{status}, {ORG_HEADER} echoes the credential")
+        org = lane_identity.org_identity(header)
+        if org is None:
+            return OrgResult(ORG_INVALID, detail=f"http-{status}, {ORG_HEADER} is not an id")
+        return OrgResult(ORG_OK, org_uuid=lane_identity.identity_org(org), detail=f"http-{status}")
+
+    def probe_org(self, credential_env: Mapping[str, str] | None, *,
+                  refresh: bool = False) -> OrgResult:
+        """C-10.6: the organization this credential belongs to, from its own answer.
+
+        A successful answer is kept for `ORG_CACHE_S` across adapters (one is
+        built per request): a token's organization never changes, and a new
+        token has a new digest. A failure is never kept. `refresh` asks again.
+        """
+        token = self._bearer(credential_env)
+        if not token:
+            return OrgResult(ORG_UNAVAILABLE, detail="no-token")
+        key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        now = time.monotonic()
+        if not refresh:
+            with _ORG_LOCK:
+                cached = _ORG_CACHE.get(key)
+            if cached is not None and 0 <= now - cached[0] <= ORG_CACHE_S:
+                return cached[1]
+        result = self._fetch_org(token)
+        if result.ok:
+            with _ORG_LOCK:
+                _ORG_CACHE[key] = (now, result)
+        return result
 
     def probe_profile(self, credential_env: Mapping[str, str] | None,
                       *, refresh: bool = False) -> ProfileResult:
@@ -731,38 +881,87 @@ class ClaudeAdapter(Adapter):
         no request is made, because there is nothing an answer could be compared
         against. Re-enrolment is what binds such a lane (C-23.44).
 
-        With something to compare against:
+        With something to compare against, the credential answers first with its
+        profile and, when that is `no-scope` (a setup token, D-ID1), with the
+        organization its own `/v1/models` response header names (`probe_org`):
 
-        * `no-scope` is C-10.6's setup-token carve-out and applies only to a lane
-          that never recorded an identity — a lane that has one and now cannot
-          answer has had its credential changed under it, which is the incident's
-          own shape, and is `identity-unverified`.
-        * An answer naming another account is `identity-mismatch`; anything the
-          endpoint could not answer is `identity-unverified`. Neither is capacity.
-        * A lane holding only a label is judged on that label, the one claim it
-          has, and the identity it observes is returned so the caller can bind it
-          (C-1.4) and judge the next cycle on uuids rather than on an email.
+        * An answer naming another account is `identity-mismatch`; anything
+          neither endpoint could answer is `identity-unverified`. Neither is
+          capacity. A lane that recorded an account and now answers only with an
+          organization had its credential changed under it, the 2026-09-05
+          incident's own shape, and is `identity-unverified` unless that
+          organization is another one.
+        * An organization header can prove the binding but not the label: such a
+          lane is `identity-enrolled`, and `lane_identity.judge` asks what other
+          logins' profiles say about the label.
+        * A lane holding only a label is judged on that label when its profile
+          answers, and the identity it observes is returned so the caller can
+          bind it (C-1.4) and judge the next cycle on that rather than on an email.
         """
         checked_at = iso_utc(self._now())
         if not identity and not label:
             return IdentityCheck(IdentityStatus.UNVERIFIED, None, None, None, None,
                                  None, None, checked_at)
         profile = self.probe_profile(credential_env or {})
-        observed = profile.identity
-        if profile.status == PROFILE_NO_SCOPE and not identity:
-            status = IdentityStatus.ENROLLED
-        elif profile.status != PROFILE_OK:
-            status = IdentityStatus.UNVERIFIED
-        elif identity:
-            status = (IdentityStatus.VERIFIED if observed == identity
-                      else IdentityStatus.MISMATCH)
-        elif profile.email and label and profile.email.casefold() == label.casefold():
-            status = IdentityStatus.VERIFIED
+        org: OrgResult | None = None
+        if profile.ok:
+            observed, source = profile.identity, "profile"
+        elif profile.status == PROFILE_NO_SCOPE:
+            # D-ID1: a setup token's own response header names its organization.
+            org = self.probe_org(credential_env or {})
+            observed, source = org.identity, ("org-header" if org.ok else None)
         else:
-            status = IdentityStatus.MISMATCH
+            observed, source = None, None
+        status = self._identity_status(identity, label, profile, observed, source)
         return IdentityCheck(status, profile.status, identity or label, observed,
-                             profile.email, profile.account_uuid, profile.org_uuid,
-                             checked_at)
+                             profile.email if profile.ok else None,
+                             profile.account_uuid if profile.ok else None,
+                             profile.org_uuid if profile.ok else (org.org_uuid if org and org.ok else None),
+                             checked_at, source=source,
+                             org_type=profile.org_type if profile.ok else None,
+                             org_status=org.status if org is not None else None)
+
+    @staticmethod
+    def _identity_status(identity: str | None, label: str | None, profile: ProfileResult,
+                         observed: str | None, source: str | None) -> IdentityStatus:
+        """C-10.6 for one answer, against the lane's record alone.
+
+        With a recorded identity, the credential's answer is compared with it:
+        another account (another organization, or another account uuid when both
+        name one) is `mismatch`; no answer, or an organization that cannot say
+        which seat of it (the record names an account, the token only an
+        organization), is `unverified`. The same account is `verified` when the
+        credential's own profile said so, and `enrolled` when only its
+        organization header did: the binding holds, the label is unproven.
+
+        With only a label, a profile is judged on the label, the one claim the lane
+        has; an organization header cannot speak to a label and is `enrolled`, and
+        the caller records it. A setup token whose organization could not be read
+        is `enrolled` as before D-ID1; anything else unanswered is `unverified`.
+        """
+        if identity:
+            if observed is None:
+                return IdentityStatus.UNVERIFIED
+            if not lane_identity.same_account(observed, identity):
+                return IdentityStatus.MISMATCH
+            if lane_identity.account_level(identity) and not lane_identity.account_level(observed):
+                return IdentityStatus.UNVERIFIED
+            if source != "profile":
+                return IdentityStatus.ENROLLED
+            if lane_identity.account_level(identity):
+                return IdentityStatus.VERIFIED
+            # An organization-level record now answered by a profile: the label,
+            # if there is one, is the claim left to judge.
+            return (IdentityStatus.VERIFIED
+                    if not label or (profile.email and profile.email.casefold() == label.casefold())
+                    else IdentityStatus.MISMATCH)
+        if source == "profile":
+            return (IdentityStatus.VERIFIED
+                    if profile.email and label and profile.email.casefold() == label.casefold()
+                    else IdentityStatus.MISMATCH)
+        if source == "org-header" or profile.status == PROFILE_NO_SCOPE:
+            return IdentityStatus.ENROLLED
+        return IdentityStatus.UNVERIFIED
 
     def lane_identity_check(self, lane: Lane,
                             credential_env: Mapping[str, str] | None) -> IdentityCheck:
@@ -927,16 +1126,35 @@ class ClaudeAdapter(Adapter):
                     "Code OAuth token and cannot be bound to an account (C-10.6)"
                 ),
             )
+        named = self.account_from_reference(credential)
         if profile.ok:
+            if named and profile.email and named.casefold() != profile.email.casefold():
+                # C-10.6, D-ID1: the operator named one account and the token is
+                # another's; enrolling it under either name would be a lie.
+                raise AdapterError(
+                    f"claude: {credential.ref} holds a token of {profile.email}, not {named}",
+                    code=7,
+                    fix=(f"sign in to claude.ai as {named}, run claude setup-token, store the "
+                         f"token as the keychain item {credential.ref}, and enrol again"),
+                )
             # C-1.4: the account key is the identity, and the email is a label.
             identity, label = profile.identity, profile.email
             identity_status = IdentityStatus.VERIFIED
             account_key = f"{PROVIDER}:{identity}"
         else:
-            identity, label = None, account
-            identity_status = (IdentityStatus.ENROLLED
-                               if profile.status == PROFILE_NO_SCOPE
-                               else IdentityStatus.UNVERIFIED)
+            # D-ID1: a setup token cannot read its profile, but its own response
+            # header names its organization. Enrolment records that, so the lane
+            # can be compared with every other lane from its first cycle on.
+            org = self.probe_org(env_add, refresh=True)
+            if not org.ok:
+                raise AdapterError(
+                    f"claude: could not tell whose token {credential.ref} is (profile "
+                    f"{profile.status}, organization {org.status}: {org.detail})",
+                    code=7,
+                    fix="retry the enrolment; nothing was recorded (C-10.6)",
+                )
+            identity, label = org.identity, account
+            identity_status = IdentityStatus.ENROLLED
             account_key = f"{PROVIDER}:{account}"
 
         # The lane does not exist yet, so its id is empty here; the daemon stamps the
@@ -1054,9 +1272,11 @@ class ClaudeAdapter(Adapter):
             # does it. No request is sent with a token known to be expired.
             return UsageResult("expired-token", detail="access token past expiresAt")
         check = self.lane_identity_check(lane, credential_env)
+        found = check.evidence()
         if not check.binds:
             return UsageResult("identity-unbound",
-                               detail=check.status.value if check.status else None)
+                               detail=check.status.value if check.status else None,
+                               identity=found)
         request = urllib.request.Request(OAUTH_USAGE_URL, headers={
             "Authorization": f"Bearer {token}",
             "anthropic-beta": OAUTH_USAGE_BETA,
@@ -1073,25 +1293,25 @@ class ClaudeAdapter(Adapter):
             retry_after = int(header) if isinstance(header, str) and header.strip().isdigit() else None
         except (OSError, ValueError, TypeError, AttributeError) as error:
             # Only the exception's type: its text can quote the request headers.
-            return UsageResult("unavailable", detail=type(error).__name__)
+            return UsageResult("unavailable", detail=type(error).__name__, identity=found)
         if status == 429:
-            return UsageResult("rate-limited", retry_after_s=retry_after, detail="HTTP 429")
+            return UsageResult("rate-limited", retry_after_s=retry_after, detail="HTTP 429", identity=found)
         if status == 401:
             if login and login.get("refreshToken"):
                 # A home lane with a refresh token: the access token lapsed, the
                 # login did not. One heal turn (C-23.47) is the answer, not a latch.
-                return UsageResult("expired-token", detail="HTTP 401 with a refresh token on file")
-            return UsageResult("auth-dead", detail="HTTP 401")
+                return UsageResult("expired-token", detail="HTTP 401 with a refresh token on file", identity=found)
+            return UsageResult("auth-dead", detail="HTTP 401", identity=found)
         if status == 403:
-            return UsageResult("no-scope", detail="HTTP 403")
+            return UsageResult("no-scope", detail="HTTP 403", identity=found)
         if status != 200:
-            return UsageResult("unavailable", detail=f"HTTP {status}")
+            return UsageResult("unavailable", detail=f"HTTP {status}", identity=found)
         try:
             payload = json.loads(body.decode("utf-8", "replace"))
         except ValueError:
-            return UsageResult("unavailable", detail="malformed")
+            return UsageResult("unavailable", detail="malformed", identity=found)
         if not isinstance(payload, dict):
-            return UsageResult("unavailable", detail="malformed")
+            return UsageResult("unavailable", detail="malformed", identity=found)
         # Reserve admission treats a newer usage response as a complete snapshot:
         # an omitted scoped bucket means the account no longer has that bucket.
         # Never publish the shared quota from an incomplete/malformed snapshot,
@@ -1100,7 +1320,7 @@ class ClaudeAdapter(Adapter):
         if not isinstance(limits, list) or any(
                 not isinstance(item, dict) or item.get("kind") not in ("session", "weekly_all", "weekly_scoped")
                 for item in limits):
-            return UsageResult("unavailable", detail="malformed limits")
+            return UsageResult("unavailable", detail="malformed limits", identity=found)
         observed_at = iso_utc(self._now())
         readings: list[Reading] = []
         for window in ("five_hour", "seven_day"):
@@ -1121,13 +1341,13 @@ class ClaudeAdapter(Adapter):
             percent = limit.get("percent")
             if (name.lower() not in names or not isinstance(percent, (int, float)) or isinstance(percent, bool)
                     or not math.isfinite(percent) or not 0 <= percent <= 100):
-                return UsageResult("unavailable", detail="malformed scoped window")
+                return UsageResult("unavailable", detail="malformed scoped window", identity=found)
             readings.append(Reading(lane.lane_id, names[name.lower()], "seven_day",
                                     float(percent) / 100.0, _iso_or_none(limit.get("resets_at")),
                                     ReadingLabel.PROVIDER, SOURCE_OAUTH_USAGE, observed_at))
         limit_reached = any(r.scope == "account" and r.utilization is not None and r.utilization >= 1.0
                             for r in readings)
-        return UsageResult("ok", tuple(readings), limit_reached)
+        return UsageResult("ok", tuple(readings), limit_reached, identity=found)
 
     def probe_status(self, lane: Lane, credential_env: Mapping[str, str] | None) -> dict[str, Any]:
         """What the timer's probe cycle reads for a Claude lane: the usage endpoint
@@ -2115,6 +2335,10 @@ __all__ = [
     "login_expired",
     "UsageResult",
     "OAUTH_USAGE_URL",
+    "ORG_HEADER",
+    "ORG_PROBE_URL",
+    "OrgResult",
+    "forget_org_cache",
     "SCOPED_MODEL_IDS",
     "apply_headless_block",
     "encode_project_dir",

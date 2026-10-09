@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import READING_TTL_S, IdentityStatus
+from .lane_identity import identity_shadowed, mark_shared, same_account
 from .quota_projection import weekly_projections
 from .sessions.transcripts import read_regular
 
@@ -146,6 +147,7 @@ class DesktopIdentity:
     cached_label: str | None = None  # ~/.claude.json oauthAccount, a hint only
     last_label: str | None = None    # label of the last verified desktop identity
     detail: str | None = None        # the profile status that produced this
+    org_type: str | None = None      # the profile's organization type, when verified
 
     @property
     def verified(self) -> bool:
@@ -173,7 +175,9 @@ class DesktopIdentity:
         """C-10.3: is this lane the desktop app's own account?"""
         identity = lane.get("identity")
         if self.verified and identity:
-            return str(identity) == self.identity
+            # C-10.7, D-ID1: a setup-token lane records only its organization;
+            # on a personal plan that is the desktop's account all the same.
+            return same_account(identity, self.identity)
         return bool(lane_labels(lane) & self.label_hints)
 
 
@@ -189,8 +193,9 @@ def desktop_identity(profile: Any, *, cached_label: str | None = None,
     email = getattr(profile, "email", None) if profile is not None else None
     detail = getattr(profile, "status", None) if profile is not None else None
     if identity:
+        org_type = getattr(profile, "org_type", None)
         return DesktopIdentity("verified", str(identity), email, cached_label,
-                               last_label, detail)
+                               last_label, detail, org_type if isinstance(org_type, str) else None)
     return DesktopIdentity("unverified", None, None, cached_label, last_label, detail)
 
 
@@ -452,6 +457,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
         lane["measured"] = any(fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s)
                                for row in lane["readings"])
         roster.append(lane)
+    # C-10.8: of the lanes whose credentials are one account, one is its candidate.
+    mark_shared(roster)
     roster.sort(key=lambda lane: _display_order(lane, now=instant, reading_ttl_s=reading_ttl_s))
     return {"lanes": roster, "readings": evidence, "weekly_samples": history, "closures": active_closures,
             "attempts": attempt_rows, "jobs": job_rows,
@@ -600,7 +607,8 @@ def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
     """C-6.11: the lanes that could take some job now, whatever its model.
 
     Owned by v2, enabled, not the desktop login while Claude Code uses it
-    (C-10.3), identity not mismatched, under no account-wide closure, with a slot
+    (C-10.3), identity not mismatched and not another lane's account (C-10.8),
+    under no account-wide closure, with a slot
     free (always, while no per-lane cap is set, C-6.4) and no probe holding it. A
     lane closed for one model only is open: another model may still run there. A
     job can still be refused an open lane (a model-scoped closure, the reserve,
@@ -612,7 +620,7 @@ def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
     for lane in view["lanes"]:
         slots = lane_slot_cap(caps, bool(lane.get("measured")))
         if (lane.get("owner") == "v2" and lane.get("enabled", True) and not desktop_excluded(lane)
-                and not identity_blocked(lane)
+                and not identity_blocked(lane) and not identity_shadowed(lane)
                 and not any(row.get("scope") == "account" for row in lane.get("closures", ()))
                 and (slots is None or lane.get("in_flight", 0) < slots)
                 and lane["lane_id"] not in view.get("unavailable_lanes", {})):

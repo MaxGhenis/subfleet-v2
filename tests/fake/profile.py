@@ -161,8 +161,53 @@ def opener(spec: str | None = None, *, seen: list | None = None):
     return open_profile
 
 
+ORG_ENV = "SUBFLEET_FAKE_ORG"
+
+
+def derived_org(token: str) -> str:
+    """The organization a bearer belongs to when no entry says otherwise: the one
+    `derived_body` names for it, so a derived lane's two answers agree."""
+    return f"e2e-org-{token_suffix(token)}"
+
+
+def org_response(token: str, spec: str | None = None) -> tuple[int, str | None]:
+    """What `GET /v1/models` tells a bearer about its organization (D-ID1).
+
+    `SUBFLEET_FAKE_ORG` is a comma-separated list of `<key>=<value>` (or a bare
+    `<value>` for every bearer): an organization id it names instead (two lanes
+    given one id hold one account, D-ID1's shape), `none` for an answer with no
+    header, `401` or `500` for those statuses, or `error` for no answer at all.
+    With no entry a bearer names `derived_org`.
+    """
+    value = chosen_fixture(token, spec)
+    if value is None:
+        return 200, derived_org(token)
+    if value == "none":
+        return 200, None
+    if value in ("401", "500"):
+        return int(value), None
+    if value == "error":
+        raise OSError("organization probe unavailable")
+    return 200, value
+
+
+def org_opener(spec: str | None = None, *, seen: list | None = None):
+    """A drop-in for `subfleet.adapters.claude._urlopen_org`."""
+    if spec is None:
+        spec = os.environ.get(ORG_ENV)
+
+    def open_org(request, timeout):
+        token = bearer(request)
+        if seen is not None:
+            seen.append((request.full_url, token_suffix(token)))
+        return org_response(token, spec)
+
+    return open_org
+
+
 def install(spec: str | None = None) -> None:
-    """Replace the adapter's one network call, in this process, for good."""
+    """Replace the adapter's network calls, in this process, for good."""
     from subfleet.adapters import claude
 
     claude._urlopen = opener(spec)
+    claude._urlopen_org = org_opener()

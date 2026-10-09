@@ -5,8 +5,9 @@ against (`tests/unit/test_scheduler_split.py`); nothing else uses it.
 It changes only where the contract does, and then in its own words, never by
 calling the code under test: null caps (C-26.9, then C-6.4 on 2026-09-27), the
 load band and the desktop lane's place (C-11.3, C-10.3), then common weekly
-expiry routing and reserve preferences (2026-10-03), each written here again
-so the differential test compares two implementations."""
+expiry routing and reserve preferences (2026-10-03), then one account, one
+candidate (C-10.8, 2026-10-09), each written here again so the differential
+test compares two implementations."""
 
 from __future__ import annotations
 
@@ -220,6 +221,11 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
                 # C-10.6: the profile endpoint said this credential holds another
                 # account. Its usage is not this lane's, so neither is its capacity.
                 reasons.append("identity-mismatch")
+            if lane.get("identity_shadowed_by"):
+                # C-10.8 (2026-10-09): the view marked this lane one account with
+                # another lane, which takes that account's work.
+                detail["identity_shadowed_by"] = lane["identity_shadowed_by"]
+                reasons.append("identity-shared")
             reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in scoped_closures
                            if row["lane_id"] == identity)
             lane_measured = any(row["lane_id"] == identity and fresh_provider(

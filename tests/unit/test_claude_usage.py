@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import urllib.error
 import urllib.request
@@ -91,9 +92,21 @@ def test_c9_9_an_exhausted_shared_window_reports_limit_reached():
 
 def test_c9_9_rate_limited_yields_no_reading_and_the_retry_after():
     result = adapter(http_error(429, {"Retry-After": "3035"})).probe_usage(lane(), {"CLAUDE_CODE_OAUTH_TOKEN": "t"})
-    assert result == UsageResult("rate-limited", (), None, 3035, "HTTP 429")
+    assert dataclasses.replace(result, identity=None) == UsageResult("rate-limited", (), None, 3035, "HTTP 429")
     probe = result.as_probe()
     assert probe["readings"] == () and probe["retry_after_s"] == 3035 and probe["status"] == "rate-limited"
+    # C-10.6: the identity check made beside the read travels with it, whatever it read.
+    assert probe["identity"]["status"] == "verified"
+
+
+@pytest.mark.parametrize("binds", [True, False])
+def test_c10_6_every_read_after_the_check_carries_the_identity_finding(binds):
+    """C-10.6 the timers keep a lane's identity on its row from the read that
+    checked it, bound or not, so the finding travels with the result."""
+    result = adapter(ok_opener, binds=binds).probe_usage(lane(), {"CLAUDE_CODE_OAUTH_TOKEN": "secret-token"})
+    assert result.identity["status"] == ("verified" if binds else "identity-mismatch")
+    assert result.as_probe()["identity"] == result.identity
+    assert "secret-token" not in json.dumps(result.as_probe(), default=str)
 
 
 @pytest.mark.parametrize("code,status", [(401, "auth-dead"), (403, "no-scope"), (500, "unavailable")])

@@ -175,6 +175,9 @@ def no_network(monkeypatch):
     takes precedence, and asserts on what it chose.
     """
     monkeypatch.setattr("subfleet.adapters.claude._urlopen", profile_opener())
+    # D-ID1: a setup token's organization comes from a response header of its
+    # own (`_urlopen_org`); the stand-in names the fixture lane's organization.
+    monkeypatch.setattr("subfleet.adapters.claude._urlopen_org", org_opener())
 
 
 @pytest.fixture(autouse=True)
@@ -183,11 +186,14 @@ def fresh_process_caches():
     the login file serves until it changes, and tests stub both, so none may
     inherit another's."""
     from subfleet import capacity, procs
+    from subfleet.adapters.claude import forget_org_cache
     procs.forget_boot_id()
     capacity.forget_desktop_account()
+    forget_org_cache()
     yield
     procs.forget_boot_id()
     capacity.forget_desktop_account()
+    forget_org_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -256,6 +262,20 @@ def profile_opener(status: int = 200, body: bytes | None = None, *,
         if error is not None:
             raise error
         return status, (profile_body() if body is None else body)
+
+    return opener
+
+
+def org_opener(status: int = 200, org: str | None = LANE_ORG_UUID, *,
+               error: Exception | None = None, seen: list | None = None):
+    """An injectable `(status, anthropic-organization-id)` opener for the
+    organization probe (D-ID1), recording the URLs it was asked for."""
+    def opener(request, timeout):
+        if seen is not None:
+            seen.append((request.full_url, request.headers.get("Authorization"), timeout))
+        if error is not None:
+            raise error
+        return status, org
 
     return opener
 

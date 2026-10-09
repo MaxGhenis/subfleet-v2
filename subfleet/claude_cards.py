@@ -76,6 +76,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import CLAUDE_CARDS_DEFAULTS
+from .lane_identity import same_account
 
 #: The usage read Claude Code makes when it asks about reset cards.
 CARDS_USAGE_URL = "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1"
@@ -890,16 +891,18 @@ def associate(lanes: Iterable[Mapping[str, Any]], identity: str | None, login: s
               ) -> tuple[list[Mapping[str, Any]], str | None]:
     """The lanes a login backs, and how that is known.
 
-    By identity (C-10.6), every lane that recorded the one this login's profile
-    returned; and by name, every lane that recorded no identity: a
-    setup-token lane cannot ask the profile endpoint, so on such a fleet the
-    folder name, which is the lane's display label, is all that connects them.
+    By identity (C-10.6), every lane whose recorded identity is the account this
+    login's profile returned: the same account, or, for a setup-token lane that
+    recorded only its organization (D-ID1), the same organization
+    (`lane_identity.same_account`); and by name, every lane that recorded no
+    identity, for which the folder name, the lane's display label, is all that
+    connects them.
     Before the login's own identity is known (its token expired before any
     read), the name is matched against every lane, so that a login backing an
     identity-bearing lane can be healed once and then bound by identity.
     """
     lanes = list(lanes)
-    bound = [lane for lane in lanes if identity and lane.get("identity") == identity]
+    bound = [lane for lane in lanes if identity and same_account(lane.get("identity"), identity)]
     named = [lane for lane in lanes if lane not in bound and (identity is None or not lane.get("identity"))
              and lane_label(lane) == login]
     how = "identity" if bound and not named else "identity+label" if bound else "label" if named else None

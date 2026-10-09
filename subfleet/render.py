@@ -152,6 +152,9 @@ def status(view: Mapping[str, Any]) -> str:
             ("identity-mismatch", lane.get("identity_status") == "mismatch"),
             ("identity-unverified", lane.get("identity_status") == "unverified"),
         ) if enabled]
+        if lane.get("identity_shadowed_by"):
+            # C-10.8: the same account as another lane, which takes its work.
+            flags.append(f"identity-shared={lane['identity_shadowed_by']}")
         if lane.get("probe_state"):
             flags.append(f"probe={_label(lane['probe_state'])}")
         weekly = [row["resets_at"] for row in lane["readings"]
@@ -241,6 +244,8 @@ _PIN_REFUSALS = {
     "owner-v1": "{lane} is owned by Subfleet v1",
     "disabled": "{lane} is disabled",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
+    "identity-shared": "{lane}'s credential is the same account as another lane's, which takes that "
+                       "account's work (C-10.8); re-enrol it with its own account's token",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
     "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "

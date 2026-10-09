@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
+from .lane_identity import identity_shadowed
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
@@ -110,7 +111,8 @@ def resolve_lane(lanes: Iterable[Any], pin: str, provider: str | None = None, *,
         # C-10.6: a credential that proved to hold another account never takes a
         # job again. Only a tie within one provider: across providers the name is
         # still ambiguous, and dropping one side would pick the provider.
-        matches = [lane for lane in matches if not identity_blocked(lane)] or matches
+        matches = [lane for lane in matches
+                   if not identity_blocked(lane) and not identity_shadowed(lane)] or matches
     if len(matches) > 1:
         names = ", ".join(sorted(str(lane["lane_id"]) for lane in matches))
         raise RouteError(f"pinned_lane: {pin!r} names {len(matches)} lanes ({names}); "
@@ -547,7 +549,8 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
 #: can reject it. A lane whose values of these, readings, closures, attempts in
 #: flight and slot block are what they were is judged as it was.
 LANE_FACTS = ("lane_id", "provider", "account_key", "credential_ref", "credential_kind", "home", "owner",
-              "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email")
+              "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email",
+              "identity_shadowed_by")
 
 
 def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any]:
@@ -768,6 +771,11 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
         # C-10.6: the profile endpoint said this credential holds another
         # account. Its usage is not this lane's, so neither is its capacity.
         reasons.append("identity-mismatch")
+    if identity_shadowed(lane):
+        # C-10.8, D-ID1: this credential is the same account as another lane's,
+        # which takes that account's work; counting both counts it twice.
+        detail["identity_shadowed_by"] = lane["identity_shadowed_by"]
+        reasons.append("identity-shared")
     reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in closures
                    if row["scope"] in ("account", model["id"]) and _future_closure(row, now))
     lane_measured = any(fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
@@ -808,14 +816,16 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
 #: C-11.8: what `judge_lane` refuses a lane for that no wait for capacity ends.
 #: The job's own exclusions, a turn's config directory and a v1 owner never
 #: change on their own; the desktop login while Claude Code uses it, a disabled
-#: lane and a credential that proved to hold another account (C-10.6) change
-#: only when a person acts, and so does a latched credential `capacity.credential_gone`
+#: lane, a credential that proved to hold another account (C-10.6) and one that
+#: is the same account as another lane's (C-10.8) change only when a person
+#: acts, and so does a latched credential `capacity.credential_gone`
 #: holds of: revoked or missing, or a Codex token whose one heal for its login ran
 #: and left it expired (C-23.47). Any other expired token may still heal by
 #: itself, so it is not standing. A slot, a reading, the floor and the reserve
 #: are capacity, which comes back by itself. A closure is a hold only when it ends
 #: more than `admission.pin_hold_far_s` out; before that it is a wait.
-STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch")
+STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch",
+                     "identity-shared")
 
 #: C-6.12: what evaluating a route may raise; the job's, never the caller's.
 _ROUTE_RAISES = (ValueError, KeyError, TypeError, AttributeError, IndexError)

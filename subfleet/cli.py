@@ -386,6 +386,8 @@ def format_status(data: dict[str, Any]) -> str:
             # C-10.6: no percentage for this lane, and the reason beside it.
             if lane.get("identity_status") in ("mismatch", "unverified"):
                 flags.append(f"identity-{lane['identity_status']}")
+            if lane.get("identity_shadowed_by"):
+                flags.append(f"identity-shared={lane['identity_shadowed_by']}")   # C-10.8
             lines.append(
                 f"{str(lane.get('lane_id') or '-'):<12.12} "
                 f"{str(lane.get('provider') or '-'):<8.8} "
@@ -2004,9 +2006,17 @@ def _format_lanes(result: dict[str, Any]) -> str:
     lanes = rows_of(result.get("lanes"))
     if not lanes:
         return "no lanes enrolled — subfleet lanes enroll <credential>"
+    from . import lane_identity
+    shared = lane_identity.shadowing(lanes)                       # C-10.8
     lines = [f"{'lane':<12} {'provider':<8} {'account':<30} {'owner':<6} "
-             f"{'desktop':<8} {'enabled':<8} {'identity':<12} plan"]
+             f"{'desktop':<8} {'enabled':<8} {'identity':<12} {'credential is':<21} plan"]
     for lane in lanes:
+        entry = shared.get(str(lane.get("lane_id")))
+        note = ""
+        if entry:
+            note = (f"  one account with {', '.join(entry['shared_with'])}; "
+                    + (f"{entry['shadowed_by']} takes its work" if entry["shadowed_by"]
+                       else "this lane takes its work"))
         lines.append(
             f"{str(lane.get('lane_id') or '-'):<12.12} "
             f"{str(lane.get('provider') or '-'):<8.8} "
@@ -2015,7 +2025,8 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('desktop') else 'no'):<8} "
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
-            f"{lane.get('plan') or '-'}")
+            f"{lane_identity.short(lane.get('identity')):<21.21} "    # C-1.4, D-ID1
+            f"{lane.get('plan') or '-'}{note}")
     return "\n".join(lines)
 
 
@@ -2775,20 +2786,25 @@ def _identity_roster_check(root: Path) -> dict[str, Any]:
     if lanes is None:
         return {"check": check, "status": "pass",
                 "detail": "no readable store yet (the daemon has not run here)"}
-    shared: dict[str, list[str]] = {}
-    for lane in lanes:
-        identity = lane.get("identity")
-        if identity and lane.get("enabled", 1):
-            shared.setdefault(str(identity), []).append(str(lane.get("lane_id")))
-    clashes = {identity: ids for identity, ids in shared.items() if len(ids) > 1}
+    from . import lane_identity
+    # C-10.7, C-10.8: identity, not string equality — a setup token records its
+    # organization (`org:<uuid>`, D-ID1), which is one account with a lane that
+    # recorded that organization's account.
+    groups = lane_identity.shared_groups(lanes)
     mismatched = [str(lane.get("lane_id")) for lane in lanes
                   if lane.get("identity_status") == "mismatch"]
-    if clashes:
-        detail = "; ".join(f"{identity} is held by {', '.join(sorted(ids))}"
-                           for identity, ids in sorted(clashes.items()))
+    if groups:
+        detail = "; ".join(
+            " and ".join(f"{lane.get('lane_id')} ({lane.get('label') or lane.get('account_key')})"
+                         for lane in group)
+            + f" hold one account ({group[0].get('identity')}), "
+              f"so only {group[0].get('lane_id')} takes its work"
+            for group in groups)
         return {"check": check, "status": "fail",
-                "detail": f"{detail} — disable all but one: "
-                          f"{PROG} lanes transfer <lane> --to v1 (C-10.7)"}
+                "detail": f"{detail} — for each other lane, sign in to claude.ai as its label, run "
+                          f"claude setup-token, store the token as its keychain item, then "
+                          f"{PROG} lanes enroll <item>; or retire it: "
+                          f"{PROG} lanes transfer <lane> --to v1 (C-10.7, C-10.8)"}
     bound = sum(1 for lane in lanes if lane.get("identity"))
     unbound = [str(lane.get("lane_id")) for lane in lanes
                if lane.get("provider") == "claude" and not lane.get("identity")
