@@ -53,7 +53,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, load_policy,
+from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, flatten_chain, load_policy,
                      policy_hash, resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
@@ -1947,8 +1947,8 @@ class Daemon:
                 if model:
                     task_model = model
                 elif args.task:
-                    chain = scheduler.mcp_chain(self.policy, self.policy["chains"][args.task][
-                        self.policy["tiers"].index(args.tier or "standard"):], {"mcp_servers": mcp_servers})
+                    chain = scheduler.mcp_chain(self.policy, flatten_chain(self.policy["chains"][args.task],
+                        self.policy["tiers"].index(args.tier or "standard")), {"mcp_servers": mcp_servers})
                     task_model = chain[0] if chain else None
                 else:
                     task_model = next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None)
