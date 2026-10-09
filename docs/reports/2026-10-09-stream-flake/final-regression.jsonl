@@ -1,0 +1,10 @@
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_accepts_settings_at_any_point_in_the_reply[before-ack]", "phase": "call", "outcome": "passed", "duration": 0.0023167080071289092}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_accepts_settings_at_any_point_in_the_reply[after-ack]", "phase": "call", "outcome": "passed", "duration": 0.0004865420050919056}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_accepts_settings_at_any_point_in_the_reply[before-result]", "phase": "call", "outcome": "passed", "duration": 0.00030041701393201947}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_accepts_settings_at_any_point_in_the_reply[after-result]", "phase": "call", "outcome": "passed", "duration": 0.0004988749860785902}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_still_rejects_missing_reply_events[accepted]", "phase": "call", "outcome": "passed", "duration": 0.0006564170180354267}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_still_rejects_missing_reply_events[text]", "phase": "call", "outcome": "passed", "duration": 0.0009401669958606362}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_still_rejects_missing_reply_events[turn.completed]", "phase": "call", "outcome": "passed", "duration": 0.0010137499775737524}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_still_rejects_reordered_reply_events", "phase": "call", "outcome": "passed", "duration": 0.0017321660125162452}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_still_rejects_duplicate_cursor_events", "phase": "call", "outcome": "passed", "duration": 0.0021241249924059957}
+{"test": "tests/unit/test_conversation_stream_assertion.py::test_the_e2e_assertion_still_rejects_failed_completion", "phase": "call", "outcome": "passed", "duration": 0.0011208340001758188}
