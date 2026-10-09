@@ -1,0 +1,143 @@
+{
+  "phases": [
+    {
+      "name": "identity314",
+      "command": [
+        "uv",
+        "run",
+        "--python",
+        "3.14",
+        "python",
+        "-u",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-r",
+        "sx",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tests.canonical_identity_privacy",
+        "tests/unit/test_folders.py",
+        "tests/unit/test_resource_identity.py",
+        "tests/unit/test_filesystem_identity_agreement.py",
+        "tests/fake/test_canonical_identity.py",
+        "tests/fake/test_canonical_identity_fix2.py",
+        "tests/fake/test_canonical_identity_fix3.py",
+        "tests/fake/test_identity_rollback.py",
+        "tests/fake/test_canonical_identity_fix4.py",
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py",
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_rollback_r4.py::test_rollback_percent_encoded_root_repairs_only_the_locked_store"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 166.62,
+      "source_restored": true
+    },
+    {
+      "name": "mutations312",
+      "command": [
+        "uv",
+        "run",
+        "--python",
+        "3.12",
+        "python",
+        "-u",
+        "-B",
+        "/Users/maxghenis/reviews/subfleet-2110/canonical-identity/review-r4-evidence/extra_mutations_recreated.py",
+        "--root",
+        "/Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4",
+        "--output",
+        "/Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4/docs/reports/2026-10-09-pr148-fix4/mutations312.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 519.629,
+      "source_restored": true,
+      "mutations": 26,
+      "assertion_kills": 26
+    },
+    {
+      "name": "mutations314",
+      "command": [
+        "uv",
+        "run",
+        "--python",
+        "3.14",
+        "python",
+        "-u",
+        "-B",
+        "/Users/maxghenis/reviews/subfleet-2110/canonical-identity/review-r4-evidence/extra_mutations_recreated.py",
+        "--root",
+        "/Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4",
+        "--output",
+        "/Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4/docs/reports/2026-10-09-pr148-fix4/mutations314.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 595.272,
+      "source_restored": true,
+      "mutations": 26,
+      "assertion_kills": 26
+    },
+    {
+      "name": "fix4-mutations312",
+      "command": [
+        "uv",
+        "run",
+        "--python",
+        "3.12",
+        "python",
+        "-u",
+        "-B",
+        "tools/check_identity_fix4_mutations.py",
+        "--output",
+        "/Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4/docs/reports/2026-10-09-pr148-fix4/fix4-mutations312.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 39.76,
+      "source_restored": true,
+      "mutations": 2,
+      "assertion_kills": 2
+    },
+    {
+      "name": "fix4-mutations314",
+      "command": [
+        "uv",
+        "run",
+        "--python",
+        "3.14",
+        "python",
+        "-u",
+        "-B",
+        "tools/check_identity_fix4_mutations.py",
+        "--output",
+        "/Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4/docs/reports/2026-10-09-pr148-fix4/fix4-mutations314.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 37.652,
+      "source_restored": true,
+      "mutations": 2,
+      "assertion_kills": 2
+    }
+  ],
+  "source_sha256": {
+    "subfleet/daemon.py": "14aa30586026258292739bbbe31db0f4704c0af3f3e021aeb19fc79c6b11fcd4",
+    "subfleet/folders.py": "9e0802eda1d0daeac6d97437d49af4456fe6345649049c0a86d945f3eb4d7af2",
+    "subfleet/resource_leases.py": "04ea1126c8c527a2112e894e85aa507dd7158d7ca284f811a1c2131755c17f08",
+    "subfleet/conversations/service.py": "d6ec30152e47c387f3a36a8c6d69f10b6f0f9a61a472552d521dca913ed86ab6",
+    "subfleet/conversations/store.py": "06e5f0ab4c09a05b820f54f9caeacad86a4ae9df8136613a0648bffe9523895f",
+    "tools/prepare_identity_rollback.py": "aa2232f16a2ffe61f6a4fcb9347c8f5f3705a013f37333d40c6d2cdf6c4222e3"
+  },
+  "identity312": {
+    "exit_code": 0,
+    "result": "103 passed, 4 skipped, 1 xfailed",
+    "elapsed_s": 258.28,
+    "log": "identity312.log"
+  },
+  "identity314": {
+    "exit_code": 0,
+    "result": "103 passed, 4 skipped, 1 xfailed",
+    "elapsed_s": 154.56,
+    "log": "identity314.log"
+  }
+}
