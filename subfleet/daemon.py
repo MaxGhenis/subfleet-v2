@@ -3980,9 +3980,11 @@ class Daemon:
                 # says so in its record and its evidence: what the adapter then reads
                 # off a stream cut short is not the provider's own ending. Only while
                 # its guardian runs: one found gone (a recovery after the deadline)
-                # was not stopped by anyone (review of #154, P3-2).
-                if record.get("guardian_pid") and procs.same_process(
-                        record["guardian_pid"], record.get("boot_id"), record.get("proc_start")):
+                # was not stopped by anyone (review of #154, P3-2). A look that
+                # failed is no evidence that it is gone (C-5.3, `procs.liveness`):
+                # containment looks again and stops it (review of #154 r3, P3-A).
+                if procs.liveness(record.get("guardian_pid"), record.get("boot_id"),
+                                  record.get("proc_start")) != "dead":
                     record["stopped"] = "deadline"
                 break
             # C-5.11, as for a running attempt: the receipt, the job and the
@@ -4998,12 +5000,13 @@ class Daemon:
                                                                                 decision.chosen_model)
                         decision = standing
                         self._count_route(**{"reused" if same else "rechosen": 1}, rejudged=judged)
-                        if rotation and (decision.chosen_model != rotated[1] if decision.chosen_lane
+                        if rotation and (scheduler.promoted_past(decision, rotated[1]) if decision.chosen_lane
                                          else scheduler.left_out_only(decision, rotation)):
                             # C-11.4: the lane `_probe_choice` chose stopped taking the job
                             # between its probe and this reservation, and with the lanes it
-                            # left out still out the chain would walk on, or a lane it left
-                            # out is all that would take the job (review of #154). Rotation
+                            # left out still out the chain would walk on past its model (an
+                            # earlier model is no promotion: review of #153 r2, P3-A), or a lane
+                            # it left out is all that would take the job (review of #154). Rotation
                             # never promotes a job, nor refuses it a lane it left out: the
                             # job waits on C-6.10's clock and looks again. A verdict that
                             # holds whatever was left out (a full fleet) goes on as any does.
@@ -5038,7 +5041,7 @@ class Daemon:
                             # C-11.8: a job every lane refuses for a reason no wait ends
                             # (the pinned lane turned so since this pass's check) waits
                             # for no slot, so it holds no later job back (C-6.9).
-                            for_good = (None if decision.chosen_lane
+                            for_good = (None if decision.chosen_lane or rotation
                                         else scheduler.refused_for_good(self.policy, decision, decision_job,
                                                                         pin_view()["lanes"]))
                             if not for_good:
@@ -5248,7 +5251,9 @@ class Daemon:
                 # jobs it competes with wait behind it (C-6.9), and the next pass,
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
-                if not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):  # C-11.8
+                # C-11.8: never from a decision with rotation's lanes left out, which read
+                # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
+                if rotation or not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding

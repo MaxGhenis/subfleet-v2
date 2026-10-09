@@ -434,6 +434,15 @@ def left_out_only(decision: Decision | Mapping[str, Any], lanes: Iterable[str]) 
                for row in evaluation.get("rejections", ()))
 
 
+def promoted_past(decision: Decision | Mapping[str, Any], model: str) -> bool:
+    """C-11.4: whether `decision` walked past `model` to a later model of its chain
+    (it judged `model` and chose another). A model earlier in the chain is no
+    promotion: the walk stopped before it reached `model`."""
+    value = _row(decision)
+    return value.get("chosen_model") != model and any(
+        row.get("model") == model for row in value.get("evaluations", ()))
+
+
 def probe_lanes_taken(line: Iterable[tuple[str, str, frozenset[str] | None]],
                       model: str) -> frozenset[str] | None:
     """C-6.9: the lanes whose probe of `model` is the turn of a job in `line`
