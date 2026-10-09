@@ -1,14 +1,16 @@
-"""Retry at most five explicitly known flakes, using complete JUnit outcomes."""
+"""Retry at most five explicitly known flakes, using pytest's own node IDs."""
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 MAX_RETRIES = 5
+OUTCOMES_ENV = "SUBFLEET_PYTEST_OUTCOMES"
 
 
 def annotation(kind: str, message: str, *, title: str = "") -> None:
@@ -33,61 +35,49 @@ def read_allowlist(path: Path) -> dict[str, str]:
 
 
 def read_outcomes(path: Path) -> dict[str, set[str]]:
-    """xunit1 keeps the file path, so class/parameter IDs can be reconstructed.
-
-    Pytest may emit separate testcases for a call failure and a teardown error.
-    Merge all of them: a later skip or pass must never erase a failure.
-    """
-    root = ET.parse(path).getroot()
-    if root.tag not in {"testsuites", "testsuite"}:
-        raise ValueError("not a JUnit report")
+    """Merge phase reports without changing node IDs or erasing failures."""
     outcomes: dict[str, set[str]] = {}
-    for case in root.iter("testcase"):
-        file = case.get("file", "")
-        classname = case.get("classname", "")
-        name = case.get("name", "")
-        module = file.removesuffix(".py").replace("/", ".")
-        if not (file.endswith(".py") and (classname == module or classname.startswith(module + "."))):
-            # An inherited test method reports the file that defines it, not the
-            # test module: Hypothesis's RuleBasedStateMachine.runTest says
-            # hypothesis/stateful.py. Recover the module from the classname: the
-            # longest dotted prefix that names a .py file in this checkout.
-            parts = classname.split(".")
-            module = next((".".join(parts[:i]) for i in range(len(parts), 0, -1)
-                           if Path(*parts[:i]).with_suffix(".py").is_file()), "")
-            file = module.replace(".", "/") + ".py" if module else ""
-        if not file or not name:
-            raise ValueError(f"cannot reconstruct pytest node id: {case.attrib}")
-        classes = classname[len(module):].lstrip(".").split(".") if classname != module else []
-        node = "::".join([file, *classes, name])
-        statuses = {child.tag for child in case if child.tag in {"failure", "error", "skipped"}}
-        outcomes.setdefault(node, set()).update(statuses or {"passed"})
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        report = json.loads(line)
+        if (not isinstance(report, dict) or not isinstance(report.get("nodeid"), str)
+                or report.get("when") not in ("setup", "call", "teardown", "collect")
+                or report.get("outcome") not in ("passed", "failed", "skipped")
+                or not isinstance(report.get("xfail"), bool)):
+            raise ValueError(f"{path}:{number}: invalid pytest phase report")
+        statuses = outcomes.setdefault(report["nodeid"], set())
+        if report["outcome"] != "passed" or report["when"] == "call":
+            statuses.add(report["outcome"])
+        if report["xfail"]:
+            statuses.add("xfailed")
     if not outcomes:
-        raise ValueError("JUnit report contains no tests")
+        raise ValueError("pytest outcome report contains no tests")
     return outcomes
 
 
 def run_pytest(report: Path, nodes: list[str]) -> int:
     report.unlink(missing_ok=True)
+    env = os.environ.copy()
+    env[OUTCOMES_ENV] = str(report.resolve())
+    plugin_dir = str(Path(__file__).resolve().parent)
+    env["PYTHONPATH"] = plugin_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     return subprocess.run([
-        sys.executable, "-m", "pytest", "-q", "-o", "junit_family=xunit1",
-        "--junit-prefix=", f"--junitxml={report}", *nodes,
-    ]).returncode
+        sys.executable, "-m", "pytest", "-q", "-p", "ci_outcomes_plugin", *nodes,
+    ], env=env).returncode
 
 
 def run(allowlist: Path, reports: Path) -> int:
     defects = read_allowlist(allowlist)
     reports.mkdir(parents=True, exist_ok=True)
-    first_report, retry_report = reports / "first.xml", reports / "retry.xml"
+    first_report, retry_report = reports / "first.jsonl", reports / "retry.jsonl"
     retry_report.unlink(missing_ok=True)
     first = run_pytest(first_report, [])
     if first not in (0, 1):
         return first
     outcomes = read_outcomes(first_report)
-    failed = sorted(node for node, statuses in outcomes.items() if statuses & {"failure", "error"})
+    failed = sorted(node for node, statuses in outcomes.items() if "failed" in statuses)
     if first == 0:
         if failed:
-            annotation("error", "Pytest exited successfully but JUnit contains failures")
+            annotation("error", "Pytest exited successfully but recorded outcomes contain failures")
             return 1
         return 0
     if not 1 <= len(failed) <= MAX_RETRIES:
@@ -107,7 +97,7 @@ def run(allowlist: Path, reports: Path) -> int:
         return second
     retried = read_outcomes(retry_report)
     if set(retried) != set(failed) or any(statuses != {"passed"} for statuses in retried.values()):
-        annotation("error", "Every requested retry must be present and passed in JUnit (including teardown)")
+        annotation("error", "Every requested retry must be present and passed in pytest outcomes (including teardown)")
         return 1
     for node in failed:
         annotation("warning", f"{node} ({defects[node]})", title="Known flake passed on retry")
@@ -122,7 +112,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return run(args.allowlist, args.reports_dir)
-    except (OSError, ValueError, ET.ParseError) as error:
+    except (OSError, ValueError) as error:
         annotation("error", f"Cannot verify known-flake retry: {error}")
         return 1
 

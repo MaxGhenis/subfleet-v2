@@ -1,4 +1,4 @@
-"""Exercise CI policy against actual pytest/JUnit reports from tiny projects."""
+"""Exercise CI policy against actual pytest phase reports from tiny projects."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import textwrap
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,7 +46,9 @@ def project(tmp_path, pytester, monkeypatch, capsys):
         (tmp_path / "test_sample.py").write_text(
             textwrap.dedent(PREAMBLE) + textwrap.dedent(source), encoding="utf-8")
         for name, content in (files or {}).items():
-            (tmp_path / name).write_text(textwrap.dedent(content), encoding="utf-8")
+            path = tmp_path / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(textwrap.dedent(content), encoding="utf-8")
         allowlist = tmp_path / "allowlist.txt"
         allowlist.write_text("".join(f"{node}  # D-TEST: Generated flake.\n" for node in allowed))
         argv = [str(SCRIPT), "--allowlist", str(allowlist),
@@ -59,13 +60,20 @@ def project(tmp_path, pytester, monkeypatch, capsys):
                                     env={**os.environ, **env}, capture_output=True,
                                     text=True, timeout=240)
         else:
-            # Real pytest runs and real JUnit, with pytester's module isolation.
+            # Real pytest runs and plugin reports, with pytester's module isolation.
             # Reuse the interpreter so this policy matrix stays fast under load.
             commands = []
-            def run_inline(command):
+            def run_inline(command, *, env):
                 assert command[:3] == [sys.executable, "-m", "pytest"]
+                assert command[3:6] == ["-q", "-p", "ci_outcomes_plugin"]
                 commands.append(command)
-                return SimpleNamespace(returncode=pytester.runpytest_inprocess(*command[3:]).ret)
+                with monkeypatch.context() as child:
+                    for name, value in env.items():
+                        child.setenv(name, value)
+                    # Model subprocess startup's handling of PYTHONPATH.
+                    for path in reversed(env["PYTHONPATH"].split(os.pathsep)):
+                        child.syspath_prepend(path)
+                    return SimpleNamespace(returncode=pytester.runpytest_inprocess(*command[3:]).ret)
 
             with monkeypatch.context() as patch:
                 patch.chdir(tmp_path)
@@ -79,8 +87,8 @@ def project(tmp_path, pytester, monkeypatch, capsys):
                 result = SimpleNamespace(returncode=code, stdout=output.out, stderr=output.err)
             assert len(commands) <= 2
             for retry in commands[1:]:
-                assert 1 <= len(retry[8:]) <= 5
-                assert set(retry[8:]) <= set(allowed)
+                assert 1 <= len(retry[6:]) <= 5
+                assert set(retry[6:]) <= set(allowed)
         runs_file = tmp_path / "runs.jsonl"
         runs = [json.loads(line) for line in runs_file.read_text().splitlines()] if runs_file.exists() else []
         # Invariant: every invocation after the first selects only <=5 eligible IDs.
@@ -142,28 +150,42 @@ def test_one_unknown_failure_blocks_even_an_allowlisted_flake(project):
     assert WARNING not in result.stdout
 
 
-@pytest.mark.parametrize("outcome", ["failure", "skip", "xfail", "setup-error", "teardown-error", "teardown-skip"])
+@pytest.mark.parametrize("outcome", ["failure", "skip", "xfail", "xpass", "setup-error",
+                                    "setup-skip", "setup-xfail", "teardown-error",
+                                    "teardown-skip", "teardown-xfail"])
 def test_retry_must_pass_every_phase(project, outcome):
     action = {
         "failure": "assert False",
         "skip": "pytest.skip('unavailable')",
         "xfail": "pytest.xfail('unfixed')",
+        "xpass": "pass",
         "setup-error": "pass",
+        "setup-skip": "pass",
+        "setup-xfail": "pass",
         "teardown-error": "pass",
         "teardown-skip": "pass",
+        "teardown-xfail": "pass",
     }[outcome]
     fixture = """
         @pytest.fixture
         def phase():
             if not first() and OUTCOME == 'setup-error':
                 raise RuntimeError('setup failure')
+            if not first() and OUTCOME == 'setup-skip':
+                pytest.skip('setup unavailable')
+            if not first() and OUTCOME == 'setup-xfail':
+                pytest.xfail('setup unfixed')
             yield
             if not first() and OUTCOME == 'teardown-error':
                 raise RuntimeError('teardown failure')
             if not first() and OUTCOME == 'teardown-skip':
                 pytest.skip('teardown unavailable')
+            if not first() and OUTCOME == 'teardown-xfail':
+                pytest.xfail('teardown unfixed')
     """.replace("OUTCOME", repr(outcome))
     source = textwrap.dedent(fixture) + "\ndef test_flake(phase):\n    assert not first()\n    " + action
+    if outcome == "xpass":
+        source = source.replace("def test_flake", "@pytest.mark.xfail(not first(), reason='still marked', strict=False)\ndef test_flake")
     result, runs = project(source, ["test_sample.py::test_flake"])
     assert result.returncode == 1, result.stdout + result.stderr
     assert len(runs) == 2
@@ -194,12 +216,14 @@ def test_more_than_five_failures_never_retry(project):
     assert "6 failed tests" in result.stdout
 
 
-def test_collection_error_never_retries(project):
+def test_collection_error_never_retries(project, tmp_path):
     result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"],
                            files={"test_broken.py": "raise RuntimeError('collection error')"})
     assert result.returncode == 2
     assert len(runs) == 1
     assert WARNING not in result.stdout
+    reports = _reports(tmp_path / "reports/first.jsonl")
+    assert {"nodeid": "test_broken.py", "when": "collect", "outcome": "failed", "xfail": False} in reports
 
 
 def test_collection_error_on_retry_fails(project):
@@ -257,8 +281,8 @@ def test_cache_omission_cannot_hide_failure(project, tmp_path, allow_persistent)
     """, nodes)
     cache = json.loads((tmp_path / ".pytest_cache/v/cache/lastfailed").read_text())
     assert "test_sample.py::test_persistent" not in cache  # Reproduce the reviewer's omission.
-    first = ET.parse(tmp_path / "reports/first.xml")
-    assert sum(case.find("failure") is not None for case in first.iter("testcase")) == 2
+    first = _reports(tmp_path / "reports/first.jsonl")
+    assert sum(report["outcome"] == "failed" for report in first) == 2
     assert result.returncode == 1
     assert len(runs) == (2 if allow_persistent else 1)
     assert WARNING not in result.stdout
@@ -277,13 +301,14 @@ def test_call_and_teardown_failures_count_as_one_node(project):
     assert result.stdout.count(WARNING) == 1
 
 
-def test_class_and_parameter_node_ids_are_retried_exactly(project):
-    node = "test_sample.py::TestGroup::test_flake[a.b::c/&<%]"
-    result, runs = project("""
+@pytest.mark.parametrize("parameter_id", ["a::b", "a/b", "a.b", "a[b", "a.b::c/[&<%"])
+def test_class_and_parameter_node_ids_are_retried_exactly(project, parameter_id):
+    node = f"test_sample.py::TestGroup::test_flake[{parameter_id}]"
+    result, runs = project(f"""
         class TestGroup:
-            @pytest.mark.parametrize('value', [1], ids=['a.b::c/&<%'])
+            @pytest.mark.parametrize('value', [1], ids=[{parameter_id!r}])
             def test_flake(self, value): assert not first()
-    """, [node], config="junit_family = xunit2\njunit_logging = all\n")
+    """, [node], cli=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert runs == [[node], [node]]
     assert f"{WARNING}{node.replace('%', '%25')} (D-TEST)" in result.stdout
@@ -305,15 +330,34 @@ def test_absent_retry_node_fails_even_when_pytest_exits_zero(project):
     assert WARNING not in result.stdout
 
 
-@pytest.mark.parametrize("report", [None, "<broken", "<testsuites />"])
+def test_passing_setup_and_teardown_without_a_call_cannot_pass_retry(project):
+    result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"],
+                           conftest=f"""
+        def pytest_unconfigure(config):
+            if Path('attempt').read_text() == '2':
+                import os
+                path = Path(os.environ[{retry_tool.OUTCOMES_ENV!r}])
+                reports = [json.loads(line) for line in path.read_text().splitlines()]
+                path.write_text(''.join(json.dumps(report) + '\\n' for report in reports
+                                        if report['when'] != 'call'))
+    """)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(runs) == 2
+    assert "Every requested retry must be present and passed" in result.stdout
+    assert WARNING not in result.stdout
+
+
+@pytest.mark.parametrize("report", [None, "{broken", "", "[]\n", '{}\n',
+                                       '{"nodeid": "test_sample.py::test_flake", "when": "call", "outcome": "passed", "xfail": "false"}\n'])
 @pytest.mark.parametrize("on_retry", [False, True])
-def test_unverifiable_junit_fails_closed(project, report, on_retry):
-    # Replace/remove a real pytest report after its session has written it.
+def test_unverifiable_outcomes_fail_closed(project, report, on_retry):
+    # Replace/remove a real plugin report after its session has written it.
     result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"],
                            conftest=f"""
         def pytest_unconfigure(config):
             if Path('attempt').read_text() == '{2 if on_retry else 1}':
-                path = Path(config.option.xmlpath)
+                import os
+                path = Path(os.environ[{retry_tool.OUTCOMES_ENV!r}])
                 if {report is None!r}:
                     path.unlink()
                 else:
@@ -324,27 +368,74 @@ def test_unverifiable_junit_fails_closed(project, report, on_retry):
     assert WARNING not in result.stdout
 
 
-def _junit(tmp_path, **attrs):
-    report = tmp_path / "r.xml"
-    case = " ".join(f'{key}="{value}"' for key, value in attrs.items())
-    report.write_text(f'<testsuites><testsuite><testcase {case}/></testsuite></testsuites>')
-    return report
+def _reports(path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
-def test_an_inherited_test_method_maps_to_its_test_module(tmp_path, monkeypatch):
-    """Hypothesis's RuleBasedStateMachine.runTest reports hypothesis/stateful.py as its
-    file (CI run 37923257140); the node id comes from the classname's module."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "tests" / "fake").mkdir(parents=True)
-    (tmp_path / "tests" / "fake" / "test_probe_cancel.py").write_text("")
-    report = _junit(tmp_path, classname="tests.fake.test_probe_cancel.TestProbeCancelMachine",
-                    name="runTest", file=".venv/lib/python3.12/site-packages/hypothesis/stateful.py")
-    assert retry_tool.read_outcomes(report) == {
-        "tests/fake/test_probe_cancel.py::TestProbeCancelMachine::runTest": {"passed"}}
+def test_inherited_unittest_collision_cannot_retry_a_different_passing_test(project, tmp_path):
+    failing = "test_outer.py::test_child::test_bad"
+    passing = "test_outer/test_child.py::test_bad"
+    result, runs = project("def test_ok(): pass", [passing], cli=True, files={
+        "inherited.py": """
+            import unittest
+            class Base(unittest.TestCase):
+                def test_bad(self): self.fail('persistent inherited failure')
+        """,
+        "test_outer.py": """
+            import inherited
+            class test_child(inherited.Base): pass
+        """,
+        "test_outer/test_child.py": "def test_bad(): pass",
+    })
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(runs) == 1
+    assert failing in runs[0] and passing in runs[0]
+    assert f"Failure outside the known-flake allowlist: {failing}" in result.stdout
+    assert retry_tool.read_outcomes(tmp_path / "reports/first.jsonl")[failing] == {"failed"}
+    assert WARNING not in result.stdout
 
 
-def test_a_testcase_with_no_module_in_the_checkout_still_fails_closed(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    report = _junit(tmp_path, classname="nowhere.TestX", name="runTest", file="site-packages/x.py")
-    with pytest.raises(ValueError, match="cannot reconstruct"):
-        retry_tool.read_outcomes(report)
+def test_hypothesis_state_machine_retries_its_exact_node_id(project, tmp_path):
+    node = "test_sample.py::TestFlakyMachine::runTest"
+    result, runs = project("""
+        from hypothesis import settings
+        from hypothesis.stateful import RuleBasedStateMachine, rule
+
+        class FlakyMachine(RuleBasedStateMachine):
+            @rule()
+            def flaky_step(self): assert not first()
+
+        TestFlakyMachine = FlakyMachine.TestCase
+        TestFlakyMachine.settings = settings(max_examples=1, stateful_step_count=1,
+                                            derandomize=True, database=None, deadline=None)
+    """, [node], cli=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert runs == [[node], [node]]
+    assert retry_tool.read_outcomes(tmp_path / "reports/first.jsonl") == {node: {"failed"}}
+    assert retry_tool.read_outcomes(tmp_path / "reports/retry.jsonl") == {node: {"passed"}}
+    assert f"{WARNING}{node} (D-TEST)" in result.stdout
+
+
+def test_recorded_failure_rejects_first_pass_exit_zero(project):
+    result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"],
+                           conftest="""
+        def pytest_sessionfinish(session, exitstatus):
+            session.exitstatus = 0
+    """)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(runs) == 1
+    assert "Pytest exited successfully but recorded outcomes contain failures" in result.stdout
+    assert WARNING not in result.stdout
+
+
+@pytest.mark.parametrize("on_retry", [False, True])
+def test_plugin_write_crash_fails_the_job(project, on_retry):
+    result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"],
+                           cli=True, conftest=f"""
+        def pytest_runtestloop(session):
+            if Path('attempt').read_text() == '{2 if on_retry else 1}':
+                import os
+                os.environ[{retry_tool.OUTCOMES_ENV!r}] = str(Path.cwd())
+    """)
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert WARNING not in result.stdout
