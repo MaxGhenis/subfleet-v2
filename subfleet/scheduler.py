@@ -16,7 +16,7 @@ from typing import Any
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
-from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
+from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      resolve_model, turn_cap)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -173,7 +173,7 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             tier = job.get("tier") or ("standard" if "standard" in tiers else tiers[0])
-            chain = mcp_chain(policy, policy["chains"][task][tiers.index(tier):], job)
+            chain = mcp_chain(policy, flatten_chain(policy["chains"][task], tiers.index(tier)), job)
             return policy["models"][chain[0]]["provider"] if chain else None
     except (PolicyError, ValueError, KeyError, IndexError):
         pass
@@ -359,7 +359,7 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            return frozenset(policy["chains"][task][tiers.index(job.get("tier") or default):])
+            return frozenset(flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default)))
     except (PolicyError, ValueError, KeyError):
         pass
     return None
@@ -502,9 +502,15 @@ def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
     """
     model = policy["models"][short]
     higher = set()
-    for chain in policy["chains"].values():
-        if short in chain:
-            higher.update(chain[chain.index(short) + 1:])
+    for entries in policy["chains"].values():
+        for index in range(len(entries)):
+            within = flatten_chain(entries[index:index + 1])
+            if short in within:
+                # Slice after the first occurrence before deduping. A model
+                # named both before and after `short` still strands its lane
+                # under older string policies (C-23.37).
+                higher.update(flatten_chain([within[within.index(short) + 1:], *entries[index + 1:]]))
+                break
     priority = model.get("priority")
     if priority is not None:
         higher.update(name for name, other in policy["models"].items()
@@ -579,7 +585,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = [resolve_model(policy, job["pinned_model"])]
     elif task:
         default = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
-        chain = policy["chains"][task][policy["tiers"].index(tier or default):]
+        chain = flatten_chain(policy["chains"][task], policy["tiers"].index(tier or default))
     else:
         chain = []
     if chain and job_mcp_servers(job):
@@ -611,8 +617,6 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
-    # Repeated tiers on Fable and Terra do not create another admission chance.
-    chain = list(dict.fromkeys(chain))
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
     # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy
