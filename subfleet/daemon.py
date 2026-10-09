@@ -4034,6 +4034,8 @@ class Daemon:
             owned.update({p: ident for p, ident in census.identities.items()
                           if p in census.group_pids
                           and census.shapes.get(p, {}).get("pgid") == record.get("pgid")})
+            owned.update({p: ident for p, ident in census.group_identities.items()
+                          if procs.same_process(p, ident.boot_id, ident.proc_start)})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
         if not census.verified_empty and record.get("state") != "quarantined":
@@ -4050,7 +4052,9 @@ class Daemon:
                 if leader_live:
                     procs.signal_group(record["pgid"], signal.SIGKILL,
                                        boot_id=record["boot_id"], proc_start=record["proc_start"])
-                for target in census.live_pids:
+                # A failed census cannot erase recorded ownership. Each
+                # individual signal still requires a fresh full identity.
+                for target in census.live_pids | (owned.keys() if census.unverifiable else set()):
                     if target in owned:
                         procs.signal_process(owned[target], signal.SIGKILL)
                 time.sleep(.05)
@@ -6297,6 +6301,8 @@ class Daemon:
             owned.update({pid: ident for pid, ident in census.identities.items()
                           if pid in census.group_pids
                           and census.shapes.get(pid, {}).get("pgid") == a.get("pgid")})
+            owned.update({pid: ident for pid, ident in census.group_identities.items()
+                          if procs.same_process(pid, ident.boot_id, ident.proc_start)})
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}),
                                                                before, evidence["owned_identities"])
@@ -6313,7 +6319,9 @@ class Daemon:
         if escalated and a.get("pgid"):
             procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
         census = self._contain(a)
-        for pid in census.live_pids:
+        # Inspection outages retain both leases and previously recorded signal
+        # targets; signal_process independently reconfirms every full identity.
+        for pid in census.live_pids | (owned.keys() if census.unverifiable else set()):
             if pid in owned:
                 procs.signal_process(owned[pid], signal.SIGKILL)
         # Signalled processes leave the process table only when the kernel has

@@ -506,7 +506,8 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     guardian = ProcessIdentity(42001, "unit-test-boot", "unit-test-start")
     child = ProcessIdentity(42002, "unit-test-boot", "unit-test-start")
     members = Containment(group_pids=frozenset({42001, 42002}),
-                          identities={42001: guardian, 42002: child})
+                          identities={42001: guardian, 42002: child},
+                          group_identities={42001: guardian, 42002: child})
     census = iter([members, Containment(group_pids=frozenset({42002}), identities={42002: child}),
                    Containment()])
     monkeypatch.setattr(daemon, "_contain", lambda attempt: next(census))

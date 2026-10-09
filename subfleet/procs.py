@@ -435,6 +435,11 @@ class Containment:
     cwd_pids: frozenset[int] = frozenset()
     lineage_roots: tuple[CensusRoot, ...] = ()
     provider_identities: tuple[ProcessIdentity, ...] = ()
+    # Complete identities from the original group's table rows. Later marker
+    # reads may change/drop shapes; these observations must keep their identity.
+    # The caller must confirm its leader and each member before recording them
+    # as signal authority. Retained groups never populate this mapping.
+    group_identities: dict[int, ProcessIdentity] = field(default_factory=dict)
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -502,9 +507,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 guardian_identity: ProcessIdentity | None = None) -> Containment:
     """Collect C-5.5 group, lineage, cwd and marker sources; failures hold.
 
-    Identities describe the census, not authority to signal. In particular a
-    newly discovered escaped process must remain quarantined unless the caller
-    already recorded that process's ownership before the escape.
+    General identities describe the census, not authority to signal. Only
+    group_identities preserves complete original-group table observations;
+    callers must confirm the leader and member before recording ownership.
+    Newly discovered escaped identities remain conservative census evidence.
 
     The group and the descendant walk are read from one process-table snapshot
     (`ps -axo pid=,ppid=,pgid=,stat=,lstart=`), so a process cannot be present
@@ -646,6 +652,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     # PID sets describe sources only. Durable observations are keyed by the
     # full identity, since multiple incarnations can appear in one census.
     identities: dict[int, ProcessIdentity] = {}
+    group_identities: dict[int, ProcessIdentity] = {}
     observed_groups: dict[ProcessIdentity, set[int]] = {}
     incomplete_roots: list[CensusRoot] = []
     shapes: dict[int, dict[str, Any]] = {}
@@ -661,6 +668,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             current = seen.identity(pid)
             if current is not None:
                 retain(current, row[1])
+                if row[1] == pgid:
+                    group_identities[pid] = current
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
             incomplete_roots.append(seen.census_root(pid))
@@ -762,7 +771,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                      for group in sorted(groups_seen)) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
-                       frozenset(cwds), captured, providers)
+                       frozenset(cwds), captured, providers, group_identities)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

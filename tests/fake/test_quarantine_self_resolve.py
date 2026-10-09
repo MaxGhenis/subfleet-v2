@@ -326,11 +326,7 @@ def test_status_names_old_quarantines_age_and_latest_reason(state_daemon, monkey
     assert not render.quarantine_holds({**view, "now": "2026-09-22T12:00:10Z"})
 
 
-@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-@example(actions=["tick", "exit0", "unverifiable", "exit1", "restart", "kill", "verifiable", "tick", "restart", "kill"])
-@example(actions=["exit0", "exit1", "tick"])
-@given(actions=st.lists(st.sampled_from(["exit0", "exit1", "reuse0", "reuse1", "unverifiable", "verifiable", "tick", "restart", "kill", "reboot"]), min_size=1, max_size=35))
-def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most_once(state_daemon, monkeypatch, actions):
+def release_property_sequence(state_daemon, monkeypatch, actions):
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     # Fresh job per generated example; use the real store and resolver. Avoid
@@ -356,7 +352,7 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
         return ""
     def census(*args, **kwargs):
         result = ORIGINAL_CENSUS(*args, **kwargs)
-        proofs.append((result.verified_empty, unavailable, tuple(states), current_boot))
+        proofs.append((args[3], result.verified_empty, unavailable, tuple(states), current_boot))
         return result
     monkeypatch.setattr(procs, "snapshot", snapshot)
     monkeypatch.setattr(procs, "_read", read)
@@ -393,7 +389,11 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
             assert released == bool(events)
             if released:
                 if not was_released:
-                    verified, unknown, observed, observed_boot = proofs[-1]
+                    # The fixture spans generated examples, and a batch can census
+                    # older attempts after releasing this one. Attribute the proof
+                    # to the released attempt rather than the last batch member.
+                    _, verified, unknown, observed, observed_boot = next(
+                        proof for proof in reversed(proofs) if proof[0] == aid)
                     assert verified and not unknown and all(state != "live" for state in observed)
                 assert not current.store.one("SELECT 1 FROM leases WHERE holder=?", (aid,))
                 data = json.loads(events[0]["data_json"])
@@ -406,3 +406,25 @@ def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most
         # generated sequence after testing actual Daemon.close()/construction.
         if daemon._closed:
             daemon.__init__(harness.root)
+
+    return job, aid, proofs
+
+
+@settings(max_examples=100, deadline=60000, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@example(actions=["tick", "exit0", "unverifiable", "exit1", "restart", "kill", "verifiable", "tick", "restart", "kill"])
+@example(actions=["exit0", "exit1", "tick"])
+@given(actions=st.lists(st.sampled_from(["exit0", "exit1", "reuse0", "reuse1", "unverifiable", "verifiable", "tick", "restart", "kill", "reboot"]), min_size=1, max_size=35))
+def test_property_release_requires_every_recorded_writer_gone_and_occurs_at_most_once(state_daemon, monkeypatch, actions):
+    release_property_sequence(state_daemon, monkeypatch, actions)
+
+
+def test_release_property_attributes_batch_proofs_to_the_released_attempt(state_daemon, monkeypatch):
+    """An older conservative hold can be inspected after a valid new release."""
+    _, held_aid, _ = release_property_sequence(state_daemon, monkeypatch, ["kill"])
+    _, released_aid, proofs = release_property_sequence(
+        state_daemon, monkeypatch, ["exit0", "reuse1", "tick"])
+    daemon, _ = state_daemon
+    assert daemon.store.get_attempt(held_aid)["state"] == "quarantined"
+    assert daemon.store.get_attempt(released_aid)["state"] == "lost"
+    assert proofs[-1][0] == held_aid and not proofs[-1][1]
+    assert next(proof[1] for proof in proofs if proof[0] == released_aid)
