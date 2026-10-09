@@ -29,7 +29,7 @@ INFO     subfleet.daemon.4491852304:daemon.py:750 open-file limit 1048575 (hard 
 =========================== short test summary info ============================
 FAILED tests/fake/test_quarantine_process_world.py::test_unconditional_s1_has_the_documented_invisible_writer_counterexample
 1 failed in 4.01s
- 
+
 CONTROL S2 accepts confirmed foreign-group identities: exit 0
 .                                                                        [100%]
 1 passed in 6.20s
@@ -52,7 +52,7 @@ tests/fake/test_review_pr131_round7_model.py:147: Failed
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_s2_oracle_rejects_foreign_group_signal
 1 failed in 5.76s
- 
+
 CONTROL S2 rejects a confirmed previously owned escape: exit 0
 .                                                                        [100%]
 1 passed in 7.48s
@@ -79,8 +79,8 @@ consumer = 'attempt'
             assert machine.world.processes[200].pgid == 200
 >           machine.kill(consumer)
 
-tests/fake/test_review_pr131_round7_model.py:174: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_review_pr131_round7_model.py:174:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/fake/test_quarantine_process_world.py:485: in kill
     @rule(consumer=st.sampled_from(["attempt", "probe"]))
                ^^^^^^^^^^^^^^^^^
@@ -102,7 +102,7 @@ subfleet/procs.py:789: in signal_process
 tests/fake/test_quarantine_process_world.py:315: in <lambda>
     self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <tests.fake.test_quarantine_process_world.World object at 0x10a986e40>
 pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
@@ -123,7 +123,7 @@ INFO     subfleet.daemon.4463754080:daemon.py:750 open-file limit 1048575 (hard 
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_previously_owned_escape_is_a_valid_signal_target[attempt]
 1 failed in 14.13s
- 
+
 CONTROL S1 accepts losing one protected lease: exit 0
 .                                                                        [100%]
 1 passed in 8.03s
@@ -162,7 +162,7 @@ INFO     subfleet.daemon.4421942112:daemon.py:750 open-file limit 1048575 (hard 
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease[worktree:]
 1 failed in 10.57s
- 
+
 CONTROL S2 rejects full member ownership after scalar leader confirmation: exit 0
 .                                                                        [100%]
 1 passed in 7.58s
@@ -190,8 +190,8 @@ consumer = 'attempt', source = 'table'
             machine.world.hooks.append(("signal_group", 1, lambda: machine.world.change("setsid", 200)))
 >           machine.kill(consumer)
 
-tests/fake/test_review_pr131_round7_model.py:270: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_review_pr131_round7_model.py:270:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/fake/test_quarantine_process_world.py:485: in kill
     @rule(consumer=st.sampled_from(["attempt", "probe"]))
                ^^^^^^^^^^^^^^^^^
@@ -213,7 +213,7 @@ subfleet/procs.py:789: in signal_process
 tests/fake/test_quarantine_process_world.py:315: in <lambda>
     self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <tests.fake.test_quarantine_process_world.World object at 0x10a036e40>
 pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
@@ -234,6 +234,6 @@ INFO     subfleet.daemon.4454202208:daemon.py:750 open-file limit 1048575 (hard 
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_respects_member_identity[table-attempt]
 1 failed in 8.52s
- 
+
 5/5 own-oracle mutations killed
 model SHA-256 before/after: bc16eb28b4b916a7a3ccc6f519a9e9dd4466e3e90d86b68d66a2375ac36c5afc / bc16eb28b4b916a7a3ccc6f519a9e9dd4466e3e90d86b68d66a2375ac36c5afc

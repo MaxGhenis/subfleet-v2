@@ -1,17 +1,17 @@
 CHECK 977999487 paced-missing-start attempt
-FOUND 977999487 paced-missing-start attempt: S1 premature release (38.1s)
+FOUND 977999487 paced-missing-start attempt: S1 premature release (30.3s)
 CHECK 887552207 failed-bracket-child attempt
-FOUND 887552207 failed-bracket-child attempt: S1 premature release (34.1s)
+FOUND 887552207 failed-bracket-child attempt: S1 premature release (29.3s)
 CHECK 951d9623f reused-before-group attempt
-FOUND 951d9623f reused-before-group attempt: S1 premature release (43.2s)
+FOUND 951d9623f reused-before-group attempt: S1 premature release (24.3s)
 CHECK 951d9623f retained-authority attempt
-FOUND 951d9623f retained-authority attempt: S2 stray signal (37.5s)
+FOUND 951d9623f retained-authority attempt: S2 stray signal (14.7s)
 CHECK 951d9623f retained-authority probe
-FOUND 951d9623f retained-authority probe: S2 stray signal (38.7s)
+FOUND 951d9623f retained-authority probe: S2 stray signal (8.6s)
 CHECK 684dc4d130c5 reused-before-group attempt
-FOUND 684dc4d130c5 reused-before-group attempt: S1 premature release (23.4s)
+FOUND 684dc4d130c5 reused-before-group attempt: S1 premature release (4.9s)
 CHECK 684dc4d130c5 retained-authority attempt
-FOUND 684dc4d130c5 retained-authority attempt: S2 stray signal (29.0s)
+FOUND 684dc4d130c5 retained-authority attempt: S2 stray signal (7.2s)
 CHECK 684dc4d130c5 retained-authority probe
-FOUND 684dc4d130c5 retained-authority probe: S2 stray signal (19.1s)
+FOUND 684dc4d130c5 retained-authority probe: S2 stray signal (7.2s)
 8/8 historical bugs found; production bytes restored

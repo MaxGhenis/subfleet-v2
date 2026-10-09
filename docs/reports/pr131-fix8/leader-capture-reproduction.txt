@@ -25,8 +25,8 @@ consumer = 'attempt', source = 'table'
             machine.patch.setattr(machine.world, "signal_group", escape_after_term)
 >           machine.kill(consumer)
 
-tests/fake/test_review_pr131_round7_model.py:275: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_review_pr131_round7_model.py:275:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/fake/test_quarantine_process_world.py:460: in kill
     @rule(consumer=st.sampled_from(["attempt", "probe"]))
                ^^^^^^^^^^^^^^^^^
@@ -48,7 +48,7 @@ subfleet/procs.py:789: in signal_process
 tests/fake/test_quarantine_process_world.py:304: in <lambda>
     self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <tests.fake.test_quarantine_process_world.World object at 0x10bd9b230>
 pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
@@ -91,8 +91,8 @@ consumer = 'probe', source = 'table'
             machine.patch.setattr(machine.world, "signal_group", escape_after_term)
 >           machine.kill(consumer)
 
-tests/fake/test_review_pr131_round7_model.py:275: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_review_pr131_round7_model.py:275:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/fake/test_quarantine_process_world.py:460: in kill
     @rule(consumer=st.sampled_from(["attempt", "probe"]))
                ^^^^^^^^^^^^^^^^^
@@ -114,7 +114,7 @@ subfleet/procs.py:789: in signal_process
 tests/fake/test_quarantine_process_world.py:304: in <lambda>
     self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <tests.fake.test_quarantine_process_world.World object at 0x10b77c050>
 pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False

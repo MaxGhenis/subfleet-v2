@@ -7,24 +7,24 @@ self = <hypothesis.stateful.ProcessWorldMachine.TestCase testMethod=runTest>
     def runTest(self):
 >       run_state_machine_as_test(cls, settings=self.settings)
 
-.venv/lib/python3.14/site-packages/hypothesis/stateful.py:507: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:507:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 .venv/lib/python3.14/site-packages/hypothesis/stateful.py:271: in run_state_machine_as_test
     state_machine_test()
 .venv/lib/python3.14/site-packages/hypothesis/stateful.py:122: in run_state_machine
     @given(st.data())
                ^^^
-tests/fake/test_quarantine_process_world.py:367: in initial
+tests/fake/test_quarantine_process_world.py:392: in initial
     self.pair(resolve=True)
-tests/fake/test_quarantine_process_world.py:352: in pair
+tests/fake/test_quarantine_process_world.py:363: in pair
     self.safety()
-tests/fake/test_quarantine_process_world.py:484: in safety
+tests/fake/test_quarantine_process_world.py:510: in safety
     def safety(self):
                ^^^^^^^
 .venv/lib/python3.14/site-packages/hypothesis/stateful.py:1154: in invariant_wrapper
     return f(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = ProcessWorldMachine({})
 
@@ -46,16 +46,16 @@ E           state = ProcessWorldMachine()
 E           state.initial(source='marker', scenario='paced-missing-start', consumer='attempt')
 E           state.teardown()
 
-tests/fake/test_quarantine_process_world.py:491: AssertionError
+tests/fake/test_quarantine_process_world.py:517: AssertionError
 ------------------------------ Captured log call -------------------------------
-INFO     subfleet.daemon.4490331872:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
-INFO     subfleet.daemon.4487546928:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
-INFO     subfleet.daemon.4487548944:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
-INFO     subfleet.daemon.4487551296:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
-INFO     subfleet.daemon.4487553648:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
-INFO     subfleet.daemon.4487548272:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
-INFO     subfleet.daemon.4487560704:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4496492256:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498311216:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498313232:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498315584:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498317936:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498312560:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498324992:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
 =========================== short test summary info ============================
 FAILED tests/fake/test_quarantine_process_world.py::TestProcessWorld::runTest
 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
-1 failed in 33.11s
+1 failed in 26.46s
