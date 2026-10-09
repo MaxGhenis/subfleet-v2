@@ -22,7 +22,7 @@ MUTATIONS = (
      'census.shapes.get(p, {}).get("pgid") == record.get("pgid")',
      'census.shapes.get(p, {}).get("pgid", record.get("pgid")) == record.get("pgid")',
      "tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-probe]"),
-    ("leader identity discharges an unconfirmed sampled group", "subfleet/procs.py",
+    ("leader reuse discharges an unconfirmed sampled group", "subfleet/procs.py",
      '            if rebooted(known.boot_id):\n                continue\n            groups.update(seen.group(known.pgid))',
      '            if rebooted(known.boot_id):\n                continue\n'
      '            if known.pid == known.pgid and live(known.pgid) and known.proc_start and table[known.pgid][3]:\n'
@@ -31,6 +31,11 @@ MUTATIONS = (
      '                        continue\n'
      '                except InspectionError:\n'
      '                    pass\n'
+     '            groups.update(seen.group(known.pgid))',
+     "tests/fake/test_review_pr131_round6b.py::test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[marker-False]"),
+    ("dead identity discharges an unconfirmed sampled group", "subfleet/procs.py",
+     '            if rebooted(known.boot_id):\n                continue\n            groups.update(seen.group(known.pgid))',
+     '            if rebooted(known.boot_id):\n                continue\n'
      '            if known.pgid in gone and live(known.pgid):\n'
      '                continue\n'
      '            groups.update(seen.group(known.pgid))',
