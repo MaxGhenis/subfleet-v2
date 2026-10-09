@@ -183,6 +183,13 @@
     "stop_contain_after_s": 30,
     "after_result_s": 135
   },
+  "push": {
+    "enabled": false,
+    "allowed_remotes": [],
+    "protected": [],
+    "max_bundle_mb": 256,
+    "max_commits": 100
+  },
   "reserve": {
     "models": [
       "fable"

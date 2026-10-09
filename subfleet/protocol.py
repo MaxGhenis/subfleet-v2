@@ -127,6 +127,8 @@ class SubmitArgs:
     # C-17.7: {"id", "label", "index", "size"} for a job submitted by `run --batch`.
     # A label for people and the app, never an input to routing or the digest.
     batch: dict | None = None
+    # C-8.5: explicit host-side publication of this dispatch's accepted bundle.
+    push_branch: str | None = None
 
 
 @dataclass

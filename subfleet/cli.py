@@ -737,6 +737,7 @@ def _prepare_submit(args: argparse.Namespace,
         pinned_provider="claude" if args.a else "codex" if args.H else None,
         unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
+        push_branch=getattr(args, "push_branch", None),
         name=args.name,
         exclusions=list(args.exclude or []),
         allow_desktop=bool(args.allow_desktop),
@@ -926,6 +927,7 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
     "mcp": ("mcp", "list"),
+    "push_branch": ("push_branch", "str"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -1590,6 +1592,8 @@ def _format_job(job: dict[str, Any]) -> str:
                        ("sandbox", "sandbox"), ("out_path", "-o"),
                        ("created_at", "created"), ("finished_at", "finished"),
                        ("export_error", "export error"),
+                       ("push_branch", "push branch"), ("push_sha", "pushed"),
+                       ("push_error", "push error"),
                        ("unmeasured_reserve_reason", "unmeasured reserve"),
                        ("cancel_requested_at", "cancel requested")):
         value = job.get(key)
@@ -1621,6 +1625,9 @@ def _format_job(job: dict[str, Any]) -> str:
         for artifact in artifacts:
             lines.append(f"  {str(artifact.get('role') or '-'):<12} "
                          f"{artifact.get('path')} ({artifact.get('bytes')} bytes)")
+    for push in rows_of(job.get("pushes")):
+        lines.append(f"push     [{push.get('result')}] {push.get('remote')} "
+                     f"{push.get('branch')} {push.get('sha') or '-'} at {push.get('finished_at') or push.get('started_at')}")
     for notice in rows_of(job.get("notices")):
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
     return "\n".join(lines)
@@ -2954,6 +2961,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-I", "--independent-review", dest="isolated_review", action="store_true")
     p_run.add_argument("-D", "--review-root", dest="review_root")
     p_run.add_argument("-o", dest="o", metavar="OUT", help="export the deliverable here")
+    p_run.add_argument("--push-branch", metavar="BRANCH",
+                       help="after acceptance, have the host push push.bundle to this branch (requires push policy)")
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,

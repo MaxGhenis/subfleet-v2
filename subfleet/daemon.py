@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, folders, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
@@ -554,6 +554,7 @@ class Daemon:
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
+        self._push_lock = threading.Lock()
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
@@ -1793,6 +1794,9 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7)
+        if args.push_branch is not None and args.kind != "dispatch":
+            raise AdapterError("host push is supported for dispatch jobs", code=7,
+                               fix="submit a dispatch with --push-branch")
         with self._submit_lock:
             reason = args.unmeasured_reserve_reason
             if reason is not None:
@@ -1875,13 +1879,22 @@ class Daemon:
                 out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
-                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
+                push_remote = push_default = push_head = push_current = push_top = None
+                if args.push_branch is not None:
+                    push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
+                        workdir, args.push_branch, self.policy, self.root)
+                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
+                    if push_current in ("main", "master"):
+                        raise AdapterError("writable in-place jobs require a feature branch", code=7,
+                                           fix="choose a feature branch or omit --in-place")
+                elif sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
                     # C-13.2: the refusal is about where the job writes. A job that
                     # is not in place writes in a detached worktree the daemon cuts
                     # for it (C-6.6), wherever its caller happens to stand. A
                     # conversation a person allowed on main is exempt (C-26.10).
                     validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
-                head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                head = push_head if args.push_branch is not None else git_head(
+                    workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 if sandbox == Sandbox.WORKSPACE_WRITE and head is None and turn is None:
                     # C-26.10: an attended conversation may work outside git.
                     if from_policy:
@@ -1898,7 +1911,7 @@ class Daemon:
                 # spelled one way (`folders.canonical`, as a conversation's workspace
                 # is): a folder outside git kept the case it was typed in, so
                 # `~/Scratch` and `~/scratch` were two keys for one folder.
-                write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
+                write_target = (folders.canonical(push_top or git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
                                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
                 # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
                 # target is, so retention can tell it is in use (`folders.READER`).
@@ -1957,7 +1970,8 @@ class Daemon:
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
-                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers)
+                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
+                    push_branch=args.push_branch, push_remote=push_remote)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -1991,6 +2005,7 @@ class Daemon:
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
                           workdir=str(workdir), workdir_head=head, out_path=out,
+                          push_remote=push_remote, push_default_branch=push_default,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow(),
@@ -2053,7 +2068,7 @@ class Daemon:
                 # known now.
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
                 try:
-                    top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                    top = str(push_top) if push_top else git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
                 except SalvageError as exc:
                     # C-6.8: exit 1 with nothing stored, as the checks above; only
                     # the prompt has been written, under a job id nobody was given.
@@ -2061,14 +2076,14 @@ class Daemon:
                     self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                     raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                        fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
-                prefix = _git_prefix(str(workdir), cap) or os.path.relpath(os.path.realpath(workdir),
+                prefix = (None if args.push_branch is not None else _git_prefix(str(workdir), cap)) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
                 if _outside(prefix):
                     prefix = "."        # outside the checkout as far as can be told: the top
                 worktree = self.root / "worktrees" / job_id
                 place = ""
                 if prefix != ".":
-                    held = _commit_holds_dir(top, head, prefix, cap)
+                    held = None if args.push_branch is not None else _commit_holds_dir(top, head, prefix, cap)
                     template = {True: WORKSPACE_PLACE, False: WORKSPACE_PLACE_UNCOMMITTED}.get(held,
                                                                                             WORKSPACE_PLACE_UNCHECKED)
                     place = template.format(top=top, prefix=prefix, worktree=worktree, head=head[:12])
@@ -2077,6 +2092,15 @@ class Daemon:
                         prefix = "."
                 manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
                 note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
+                if args.push_branch is not None:
+                    note = note.replace(b"Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in that repository.",
+                                        b"Subfleet accepts committed work only through your push.bundle.")
+            if args.push_branch is not None:
+                note += (f"Host push requested to {args.push_branch}. Commit your work and write a full bundle "
+                         f"with exactly HEAD: git bundle create <attempt directory>/push.bundle HEAD. "
+                         f"The attempt directory is {jobdir}/a<attempt sequence>. No prerequisites or other refs. "
+                         "The host refuses .github/ changes, submodules, escaping symlinks, rewritten history, "
+                         "and policy size/count limits; a refusal keeps the job accepted for a human or hub push.\n\n").encode()
             preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
             if sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
@@ -2433,8 +2457,14 @@ class Daemon:
                     held = {recorded[row["job_id"]].get("write_target"),
                             os.path.realpath(row["worktree"]) if row["worktree"] else None}
                     if row["in_place"] and not recorded[row["job_id"]].get("write_target"):
-                        # Submitted before targets were recorded: ask git once.
-                        held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
+                        # Submitted before targets were recorded: inspect its
+                        # checkout, as data when the new job opts into host push.
+                        if job.get("push_branch") is not None:
+                            folder = Path(row["worktree"] or row["workdir"]).resolve()
+                            top = next((p for p in (folder, *folder.parents) if (p / ".git").exists()), folder)
+                            held.add(folders.canonical(top))
+                        else:
+                            held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
                 except SalvageError as exc:
                     raise AdapterError(f"could not inspect the worktree of {row['job_id']}: {exc}",
                                        code=int(Exit.OPERATIONAL), fix="submit again") from exc
@@ -2698,7 +2728,8 @@ class Daemon:
                                    **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
-                    "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
+                    "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
+                    "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
         if op == "wait":
             return self.wait(protocol.coerce_args(protocol.WaitArgs, args), arrived=arrived,
                              client_gone=client_gone)
@@ -3736,6 +3767,16 @@ class Daemon:
         not finish raises rather than answering "no HEAD" or "no branch"."""
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         workdir = job.get("worktree") or job["workdir"]
+        if job.get("push_branch") is not None:
+            # No Git ever reads a config the lane can change. Baseline and
+            # remote are the submit snapshot, even on a writable retry.
+            if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
+                workdir = str(self.root / "worktrees" / job["job_id"])
+                if not Path(workdir).exists():
+                    host_push.prepare_workspace(self.root, Path(job["workdir"]), job["workdir_head"], Path(workdir))
+            elif job["sandbox"] == "workspace-write" and job["in_place"]:
+                host_push.validate_write_location(Path(workdir))
+            return workdir, job["workdir_head"], None, []
         turn_allow_main = job.get("kind") == "turn" and bool(
             ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}).get("allow_main"))
         if job["sandbox"] == "workspace-write" and (job["in_place"] or job.get("worktree")) and not turn_allow_main:
@@ -3808,7 +3849,7 @@ class Daemon:
         written without it; so when the event is new and the job has ended, the
         ref is recorded here and told in one more notice (review of ceacf18b, P2).
         """
-        if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous:
+        if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or job.get("push_branch") is not None or not previous:
             return None
         if not json.loads(previous[-1]["evidence_json"] or "{}").get("salvage_error"):
             return None
@@ -5601,13 +5642,24 @@ class Daemon:
             prompt = read_regular(prompt_path) + suffix.encode()
             prompt_path = adir / "prompt.md"
             self._publish("prompt", prompt_path, prompt)
+        if job.get("push_branch") is not None:
+            bundle_note = (f"\n\nThis attempt's host push intake is {adir / 'push.bundle'}. "
+                           "Commit the finished work and write a full bundle advertising exactly HEAD "
+                           f"with git bundle create {adir / 'push.bundle'} HEAD. "
+                           "If using .git-local, pass its --git-dir/--work-tree explicitly.\n")
+            prompt = read_regular(prompt_path) + bundle_note.encode()
+            prompt_path = adir / "prompt.push.md"
+            self._publish("prompt", prompt_path, prompt)
         turn_block = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
                       if job["kind"] == "turn" else None)
         try:
             if job["sandbox"] == "workspace-write" and not (turn_block and turn_block.get("allow_main")):
                 # Close the reservation-to-launch window as well: the caller
                 # can switch an in-place checkout after its attempt is reserved.
-                validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                if job.get("push_branch") is not None:
+                    host_push.validate_write_location(Path(job.get("worktree") or job["workdir"]))
+                else:
+                    validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = resolve_credential(lane.credential)
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
@@ -6229,7 +6281,7 @@ class Daemon:
         (C-13.4). A quarantine's release passes `retry=False`: an operator's
         one-shot request is never offered again, so it records at once.
         """
-        if job["sandbox"] != "workspace-write":
+        if job["sandbox"] != "workspace-write" or job.get("push_branch") is not None:
             return [], None, {}
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         receipt_path = adir / "salvage.json"
@@ -6614,6 +6666,11 @@ class Daemon:
             next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
+            if accepted and job.get("push_branch") is not None:
+                # Recovery and retention use the existing indexed holder query.
+                # Keep the bundle pinned until its post-accept publication ends.
+                tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                           ("push:" + job["job_id"], job["job_id"], utcnow()))
             if not retry:
                 if not accepted:
                     tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job["job_id"], a["attempt_id"]))
@@ -6728,11 +6785,16 @@ class Daemon:
         job = self._job(job_id)
         if not job["accepted_attempt_id"]:
             return
+        a = self.store.get_attempt(job["accepted_attempt_id"])
         if job["out_path"]:
             lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"out:{job['out_path']}",))
             if not lease or lease["holder"] != job_id:
+                self._push_job(job, a)
+                if job.get("push_branch") is not None:
+                    with self.store.transaction("job.export_superseded", job_id=job_id) as tx:
+                        tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
+                    self._notify()
                 return  # A replay cannot overwrite a newer owner's output.
-        a = self.store.get_attempt(job["accepted_attempt_id"])
         artifact = self.store.one("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'", (a["attempt_id"],))
         export_error = None
         exported = None
@@ -6747,6 +6809,7 @@ class Daemon:
                 exported = {"role": "export", "path": str(destination), "sha256": artifact["sha256"], "bytes": artifact["bytes"]}
             except OSError as exc:
                 export_error = f"export failed: {type(exc).__name__} (errno={exc.errno})"
+        self._push_job(job, a)
         with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=a["attempt_id"]) as tx:
             if exported:
                 self.store.add_artifact(a["attempt_id"], **exported)
@@ -6755,6 +6818,73 @@ class Daemon:
                 tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + export_error, job_id))
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
         self._notify()
+
+    def _push_job(self, job: dict, attempt: dict) -> None:
+        """C-8.5: acceptance is committed; every external operation is off-lock.
+
+        A durable claim precedes I/O. A replay of an interrupted claim reports
+        uncertainty for manual reconciliation instead of attempting a second push.
+        """
+        if job.get("push_branch") is None or not job["accepted_attempt_id"]:
+            return
+        with self._push_lock:
+            previous = self.store.one("SELECT * FROM job_pushes WHERE job_id=?", (job["job_id"],))
+            if previous and previous["result"] != "pending":
+                return
+            branch, remote = job["push_branch"], job["push_remote"]
+            sha, error = (previous["sha"] if previous else None), None
+            if previous:
+                error = "host push interrupted; inspect the remote before a human or hub push"
+            else:
+                with self.store.transaction("push.started", job_id=job["job_id"]) as tx:
+                    tx.execute("INSERT INTO job_pushes(job_id,branch,remote,started_at,result) VALUES(?,?,?,?,'pending')",
+                               (job["job_id"], branch, remote, utcnow()))
+                try:
+                    settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
+                    family = job
+                    while family.get("parent_job_id") and not family["independent"]:
+                        family = self._job(family["parent_job_id"])
+                    with host_push.quarantine(self.root, job["workdir_head"]) as (repo, credentials):
+                        bundle = host_push.copy_bundle(attempt_dir(self.root, job["job_id"], attempt["seq"]) / "push.bundle",
+                                                       repo, settings["max_bundle_mb"] * 1024 * 1024)
+                        sha = host_push.verify_bundle(repo, bundle, job["workdir_head"], settings)
+                        default, refs = host_push.remote_refs(repo, remote, credentials)
+                        if default is None:
+                            raise host_push.PushError("remote default branch cannot be verified")
+                        host_push.check_branch(branch, settings, default)
+                        owner = self.store.one("SELECT * FROM job_owned_branches WHERE remote=? AND branch=?", (remote, branch))
+                        if owner and owner["family_job_id"] != family["job_id"]:
+                            raise host_push.PushError("remote branch belongs to another job family")
+                        if branch in refs:
+                            if not owner or not owner["sha"]:
+                                raise host_push.PushError("existing remote branch is not owned by this job family")
+                            host_push.git(repo, "fetch", "--no-tags", "--no-write-fetch-head", remote,
+                                          f"refs/heads/{branch}:refs/heads/remote-tip", credentials=credentials)
+                            host_push.git(repo, "merge-base", "--is-ancestor", "refs/heads/remote-tip", sha)
+                        refspec = host_push.push_refspec(sha, branch)
+                        with self.store.transaction("push.verified", job_id=job["job_id"]) as tx:
+                            tx.execute("UPDATE job_pushes SET sha=? WHERE job_id=?", (sha, job["job_id"]))
+                            tx.execute("INSERT INTO job_owned_branches(remote,branch,family_job_id,job_id,claimed_at) "
+                                       "VALUES(?,?,?,?,?) ON CONFLICT(remote,branch) DO NOTHING",
+                                       (remote, branch, family["job_id"], job["job_id"], utcnow()))
+                        # No force option, '+', deletion, remote config, or lane environment.
+                        host_push.git(repo, "push", remote, refspec, credentials=credentials)
+                except (OSError, ValueError, protocol.ProtocolError) as exc:
+                    sha = getattr(exc, "sha", sha)
+                    error = f"host push failed: {type(exc).__name__}" if isinstance(exc, (OSError, UnicodeError)) else str(exc)
+            result = "failed" if error else "succeeded"
+            line = (f"push failed: {error}; work remains accepted for a human or hub push" if error
+                    else f"pushed {sha} to {remote} branch {branch}")
+            with self.store.transaction("push." + result, job_id=job["job_id"], data={"branch": branch, "remote": remote,
+                                                                                  "sha": sha, "result": result}) as tx:
+                tx.execute("UPDATE job_pushes SET sha=?,result=?,error=?,finished_at=? WHERE job_id=?",
+                           (sha, result, error, utcnow(), job["job_id"]))
+                tx.execute("UPDATE jobs SET push_error=?,push_sha=? WHERE job_id=?",
+                           (error, sha if not error else None, job["job_id"]))
+                if not error:
+                    tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote=? AND branch=?",
+                               (sha, job["job_id"], remote, branch))
+                tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job["job_id"]))
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
                  arrived: float | None = None) -> None:
