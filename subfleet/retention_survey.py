@@ -366,6 +366,8 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
     inferred = False
     if os.path.lexists(worktree):
         reg, why = rgit.registration(worktree)
+        if rarch.standalone_checkout(job, worktree):
+            reg, why = None, rarch.STANDALONE      # C-8.5: archived as bytes, as `Retirement.begin`
         where = rgit.gitfile_admin(worktree)[0] if why == "admin-missing" else None
     else:
         away = rarch.tree_away(worktree)
@@ -395,7 +397,7 @@ def _preflight(info: dict[str, Any], job: dict[str, Any], worktree: Path, root: 
             info["issue"] = lost
             return
     if reg is None:
-        if why not in ("no-gitfile", "admin-missing", "admin-remnant", "tree-gone"):
+        if why not in ("no-gitfile", "admin-missing", "admin-remnant", "tree-gone", rarch.STANDALONE):
             info["issue"] = f"registration: {why}"
         host = rarch.host_absent(root, where, worktree, live)
         if host is not None:
