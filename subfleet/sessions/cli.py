@@ -466,6 +466,22 @@ def _sidebar_lines(gap: dict[str, Any]) -> list[str]:
     return [f"sidebar {status}: {gap.get('detail')}"]
 
 
+def _diverged_lines(health: dict) -> list[str]:
+    """`--status` lines for session files whose copies hold different conversations."""
+    count = int(health.get("ids_diverged") or 0)
+    if not count:
+        return []
+    lines = [f"conversation ids diverged: {count} session file{'s' if count != 1 else ''} "
+             "hold different conversations in different accounts (a /clear or rewind in "
+             "one account); opening another account's copy resumes the older one"]
+    for item in health.get("diverged") or []:
+        ids = ", ".join(f"{identity[:8]} x{copies}"
+                        for identity, copies in (item.get("ids") or {}).items())
+        state = " (archived)" if item.get("archived") else ""
+        lines.append(f"  {item.get('session')}{state}: {ids}; newest {str(item.get('newest'))[:8]}")
+    return lines
+
+
 def cmd_mirror(args: argparse.Namespace) -> int:
     """One sidebar pass, or the sidecar's health. Never calls a provider."""
     cli = _cli()
@@ -480,6 +496,8 @@ def cmd_mirror(args: argparse.Namespace) -> int:
             emit({**health, "load_gap": gap})
         else:
             out(f"mirror {health['status']}: {health['detail']}")
+            for line in _diverged_lines(health):
+                out(line)
             for line in _sidebar_lines(gap):
                 out(line)
         return int(Exit.OK if health["status"] in ("healthy", "running", "absent")
@@ -491,6 +509,7 @@ def cmd_mirror(args: argparse.Namespace) -> int:
         dead_home=getattr(args, "dead_home", None),
         exclude=tuple(getattr(args, "exclude", None) or ()),
         flag_sync=not bool(getattr(args, "no_flag_sync", False)),
+        settings_sync=(False if getattr(args, "no_settings_sync", False) else None),
         restore=not bool(getattr(args, "no_restore", False)),
         archive=getattr(args, "archive", None))
     result = engine.run_once(options)
@@ -718,7 +737,10 @@ def add_verbs(sub, *, nested: bool = True) -> None:
     p_mirror.add_argument("--no-restore", action="store_true",
                           help="skip reviving dead sessions from --archive")
     p_mirror.add_argument("--no-flag-sync", action="store_true",
-                          help="skip isArchived/isStarred/title propagation")
+                          help="skip isArchived/isStarred/title propagation (and settings)")
+    p_mirror.add_argument("--no-settings-sync", action="store_true",
+                          help="skip bringing every copy's model, effort and place to one "
+                               "value")
     p_mirror.add_argument("--archive", metavar="GLOB",
                           help="recursive glob of archived transcripts")
     add_json(p_mirror)
