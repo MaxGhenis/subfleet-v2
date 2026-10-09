@@ -450,6 +450,25 @@ def _outside(prefix: str) -> bool:
     return prefix == os.pardir or prefix.startswith(os.pardir + os.sep) or os.path.isabs(prefix)
 
 
+def _check_output_prefixes(path: Path) -> None:
+    """Probe loops even beyond an absent component that strict resolve stops at."""
+    absolute = path.absolute()
+    prefix = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        # Non-strict resolution can proceed past Missing/../loop. Keep walking
+        # after ENOENT, without erasing a loop followed by another '..'.
+        prefix = prefix.parent if part == os.pardir else prefix / part
+        try:
+            os.stat(prefix)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise
+        else:
+            # A symlink's '..' belongs to its target, not its typed parent.
+            if prefix.is_symlink():
+                prefix = prefix.resolve(strict=True)
+
+
 def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
     """d261: a writer's refusal of a job the caller did not ask to write: say who
     did, and the way out."""
@@ -1875,16 +1894,27 @@ class Daemon:
                 # never ends) named here held this submit, `_submit_lock` and every submit after.
                 prompt = read_regular(Path(args.prompt_path).expanduser())
                 try:
-                    # Python 3.13+ suppresses ELOOP in non-strict resolution.
-                    # Probe strictly first; absent or unreadable destinations
-                    # retain the existing non-strict spelling fallback.
-                    out = str(Path(args.out_path).expanduser().resolve(strict=True)) if args.out_path else None
+                    out = None
+                    if args.out_path:
+                        requested_out = Path(args.out_path).expanduser()
+                        try:
+                            resolved_out = requested_out.resolve(strict=True)
+                        except OSError as exc:
+                            if exc.errno == errno.ELOOP:
+                                raise
+                            # ENOENT can hide a later loop. On Python 3.14 the
+                            # fallback suppresses ELOOP; on 3.12 it can raise
+                            # RuntimeError. Probe both spellings and guard both
+                            # resolutions with the same refusal handler.
+                            _check_output_prefixes(requested_out)
+                            resolved_out = requested_out.resolve()
+                            _check_output_prefixes(resolved_out)
+                        out = str(resolved_out)
                 except (RuntimeError, OSError) as exc:
                     if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
-                        out = str(Path(args.out_path).expanduser().resolve())
-                    else:
-                        raise AdapterError(f"cannot resolve output path: {exc}", code=7,
-                                           fix="remove the symlink loop or choose a different -o path") from exc
+                        raise
+                    raise AdapterError(f"cannot resolve output path: {exc}", code=7,
+                                       fix="remove the symlink loop or choose a different -o path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
@@ -1980,7 +2010,7 @@ class Daemon:
                 self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                    fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
-            except (OSError, ValueError, TypeError) as exc:
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
                 raise protocol.ProtocolError(str(exc)) from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
