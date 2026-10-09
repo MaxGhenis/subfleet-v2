@@ -43,6 +43,7 @@ OPERATIONS = st.sampled_from(["spawn", "fork", "exit", "zombie", "reap", "repare
 SCENARIOS = ["ordinary", "failed-bracket-child", "reused-before-group", "retained-authority"]
 if os.environ.get("SF_WORLD_SCENARIO"):
     SCENARIOS = [os.environ["SF_WORLD_SCENARIO"]]
+CONSUMERS = [os.environ["SF_WORLD_CONSUMER"]] if os.environ.get("SF_WORLD_CONSUMER") else ["attempt", "probe"]
 
 
 class World:
@@ -57,7 +58,9 @@ class World:
         self.marker = ""
         self.trace = []
         self.signals = []
+        self.signal_checks = {}
         self.resolving = False
+        self.confirming = set()
 
     def free(self, pid):
         # XNU reserves live group/session numbers, including leaderless groups.
@@ -72,15 +75,18 @@ class World:
         sid = self.processes[parent].sid if parent in self.processes else group
         self.processes[pid] = Process(pid, f"start-{self.serial}", parent, group, sid,
                                       marked, cwd, writer)
+        self.trace.append(("spawn", pid, f"start-{self.serial}", group, writer))
 
     def fork(self, parent, child):
         p = self.processes.get(parent)
         if p is None or p.zombie or not self.free(child):
             return
-        self.spawn(child, pgid=p.pgid, parent=parent, marked=p.marked, cwd=p.cwd, writer=p.writer)
+        self.spawn(child, pgid=p.pgid, parent=parent, marked=p.marked, cwd=p.cwd,
+                   writer=p.writer or parent == 100)
 
     def exit(self, pid):
         self.processes.pop(pid, None)
+        self.trace.append(("exit", pid))
         for p in self.processes.values():
             if p.ppid == pid:
                 p.ppid = 1
@@ -136,6 +142,7 @@ class World:
     def after(self, phase):
         count = self.read_counts.get(phase, 0) + 1
         self.read_counts[phase] = count
+        self.trace.append(("read", phase, count))
         for hook in list(self.hooks):
             at, occurrence, callback = hook
             if at == phase and count == occurrence:
@@ -160,7 +167,8 @@ class World:
         return table
 
     def identity(self, pid):
-        phase = "identity" if self.read_counts.get("identity", 0) <= self.read_counts.get("confirm", 0) else "confirm"
+        phase = "confirm" if pid in self.confirming else "identity"
+        self.confirming.discard(pid)
         if phase in self.failures:
             self.after(phase)
             raise procs.InspectionError(f"world {phase} unavailable")
@@ -178,8 +186,16 @@ class World:
         value = p.pgid if p else None
         if value:
             self.groups.add(value)
+        self.confirming.add(pid)
         self.after("group")
         return value
+
+    def same_process(self, pid, boot, start):
+        p = self.processes.get(pid)
+        match = p is not None and not p.zombie and p.start == start and boot == BOOT and "identity" not in self.failures
+        if match:
+            self.signal_checks[pid] = (boot, start)
+        return match
 
     def read(self, argv, **kwargs):
         assert "pid=,command=" in argv, argv
@@ -197,18 +213,21 @@ class World:
         self.after("cwd")
         return value
 
-    def signal(self, pid, sig):
+    def signal(self, pid, sig, *, via_group=False):
         p = self.processes.get(pid)
         assert not self.resolving, "resolvers must never signal"
         assert p is not None and not p.zombie and p.pgid == 100, (
             "S2 stray signal", pid, self.rows(), self.trace)
+        authority = self.processes.get(100) if via_group else p
+        assert authority is not None and self.signal_checks.get(authority.pid) == (BOOT, authority.start), (
+            "S2 unconfirmed signal identity", pid, self.rows(), self.trace)
         self.signals.append((pid, p.start, int(sig)))
 
     def signal_group(self, pgid, sig):
         assert pgid == 100, ("S2 stray group signal", pgid)
         for p in list(self.processes.values()):
             if p.pgid == pgid and not p.zombie:
-                self.signal(p.pid, sig)
+                self.signal(p.pid, sig, via_group=True)
 
 
 class ProcessWorldMachine(RuleBasedStateMachine):
@@ -230,9 +249,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
                              ("process_group", "group"), ("_read", "read"), ("cwd_pids", "cwd")):
             self.patch.setattr(procs, name, lambda *a, _method=method, **kw: getattr(self.world, _method)(*a, **kw))
         self.patch.setattr(procs, "_stat", lambda pid: self.world.rows().get(pid, (0, 0, None, ""))[2])
-        self.patch.setattr(procs, "same_process", lambda pid, boot, start:
-                           self.world.rows().get(pid, (0, 0, "Z", None))[3] == start
-                           and self.world.rows().get(pid, (0, 0, "Z", None))[2] != "Z" and boot == BOOT)
+        self.patch.setattr(procs, "same_process", lambda pid, boot, start: self.world.same_process(pid, boot, start))
         # Kernel signal seams preserve production signal helper checks.
         self.patch.setattr(procs.os, "getpgid", lambda pid: self.world.processes[pid].pgid)
         self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
@@ -249,6 +266,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
             self.world = deepcopy(baseline)
             self.world.marker = a["attempt_id"]
             self.world.read_counts = {}
+            self.world.confirming.clear()
             self.world.resolving = resolve
             if resolve:
                 self.daemon.store.update_attempt(a["attempt_id"], quarantine_recheck_at="")
@@ -274,8 +292,9 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         self.world = worlds[0]
         self.safety()
 
-    @initialize(source=st.sampled_from(["marker", "cwd"]), scenario=st.sampled_from(SCENARIOS))
-    def initial(self, source, scenario):
+    @initialize(source=st.sampled_from(["marker", "cwd"]), scenario=st.sampled_from(SCENARIOS),
+                consumer=st.sampled_from(CONSUMERS))
+    def initial(self, source, scenario, consumer):
         event("scenario=" + scenario)
         if scenario == "ordinary":
             return
@@ -306,7 +325,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
             self.world.processes[200].marked = source == "marker"
             self.world.processes[200].cwd = source == "cwd"
             self.world.failures.add("confirm")
-            self.kill("attempt")
+            self.kill(consumer)
         else:
             self.pair(resolve=True)
 
@@ -349,6 +368,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         a = self.attempts[0]
         self.world.marker = a["attempt_id"]
         self.world.read_counts = {}
+        self.world.confirming.clear()
         if consumer == "attempt":
             self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
         else:
