@@ -147,8 +147,8 @@ func reviewAvailability(_ name: String?, capabilities: Capabilities) -> DaemonAv
             case "reload": model = UIModel(paths: .rooted(at: root), client: client, defaults: defaults, state: state)
             case "relaunch-pump":
                 model.pump()
-                // Wait for the real service's durable acknowledgements. Failed
-                // creates deliberately retain their visibly unsent messages.
+                // Wait for durable acknowledgements and the published refusals.
+                // Failed creates deliberately retain their visibly unsent messages.
                 for _ in 0..<300 {
                     try await Task.sleep(nanoseconds: 100_000_000)
                     let journalURL = root.appendingPathComponent("support/outbox.json")
@@ -160,7 +160,8 @@ func reviewAvailability(_ name: String?, capabilities: Capabilities) -> DaemonAv
                         ["queued", "sending"].contains(entry["state"]?.string ?? "")
                             && !refused.contains(entry["conversation"]?.string ?? "")
                     }
-                    if !pending { break }
+                    let publishedRefused = Set(model.failedDrafts.map { "draft:" + $0.id })
+                    if !pending && publishedRefused == refused { break }
                     model.pump()
                 }
             case "crash": _exit(73)

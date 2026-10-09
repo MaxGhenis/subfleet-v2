@@ -241,12 +241,21 @@ def _row(row: Any) -> tuple[str, str]:
     return row[0], row[1]
 
 
+def within(folder: str, top: str) -> bool:
+    """Whether `folder` is `top` or a folder inside it, as spelled: `/a/b/c` is in
+    `/a/b`, and `/a/bc` and `/a/b:c` are not."""
+    return folder == top or folder.startswith(top.rstrip("/") + "/")
+
+
 def turn_holds(read: Callable[[str, tuple], Iterable[Any]], folder: str,
-               kinds: tuple[str, ...] = SHARED) -> list[tuple[str, str]]:
+               kinds: tuple[str, ...] = SHARED, *, inside: bool = False) -> list[tuple[str, str]]:
     """The turn rows `(lease key, holder)` on exactly `folder`, of the prefixes in
-    `kinds`. `read(sql, params)` runs one statement: a store's `query`, or a
+    `kinds`, and with `inside` also those on a folder inside it (`within`): a
+    conversation in a repository nested in a job's worktree keys its row on that
+    repository, and retention removes it with the worktree (review of 599af189,
+    P3-1). `read(sql, params)` runs one statement: a store's `query`, or a
     transaction's `execute(...).fetchall()`, so the answer is the transaction's."""
-    found = []
+    found: dict[str, str] = {}
     for prefix in kinds:
         low = f"{prefix}{folder}:"
         high = low[:-1] + ";"                 # ':' + 1: every key that starts with `low`
@@ -254,8 +263,17 @@ def turn_holds(read: Callable[[str, tuple], Iterable[Any]], folder: str,
                         (low, high)):
             key, holder = _row(row)
             if ":" not in key[len(low):]:     # not a longer folder that starts `<folder>:`
-                found.append((key, holder))
-    return found
+                found[key] = holder
+        if inside:
+            low = f"{prefix}{folder.rstrip('/')}/"
+            high = low[:-1] + "0"             # '/' + 1: every key that starts with `low`
+            for row in read("SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
+                            (low, high)):
+                key, holder = _row(row)
+                parsed = parse(key)
+                if parsed and within(parsed[1], folder):
+                    found[key] = holder
+    return list(found.items())
 
 
 def turn_folders(read: Callable[[str, tuple], Iterable[Any]]) -> set[str]:

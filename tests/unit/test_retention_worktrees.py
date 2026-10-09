@@ -206,7 +206,7 @@ def test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed(owned, monke
     if seen_by == "fence":
         monkeypatch.setattr(retention.folders, "turn_folders", lambda read: set())
     else:
-        monkeypatch.setattr(retention.folders, "turn_holds", lambda read, folder, kinds=folders.SHARED: [])
+        monkeypatch.setattr(retention.folders, "turn_holds", lambda read, folder, kinds=folders.SHARED, **_: [])
     original = subprocess.run
     monkeypatch.setattr(retention.subprocess, "run",
                         lambda *args, **kwargs: pytest.fail("no git while a turn works in the worktree"))

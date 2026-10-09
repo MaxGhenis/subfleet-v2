@@ -46,6 +46,68 @@ def test_turn_holds_names_exactly_the_rows_on_that_folder(holds, probe):
     assert folders.turn_folders(read) == {folders.parse(key)[1] for key in stored if folders.parse(key)}
 
 
+@st.composite
+def near(draw, probe):
+    """A folder `probe` may be confused with: itself, one inside it, one whose name
+    extends it (`/a/bc`, `/a/b:c`, `/a/b;`), the folder above it, or any other."""
+    return draw(st.one_of(st.just(probe), SEGMENT.map(lambda s: f"{probe}/{s}"),
+                          st.lists(SEGMENT, min_size=2, max_size=3).map(lambda parts: probe + "/" + "/".join(parts)),
+                          SEGMENT.map(lambda s: probe + s), st.just(probe.rsplit("/", 1)[0] or "/"), FOLDER))
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(data=st.data())
+def test_turn_holds_inside_names_exactly_the_rows_on_that_folder_or_below_it(data):
+    """With `inside`, the rows found on `probe` are exactly the turn rows whose folder
+    is `probe` or a folder below it (`folder == probe or folder.startswith(probe + "/")`,
+    review of 599af189, P3-1), each once, of the kinds asked for; without it, the
+    exact answer is unchanged."""
+    probe = data.draw(FOLDER, label="probe")
+    holds = data.draw(st.lists(st.tuples(near(probe), JOB, st.booleans()), max_size=12), label="holds")
+    rows = [(folders.turn_key(folder, job, writable=writable), job) for folder, job, writable in holds]
+    rows.append((folders.exclusive_key(probe), "detached"))
+    read = table(rows)
+    stored = {key: holder for key, holder in rows}
+    below = {(key, holder) for key, holder in stored.items()
+             if (parsed := folders.parse(key)) and (parsed[1] == probe or parsed[1].startswith(probe + "/"))}
+    found = folders.turn_holds(read, probe, inside=True)
+    assert set(found) == below and len(found) == len(below)
+    writers = {(key, holder) for key, holder in below if key.startswith(folders.TURN)}
+    assert set(folders.turn_holds(read, probe, (folders.TURN,), inside=True)) == writers
+    exact = {(key, holder) for key, holder in below if folders.parse(key)[1] == probe}
+    assert set(folders.turn_holds(read, probe)) == exact
+
+
+@given(a=FOLDER, b=FOLDER, c=FOLDER)
+def test_within_is_a_partial_order_on_folders(a, b, c):
+    """`within` is the user's rule (`folder == top or folder.startswith(top + "/")`)
+    and, on folders spelled without a trailing `/`, reflexive, antisymmetric and
+    transitive; every folder is within `/`."""
+    assert folders.within(a, b) == (a == b or a.startswith(b + "/"))
+    assert folders.within(a, a) and folders.within(a, "/")
+    if folders.within(a, b) and folders.within(b, a):
+        assert a == b
+    if folders.within(a, b) and folders.within(b, c):
+        assert folders.within(a, c)
+    assert folders.within(a + "/x", a) and not folders.within(a + "x", a) and not folders.within(a + ":x", a)
+
+
+def test_inside_reads_each_rows_folder_from_its_key():
+    """A key in `<folder>/`'s range whose last ':' falls inside `<folder>` names
+    another folder (`/a`, by a job `1/b/x`). `turn_key` never writes one, since a job
+    id holds no '/' (C-1.1); a row written otherwise is still not taken as inside."""
+    read = table([("worktree-turn:/a:1/b/x", "x"), (folders.turn_key("/a:1/b/c", "j", writable=True), "j")])
+    assert folders.turn_holds(read, "/a:1/b", inside=True) == [(folders.turn_key("/a:1/b/c", "j", writable=True), "j")]
+
+
+def test_inside_a_root_folder_is_every_folder_once():
+    read = table([(folders.turn_key("/", "j1", writable=True), "j1"),
+                  (folders.turn_key("/a", "j2", writable=False), "j2")])
+    found = folders.turn_holds(read, "/", inside=True)            # `/`'s own rows are in both ranges
+    assert len(found) == 2 and set(found) == {(folders.turn_key("/", "j1", writable=True), "j1"),
+                                              (folders.turn_key("/a", "j2", writable=False), "j2")}
+
+
 @given(folder=FOLDER, job=JOB, writable=st.booleans())
 def test_a_turn_key_round_trips(folder, job, writable):
     prefix = folders.TURN if writable else folders.READER
