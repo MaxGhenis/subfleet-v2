@@ -12,6 +12,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = (
+    ("977999487", "paced-missing-start", "S1 premature release", "attempt"),
     ("887552207", "failed-bracket-child", "S1 premature release", "attempt"),
     ("951d9623f", "reused-before-group", "S1 premature release", "attempt"),
     ("951d9623f", "retained-authority", "S2 stray signal", "attempt"),
@@ -26,7 +27,7 @@ def main():
     git = ["git", "--git-dir=.git-local"] if (ROOT / ".git-local").exists() else ["git"]
     paths = [ROOT / "subfleet" / name for name in ("procs.py", "daemon.py")]
     originals = {p: p.read_bytes() for p in paths}
-    evidence = ROOT / "docs/reports/pr131-fix7"
+    evidence = ROOT / os.environ.get("SF_WORLD_EVIDENCE", "docs/reports/pr131-fix8")
     evidence.mkdir(exist_ok=True)
     found = 0
     summary = []
@@ -42,7 +43,7 @@ def main():
                     cache.unlink()
             print(f"CHECK {revision} {scenario} {consumer}", flush=True)
             started = time.monotonic()
-            with subprocess.Popen([sys.executable, "-B", "-m", "pytest", "-xq",
+            with subprocess.Popen([sys.executable, "-B", "-m", "pytest", "--assert=plain", "-xq",
                     "tests/fake/test_quarantine_process_world.py::TestProcessWorld",
                     "--hypothesis-seed=131"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",

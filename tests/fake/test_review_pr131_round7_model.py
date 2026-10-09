@@ -1,62 +1,20 @@
 """Independent C-5.3/C-5.7 process-world extensions and oracle challenges.
 
-Only read visibility changes: the kernel's start identity stays intact. No real
-processes are started or signalled. The original model remains unmodified.
+Read visibility is part of the primary model; kernel start identities stay intact.
+No real processes are started or signalled.
 """
 import json
-import os
 
-from hypothesis import Phase, settings, strategies as st
-from hypothesis.stateful import precondition, rule
 import pytest
 
 from subfleet import procs
-from tests.fake.test_quarantine_process_world import PIDS, ProcessWorldMachine, World
+from tests.fake.test_quarantine_process_world import ProcessWorldMachine, World
 from tests.fake.test_review_pr131_probes import BOOT
-
-
-class PartialIdentityWorld(World):
-    def __init__(self):
-        super().__init__()
-        self.missing_starts = set()
-
-    def snapshot(self):
-        table = super().snapshot()
-        rows = {pid: (*row[:3], "" if ("table", pid) in self.missing_starts else row[3])
-                for pid, row in table.rows.items()}
-        return procs.ProcessTable(rows, table.boot_id, table.taken_at)
-
-    def identity(self, pid):
-        phase = "confirm" if pid in self.confirming else "identity"
-        process = self.processes.get(pid)
-        if process and not process.zombie and (phase, pid) in self.missing_starts:
-            self.confirming.discard(pid)
-            self.after(phase)
-            raise procs.InspectionError("world missing process start identity")
-        return super().identity(pid)
-
-
-class PartialIdentityMachine(ProcessWorldMachine):
-    def __init__(self):
-        super().__init__()
-        self.world = PartialIdentityWorld()
-
-    @precondition(lambda self: self.active())
-    @rule(pid=PIDS, phase=st.sampled_from(["table", "identity", "confirm"]), missing=st.booleans())
-    def start_column_visibility(self, pid, phase, missing):
-        (self.world.missing_starts.add if missing else self.world.missing_starts.discard)((phase, pid))
-
-
-TestPartialIdentityWorld = PartialIdentityMachine.TestCase
-TestPartialIdentityWorld.settings = settings(
-    max_examples=int(os.environ.get("SF_REVIEW_WORLD_EXAMPLES", "50")),
-    stateful_step_count=25, deadline=None, database=None,
-    phases=[phase for phase in Phase if phase != Phase.explain])
 
 
 def test_missing_start_descendant_changes_group_after_parent_exit():
     """C-5.7 missing table starts retain a writer across escape and reparenting."""
-    machine = PartialIdentityMachine()
+    machine = ProcessWorldMachine()
     try:
         machine.world.fork(100, 200)
         machine.world.missing_starts.add(("table", 200))
@@ -163,10 +121,15 @@ def test_previously_owned_escape_is_a_valid_signal_target(consumer):
 
 
 @pytest.mark.parametrize("consumer", ["attempt", "probe"])
-def test_escape_without_confirmed_ownership_is_not_signalled(consumer):
+@pytest.mark.parametrize("capture", ["after-escape", "missing-start"])
+def test_escape_without_confirmed_ownership_is_not_signalled(consumer, capture):
     machine = ProcessWorldMachine()
     try:
         machine.world.fork(100, 200)
+        if capture == "missing-start":
+            machine.world.missing_starts.add(("table", 200))
+            machine.ownership_pace()
+            machine.world.missing_starts.clear()
         # The same child escapes before the pace can confirm group ownership.
         machine.world.change("setsid", 200)
         machine.ownership_pace()
@@ -183,14 +146,12 @@ def test_escape_without_confirmed_ownership_is_not_signalled(consumer):
 
 def test_paced_missing_start_observation_survives_parent_death():
     """C-5.5 paced ownership capture preserves unknown descendant identities."""
-    machine = PartialIdentityMachine()
+    machine = ProcessWorldMachine()
     try:
         machine.world.fork(100, 200)
         machine.world.change("setsid", 200)
         machine.world.missing_starts.add(("table", 200))
-        table = machine.world.snapshot()
-        for a in machine.attempts:
-            machine.daemon._record_owned(a, table)
+        machine.ownership_pace()
         machine.world.exit(100)
         machine.pair(resolve=True)
         assert not any(machine.last_verdicts)
@@ -202,3 +163,33 @@ def test_paced_missing_start_observation_survives_parent_death():
         assert all(machine.last_verdicts)
     finally:
         machine.teardown()
+
+
+@pytest.mark.parametrize("phase", ["table", "identity", "confirm"])
+def test_start_visibility_does_not_change_kernel_truth(phase):
+    world = World()
+    world.fork(100, 200)
+    truth = world.rows()
+    world.missing_starts.add((phase, 200))
+    if phase == "table":
+        assert world.snapshot().rows[200][3] == ""
+    else:
+        if phase == "confirm":
+            world.group(200)
+        with pytest.raises(procs.InspectionError, match="missing process start"):
+            world.identity(200)
+    assert world.rows() == truth
+
+
+@pytest.mark.parametrize("phase", ["identity", "confirm"])
+def test_partial_start_identity_does_not_confirm_a_signal(phase):
+    world = World()
+    world.fork(100, 200)
+    world.partial_starts.add((phase, 200))
+    if phase == "confirm":
+        world.group(200)
+    partial = world.identity(200)
+    assert partial.proc_start == "" and world.processes[200].start
+    assert not world.same_process(200, partial.boot_id, partial.proc_start)
+    with pytest.raises(AssertionError, match="S2 unconfirmed signal identity"):
+        world.signal(200, 9)

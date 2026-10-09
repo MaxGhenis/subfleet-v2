@@ -40,7 +40,8 @@ PIDS = st.sampled_from([99, 200, 201, 300, 700, 900])
 PHASES = st.sampled_from(["table", "markers", "cwd", "identity", "group", "confirm"])
 OPERATIONS = st.sampled_from(["spawn", "fork", "exit", "zombie", "reap", "reparent",
                              "setsid", "group", "chdir", "scrub", "reuse_pid", "reuse_pgid"])
-SCENARIOS = ["ordinary", "failed-bracket-child", "reused-before-group", "retained-authority"]
+SCENARIOS = ["ordinary", "failed-bracket-child", "reused-before-group", "retained-authority",
+             "paced-missing-start", "paced-owned-escape", "paced-unowned-escape"]
 if os.environ.get("SF_WORLD_SCENARIO"):
     SCENARIOS = [os.environ["SF_WORLD_SCENARIO"]]
 CONSUMERS = [os.environ["SF_WORLD_CONSUMER"]] if os.environ.get("SF_WORLD_CONSUMER") else ["attempt", "probe"]
@@ -65,6 +66,9 @@ class World:
         # complete identities observed in the original, verified group count.
         self.owned = {(100, "guardian-start")}
         self.capturing_ownership = False
+        # Read visibility varies independently of the kernel's real identity.
+        self.missing_starts = set()
+        self.partial_starts = set()
 
     def free(self, pid):
         # XNU reserves live group/session numbers, including leaderless groups.
@@ -160,7 +164,9 @@ class World:
     def snapshot(self):
         if "table" in self.failures:
             raise procs.InspectionError("world ps unavailable")
-        table = procs.ProcessTable(self.rows(), BOOT)
+        rows = {pid: (*row[:3], "" if ("table", pid) in self.missing_starts else row[3])
+                for pid, row in self.rows().items()}
+        table = procs.ProcessTable(rows, BOOT)
         if self.capturing_ownership:
             self.record_ownership(table)
         roots = [p.pid for p in self.processes.values() if
@@ -186,7 +192,12 @@ class World:
             self.after(phase)
             raise procs.InspectionError(f"world {phase} unavailable")
         p = self.processes.get(pid)
+        if p and not p.zombie and (phase, pid) in self.missing_starts:
+            self.after(phase)
+            raise procs.InspectionError("world missing process start identity")
         value = procs.ProcessIdentity(pid, BOOT, p.start) if p and not p.zombie else None
+        if value and (phase, pid) in self.partial_starts:
+            value = procs.ProcessIdentity(pid, BOOT, "")
         if value:
             self.observed.add((pid, p.start))
         self.after(phase)
@@ -205,7 +216,9 @@ class World:
 
     def same_process(self, pid, boot, start):
         p = self.processes.get(pid)
-        match = p is not None and not p.zombie and p.start == start and boot == BOOT and "identity" not in self.failures
+        match = (p is not None and not p.zombie and bool(start) and p.start == start and boot == BOOT
+                 and "identity" not in self.failures and ("identity", pid) not in self.missing_starts
+                 and ("identity", pid) not in self.partial_starts)
         if match:
             self.signal_checks[pid] = (boot, start)
         return match
@@ -273,7 +286,11 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         return not any(self.last_verdicts)
 
     def ownership_pace(self):
-        table = self.world.snapshot()
+        try:
+            table = self.world.snapshot()
+        except procs.InspectionError:
+            event("ownership pace=table unavailable")
+            return
         self.world.record_ownership(table)
         for a in self.attempts:
             self.daemon._record_owned(self.daemon.store.get_attempt(a["attempt_id"]), table)
@@ -317,6 +334,24 @@ class ProcessWorldMachine(RuleBasedStateMachine):
     def initial(self, source, scenario, consumer):
         event("scenario=" + scenario)
         if scenario == "ordinary":
+            return
+        if scenario.startswith("paced-"):
+            self.world.fork(100, 200)
+            if scenario == "paced-missing-start":
+                self.world.missing_starts.add(("table", 200))
+                self.ownership_pace()
+                self.world.change("setsid", 200)
+                self.world.exit(100)
+                self.pair(resolve=True)
+                self.world.missing_starts.clear()
+                self.pair(resolve=True)
+            else:
+                if scenario == "paced-owned-escape":
+                    self.ownership_pace()
+                self.world.change("setsid", 200)
+                if scenario == "paced-unowned-escape":
+                    self.ownership_pace()
+                self.kill(consumer)
             return
         if scenario != "retained-authority":
             self.world.exit(100)
@@ -370,6 +405,24 @@ class ProcessWorldMachine(RuleBasedStateMachine):
     @rule(failure=st.sampled_from(["table", "markers", "cwd", "group", "identity", "confirm"]), fail=st.booleans())
     def fail_inspection(self, failure, fail):
         (self.world.failures.add if fail else self.world.failures.discard)(failure)
+
+    @precondition(lambda self: self.active())
+    @rule(pid=st.one_of(PIDS, st.just(100)), phase=st.sampled_from(["table", "identity", "confirm"]),
+          missing=st.booleans())
+    def start_column_visibility(self, pid, phase, missing):
+        event("start visibility=" + phase + (" missing" if missing else " complete"))
+        (self.world.missing_starts.add if missing else self.world.missing_starts.discard)((phase, pid))
+
+    @precondition(lambda self: self.active())
+    @rule(pid=PIDS, phase=st.sampled_from(["identity", "confirm"]), partial=st.booleans())
+    def partial_start_identity(self, pid, phase, partial):
+        event("partial identity=" + phase + str(partial))
+        (self.world.partial_starts.add if partial else self.world.partial_starts.discard)((phase, pid))
+
+    @precondition(lambda self: self.active())
+    @rule()
+    def paced_ownership_capture(self):
+        self.ownership_pace()
 
     @precondition(lambda self: self.active())
     @rule()
