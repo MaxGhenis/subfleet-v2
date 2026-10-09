@@ -10,6 +10,7 @@ Completed verification before the final audit:
 - 370 historical state and targeted checks, including rebuilt schema-6 migration.
 - 2,000 fixed-seed and 500 fresh-seed quiet worlds archived in first-proof/.
 
+The archived first-proof/ run passed 2,000 fixed and 500 fresh worlds.
 The final audit reproduced a further S2 overrestriction: a complete child table
 identity can become owned after fresh scalar leader confirmation even if the
 leader's table start is unavailable. It may then escape after handling SIGTERM
@@ -21,7 +22,7 @@ group member identities, never identities known only through later sampling.
 Remaining work:
 1. Controls (29), five oracle mutations, eight historical replays and all 370
    targeted checks now pass with the final stronger model. Run tools/quarantine_world_proof.py foreground and serially: exactly
-   2,000 passing, zero failing worlds at seed 131 and 500 at a newly drawn seed.
+   2,000 passing, zero failing worlds at seed 131 and 500 at freshly drawn seed 3027837772367224465.
    Keep first-proof/ as predecessor evidence; final root logs must correspond
    to final model bytes. Progress counts include invalid draws; use final
    Hypothesis statistics as the proof. Commit code and each verification step.
