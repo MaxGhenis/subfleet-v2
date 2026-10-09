@@ -6,8 +6,8 @@ No production code changed from 169f6b6c17ae.
 Completed verification before the final audit:
 - Eight historical minimized S1/S2 counterexamples, including missing-start
   977999487 plus all seven cases on 887552207, 951d9623f, 684dc4d130c5.
-- 33/33 production and 4/4 oracle mutations with passing controls.
-- 364 historical state and targeted checks, including rebuilt schema-6 migration.
+- 33/33 production and 5/5 oracle mutations with passing controls.
+- 370 historical state and targeted checks, including rebuilt schema-6 migration.
 - 2,000 fixed-seed and 500 fresh-seed quiet worlds archived in first-proof/.
 
 The final audit reproduced a further S2 overrestriction: a complete child table
@@ -19,9 +19,8 @@ The primary model now covers both cases; the oracle acquires only full original-
 group member identities, never identities known only through later sampling.
 
 Remaining work:
-1. Complete new controls, five oracle mutations and replay all eight historical
-   cases with the final stronger model. Run targeted checks again if required.
-   Then run tools/quarantine_world_proof.py foreground and serially: exactly
+1. Controls (29), five oracle mutations, eight historical replays and all 370
+   targeted checks now pass with the final stronger model. Run tools/quarantine_world_proof.py foreground and serially: exactly
    2,000 passing, zero failing worlds at seed 131 and 500 at a newly drawn seed.
    Keep first-proof/ as predecessor evidence; final root logs must correspond
    to final model bytes. Progress counts include invalid draws; use final
