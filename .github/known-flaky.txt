@@ -1,7 +1,6 @@
 # Exact CI-observed node IDs only; remove entries when their fixes merge.
 # Evidence (run, attempt, log line) is in docs/reports/2026-10-09-pr155-fix1.md.
 tests/e2e/test_stop_bound.py::test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock  # D-2: Stop-bound timing under shared-runner load.
-tests/e2e/test_conversations.py::test_a_claude_conversation_streams_completes_and_continues_in_the_same_session  # D-F5: Claude stream ordering race; remove when the separate fix merges.
 tests/process/test_guardian_relay.py::test_frames_reach_the_child_once_across_a_reconnect  # D-GUARDIAN-RELAY: Guardian relay closes before reconnect acknowledgement.
 tests/process/test_guardian_relay.py::test_child_exit_ends_the_relay  # D-GUARDIAN-RELAY: Guardian relay closes before child-exit acknowledgement.
 tests/unit/test_daemon_inspection_load.py::test_a_running_probe_is_inspected_on_the_same_budget  # D-INSPECTION-LOAD: Probe inspection races under load (KeyError: safe).
