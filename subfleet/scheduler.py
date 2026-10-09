@@ -394,6 +394,70 @@ def competes(models: frozenset[str] | None, other: frozenset[str] | None,
     return lanes is None or other_lanes is None or bool(lanes & other_lanes)
 
 
+def probe_turn(line: Iterable[tuple[str, str, frozenset[str] | None]], lane_id: str, model: str) -> str | None:
+    """C-6.9: the job whose turn it is to carry the probe of `model` on `lane_id`,
+    or None when it is the asker's.
+
+    `line` is the jobs of this pass that wait on an admission probe (C-11.4), in
+    the pass's order and so all ahead of the asker: each with the model its probe
+    is of and the lanes it could run on (`demand_lanes`; None is any lane). A
+    probe's prompt is fixed and it runs on the lane's credential in a private
+    directory, so its answer says nothing about the job that carried it, and the
+    first job in line that could use this one carries it. A job waiting on a
+    probe of another model, or pinned to another lane, has no use for this probe
+    and holds nobody."""
+    return next((job_id for job_id, wanted, lanes in line
+                 if wanted == model and (lanes is None or lane_id in lanes)), None)
+
+
+def probe_reach(policy: Mapping[str, Any], roster: Iterable[Mapping[str, Any]], model: str,
+                lanes: frozenset[str] | None, exclusions: Iterable[str]) -> frozenset[str]:
+    """C-6.9, C-11.4: the lanes whose probe of `model` a job could use: the lanes of
+    the model's provider in `roster` (as `Daemon._pin_roster` names them), only its
+    pin's when `lanes` (`demand_lanes`) names one, and never one its exclusions name,
+    by any of the names `evaluate` excludes by (`_identities`). A job waiting on a
+    probe holds the turn at exactly these lanes' probes (`probe_turn`)."""
+    provider = ((policy.get("models") or {}).get(model) or {}).get("provider")
+    excluded = {str(name) for name in exclusions}
+    return frozenset(str(lane["lane_id"]) for lane in roster
+                     if lane.get("provider") == provider and (lanes is None or lane["lane_id"] in lanes)
+                     and not _identities(lane) & excluded)
+
+
+def left_out_only(decision: Decision | Mapping[str, Any], lanes: Iterable[str]) -> bool:
+    """C-11.4: whether some lane of `lanes`, left out of an evaluation by the job's
+    probe choice, was refused for that alone (`excluded` its only reason), so an
+    evaluation without it could have chosen that lane."""
+    left = set(lanes)
+    return any(str(row.get("lane_id")) in left and set(row.get("reasons") or [row.get("reason")]) == {"excluded"}
+               for evaluation in _row(decision).get("evaluations", ())
+               for row in evaluation.get("rejections", ()))
+
+
+def promoted_past(decision: Decision | Mapping[str, Any], model: str) -> bool:
+    """C-11.4: whether `decision` walked past `model` to a later model of its chain
+    (it judged `model` and chose another). A model earlier in the chain is no
+    promotion: the walk stopped before it reached `model`."""
+    value = _row(decision)
+    return value.get("chosen_model") != model and any(
+        row.get("model") == model for row in value.get("evaluations", ()))
+
+
+def probe_lanes_taken(line: Iterable[tuple[str, str, frozenset[str] | None]],
+                      model: str) -> frozenset[str] | None:
+    """C-6.9: the lanes whose probe of `model` is the turn of a job in `line`
+    (`probe_turn` names one for exactly these lanes), or None when it is every
+    lane's: a job ahead waits on a probe of `model` and could run on any lane."""
+    taken: set[str] = set()
+    for _, wanted, lanes in line:
+        if wanted != model:
+            continue
+        if lanes is None:
+            return None
+        taken |= lanes
+    return frozenset(taken)
+
+
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
     """All descendants of every ancestor share that ancestor's concurrency cap,
     `max_active_attempts_per_parent`, which is none unless the policy sets one
