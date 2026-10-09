@@ -53,10 +53,13 @@ LIMIT_RE = re.compile(
     r"hit your usage limit|usage limit reached|usage_limit_reached|"
     r"(?:model|account).{0,60}(?:quota|usage limit)|quota exceeded|" + CREDITS_RE.pattern, re.I,
 )
-# The provider's safety refusals. "flagged for possible cybersecurity risk ... apply for
-# Daybreak access" is gpt-6.1-sol's wording on 2026-10-09; "trusted access" is the older one.
-CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|daybreak access|"
-                        r"flagged for possible [\w -]{0,40}risk|can('|’)t (help|assist) with", re.I)
+# The provider's safety refusals. "This content was flagged for possible cybersecurity risk
+# ... apply for Daybreak access" is gpt-6.1-sol's wording on 2026-10-09; "trusted access" is
+# the older one. The new phrases need their refusal context, so a CLI diagnostic that merely
+# names a path like ".../daybreak access/config.toml" is not a refusal.
+CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|apply for daybreak access|"
+                        r"this (?:content|request) was flagged for possible [\w -]{0,40}risk|"
+                        r"can('|’)t (help|assist) with", re.I)
 OLD_CLI_RE = re.compile(
     r"cli.{0,45}(?:too old|outdated)|"
     r"(?:upgrade|update)\s+(?:(?:your|the)\s+)?(?:codex|cli)\b|"
@@ -585,7 +588,8 @@ class CodexAdapter(Adapter):
                 evidence["admission"] = "deliverable with exit 0"
                 return result(OutcomeClass.OK, "Codex completed with a deliverable")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
-                                   (CONTENT_RE, OutcomeClass.CONTENT_FILTER, "Content-filter rejection; prompt reconciliation required")):
+                                   (CONTENT_RE, OutcomeClass.CONTENT_FILTER,
+                                    "The provider's content filter refused the prompt; reword it and resubmit (not retried)")):
             for event, text in signals:
                 if regex.search(text):
                     evidence["admission"] = event or text
