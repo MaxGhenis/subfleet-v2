@@ -8,12 +8,12 @@ Completed:
 - `31dc1dcc8`: remove both leader-identity/reuse discharge shortcuts for retained groups; 50 reused-before-group model worlds pass (S1), 128 round-six/process checks pass. The older saved-group unit expectation now holds on leader reuse.
 - `9681c7247`: C-5.7 states each rule in one sentence.
 
-In progress: a foreground full process-world run, 2,000 examples, seed 13107, 25 steps, all scenarios and consumers. Output: `model-fixed-2000.txt`. A partial/empty file is not passing evidence. Wait for its exit before any further pytest or production edit. An early baseline/model overlap was caught; the first model was interrupted and awaited, and the authority model was rerun serially. Subsequent runs are serial.
+Completed: the full process world is quiet at 2,000 examples, seed 13107, 25 steps, all scenarios and consumers, with zero failing examples; the explicit residual test also passed. Output: `model-fixed-2000.txt` (2 passed in 1794.78 seconds). In progress: 500 examples, fresh seed 1564217222, output `model-fresh-500.txt`. A partial/empty file is not passing evidence. Wait for its exit before any further pytest or production edit. An early baseline/model overlap was caught; the first model was interrupted and awaited, and the authority model was rerun serially. Subsequent runs are serial.
 
 Remaining:
 
-1. Fix and separately commit any minimized S1/S2/P1/L1 counterexample from the full model; rerun until quiet at 2,000 examples with seed 13107.
-2. Run 500 examples with a newly generated seed, recording the seed and Hypothesis statistics.
+1. If the fresh run finds a counterexample, fix it in its own commit and rerun both required model budgets; the fixed-seed 2,000 run already passes at the current production revision.
+2. Await the 500-example run with fresh seed 1564217222 and record its statistics.
 3. Run every round-4/5/6 review probe (including both round6b files), unit census interleavings and mutation-runner controls; broaden only for relevant concerns.
 4. `tools/quarantine_mutations.py` adds the two authority consumers and each sampled-group discharge shortcut (33 cases total), removes only production bytecode caches and uses `--assert=plain` to avoid repeated assertion rewriting; Python assertions remain enabled. All 33 old snippets match exactly once. Run all mutations serially and require passing controls/assertion kills and exact source restoration; the cases and runner preparation are committed, their execution is pending.
 5. Replace this checkpoint with final report/results, commit, and regenerate/verify `docs/reports/2026-10-09-pr131-fix7c.bundle` from `refs/heads/feat/quarantine-self-resolve` with prerequisite a309de525882; name its exact head.
