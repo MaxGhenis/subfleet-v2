@@ -1,0 +1,20 @@
+{
+  "class": "content-filter",
+  "scope": null,
+  "clock_source": null,
+  "closure": false,
+  "native_session_id": "01a120d9-ee6a-7411-82bb-e07bc577f5ea",
+  "synthetic": false,
+  "provenance": {
+    "source": "v2",
+    "run": "20261009-092734-pr158-review-sol",
+    "lane": "codex-4",
+    "model": "gpt-6.1-sol",
+    "files": [
+      "a1/stream.jsonl",
+      "a1/stderr",
+      "a1/exit.json"
+    ],
+    "normalization": "Events copied verbatim from the attempt's stream: thread.started, turn.started, the one agent_message, and the error and turn.failed pair. The command_execution items (tool transcript) are removed. stderr and rc are the attempt's own. The run was classified unknown before this fixture existed, because CONTENT_RE did not match the provider's cybersecurity-flag wording."
+  }
+}

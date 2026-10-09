@@ -1,0 +1,175 @@
+# Frozen verbatim from 6805af2dedd7 (release/217).
+# Executed in an isolated namespace with unchanged lane-judging helpers;
+# freezing candidate construction, model-scope ordering and route selection.
+
+def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
+    """C-23.37: stronger models come from policy, never provider name guesses.
+
+    Explicit priorities compare models across separate task chains (Fable's
+    writing chain and the general-work chain). Older policies still express
+    ordering within their upward-only chains.
+    """
+    model = policy["models"][short]
+    higher = set()
+    for chain in policy["chains"].values():
+        if short in chain:
+            higher.update(chain[chain.index(short) + 1:])
+    priority = model.get("priority")
+    if priority is not None:
+        higher.update(name for name, other in policy["models"].items()
+                      if other.get("priority", -1) > priority)
+    return {policy["models"][name]["id"] for name in higher if name != short
+            and policy["models"][name]["provider"] == model["provider"]}
+
+
+def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any]:
+    """C-11.2, C-26.9: what `evaluate` settles before it looks at any lane.
+
+    The job's chain and the lane its pin names, the clock, the caps, the job's
+    exclusions, the attempts in flight in the job's pool, and the capacity
+    blocks (the fleet's or a parent's cap) that refuse every lane alike. It
+    reads the view's `now`, `lanes`, `in_flight` or `in_flight_turns`,
+    `reserved_probes`, `attempts` and `jobs`, and no reading or closure, so
+    C-6.3's check inside the reservation builds it from a few rows."""
+    job = _row(job)
+    authorization_reason = _unmeasured_reserve_reason(job)
+    now = _time(view["now"]) if view.get("now") else datetime.now(timezone.utc)
+    lanes = sorted((_row(lane) for lane in view.get("lanes", ())), key=lambda lane: lane["lane_id"])
+    caps = {**DEFAULT_CAPS, "reading_ttl_s": 120, **policy.get("caps", {})}
+    floor = policy.get("headroom_floor", HEADROOM_FLOOR)
+    excluded = job.get("exclusions") or ()
+    excluded = set(json.loads(excluded) if isinstance(excluded, str) else excluded)
+    pin = job.get("pinned_lane")
+    task, tier = job.get("task"), job.get("tier")
+    # An unknown task, tier, or model is the policy's to fix, not the job's: submit
+    # checked each against the policy it ran under (C-6.12).
+    if task is not None and task not in policy["chains"]:
+        raise ValueError(f"task: unknown task {task!r}")
+    if tier is not None and tier not in policy["tiers"]:
+        raise ValueError(f"tier: unknown tier {tier!r}")
+    if job.get("pinned_model"):
+        chain = [resolve_model(policy, job["pinned_model"])]
+    elif task:
+        default = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
+        chain = policy["chains"][task][policy["tiers"].index(tier or default):]
+    else:
+        chain = []
+    if chain and job_mcp_servers(job):
+        # C-12.9: only a Claude launch starts the MCP servers the job named. A
+        # policy edit since submit can leave none; that waits, as C-6.12 says.
+        chain = mcp_chain(policy, chain, job)
+        if not chain:
+            raise RouteError("mcp_servers: this job names MCP servers, which only a Claude launch "
+                             "starts, and its chain has no Claude model", policy_dependent=True)
+    # C-11.2: a pinned job evaluates one model, the first of its chain, so a lane
+    # of any other provider could never take it (`pin_provider` says the same).
+    selected = (resolve_lane(lanes, pin, policy["models"][chain[0]]["provider"] if chain else None,
+                             follow=not authorization_reason) if pin else None)
+    if authorization_reason and selected and pin != selected["lane_id"]:
+        raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
+    if not chain and selected:
+        if job_mcp_servers(job) and selected["provider"] != MCP_PROVIDER:
+            raise RouteError(f"mcp_servers: this job names MCP servers, which only a Claude launch starts, "
+                             f"and lane {pin!r} is a {selected['provider']} lane")
+        model_name = next((name for name, model in policy["models"].items()
+                           if model["provider"] == selected["provider"]), None)
+        if model_name is None:
+            raise PolicyError(policy.get("_policy_path", "policy.json"), "pinned_lane",
+                              f"lane {pin!r} has provider {selected['provider']!r} with no models in policy")
+        chain = [model_name]
+    elif not chain:
+        chain = (mcp_chain(policy, policy["models"], job) or [next(iter(policy["models"]))])[:1]
+    if pin:
+        chain = chain[:1]
+        if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
+            raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
+    # Repeated tiers on Fable and Terra do not create another admission chance.
+    chain = list(dict.fromkeys(chain))
+    # C-26.9: a conversation turn has its own capacity, counted apart from
+    # detached jobs: `conversations.max_active_turns` across the fleet and
+    # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy
+    # sets one. Neither kind waits for the other's slots; an attended turn never
+    # waits behind background work.
+    is_turn = _row(job).get("kind") == "turn"
+    conversation_caps = policy.get("conversations") or {}
+    key = "in_flight_turns" if is_turn else "in_flight"
+    in_flight = dict(view.get(key, {}))
+    if key not in view:
+        turn_jobs = {_row(item).get("job_id") for item in view.get("jobs", ()) if _row(item).get("kind") == "turn"}
+        for item in view.get("attempts", ()):
+            attempt = _row(item)
+            if attempt.get("state") in ACTIVE_ATTEMPTS and (attempt.get("job_id") in turn_jobs) == is_turn:
+                identity = attempt["lane_id"]
+                in_flight[identity] = in_flight.get(identity, 0) + 1
+    capacity_blocks = _parent_blocks(policy, view, job)
+    # C-6.4: each fleet cap is none unless the policy sets one.
+    fleet_cap = turn_cap(conversation_caps, "max_active_turns") if is_turn else cap(caps, "max_active_attempts")
+    if fleet_cap is not None and sum(in_flight.values()) + (0 if is_turn else view.get("reserved_probes", 0)) >= fleet_cap:
+        capacity_blocks.append("fleet")
+    return {"policy": policy, "job": job, "authorization_reason": authorization_reason, "now": now,
+            "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
+            "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
+            "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
+            "lane_spread": admission_settings(policy)["lane_spread"]}
+
+
+def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> Decision:
+    """C-11.2–C-11.6: walk upward, applying every rejection before comparison.
+
+    `prepare` settles the chain, the pin and the capacity blocks; each lane of
+    each model is judged alone (`judge_lane`) and the candidates ranked by
+    `rank_key`, so a lane can be judged again without the rest (C-6.3)."""
+    setup = prepare(policy, view, job)
+    job, now, pin, selected = setup["job"], setup["now"], setup["pin"], setup["selected"]
+    readings = [_row(item) for item in view.get("readings", ())]
+    closures = [_row(item) for item in view.get("closures", ())]
+    unavailable = view.get("unavailable_lanes", {})
+    by_lane_readings: dict[str, list[dict[str, Any]]] = {}
+    for row in readings:
+        by_lane_readings.setdefault(row["lane_id"], []).append(row)
+    by_lane_closures: dict[str, list[dict[str, Any]]] = {}
+    for row in closures:
+        by_lane_closures.setdefault(row["lane_id"], []).append(row)
+    chain, capacity_blocks = setup["chain"], setup["capacity_blocks"]
+    evaluations: list[dict[str, Any]] = []
+    chosen_lane = chosen_model = None
+    for index, short in enumerate(chain):
+        model = policy["models"][short]
+        higher_scopes = setup["higher"].get(short)
+        if higher_scopes is None:
+            higher_scopes = setup["higher"][short] = _higher_model_scopes(policy, short)
+        lanes_here = model_lanes(setup, short)
+        lane_ids = {lane["lane_id"] for lane in lanes_here}
+        scoped_readings = [row for row in readings if row["lane_id"] in lane_ids
+                           and row["scope"] in ("account", model["id"])]
+        scoped_closures = [row for row in closures if row["lane_id"] in lane_ids
+                          and row["scope"] in ("account", model["id"]) and _future_closure(row, now)]
+        candidates, rejections, details = [], [], {}
+        for lane in lanes_here:
+            identity = lane["lane_id"]
+            reasons, detail = judge_lane(setup, short, lane, by_lane_readings.get(identity, ()),
+                                         by_lane_closures.get(identity, ()),
+                                         in_flight=setup["in_flight"].get(identity, 0), unavailable=unavailable)
+            if reasons:
+                rejections.append({"lane_id": identity, "reason": reasons[0], "reasons": reasons, **detail})
+            else:
+                candidates.append(identity)
+                details[identity] = detail
+        candidates.sort(key=lambda identity: rank_key(setup, short, identity, details[identity]))
+        if candidates:
+            chosen_lane, chosen_model = candidates[0], short
+        reason = model_reason(setup, index, short, candidates, details)
+        evaluations.append({"model": short, "model_id": model["id"], "provider": model["provider"],
+                            "candidates": candidates, "candidate_details": details,
+                            "rejections": rejections, "rejected": rejections,
+                            "readings": scoped_readings,
+                            "capacity_readings": [row for row in readings if row["lane_id"] in lane_ids],
+                            "closures": scoped_closures, "capacity_blocks": list(capacity_blocks),
+                            "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
+                                and row["scope"] in higher_scopes and _future_closure(row, now)],
+                            "reason": reason, "evaluated_at": _iso(now)})
+        if candidates:
+            break
+    digest = job.get("policy_hash") or policy.get("_policy_hash", "")
+    return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
+                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now), digest)

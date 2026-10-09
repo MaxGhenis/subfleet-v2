@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +23,17 @@ DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
 # C-5.7: durable pacing of automatic quarantine censuses; not a force release.
 QUARANTINE_RECHECK_S = 600.0
+
+
+def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
+    """C-11.2: candidates from this tier upward, in first-preference order.
+
+    Slice tiers before flattening: a model repeated below the job's tier must
+    not suppress its occurrence in an eligible tier. Each model is tried once.
+    """
+    return list(dict.fromkeys(name for entry in chain[tier_index:]
+                             for name in (entry if isinstance(entry, list) else [entry])))
+
 
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
@@ -319,9 +330,17 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(key, "task name must be nonempty")
         if not isinstance(chain, list) or len(chain) != len(tiers):
             fail(key, "must be a list with one short model name per tier")
-        for index, model in enumerate(chain):
-            if not _name(model) or model not in models:
-                fail(f"{key}[{index}]", f"unknown model {model!r}; expected a models key")
+        for index, entry in enumerate(chain):
+            entry_key = f"{key}[{index}]"
+            if isinstance(entry, list) and not entry:
+                fail(entry_key, f"unknown model {entry!r}; expected a models key")
+            names = entry if isinstance(entry, list) else [entry]
+            for offset, model in enumerate(names):
+                model_key = f"{entry_key}[{offset}]" if isinstance(entry, list) else entry_key
+                if not _name(model) or model not in models:
+                    fail(model_key, f"unknown model {model!r}; expected a models key")
+                if model in names[:offset]:
+                    fail(model_key, f"duplicate model {model!r}")
     if value["fallback"] != "upward-only":
         fail("fallback", 'must be "upward-only"')
     if value["desktop_login"] != "never":
