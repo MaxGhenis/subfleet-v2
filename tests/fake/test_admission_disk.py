@@ -11,6 +11,14 @@ from tests.fake.test_admission_latency import measure, submit_turn
 from tests.unit.test_disk_admission import stamp
 
 
+@pytest.fixture(autouse=True)
+def non_git_workspace(monkeypatch):
+    # Harness.workdir is an empty non-git directory. Preserve that answer
+    # without spawning git for each of the 70 simulated submissions.
+    monkeypatch.setattr(daemon_module, "git_head", lambda *args, **kwargs: None)
+    monkeypatch.setattr(daemon_module, "git_toplevel", lambda *args, **kwargs: None)
+
+
 def enable(daemon, monkeypatch, free=46):
     reading = {"gb": free, "reads": 0, "paths": []}
 
