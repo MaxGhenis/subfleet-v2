@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from hypothesis import event, settings, strategies as st
+from hypothesis import Phase, event, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 import pytest
 
@@ -48,7 +48,7 @@ CONSUMERS = [os.environ["SF_WORLD_CONSUMER"]] if os.environ.get("SF_WORLD_CONSUM
 
 class World:
     def __init__(self):
-        self.processes = {100: Process(100, "guardian-start", 1, 100, 100, writer=False)}
+        self.processes = {100: Process(100, "guardian-start", 1, 100, 100, marked=False, writer=False)}
         self.serial = 0
         self.failures = set()
         self.hooks = []
@@ -298,7 +298,8 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         event("scenario=" + scenario)
         if scenario == "ordinary":
             return
-        self.world.exit(100)
+        if scenario != "retained-authority":
+            self.world.exit(100)
         # These are small, generated compositions of kernel transitions. The
         # census's first table misses the late writer; subsequent reads do not.
         def late_spawn():
@@ -320,8 +321,6 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         self.pair(resolve=True)
         self.world.failures.clear()
         if scenario == "retained-authority":
-            self.world.spawn(100, writer=False, marked=False)
-            self.world.processes[100].start = "guardian-start"
             self.world.processes[200].marked = source == "marker"
             self.world.processes[200].cwd = source == "cwd"
             self.world.failures.add("confirm")
@@ -414,7 +413,8 @@ class ProcessWorldMachine(RuleBasedStateMachine):
 
 TestProcessWorld = ProcessWorldMachine.TestCase
 TestProcessWorld.settings = settings(max_examples=int(os.environ.get("SF_WORLD_EXAMPLES", "100")),
-    stateful_step_count=25, deadline=None, database=None)
+    stateful_step_count=25, deadline=None, database=None,
+    phases=[phase for phase in Phase if phase != Phase.explain])
 
 
 def test_unconditional_s1_has_the_documented_invisible_writer_counterexample():
