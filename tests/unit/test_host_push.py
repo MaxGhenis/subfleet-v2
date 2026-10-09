@@ -429,6 +429,8 @@ SYMLINKS = {
     "parent": ({"link": "../x"}, "'..' component"),
     "nested-parent": ({"dir/b": "..", "link": "dir/b/../.."}, "'..' component"),
     "fullwidth-parent": ({"link": "\uff0e\uff0e/x"}, "'..' component"),
+    "fullwidth-separator": ({"link": "\uff0e\uff0e\uff0fx"}, "'..' component"),
+    "two-dot-leader": ({"link": "\u2025/x"}, "'..' component"),
     "chain": ({"a": "b", "b": "c"}, "passes through another symlink"),
     "through-directory-link": ({"d": "sub", "e": "D/file"}, "passes through another symlink"),
 }

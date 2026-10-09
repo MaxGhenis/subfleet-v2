@@ -541,7 +541,9 @@ def check_symlinks(links: dict[bytes, bytes]) -> None:
                 or re.match(r"[A-Za-z]:", target)):
             raise PushError(f"symlink {shown} has an absolute target")
         parts = target.split("/")
-        if any(_parent_component(part) for part in parts):
+        # Normalize before splitting too: NFKC can turn a fullwidth slash
+        # into a separator, exposing a normalized parent component.
+        if any(_parent_component(part) for part in unicodedata.normalize("NFKC", target).split("/")):
             raise PushError(f"symlink {shown} has a '..' component in its target")
         walk = name.split("/")[:-1]
         steps = [walk[:end] for end in range(1, len(walk) + 1)]
