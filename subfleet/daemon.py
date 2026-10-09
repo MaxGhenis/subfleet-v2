@@ -4033,7 +4033,7 @@ class Daemon:
         if leader_live:
             owned.update({p: ident for p, ident in census.identities.items()
                           if p in census.group_pids
-                          and census.shapes.get(p, {}).get("pgid", record.get("pgid")) == record.get("pgid")})
+                          and census.shapes.get(p, {}).get("pgid") == record.get("pgid")})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
         if not census.verified_empty and record.get("state") != "quarantined":
@@ -6296,7 +6296,7 @@ class Daemon:
         if leader_live:
             owned.update({pid: ident for pid, ident in census.identities.items()
                           if pid in census.group_pids
-                          and census.shapes.get(pid, {}).get("pgid", a.get("pgid")) == a.get("pgid")})
+                          and census.shapes.get(pid, {}).get("pgid") == a.get("pgid")})
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}),
                                                                before, evidence["owned_identities"])
