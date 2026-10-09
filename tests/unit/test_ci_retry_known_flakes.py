@@ -322,3 +322,29 @@ def test_unverifiable_junit_fails_closed(project, report, on_retry):
     assert result.returncode == 1
     assert len(runs) == (2 if on_retry else 1)
     assert WARNING not in result.stdout
+
+
+def _junit(tmp_path, **attrs):
+    report = tmp_path / "r.xml"
+    case = " ".join(f'{key}="{value}"' for key, value in attrs.items())
+    report.write_text(f'<testsuites><testsuite><testcase {case}/></testsuite></testsuites>')
+    return report
+
+
+def test_an_inherited_test_method_maps_to_its_test_module(tmp_path, monkeypatch):
+    """Hypothesis's RuleBasedStateMachine.runTest reports hypothesis/stateful.py as its
+    file (CI run 37923257140); the node id comes from the classname's module."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests" / "fake").mkdir(parents=True)
+    (tmp_path / "tests" / "fake" / "test_probe_cancel.py").write_text("")
+    report = _junit(tmp_path, classname="tests.fake.test_probe_cancel.TestProbeCancelMachine",
+                    name="runTest", file=".venv/lib/python3.12/site-packages/hypothesis/stateful.py")
+    assert retry_tool.read_outcomes(report) == {
+        "tests/fake/test_probe_cancel.py::TestProbeCancelMachine::runTest": {"passed"}}
+
+
+def test_a_testcase_with_no_module_in_the_checkout_still_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    report = _junit(tmp_path, classname="nowhere.TestX", name="runTest", file="site-packages/x.py")
+    with pytest.raises(ValueError, match="cannot reconstruct"):
+        retry_tool.read_outcomes(report)

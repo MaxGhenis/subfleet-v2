@@ -47,8 +47,16 @@ def read_outcomes(path: Path) -> dict[str, set[str]]:
         classname = case.get("classname", "")
         name = case.get("name", "")
         module = file.removesuffix(".py").replace("/", ".")
-        if (not file.endswith(".py") or not name
-                or not (classname == module or classname.startswith(module + "."))):
+        if not (file.endswith(".py") and (classname == module or classname.startswith(module + "."))):
+            # An inherited test method reports the file that defines it, not the
+            # test module: Hypothesis's RuleBasedStateMachine.runTest says
+            # hypothesis/stateful.py. Recover the module from the classname: the
+            # longest dotted prefix that names a .py file in this checkout.
+            parts = classname.split(".")
+            module = next((".".join(parts[:i]) for i in range(len(parts), 0, -1)
+                           if Path(*parts[:i]).with_suffix(".py").is_file()), "")
+            file = module.replace(".", "/") + ".py" if module else ""
+        if not file or not name:
             raise ValueError(f"cannot reconstruct pytest node id: {case.attrib}")
         classes = classname[len(module):].lstrip(".").split(".") if classname != module else []
         node = "::".join([file, *classes, name])
