@@ -2628,9 +2628,11 @@ class Daemon:
                 # says so in its record and its evidence: what the adapter then reads
                 # off a stream cut short is not the provider's own ending. Only while
                 # its guardian runs: one found gone (a recovery after the deadline)
-                # was not stopped by anyone (review of #154, P3-2).
-                if record.get("guardian_pid") and procs.same_process(
-                        record["guardian_pid"], record.get("boot_id"), record.get("proc_start")):
+                # was not stopped by anyone (review of #154, P3-2). A look that
+                # failed is no evidence that it is gone (C-5.3, `procs.liveness`):
+                # containment looks again and stops it (review of #154 r3, P3-A).
+                if procs.liveness(record.get("guardian_pid"), record.get("boot_id"),
+                                  record.get("proc_start")) != "dead":
                     record["stopped"] = "deadline"
                 break
             # C-5.11, as for a running attempt: the receipt, the job and the
@@ -3202,11 +3204,12 @@ class Daemon:
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._route(decision_job, extra_exclusions=(*extra_exclusions, *rotation),
                                        desktop=desktop_account)
-                if rotation and (decision.chosen_model != rotated_model if decision.chosen_lane
+                if rotation and (scheduler.promoted_past(decision, rotated_model) if decision.chosen_lane
                                  else scheduler.left_out_only(decision, rotation)):
                     # C-11.4: the lane rotation chose stopped taking the job between its
                     # probe and this reservation, and with the lanes it left out still out
-                    # the chain would walk on, or a lane it left out is all that would
+                    # the chain would walk on past its model (an earlier model is no
+                    # promotion: review of #153 r2, P3-A), or a lane it left out is all that would
                     # take the job. Rotation never promotes a job, nor refuses it a lane it
                     # left out: the job waits on C-6.10's clock and looks again, and the
                     # next look starts a new round when no other lane of the model will

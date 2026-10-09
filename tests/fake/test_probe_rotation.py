@@ -336,6 +336,40 @@ def test_a_lock_wait_before_the_reservation_spends_neither_clock(routing_state, 
     assert service.store.get_job(job_id)["next_check_at"] == stamp(reserved + timedelta(seconds=PROBE_RETRY_S))
 
 
+def test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved(fleet, monkeypatch):
+    """I6, review of #153 r2 (P3-A, the same code here): chain [opus, astra]; claude-1 is measured but
+    closed to Opus, so rotation runs on Astra (codex-1 says nothing, codex-2 answers). The Opus closure
+    is lifted before the reservation, whose evaluation then chooses claude-1/opus: the job's own first
+    model, no promotion. It is reserved there, not held."""
+    from tests.fake.test_routing_end_to_end import claude_lane
+    service, harness = fleet
+    service.store.put_lane(claude_lane("claude-1"))
+    service.store.add_reading(Reading("claude-1", "account", "seven_day", .1, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", utcnow()))
+    service.store.add_closure(Closure("claude-1", "claude-opus-5-5", after(3600), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+    service.policy["tiers"].append("highest")
+    service.policy["chains"]["research"] = ["haiku", "sonnet", "opus", "opus", "astra"]
+    job_id = submit(service, harness, pinned_model=None, task="research")
+    probes = Probes(service, monkeypatch, [CUT, OK])
+    service._admit()
+    prepare = service._prepare_route
+
+    def then_reopen(*args):
+        result = prepare(*args)
+        if result[0] is not None:
+            with service.store.transaction("fixture.release") as tx:
+                tx.execute("UPDATE closures SET released_at=? WHERE lane_id='claude-1' AND released_at IS NULL",
+                           (utcnow(),))
+        return result
+    monkeypatch.setattr(service, "_prepare_route", then_reopen)
+    make_due(service)
+    service._admit()
+    assert probes.lanes() == ["codex-1", "codex-2"]
+    assert [(row["lane_id"], row["model_requested"]) for row in service.store.list_attempts(job_id)] == [
+        ("claude-1", "claude-opus-5-5")]
+
+
 def test_a_pinned_job_probes_its_lane_again(routing_state, monkeypatch):
     """I6: a lane pin has no other lane to go to."""
     service, harness = routing_state
@@ -378,7 +412,7 @@ def test_a_probe_stopped_at_its_deadline_says_so(routing_state, monkeypatch):
     record = reserved_probe(service, submit(service, harness))
     record["deadline_at"] = after(-1)
     monkeypatch.setattr(service, "_contain_probe", lambda value: True)
-    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: True)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *a, **k: "alive")
     assert service._await_probe(record) == (True, None)
     assert record["stopped"] == "deadline"
 
@@ -394,7 +428,7 @@ def test_a_probe_that_ended_by_itself_is_not_called_stopped(routing_state, monke
 
 
 @pytest.mark.parametrize("receipt_after_stop", [False, True])
-@pytest.mark.parametrize("guardian_alive", [True, False])
+@pytest.mark.parametrize("guardian_alive", ["alive", "dead", "unknown"])
 def test_a_recovered_probe_says_it_was_stopped_only_if_it_was(routing_state, monkeypatch, receipt_after_stop,
                                                               guardian_alive):
     """Review of #154: recovery completed a probe it stopped at the deadline without `stopped`, with or
@@ -410,12 +444,14 @@ def test_a_recovered_probe_says_it_was_stopped_only_if_it_was(routing_state, mon
             exit_receipts(value)
         return procs.Containment()
     monkeypatch.setattr(service, "_probe_census", census)
-    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: guardian_alive)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *a, **k: guardian_alive)
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: guardian_alive == "alive")
     monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *a, **k: pytest.fail("signalled"))
     service._recover_probes()
     completed = json.loads(service.store.query("SELECT data_json FROM events WHERE kind='probe.completed' "
                                                "AND data_json<>'{}'")[-1]["data_json"])
-    assert completed["evidence"].get("stopped") == ("deadline" if guardian_alive else None)
+    # A look that failed ("unknown") is no evidence the guardian is gone (review of #154 r3, P3-A).
+    assert completed["evidence"].get("stopped") == (None if guardian_alive == "dead" else "deadline")
 
 
 def test_a_probe_whose_adapter_raised_after_its_deadline_says_so(routing_state, monkeypatch):
@@ -431,6 +467,7 @@ def test_a_probe_whose_adapter_raised_after_its_deadline_says_so(routing_state, 
     monkeypatch.setattr(daemon_module.os, "write", lambda fd, value: None if fd == 801 else write(fd, value))
     monkeypatch.setattr(daemon_module.subprocess, "Popen", lambda *a, **k: SimpleNamespace(pid=900001, poll=lambda: None))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: True)    # running at its deadline
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *a, **k: "alive")
     monkeypatch.setattr(service, "_probe_census", lambda value: exit_receipts(value) or procs.Containment())
 
     def classify(*args):
