@@ -4082,6 +4082,10 @@ class Daemon:
                                    "rc": receipt.get("rc"), "signal": receipt.get("signal")})
 
     def _finish_probe(self, record: dict, outcome: Outcome) -> None:
+        if record.get("stopped") and "stopped" not in outcome.evidence:
+            # C-11.4: on every way a probe completes, not only the one that
+            # classified its receipt: recovery, an adapter that raised.
+            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, "stopped": record["stopped"]})
         if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
             outcome = dataclasses.replace(outcome, closure=Closure(
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
@@ -4916,8 +4920,11 @@ class Daemon:
                     self._unroutable(job, exc, holds)
                     continue
             decision, basis = early
-            # C-11.4: the lanes `_probe_choice` left out stay out if the route is evaluated again.
-            route_exclusions = (*extra_exclusions, *basis.get("rotation", ()))
+            # C-11.4: the lanes `_probe_choice` left out stay out if the route is evaluated again,
+            # and what it chose is what the reservation may take.
+            rotation = tuple(basis.get("rotation", ()))
+            route_exclusions = (*extra_exclusions, *rotation)
+            rotated = (decision.chosen_lane, decision.chosen_model)
             status, route, last, probed = "moved", {"failed": False}, None, frozenset()
             for tries in range(1, ROUTE_TRIES + 1):
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
@@ -4951,6 +4958,24 @@ class Daemon:
                                                                                 decision.chosen_model)
                         decision = standing
                         self._count_route(**{"reused" if same else "rechosen": 1}, rejudged=judged)
+                        if rotation and (not decision.chosen_lane or decision.chosen_model != rotated[1]):
+                            # C-11.4: the lane `_probe_choice` chose stopped taking the job
+                            # between its probe and this reservation, and with the lanes it
+                            # left out still out the chain would walk on, or nothing would
+                            # take the job (review of #154). Rotation never promotes a job,
+                            # nor refuses it a lane it left out: the job looks again, and the
+                            # next pass starts a new round when no other lane will take it.
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                            hold = {"reason": "probe-pending", "lane": rotated[0], "model": rotated[1]}
+                            if kind == "detached":
+                                probe_line.append((job["job_id"], rotated[1], lanes))    # C-6.9
+                            rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
+                            next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                                       (next_check, job["job_id"]))
+                            holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                            status = "held"
+                            break
                         if extra_exclusions:
                             job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                             tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
