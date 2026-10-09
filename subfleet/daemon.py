@@ -25,6 +25,7 @@ import signal
 import shutil
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -450,23 +451,43 @@ def _outside(prefix: str) -> bool:
     return prefix == os.pardir or prefix.startswith(os.pardir + os.sep) or os.path.isabs(prefix)
 
 
-def _check_output_prefixes(path: Path) -> None:
-    """Probe loops even beyond an absent component that strict resolve stops at."""
-    absolute = path.absolute()
-    prefix = Path(absolute.anchor)
-    for part in absolute.parts[1:]:
-        # Non-strict resolution can proceed past Missing/../loop. Keep walking
-        # after ENOENT, without erasing a loop followed by another '..'.
-        prefix = prefix.parent if part == os.pardir else prefix / part
+def _resolve_output_path(path: str | Path) -> Path:
+    """Resolve POSIX components, allowing missing names but at most 40 links.
+
+    Expand each link relative to its own directory before consuming '..'.
+    Missing prefixes leave their suffix lexical until '..' reaches an existing
+    directory again. Unlike non-strict pathlib resolution, never suppress ELOOP.
+    """
+    spelling = os.fspath(path)
+    pending = spelling.split(os.sep)[::-1]
+    resolved = os.sep if spelling.startswith(os.sep) else os.getcwd()
+    hops = 0
+    while pending:
+        name = pending.pop()
+        if not name or name == os.curdir:
+            continue
+        if name == os.pardir:
+            resolved = os.path.dirname(resolved) or os.sep
+            continue
+        candidate = os.path.join(resolved, name)
         try:
-            os.stat(prefix)
-        except OSError as exc:
-            if exc.errno == errno.ELOOP:
-                raise
-        else:
-            # A symlink's '..' belongs to its target, not its typed parent.
-            if prefix.is_symlink():
-                prefix = prefix.resolve(strict=True)
+            mode = os.lstat(candidate).st_mode
+            if not stat.S_ISLNK(mode):
+                if pending and not stat.S_ISDIR(mode):
+                    raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), candidate)
+                resolved = candidate
+                continue
+            hops += 1
+            if hops > 40:
+                raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), candidate)
+            target = os.readlink(candidate)
+        except FileNotFoundError:
+            resolved = candidate
+            continue
+        if os.path.isabs(target):
+            resolved = os.sep
+        pending.extend(target.split(os.sep)[::-1])
+    return Path(resolved)
 
 
 def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
@@ -1896,20 +1917,7 @@ class Daemon:
                 try:
                     out = None
                     if args.out_path:
-                        requested_out = Path(args.out_path).expanduser()
-                        try:
-                            resolved_out = requested_out.resolve(strict=True)
-                        except OSError as exc:
-                            if exc.errno == errno.ELOOP:
-                                raise
-                            # ENOENT can hide a later loop. On Python 3.14 the
-                            # fallback suppresses ELOOP; on 3.12 it can raise
-                            # RuntimeError. Probe both spellings and guard both
-                            # resolutions with the same refusal handler.
-                            _check_output_prefixes(requested_out)
-                            resolved_out = requested_out.resolve()
-                            _check_output_prefixes(resolved_out)
-                        out = str(resolved_out)
+                        out = str(_resolve_output_path(Path(args.out_path).expanduser()))
                 except (RuntimeError, OSError) as exc:
                     if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
                         raise
