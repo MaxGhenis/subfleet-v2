@@ -23,6 +23,7 @@ final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
+    @Published private(set) var accountSnapshot: Snapshot?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
     @Published private(set) var failedDrafts: [FailedConversationDraft] = []
@@ -175,6 +176,7 @@ final class UIModel: ObservableObject {
     }
 
     func refreshList() async {
+        refreshAccountUsage()
         guard let engine, state.availability.isReady else { return }
         do {
             let list = try await onOutbox { try engine.list(query: nil, provider: nil) }
@@ -356,6 +358,20 @@ final class UIModel: ObservableObject {
             }
             report(error)
         }
+    }
+
+    /// A read of the same status projection used by the quota panel; no RPC additions.
+    func refreshAccountUsage() {
+        let environment = ProcessInfo.processInfo.environment
+        guard let url = resolveDaemonEndpoint(environment: environment, home: FileManager.default.homeDirectoryForCurrentUser,
+                                              flavor: .current).endpoint?.statusURL,
+              let data = try? Data(contentsOf: url),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            accountSnapshot = nil
+            return
+        }
+        accountSnapshot = snapshot
+        state.laneLabels = laneLabels(from: snapshot)
     }
 
     /// Lanes ready per provider, read from `status.json` now; empty when the
@@ -964,6 +980,10 @@ final class UIModel: ObservableObject {
             _ = try await onOutbox {
                 try engine.respond(to: detail, decision: decision, answers: answers, message: message,
                                    reviewedMasked: reviewedMasked)
+            }
+            if let answers, decision == "answer" {
+                state.timelines[detail.approval.conversation_id]?.noteApprovalAnswer(
+                    approvalID: detail.approval.approval_id, answers: answers)
             }
             let approvals = try? await onOutbox { try engine.approvals(conversationID: detail.approval.conversation_id) }
             if let approvals { state.apply(approvals: approvals, conversationID: detail.approval.conversation_id) }
