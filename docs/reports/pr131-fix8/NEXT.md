@@ -3,26 +3,29 @@ All four fixes are committed in .git-local on feat/quarantine-self-resolve:
 6d6c0546b (every protected lease and actual worktree), e4d51cdfd (contract).
 No production code changed from 169f6b6c17ae.
 
-Completed verification:
-- Final strengthened historical replay: 8/8 minimized S1/S2 counterexamples,
-  including the previously omitted missing-start branch at 977999487, plus
-  all seven cases on 887552207, 951d9623f and 684dc4d130c5.
-- 33/33 production and 4/4 oracle mutations, all with passing controls.
-- All 364 historical state and targeted checks passed. The initial migration
-  skip was resolved by rebuilding the synthetic schema-6 fixture from 08d6a09a.
-  Background-process host probes were excluded under the user's constraint.
+Completed verification before the final audit:
+- Eight historical minimized S1/S2 counterexamples, including missing-start
+  977999487 plus all seven cases on 887552207, 951d9623f, 684dc4d130c5.
+- 33/33 production and 4/4 oracle mutations with passing controls.
+- 364 historical state and targeted checks, including rebuilt schema-6 migration.
+- 2,000 fixed-seed and 500 fresh-seed quiet worlds archived in first-proof/.
+
+The final audit reproduced a further S2 overrestriction: a complete child table
+identity can become owned after fresh scalar leader confirmation even if the
+leader's table start is unavailable. It may then escape after handling SIGTERM
+before its first SIGKILL. Two table-complete cases reproduced the oracle failure;
+four incomplete-child cases correctly held. No production bug or code change.
+The primary model now covers both cases; the oracle acquires only full original-
+group member identities, never identities known only through later sampling.
 
 Remaining work:
-1. Finish the foreground tools/quarantine_world_proof.py run. It requires
-   exactly 2,000 passing, zero failing worlds at fixed seed 131, then 500 at
-   freshly drawn seed 11783757351826154477. Progress is fixture completions,
-   including invalid draws; only final Hypothesis statistics prove counts.
-   Logs: model-fixed-2000.txt, model-fresh-500.txt, world-proof.txt; configuration
-   and byte-restoration evidence: proof-config.json, proof-restoration.json.
-   Commit completed proof evidence. If interrupted, re-run with those explicit
-   counts/seeds in a new fresh Darwin user temp directory, serially, -B,
-   --assert=plain, --hypothesis-show-statistics, no -n. Production/model must
-   remain byte-identical throughout. Never leave background processes running.
+1. Complete new controls, five oracle mutations and replay all eight historical
+   cases with the final stronger model. Run targeted checks again if required.
+   Then run tools/quarantine_world_proof.py foreground and serially: exactly
+   2,000 passing, zero failing worlds at seed 131 and 500 at a newly drawn seed.
+   Keep first-proof/ as predecessor evidence; final root logs must correspond
+   to final model bytes. Progress counts include invalid draws; use final
+   Hypothesis statistics as the proof. Commit code and each verification step.
 2. Write the final concise report with fix file:line references, complete
    historical verdict table, mutation table link, test counts and scope.
    Remove NEXT.md only when the required work is complete.

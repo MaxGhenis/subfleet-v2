@@ -36,3 +36,4 @@ oracle	S1 ignores writers after markers disappear	PASS	KILLED	tests/fake/test_qu
 oracle	S2 accepts confirmed foreign-group identities	PASS	KILLED	tests/fake/test_review_pr131_round7_model.py::test_s2_oracle_rejects_foreign_group_signal
 oracle	S2 rejects a confirmed previously owned escape	PASS	KILLED	tests/fake/test_review_pr131_round7_model.py::test_previously_owned_escape_is_a_valid_signal_target[attempt]
 oracle	S1 accepts losing one protected lease	PASS	KILLED	tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease[worktree:]
+oracle	S2 rejects full member ownership after scalar leader confirmation	PASS	KILLED	tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_respects_member_identity[table-attempt]

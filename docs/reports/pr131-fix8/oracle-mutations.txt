@@ -1,6 +1,6 @@
 CONTROL S1 ignores writers after markers disappear: exit 0
 .                                                                        [100%]
-1 passed in 5.45s
+1 passed in 11.65s
 
 KILLED S1 ignores writers after markers disappear: exit 1
 F                                                                        [100%]
@@ -23,16 +23,16 @@ ___ test_unconditional_s1_has_the_documented_invisible_writer_counterexample ___
                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E           Failed: DID NOT RAISE AssertionError
 
-tests/fake/test_quarantine_process_world.py:533: Failed
+tests/fake/test_quarantine_process_world.py:559: Failed
 ------------------------------ Captured log call -------------------------------
-INFO     subfleet.daemon.4487297552:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4491852304:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
 =========================== short test summary info ============================
 FAILED tests/fake/test_quarantine_process_world.py::test_unconditional_s1_has_the_documented_invisible_writer_counterexample
-1 failed in 9.33s
+1 failed in 4.01s
  
 CONTROL S2 accepts confirmed foreign-group identities: exit 0
 .                                                                        [100%]
-1 passed in 5.31s
+1 passed in 6.20s
 
 KILLED S2 accepts confirmed foreign-group identities: exit 1
 F                                                                        [100%]
@@ -51,11 +51,11 @@ E       Failed: DID NOT RAISE AssertionError
 tests/fake/test_review_pr131_round7_model.py:147: Failed
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_s2_oracle_rejects_foreign_group_signal
-1 failed in 4.13s
+1 failed in 5.76s
  
 CONTROL S2 rejects a confirmed previously owned escape: exit 0
 .                                                                        [100%]
-1 passed in 11.43s
+1 passed in 7.48s
 
 KILLED S2 rejects a confirmed previously owned escape: exit 1
 F                                                                        [100%]
@@ -81,30 +81,30 @@ consumer = 'attempt'
 
 tests/fake/test_review_pr131_round7_model.py:174: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-tests/fake/test_quarantine_process_world.py:460: in kill
+tests/fake/test_quarantine_process_world.py:485: in kill
     @rule(consumer=st.sampled_from(["attempt", "probe"]))
                ^^^^^^^^^^^^^^^^^
 .venv/lib/python3.14/site-packages/hypothesis/stateful.py:1061: in precondition_wrapper
     return f(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^
-tests/fake/test_quarantine_process_world.py:460: in kill
+tests/fake/test_quarantine_process_world.py:485: in kill
     @rule(consumer=st.sampled_from(["attempt", "probe"]))
                ^^^^^^^^^^^^^^^^^
 .venv/lib/python3.14/site-packages/hypothesis/stateful.py:934: in rule_wrapper
     return f(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^
-tests/fake/test_quarantine_process_world.py:468: in kill
+tests/fake/test_quarantine_process_world.py:494: in kill
     self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
 subfleet/daemon.py:6318: in _kill_attempt
     procs.signal_process(owned[pid], signal.SIGKILL)
 subfleet/procs.py:789: in signal_process
     os.kill(recorded.pid, sig)
-tests/fake/test_quarantine_process_world.py:304: in <lambda>
+tests/fake/test_quarantine_process_world.py:315: in <lambda>
     self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-self = <tests.fake.test_quarantine_process_world.World object at 0x107d26e40>
+self = <tests.fake.test_quarantine_process_world.World object at 0x10a986e40>
 pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
 
     def signal(self, pid, sig, *, via_group=False):
@@ -115,18 +115,18 @@ pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
 >       assert p is not None and not p.zombie and (
             p.pgid == 100 and original_group), (
             "S2 stray signal", pid, self.rows(), self.trace)
-E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (100, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('setsid', 200, 300), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1), ('read', 'table', 2), ('read', 'markers', 2), ('read', 'cwd', 2)])
+E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (100, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('setsid', 200, 300), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1), ('read', 'signal_group', 1), ('read', 'signal_group', 2), ('read', 'table', 2), ('read', 'markers', 2), ('read', 'cwd', 2)])
 
-tests/fake/test_quarantine_process_world.py:248: AssertionError
+tests/fake/test_quarantine_process_world.py:258: AssertionError
 ------------------------------ Captured log call -------------------------------
-INFO     subfleet.daemon.4425874272:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4463754080:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_previously_owned_escape_is_a_valid_signal_target[attempt]
-1 failed in 13.77s
+1 failed in 14.13s
  
 CONTROL S1 accepts losing one protected lease: exit 0
 .                                                                        [100%]
-1 passed in 9.22s
+1 passed in 8.03s
 
 KILLED S1 accepts losing one protected lease: exit 1
 F                                                                        [100%]
@@ -158,10 +158,82 @@ E           Failed: DID NOT RAISE AssertionError
 
 tests/fake/test_review_pr131_round7_model.py:89: Failed
 ------------------------------ Captured log call -------------------------------
-INFO     subfleet.daemon.4464687968:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4421942112:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
 =========================== short test summary info ============================
 FAILED tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease[worktree:]
-1 failed in 8.42s
+1 failed in 10.57s
  
-4/4 own-oracle mutations killed
-model SHA-256 before/after: f0dbfdad2d5889e8ee20c7f406ea0ce5b5c37cfac224a75a1707a86c28854d62 / f0dbfdad2d5889e8ee20c7f406ea0ce5b5c37cfac224a75a1707a86c28854d62
+CONTROL S2 rejects full member ownership after scalar leader confirmation: exit 0
+.                                                                        [100%]
+1 passed in 7.58s
+
+KILLED S2 rejects full member ownership after scalar leader confirmation: exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_fresh_leader_confirmation_respects_member_identity[table-attempt] ____
+
+consumer = 'attempt', source = 'table'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["table", "marker", "cwd"])
+    def test_fresh_leader_confirmation_respects_member_identity(consumer, source):
+        machine = ProcessWorldMachine()
+        try:
+            machine.world.fork(100, 200)
+            machine.world.missing_starts.add(("table", 100))
+            if source != "table":
+                machine.world.missing_starts.add(("table", 200))
+                machine.world.processes[200].marked = source == "marker"
+                machine.world.processes[200].cwd = source == "cwd"
+            # SIGTERM may be handled/ignored; this precedes the child's first
+            # SIGKILL and requires no post-SIGKILL execution.
+            machine.world.hooks.append(("signal_group", 1, lambda: machine.world.change("setsid", 200)))
+>           machine.kill(consumer)
+
+tests/fake/test_review_pr131_round7_model.py:270: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_quarantine_process_world.py:485: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:1061: in precondition_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:485: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:934: in rule_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:494: in kill
+    self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
+subfleet/daemon.py:6318: in _kill_attempt
+    procs.signal_process(owned[pid], signal.SIGKILL)
+subfleet/procs.py:789: in signal_process
+    os.kill(recorded.pid, sig)
+tests/fake/test_quarantine_process_world.py:315: in <lambda>
+    self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
+                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.fake.test_quarantine_process_world.World object at 0x10a036e40>
+pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
+
+    def signal(self, pid, sig, *, via_group=False):
+        p = self.processes.get(pid)
+        leader = self.processes.get(100)
+        original_group = leader is None or leader.start == "guardian-start"
+        assert not self.resolving, "resolvers must never signal"
+>       assert p is not None and not p.zombie and (
+            (p.pgid == 100 and original_group) or (pid, p.start) in self.owned), (
+            "S2 stray signal", pid, self.rows(), self.trace)
+E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (100, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1), ('read', 'signal_group', 1), ('setsid', 200, 300), ('read', 'signal_group', 2), ('read', 'table', 2), ('read', 'markers', 2), ('read', 'cwd', 2)])
+
+tests/fake/test_quarantine_process_world.py:258: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4454202208:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_respects_member_identity[table-attempt]
+1 failed in 8.52s
+ 
+5/5 own-oracle mutations killed
+model SHA-256 before/after: bc16eb28b4b916a7a3ccc6f519a9e9dd4466e3e90d86b68d66a2375ac36c5afc / bc16eb28b4b916a7a3ccc6f519a9e9dd4466e3e90d86b68d66a2375ac36c5afc

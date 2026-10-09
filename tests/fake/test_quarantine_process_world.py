@@ -42,7 +42,8 @@ PHASES = st.sampled_from(["table", "markers", "cwd", "identity", "group", "confi
 OPERATIONS = st.sampled_from(["spawn", "fork", "exit", "zombie", "reap", "reparent",
                              "setsid", "group", "chdir", "scrub", "reuse_pid", "reuse_pgid"])
 SCENARIOS = ["ordinary", "failed-bracket-child", "reused-before-group", "retained-authority",
-             "paced-missing-start", "paced-owned-escape", "paced-unowned-escape"]
+             "paced-missing-start", "paced-owned-escape", "paced-unowned-escape",
+             "missing-leader-owned-escape", "missing-member-unowned-escape"]
 if os.environ.get("SF_WORLD_SCENARIO"):
     SCENARIOS = [os.environ["SF_WORLD_SCENARIO"]]
 CONSUMERS = [os.environ["SF_WORLD_CONSUMER"]] if os.environ.get("SF_WORLD_CONSUMER") else ["attempt", "probe"]
@@ -67,6 +68,7 @@ class World:
         # complete identities observed in the original, verified group count.
         self.owned = {(100, "guardian-start")}
         self.capturing_ownership = False
+        self.ownership_candidates = set()
         # Read visibility varies independently of the kernel's real identity.
         self.missing_starts = set()
         self.partial_starts = set()
@@ -169,6 +171,12 @@ class World:
                 for pid, row in self.rows().items()}
         table = procs.ProcessTable(rows, BOOT)
         if self.capturing_ownership:
+            # A fresh scalar confirmation of the original leader can verify
+            # this group even when its table start is unavailable. Only full
+            # table member identities qualify; later samples alone do not.
+            if table.boot_id == BOOT:
+                self.ownership_candidates.update((pid, row[3]) for pid, row in table.rows.items()
+                                                 if row[1] == 100 and not row[2].startswith("Z") and row[3])
             self.record_ownership(table)
         roots = [p.pid for p in self.processes.values() if
                  (p.pid, p.start) in self.observed or p.pgid in self.groups]
@@ -222,6 +230,8 @@ class World:
                  and ("identity", pid) not in self.partial_starts)
         if match:
             self.signal_checks[pid] = (boot, start)
+            if pid == 100 and self.capturing_ownership:
+                self.owned.update(self.ownership_candidates)
         return match
 
     def read(self, argv, **kwargs):
@@ -258,6 +268,7 @@ class World:
         for p in list(self.processes.values()):
             if p.pgid == pgid and not p.zombie:
                 self.signal(p.pid, sig, via_group=True)
+        self.after("signal_group")
 
 
 class ProcessWorldMachine(RuleBasedStateMachine):
@@ -356,6 +367,20 @@ class ProcessWorldMachine(RuleBasedStateMachine):
     def initial(self, source, scenario, consumer):
         event("scenario=" + scenario)
         if scenario == "ordinary":
+            return
+        if scenario in {"missing-leader-owned-escape", "missing-member-unowned-escape"}:
+            self.world.fork(100, 200)
+            self.world.missing_starts.add(("table", 100))
+            complete_member = scenario == "missing-leader-owned-escape"
+            if not complete_member:
+                self.world.missing_starts.add(("table", 200))
+                self.world.processes[200].marked = source == "marker"
+                self.world.processes[200].cwd = source == "cwd"
+            # A child may handle SIGTERM and escape before its first SIGKILL.
+            self.world.hooks.append(("signal_group", 1, lambda: self.world.change("setsid", 200)))
+            self.kill(consumer)
+            assert self.world.processes[200].pgid == 200
+            assert any(pid == 200 and sig == 9 for pid, _, sig in self.world.signals) == complete_member
             return
         if scenario.startswith("paced-"):
             self.world.fork(100, 200)
@@ -464,6 +489,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         self.world.read_counts = {}
         self.world.confirming.clear()
         self.world.capturing_ownership = True
+        self.world.ownership_candidates.clear()
         if consumer == "attempt":
             self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
         else:

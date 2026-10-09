@@ -251,3 +251,28 @@ def test_partial_start_identity_does_not_confirm_a_signal(phase):
     assert not world.same_process(200, partial.boot_id, partial.proc_start)
     with pytest.raises(AssertionError, match="S2 unconfirmed signal identity"):
         world.signal(200, 9)
+
+
+@pytest.mark.parametrize("consumer", ["attempt", "probe"])
+@pytest.mark.parametrize("source", ["table", "marker", "cwd"])
+def test_fresh_leader_confirmation_respects_member_identity(consumer, source):
+    machine = ProcessWorldMachine()
+    try:
+        machine.world.fork(100, 200)
+        machine.world.missing_starts.add(("table", 100))
+        if source != "table":
+            machine.world.missing_starts.add(("table", 200))
+            machine.world.processes[200].marked = source == "marker"
+            machine.world.processes[200].cwd = source == "cwd"
+        # SIGTERM may be handled/ignored; this precedes the child's first
+        # SIGKILL and requires no post-SIGKILL execution.
+        machine.world.hooks.append(("signal_group", 1, lambda: machine.world.change("setsid", 200)))
+        machine.kill(consumer)
+        assert machine.world.processes[200].pgid == 200
+        killed = any(pid == 200 and sig == 9 for pid, _, sig in machine.world.signals)
+        # A complete member shape supports ownership even with an unknown
+        # leader table start. A member known only from later sampling holds.
+        assert killed == (source == "table")
+        machine.safety()
+    finally:
+        machine.teardown()

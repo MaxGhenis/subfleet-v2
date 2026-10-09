@@ -1,0 +1,138 @@
+FF....                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_fresh_leader_confirmation_owns_a_child_when_table_start_is_missing[table-attempt] _
+
+consumer = 'attempt', source = 'table'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["table", "marker", "cwd"])
+    def test_fresh_leader_confirmation_owns_a_child_when_table_start_is_missing(consumer, source):
+        machine = ProcessWorldMachine()
+        try:
+            machine.world.fork(100, 200)
+            machine.world.missing_starts.add(("table", 100))
+            if source != "table":
+                machine.world.missing_starts.add(("table", 200))
+                machine.world.processes[200].marked = source == "marker"
+                machine.world.processes[200].cwd = source == "cwd"
+            original = machine.world.signal_group
+            def escape_after_term(pgid, sig):
+                original(pgid, sig)
+                if int(sig) == 15:
+                    # SIGTERM may be handled/ignored; this precedes the child's
+                    # first SIGKILL and requires no post-SIGKILL execution.
+                    machine.world.change("setsid", 200)
+            machine.patch.setattr(machine.world, "signal_group", escape_after_term)
+>           machine.kill(consumer)
+
+tests/fake/test_review_pr131_round7_model.py:275: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_quarantine_process_world.py:460: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:1061: in precondition_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:460: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:934: in rule_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:468: in kill
+    self.daemon._kill_attempt(self.daemon.store.get_attempt(a["attempt_id"]))
+subfleet/daemon.py:6318: in _kill_attempt
+    procs.signal_process(owned[pid], signal.SIGKILL)
+subfleet/procs.py:789: in signal_process
+    os.kill(recorded.pid, sig)
+tests/fake/test_quarantine_process_world.py:304: in <lambda>
+    self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
+                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.fake.test_quarantine_process_world.World object at 0x10bd9b230>
+pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
+
+    def signal(self, pid, sig, *, via_group=False):
+        p = self.processes.get(pid)
+        leader = self.processes.get(100)
+        original_group = leader is None or leader.start == "guardian-start"
+        assert not self.resolving, "resolvers must never signal"
+>       assert p is not None and not p.zombie and (
+            (p.pgid == 100 and original_group) or (pid, p.start) in self.owned), (
+            "S2 stray signal", pid, self.rows(), self.trace)
+E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (100, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1), ('setsid', 200, 300), ('read', 'table', 2), ('read', 'markers', 2), ('read', 'cwd', 2)])
+
+tests/fake/test_quarantine_process_world.py:248: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4485939280:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_ test_fresh_leader_confirmation_owns_a_child_when_table_start_is_missing[table-probe] _
+
+consumer = 'probe', source = 'table'
+
+    @pytest.mark.parametrize("consumer", ["attempt", "probe"])
+    @pytest.mark.parametrize("source", ["table", "marker", "cwd"])
+    def test_fresh_leader_confirmation_owns_a_child_when_table_start_is_missing(consumer, source):
+        machine = ProcessWorldMachine()
+        try:
+            machine.world.fork(100, 200)
+            machine.world.missing_starts.add(("table", 100))
+            if source != "table":
+                machine.world.missing_starts.add(("table", 200))
+                machine.world.processes[200].marked = source == "marker"
+                machine.world.processes[200].cwd = source == "cwd"
+            original = machine.world.signal_group
+            def escape_after_term(pgid, sig):
+                original(pgid, sig)
+                if int(sig) == 15:
+                    # SIGTERM may be handled/ignored; this precedes the child's
+                    # first SIGKILL and requires no post-SIGKILL execution.
+                    machine.world.change("setsid", 200)
+            machine.patch.setattr(machine.world, "signal_group", escape_after_term)
+>           machine.kill(consumer)
+
+tests/fake/test_review_pr131_round7_model.py:275: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_quarantine_process_world.py:460: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:1061: in precondition_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:460: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:934: in rule_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:475: in kill
+    self.daemon._contain_probe(record)
+subfleet/daemon.py:4055: in _contain_probe
+    procs.signal_process(owned[target], signal.SIGKILL)
+subfleet/procs.py:789: in signal_process
+    os.kill(recorded.pid, sig)
+tests/fake/test_quarantine_process_world.py:304: in <lambda>
+    self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
+                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.fake.test_quarantine_process_world.World object at 0x10b77c050>
+pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
+
+    def signal(self, pid, sig, *, via_group=False):
+        p = self.processes.get(pid)
+        leader = self.processes.get(100)
+        original_group = leader is None or leader.start == "guardian-start"
+        assert not self.resolving, "resolvers must never signal"
+>       assert p is not None and not p.zombie and (
+            (p.pgid == 100 and original_group) or (pid, p.start) in self.owned), (
+            "S2 stray signal", pid, self.rows(), self.trace)
+E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (100, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1), ('setsid', 200, 300)])
+
+tests/fake/test_quarantine_process_world.py:248: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4485940624:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_owns_a_child_when_table_start_is_missing[table-attempt]
+FAILED tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_owns_a_child_when_table_start_is_missing[table-probe]
+2 failed, 4 passed, 23 deselected in 13.60s

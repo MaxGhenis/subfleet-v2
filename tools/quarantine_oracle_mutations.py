@@ -29,6 +29,10 @@ MUTATIONS = (
      'self.protected_leases[a["attempt_id"]] <= leases',
      'bool(leases)',
      "tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease[worktree:]"),
+    ("S2 rejects full member ownership after scalar leader confirmation",
+     "self.owned.update(self.ownership_candidates)",
+     "pass",
+     "tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_respects_member_identity[table-attempt]"),
 )
 
 
