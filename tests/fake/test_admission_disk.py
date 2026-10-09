@@ -5,7 +5,7 @@ import json
 import pytest
 
 from subfleet import daemon as daemon_module
-from subfleet.disk import DiskAdmission, GB
+from subfleet.disk import DiskAdmission, GB, epoch
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 from tests.fake.test_admission_latency import measure, submit_turn
 from tests.unit.test_disk_admission import stamp
@@ -39,10 +39,17 @@ def end(daemon, row, now):
         tx.execute("UPDATE attempts SET state='finalizing',finished_at=? WHERE attempt_id=?", (now, row["attempt_id"]))
 
 
-def test_stampede_70_jobs_39_to_46_gb_and_later_passes(state_daemon, monkeypatch):
-    daemon, harness = state_daemon
+def fake_clock(monkeypatch):
     clock = [0]
     monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(clock[0]))
+    monkeypatch.setattr(daemon_module, "age", lambda timestamp:
+                        epoch(stamp(clock[0])) - epoch(timestamp) if timestamp else 0)
+    return clock
+
+
+def test_stampede_70_jobs_39_to_46_gb_and_later_passes(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    clock = fake_clock(monkeypatch)
     reading = enable(daemon, monkeypatch, 39)
     jobs = [submit(daemon, harness) for _ in range(70)]
     daemon._admit()
@@ -117,7 +124,7 @@ def test_attended_turn_pass_neither_reads_disk_nor_reserves(state_daemon, monkey
 def test_restart_rebuilds_committed_reservations_and_retry_reserves_again(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     enable(daemon, monkeypatch)
-    monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(0))
+    clock = fake_clock(monkeypatch)
     job = submit(daemon, harness)
     daemon._admit()
     row = placed(daemon)[0]
@@ -132,7 +139,7 @@ def test_restart_rebuilds_committed_reservations_and_retry_reserves_again(state_
         tx.execute("UPDATE attempts SET state='failed',finished_at=?,outcome_class='transient' WHERE attempt_id=?", (stamp(1), row["attempt_id"]))
         tx.execute("UPDATE jobs SET state='queued' WHERE job_id=?", (job,))
         tx.execute("DELETE FROM leases WHERE holder=?", (row["attempt_id"],))
-    monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(1))
+    clock[0] = 1
     daemon._admit()
     assert len(placed(daemon)) == 2
     assert daemon._disk.reserved_bytes == 1.5 * GB
@@ -142,7 +149,7 @@ def test_restart_rebuilds_committed_reservations_and_retry_reserves_again(state_
 def test_real_daemon_restart_preserves_budgets_and_hysteresis(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     reading = enable(daemon, monkeypatch)
-    monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(0))
+    fake_clock(monkeypatch)
     for _ in range(2):
         submit(daemon, harness)
     daemon._admit()
