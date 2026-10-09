@@ -10,13 +10,15 @@ it and keeps only the operator's holds when the account changed.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet import protocol
 from subfleet.adapters.registry import register
 from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, LaneInfo, Lane, LaneOwner,
-                                Reading, ReadingLabel)
+                                Outcome, OutcomeClass, Reading, ReadingLabel)
 from subfleet.daemon import Daemon
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
@@ -170,3 +172,33 @@ def test_c10_6_a_lane_its_own_profile_proved_cannot_be_re_enrolled_as_another_ac
     with pytest.raises(protocol.ProtocolError) as refused:
         enroll(daemon, "claude-quota-a@x.example")
     assert "could not verify the existing account identity" in str(refused.value)
+
+
+@pytest.mark.parametrize("recorded, finding, identity, status", [
+    (None, {"status": "identity-enrolled", "observed": f"org:{OWN}", "source": "org-header"},
+     f"org:{OWN}", "enrolled"),
+    (SHARED, {"status": "identity-mismatch", "observed": f"org:{OWN}", "source": "org-header"},
+     f"org:{SHARED}", "mismatch"),
+])
+def test_c10_6_a_recovered_timer_turn_keeps_its_finding(core, recorded, finding, identity, status):
+    """C-10.6 a keepalive turn finished after a restart (`Daemon._finish_probe`)
+    records what its credential said, and stores "admitted on this lane" only when
+    that binds: a token of another account leaves the lane `mismatch` and no
+    admission evidence (review of #159, finding 4)."""
+    daemon, root = core
+    seed(daemon, "claude-7", "claude-quota-max@hivesight.ai", SHARED)
+    if recorded is None:
+        with daemon.store.transaction("test.unbound"):
+            daemon.store.update_lane("claude-7", identity=None)
+    directory = root / "lanes" / "claude-7" / "probes" / "recovered"
+    directory.mkdir(parents=True)
+    (directory / "request.json").write_text(json.dumps({"requested_at": "2026-10-09T12:00:00Z"}))
+    record = {"holder": "probe:timer:recovered", "job_id": None, "lane_id": "claude-7",
+              "timer_kind": "keepalive", "model_id": "claude-haiku-4-5-20251001",
+              "directory": str(directory), "state": "running", "created_at": "2026-10-09T12:00:00Z",
+              "owned_identities": {}}
+    daemon._finish_probe(record, Outcome(OutcomeClass.OK, "answered", evidence={"identity": finding}))
+    row = daemon.store.one("SELECT identity,identity_status FROM lanes WHERE lane_id='claude-7'")
+    assert (row["identity"], row["identity_status"]) == (identity, status)
+    admitted = daemon.store.query("SELECT 1 FROM readings WHERE lane_id='claude-7' AND label='admission-observed'")
+    assert bool(admitted) == (status != "mismatch")

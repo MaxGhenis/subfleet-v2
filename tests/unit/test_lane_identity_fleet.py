@@ -109,9 +109,9 @@ def test_c10_8_d_id1_one_cycle_finds_the_shared_account_and_keeps_one_lane(fleet
     assert "identity_shadowed_by" not in by_id["claude-9"]
 
     keys = [notice["key"] for notice in notices]
-    assert f"claude-identity-shared:{SHARED}" in keys
+    assert f"claude-identity-shared:org:{SHARED}" in keys
     assert not any("reading-twins" in key for key in keys)
-    shared = next(notice for notice in notices if notice["key"] == f"claude-identity-shared:{SHARED}")
+    shared = next(notice for notice in notices if notice["key"] == f"claude-identity-shared:org:{SHARED}")
     assert shared["severity"] == "critical"
     for lane_id, label in list(LANES.items())[:3]:
         assert f"{lane_id} ({label})" in shared["body"]

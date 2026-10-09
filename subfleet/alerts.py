@@ -50,20 +50,26 @@ def identity_conditions(lanes: list[Mapping[str, Any]],
     whose readings match too well to be two (D-ID1, 2026-10-09)."""
     found: list[dict[str, Any]] = []
     for group in lane_identity.shared_groups(lanes):
-        head, org = group[0], lane_identity.identity_org(group[0].get("identity")) or "?"
+        # Keyed by the identity of the lane that takes the work, not by
+        # organization: two seats of one Team are two accounts, each its own
+        # group and its own alert (review of #159, finding 14).
+        head, account = group[0], str(group[0].get("identity") or "?")
+        org = lane_identity.identity_org(account) or "?"
+        what = (f"organization {org}" if not lane_identity.account_level(account)
+                else f"account {lane_identity.split_identity(account)[0]} in organization {org}")
         others = group[1:]
         found.append({
-            "key": f"claude-identity-shared:{org}", "severity": "critical",
+            "key": f"claude-identity-shared:{account}", "severity": "critical",
             "subject": f"claude: {len(group)} lanes hold one account's token",
             "body": (f"{', '.join(_named(lane) for lane in group)} answer as one account "
-                     f"(organization {org}). Only {head['lane_id']} takes its work; "
+                     f"({what}). Only {head['lane_id']} takes its work; "
                      f"{', '.join(str(lane['lane_id']) for lane in others)} "
                      f"{'is' if len(others) == 1 else 'are'} refused (identity-shared), so no work "
                      f"reaches the {'account its label names' if len(others) == 1 else 'accounts their labels name'} "
                      f"through {'it' if len(others) == 1 else 'them'}. For each: sign in to claude.ai as its label, run claude "
                      f"setup-token, store the token as its keychain item, then subfleet lanes "
                      f"enroll <item>."),
-            "home": f"claude-identity:{org}", "homes": [f"claude-identity:{org}"]})
+            "home": f"claude-identity:{account}", "homes": [f"claude-identity:{account}"]})
     rows = {str(lane["lane_id"]): lane for lane in lanes}
     for twin in lane_identity.reading_twins(lanes, readings, twins):
         first, second = (rows[lane_id] for lane_id in twin["lanes"])

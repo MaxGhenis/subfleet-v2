@@ -25,6 +25,8 @@ from .store import Store
 #: `Timers._claim`'s answer for a lane with work on it: an attempt in flight or a
 #: lane lease (C-18.3).
 BUSY = 'busy'
+#: C-10.8: `_reserve`'s answer for a lane that spends no model turn of its own.
+SHARED = 'shared'
 
 
 def instant(value=None):
@@ -529,6 +531,12 @@ class Timers:
         with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
             if self._never_read(lane.lane_id):
                 return None
+            if purpose != 'probe' and self._spends_no_turn(lane.lane_id):
+                # C-10.6, C-10.8: judged here, under the lock, not on the cycle's
+                # snapshot: a read may have made this lane one account with
+                # another since (review of #159, finding 10). Its usage is still
+                # read; only the model turn is refused.
+                return SHARED
             if (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
                     or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',))):
                 return BUSY
@@ -539,8 +547,23 @@ class Timers:
             self.active_holders.add(holder)
         return holder
 
+    def _spends_no_turn(self, lane_id):
+        """C-10.6, C-10.8: a lane whose credential proved to hold another account, or
+        whose account another lane takes the work of, spends no timer turn."""
+        row = self.store.one("SELECT identity_status FROM lanes WHERE lane_id=?", (lane_id,))
+        if row and row['identity_status'] == 'mismatch':
+            return True
+        return bool((lane_identity.shadowing(self.store.lane_rows()).get(lane_id) or {}).get('shadowed_by'))
+
+    def _record_finding(self, lane, finding):
+        """C-10.6: keep one identity finding on the lane row; may its readings count?"""
+        if lane.provider != 'claude' or not finding:
+            return True
+        return lane_identity.record(self.store, lane.lane_id, finding, self.cached_identity_facts())
+
     def _reserve(self, lane, purpose):
-        """A timer turn's hold (a keepalive): `slot:0` on an idle lane, else None."""
+        """A timer turn's hold (a keepalive): `slot:0` on an idle lane, `SHARED` for a
+        lane that spends no model turn of its own (C-10.8), else None."""
         claim = self._claim(lane, purpose)
         return None if claim is BUSY else claim
 
@@ -628,6 +651,7 @@ class Timers:
                         self.store.add_event('timer.heal', lane_id=lane.lane_id, data={'epoch': epoch, 'at': iso(self.now())})
                         outcome = self._turn(lane, 'heal', holder, 60)
                         quarantined = outcome.evidence.get('probe_quarantined', False)
+                        self._record_finding(lane, outcome.evidence.get('identity'))   # C-10.6
                         if 'revoked' in outcome.detail.lower():
                             probe = {'status': 'revoked', 'readings': (), 'revoked_epoch': epoch}
                         elif not quarantined:
@@ -657,6 +681,7 @@ class Timers:
                         self.store.add_event('timer.heal', lane_id=lane.lane_id, data={'epoch': epoch, 'at': iso(self.now())})
                         outcome = self._turn(lane, 'heal', holder, 60)
                         quarantined = outcome.evidence.get('probe_quarantined', False)
+                        self._record_finding(lane, outcome.evidence.get('identity'))   # C-10.6
                         if not quarantined:
                             self._pace_usage()
                             probe = self._read_probe(adapter, lane, env)
@@ -971,6 +996,24 @@ class Timers:
         try:
             lanes = self.store.query("SELECT lane_id,provider,identity,label,identity_status,updated_at "
                                      "FROM lanes WHERE provider='claude'")
+            # C-10.6: a lane its own profile bound speaks for its organization only
+            # with that profile's organization type, kept on its enrolment and
+            # identity events (review of #159, finding 12).
+            wanted = {row['lane_id'] for row in lanes
+                      if row['identity_status'] == 'verified' and lane_identity.account_level(row['identity'])}
+            types = {}
+            if wanted:
+                for row in self.store.query("SELECT lane_id,data_json FROM events WHERE kind IN "
+                                            "('lane.identity','lane.enrolled') ORDER BY event_id DESC"):
+                    if row['lane_id'] not in wanted or row['lane_id'] in types:
+                        continue
+                    try:
+                        value = json.loads(row['data_json'] or '{}').get('org_type')
+                    except (ValueError, AttributeError):
+                        continue
+                    if isinstance(value, str) and value:
+                        types[row['lane_id']] = value
+            lanes = [{**row, 'org_type': types.get(row['lane_id'])} for row in lanes]
             desktop = []
             for row in self.store.query("SELECT data_json FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 64",
                                         (capacity.DESKTOP_IDENTITY_EVENT,)):
@@ -996,10 +1039,7 @@ class Timers:
 
     def _record_probe_identity(self, lane, probe):
         """C-10.6: keep a read's identity finding on the lane row; may its readings count?"""
-        finding = probe.get('identity')
-        if lane.provider != 'claude' or not finding:
-            return True
-        return lane_identity.record(self.store, lane.lane_id, finding, self.cached_identity_facts())
+        return self._record_finding(lane, probe.get('identity'))
 
     def probe_cycle(self):
         if self.cancel.is_set():
@@ -1116,6 +1156,9 @@ class Timers:
             self.store.add_event('timer.keepalive', lane_id=lane.lane_id, data={'status': 'skipped-open'})
             return 'skipped-open'
         holder = self._reserve(lane, 'keepalive')
+        if holder is SHARED:
+            self.store.add_event('timer.keepalive', lane_id=lane.lane_id, data={'status': 'skipped-shared'})
+            return 'skipped-shared'
         if not holder:
             return 'skipped-busy'
         quarantined = False
@@ -1129,7 +1172,11 @@ class Timers:
                 if outcome.cls == OutcomeClass.AUTH_DEAD:
                     self.store.update_lane(lane.lane_id, enabled=0)
                     self.record_auth_dead(lane.lane_id)
-                if sent and (outcome.cls == OutcomeClass.OK or outcome.native_session_id):
+                # C-10.6: the turn's credential answered; what it said is kept, and
+                # "admitted on this lane" is only true of the lane's own account
+                # (review of #159, finding 4).
+                binds = self._record_finding(lane, outcome.evidence.get('identity'))
+                if binds and sent and (outcome.cls == OutcomeClass.OK or outcome.native_session_id):
                     self.store.add_reading(Reading(lane.lane_id, self.policy['models']['haiku']['id'], 'admission',
                         None, None, ReadingLabel.ADMISSION_OBSERVED, 'keepalive', sent))
                 self.store.add_event('timer.keepalive', lane_id=lane.lane_id,
@@ -1143,10 +1190,8 @@ class Timers:
 
     def keepalive_cycle(self):
         # C-10.8: a lane whose account another lane takes the work of spends no
-        # turn of its own; that account's keepalive is the other lane's.
-        shadowed = {lane_id for lane_id, entry in lane_identity.shadowing(self.store.lane_rows()).items()
-                    if entry['shadowed_by']}
+        # turn of its own (that account's keepalive is the other lane's); its
+        # reservation judges that under the lock (`_claim`, 'skipped-shared').
         futures = [self._lanes.submit(self._keepalive_lane, lane) for lane in self.store.list_lanes()
-                   if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop
-                   and lane.lane_id not in shadowed]
+                   if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop]
         return [future.result() for future in as_completed(futures)]

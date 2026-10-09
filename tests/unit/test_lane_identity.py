@@ -145,21 +145,18 @@ facts_strategy = st.lists(st.builds(fact, emails, account_identity, org_types,
 @PROPERTY
 @given(emails, any_identity, facts_strategy, st.randoms(use_true_random=False))
 def test_c10_6_a_verdict_is_only_ever_what_some_profile_fact_said(label, ident, facts, rnd):
-    """C-10.6 `proven` needs a fact naming this email for this account, and
-    `contradicted` a fact naming another email for it; at organization level only
-    a personal organization's fact counts. Never both, and the order the facts
-    were read in changes nothing."""
+    """C-10.6 the facts that speak for the account (at organization level, only a
+    personal organization's) decide the label exactly when they all name one
+    email: that email is the label (`proven`) or is not (`contradicted`). Facts
+    that name two emails, or none, decide nothing, whatever the label (review of
+    #159, finding 3). The order the facts were read in changes nothing."""
     verdict = li.label_verdict(label, ident, facts)
-
-    def speaks(f):
-        return li.same_account(f.identity, ident) and (li.account_level(ident) or f.personal)
-
-    if verdict.proven:
-        assert any(speaks(f) and f.email.casefold() == label.casefold() for f in facts)
-        assert not any(speaks(f) and f.email.casefold() != label.casefold() for f in facts)
-    if verdict.contradicted:
-        assert any(speaks(f) and f.email.casefold() != label.casefold() for f in facts)
-        assert not any(speaks(f) and f.email.casefold() == label.casefold() for f in facts)
+    speaking = [f for f in facts if li.same_account(f.identity, ident) and (li.account_level(ident) or f.personal)]
+    named = {f.email.casefold() for f in speaking}
+    expected = ("unproven" if len(named) != 1
+                else "proven" if named == {label.casefold()} else "contradicted")
+    assert verdict.verdict == expected
+    assert (verdict.fact is None) == (expected == "unproven")
     shuffled = list(facts)
     rnd.shuffle(shuffled)
     assert li.label_verdict(label, ident, shuffled).verdict == verdict.verdict
@@ -500,7 +497,14 @@ def reference_twins(lanes, readings, s):
         a, b = rows[pair[0]], rows[pair[1]]
         if a["provider"] == "claude" and li.is_identity(a.get("identity")) and li.is_identity(b.get("identity")):
             continue
-        if li._twin_verdict(agreed, s):
+        # C-10.9 in its own words, not `_twin_verdict` (review of #159, finding 13):
+        # a value strictly inside (0, 1), and the five-hour and weekly durations
+        # both, or `min_values` values of one scope and window.
+        inside = any(0 < value < 1 for _, _, value in agreed)
+        durations = {window for _, window, _ in agreed}
+        deepest = max(sum(1 for scope, window, _ in agreed if (scope, window) == key)
+                      for key in {(scope, window) for scope, window, _ in agreed})
+        if inside and (len(durations) >= 2 or deepest >= s.min_values):
             found.append(list(pair))
     return found
 
@@ -508,7 +512,7 @@ def reference_twins(lanes, readings, s):
 twin_lane = st.fixed_dictionaries({"identity": st.sampled_from([None, None, "org:o1", "org:o2"]),
                                    "provider": st.sampled_from(["claude", "claude", "codex"]),
                                    "enabled": st.sampled_from([1, 1, 0]), "owner": st.sampled_from(["v2", "v2", "v1"])})
-twin_reading = st.tuples(st.integers(0, 4), st.sampled_from(["seven_day", "five_hour"]),
+twin_reading = st.tuples(st.integers(0, 4), st.sampled_from(["seven_day", "five_hour", "seven_day/scoped"]),
                          st.sampled_from([0.0, 0.4, 0.41, 0.43, 0.99, 1.0, 0.433]),
                          st.sampled_from(["2026-10-10T14:00:00Z", "2026-10-10T14:00:59Z", "2026-10-10T15:00:00Z",
                                           "2026-10-10T13:59:30+00:00", "not a time"]),
@@ -517,8 +521,10 @@ twin_reading = st.tuples(st.integers(0, 4), st.sampled_from(["seven_day", "five_
 
 def build(fleet, raw):
     lanes = [{"lane_id": f"l{index}", **entry} for index, entry in enumerate(fleet)]
-    readings = [reading(f"l{index % max(len(lanes), 1)}", window, value, reset,
-                        f"2026-10-05T18:{minute:02d}:00Z", label=label, rid=n)
+    # "seven_day/scoped" is a model-scoped weekly window (review of #159, finding 13).
+    readings = [reading(f"l{index % max(len(lanes), 1)}", window.split("/")[0], value, reset,
+                        f"2026-10-05T18:{minute:02d}:00Z", label=label, rid=n,
+                        scope="claude-sonnet-5" if window.endswith("/scoped") else "account")
                 for n, (index, window, value, reset, minute, label) in enumerate(raw)]
     return lanes, readings
 

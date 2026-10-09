@@ -342,6 +342,38 @@ def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
     return RosterEdit(path, before, after, "v2")
 
 
+def _v2_roster_disable(state_root: Path, lane: dict[str, Any]) -> RosterEdit:
+    """C-1.3, C-10.2: a binding re-enrolment replaced is disabled in the seed file
+    too, so a store rebuilt from it (`daemon._seed_lanes`) does not bring the
+    replaced binding back beside its successor (review of #159, finding 9)."""
+    path = state_root / V2_ROSTER
+    before = _read_text(path)
+    try:
+        roster = json.loads(before) if before.strip() else []
+    except ValueError:
+        raise TransferError(f"{path} is not valid JSON; refusing to edit it",
+                            Exit.OPERATIONAL, "repair lanes.json or remove it") from None
+    rows = roster.get("lanes", []) if isinstance(roster, dict) else roster
+    if not isinstance(rows, list):
+        raise TransferError(f"{path} does not hold a lane list", Exit.OPERATIONAL)
+    rows = [dict(row) for row in rows if isinstance(row, dict)]
+    for row in rows:
+        if row.get("lane_id") == lane["lane_id"]:
+            row["enabled"] = False
+            break
+    else:
+        rows.append({
+            "lane_id": lane["lane_id"], "provider": lane["provider"],
+            "account_key": lane["account_key"], "credential_ref": lane["credential_ref"],
+            "credential_kind": lane["credential_kind"], "credential_epoch": lane["credential_epoch"],
+            "home": lane["home"], "owner": lane["owner"], "desktop": bool(lane["desktop"]),
+            "enabled": False,
+        })
+    after = (_restyle(before, {"lanes": rows} if isinstance(roster, dict) else rows)
+             if before.strip() else _dumps({"lanes": rows} if isinstance(roster, dict) else rows))
+    return RosterEdit(path, before, after, "v2")
+
+
 # --- the v1 rosters -----------------------------------------------------------
 
 def _claude_roster_edit(roster_dir: Path, lane: dict[str, Any], to_owner: str) -> RosterEdit:

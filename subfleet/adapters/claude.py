@@ -361,6 +361,19 @@ def apply_headless_block(prompt: str) -> str:
 # --- identity (C-1.4, C-10.3, C-10.6, C-10.7) --------------------------------
 
 
+#: C-10.5: what a profile field may look like before it is believed or kept.
+_EMAIL_RE = re.compile(r"[^\s@]{1,128}@[^\s@]{1,190}")
+_ORG_TYPE_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def _echoes(token: str, value: str) -> bool:
+    """C-10.5: does an answer carry the credential it was asked with, or a run of
+    it? No server answers so; an answer that does is never kept (review of #159,
+    finding 1)."""
+    text = value.strip()
+    return bool(token) and (token in text or (len(text) >= 8 and text in token))
+
+
 def _urlopen(request: urllib.request.Request, timeout: float) -> tuple[int, bytes]:
     """The one place this module reaches the network; replaced whole in tests.
 
@@ -767,9 +780,10 @@ class ClaudeAdapter(Adapter):
             status, body = opener(request, PROFILE_TIMEOUT_S)
         except urllib.error.HTTPError as error:
             status, body = int(error.code), b""
-        except (OSError, ValueError, TypeError, AttributeError) as error:
+        except Exception as error:                     # noqa: BLE001 — never raise, never quote
             # Deliberately only the exception's type: its text can quote the
-            # request headers, and those hold the bearer.
+            # request headers, and those hold the bearer. Any failure, an
+            # `http.client.HTTPException` among them, is an unanswered profile.
             return ProfileResult(PROFILE_UNAVAILABLE, detail=type(error).__name__)
         if status == 403:
             # C-9.3: expected scope on a setup token, and never auth evidence.
@@ -793,9 +807,14 @@ class ClaudeAdapter(Adapter):
             return ProfileResult(PROFILE_INVALID, detail="no account and organization")
         email, account_uuid, org_uuid = (str(value).strip() for value in values)
         org_type = organization.get("organization_type") if isinstance(organization, dict) else None
-        return ProfileResult(PROFILE_OK, email=email, account_uuid=account_uuid,
-                             org_uuid=org_uuid,
-                             org_type=org_type.strip() if isinstance(org_type, str) and org_type.strip() else None)
+        org_type = org_type.strip() if isinstance(org_type, str) else ""
+        if any(_echoes(token, value) for value in (email, account_uuid, org_uuid, org_type)):
+            return ProfileResult(PROFILE_INVALID, detail="a field echoes the credential")
+        if (not _EMAIL_RE.fullmatch(email) or not lane_identity.account_identity(account_uuid, org_uuid)):
+            # C-1.4: an email, and two ids an identity can be made of, or nothing.
+            return ProfileResult(PROFILE_INVALID, detail="account or organization is not an id")
+        return ProfileResult(PROFILE_OK, email=email, account_uuid=account_uuid, org_uuid=org_uuid,
+                             org_type=org_type if _ORG_TYPE_RE.fullmatch(org_type) else None)
 
     def _fetch_org(self, token: str) -> OrgResult:
         """C-10.6, D-ID1: one GET of `/v1/models` with the token, read for its
@@ -810,15 +829,19 @@ class ClaudeAdapter(Adapter):
         opener = self._org_opener or _urlopen_org
         try:
             status, header = opener(request, ORG_TIMEOUT_S)
-        except (OSError, ValueError, TypeError, AttributeError) as error:
+        except Exception as error:                     # noqa: BLE001 — never raise, never quote
+            # Only the type: an `http.client.HTTPException`'s text, like any
+            # other, can quote the request (review of #159, finding 5).
             return OrgResult(ORG_UNAVAILABLE, detail=type(error).__name__)
+        if not isinstance(status, int) or not (header is None or isinstance(header, str)):
+            return OrgResult(ORG_UNAVAILABLE, detail="malformed answer")
         if status == 401 or status >= 500:
             # Unauthenticated or unanswered: whatever a header says then is not
             # the token's own organization.
             return OrgResult(ORG_UNAVAILABLE, detail=f"http-{status}")
         if not header:
             return OrgResult(ORG_UNAVAILABLE, detail=f"http-{status}, no {ORG_HEADER}")
-        if token in header or (len(header.strip()) >= 8 and header.strip() in token):
+        if _echoes(token, header):
             # Never a server's answer, and never to be recorded as an identity (C-10.5).
             return OrgResult(ORG_INVALID, detail=f"http-{status}, {ORG_HEADER} echoes the credential")
         org = lane_identity.org_identity(header)
@@ -1169,6 +1192,7 @@ class ClaudeAdapter(Adapter):
         return LaneInfo(
             account_key=account_key, plan=plan, home=home, readings=readings,
             identity=identity, identity_status=identity_status.value, label=label,
+            org_type=profile.org_type if profile.ok else None,
         )
 
     # --- readings (C-9.1, C-9.8) --------------------------------------------

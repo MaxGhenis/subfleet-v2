@@ -166,7 +166,9 @@ def account_facts(*, lanes: Iterable[Mapping[str, Any]] = (),
 
     * `lanes`: a Claude lane whose own profile bound it: `verified`, with an
       account-level identity and its label (enrolment records the profile's email
-      as the label, C-1.4).
+      as the label, C-1.4), and `org_type`, the organization type that profile
+      gave, which the caller reads from the lane's `lane.enrolled` and
+      `lane.identity` events (absent, the lane speaks only at account level).
     * `logins`: `claude-cards.json` accounts (C-9.10), each read with a full
       login: `identity`, `email` and `plan.organization_type`.
     * `desktop`: the `desktop.identity` events' data (C-10.3): `identity`,
@@ -176,7 +178,7 @@ def account_facts(*, lanes: Iterable[Mapping[str, Any]] = (),
     for lane in lanes:
         if lane.get("provider", "claude") != "claude" or lane.get("identity_status") != "verified":
             continue
-        fact = _fact(lane.get("label"), lane.get("identity"), None,
+        fact = _fact(lane.get("label"), lane.get("identity"), lane.get("org_type"),
                      f"lane:{lane.get('lane_id')}", lane.get("updated_at"))
         if fact:
             facts.append(fact)
@@ -198,10 +200,11 @@ def account_facts(*, lanes: Iterable[Mapping[str, Any]] = (),
 class LabelVerdict:
     """What the facts say about a lane's label, given the identity its credential has.
 
-    `proven`: a fact names this label's email for this account. `contradicted`: a
-    fact names another email for this account. `unproven`: neither, or facts
-    that disagree with each other (an email that moved accounts, say): a verdict
-    a person must look at is never made from those.
+    `proven`: the facts that speak for this account all name this label's email.
+    `contradicted`: they all name one other email. `unproven`: none speaks, or
+    they name more than one email between them (an email that moved accounts, a
+    stale login): a verdict a person must look at is never made from facts that
+    disagree, whatever the label is (review of #159, finding 3).
     """
 
     verdict: str                     # "proven" | "contradicted" | "unproven"
@@ -231,14 +234,10 @@ def label_verdict(label: Any, identity: Any, facts: Iterable[AccountFact]) -> La
     if not email or not is_identity(identity):
         return UNPROVEN
     speaking = [fact for fact in facts if _decides(fact, str(identity))]
-    proof = [fact for fact in speaking if fact.email.casefold() == email]
-    contra = [fact for fact in speaking if fact.email.casefold() != email]
-    newest = lambda rows: max(rows, key=lambda fact: (fact.observed_at or "", fact.source))  # noqa: E731
-    if proof and not contra:
-        return LabelVerdict("proven", newest(proof))
-    if contra and not proof:
-        return LabelVerdict("contradicted", newest(contra))
-    return UNPROVEN
+    if len({fact.email.casefold() for fact in speaking}) != 1:
+        return UNPROVEN
+    newest = max(speaking, key=lambda fact: (fact.observed_at or "", fact.source))
+    return LabelVerdict("proven" if newest.email.casefold() == email else "contradicted", newest)
 
 
 def judge(status: IdentityStatus | None, *, label: Any, identity: Any,
@@ -293,38 +292,54 @@ def record(store: Any, lane_id: str, finding: Mapping[str, Any] | None,
     Profile facts about other logins then judge the label (`judge`).
 
     A lane already `mismatch` stays so, whatever any later answer says; only
-    re-enrolment releases it (C-10.6), and its readings never count. A change of
-    status or identity leaves a `lane.identity` event. Returns whether readings
-    from the same run may be stored as the lane's capacity.
+    re-enrolment releases it (C-10.6), and its readings never count.
+
+    The adapter judged its answer against the lane as the run found it, which
+    may be older than the row now: a busy read may have recorded an identity
+    while an attempt that launched before it ran (review of #159, finding 2). So
+    the answer is compared again here with the identity recorded now: another
+    account is `mismatch`; an organization where the row names an account is
+    `unverified`. The row is read and written in one transaction, with its
+    `lane.identity` event, so neither a concurrent recording nor a failed event
+    leaves half a change (finding 6). Returns whether readings from the same run
+    may be stored as the lane's capacity.
     """
     status = IDENTITY_STATUS_BY_EVIDENCE.get(str((finding or {}).get("status") or ""))
     if status is None:
         return True
-    row = store.one("SELECT identity,label,identity_status FROM lanes WHERE lane_id=?", (lane_id,))
-    if row is None:
-        return status in BINDING_STATUSES
-    if row["identity_status"] == IdentityStatus.MISMATCH.value:
-        return False
-    identity, label = row["identity"], row["label"]
-    observed = observed_identity(finding)
-    values: dict[str, Any] = {}
-    if not identity and observed and status in BINDING_STATUSES:
-        values["identity"] = identity = observed
-        email = ((finding or {}).get("identity") or {}).get("email")
-        if isinstance(email, str) and email.strip() and not label:
-            values["label"] = label = email.strip()
-    final, verdict = judge(status, label=label, identity=identity, facts=facts)
-    if final is not None and row["identity_status"] != final.value:
-        values["identity_status"] = final.value
-    if values:
-        store.update_lane(lane_id, **values)
-        store.add_event(IDENTITY_EVENT, lane_id=lane_id, data={
-            "from": row["identity_status"], "to": final.value if final else None,
-            "identity": identity, "observed": observed, "source": (finding or {}).get("source"),
-            "label": label, "verdict": verdict.verdict,
-            "fact": ({"email": verdict.fact.email, "identity": verdict.fact.identity,
-                      "source": verdict.fact.source} if verdict.fact else None)})
-    return final in BINDING_STATUSES
+    with store.transaction(IDENTITY_EVENT, lane_id=lane_id):
+        row = store.one("SELECT identity,label,identity_status FROM lanes WHERE lane_id=?", (lane_id,))
+        if row is None:
+            return status in BINDING_STATUSES
+        if row["identity_status"] == IdentityStatus.MISMATCH.value:
+            return False
+        identity, label = row["identity"], row["label"]
+        observed = observed_identity(finding)
+        values: dict[str, Any] = {}
+        if identity and observed:
+            if not same_account(identity, observed):
+                status = IdentityStatus.MISMATCH
+            elif account_level(identity) and not account_level(observed) and status in BINDING_STATUSES:
+                status = IdentityStatus.UNVERIFIED
+        elif not identity and observed and status in BINDING_STATUSES:
+            values["identity"] = identity = observed
+            email = ((finding or {}).get("identity") or {}).get("email")
+            if isinstance(email, str) and email.strip() and not label:
+                values["label"] = label = email.strip()
+        final, verdict = judge(status, label=label, identity=identity, facts=facts)
+        if final is not None and row["identity_status"] != final.value:
+            values["identity_status"] = final.value
+        if values:
+            org_type = (finding or {}).get("org_type")
+            store.update_lane(lane_id, **values)
+            store.add_event(IDENTITY_EVENT, lane_id=lane_id, data={
+                "from": row["identity_status"], "to": final.value if final else None,
+                "identity": identity, "observed": observed, "source": (finding or {}).get("source"),
+                "org_type": org_type if isinstance(org_type, str) else None,
+                "label": label, "verdict": verdict.verdict,
+                "fact": ({"email": verdict.fact.email, "identity": verdict.fact.identity,
+                          "source": verdict.fact.source} if verdict.fact else None)})
+        return final in BINDING_STATUSES
 
 
 # --- one account, one candidate (C-10.8) --------------------------------------
@@ -534,10 +549,15 @@ def _twin_verdict(values: set[tuple[str, str, float]], settings: TwinSettings) -
     """
     if not any(0 < value < 1 for _, _, value in values):
         return False
-    windows = {(scope, window) for scope, window, _ in values}
-    if len(windows) >= 2:
+    # Two windows means two durations, five-hour and weekly, not two scopes of
+    # one: a model-scoped weekly window resets with the account's weekly one
+    # (review of #159, finding 13).
+    if len({window for _, window, _ in values}) >= 2:
         return True
-    return len(values) >= settings.min_values
+    per_window: dict[tuple[str, str], int] = defaultdict(int)
+    for scope, window, _ in values:
+        per_window[(scope, window)] += 1
+    return max(per_window.values()) >= settings.min_values
 
 
 def reading_twins(lanes: Iterable[Mapping[str, Any]], readings: Iterable[Mapping[str, Any]],

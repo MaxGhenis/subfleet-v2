@@ -468,6 +468,7 @@ class LaneInfo:  # returned by enroll (C-10.2)
     identity: str | None = None             # C-10.6, from the profile endpoint
     identity_status: str | None = None      # an `IdentityStatus` value
     label: str | None = None                # the email the profile or the operator gave
+    org_type: str | None = None             # the profile's organization type (C-10.6), if it said
 
 
 @dataclass(frozen=True)
