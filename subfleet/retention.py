@@ -276,6 +276,18 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for row in jobs:
         if row["job_id"] in owned and any(folders.within(folder, row["worktree"]) for folder in in_use):
             add(row["job_id"], "turn-folder")
+    # The same for a `worktree:` lease, which `worktree-lease` above matches on
+    # the worktree itself only: a detached in-place writer in a repository
+    # nested in a job's own worktree holds `worktree:<that repository>`, and a
+    # quarantined attempt leaves its job `lost` with the lease kept (daemon
+    # `_quarantine`), so only the lease says the folder is in use (review of
+    # 31048e67, F3). Recorded spellings, as above; retention's own fence for
+    # the job keeps nothing.
+    exclusive = folders.exclusive_folders(store.query)
+    for row in jobs:
+        if row["job_id"] in owned and any(holder != f"retention:{row['job_id']}" and folders.within(
+                folder, row["worktree"]) for folder, holder in exclusive):
+            add(row["job_id"], "worktree-lease")
     if root is not None:
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
@@ -804,6 +816,12 @@ class _Pass:
                     if current and current["holder"] != holder:
                         reason = "resume in progress" if key.startswith("retire:") else "worktree lease"
                         break
+            # And a `worktree:` lease on a folder inside the tree (a detached
+            # writer in a repository nested there, review of 31048e67, F3).
+            if reason is None and folder is not None and any(
+                    other != holder for _, other in folders.exclusive_inside(
+                        lambda sql, params: conn.execute(sql, params).fetchall(), folder)):
+                reason = "worktree lease"
             if reason is None:
                 for key in keys:
                     conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
