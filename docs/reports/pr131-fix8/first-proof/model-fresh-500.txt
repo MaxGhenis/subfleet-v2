@@ -1,0 +1,45 @@
+..                                                                       [100%]
+============================ Hypothesis Statistics =============================
+tests/fake/test_quarantine_process_world.py::TestProcessWorld::runTest:
+
+  - during generate phase (562.29 seconds):
+    - Typical runtimes: ~ 359-2569 ms, of which ~ 0-36 ms in data generation
+    - 500 passing, 0 failing, and 56 invalid test cases
+    - Events:
+      * 82.19%, Retried draw from sampled_from([Rule(function=census_pace, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109327950>,), _cached_hash=1600203471475194267), Rule(function=paced_ownership_capture, preconditions=(<function ProcessWorldMachine.<lambda> at 0x1093273d0>,), _cached_hash=731465150304230123), Rule(function=quiesce_and_check_liveness, _cached_hash=-5001690359687821832), Rule(function=resolver_call, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109327ed0>,), _cached_hash=608124141214357085), Rule(function=kill, arguments={'consumer': sampled_from(['attempt', 'probe'])}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109325c70>,), _cached_hash=4070298128210354087, arguments_strategies={'consumer': sampled_from(['attempt', 'probe'])}), Rule(function=fail_inspection, arguments={'failure': sampled_from(['table', 'markers', 'cwd', 'group', 'identity', 'confirm']), 'fail': booleans()}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109326350>,), _cached_hash=7565590615629569201, arguments_strategies={'fail': booleans(), 'failure': sampled_from(['table', 'markers', 'cwd', 'group', 'identity', 'confirm'])}), Rule(function=spawn_writer, arguments={'pid': sampled_from([99, 200, 201, 300, 700, 900]), 'marked': booleans()}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109325430>,), _cached_hash=-854489912270368528, arguments_strategies={'marked': booleans(), 'pid': sampled_from([99, 200, 201, 300, 700, 900])}), Rule(function=partial_start_identity, arguments={'pid': sampled_from([99, 200, 201, 300, 700, 900]), 'phase': sampled_from(['identity', 'confirm']), 'partial': booleans()}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109326e50>,), _cached_hash=2808628436086640354, arguments_strategies={'partial': booleans(), 'phase': sampled_from(['identity', 'confirm']), 'pid': sampled_from([99, 200, 201, 300, 700, 900])}), Rule(function=start_column_visibility, arguments={'pid': one_of(sampled_from([99, 200, 201, 300, 700, 900]), just(100)), 'phase': sampled_from(['table', 'identity', 'confirm']), 'missing': booleans()}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x1093268d0>,), _cached_hash=7862699987244645171, arguments_strategies={'missing': booleans(), 'phase': sampled_from(['table', 'identity', 'confirm']), 'pid': one_of(sampled_from([99, 200, 201, 300, 700, 900]), just(100))}), Rule(function=transition, arguments={'operation': sampled_from(['spawn', 'fork', 'exit', 'zombie', 'reap', 'reparent', 'setsid', 'group', 'chdir', 'scrub', 'reuse_pid', 'reuse_pgid']), 'pid': one_of(sampled_from([99, 200, 201, 300, 700, 900]), just(100)), 'other': sampled_from([99, 200, 201, 300, 700, 900])}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109325640>,), _cached_hash=3281836259320925383, arguments_strategies={'operation': sampled_from(['spawn', 'fork', 'exit', 'zombie', 'reap', 'reparent', 'setsid', 'group', 'chdir', 'scrub', 'reuse_pid', 'reuse_pgid']), 'other': sampled_from([99, 200, 201, 300, 700, 900]), 'pid': one_of(sampled_from([99, 200, 201, 300, 700, 900]), just(100))}), Rule(function=interleave, arguments={'phase': sampled_from(['table', 'markers', 'cwd', 'identity', 'group', 'confirm']), 'operation': sampled_from(['spawn', 'fork', 'exit', 'zombie', 'reap', 'reparent', 'setsid', 'group', 'chdir', 'scrub', 'reuse_pid', 'reuse_pgid']), 'pid': sampled_from([99, 200, 201, 300, 700, 900]), 'other': sampled_from([99, 200, 201, 300, 700, 900])}, preconditions=(<function ProcessWorldMachine.<lambda> at 0x109325dd0>,), _cached_hash=723474341267145431, arguments_strategies={'operation': sampled_from(['spawn', 'fork', 'exit', 'zombie', 'reap', 'reparent', 'setsid', 'group', 'chdir', 'scrub', 'reuse_pid', 'reuse_pgid']), 'other': sampled_from([99, 200, 201, 300, 700, 900]), 'phase': sampled_from(['table', 'markers', 'cwd', 'identity', 'group', 'confirm']), 'pid': sampled_from([99, 200, 201, 300, 700, 900])})]).filter(RuleStrategy(machine=ProcessWorldMachine({...}))._rule_is_enabled) to satisfy filter
+      * 18.88%, scenario=paced-owned-escape
+      * 18.71%, scenario=failed-bracket-child
+      * 18.35%, partial identity=confirmFalse
+      * 17.27%, scenario=paced-missing-start
+      * 16.73%, partial identity=identityFalse
+      * 16.73%, scenario=paced-unowned-escape
+      * 15.29%, scenario=retained-authority
+      * 13.85%, partial identity=identityTrue
+      * 13.13%, start visibility=confirm missing
+      * 12.95%, start visibility=confirm complete
+      * 11.33%, start visibility=table complete
+      * 11.15%, partial identity=confirmTrue
+      * 9.71%, operation=zombie
+      * 9.35%, operation=exit
+      * 8.81%, operation=reparent
+      * 8.63%, operation=spawn
+      * 8.45%, start visibility=table missing
+      * 8.09%, operation=reap
+      * 7.91%, operation=reuse_pgid
+      * 7.91%, operation=reuse_pid
+      * 7.37%, operation=group
+      * 7.19%, operation=scrub
+      * 6.83%, operation=chdir
+      * 6.83%, operation=setsid
+      * 6.65%, scenario=ordinary
+      * 6.47%, scenario=reused-before-group
+      * 6.12%, operation=fork
+      * 5.22%, start visibility=identity complete
+      * 5.22%, start visibility=identity missing
+      * 1.44%, ownership pace=table unavailable
+      * 0.90%, excluded=C-5.7 invisible-writer residual
+
+  - Stopped because settings.max_examples=500
+
+
+2 passed in 563.62s (0:09:23)
