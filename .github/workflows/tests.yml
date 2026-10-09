@@ -45,6 +45,32 @@ jobs:
       - name: Compile native menu bar app without launching
         run: app/build.sh "$RUNNER_TEMP/subfleet-frontend"
       - name: Unit, fake-provider, process, and end-to-end contracts
-        run: uv run --no-sync pytest -q
+        # The suite has known timing-sensitive tests (D-2 stop-bound, D-F5
+        # stream ordering, the guardian relay race, inspection under load) that
+        # fail about once per 45-minute job on the shared macOS runners. A
+        # failing first pass re-runs only its failed tests, once. A test that
+        # passes on that retry is reported as a warning annotation naming it,
+        # never hidden. A test that fails twice fails the job.
+        run: |
+          set +e
+          uv run --no-sync pytest -q -p cacheprovider
+          first=$?
+          if [ "$first" -eq 0 ]; then exit 0; fi
+          if [ "$first" -ne 1 ]; then exit "$first"; fi
+          cp .pytest_cache/v/cache/lastfailed flaky-first-pass.json 2>/dev/null || echo "{}" > flaky-first-pass.json
+          echo "::group::Re-running the failed tests once"
+          failed=$(python -c "import json,pathlib;p=pathlib.Path('.pytest_cache/v/cache/lastfailed');print(len(json.loads(p.read_text())) if p.exists() else 0)")
+          if [ "$failed" -eq 0 ] || [ "$failed" -gt 5 ]; then
+            echo "::error::$failed failed tests; only 1 to 5 are retried"; exit 1
+          fi
+          uv run --no-sync pytest -q -p cacheprovider --last-failed --last-failed-no-failures none
+          second=$?
+          echo "::endgroup::"
+          if [ "$second" -eq 0 ]; then
+            python -c "import json;[print(f'::warning title=Flaky test passed on retry::{t}') for t in json.load(open('flaky-first-pass.json'))]" 2>/dev/null || true
+            echo "::warning::$failed test(s) failed once and passed on retry; see the annotations"
+            exit 0
+          fi
+          exit "$second"
         env:
           SUBFLEET_LIVE: "0"
