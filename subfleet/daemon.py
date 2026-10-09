@@ -40,7 +40,7 @@ from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
     EXIT_SETTLE_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
-    OWNED_CENSUS_INTERVAL_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
@@ -256,6 +256,12 @@ def after(seconds: float) -> str:
         timespec="seconds").replace("+00:00", "Z")
 
 
+def _later(stamp: str, seconds: float) -> str:
+    """`stamp` (as `utcnow` writes one) plus `seconds`, in the same form (C-6.10)."""
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
+
+
 def age(timestamp: str | None) -> float:
     if timestamp is None:
         return 0.0
@@ -456,6 +462,16 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-11.4: job id -> model -> the lanes whose probe for the job said nothing
+        # this round (`_rotate_probe`), and job id -> the lanes the route
+        # `_prepare_route` settled on left out and the model it chose, for the
+        # reservation's evaluation. In memory as C-6.10's records are; replaced
+        # whole on each change.
+        self._probe_misses: dict[str, dict[str, frozenset[str]]] = {}
+        self._probe_rotation: dict[str, tuple[tuple[str, ...], str | None]] = {}
+        # C-6.10: job id -> the clock an inconclusive probe set, which may be due at
+        # once; the pass keeps it rather than backing the job off.
+        self._probe_clocks: dict[str, str] = {}
         # C-6.15: the host's compressor occupancy, read on a worker of its own.
         self._host_pressure = host_pressure.Sampler()
         # C-6.12: job id -> its consecutive route evaluation failures and the last
@@ -2608,6 +2624,16 @@ class Daemon:
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
             if record["deadline_at"] <= utcnow():
+                # C-11.4: a probe still running at its deadline is stopped here, and
+                # says so in its record and its evidence: what the adapter then reads
+                # off a stream cut short is not the provider's own ending. Only while
+                # its guardian runs: one found gone (a recovery after the deadline)
+                # was not stopped by anyone (review of #154, P3-2). A look that
+                # failed is no evidence that it is gone (C-5.3, `procs.liveness`):
+                # containment looks again and stops it (review of #154 r3, P3-A).
+                if procs.liveness(record.get("guardian_pid"), record.get("boot_id"),
+                                  record.get("proc_start")) != "dead":
+                    record["stopped"] = "deadline"
                 break
             # C-5.11, as for a running attempt: the receipt, the job and the
             # deadline are read every pass; `ps` is asked about the guardian at
@@ -2698,15 +2724,20 @@ class Daemon:
         if not safe:
             return Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined",
                            evidence={"probe_quarantined": True})
+        stopped = {"stopped": record["stopped"]} if record.get("stopped") else {}
         if not receipt:
-            return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt")
+            return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt", evidence=dict(stopped))
         outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
                                 ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
         request = self._read_json(directory / "request.json") or {}
-        return dataclasses.replace(outcome, evidence={**outcome.evidence, **request,
+        return dataclasses.replace(outcome, evidence={**outcome.evidence, **request, **stopped,
                                    "rc": receipt.get("rc"), "signal": receipt.get("signal")})
 
     def _finish_probe(self, record: dict, outcome: Outcome) -> None:
+        if record.get("stopped") and "stopped" not in outcome.evidence:
+            # C-11.4: on every way a probe completes, not only the one that
+            # classified its receipt: recovery, an adapter that raised.
+            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, "stopped": record["stopped"]})
         if outcome.cls == OutcomeClass.LIMITED and outcome.closure is None:
             outcome = dataclasses.replace(outcome, closure=Closure(
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
@@ -2796,6 +2827,30 @@ class Daemon:
         self._finish_probe(record, outcome)
         return outcome
 
+    def _rotate_probe(self, job: dict, decision_job: dict, exclusions: tuple[str, ...], desktop, decision):
+        """C-11.4: after a probe of a model on a lane said nothing, the job's next probe of
+        that model goes to a lane of that model it has not had such an answer on this
+        round: the first `evaluate` ranks once those lanes are left out. A lane that
+        needs no probe there is taken as it is; a model the chain promotes to is never
+        taken this way; when no other lane of the model would take the job the round
+        starts again; a lane pin has no other lane to go to. So a lane whose probes keep
+        saying nothing (a slow one at the top of the ranking) costs the job one probe a
+        round, not every probe, while every job of its tier waits behind it (C-6.9).
+
+        The decision to go on with, and the lanes it left out."""
+        missed = self._probe_misses.get(job["job_id"], {}).get(decision.chosen_model) or frozenset()
+        if (decision.chosen_lane not in missed or decision_job.get("pinned_lane")
+                or not self._needs_probe(decision, job)):
+            return decision, ()
+        others = tuple(sorted(missed))
+        other = self._route(decision_job, extra_exclusions=(*exclusions, *others), desktop=desktop)
+        if other.chosen_lane and other.chosen_model == decision.chosen_model:
+            return other, others
+        misses = dict(self._probe_misses.get(job["job_id"], {}))
+        misses.pop(decision.chosen_model, None)
+        self._probe_misses[job["job_id"]] = misses
+        return decision, ()
+
     def _prepare_route(self, job: dict, decision_job: dict, exclusions: tuple[str, ...]):
         # The admission worker serializes probes; a distinct durable holder and
         # a gated guardian prevent a restart from launching a duplicate probe.
@@ -2806,8 +2861,12 @@ class Daemon:
             if current["cancel_requested_at"] or current["state"] in TERMINAL:
                 return None, desktop
             decision = self._route(decision_job, extra_exclusions=exclusions, desktop=desktop)
+            decision, rotation = self._rotate_probe(job, decision_job, exclusions, desktop, decision)
             pair = (decision.chosen_lane, decision.chosen_model)
             if not self._needs_probe(decision, job) or pair in approved:
+                # C-11.4: the reservation evaluates the route again and must leave the
+                # same lanes out, or it would choose the lane the probe said nothing on.
+                self._probe_rotation[job["job_id"]] = (rotation, decision.chosen_model)
                 return approved, desktop
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
@@ -2832,6 +2891,10 @@ class Daemon:
                         return None, desktop
                     if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
                         return None, desktop
+                    # C-6.10, C-11.4: the probe's clocks start at its reservation, not
+                    # before the wait for the store's writer lock (review of #153, P2-4:
+                    # a 45 s wait left a 60 s retry clock 15 s after the reservation).
+                    record.update(created_at=utcnow(), deadline_at=after(60))
                     self._save_probe(record)
                     reserved = True
             finally:
@@ -2846,17 +2909,31 @@ class Daemon:
             if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
                 approved.add(pair)
             elif outcome.cls != OutcomeClass.LIMITED:
-                # C-6.10: this wait keeps its own 60 s clock and is never brought
-                # forward (a released lease must not re-probe the provider), but a
-                # probe that ends the same way adds no second decision row.
+                # C-6.10: this wait keeps its own clock and is never brought forward
+                # (a released lease must not re-probe the provider), but a probe that
+                # ends the same way adds no second decision row. The clock is
+                # `PROBE_RETRY_S` from the probe's reservation, not from its end: a
+                # probe its deadline stopped has used the whole of it, so the job,
+                # which every later job of its tier waits behind (C-6.9), is due on
+                # the next pass rather than a minute after it.
+                quarantined = bool(outcome.evidence.get("probe_quarantined"))
+                if not quarantined:
+                    # C-11.4: the job's next probe of this model goes to another lane.
+                    misses = self._probe_misses.get(job["job_id"], {})
+                    self._probe_misses[job["job_id"]] = {
+                        **misses, pair[1]: misses.get(pair[1], frozenset()) | {pair[0]}}
+                reserved_at = (self._probe_record(holder) or record)["created_at"]
+                next_check = after(60) if quarantined else max(utcnow(), _later(reserved_at, PROBE_RETRY_S))
+                self._probe_clocks[job["job_id"]] = next_check
                 repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
                                              {"reason": "probe-pending"}, expedite=False)
-                with self.store.transaction("job.probe_waiting", job_id=job["job_id"]) as tx:
+                with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
+                                            data={"model": pair[1], "class": outcome.cls.value,
+                                                  "next_check_at": next_check}) as tx:
                     if not repeat:
                         self.store.add_decision(job["job_id"], decision)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                               ("uncertain" if outcome.evidence.get("probe_quarantined") else "capacity",
-                                after(60), job["job_id"]))
+                               ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
                 return None, desktop
         return None, desktop
 
@@ -2962,6 +3039,8 @@ class Daemon:
             self._route_deferrals.pop(gone, None)
         for gone in set(self._retry_verdicts) - {job["job_id"] for job in queued}:
             self._retry_verdicts.pop(gone, None)
+        for gone in set(self._probe_misses) - {job["job_id"] for job in queued}:
+            self._probe_misses.pop(gone, None)                  # C-11.4
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
         # output path), so backed-off capacity waits are looked at on this pass
@@ -3085,13 +3164,19 @@ class Daemon:
             except Unroutable as exc:
                 self._unroutable(job, exc, holds)
                 continue
+            finally:
+                # C-11.4: the lanes the route `_prepare_route` settled on left out.
+                rotation, rotated_model = self._probe_rotation.pop(job["job_id"], ((), None))
+                probe_clock = self._probe_clocks.pop(job["job_id"], None)
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
                 waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                 holds[job["job_id"]] = {"reason": "probe-pending"}
                 current = self._job(job["job_id"])
-                clocked = current["next_check_at"] and current["next_check_at"] > utcnow()
+                # A probe that ran set the job's clock itself (C-6.10), which is due at
+                # once when the probe used the whole of it.
+                clocked = probe_clock is not None or (current["next_check_at"] and current["next_check_at"] > utcnow())
                 if current["state"] not in TERMINAL and not current["cancel_requested_at"] and not clocked:
                     # C-6.10: the route could not be prepared and nothing set a
                     # clock (the probe's slot is held, the lane changed hands). The
@@ -3117,7 +3202,27 @@ class Daemon:
                 if extra_exclusions:
                     job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
-                decision = self._route(decision_job, extra_exclusions=extra_exclusions, desktop=desktop_account)
+                decision = self._route(decision_job, extra_exclusions=(*extra_exclusions, *rotation),
+                                       desktop=desktop_account)
+                if rotation and (scheduler.promoted_past(decision, rotated_model) if decision.chosen_lane
+                                 else scheduler.left_out_only(decision, rotation)):
+                    # C-11.4: the lane rotation chose stopped taking the job between its
+                    # probe and this reservation, and with the lanes it left out still out
+                    # the chain would walk on past its model (an earlier model is no
+                    # promotion: review of #153 r2, P3-A), or a lane it left out is all that would
+                    # take the job. Rotation never promotes a job, nor refuses it a lane it
+                    # left out: the job waits on C-6.10's clock and looks again, and the
+                    # next look starts a new round when no other lane of the model will
+                    # take it. A verdict that holds whatever was left out (a full fleet)
+                    # goes on as any does (review of #154, P3-1).
+                    waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
+                    hold = {"reason": "probe-pending"}
+                    rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                               (next_check, job["job_id"]))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                    continue
                 needs_probe = self._needs_probe(decision, job)
                 live = tx.execute("SELECT count(*) FROM attempts WHERE state IN ('reserved','starting','running','finalizing')").fetchone()[0]
                 saturated = live >= cap
