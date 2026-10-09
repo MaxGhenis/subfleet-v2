@@ -330,6 +330,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                  "Its outcome goes to the conversation, not to a notice or a deliverable (C-26.12)"]
     else:
         lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
+    if standing.get("class") == "priority":
+        lines.append("class priority (admission.priority_callers)")
     hold, recheck = standing.get("hold"), standing.get("recheck")
     if state not in ("queued", "waiting"):
         return lines
@@ -339,6 +341,10 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
             # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
             template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
+        if reason == "probe-pending" and hold.get("behind"):
+            # C-6.9: FIFO on a probe; an older job waits on the same one and carries it first.
+            template = ("{lane} must be probed for {model} before the job may start on it, and {behind}, an "
+                        "older job waiting on that probe, carries it first (C-6.9)")
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
                       "queued": ", ".join(hold.get("queued", ())) or "-",
@@ -348,7 +354,7 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id", "tries", "class", "lane_id"), "?"),
+                 "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
             if reason == "pin-unadmittable":
                 lines.append(f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then "
