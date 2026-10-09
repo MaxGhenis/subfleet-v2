@@ -752,20 +752,41 @@ def test_enroll_refuses_a_missing_keychain_item_without_naming_a_value(tmp_path)
     assert "claude setup-token" in (caught.value.fix or "")
 
 
-def test_enroll_verifies_a_home_lanes_account_against_its_config(tmp_path):
-    """C-1.3, C-1.4 a home lane's account comes from its own `.claude.json`; a
-    reference that contradicts it is refused rather than silently rebound."""
+def _home(tmp_path, *, login: bool = True):
     home = tmp_path / "lane-home"
     home.mkdir()
     (home / ".claude.json").write_text(
         json.dumps({"oauthAccount": {"emailAddress": "max@thesisinstitute.org"}}),
         encoding="utf-8",
     )
+    if login:
+        (home / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {
+            "accessToken": "fixture-home-token", "expiresAt": 4102444800000}}), encoding="utf-8")
+    return home
+
+
+def test_enroll_verifies_a_home_lanes_account_against_its_config(tmp_path):
+    """C-1.3, C-1.4 a home lane's account comes from its own `.claude.json`; a
+    reference that contradicts it is refused rather than silently rebound. C-10.6:
+    when its login cannot read its profile, its organization header names it."""
+    home = _home(tmp_path)
     adapter = ClaudeAdapter(runner=_Runner(stdout=_enroll_stream()), now=lambda: NOW,
-                            projects_dir=tmp_path)
+                            projects_dir=tmp_path, profile_opener=lambda request, timeout: (403, b""),
+                            org_opener=lambda request, timeout: (200, "org-home-1"))
     info = adapter.enroll(Credential(provider="claude", ref=str(home), kind="home"))
     assert info.account_key == "claude:max@thesisinstitute.org"
     assert info.home == str(home)
+    assert info.identity == "org:org-home-1" and info.identity_status == "enrolled"
+
+
+def test_enroll_refuses_a_home_whose_login_subfleet_cannot_read(tmp_path):
+    """C-10.2, C-10.6 a home with no login Subfleet can read cannot say whose it is:
+    enrolment refuses it (exit 7) rather than recording a lane nobody can name."""
+    home = _home(tmp_path, login=False)
+    adapter = ClaudeAdapter(runner=_Runner(stdout=_enroll_stream()), now=lambda: NOW, projects_dir=tmp_path)
+    with pytest.raises(AdapterError) as refused:
+        adapter.enroll(Credential(provider="claude", ref=str(home), kind="home"))
+    assert refused.value.code == 7 and "could not tell whose token" in str(refused.value)
 
 
 def test_enroll_rejects_a_non_claude_credential(tmp_path):
