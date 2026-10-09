@@ -40,6 +40,13 @@ jobs:
         with:
           version: "0.12.17"
       - run: uv sync --locked --group dev --python '${{ matrix.python }}'
+      - name: Install OCR for the rendered-view regressions
+        # tests/frontend/test_visual_round_{three,four}.py read rendered approval
+        # cards and sidebars with tesseract and fail, not skip, without it.
+        run: brew install tesseract
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
       - name: Build source and wheel distributions
         run: uv build
       - name: Compile native menu bar app without launching
