@@ -27,7 +27,7 @@ FIXTURES = TESTS / "fixtures" / "codex"
 API_KEYS = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 SCENARIOS = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection", "auth-401",
-    "refresh-token-revoked", "cli-too-old", "content-filter", "stream-disconnect",
+    "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag", "stream-disconnect",
     "model-at-capacity", "spawn-fail", "model-scoped-limit",
 )
 
@@ -134,11 +134,16 @@ def test_fixture_provenance_and_redaction(scenario):
     if expected["synthetic"]:
         assert provenance["source"] == "synthetic"
         assert provenance["reason"]
-    else:
-        assert provenance["source"] == "v1"
+    elif provenance["source"] == "v1":
         assert provenance["run"]
         assert {"meta.json", "err.log", "out.md"} <= set(provenance["files"])
         assert provenance["normalization"]  # The source launcher did not emit JSONL.
+    else:
+        # A v2 attempt's own JSONL stream, events kept verbatim.
+        assert provenance["source"] == "v2"
+        assert provenance["run"]
+        assert {"a1/stream.jsonl", "a1/stderr"} <= set(provenance["files"])
+        assert provenance["normalization"]
     for path in fixture.iterdir():
         text = path.read_text()
         assert not re.search(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+", text), path.name
