@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import signal
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,26 @@ MUTATIONS = (
      "self.owned.update(self.ownership_candidates)",
      "pass",
      "tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_respects_member_identity[table-attempt]"),
+    ("K1 permits an omitted confirmed owned survivor",
+     "for pid, start in self.world.owned:",
+     "for pid, start in ():",
+     "tests/fake/test_quarantine_process_world.py::test_k1_oracle_rejects_omitted_owned_survivor_signal"),
+    ("S1 ignores recorded writers without visible markers",
+     "if p.writer and not p.zombie]",
+     "if p.writer and not p.zombie and p.marked]",
+     "tests/fake/test_quarantine_process_world.py::test_s1_oracle_rejects_release_with_recorded_writer"),
+    ("K1 transfers probe-only ownership to the attempt",
+     "                    attempt_owned, attempt_observed, attempt_groups)",
+     "                    self.probe_owned, attempt_observed, attempt_groups)",
+     "tests/fake/test_quarantine_process_world.py::test_probe_ownership_does_not_grant_attempt_signal_authority"),
+    ("S1 transfers probe-only observations to the attempt",
+     "                    attempt_owned, attempt_observed, attempt_groups)",
+     "                    attempt_owned, self.probe_observed, attempt_groups)",
+     "tests/fake/test_quarantine_process_world.py::test_probe_census_does_not_expand_attempt_coverage"),
+    ("S1 transfers probe-only groups to the attempt",
+     "                    attempt_owned, attempt_observed, attempt_groups)",
+     "                    attempt_owned, attempt_observed, self.probe_groups)",
+     "tests/fake/test_quarantine_process_world.py::test_probe_census_does_not_expand_attempt_coverage"),
 )
 
 
@@ -77,4 +98,10 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt(f"oracle mutations interrupted by signal {signum}")
+    previous = signal.signal(signal.SIGTERM, interrupted)
+    try:
+        sys.exit(main())
+    finally:
+        signal.signal(signal.SIGTERM, previous)

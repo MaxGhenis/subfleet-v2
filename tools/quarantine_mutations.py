@@ -1,19 +1,48 @@
-"""Foreground C-5.7 mutation checks; restore production bytes after every run.
+"""Foreground C-5.7 mutation checks; restore source bytes after every run.
 
 Usage: .venv/bin/python tools/quarantine_mutations.py
 Uses only state fixtures (no daemon/provider subprocesses); each pytest slice
-has a nine-minute bound. Output is a concise summary, never a repo artifact.
+has a nine-minute bound, within a 25-minute total budget. Output is a concise
+summary, never a repo artifact.
 """
 from pathlib import Path
 import os
 import re
+import signal
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("attempt kill loses original-group identity provenance", "subfleet/daemon.py",
+     "            owned.update({pid: ident for pid, ident in census.group_identities.items()\n"
+     "                          if procs.same_process(pid, ident.boot_id, ident.proc_start)})",
+     "            pass  # mutation: lose confirmed original-group ownership",
+     "tests/fake/test_quarantine_process_world.py::test_k1_owned_child_escaping_during_census_is_signalled[attempt]"),
+    ("probe kill loses original-group identity provenance", "subfleet/daemon.py",
+     "            owned.update({p: ident for p, ident in census.group_identities.items()\n"
+     "                          if procs.same_process(p, ident.boot_id, ident.proc_start)})",
+     "            pass  # mutation: lose confirmed original-group ownership",
+     "tests/fake/test_quarantine_process_world.py::test_k1_owned_child_escaping_during_census_is_signalled[probe]"),
+    ("attempt kill skips a recorded owned survivor during census outage", "subfleet/daemon.py",
+     "for pid in census.live_pids | (owned.keys() if census.unverifiable else set()):",
+     "for pid in census.live_pids:",
+     "tests/fake/test_quarantine_process_world.py::test_k1_owned_child_is_signalled_during_table_outage[attempt]"),
+    ("probe kill skips a recorded owned survivor during census outage", "subfleet/daemon.py",
+     "for target in census.live_pids | (owned.keys() if census.unverifiable else set()):",
+     "for target in census.live_pids:",
+     "tests/fake/test_quarantine_process_world.py::test_k1_owned_child_is_signalled_during_table_outage[probe]"),
+    ("release proof attributed to the last batch member", "tests/fake/test_quarantine_self_resolve.py",
+     "next(\n                        proof for proof in reversed(proofs) if proof[0] == aid)",
+     "proofs[-1]",
+     "tests/fake/test_quarantine_self_resolve.py::test_release_property_attributes_batch_proofs_to_the_released_attempt"),
+    ("recorded quarantine writers ignored after restart and PID reuse", "subfleet/procs.py",
+     "        for pid, observations in records_by_pid.items():",
+     "        for pid, observations in ():",
+     "tests/fake/test_quarantine_process_world.py::test_s1_recorded_identities_survive_restart_and_reuse"),
     ("attempt kill infers ownership from missing group shape", "subfleet/daemon.py",
      'census.shapes.get(pid, {}).get("pgid") == a.get("pgid")',
      'census.shapes.get(pid, {}).get("pgid", a.get("pgid")) == a.get("pgid")',
@@ -156,11 +185,12 @@ MUTATIONS = (
 )
 
 
-def main():
+def _run_mutations():
     selected = MUTATIONS if len(sys.argv) == 1 else tuple(m for m in MUTATIONS if m[0] in sys.argv[1:])
     assert selected, "no mutations selected"
     killed = 0
     survivors, no_control, failures = [], [], []
+    deadline = time.monotonic() + 1500
     def run(node):
         # Keep installed-library caches while preventing same-size production
         # edits in one second from borrowing the control's compiled module.
@@ -169,10 +199,15 @@ def main():
                 cache.unlink()
         return subprocess.run(
             [sys.executable, "-B", "-m", "pytest", "--assert=plain", "-xq", node], cwd=ROOT,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-            capture_output=True, text=True, timeout=540)
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "SF_WORLD_EXAMPLES": "30",
+                 "SF_WORLD_DEADLINE_MS": "30000"},
+            capture_output=True, text=True, timeout=min(540, max(.001, deadline - time.monotonic())))
 
-    for name, filename, old, new, node in selected:
+    for index, (name, filename, old, new, node) in enumerate(selected):
+        if time.monotonic() >= deadline:
+            no_control.extend(m[0] for m in selected[index:])
+            print("TIME LIMIT: remaining mutations skipped at 25-minute bound", flush=True)
+            break
         path = ROOT / filename
         original_bytes = path.read_bytes()
         original = original_bytes.decode()
@@ -215,6 +250,17 @@ def main():
     print(f"{killed}/{len(selected)} mutations killed; production source restored", flush=True)
     print(f"Survivors: {survivors}; no control: {no_control}; inconclusive: {failures}", flush=True)
     return int(bool(survivors or no_control or failures))
+
+
+def main():
+    previous = signal.getsignal(signal.SIGTERM)
+    def interrupt(_signum, _frame):
+        raise KeyboardInterrupt("mutation run terminated; restore production source")
+    signal.signal(signal.SIGTERM, interrupt)
+    try:
+        return _run_mutations()
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
