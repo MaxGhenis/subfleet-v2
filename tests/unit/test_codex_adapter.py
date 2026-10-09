@@ -22,7 +22,7 @@ from subfleet.contracts import (
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 REQUIRED_CASES = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection",
-    "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter",
+    "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag",
     "stream-disconnect", "model-at-capacity", "spawn-fail", "model-scoped-limit",
 )
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
@@ -295,6 +295,8 @@ def test_transient_failures_do_not_close_lane(tmp_path, message):
 @pytest.mark.parametrize("message", [
     "content filter blocked this request", "trusted access is required",
     "I can't help with that request", "I can’t assist with that request",
+    "This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request.",
+    "apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access",
 ])
 def test_content_filter_variants_are_not_transient(tmp_path, message):
     """C-9.2 C-4.5 v1 content-filter refusals are classified for reconciliation, not retry."""

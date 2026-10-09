@@ -53,7 +53,10 @@ LIMIT_RE = re.compile(
     r"hit your usage limit|usage limit reached|usage_limit_reached|"
     r"(?:model|account).{0,60}(?:quota|usage limit)|quota exceeded|" + CREDITS_RE.pattern, re.I,
 )
-CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|can('|’)t (help|assist) with", re.I)
+# The provider's safety refusals. "flagged for possible cybersecurity risk ... apply for
+# Daybreak access" is gpt-6.1-sol's wording on 2026-10-09; "trusted access" is the older one.
+CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|daybreak access|"
+                        r"flagged for possible [\w -]{0,40}risk|can('|’)t (help|assist) with", re.I)
 OLD_CLI_RE = re.compile(
     r"cli.{0,45}(?:too old|outdated)|"
     r"(?:upgrade|update)\s+(?:(?:your|the)\s+)?(?:codex|cli)\b|"
