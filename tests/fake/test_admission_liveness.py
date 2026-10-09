@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import capacity, scheduler
+from subfleet import capacity, folders, scheduler
 from subfleet import daemon as daemon_module
 from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Reading,
                                 ReadingLabel)
@@ -770,9 +770,10 @@ def test_c6_9_a_lease_freed_mid_pass_goes_to_the_detached_job_that_waited_for_it
     with fleet_daemon(tmp_path / "state") as (service, harness, patch):
         patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
         out = str(harness.root / "shared-out.md")
-        key = f"out:{out}"
+        key = f"out:{folders.identity(out)}"
         older = submit(service, harness, out_path=out)
-        assert service.store.acquire_lease(key, "someone-else")       # taken after submit, which refuses a held path
+        # A legacy raw spelling still guards the canonical queue position.
+        assert service.store.acquire_lease(f"out:{out}", "someone-else")  # taken after submit
         service._admit()
         assert service._holds[older]["reason"] == "lease-held" and service._holds[older]["leases"] == [key]
         newer = submit(service, harness)
