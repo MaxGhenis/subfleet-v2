@@ -88,6 +88,8 @@ class FakeAdapter(Adapter):
             )
             return Outcome(OutcomeClass.LIMITED, "fake provider hard limit",
                            evidence={**evidence, "quota": quota}, closure=closure)
+        if exit_info.rc == 3:
+            return Outcome(OutcomeClass.CONTENT_FILTER, "fake provider refused the prompt", evidence=evidence)
         return Outcome(OutcomeClass.UNKNOWN, exit_info.spawn_error or "fake provider failed",
                        evidence=evidence)
 

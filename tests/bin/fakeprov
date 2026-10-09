@@ -91,6 +91,9 @@ def main() -> int:
         print(json.dumps({"event": "rate_limit", "scope": "account",
                           "resets_at": int(time.time()) + 3600}), file=sys.stderr, flush=True)
         return 4
+    if scenario == "rc3-content-filter":
+        print("This content was flagged for possible cybersecurity risk.", file=sys.stderr, flush=True)
+        return 3
     if scenario == "rc1-crash-after-output":
         print("partial result before provider crash", flush=True)
         return 1
