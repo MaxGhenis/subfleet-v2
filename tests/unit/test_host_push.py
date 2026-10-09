@@ -29,6 +29,11 @@ from subfleet.procs import Containment
 from subfleet.store import Store
 
 
+# Repository setup can wait on macOS filesystem flushes under load. This
+# fixture timeout does not change the daemon's 60 s Git cap or shared deadline.
+FIXTURE_GIT_TIMEOUT_S = 180
+
+
 def git(path, *args, check=True, raw=False):
     env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
            "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.test",
@@ -40,7 +45,7 @@ def git(path, *args, check=True, raw=False):
             del env[key]
     result = subprocess.run([host_push.GIT, "-C", str(path), "-c", "core.hooksPath=" + os.devnull,
                              "-c", "core.fsmonitor=false", *args], env=env,
-                            capture_output=True, timeout=60)
+                            capture_output=True, timeout=FIXTURE_GIT_TIMEOUT_S)
     if check:
         assert result.returncode == 0, result.stderr.decode(errors="replace")
     return result.stdout if raw else result.stdout.decode().strip()
