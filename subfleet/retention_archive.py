@@ -613,10 +613,35 @@ class Retirement:
 
     # --- step 3: move into quarantine ------------------------------------------------------
 
+    def _fence_job_folder(self) -> None:
+        """Keep a turn's cwd, or fence the job directory before either rename.
+
+        Selection fences the allocated tree; its job directory also needs a
+        fence. Check and acquire it atomically, including on crash recovery.
+        The cwd can differ from the Git hold, so also read queued/live turn jobs.
+        """
+        assert self.journal is not None
+        folder = folders.canonical(self.journal["job_dir"])
+        key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
+        with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
+            self.ctx.check()
+            read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
+            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state NOT IN "
+                                 "('succeeded','failed','cancelled','lost')").fetchall()
+            if folders.turn_holds(read, folder, inside=True) or any(
+                    folders.within(row["workdir"], folder) for row in turns):
+                raise Defer("turn-folder", DEFER_PINNED_S, folder)
+            current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if current and current[0] != holder:
+                raise Defer("job folder lease", DEFER_CHANGED_S, folder)
+            conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                         (key, holder, _now()))
+
     def quarantine(self) -> None:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        self._fence_job_folder()
         present = j.get("worktree_present")
         if j["worktree"] is not None and not j["moved"]["worktree"] and present is not None \
                 and os.path.lexists(j["worktree"]) != present:

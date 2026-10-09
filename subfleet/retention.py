@@ -277,6 +277,16 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
         if row["job_id"] in owned and any(folders.within(folder, row["worktree"]) for folder in in_use):
             add(row["job_id"], "turn-folder")
     if root is not None:
+        # Retirement moves jobs/<id> too. Keep it for live or queued turns,
+        # including a cwd whose Git hold names a different folder. Read only
+        # recorded paths here: this also runs in the archive commit transaction.
+        turn_workdirs = {row["workdir"] for row in store.query(
+            "SELECT workdir FROM jobs WHERE kind='turn' AND state NOT IN "
+            "('succeeded','failed','cancelled','lost')")}
+        for row in jobs:
+            job_folder = str(Path(root) / "jobs" / row["job_id"])
+            if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
+                add(row["job_id"], "turn-folder")
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
     # A job registered in a repository inside another job's tree keeps that

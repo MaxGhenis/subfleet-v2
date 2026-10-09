@@ -76,4 +76,3 @@ def test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fenc
         assert Path(nested).is_dir()
         daemon._admit_turns()
         assert _live(daemon, seen["turn"]), daemon._holds
-
