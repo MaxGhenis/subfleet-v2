@@ -560,7 +560,6 @@ class Daemon:
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
-        self._push_lock = threading.Lock()
         # C-5.12: attempt id -> when its processes are next inspected, and the
         # one process table those inspections share.
         self._inspect_next: dict[str, float] = {}
@@ -669,6 +668,9 @@ class Daemon:
         # 13: retention's pass (d635) can hold one worker for minutes; the other
         # twelve are what attempts, admission and exports had before.
         self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
+        # C-8.5 (review P3-5): every host push runs here, one at a time, so push jobs
+        # finishing together queue on this thread rather than each holding a worker.
+        self.pushes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-push")
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
         # C-16.7: each connection the daemon holds has a reader thread of its own
@@ -1898,6 +1900,10 @@ class Daemon:
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 push_remote = push_default = push_head = push_current = push_top = None
+                if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
+                    # C-8.5: the job writes its bundle in its own workspace.
+                    raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
+                                       code=7, fix="pass -s workspace-write, or omit --push-branch")
                 if args.push_branch is not None:
                     push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
                         workdir, args.push_branch, self.policy, self.root)
@@ -2112,13 +2118,21 @@ class Daemon:
                 note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
                 if args.push_branch is not None:
                     note = note.replace(b"Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in that repository.",
-                                        b"Subfleet accepts committed work only through your push.bundle.")
+                                        b"Subfleet accepts committed work only through your push bundle.")
             if args.push_branch is not None:
-                note += (f"Host push requested to {args.push_branch}. Commit your work and write a full bundle "
-                         f"with exactly HEAD: git bundle create <attempt directory>/push.bundle HEAD. "
-                         f"The attempt directory is {jobdir}/a<attempt sequence>. No prerequisites or other refs. "
-                         "The host refuses .github/ changes, submodules, escaping symlinks, rewritten history, "
-                         "and policy size/count limits; a refusal keeps the job accepted for a human or hub push.\n\n").encode()
+                # C-8.5 (review P1-1): inside the directory the job starts in, the
+                # one place a Codex workspace-write sandbox lets it write.
+                root = workdir if args.in_place else self.root / "worktrees" / job_id
+                bundle = root.joinpath(*host_push.BUNDLE_PATH)
+                note += (f"Host push requested to {args.push_branch}. Commit your work, then from {root} write a "
+                         f"full bundle of exactly HEAD: mkdir -p {host_push.BUNDLE_PATH[0]} && git bundle create "
+                         f"{host_push.BUNDLE_RELATIVE} HEAD (if you commit in .git-local, pass --git-dir=.git-local "
+                         f"--work-tree=. to that git). The bundle's absolute path is {bundle}, also in "
+                         f"$SUBFLEET_PUSH_BUNDLE; never commit {host_push.BUNDLE_PATH[0]}/. It must be a regular "
+                         "file in a plain directory, not a symlink, with no prerequisites or other refs. The host "
+                         "refuses .github/ changes, submodules, absolute or '..' or chained symlinks, rewritten "
+                         "history, and policy size/count limits; a refusal keeps the job accepted for a human or "
+                         "hub push.\n\n").encode()
             preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
             if sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
@@ -3237,7 +3251,10 @@ class Daemon:
         """The answer to a `wait` if every job has ended and every export is done."""
         with self.store.snapshot():         # one committed state for the whole answer
             jobs = [self._job(j) for j in job_ids]
-            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
+            # C-8.5: a host push's outcome is part of the answer, as an export is.
+            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND (lease_key LIKE 'out:%' "
+                                                 "OR lease_key LIKE 'push:%')", (j["job_id"],))
+                                  for j in jobs if j["state"] == "succeeded")
             if not all(j["state"] in TERMINAL for j in jobs) or pending_exports:
                 return None
             for job in jobs:
@@ -3309,8 +3326,9 @@ class Daemon:
         # at the job's end, however it ended, this notice says what happened instead.
         self._withdraw_pin_notice(tx, row["job_id"], why="ended")
 
-    def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
-        """Run `fn` on the worker pool unless `key` is already running.
+    def _schedule(self, key: str, fn: Callable, *args, paced: bool = False,
+                  pool: ThreadPoolExecutor | None = None) -> None:
+        """Run `fn` on the worker pool (or `pool`) unless `key` is already running.
 
         C-5.10: `paced` is for the keys the control loop offers again every tick.
         A one-shot request (an operator's `kill --confirm-dead`) is never paced:
@@ -3323,7 +3341,7 @@ class Daemon:
                 return
             self._busy.add(key)
         generation = self.store.generation
-        future = self.workers.submit(fn, *args)
+        future = (pool or self.workers).submit(fn, *args)
         def done(f):
             try:
                 deferred = f.result() is DEFERRED
@@ -5842,14 +5860,6 @@ class Daemon:
             prompt = read_regular(prompt_path) + suffix.encode()
             prompt_path = adir / "prompt.md"
             self._publish("prompt", prompt_path, prompt)
-        if job.get("push_branch") is not None:
-            bundle_note = (f"\n\nThis attempt's host push intake is {adir / 'push.bundle'}. "
-                           "Commit the finished work and write a full bundle advertising exactly HEAD "
-                           f"with git bundle create {adir / 'push.bundle'} HEAD. "
-                           "If using .git-local, pass its --git-dir/--work-tree explicitly.\n")
-            prompt = read_regular(prompt_path) + bundle_note.encode()
-            prompt_path = adir / "prompt.push.md"
-            self._publish("prompt", prompt_path, prompt)
         turn_block = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn")
                       if job["kind"] == "turn" else None)
         try:
@@ -5858,6 +5868,8 @@ class Daemon:
                 # can switch an in-place checkout after its attempt is reserved.
                 if job.get("push_branch") is not None:
                     host_push.validate_write_location(Path(job.get("worktree") or job["workdir"]))
+                    # C-8.5: a bundle left by earlier work is never taken for this attempt's.
+                    host_push.clear_bundle(self._push_root(job))
                 else:
                     validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
@@ -5926,6 +5938,7 @@ class Daemon:
         for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             env.pop(key, None)
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
+        env.update(self._push_environment(job))
         # The package path is explicit: provider cwd is deliberately unrelated
         # to the daemon's installation or test checkout.
         package_root = str(Path(__file__).resolve().parent.parent)
@@ -6985,11 +6998,16 @@ class Daemon:
         job = self._job(job_id)
         if not job["accepted_attempt_id"]:
             return
+        if job.get("push_branch") is not None and not self._push_settled(job_id):
+            # C-8.5 (review P3-5): one thread publishes every push, so pushes
+            # wait for each other there and never hold a pool worker. Leases
+            # stay until it ends; the pass after it exports and releases them.
+            self._schedule("push:" + job_id, self._push_job, job_id, paced=True, pool=self.pushes)
+            return
         a = self.store.get_attempt(job["accepted_attempt_id"])
         if job["out_path"]:
             lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"out:{job['out_path']}",))
             if not lease or lease["holder"] != job_id:
-                self._push_job(job, a)
                 if job.get("push_branch") is not None:
                     with self.store.transaction("job.export_superseded", job_id=job_id) as tx:
                         tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
@@ -7009,7 +7027,6 @@ class Daemon:
                 exported = {"role": "export", "path": str(destination), "sha256": artifact["sha256"], "bytes": artifact["bytes"]}
             except OSError as exc:
                 export_error = f"export failed: {type(exc).__name__} (errno={exc.errno})"
-        self._push_job(job, a)
         with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=a["attempt_id"]) as tx:
             if exported:
                 self.store.add_artifact(a["attempt_id"], **exported)
@@ -7019,72 +7036,125 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
         self._notify()
 
-    def _push_job(self, job: dict, attempt: dict) -> None:
-        """C-8.5: acceptance is committed; every external operation is off-lock.
+    #: C-8.5: a push whose verification was cut short this many times (a
+    #: restart, or a fault of the daemon's own) fails instead of retrying again.
+    PUSH_INTAKES = 3
 
-        A durable claim precedes I/O. A replay of an interrupted claim reports
-        uncertainty for manual reconciliation instead of attempting a second push.
+    def _push_root(self, job: dict) -> Path:
+        """C-8.5: where the job writes `.subfleet/push.bundle`: the directory it
+        starts in, an in-place job's workdir or the standalone checkout the
+        daemon allocated (`_workspace`)."""
+        return Path(job["workdir"]) if job["in_place"] else self.root / "worktrees" / job["job_id"]
+
+    def _push_environment(self, job: dict) -> dict[str, str]:
+        """C-8.5: the absolute path of the job's bundle, beside its prompt's note."""
+        if job.get("push_branch") is None:
+            return {}
+        return {"SUBFLEET_PUSH_BUNDLE": str(self._push_root(job).joinpath(*host_push.BUNDLE_PATH))}
+
+    def _push_settled(self, job_id: str) -> bool:
+        row = self.store.one("SELECT result FROM job_pushes WHERE job_id=?", (job_id,))
+        return row is not None and row["result"] != "pending"
+
+    def _push_job(self, job_id: str) -> None:
+        """C-8.5: acceptance is committed; every external operation is off-lock,
+        on the one push thread (`self.pushes`), so pushes are serialized.
+
+        A durable pending row precedes intake. `pushing_at` is committed with
+        the ownership claim immediately before `git push`: a pending row without
+        it sent nothing, and is verified again from the start (at most
+        PUSH_INTAKES times); a row with it may have reached the remote, so a
+        replay reports uncertainty for manual reconciliation instead of pushing
+        a second time.
         """
+        job = self._job(job_id)
         if job.get("push_branch") is None or not job["accepted_attempt_id"]:
             return
-        with self._push_lock:
-            previous = self.store.one("SELECT * FROM job_pushes WHERE job_id=?", (job["job_id"],))
-            if previous and previous["result"] != "pending":
-                return
-            branch, remote = job["push_branch"], job["push_remote"]
-            sha, error = (previous["sha"] if previous else None), None
-            if previous:
-                error = "host push interrupted; inspect the remote before a human or hub push"
-            else:
-                with self.store.transaction("push.started", job_id=job["job_id"]) as tx:
-                    tx.execute("INSERT INTO job_pushes(job_id,branch,remote,started_at,result) VALUES(?,?,?,?,'pending')",
-                               (job["job_id"], branch, remote, utcnow()))
-                try:
-                    settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
-                    family = job
-                    while family.get("parent_job_id") and not family["independent"]:
-                        family = self._job(family["parent_job_id"])
-                    with host_push.quarantine(self.root, job["workdir_head"]) as (repo, credentials):
-                        bundle = host_push.copy_bundle(attempt_dir(self.root, job["job_id"], attempt["seq"]) / "push.bundle",
-                                                       repo, settings["max_bundle_mb"] * 1024 * 1024)
-                        sha = host_push.verify_bundle(repo, bundle, job["workdir_head"], settings)
-                        default, refs = host_push.remote_refs(repo, remote, credentials)
-                        if default is None:
-                            raise host_push.PushError("remote default branch cannot be verified")
-                        host_push.check_branch(branch, settings, default)
-                        owner = self.store.one("SELECT * FROM job_owned_branches WHERE remote=? AND branch=?", (remote, branch))
-                        if owner and owner["family_job_id"] != family["job_id"]:
-                            raise host_push.PushError("remote branch belongs to another job family")
-                        if branch in refs:
-                            if not owner or not owner["sha"]:
-                                raise host_push.PushError("existing remote branch is not owned by this job family")
-                            host_push.git(repo, "fetch", "--no-tags", "--no-write-fetch-head", remote,
-                                          f"refs/heads/{branch}:refs/heads/remote-tip", credentials=credentials)
-                            host_push.git(repo, "merge-base", "--is-ancestor", "refs/heads/remote-tip", sha)
-                        refspec = host_push.push_refspec(sha, branch)
-                        with self.store.transaction("push.verified", job_id=job["job_id"]) as tx:
-                            tx.execute("UPDATE job_pushes SET sha=? WHERE job_id=?", (sha, job["job_id"]))
-                            tx.execute("INSERT INTO job_owned_branches(remote,branch,family_job_id,job_id,claimed_at) "
-                                       "VALUES(?,?,?,?,?) ON CONFLICT(remote,branch) DO NOTHING",
-                                       (remote, branch, family["job_id"], job["job_id"], utcnow()))
-                        # No force option, '+', deletion, remote config, or lane environment.
-                        host_push.git(repo, "push", remote, refspec, credentials=credentials)
-                except (OSError, ValueError, protocol.ProtocolError) as exc:
-                    sha = getattr(exc, "sha", sha)
-                    error = f"host push failed: {type(exc).__name__}" if isinstance(exc, (OSError, UnicodeError)) else str(exc)
-            result = "failed" if error else "succeeded"
-            line = (f"push failed: {error}; work remains accepted for a human or hub push" if error
-                    else f"pushed {sha} to {remote} branch {branch}")
-            with self.store.transaction("push." + result, job_id=job["job_id"], data={"branch": branch, "remote": remote,
-                                                                                  "sha": sha, "result": result}) as tx:
-                tx.execute("UPDATE job_pushes SET sha=?,result=?,error=?,finished_at=? WHERE job_id=?",
-                           (sha, result, error, utcnow(), job["job_id"]))
-                tx.execute("UPDATE jobs SET push_error=?,push_sha=? WHERE job_id=?",
-                           (error, sha if not error else None, job["job_id"]))
-                if not error:
-                    tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote=? AND branch=?",
-                               (sha, job["job_id"], remote, branch))
-                tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job["job_id"]))
+        previous = self.store.one("SELECT * FROM job_pushes WHERE job_id=?", (job_id,))
+        if previous and previous["result"] != "pending":
+            return
+        branch, remote = job["push_branch"], job["push_remote"]
+        sha = error = None
+        if previous and previous["pushing_at"]:
+            sha = previous["sha"]
+            error = ("host push interrupted after it began sending; inspect the remote "
+                     "before a human or hub push")
+        elif previous and previous["intakes"] >= self.PUSH_INTAKES:
+            error = (f"host push verification was interrupted {previous['intakes']} times; "
+                     "nothing was sent")
+        else:
+            with self.store.transaction("push.intake", job_id=job_id) as tx:
+                if previous:
+                    # Nothing was sent: verify again from the start.
+                    tx.execute("UPDATE job_pushes SET sha=NULL,started_at=?,intakes=intakes+1 "
+                               "WHERE job_id=? AND result='pending' AND pushing_at IS NULL", (utcnow(), job_id))
+                else:
+                    tx.execute("INSERT INTO job_pushes(job_id,branch,remote,started_at,result) "
+                               "VALUES(?,?,?,?,'pending')", (job_id, branch, remote, utcnow()))
+            try:
+                sha = self._publish_bundle(job)
+            except (OSError, ValueError, protocol.ProtocolError) as exc:
+                sha = getattr(exc, "sha", None)
+                error = (f"host push failed: {type(exc).__name__}"
+                         if isinstance(exc, (OSError, UnicodeError)) else str(exc))
+        result = "failed" if error else "succeeded"
+        line = (f"push failed: {error}; work remains accepted for a human or hub push" if error
+                else f"pushed {sha} to {remote} branch {branch}")
+        with self.store.transaction("push." + result, job_id=job_id, data={"branch": branch, "remote": remote,
+                                                                          "sha": sha, "result": result}) as tx:
+            tx.execute("UPDATE job_pushes SET sha=?,result=?,error=?,finished_at=? WHERE job_id=?",
+                       (sha, result, error, utcnow(), job_id))
+            tx.execute("UPDATE jobs SET push_error=?,push_sha=? WHERE job_id=?",
+                       (error, sha if not error else None, job_id))
+            if not error:
+                tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote_key=? AND branch_key=?",
+                           (sha, job_id, host_push.ownership_key(remote), host_push.fold(branch)))
+            tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job_id))
+
+    def _publish_bundle(self, job: dict) -> str:
+        """Intake, verify and publish one accepted job's bundle; the pushed SHA."""
+        branch, remote = job["push_branch"], job["push_remote"]
+        settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
+        family = job
+        while family.get("parent_job_id") and not family["independent"]:
+            family = self._job(family["parent_job_id"])
+        attempt = self.store.get_attempt(job["accepted_attempt_id"])
+        # Review P1-1: read from the job's own workspace through handles that
+        # never follow a link; Git sees only this daemon-owned copy.
+        bundle = host_push.intake_bundle(self._push_root(job), attempt_dir(self.root, job["job_id"], attempt["seq"])
+                                         / "push.bundle", settings["max_bundle_mb"] * 1024 * 1024)
+        with host_push.quarantine(self.root, job["workdir_head"]) as (repo, credentials):
+            sha = host_push.verify_bundle(repo, bundle, job["workdir_head"], settings,
+                                          host_push.Deadline(host_push.VERIFY_DEADLINE_S))
+            default, refs = host_push.remote_refs(repo, remote, credentials)
+            if default is None:
+                raise host_push.PushError("remote default branch cannot be verified")
+            host_push.check_branch(branch, settings, default)
+            host_push.check_case_twins(branch, refs)
+            key, branch_key = host_push.ownership_key(remote), host_push.fold(branch)
+            owner = self.store.one("SELECT * FROM job_owned_branches WHERE remote_key=? AND branch_key=?",
+                                   (key, branch_key))
+            if owner and owner["family_job_id"] != family["job_id"]:
+                raise host_push.PushError("remote branch belongs to another job family")
+            if owner and owner["branch"] != branch:
+                raise host_push.PushError(f"this job family owns the branch as {owner['branch']!r}")
+            if branch in refs:
+                if not owner or not owner["sha"]:
+                    raise host_push.PushError("existing remote branch is not owned by this job family")
+                host_push.git(repo, "fetch", "--no-tags", "--no-write-fetch-head", remote,
+                              f"refs/heads/{branch}:refs/heads/remote-tip", credentials=credentials)
+                host_push.git(repo, "merge-base", "--is-ancestor", "refs/heads/remote-tip", sha)
+            refspec = host_push.push_refspec(sha, branch)
+            # Review P3-7: the last write before anything is sent. A restart
+            # before it retries; after it, the remote must be inspected.
+            with self.store.transaction("push.started", job_id=job["job_id"]) as tx:
+                tx.execute("UPDATE job_pushes SET sha=?,pushing_at=? WHERE job_id=?", (sha, utcnow(), job["job_id"]))
+                tx.execute("INSERT INTO job_owned_branches(remote_key,branch_key,branch,remote,family_job_id,job_id,"
+                           "claimed_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(remote_key,branch_key) DO NOTHING",
+                           (key, branch_key, branch, remote, family["job_id"], job["job_id"], utcnow()))
+            # No force option, '+', deletion, remote config, or lane environment.
+            host_push.git(repo, "push", remote, refspec, credentials=credentials)
+        return sha
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
                  arrived: float | None = None) -> None:
@@ -7615,7 +7685,7 @@ class Daemon:
         for reader in readers:
             reader.join(max(0.0, joined_by - time.monotonic()))
         self.conversations.close()
-        for pool in (self.requests, self.lookups, self.waiters, self.workers):
+        for pool in (self.requests, self.lookups, self.waiters, self.workers, self.pushes):
             pool.shutdown(wait=True, cancel_futures=True)
         self.lock_watch.stop()
         with self._connection_lock:

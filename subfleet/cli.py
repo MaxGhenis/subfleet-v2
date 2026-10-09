@@ -839,6 +839,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     minted = not args.request_id
     try:
         client = _client(args)
+        if submit.push_branch is not None:
+            refused = _push_unsupported(client, "run")
+            if refused is not None:
+                return refused
         if submit.dry_run:
             # Explains a placement and creates nothing, so there is nothing to settle.
             result = client.call("submit", _asdict(submit), request_id=request_id)
@@ -1059,6 +1063,15 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         prepared.append((options["name"], submit))
 
     client, root = _client(args), _root(args)
+    if any(submit.push_branch is not None for _, submit in prepared):
+        try:
+            refused = _push_unsupported(client, "run --batch")
+        except DaemonUnavailable as exc:
+            return _daemon_down(exc)
+        except DaemonError as exc:
+            return _daemon_error(exc)
+        if refused is not None:
+            return refused
     minted = not args.request_id
     # C-17.7: the same manifest under the same batch id sends every entry again,
     # and an entry the daemon already holds comes back as its job (C-6.2).
@@ -1429,6 +1442,18 @@ def _daemon_capabilities(client: Client) -> frozenset[str]:
     if not isinstance(names, list):
         return frozenset()
     return frozenset(name for name in names if isinstance(name, str))
+
+
+def _push_unsupported(client: Client, verb: str) -> int | None:
+    """C-8.5 (review P3-10): a daemon that does not advertise `push.v1` drops
+    `push_branch` (C-16.2) and would accept the job without ever pushing, so
+    `--push-branch` is refused before anything is sent. Exit 69 with the
+    restart, as `runs --kind` answers a daemon older than the CLI."""
+    if protocol.PUSH_CAPABILITY in _daemon_capabilities(client):
+        return None
+    return fail(Exit.DAEMON_UNAVAILABLE,
+                f"{verb} --push-branch: this daemon does not advertise `{protocol.PUSH_CAPABILITY}`, so it "
+                f"would drop the branch and never push; it is older than this CLI", RESTART_DAEMON)
 
 
 def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:

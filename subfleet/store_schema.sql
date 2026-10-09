@@ -126,21 +126,30 @@ CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
 
 -- C-8.5: these audit/ownership rows survive job retention. A claim is durable
 -- before network I/O; one job can attempt a push only once, including replay.
+-- Ownership is keyed on the repository however its URL is spelled
+-- (`host_push.ownership_key`) and on the branch casefolded and NFC-normalized
+-- (`host_push.fold`); `branch` and `remote` keep the spellings pushed.
 CREATE TABLE IF NOT EXISTS job_owned_branches (
-  remote TEXT NOT NULL,
+  remote_key TEXT NOT NULL,
+  branch_key TEXT NOT NULL,
   branch TEXT NOT NULL,
+  remote TEXT NOT NULL,
   family_job_id TEXT NOT NULL,
   job_id TEXT NOT NULL,
   sha TEXT,
   claimed_at TEXT NOT NULL,
-  PRIMARY KEY (remote, branch)
+  PRIMARY KEY (remote_key, branch_key)
 );
+-- `pushing_at` is committed immediately before `git push`: a pending row
+-- without it sent nothing and is verified again (`intakes` times at most 3).
 CREATE TABLE IF NOT EXISTS job_pushes (
   job_id TEXT PRIMARY KEY,
   branch TEXT NOT NULL,
   remote TEXT NOT NULL,
   sha TEXT,
   started_at TEXT NOT NULL,
+  intakes INTEGER NOT NULL DEFAULT 1,
+  pushing_at TEXT,
   finished_at TEXT,
   result TEXT NOT NULL CHECK (result IN ('pending','succeeded','failed')),
   error TEXT

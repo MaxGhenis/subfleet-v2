@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -94,12 +95,16 @@ def worlds(tmp_path, monkeypatch):
             prompt = base / "prompt.md"
             prompt.write_text("Do the work.")
             world = SimpleNamespace(repo=repo, origin=origin, remote=remote, core=core, base=head, prompt=prompt,
-                                    calls=[])
+                                    calls=[], aliases={})
             actual_git = host_push.git
 
             def watch(quarantine_repo, *args, **kwargs):
-                assert not core.store.connection.in_transaction, "Git ran inside a store transaction"
-                assert core.root / "push-quarantine" in quarantine_repo.parents, "job-controlled Git directory"
+                assert not world.core.store.connection.in_transaction, "Git ran inside a store transaction"
+                assert world.core.root / "push-quarantine" in quarantine_repo.parents, "job-controlled Git directory"
+                if args[0] in {"push", "ls-remote", "fetch"} and len(args) > 2:
+                    # A GitHub spelling a test recorded at submit reaches the
+                    # local origin only here, below every daemon decision.
+                    args = tuple(world.aliases.get(part, part) for part in args)
                 if args[0] in {"push", "ls-remote"}:
                     url = args[1] if args[0] == "push" else args[2]
                     assert url.startswith("file://"), "test attempted a network remote"
@@ -108,7 +113,7 @@ def worlds(tmp_path, monkeypatch):
                     assert not args[2].startswith("+")
                     assert host_push.SHA.fullmatch(args[2].split(":")[0]), "delete or symbolic source"
                     assert args[2].split(":")[1].startswith("refs/heads/")
-                    assert core._job(world.job_id)["state"] == "succeeded", "push preceded acceptance"
+                    assert world.core._job(world.job_id)["state"] == "succeeded", "push preceded acceptance"
                 world.calls.append((quarantine_repo, args))
                 return actual_git(quarantine_repo, *args, **kwargs)
 
@@ -118,43 +123,68 @@ def worlds(tmp_path, monkeypatch):
                 try:
                     yield world
                 finally:
-                    core.close()
+                    world.core.close()
     return make
 
 
 def submit(world, branch="jobs/finished", **extra):
+    extra.setdefault("sandbox", "workspace-write")
     args = protocol.SubmitArgs(request_id=str(uuid4()), kind="dispatch", workdir=str(world.repo),
-        prompt_path=str(world.prompt), sandbox="workspace-write", task="build", pinned_model="astra", push_branch=branch,
+        prompt_path=str(world.prompt), task="build", pinned_model="astra", push_branch=branch,
         allow_tmp=True, **extra)
     response = world.core.dispatch("submit", asdict(args))
     world.job_id = response["job_id"]
     return world.job_id
 
 
-def accept(world, job=None, bundle=True, include_base=False):
+def bundle_path(world, job=None):
+    """Where the job writes its bundle: `.subfleet/push.bundle` in the directory it starts in."""
+    return world.core._push_root(world.core._job(job or world.job_id)).joinpath(*host_push.BUNDLE_PATH)
+
+
+def write_bundle(world, job=None, include_base=False):
+    target = bundle_path(world, job)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if include_base:
+        # One advertised HEAD, but include the old base as a dangling
+        # object. This makes ancestry enforcement independently necessary;
+        # absence of the base object cannot accidentally catch the mutant.
+        git(world.repo, "update-ref", "refs/keep/base", world.base)
+        tip = git(world.repo, "rev-parse", "HEAD")
+        pack = git(world.repo, "pack-objects", "--stdout", "--all", raw=True)
+        target.write_bytes(f"# v2 git bundle\n{tip} HEAD\n\n".encode() + pack)
+    else:
+        target.unlink(missing_ok=True)
+        git(world.repo, "bundle", "create", str(target), "HEAD")
+    return target
+
+
+def drain(world, job=None):
+    """What the control loop does after acceptance: an export pass hands the
+    push to the push thread, which publishes it, and the next pass releases
+    the job's leases."""
     job = job or world.job_id
+    world.core._export(job)
+    world.core.pushes.submit(lambda: None).result(timeout=900)
+    world.core._export(job)
+    return world.core._job(job)
+
+
+def accept(world, job=None, bundle=True, include_base=False, settle=True):
+    job = world.job_id = job or world.job_id
     core = world.core
     attempt_id = job + "/a1"
     directory = attempt_dir(core.root, job, 1)
     directory.mkdir()
     if bundle:
-        if include_base:
-            # One advertised HEAD, but include the old base as a dangling
-            # object. This makes ancestry enforcement independently necessary;
-            # absence of the base object cannot accidentally catch the mutant.
-            git(world.repo, "update-ref", "refs/keep/base", world.base)
-            tip = git(world.repo, "rev-parse", "HEAD")
-            pack = git(world.repo, "pack-objects", "--stdout", "--all", raw=True)
-            (directory / "push.bundle").write_bytes(f"# v2 git bundle\n{tip} HEAD\n\n".encode() + pack)
-        else:
-            git(world.repo, "bundle", "create", str(directory / "push.bundle"), "HEAD")
+        write_bundle(world, job, include_base)
     (directory / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": 1}))
     core.store.add_attempt(attempt_id=attempt_id, job_id=job, seq=1, lane_id="test-lane",
                            model_requested="astra", state="running", evidence_json="{}")
     with core.store.transaction("test.running") as tx:
         tx.execute("UPDATE jobs SET state='running' WHERE job_id=?", (job,))
     core._finalize(core.store.get_attempt(attempt_id))
-    row = core._job(job)
+    row = drain(world, job) if settle else core._job(job)
     assert row["state"] == "succeeded" and row["accepted_attempt_id"] == attempt_id and row["rc"] == 0
     return row
 
@@ -164,7 +194,8 @@ def remote_heads(world):
 
 
 def assert_failed(world, row, phrase):
-    assert row["push_error"] and phrase in row["push_error"]
+    assert row["push_error"] and phrase in row["push_error"], (
+        f"expected a refusal naming {phrase!r}; got error {row['push_error']!r}, pushed {row['push_sha']}")
     assert not row["push_sha"]
     assert remote_heads(world) == {"refs/heads/trunk": world.base}
     pushes = world.core.dispatch("show", {"job_id": world.job_id})["pushes"]
@@ -194,13 +225,36 @@ def test_new_branch_push_is_non_forcing_non_deleting_and_reexport_is_idempotent(
         assert Offline(world.core.root).show_job(world.job_id)["pushes"][0]["sha"] == sha
 
 
+#: Review P2-2: every spelling of a protected name, compared casefolded and
+#: NFC-normalized; `trunk` is the origin's default branch, `Private/*` a policy
+#: pattern written in another case.
+PROTECTED = ["main", "master", "release/217", "trunk", "private/secret",
+             "MAIN", "Main", "Master", "Release/217", "RELEASE/2.1.12", "TRUNK", "PRIVATE/Secret"]
+#: Names Git or a clone could read as something other than a branch, in any case.
+RESERVED = ["HEAD", "head", "Head", "heads/x", "HEADS/x", "refs/heads/x", "Refs/x", "remotes/origin/main",
+            "REMOTES/x"]
+
+
+def test_every_listed_protected_and_reserved_spelling_is_refused_at_submit(worlds):
+    """Each name of review P2-2 every run, not only the ones Hypothesis draws."""
+    with worlds(protected=["Private/*"]) as world:
+        for branch in PROTECTED + RESERVED:
+            with pytest.raises(AdapterError) as refused:
+                submit(world, branch)
+            reason = "reserved" if branch in RESERVED else "protected"
+            assert refused.value.code == 7 and reason in str(refused.value), branch
+        assert not world.core.store.query("SELECT * FROM jobs")
+        assert remote_heads(world) == {"refs/heads/trunk": world.base}
+
+
 @PROPERTY
-@given(st.sampled_from(["main", "master", "release/217", "trunk", "private/secret"]))
+@given(st.sampled_from(PROTECTED + RESERVED))
 def test_never_submits_or_pushes_a_protected_branch(worlds, branch):
-    with worlds(protected=["private/*"]) as world:
+    with worlds(protected=["Private/*"]) as world:
         with pytest.raises(AdapterError) as refused:
             submit(world, branch)
-        assert refused.value.code == 7 and refused.value.fix and "protected" in str(refused.value)
+        reason = "reserved" if branch in RESERVED else "protected"
+        assert refused.value.code == 7 and refused.value.fix and reason in str(refused.value)
         assert not world.core.store.query("SELECT * FROM jobs")
         assert not any(args[0] == "push" for _, args in world.calls)
         assert remote_heads(world) == {"refs/heads/trunk": world.base}
@@ -335,7 +389,7 @@ def test_acceptance_crash_leaves_a_recoverable_push_lease(worlds):
         assert world.core.store.query("SELECT * FROM job_pushes") == []
         world.core._boundary = lambda *args: None
         world.core._export(world.job_id)
-        assert world.core._job(world.job_id)["push_sha"] == sha
+        assert drain(world)["push_sha"] == sha
         assert world.core._pending_exports() == []
 
 
@@ -367,17 +421,32 @@ def test_bundle_size_and_commit_count_are_bounded(worlds, limit):
         assert_failed(world, accept(world), limit)
 
 
-@pytest.mark.parametrize("target", ["../outside", "/etc/passwd", "dir/b/../.."])
-def test_escaping_symlinks_including_chains_are_refused(worlds, target):
+#: Review P2-3: (links to commit, the refusal's words). `foo -> .` with
+#: `escape -> FOO/..` escaped through a case alias on macOS.
+SYMLINKS = {
+    "case-alias": ({"foo": ".", "escape": "FOO/.."}, "'..' component"),
+    "absolute": ({"link": "/etc/passwd"}, "absolute target"),
+    "parent": ({"link": "../x"}, "'..' component"),
+    "nested-parent": ({"dir/b": "..", "link": "dir/b/../.."}, "'..' component"),
+    "fullwidth-parent": ({"link": "\uff0e\uff0e/x"}, "'..' component"),
+    "chain": ({"a": "b", "b": "c"}, "passes through another symlink"),
+    "through-directory-link": ({"d": "sub", "e": "D/file"}, "passes through another symlink"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(SYMLINKS))
+def test_escaping_symlinks_including_chains_are_refused(worlds, case):
+    links, reason = SYMLINKS[case]
     with worlds() as world:
         submit(world)
-        (world.repo / "link").symlink_to(target)
-        if target == "dir/b/../..":
-            (world.repo / "dir").mkdir()
-            (world.repo / "dir/b").symlink_to("..")
+        (world.repo / "sub").mkdir()
+        (world.repo / "sub/file").write_text("inside")
+        for name, target in links.items():
+            (world.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (world.repo / name).symlink_to(target)
         git(world.repo, "add", ".")
-        git(world.repo, "commit", "-m", "escaping link")
-        assert_failed(world, accept(world), "symlink")
+        git(world.repo, "commit", "-m", "unsafe link")
+        assert_failed(world, accept(world), reason)
 
 
 def test_internal_symlink_allowed_and_gitlink_refused(worlds):
@@ -443,12 +512,17 @@ def test_push_failure_never_changes_acceptance_and_replay_never_retries(worlds, 
                 return actual_popen(command, **kwargs)
             monkeypatch.setattr(subprocess, "Popen", expire)
         elif failure == "interrupted":
+            # Review P3-7: the marker says `git push` may have begun.
             world.core.store.connection.execute(
-                "INSERT INTO job_pushes(job_id,branch,remote,started_at,result) VALUES(?,?,?,'now','pending')",
-                (world.job_id, "jobs/finished", world.remote))
+                "INSERT INTO job_pushes(job_id,branch,remote,started_at,pushing_at,result) "
+                "VALUES(?,?,?,'now','now','pending')", (world.job_id, "jobs/finished", world.remote))
         heads_before = remote_heads(world)
         row = accept(world, bundle=failure != "missing")
         assert row["push_error"] and not row["push_sha"]
+        if failure == "interrupted":
+            assert "inspect the remote" in row["push_error"]
+        if failure == "missing":
+            assert "no push bundle" in row["push_error"]
         records = world.core.store.query("SELECT * FROM job_pushes")
         pushes = len([args for _, args in world.calls if args[0] == "push"])
         world.core._export(world.job_id)
@@ -503,30 +577,30 @@ def test_schema_six_migration_preserves_jobs_without_authorizing_push(tmp_path):
 
 
 def test_git_timeout_stops_the_transport_process_group(tmp_path, monkeypatch):
-    calls = []
-    class Process:
-        pid = 999999
-        returncode = -9
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            pass
-        def communicate(self, timeout=None):
-            calls.append(("communicate", timeout))
-            if timeout is not None:
-                raise subprocess.TimeoutExpired("git", timeout)
-            return b"", b""
-    def launch(command, **kwargs):
-        assert kwargs["start_new_session"] and kwargs["cwd"] == tmp_path
-        assert kwargs["env"]["GIT_CONFIG_NOSYSTEM"] == "1"
-        return Process()
-    monkeypatch.setattr(subprocess, "Popen", launch)
-    monkeypatch.setattr(os, "killpg", lambda pid, sig: calls.append(("killpg", pid, sig)))
-    with pytest.raises(host_push.PushError, match="TimeoutExpired"):
-        host_push.git(tmp_path, "push", "file:///local", "a" * 40 + ":refs/heads/job")
-    assert [call[0] for call in calls] == ["communicate", "killpg", "communicate"]
+    """A Git call past its time, here the verification deadline, is killed with
+    every process it started, and stops the push as a refusal."""
+    child = tmp_path / "child.pid"
+    fake = tmp_path / "git"
+    fake.write_text(f'#!/bin/sh\nsleep 300 &\necho $! > "{child}"\nsleep 300\n')
+    fake.chmod(0o755)
+    monkeypatch.setattr(host_push, "GIT", str(fake))
+    started = time.monotonic()
+    with pytest.raises(host_push.PushError, match="deadline"):
+        host_push.git(tmp_path, "push", "file:///local", "a" * 40 + ":refs/heads/job",
+                      deadline=host_push.Deadline(2))
+    assert time.monotonic() - started < 60
+    pid = int(child.read_text())
+    for _ in range(200):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("the transport's child outlived the timeout")
 
 
+@settings(deadline=None)
 @given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789/._+-:", min_size=0, max_size=25))
 def test_refspec_cannot_be_forcing_or_deleting(branch):
     try:
