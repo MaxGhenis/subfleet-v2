@@ -2624,10 +2624,14 @@ class Daemon:
             if record.get("state") in ("reserved", "quarantined", "containing", "contained"):
                 break
             if record["deadline_at"] <= utcnow():
-                # C-11.4: the probe was still running at its deadline and is stopped
-                # here. Said in its record and its evidence: what the adapter then
-                # reads off a stream cut short is not the provider's own ending.
-                record["stopped"] = "deadline"
+                # C-11.4: a probe still running at its deadline is stopped here, and
+                # says so in its record and its evidence: what the adapter then reads
+                # off a stream cut short is not the provider's own ending. Only while
+                # its guardian runs: one found gone (a recovery after the deadline)
+                # was not stopped by anyone (review of #154, P3-2).
+                if record.get("guardian_pid") and procs.same_process(
+                        record["guardian_pid"], record.get("boot_id"), record.get("proc_start")):
+                    record["stopped"] = "deadline"
                 break
             # C-5.11, as for a running attempt: the receipt, the job and the
             # deadline are read every pass; `ps` is asked about the guardian at
@@ -2885,6 +2889,10 @@ class Daemon:
                         return None, desktop
                     if not self.store.acquire_lease(f"lane:{decision.chosen_lane}:slot:0", holder):
                         return None, desktop
+                    # C-6.10, C-11.4: the probe's clocks start at its reservation, not
+                    # before the wait for the store's writer lock (review of #153, P2-4:
+                    # a 45 s wait left a 60 s retry clock 15 s after the reservation).
+                    record.update(created_at=utcnow(), deadline_at=after(60))
                     self._save_probe(record)
                     reserved = True
             finally:
@@ -3194,11 +3202,16 @@ class Daemon:
                     tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                 decision = self._route(decision_job, extra_exclusions=(*extra_exclusions, *rotation),
                                        desktop=desktop_account)
-                if rotation and (not decision.chosen_lane or decision.chosen_model != rotated_model):
+                if rotation and (decision.chosen_model != rotated_model if decision.chosen_lane
+                                 else scheduler.left_out_only(decision, rotation)):
                     # C-11.4: the lane rotation chose stopped taking the job between its
-                    # probe and this reservation. Rotation never promotes a job, nor
-                    # refuses it a lane it left out: the job looks again, and the next
-                    # pass starts a new round when no other lane of the model will take it.
+                    # probe and this reservation, and with the lanes it left out still out
+                    # the chain would walk on, or a lane it left out is all that would
+                    # take the job. Rotation never promotes a job, nor refuses it a lane it
+                    # left out: the job waits on C-6.10's clock and looks again, and the
+                    # next look starts a new round when no other lane of the model will
+                    # take it. A verdict that holds whatever was left out (a full fleet)
+                    # goes on as any does (review of #154, P3-1).
                     waiters.setdefault(tier, []).append((job["job_id"], models, lanes))
                     hold = {"reason": "probe-pending"}
                     rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
