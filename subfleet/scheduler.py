@@ -394,6 +394,37 @@ def competes(models: frozenset[str] | None, other: frozenset[str] | None,
     return lanes is None or other_lanes is None or bool(lanes & other_lanes)
 
 
+def probe_turn(line: Iterable[tuple[str, str, frozenset[str] | None]], lane_id: str, model: str) -> str | None:
+    """C-6.9: the job whose turn it is to carry the probe of `model` on `lane_id`,
+    or None when it is the asker's.
+
+    `line` is the jobs of this pass that wait on an admission probe (C-11.4), in
+    the pass's order and so all ahead of the asker: each with the model its probe
+    is of and the lanes it could run on (`demand_lanes`; None is any lane). A
+    probe's prompt is fixed and it runs on the lane's credential in a private
+    directory, so its answer says nothing about the job that carried it, and the
+    first job in line that could use this one carries it. A job waiting on a
+    probe of another model, or pinned to another lane, has no use for this probe
+    and holds nobody."""
+    return next((job_id for job_id, wanted, lanes in line
+                 if wanted == model and (lanes is None or lane_id in lanes)), None)
+
+
+def probe_lanes_taken(line: Iterable[tuple[str, str, frozenset[str] | None]],
+                      model: str) -> frozenset[str] | None:
+    """C-6.9: the lanes whose probe of `model` is the turn of a job in `line`
+    (`probe_turn` names one for exactly these lanes), or None when it is every
+    lane's: a job ahead waits on a probe of `model` and could run on any lane."""
+    taken: set[str] = set()
+    for _, wanted, lanes in line:
+        if wanted != model:
+            continue
+        if lanes is None:
+            return None
+        taken |= lanes
+    return frozenset(taken)
+
+
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
     """All descendants of every ancestor share that ancestor's concurrency cap,
     `max_active_attempts_per_parent`, which is none unless the policy sets one

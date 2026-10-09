@@ -1,0 +1,621 @@
+"""C-6.9, C-6.10, C-11.4: a probe's verdict is the lane's, and its vehicle keeps its turn.
+
+Incident, 2026-10-03 (defect D-1): a `hard` review sat `waiting` on `capacity`
+from 18:36Z to 19:40Z and never started, while hard reviews created after it
+were admitted. Each time admission chose a Codex lane for it the lane was
+unmeasured, so the job carried the lane's admission probe (C-11.4). Four times
+the probe was still running at its 60 s deadline, was stopped there, and was
+read as `unknown` or `transient`. Each time only that job was put on a clock,
+nothing was recorded against the lane, and the pass went on: the next job in
+line probed the same lanes at once and was admitted on an `ok`. Probes run
+inside the one detached pass, so the job's next look came a whole pass later
+(10 to 21 minutes), and it then drew one more probe with the same chance of
+missing. Nothing bounded how often that could repeat.
+
+A probe says nothing about the job that carries it: the prompt is fixed and it
+runs in a private directory on the lane's credential. So the job waiting on one
+is first in line for the next, and later jobs that want that probe wait for it.
+
+The invariants, each checked below on scripted outcomes and, in the property at
+the end, on generated ones:
+
+I1 (the turn). A job carries an admission probe of a model on a lane only when
+   no job ahead of it in the pass's order waits on a probe of that model and
+   could run on that lane.
+I2 (no passing on a probe). So among jobs that ask for the same model on the
+   same lanes, starts follow the pass's order whatever the probes answer: the
+   number of later jobs that start ahead of a job waiting on a probe is zero.
+I3 (the clock). After an inconclusive probe its vehicle is due no later than
+   `PROBE_RETRY_S` after the probe was reserved, and never before that either.
+I4 (it ends). A job that no longer waits on a probe holds nobody, and a job
+   held for another's turn is looked at on the first pass that finds nobody
+   ahead of it: once probes answer, every job starts.
+I5 (the hold is narrow). A probe of another model, or on a lane the waiting
+   job is not pinned to, is nobody's to wait for, and a job that needs no probe
+   is never held. A job whose chosen lane is another's turn goes to a lane of the
+   same model whose probe is its own, if one would take it.
+I6 (rotation, the bound). After a probe of a model on a lane says nothing, the
+   job's next probe of that model goes to a lane of that model it has not had
+   such an answer on this round. So every lane that would take a job is probed
+   for it within one round, and a later job held behind it waits at most that
+   long for the lane it could use, however often one lane's probes say nothing.
+"""
+
+from contextlib import contextmanager
+from datetime import datetime
+import json
+from pathlib import Path
+import tempfile
+
+from hypothesis import HealthCheck, given, settings, strategies as st
+import pytest
+
+from subfleet import daemon as daemon_module, scheduler
+from subfleet.adapters import registry
+from subfleet.contracts import (PROBE_RETRY_S, ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
+                                Outcome, OutcomeClass, Reading, ReadingLabel)
+from subfleet.daemon import Daemon, after, utcnow
+from tests.claude_code import claude_code_active
+from tests.fake.conftest import Harness
+from tests.fake.test_probe_recovery import reserved_probe
+from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
+from tests.fake_adapter import FakeAdapter
+
+OK = Outcome(OutcomeClass.OK, "admitted", {"rc": 0, "signal": None})
+#: What the incident's probes were read as once their deadline had stopped them.
+CUT = Outcome(OutcomeClass.UNKNOWN, "Codex exited without a verified deliverable",
+              {"rc": 0, "signal": None, "admission": "no successful deliverable", "stopped": "deadline"})
+SLOW = Outcome(OutcomeClass.TRANSIENT, "Temporary Codex transport or capacity failure",
+               {"rc": 0, "signal": None, "stopped": "deadline",
+                "admission": "failed to refresh available models: request timed out"})
+MODELS = {"gpt-6-astra": "astra", "gpt-5.6-terra": "terra"}
+
+
+def codex_lane(root: Path, identity: str) -> Lane:
+    home = root / ("home-" + identity)
+    home.mkdir(exist_ok=True)
+    return Lane(identity, "codex", "codex:" + identity, Credential("codex", str(home), "home"), str(home),
+                LaneOwner.V2, False)
+
+
+def submit(service, harness, **changes):
+    """A `hard` job: on an unmeasured lane it needs the lane's probe first (C-11.4)."""
+    return service.dispatch("submit", harness.submit_args(**{"tier": "hard", **changes}))["job_id"]
+
+
+def moment(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
+class Probes:
+    """`Daemon._execute_probe`, scripted: each probe takes the next outcome, then `ok`.
+
+    An outcome may come with how long its probe ran, `(outcome, seconds)`; the
+    default is the whole minute, as a probe its deadline stopped runs. Nothing
+    waits: the probe's reservation is moved that far into the past before it
+    returns. `line` is who waited on a probe each time one was carried (I1).
+    """
+
+    def __init__(self, service, monkeypatch, outcomes=(), bad=()):
+        self.service, self.outcomes, self.bad = service, list(outcomes), set(bad)
+        self.vehicles: list[tuple[str, str, str]] = []
+        self.line: list[list] = []
+        self.reserved: dict[str, str] = {}
+        monkeypatch.setattr(service, "_execute_probe", self)
+
+    def __call__(self, job, lane, model, holder):
+        # A lane in `bad` is a slow one: every probe there runs to its deadline.
+        outcome = CUT if lane.lane_id in self.bad else self.outcomes.pop(0) if self.outcomes else OK
+        outcome, ran_s = outcome if isinstance(outcome, tuple) else (outcome, 60)
+        self.vehicles.append((job["job_id"], lane.lane_id, MODELS[model["id"]]))
+        self.line.append(list(getattr(self.service, "_probe_line", ())))   # none before the fix
+        record = self.service._probe_record(holder)
+        record["created_at"] = self.reserved[job["job_id"]] = after(-ran_s)
+        self.service._save_probe(record)
+        return outcome
+
+    def jobs(self):
+        return [job_id for job_id, _, _ in self.vehicles]
+
+
+def started(service) -> list[str]:
+    """Job ids in the order their attempts were reserved."""
+    return [row["job_id"] for row in service.store.query("SELECT job_id FROM attempts ORDER BY rowid")]
+
+
+def make_due(service, *job_ids):
+    for job_id in job_ids or [row["job_id"] for row in service.store.list_jobs()]:
+        if service.store.get_job(job_id)["state"] == "waiting":
+            service.store.update_job(job_id, next_check_at=utcnow())
+
+
+# --- the incident ---------------------------------------------------------------------------------
+
+def test_d1_a_job_whose_probe_said_nothing_is_not_passed_by_the_jobs_behind_it(routing_state, monkeypatch):
+    """I1, I2. The incident: the oldest job's probe is cut at its deadline. Before, the two behind it
+    probed the same lane in the same pass and started, and the oldest waited a minute and a pass."""
+    service, harness = routing_state
+    oldest, second, third = (submit(service, harness) for _ in range(3))
+    probes = Probes(service, monkeypatch, [CUT])
+    service._admit()
+    # One probe ran, for the oldest job. Nothing behind it took the next one.
+    assert probes.jobs() == [oldest]
+    assert started(service) == []
+    assert service._holds[oldest] == {"reason": "probe-pending", "lane": "codex-1", "model": "astra",
+                                      "next_check_at": service.store.get_job(oldest)["next_check_at"]}
+    for later in (second, third):
+        hold = service._holds[later]
+        assert (hold["reason"], hold["behind"]) == ("probe-pending", oldest)
+        assert (hold["lane"], hold["model"]) == ("codex-1", "astra")
+        assert service.store.get_job(later)["wait_reason"] == "capacity"
+    # The probe ran its whole minute, so its vehicle is due again at once (I3),
+    # and the next pass's first probe is its own; the others follow in order, on
+    # that pass, without waiting out their clocks (I4).
+    assert service.store.get_job(oldest)["next_check_at"] <= utcnow()
+    service._admit()
+    assert probes.jobs() == [oldest, oldest, second, third]
+    assert started(service) == [oldest, second, third]
+    assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE 'probe:%'")
+
+
+def test_however_many_probes_say_nothing_the_first_ok_starts_the_oldest(routing_state, monkeypatch):
+    """I2: the incident's job drew four such probes while later jobs started on theirs."""
+    service, harness = routing_state
+    oldest, second = submit(service, harness), submit(service, harness)
+    probes = Probes(service, monkeypatch, [CUT, SLOW, SLOW, CUT])
+    for _ in range(4):
+        service._admit()
+        assert started(service) == [] and set(probes.jobs()) == {oldest}
+        assert service._holds[second]["behind"] == oldest
+    service._admit()
+    assert probes.jobs() == [oldest] * 5 + [second]
+    assert started(service) == [oldest, second]
+    # C-6.10: a probe that ends the same way adds no second decision row.
+    assert len(service.store.list_decisions(oldest)) == 2            # the wait's, then the attempt's
+
+
+# --- I3: the clock ------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("ran_s, left_s", [(60, 0), (75, 0), (7, 53), (0, 60)])
+def test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeypatch, ran_s, left_s):
+    """I3: a probe that used its whole minute leaves its vehicle due at once; one that failed in
+    seven seconds waits out the other fifty-three, so a broken CLI is never probed in a loop."""
+    service, harness = routing_state
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [(CUT, ran_s)])
+    before = utcnow()
+    service._admit()
+    due = moment(service.store.get_job(job_id)["next_check_at"])
+    assert 0 <= (due - moment(before)).total_seconds() - left_s <= 2          # whole-second stamps
+    assert (due - moment(probes.reserved[job_id])).total_seconds() >= min(ran_s, PROBE_RETRY_S)
+    event = service.store.query("SELECT lane_id,data_json FROM events WHERE kind='job.probe_waiting' "
+                                "AND data_json<>'{}'")[-1]
+    assert event["lane_id"] == "codex-1"
+    assert json.loads(event["data_json"]) == {"model": "astra", "class": "unknown",
+                                              "next_check_at": service.store.get_job(job_id)["next_check_at"]}
+
+
+def test_a_vehicle_whose_clock_runs_keeps_its_place(routing_state, monkeypatch):
+    """I1, I3: a probe that failed in a second leaves its vehicle on a clock for the rest of the
+    minute; the job behind it is looked at meanwhile and still waits for it, rather than probing the
+    lane the moment its own clock comes due."""
+    service, harness = routing_state
+    oldest, later = submit(service, harness), submit(service, harness)
+    probes = Probes(service, monkeypatch, [(CUT, 1)])
+    service._admit()
+    assert service.store.get_job(oldest)["next_check_at"] > after(30)
+    for _ in range(3):
+        make_due(service, later)
+        service._admit()
+        assert service._holds[later]["behind"] == oldest
+    assert probes.jobs() == [oldest] and started(service) == []
+    make_due(service, oldest)
+    service._admit()
+    assert started(service) == [oldest, later]
+
+
+def test_a_wait_on_a_probe_is_not_brought_forward_by_a_release(routing_state, monkeypatch):
+    """C-6.10, unchanged: freed capacity never re-probes the provider before the clock."""
+    service, harness = routing_state
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [(CUT, 1)])
+    service._admit()
+    assert service.store.acquire_lease("out:/somewhere", "another-job")
+    service._admit()
+    service.store.release_leases("another-job")
+    service._admit()
+    assert probes.jobs() == [job_id] and started(service) == []
+
+
+# --- I5: the hold is narrow ---------------------------------------------------------------------
+
+def test_a_job_waits_only_for_a_probe_the_waiter_could_use(routing_state, monkeypatch):
+    """I5: a waiter pinned to one lane holds no probe of another lane, and a probe of one model holds
+    no probe of another (incident, 2026-09-29: a job pinned to a lane that could not take it held 38
+    younger jobs while another lane was open)."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    pinned = submit(service, harness, pinned_lane="codex-1")
+    elsewhere = submit(service, harness, pinned_lane="codex-2")
+    other_model = submit(service, harness, pinned_model="terra", pinned_lane="codex-1")
+    same = submit(service, harness, exclusions=["codex-2"])
+    probes = Probes(service, monkeypatch, [CUT])
+    service._admit()
+    assert probes.vehicles == [(pinned, "codex-1", "astra"), (elsewhere, "codex-2", "astra"),
+                               (other_model, "codex-1", "terra")]
+    assert started(service) == [elsewhere, other_model]
+    assert service._holds[same]["behind"] == pinned
+    service._admit()
+    assert started(service) == [elsewhere, other_model, pinned, same]
+
+
+def test_a_job_that_needs_no_probe_is_never_held_for_one(routing_state, monkeypatch):
+    """I5: the hold is on the probe. A job whose first attempt is its own probe (C-11.4) starts."""
+    service, harness = routing_state
+    waiting = submit(service, harness)
+    cheap = submit(service, harness, tier="standard")
+    probes = Probes(service, monkeypatch, [(CUT, 1)])
+    service._admit()
+    assert probes.jobs() == [waiting] and started(service) == [cheap]
+
+
+def test_a_measured_lane_takes_the_waiter_without_a_probe(routing_state, monkeypatch):
+    """I4: what the waiter waits for is a look at the lane; a fresh reading is one."""
+    service, harness = routing_state
+    oldest, second = submit(service, harness), submit(service, harness)
+    probes = Probes(service, monkeypatch, [CUT])
+    service._admit()
+    service.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", utcnow()))
+    make_due(service)
+    service._admit()
+    assert probes.jobs() == [oldest] and started(service) == [oldest, second]
+
+
+# --- I6: rotation, and the bound it gives -------------------------------------------------------
+
+def test_after_a_probe_said_nothing_the_next_goes_to_another_lane(routing_state, monkeypatch):
+    """I6: the second stuck job of the incident probed codex-2 twice running, as the first did."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [CUT, CUT, CUT])
+    for _ in range(3):
+        service._admit()
+    # codex-1 ranks first (C-11.3: both unmeasured, nothing in flight, lane id);
+    # then the other lane; then, both tried, a new round from the top.
+    assert [lane for _, lane, _ in probes.vehicles] == ["codex-1", "codex-2", "codex-1"]
+    service._admit()
+    assert [lane for _, lane, _ in probes.vehicles] == ["codex-1", "codex-2", "codex-1", "codex-2"]
+    assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-2"]
+
+
+def test_a_later_job_held_behind_a_job_stuck_on_a_slow_lane_waits_one_round(routing_state, monkeypatch):
+    """I6: the oldest job could use any lane and the slow one ranks first; the later job is pinned
+    to the other. Without rotation the oldest probed the slow lane every pass and held the later job
+    behind it for as long as that lane stayed slow."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    oldest = submit(service, harness)
+    later = submit(service, harness, pinned_lane="codex-2")
+    probes = Probes(service, monkeypatch, bad={"codex-1"})
+    service._admit()
+    assert probes.vehicles == [(oldest, "codex-1", "astra")]
+    assert service._holds[later]["behind"] == oldest
+    service._admit()
+    assert probes.vehicles[1:] == [(oldest, "codex-2", "astra"), (later, "codex-2", "astra")]
+    assert started(service) == [oldest, later]
+
+
+def test_a_younger_job_probes_a_lane_no_older_job_can_use(routing_state, monkeypatch):
+    """I5: the older job is pinned to the slow lane, so the younger one's turn is the other lane's
+    probe; held behind the pinned job it waited as long as that lane stayed slow."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    pinned = submit(service, harness, pinned_lane="codex-1")
+    free = submit(service, harness)
+    probes = Probes(service, monkeypatch, bad={"codex-1"})
+    service._admit()
+    assert probes.vehicles == [(pinned, "codex-1", "astra"), (free, "codex-2", "astra")]
+    assert started(service) == [free]
+    for _ in range(3):
+        make_due(service)
+        service._admit()
+    assert started(service) == [free] and {lane for _, lane, _ in probes.vehicles[2:]} == {"codex-1"}
+
+
+def test_rotation_never_takes_a_model_the_chain_promotes_to(routing_state, monkeypatch):
+    """I6: with every lane of its model tried, a job starts a new round on that model; it does not
+    spend a costlier one because probes said nothing."""
+    from tests.fake.test_routing_end_to_end import claude_lane
+    service, harness = routing_state
+    service.store.put_lane(claude_lane("claude-2"))
+    service.policy["tiers"].append("highest")
+    service.policy["chains"]["research"] = ["haiku", "sonnet", "opus", "astra", "opus"]
+    job_id = submit(service, harness, pinned_model=None, task="research")
+    probes = Probes(service, monkeypatch, [CUT])
+    service._admit()
+    service._admit()
+    assert [(lane, model) for _, lane, model in probes.vehicles] == [("codex-1", "astra"), ("codex-1", "astra")]
+    assert [row["model_requested"] for row in service.store.list_attempts(job_id)] == ["gpt-6-astra"]
+
+
+def test_a_route_evaluated_again_at_the_reservation_keeps_the_lane_rotation_chose(routing_state, monkeypatch):
+    """C-6.3: a commit that moves the route sends the reservation to evaluate it again; that
+    evaluation leaves out the lanes rotation left out, so it lands on the lane just probed and does
+    not wait for a probe of the lane the probe said nothing on."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [CUT])
+    service._admit()
+    real, moved = service._route_stands, []
+
+    def stands(basis, decision):
+        if not moved:
+            moved.append(basis.get("rotation"))
+            return "moved", 0, None
+        return real(basis, decision)
+    monkeypatch.setattr(service, "_route_stands", stands)
+    service._admit()
+    assert moved == [("codex-1",)]
+    assert [lane for _, lane, _ in probes.vehicles] == ["codex-1", "codex-2"]
+    assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-2"]
+
+
+# --- I4: it ends --------------------------------------------------------------------------------
+
+def test_a_job_that_stops_waiting_on_a_probe_holds_nobody(routing_state, monkeypatch):
+    """I4: the line is started again by every pass, from the jobs that wait on a probe then."""
+    service, harness = routing_state
+    oldest, second, third = (submit(service, harness) for _ in range(3))
+    probes = Probes(service, monkeypatch, [(CUT, 1)])
+    service._admit()
+    assert service._holds[second]["behind"] == oldest and service._holds[third]["behind"] == oldest
+    service.dispatch("kill", {"job_id": oldest})
+    service._admit()                       # nobody is ahead of them now: looked at on this pass
+    assert probes.jobs() == [oldest, second, third] and started(service) == [second, third]
+
+
+def test_a_limited_probe_closes_the_lane_and_frees_the_line(routing_state, monkeypatch):
+    """I4: a waiter whose lane closed waits for capacity, not for a probe, and holds nobody; when
+    the lane opens again the two go in their order."""
+    service, harness = routing_state
+    oldest = submit(service, harness, pinned_lane="codex-1")
+    later = submit(service, harness, pinned_lane="codex-1")
+    limited = Outcome(OutcomeClass.LIMITED, "limited", {"rc": 1}, closure=Closure(
+        "codex-1", "gpt-6-astra", after(3600), ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
+    probes = Probes(service, monkeypatch, [(CUT, 1), limited])
+    service._admit()
+    assert service._holds[later]["behind"] == oldest
+    make_due(service)
+    service._admit()
+    assert probes.jobs() == [oldest, oldest] and service._probe_line == []
+    assert all(service._holds[job_id]["reason"].startswith("closed:") for job_id in (oldest, later))
+    with service.store.transaction("fixture.closure_lifted") as tx:
+        tx.execute("DELETE FROM closures WHERE lane_id='codex-1'")
+    make_due(service)
+    service._admit()
+    assert probes.jobs() == [oldest, oldest, oldest, later] and started(service) == [oldest, later]
+
+
+def test_a_quarantined_probe_leaves_its_job_to_an_operator_and_holds_nobody(routing_state, monkeypatch):
+    """I4: `uncertain` is a person's to end (C-6.11); its lane is held by the probe's lease."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    oldest, second = submit(service, harness), submit(service, harness)
+    quarantined = Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined", {"probe_quarantined": True})
+    probes = Probes(service, monkeypatch, [quarantined])
+    service._admit()
+    assert service.store.get_job(oldest)["wait_reason"] == "uncertain"
+    assert probes.jobs() == [oldest, second] and started(service) == [second]
+
+
+# --- C-6.11: what `why` says --------------------------------------------------------------------
+
+def test_why_names_the_probe_and_whose_turn_it_is(routing_state, monkeypatch):
+    service, harness = routing_state
+    oldest, second = submit(service, harness), submit(service, harness)
+    Probes(service, monkeypatch, [(CUT, 1)])
+    service._admit()
+    text = service.dispatch("why", {"job_id": second})["text"]
+    assert f"codex-1 must be probed for astra before the job may start on it, and {oldest}, an older job" in text
+    assert "its lane is being probed" in service.dispatch("why", {"job_id": oldest})["text"]
+
+
+# --- C-11.4: a probe its deadline stopped says so ---------------------------------------------
+
+def test_a_probe_stopped_at_its_deadline_says_so(routing_state, monkeypatch):
+    """The incident's probes read `unknown` or `transient` with rc 0: nothing recorded that the daemon
+    had stopped them, and it took their durations (all 60 s) to see it."""
+    service, harness = routing_state
+    record = reserved_probe(service, submit(service, harness))
+    record["deadline_at"] = after(-1)
+    monkeypatch.setattr(service, "_contain_probe", lambda value: True)
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: True)
+    assert service._await_probe(record) == (True, None)
+    assert record["stopped"] == "deadline"
+
+
+def test_a_probe_that_ended_by_itself_is_not_called_stopped(routing_state, monkeypatch):
+    service, harness = routing_state
+    record = reserved_probe(service, submit(service, harness))
+    record["deadline_at"] = after(-1)                               # the receipt is read first
+    (Path(record["directory"]) / "exit.json").write_text(json.dumps({"rc": 0, "child_pid": 900002}))
+    monkeypatch.setattr(service, "_contain_probe", lambda value: True)
+    assert service._await_probe(record)[0] is True
+    assert "stopped" not in record
+
+
+@pytest.mark.parametrize("receipt", [{"rc": 0, "signal": None, "wall_s": 60.0, "child_pid": 900002}, None])
+def test_the_deadline_is_in_the_probes_evidence(routing_state, monkeypatch, receipt):
+    """C-11.4: `probe.completed` carries `stopped: deadline`, with or without an exit receipt."""
+    from types import SimpleNamespace
+    service, harness = routing_state
+    job_id = submit(service, harness)
+    record = reserved_probe(service, job_id, state="reserved")
+    monkeypatch.setattr(daemon_module.procs, "pipe_above_stdio", lambda: (800, 801))
+    close, write = daemon_module.os.close, daemon_module.os.write
+    monkeypatch.setattr(daemon_module.os, "close", lambda fd: None if fd in (800, 801) else close(fd))
+    monkeypatch.setattr(daemon_module.os, "write", lambda fd, value: None if fd == 801 else write(fd, value))
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", lambda command, **kwargs: SimpleNamespace(pid=900001))
+
+    def awaited(value, child):
+        value.update(state="contained", stopped="deadline")
+        service._save_probe(value)
+        return True, receipt
+    monkeypatch.setattr(service, "_await_probe", awaited)
+    outcome = service._execute_probe(service.store.get_job(job_id), service.store.get_lane("codex-1"),
+                                     service.policy["models"]["astra"], record["holder"])
+    assert outcome.evidence["stopped"] == "deadline"
+    assert outcome.cls == (OutcomeClass.OK if receipt else OutcomeClass.UNKNOWN)
+
+
+# --- the property: generated jobs, probe outcomes and clocks -------------------------------------
+
+@contextmanager
+def fleet():
+    """A daemon over two unmeasured Codex lanes, as `routing_state` builds one, for one example."""
+    with tempfile.TemporaryDirectory(prefix="probe-turn-") as tmp, pytest.MonkeyPatch.context() as patch:
+        root = Path(tmp).resolve() / "state"
+        root.mkdir()
+        harness = Harness(root)
+        patch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+        patch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+        patch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+        patch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+        claude_code_active(patch, Path(tmp) / "claude")
+        service = Daemon(root)
+        try:
+            service.store.put_lane(codex_lane(root, "codex-2"))
+            yield service, harness, patch
+        finally:
+            service.close()
+
+
+#: What a probe can answer that says nothing about its lane, and how long it ran.
+SAYS_NOTHING = st.tuples(st.sampled_from([CUT, SLOW, Outcome(OutcomeClass.UNKNOWN, "probe unavailable: OSError"),
+                                          Outcome(OutcomeClass.CONTENT_FILTER, "filtered", {"rc": 1})]),
+                         st.sampled_from([0, 1, 7, 30, 59, 60, 61, 90]))
+JOBS = st.lists(st.tuples(st.sampled_from(["astra", "terra"]), st.sampled_from([None, "codex-1", "codex-2"])),
+                min_size=2, max_size=6)
+#: Before each pass: every waiting job made due, only those whose own clock says so, or one killed.
+STEPS = st.lists(st.tuples(st.sampled_from(["due", "clock", "clock", "kill"]), st.integers(0, 5)),
+                 min_size=1, max_size=8)
+
+
+def could_use(job: tuple, lane_id: str, model: str) -> bool:
+    """Whether a job that waits on a probe of its model could use this one (I1)."""
+    return job[0] == model and job[1] in (None, lane_id)
+
+
+@settings(max_examples=60, deadline=None, derandomize=True, database=None,
+          suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
+@given(jobs=JOBS, outcomes=st.lists(st.one_of(st.just(OK), SAYS_NOTHING), max_size=14), steps=STEPS,
+       bad=st.sets(st.sampled_from(["codex-1", "codex-2"]), max_size=1))
+def test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe(jobs, outcomes, steps, bad):
+    """I1 to I6 over generated jobs (two models, pinned to either lane or to none), probe outcomes that
+    say nothing (cut at the deadline, transient, unknown, a content filter; of any length), clocks, and
+    a lane whose every probe runs to its deadline until the end."""
+    with fleet() as (service, harness, patch):
+        ids = [submit(service, harness, pinned_model=model, pinned_lane=lane) for model, lane in jobs]
+        wants = dict(zip(ids, jobs))
+        order = {job_id: index for index, job_id in enumerate(ids)}
+        probes = Probes(service, patch, outcomes, bad=bad)
+        killed: set[str] = set()
+
+        def check_pass(first: int):
+            for (vehicle, lane_id, model), line in zip(probes.vehicles[first:], probes.line[first:]):
+                # I1, from the line the daemon kept: nobody in it could use this probe.
+                assert not [waiter for waiter, wanted, lanes in line
+                            if wanted == model and (lanes is None or lane_id in lanes)]
+                assert all(order[waiter] < order[vehicle] for waiter, _, _ in line)
+            waiting_on_probe = {job_id: hold for job_id, hold in service._holds.items()
+                                if hold["reason"] == "probe-pending"}
+            for vehicle, lane_id, model in probes.vehicles[first:]:
+                # I1, from the holds the pass published: no job ahead of a vehicle
+                # still waits on a probe the vehicle carried.
+                assert not [job_id for job_id in waiting_on_probe if order[job_id] < order[vehicle]
+                            and could_use(wants[job_id], lane_id, model) and job_id != vehicle]
+            begun = started(service)
+            assert len(begun) == len(set(begun))                        # one attempt a job
+            for index, later in enumerate(begun):
+                # I2: nothing that started is ahead of an older job of the same
+                # demand that still waits on a probe.
+                assert not [job_id for job_id in waiting_on_probe if order[job_id] < order[later]
+                            and wants[job_id] == wants[later]]
+            for job_id, hold in waiting_on_probe.items():
+                job = service.store.get_job(job_id)
+                assert job["state"] == "waiting" and job["wait_reason"] == "capacity" and job["next_check_at"]
+                if hold.get("behind"):
+                    # Held for a turn: by an older job that waits on the same probe.
+                    assert order[hold["behind"]] < order[job_id]
+                    assert could_use(wants[hold["behind"]], hold["lane"], hold["model"])
+                    assert service._holds[hold["behind"]]["reason"] == "probe-pending"
+                elif job_id in probes.jobs()[first:]:
+                    # I3: due PROBE_RETRY_S after its probe was reserved, or now if that has passed.
+                    reserved = moment(probes.reserved[job_id])
+                    waited = (moment(job["next_check_at"]) - reserved).total_seconds()
+                    ran = (moment(utcnow()) - reserved).total_seconds()
+                    assert abs(waited - max(PROBE_RETRY_S, ran)) <= 2, (waited, ran)
+            assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE 'probe:%'")
+
+        for action, index in steps:
+            if action == "due":
+                make_due(service)
+            elif action == "kill" and index < len(ids) and ids[index] not in killed | set(started(service)):
+                service.dispatch("kill", {"job_id": ids[index]})
+                killed.add(ids[index])
+            first = len(probes.vehicles)
+            service._admit()
+            check_pass(first)
+        # I2, over the whole run: among jobs of one demand, starts follow the order.
+        begun = started(service)
+        for demand in set(jobs):
+            same = [job_id for job_id in begun if wants[job_id] == demand]
+            assert same == sorted(same, key=order.get)
+            unstarted = [job_id for job_id in ids if wants[job_id] == demand and job_id not in begun
+                         and job_id not in killed]
+            assert all(order[job_id] > order[done] for job_id in unstarted for done in same)
+        # I6: once the other probes answer, every job that could run on a lane
+        # that is not slow starts while the slow lane stays slow, within two passes
+        # a job (a probe there that says nothing, then one elsewhere).
+        probes.outcomes.clear()
+        for _ in range(2 * len(ids) + 2):
+            make_due(service)
+            first = len(probes.vehicles)
+            service._admit()
+            check_pass(first)
+        stuck = {job_id for job_id in ids if wants[job_id][1] in bad}
+        assert set(started(service)) == set(ids) - killed - stuck
+        # I4: once every probe answers, the rest start too.
+        probes.bad.clear()
+        for _ in range(len(ids) + 1):
+            make_due(service)
+            first = len(probes.vehicles)
+            service._admit()
+            check_pass(first)
+        assert set(started(service)) == set(ids) - killed
+
+
+# --- the rule itself ----------------------------------------------------------------------------
+
+WAITERS = st.lists(st.tuples(st.sampled_from(["astra", "terra", "opus"]),
+                             st.one_of(st.none(), st.frozensets(st.sampled_from(["a", "b", "c"]), max_size=2))),
+                   max_size=6)
+
+
+@given(waiters=WAITERS, lane=st.sampled_from(["a", "b", "c"]), model=st.sampled_from(["astra", "terra", "opus"]))
+def test_the_turn_is_the_first_waiter_that_could_use_the_probe(waiters, lane, model):
+    line = [(f"job-{index}", wanted, lanes) for index, (wanted, lanes) in enumerate(waiters)]
+    turn = scheduler.probe_turn(line, lane, model)
+    usable = [job_id for job_id, wanted, lanes in line if wanted == model and (lanes is None or lane in lanes)]
+    assert turn == (usable[0] if usable else None)
+    if turn is not None:
+        # Whoever is ahead of the one with the turn had no use for the probe, and
+        # taking the one with the turn out of the line passes it to the next.
+        rest = [row for row in line if row[0] != turn]
+        assert scheduler.probe_turn(rest, lane, model) == (usable[1] if len(usable) > 1 else None)
+    # A line with nobody in it, or only waiters on other models, holds nobody.
+    assert scheduler.probe_turn([], lane, model) is None
+    assert scheduler.probe_turn([row for row in line if row[1] != model], lane, model) is None
