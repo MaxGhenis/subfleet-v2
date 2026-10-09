@@ -34,9 +34,12 @@ def read_allowlist(path: Path) -> dict[str, str]:
     return defects
 
 
-def read_outcomes(path: Path) -> dict[str, set[str]]:
-    """Merge phase reports without changing node IDs or erasing failures."""
-    outcomes: dict[str, set[str]] = {}
+TEST_PHASES = frozenset({"setup", "call", "teardown"})
+
+
+def read_reports(path: Path) -> list[dict]:
+    """Every phase report the plugin recorded, validated; any malformed line fails closed."""
+    reports = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         report = json.loads(line)
         if (not isinstance(report, dict) or not isinstance(report.get("nodeid"), str)
@@ -44,14 +47,32 @@ def read_outcomes(path: Path) -> dict[str, set[str]]:
                 or report.get("outcome") not in ("passed", "failed", "skipped")
                 or not isinstance(report.get("xfail"), bool)):
             raise ValueError(f"{path}:{number}: invalid pytest phase report")
+        reports.append(report)
+    if not reports:
+        raise ValueError("pytest outcome report contains no tests")
+    return reports
+
+
+def read_outcomes(path: Path) -> dict[str, set[str]]:
+    """Merge phase reports without changing node IDs or erasing failures."""
+    outcomes: dict[str, set[str]] = {}
+    for report in read_reports(path):
         statuses = outcomes.setdefault(report["nodeid"], set())
         if report["outcome"] != "passed" or report["when"] == "call":
             statuses.add(report["outcome"])
         if report["xfail"]:
             statuses.add("xfailed")
-    if not outcomes:
-        raise ValueError("pytest outcome report contains no tests")
     return outcomes
+
+
+def passed_phases(path: Path) -> dict[str, set[str]]:
+    """The phases each node recorded as passed. A retry counts only with all three: a missing
+    setup or teardown record (a truncated file, a session stopped mid-teardown) is not a pass."""
+    phases: dict[str, set[str]] = {}
+    for report in read_reports(path):
+        if report["outcome"] == "passed" and not report["xfail"]:
+            phases.setdefault(report["nodeid"], set()).add(report["when"])
+    return phases
 
 
 def run_pytest(report: Path, nodes: list[str]) -> int:
@@ -95,8 +116,9 @@ def run(allowlist: Path, reports: Path) -> int:
         print("::endgroup::", flush=True)
     if second != 0:
         return second
-    retried = read_outcomes(retry_report)
-    if set(retried) != set(failed) or any(statuses != {"passed"} for statuses in retried.values()):
+    retried, phases = read_outcomes(retry_report), passed_phases(retry_report)
+    if (set(retried) != set(failed) or any(statuses != {"passed"} for statuses in retried.values())
+            or any(phases.get(node) != TEST_PHASES for node in failed)):
         annotation("error", "Every requested retry must be present and passed in pytest outcomes (including teardown)")
         return 1
     for node in failed:

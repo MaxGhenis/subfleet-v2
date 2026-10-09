@@ -347,6 +347,42 @@ def test_passing_setup_and_teardown_without_a_call_cannot_pass_retry(project):
     assert WARNING not in result.stdout
 
 
+@pytest.mark.parametrize("dropped", ["setup", "teardown"])
+def test_a_retry_missing_a_passing_phase_record_cannot_pass(project, dropped):
+    """Review r4 P2: a retry passes only with passing setup, call and teardown records; dropping
+    either surrounding phase (as truncation or a lost write would) fails the job."""
+    result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"],
+                           conftest=f"""
+        def pytest_unconfigure(config):
+            if Path('attempt').read_text() == '2':
+                import os
+                path = Path(os.environ[{retry_tool.OUTCOMES_ENV!r}])
+                reports = [json.loads(line) for line in path.read_text().splitlines()]
+                path.write_text(''.join(json.dumps(report) + '\\n' for report in reports
+                                        if report['when'] != {dropped!r}))
+    """)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(runs) == 2
+    assert "Every requested retry must be present and passed" in result.stdout
+    assert WARNING not in result.stdout
+
+
+def test_a_retry_that_exits_zero_during_teardown_cannot_pass(project):
+    """Review r4 P2: `pytest.exit(returncode=0)` in the retry's teardown ends the session with rc 0
+    before the teardown report exists; that is not a passing retry."""
+    result, runs = project("""
+        @pytest.fixture
+        def stopper():
+            yield
+            if not first():
+                pytest.exit('stopped in teardown', returncode=0)
+        def test_flake(stopper): assert not first()
+    """, ["test_sample.py::test_flake"])
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(runs) == 2
+    assert WARNING not in result.stdout
+
+
 @pytest.mark.parametrize("report", [None, "{broken", "", "[]\n", '{}\n',
                                        '{"nodeid": "test_sample.py::test_flake", "when": "call", "outcome": "passed", "xfail": "false"}\n'])
 @pytest.mark.parametrize("on_retry", [False, True])
