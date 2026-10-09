@@ -630,19 +630,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # follows a writer that changed groups since the earlier inspection.
         for pid in owned | uncertain_roots:
             groups.update(seen.group(table[pid][1]))
-        # A recorded group survives its observed member and leader. XNU cannot
-        # reuse its number while members remain. A proven new leader or reboot
-        # discharges the old group; unknown identity never grants a release.
+        # A sampled group can belong to a different incarnation than its
+        # retained identity after a failed bracket. Leader identity/reuse
+        # cannot discharge it; hold until the group is empty or rebooted.
         for known in lineage_roots:
             if rebooted(known.boot_id):
-                continue
-            if known.pid == known.pgid and live(known.pgid) and known.proc_start and table[known.pgid][3]:
-                try:
-                    if not seen.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
-                        continue
-                except InspectionError:
-                    pass  # Unknown identity cannot discharge the observed group.
-            if known.pgid in gone and live(known.pgid):
                 continue
             groups.update(seen.group(known.pgid))
         # There is no recorded group before setsid. The two remaining sources

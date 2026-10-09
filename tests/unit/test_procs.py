@@ -806,11 +806,13 @@ def test_either_exact_marker_holds_without_disclosing_environment(monkeypatch, m
 
 @pytest.mark.parametrize("boot,start,member,empty", [
     (BOOT_OLD, "shell", True, False),
-    (BOOT_OLD, "reused-leader", True, True),
+    (BOOT_OLD, "reused-leader", True, False),
     (BOOT_NEW, "shell", True, True),
     (BOOT_OLD, "shell", False, True),
 ])
 def test_saved_lineage_group_handles_death_pid_reuse_and_reboot(monkeypatch, boot, start, member, empty):
+    # Retained roots include failed brackets: leader reuse cannot establish
+    # which incarnation populated the sampled group, so populated groups hold.
     roots = (procs.CensusRoot(200, BOOT_OLD, "shell", 200),)
     rows = {200: (1, 200, "Ss", start)} if start == "reused-leader" else {}
     if member:
