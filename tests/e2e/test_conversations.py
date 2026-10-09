@@ -161,6 +161,12 @@ def assert_claude_reply_events(events: list[dict], message_id: str, expected_tex
     assert accepted["data"]["message_id"] == message_id, accepted
     assert text["data"]["text"] == expected_text, text
     assert completed["data"]["state"] == "complete", completed
+    # Only the late settings answer may follow completion (C-26.8): a served
+    # event carrying effort, nothing else. A duplicated reply, text or status
+    # after turn.completed still fails.
+    after = events[kinds.index("turn.completed") + 1:]
+    assert all(event["kind"] == "served" for event in after), kinds
+    assert all(set(event["data"]) <= {"effort"} for event in after), after
 
 
 def test_a_claude_conversation_streams_completes_and_continues_in_the_same_session(conv):

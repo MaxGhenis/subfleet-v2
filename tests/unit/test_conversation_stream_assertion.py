@@ -86,3 +86,17 @@ def test_the_e2e_assertion_still_rejects_failed_completion():
     next(event for event in events if event["kind"] == "turn.completed")["data"]["state"] = "failed"
     with pytest.raises(AssertionError):
         assert_claude_reply_events(events, MID, TEXT)
+
+
+@pytest.mark.parametrize("extra", [
+    {"kind": "text", "data": {"text": TEXT}},
+    {"kind": "status", "data": {"state": "running"}},
+    {"kind": "served", "data": {"effort": "high", "model": "claude-opus-5-5"}},
+], ids=["duplicate-text", "status", "served-with-more-than-effort"])
+def test_the_e2e_assertion_rejects_anything_but_settings_after_completion(extra):
+    """D-F5 follow-up: only the late settings answer (served with effort alone) may
+    follow turn.completed; any other event after completion still fails."""
+    _, events = witness(8)
+    late = {"seq": events[-1]["seq"] + 1, "message_id": MID, "source": "test", **extra}
+    with pytest.raises(AssertionError):
+        assert_claude_reply_events(events + [late], MID, TEXT)
