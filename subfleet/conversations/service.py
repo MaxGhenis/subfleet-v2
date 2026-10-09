@@ -30,7 +30,7 @@ from typing import Any, Callable
 from .. import descriptors, protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
-from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
+from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..retention_git import discard_registration
 from ..salvage import SalvageError
@@ -342,8 +342,9 @@ class ConversationService:
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
         defaults = {}
         hard = (policy.get("tiers") or []).index("hard") if "hard" in (policy.get("tiers") or []) else None
-        hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
-                       if hard is not None and len(chain) > hard]
+        hard_models = [short for chain in (policy.get("chains") or {}).values()
+                       if hard is not None and len(chain) > hard
+                       for short in flatten_chain(chain[hard:hard + 1])]
         for name in ("claude", "codex"):
             offered = [m for m in models if m["provider"] == name and not m["retired"]]
             preferred = ["opus"] if name == "claude" else hard_models
