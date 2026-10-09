@@ -35,15 +35,21 @@ class DiskAdmission:
         self.state_root = state_root
         self.read_free = read_free
         self.settings = disk_settings({})
-        self.reservations: dict[str, tuple[float, float]] = {}
+        self.reservations: dict[str, tuple[float, int]] = {}
         self.measured: int | None = None
         self.holding = holding
         self.error: str | None = None
         self.snapshot: dict[str, Any] = self._snapshot()
 
     @property
-    def reserved_bytes(self) -> float:
+    def reserved_bytes(self) -> int:
         return sum(amount for _, amount in self.reservations.values())
+
+    def _bytes(self, name: str) -> int:
+        """A setting in whole bytes. Every comparison is in integers, so a
+        fractional setting cannot put a placement a rounding error past the
+        floor or refuse one at the exact progress threshold (review of #161, P3)."""
+        return round(self.settings[name] * GB)
 
     def rebuild(self, attempts: Iterable[Mapping[str, Any]], now: str) -> None:
         """Reservations start at placement, even while the attempt awaits launch.
@@ -55,7 +61,7 @@ class DiskAdmission:
         self.reservations = self._reservations_for(attempts, now)
         self.snapshot = self._snapshot()
 
-    def _reservations_for(self, attempts: Iterable[Mapping[str, Any]], now: str) -> dict[str, tuple[float, float]]:
+    def _reservations_for(self, attempts: Iterable[Mapping[str, Any]], now: str) -> dict[str, tuple[float, int]]:
         clock = epoch(now)
         current = {}
         for row in attempts:
@@ -68,7 +74,7 @@ class DiskAdmission:
                 reservation = evidence.get("disk_reservation") or self.evidence()
             expires = epoch(row["reserved_at"]) + reservation["ttl_s"]
             if expires > clock:
-                current[row["attempt_id"]] = (expires, reservation["bytes"])
+                current[row["attempt_id"]] = (expires, round(reservation["bytes"]))
         return current
 
     def status(self, attempts: Iterable[Mapping[str, Any]], now: str) -> dict[str, Any]:
@@ -98,7 +104,7 @@ class DiskAdmission:
         self.snapshot = self._snapshot()
 
     def evidence(self) -> dict[str, float]:
-        return {"bytes": self.settings["placement_reserve_gb"] * GB,
+        return {"bytes": self._bytes("placement_reserve_gb"),
                 "ttl_s": self.settings["reserve_ttl_s"]}
 
     def reserve(self, attempt_id: str, reserved_at: str) -> None:
@@ -112,12 +118,12 @@ class DiskAdmission:
         if not self.settings["enabled"] or klass in ("attended", "probe"):
             return None
         effective = None if self.measured is None else self.measured - self.reserved_bytes
-        floor = self.settings["floor_gb"] * GB
-        resume = floor + self.settings["resume_margin_gb"] * GB
+        floor = self._bytes("floor_gb")
+        resume = floor + self._bytes("resume_margin_gb")
         if effective is None or (self.holding and effective < resume):
             self.holding = True
         else:
-            self.holding = effective - self.settings["placement_reserve_gb"] * GB < floor
+            self.holding = effective - self._bytes("placement_reserve_gb") < floor
         self.snapshot = self._snapshot()
         return {"reason": "disk", **self.snapshot} if self.holding else None
 

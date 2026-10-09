@@ -512,6 +512,24 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 
 
 class Daemon:
+    #: C-6.17: the last latch written to the store (`_save_disk_latch`).
+    _disk_saved_hold = False
+
+    @property
+    def _disk(self) -> disk.DiskAdmission:
+        """C-6.17's state. `__init__` builds it from policy and the store. A Daemon
+        assembled without `__init__` (unit tests build one by hand) gets a disabled
+        one on first use, so admission behaves there exactly as it did before the
+        rule existed; a pass that reads an enabling policy still turns it on."""
+        state = self.__dict__.get("_disk_state")
+        if state is None:
+            state = self.__dict__["_disk_state"] = disk.DiskAdmission(Path(self.__dict__.get("root", ".")))
+        return state
+
+    @_disk.setter
+    def _disk(self, state: disk.DiskAdmission) -> None:
+        self.__dict__["_disk_state"] = state
+
     @_released_on_failure
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,

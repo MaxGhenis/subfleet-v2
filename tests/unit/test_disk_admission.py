@@ -210,3 +210,57 @@ def test_I6_disabled_matches_absent_over_generated_sequences(tmp_path, sequence)
         assert gate.reserved_bytes == 0
         jobs = [job for job in jobs if job["job_id"] not in placed]
         attempts = original.view["attempts"]
+
+
+FRACTIONS = st.fractions(min_value=1, max_value=40, max_denominator=9)
+
+
+def _fractional_gate(tmp_path, free_bytes, floor, reserve, margin):
+    gate = DiskAdmission(tmp_path, read_free=lambda path: free_bytes)
+    gate.begin_pass({"admission": {"disk": {"enabled": True, "floor_gb": float(floor),
+                                            "placement_reserve_gb": float(reserve),
+                                            "resume_margin_gb": float(margin), "reserve_ttl_s": 600}}},
+                    (), stamp(0))
+    return gate
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(floor=FRACTIONS, reserve=FRACTIONS, free=st.integers(0, 400 * GB))
+def test_I1_floor_is_exact_in_whole_bytes_for_fractional_settings(tmp_path, floor, reserve, free):
+    """C-6.17 I1 (review of #161, P3): with fractional GB settings, every placement
+    leaves measured free minus reservations at or above the floor, in whole bytes,
+    with no rounding error; and the next placement is refused exactly when it would not."""
+    gate = _fractional_gate(tmp_path, free, floor, reserve, 0)
+    floor_b, reserve_b = round(float(floor) * GB), round(float(reserve) * GB)
+    placed = 0
+    while gate.hold("session") is None and placed < 500:
+        gate.reserve(f"job/a{placed}", stamp(0))
+        placed += 1
+        assert free - gate.reserved_bytes >= floor_b
+    assert gate.reserved_bytes == placed * reserve_b
+    assert placed == max(0, (free - floor_b) // reserve_b)          # I3's bound is reached, never passed
+
+
+def test_review_witnesses_for_fractional_settings(tmp_path):
+    """The two cases the #161 review reproduced with float arithmetic."""
+    # I1: floor 48/7, reserve 80/7, free 144 GB. Twelve float reservations undershot the floor.
+    gate = _fractional_gate(tmp_path, 144 * GB, 48 / 7, 80 / 7, 0)
+    placed = 0
+    while gate.hold("session") is None:
+        gate.reserve(f"w/a{placed}", stamp(0))
+        placed += 1
+    assert 144 * GB - gate.reserved_bytes >= round(48 / 7 * GB)
+    # I2: floor 17/3, reserve 28/3, margin 0, free 15 GB is exactly the progress threshold.
+    gate = _fractional_gate(tmp_path, 15 * GB, 17 / 3, 28 / 3, 0)
+    assert gate.hold("session") is None
+
+
+def test_a_daemon_built_without_init_has_the_rule_off(tmp_path):
+    """C-6.17: a Daemon assembled by hand (as gate and legacy-hold unit tests do) has
+    no disk state until first use, and then a disabled one: nothing is held or read."""
+    from subfleet.daemon import Daemon
+    bare = object.__new__(Daemon)
+    assert bare._disk.settings["enabled"] is False
+    assert bare._disk.hold("session") is None and bare._disk.hold("background") is None
+    assert bare._disk_saved_hold is False
+    assert bare._disk is bare._disk                                  # one state object, kept
