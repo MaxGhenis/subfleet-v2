@@ -54,3 +54,11 @@ def run_probe(probe: Path, *args, env: dict | None = None, timeout: float = 60, 
 def write_json(path: Path, value) -> Path:
     path.write_text(json.dumps(value))
     return path
+
+
+@pytest.fixture(scope="session")
+def r2_models(tmp_path_factory):
+    probe = compile_probe(tmp_path_factory.mktemp("r2-models") / "probe",
+                          ROOT / "tests/frontend/R2PresentationProbe.swift", "SUBFLEET_MODEL_TEST")
+    return run_probe(probe, ROOT / "tests/fixtures/visual/codex-commands.json",
+                     ROOT / "tests/fixtures/visual/approval-schema-requests.json")

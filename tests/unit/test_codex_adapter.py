@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from hypothesis import assume, given, settings, strategies as st
 
 from subfleet.adapters import codex as codex_module
 from subfleet.adapters.base import AdapterError
@@ -22,7 +24,7 @@ from subfleet.contracts import (
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 REQUIRED_CASES = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection",
-    "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter",
+    "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag",
     "stream-disconnect", "model-at-capacity", "spawn-fail", "model-scoped-limit",
 )
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
@@ -295,6 +297,8 @@ def test_transient_failures_do_not_close_lane(tmp_path, message):
 @pytest.mark.parametrize("message", [
     "content filter blocked this request", "trusted access is required",
     "I can't help with that request", "I can’t assist with that request",
+    "This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request.",
+    "apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access",
 ])
 def test_content_filter_variants_are_not_transient(tmp_path, message):
     """C-9.2 C-4.5 v1 content-filter refusals are classified for reconciliation, not retry."""
@@ -302,6 +306,74 @@ def test_content_filter_variants_are_not_transient(tmp_path, message):
     outcome = CodexAdapter().classify(tmp_path, launch, _exit())
     assert outcome.cls == OutcomeClass.CONTENT_FILTER
     assert outcome.closure is None
+
+
+CYBER_FLAGS = (
+    "This content was flagged for possible cybersecurity risk.",
+    "If you're doing authorized security work, apply for Daybreak access before retrying.",
+    "This request was flagged for possible cyber risk",
+)
+SURROUNDING = st.text(alphabet=st.characters(categories=("Ll", "Lu", "Nd", "Zs", "Po")), max_size=60)
+CASES = st.sampled_from((str, str.lower, str.upper))
+
+
+@pytest.mark.parametrize("line", [
+    "Error loading config /Users/someone/daybreak access/config.toml: permission denied",
+    "warning: cache entry flagged for possible disk risk; rebuilding",
+    "note: request flagged for possible latency risk, retrying transport",
+])
+def test_cli_diagnostics_naming_those_words_are_not_refusals(tmp_path, line):
+    """C-9.2: the new refusal phrases need their refusal context; a diagnostic that only shares
+    words with them is not a content-filter refusal (review of #160, P2)."""
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, stderr=line + "\n"), _exit())
+    assert outcome.cls != OutcomeClass.CONTENT_FILTER
+
+
+def test_a_content_filter_refusal_asks_for_a_reworded_prompt(tmp_path):
+    """C-4.5 invariant 39: the outcome detail, which the caller's notice carries, says to reword."""
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {"message": CYBER_FLAGS[0]}})
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.CONTENT_FILTER
+    assert "reword" in outcome.detail and "not retried" in outcome.detail
+
+
+@settings(deadline=None)  # each example writes and reads files; the deadline measured load, not the property
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       as_event=st.booleans())
+def test_cyber_flag_anywhere_in_a_failed_turn_is_content_filter(flag, case, before, after, as_event):
+    """C-9.2 C-4.5 invariant: the provider's cyber flag, in any case and any surrounding text, in a
+    turn.failed or on stderr, is `content-filter` with no closure. Authentication and an old CLI
+    still come first (C-9.2 precedence), so messages matching those are set aside."""
+    message = before + case(flag) + after
+    failed = {"type": "turn.failed", "error": {"message": message}}
+    # The classifier reads a failure event as its JSON text and stderr line by line; set aside
+    # exactly what it would read as authentication or an old CLI, which C-9.2 ranks first.
+    signal = json.dumps(failed, ensure_ascii=False) if as_event else message
+    assume(not codex_module.AUTH_RE.search(signal) and not codex_module.OLD_CLI_RE.search(signal))
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        if as_event:
+            launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD}, failed)
+        else:
+            launch = _events(attempt, stderr=message + "\n")
+        outcome = CodexAdapter().classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.CONTENT_FILTER
+    assert outcome.closure is None
+
+
+@settings(deadline=None)
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING)
+def test_cyber_flag_in_a_completed_answer_is_not_a_refusal(flag, case, before, after):
+    """C-9.2 C-12.6 invariant: the model quoting the flag in its own answer on a completed turn
+    is a successful deliverable, never a refusal."""
+    text = "Report: " + before + case(flag) + after
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD},
+                         {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
+                         {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}})
+        outcome = CodexAdapter().classify(attempt, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
 
 
 def test_model_scoped_limit_keeps_reported_reset(tmp_path):

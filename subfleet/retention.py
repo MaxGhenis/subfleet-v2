@@ -204,8 +204,10 @@ _PIN_QUERIES = (
     # inside it (a job an agent submitted from its worktree, still queued):
     # the tree must still be there when it runs (design review, Opus 9).
     # SQLite's LIKE ignores ASCII case (the store sets no case_sensitive_like),
-    # which also keeps a tree whose job id a live turn's folder spells in
-    # another case; only after that job ends is the C-8.4 known limit reached.
+    # so a live job whose folder is *inside* this tree, spelled in another case,
+    # still keeps it. The exact-root comparisons (`=`) stay case-sensitive: a
+    # live job whose folder is the tree's root spelled in another case does not
+    # keep it, which is part of the C-8.4 known limit (review of #134's delta, P3).
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
                         "AND (b.worktree = a.worktree OR b.workdir = a.worktree "

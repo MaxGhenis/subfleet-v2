@@ -233,6 +233,11 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+#: C-6.10: one job's admission probes are reserved at least this far apart. The
+#: clock runs from the reservation, so a probe that ran this long (its deadline
+#: stopped it) leaves its vehicle due at once, and one that failed in a second
+#: does not become a probe a second.
+PROBE_RETRY_S = 60
 #: C-11.8: how long a pinned lane must go on refusing its job for a standing
 #: reason before the caller is told it never will: a state that lasts one pass
 #: (a re-enrolment between its two commits, a registry read that failed once)
