@@ -9,12 +9,32 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE = "tests/fake/test_quarantine_self_resolve.py::"
 ROUND2 = "tests/fake/test_review_pr131_round2.py::"
 MUTATIONS = (
+    ("attempt kill infers ownership from missing group shape", "subfleet/daemon.py",
+     'census.shapes.get(pid, {}).get("pgid") == a.get("pgid")',
+     'census.shapes.get(pid, {}).get("pgid", a.get("pgid")) == a.get("pgid")',
+     "tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-attempt]"),
+    ("probe kill infers ownership from missing group shape", "subfleet/daemon.py",
+     'census.shapes.get(p, {}).get("pgid") == record.get("pgid")',
+     'census.shapes.get(p, {}).get("pgid", record.get("pgid")) == record.get("pgid")',
+     "tests/fake/test_review_pr131_round6b_authority.py::test_failed_confirmation_cannot_promote_retained_group_to_signal_authority[unavailable-marker-probe]"),
+    ("leader identity discharges an unconfirmed sampled group", "subfleet/procs.py",
+     '            if rebooted(known.boot_id):\n                continue\n            groups.update(seen.group(known.pgid))',
+     '            if rebooted(known.boot_id):\n                continue\n'
+     '            if known.pid == known.pgid and live(known.pgid) and known.proc_start and table[known.pgid][3]:\n'
+     '                try:\n'
+     '                    if not seen.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):\n'
+     '                        continue\n'
+     '                except InspectionError:\n'
+     '                    pass\n'
+     '            if known.pgid in gone and live(known.pgid):\n'
+     '                continue\n'
+     '            groups.update(seen.group(known.pgid))',
+     "tests/fake/test_review_pr131_round6b.py::test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity[marker-False]"),
     ("shared cwd mistakes another attempt for a writer", "subfleet/procs.py",
      "            if current == foreign:", "            if False and current == foreign:",
      "tests/unit/test_ci131_marker_scope.py::test_shared_cwd_excludes_only_an_identified_different_attempt[True]"),
@@ -137,14 +157,15 @@ def main():
     killed = 0
     survivors, no_control, failures = [], [], []
     def run(node):
-        # Separate bytecode caches prevent a same-size edit in the same second
-        # from reusing the control's compiled production module.
-        with tempfile.TemporaryDirectory(prefix="sf-mutation-") as cache:
-            return subprocess.run(
-                [sys.executable, "-B", "-X", f"pycache_prefix={cache}",
-                 "-m", "pytest", "-xq", node], cwd=ROOT,
-                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-                capture_output=True, text=True, timeout=540)
+        # Keep installed-library caches while preventing same-size production
+        # edits in one second from borrowing the control's compiled module.
+        for name in ("procs", "daemon"):
+            for cache in (ROOT / "subfleet/__pycache__").glob(name + ".*.pyc"):
+                cache.unlink()
+        return subprocess.run(
+            [sys.executable, "-B", "-m", "pytest", "--assert=plain", "-xq", node], cwd=ROOT,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            capture_output=True, text=True, timeout=540)
 
     for name, filename, old, new, node in selected:
         path = ROOT / filename
