@@ -21,8 +21,9 @@ group member identities, never identities known only through later sampling.
 
 Remaining work:
 1. Controls (29), five oracle mutations, eight historical replays and all 370
-   targeted checks now pass with the final stronger model. Run tools/quarantine_world_proof.py foreground and serially: exactly
-   2,000 passing, zero failing worlds at seed 131 and 500 at freshly drawn seed 3027837772367224465.
+   targeted checks now pass with the final stronger model. tools/quarantine_world_proof.py is running foreground and serially. Fixed
+   proof is complete: exactly
+   2,000 passing, zero failing worlds at seed 131 and 500 at freshly drawn seed 3027837772367224465 remains running.
    Keep first-proof/ as predecessor evidence; final root logs must correspond
    to final model bytes. Progress counts include invalid draws; use final
    Hypothesis statistics as the proof. Commit code and each verification step.
