@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
+from . import lane_identity
 from .status_json import dispatchable, instant, lane_verdict, timestamp
 
 
@@ -33,7 +34,58 @@ def _number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> list[dict[str, Any]]:
+def _named(lane: Mapping[str, Any]) -> str:
+    label = lane.get("label") or str(lane.get("account_key") or "").partition(":")[2]
+    return f"{lane['lane_id']} ({label})" if label else str(lane["lane_id"])
+
+
+def _percent(value: float) -> str:
+    return f"{value * 100:.0f}%"
+
+
+def identity_conditions(lanes: list[Mapping[str, Any]],
+                        readings: Iterable[Mapping[str, Any]],
+                        twins: lane_identity.TwinSettings | None = None) -> list[dict[str, Any]]:
+    """C-10.8, C-10.9: the lanes whose credentials are one account, and the lanes
+    whose readings match too well to be two (D-ID1, 2026-10-09)."""
+    found: list[dict[str, Any]] = []
+    for group in lane_identity.shared_groups(lanes):
+        head, org = group[0], lane_identity.identity_org(group[0].get("identity")) or "?"
+        others = group[1:]
+        found.append({
+            "key": f"claude-identity-shared:{org}", "severity": "critical",
+            "subject": f"claude: {len(group)} lanes hold one account's token",
+            "body": (f"{', '.join(_named(lane) for lane in group)} answer as one account "
+                     f"(organization {org}). Only {head['lane_id']} takes its work; "
+                     f"{', '.join(str(lane['lane_id']) for lane in others)} "
+                     f"{'is' if len(others) == 1 else 'are'} refused (identity-shared), so no work "
+                     f"reaches the {'account its label names' if len(others) == 1 else 'accounts their labels name'} "
+                     f"through {'it' if len(others) == 1 else 'them'}. For each: sign in to claude.ai as its label, run claude "
+                     f"setup-token, store the token as its keychain item, then subfleet lanes "
+                     f"enroll <item>."),
+            "home": f"claude-identity:{org}", "homes": [f"claude-identity:{org}"]})
+    rows = {str(lane["lane_id"]): lane for lane in lanes}
+    for twin in lane_identity.reading_twins(lanes, readings, twins):
+        first, second = (rows[lane_id] for lane_id in twin["lanes"])
+        provider = twin["provider"]
+        values = ", ".join(f"{row['window']}{'' if row['scope'] == 'account' else ' ' + row['scope']} "
+                           f"at {_percent(row['utilization'])}" for row in twin["values"])
+        hint = ("Subfleet says for certain once it has read each token's organization; "
+                "subfleet lanes list shows it." if provider == "claude"
+                else "Check which account each home is signed in to.")
+        found.append({
+            "key": f"{provider}-reading-twins:{twin['lanes'][0]}+{twin['lanes'][1]}", "severity": "warn",
+            "subject": f"{provider}: {first['lane_id']} and {second['lane_id']} report the same usage",
+            "body": (f"{_named(first)} and {_named(second)} reported the same resets and utilization "
+                     f"within minutes ({values}). Two accounts rarely match like this; their "
+                     f"credentials are probably one account's. {hint}"),
+            "home": f"{provider}-twins:{'+'.join(twin['lanes'])}",
+            "homes": [f"{provider}-twins:{'+'.join(twin['lanes'])}"]})
+    return found
+
+
+def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | None = None,
+                        twins: lane_identity.TwinSettings | None = None) -> list[dict[str, Any]]:
     """C-23.27, C-23.45, C-23.52: derive every condition from one post-heal snapshot."""
     at = instant(now or snapshot.get("now"))
     conditions: dict[str, dict[str, Any]] = {}
@@ -91,6 +143,11 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             add(key, "critical", f"{provider}: one account is bound to multiple homes",
                 f"Account {account} is bound to: {', '.join(homes)}. Rebind the later home to a distinct account. "
                 f"Run: {_login(members[-1])}", home=homes[-1], homes=homes)
+
+    readings = [row for lane in lanes for row in lane.get("readings", ())]
+    readings += list(snapshot.get("weekly_samples") or ())
+    for condition in identity_conditions(lanes, readings, twins):
+        add(**condition)
 
     for provider in ("codex", "claude"):
         members = [lane for lane in lanes if lane["provider"] == provider]
@@ -319,7 +376,8 @@ class Alerts:
             self.store.add_event("monitoring.offline", data={"observed_at": timestamp(at)})
             return {"conditions": [], "alerts_sent": [], "recovered": [], "offline": True}
 
-        conditions = evaluate_conditions(snapshot, now=at)
+        conditions = evaluate_conditions(snapshot, now=at,
+                                         twins=lane_identity.TwinSettings.from_policy(self.policy))
         current = {condition["key"]: condition for condition in conditions}
         with self._lock:
             self._current = current

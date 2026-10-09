@@ -56,6 +56,10 @@ def candidates_of(readings: list[dict]) -> list[dict]:
             or row["observed_at"] == top[(row["lane_id"], row["scope"], row["window"])]]
 
 
+#: C-10.6, C-10.8: recorded identities, two of them one account by organization.
+IDENTITIES = ["org:o1", "org:o1", "a1:o1", "org:o2", "a2:o3"]
+
+
 @st.composite
 def lane_rows(draw, lane_id: str) -> dict:
     provider = lane_id.split("-")[0]
@@ -66,7 +70,9 @@ def lane_rows(draw, lane_id: str) -> dict:
             "credential_epoch": 1, "home": draw(st.sampled_from([None, f"/homes/{lane_id}"])),
             "owner": draw(st.sampled_from(["v2"] * 12 + ["v1"])),
             "desktop": draw(st.sampled_from([0] * 12 + [1])), "enabled": draw(st.sampled_from([1] * 12 + [0])),
-            "plan": None, "identity": None, "label": draw(st.sampled_from([None, account])),
+            # C-10.8: some lanes are one account with another (D-ID1's shape).
+            "plan": None, "identity": draw(st.sampled_from([None] * 6 + IDENTITIES)),
+            "label": draw(st.sampled_from([None, account])),
             "identity_status": draw(st.sampled_from([None] * 8 + ["verified", "verified", "mismatch"])),
             "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:00:00Z"}
 
@@ -234,8 +240,10 @@ def commits(draw, store: dict, focus: tuple[str, ...] = ()) -> tuple[dict, float
                 draw(st.sampled_from(live))["state"] = draw(st.sampled_from(["succeeded", "failed", "quarantined"]))
         elif what == "lane" and after["lanes"]:
             row = draw(st.sampled_from(after["lanes"]))
-            key = draw(st.sampled_from(["enabled", "owner", "identity_status", "desktop", "label", "credential_kind"]))
+            key = draw(st.sampled_from(["enabled", "owner", "identity_status", "desktop", "label", "credential_kind",
+                                        "identity"]))
             row[key] = draw({"enabled": st.sampled_from([0, 1]), "owner": st.sampled_from(["v1", "v2"]),
+                             "identity": st.sampled_from([None, *IDENTITIES]),
                              "identity_status": st.sampled_from([None, "verified", "mismatch"]),
                              "desktop": st.sampled_from([0, 1]), "label": st.sampled_from([None, *ACCOUNTS]),
                              "credential_kind": st.sampled_from(["keychain-token", "home"])}[key])

@@ -21,7 +21,7 @@ from datetime import timedelta
 import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
-from subfleet import capacity, route_check, scheduler
+from subfleet import capacity, lane_identity, route_check, scheduler
 from tests.caps import capped
 from tests.routing_strategies import (ACTIVE, BASE_POLICY, NOW, candidates_of, closure_rows, commits, event, exact,
                                      policies, reading_rows, route_jobs, stores, view_of)
@@ -43,9 +43,10 @@ def now_rows(before: dict, after: dict) -> dict:
     """What `Daemon._route_rows` reads inside the reservation, from the store after the commits."""
     mark = max((row["reading_id"] for row in before["readings"]), default=0)
     jobs = {row["job_id"]: row for row in after["jobs"]}
-    # Lane rows marked as a view marks them (C-10.3's in-use signal included).
-    return {"lanes": [capacity.mark_desktop(dict(row), desktop_in_use=after.get("desktop_in_use"))
-                      for row in after["lanes"]],
+    # Lane rows marked as a view marks them (C-10.3's in-use signal included, and
+    # C-10.8's one account, one candidate).
+    return {"lanes": lane_identity.mark_shared([capacity.mark_desktop(dict(row), desktop_in_use=after.get("desktop_in_use"))
+                                                for row in after["lanes"]]),
             "readings": [row for row in after["readings"] if row["reading_id"] > mark],
             "closures": sorted((row for row in after["closures"] if row["released_at"] is None),
                                key=lambda row: row["closure_id"]),

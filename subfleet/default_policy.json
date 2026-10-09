@@ -135,7 +135,11 @@
   },
   "alerts": {
     "realert_hours": 6,
-    "expiring_capacity_daily": true
+    "expiring_capacity_daily": true,
+    "twin_within_s": 600,
+    "twin_reset_tolerance_s": 60,
+    "twin_utilization_tolerance": 0.005,
+    "twin_min_values": 3
   },
   "sessions": {
     "nudge_max_age_h": 8,

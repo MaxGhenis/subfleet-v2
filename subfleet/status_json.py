@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import desktop_excluded, identity_blocked
+from .lane_identity import identity_shadowed
 from .guardian import atomic_publish
 from .quota_projection import weekly_projections
 
@@ -48,7 +49,8 @@ def lane_verdict(lane: Mapping[str, Any]) -> str:
 def dispatchable(lane: Mapping[str, Any]) -> bool:
     if (not lane.get("enabled", True) or lane.get("owner", "v2") != "v2"
             or lane.get("canonical") is False or lane.get("duplicate_of")
-            or lane.get("provider") == "claude" and desktop_excluded(lane)):
+            or lane.get("provider") == "claude" and (desktop_excluded(lane) or identity_blocked(lane)
+                                                     or identity_shadowed(lane))):
         return False
     if lane.get("probe_state") is not None:
         # C-5.7a, C-18.1: a probe holds this lane's slot, and admission places
@@ -139,7 +141,8 @@ def scoped_windows(lane: Mapping[str, Any], model_names: Mapping[str, str] | Non
 def claude_earliest_reset(accounts: list[Mapping[str, Any]], now: datetime) -> str | None:
     """C-29.6, D-27: the soonest future reset of an account window on a Claude lane
     admission could use (enabled, owned by v2, not the desktop login while Claude
-    Code uses it (C-10.3), identity not mismatched). A reset already past says the
+    Code uses it (C-10.3), identity not mismatched, and not a lane whose account
+    another lane takes the work of (C-10.8)). A reset already past says the
     reading is old, not when capacity returns.
 
     A lane whose credential proved to hold another account (C-10.6) stays enabled
@@ -150,7 +153,7 @@ def claude_earliest_reset(accounts: list[Mapping[str, Any]], now: datetime) -> s
     resets = [instant(window["reset_at"]) for account in accounts
               if account.get("enrolled") and account.get("owner", "v2") == "v2"
               and not (account.get("active") and account.get("desktop_in_use", True) is not False)
-              and not identity_blocked(account)
+              and not identity_blocked(account) and not identity_shadowed(account)
               for window in account.get("windows", ())
               if window["scope"] == "account" and window.get("reset_at")]
     future = [value for value in resets if value > now]
@@ -320,6 +323,11 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
         common["weekly_projections"] = weekly_projections(lane, now=at, samples=snapshot.get("weekly_samples"))
         if lane.get("identity_status") is not None:
             common["identity_status"] = lane["identity_status"]
+        if lane.get("identity_shared_with"):
+            # C-10.8: the lanes this credential is one account with, and the one
+            # of them that takes the account's work.
+            common["identity_shared_with"] = list(lane["identity_shared_with"])
+            common["identity_shadowed_by"] = lane.get("identity_shadowed_by")
         email = lane.get("email") or str(lane.get("account_key", "unknown")).partition(":")[2] or lane.get("account_key", "unknown")
         if lane["provider"] == "codex":
             if verdict == "auth-dead":

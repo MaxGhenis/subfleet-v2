@@ -72,7 +72,8 @@ def test_two_enabled_lanes_with_one_identity_are_a_defect(root):
          ("claude-2", pair(AXIOM), AXIOM_EMAIL, {}))
     check = roster_check(root)
     assert check["status"] == "fail"
-    assert "claude-1, claude-2" in check["detail"]
+    assert "claude-1 (max@axiom.org) and claude-2 (max@axiom.org) hold one account" in check["detail"]
+    assert "only claude-1 takes its work" in check["detail"]
     assert pair(AXIOM) in check["detail"]
     assert "lanes transfer" in check["detail"]      # the fix line
 

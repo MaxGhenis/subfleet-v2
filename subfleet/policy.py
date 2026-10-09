@@ -441,7 +441,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
     for section, defaults in (("timers", {"probe_interval_s": 60, "keepalive_interval_s": 18300}),
-                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True})):
+                              ("alerts", {"realert_hours": 6, "expiring_capacity_daily": True,
+                                          # C-10.9: when two lanes' readings match too well
+                                          "twin_within_s": 600, "twin_reset_tolerance_s": 60,
+                                          "twin_utilization_tolerance": 0.005, "twin_min_values": 3})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
             fail(section, "must be an object")

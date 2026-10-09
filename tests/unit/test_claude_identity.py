@@ -28,7 +28,7 @@ from subfleet.adapters.claude import (
     PROFILE_UNAVAILABLE, ClaudeAdapter,
 )
 from subfleet.contracts import Credential, IdentityStatus, ReadingLabel
-from tests.conftest import NOW, exit_info, make_lane, make_launch, stage_case
+from tests.conftest import NOW, exit_info, make_lane, make_launch, org_opener, stage_case
 from tests.fake.profile import IDENTITY_DIR, fixture_response, opener
 
 
@@ -45,10 +45,17 @@ TOKEN = "fixture-lane-token"
 ENV = {"CLAUDE_CODE_OAUTH_TOKEN": TOKEN}
 
 
+LANE_ORG = LANE_IDENTITY.split(":")[1]
+OTHER_ORG = OTHER_IDENTITY.split(":")[1]
+
+
 def adapter_for(fixture: str | None = "profile-ok", *, seen: list | None = None,
-                **kwargs) -> ClaudeAdapter:
+                org: str | None = LANE_ORG, org_status: int = 200,
+                org_error: Exception | None = None, **kwargs) -> ClaudeAdapter:
+    """An adapter whose profile answers with `fixture` and whose organization
+    probe (D-ID1) names `org`: by default the fixture lane's own organization."""
     return ClaudeAdapter(now=lambda: NOW, profile_opener=opener(fixture, seen=seen),
-                         **kwargs)
+                         org_opener=org_opener(org_status, org, error=org_error), **kwargs)
 
 
 def bound_lane(**kwargs):
@@ -230,12 +237,20 @@ def test_a_setup_token_keeps_the_identity_recorded_at_enrolment():
     assert check.evidence()["status"] == "identity-enrolled"
 
 
-def test_a_bound_lane_that_stops_answering_is_unverified_not_enrolled():
+@pytest.mark.parametrize("org, error, expected", [
+    (LANE_ORG, None, IdentityStatus.UNVERIFIED),     # its organization, but which seat?
+    (OTHER_ORG, None, IdentityStatus.MISMATCH),      # another organization: another account
+    (None, OSError("down"), IdentityStatus.UNVERIFIED),
+])
+def test_a_bound_lane_that_stops_answering_is_unverified_not_enrolled(org, error, expected):
     """C-10.6 the setup-token carve-out is for a lane that never recorded an
-    identity. A lane that has one and now answers 403 has had its credential
-    changed under it — the incident's own shape — and stores nothing."""
-    check = adapter_for("profile-no-scope").identity_check(LANE_IDENTITY, LANE_EMAIL, ENV)
-    assert check.status is IdentityStatus.UNVERIFIED
+    identity. A lane that recorded an account and now answers 403 has had its
+    credential changed under it — the incident's own shape — and stores nothing.
+    Its organization header (D-ID1) can still say it is another account; it
+    cannot say it is the same one, because an organization is not an account."""
+    check = adapter_for("profile-no-scope", org=org, org_error=error).identity_check(
+        LANE_IDENTITY, LANE_EMAIL, ENV)
+    assert check.status is expected
     assert not check.binds
 
 
@@ -289,24 +304,55 @@ def test_enrolment_records_the_identity_the_credential_reports():
 
 def test_enrolment_of_a_setup_token_records_the_operators_label():
     """C-10.6 a setup token has no profile scope, so the lane is enrolled on the
-    label the operator gave it and its readings will carry `identity-enrolled`."""
+    label the operator gave it and its readings will carry `identity-enrolled`.
+    D-ID1: it records the organization its own response header named, so it can
+    be told apart from every other lane from its first cycle."""
     adapter = adapter_for("profile-no-scope", runner=Runner())
     info = adapter.enroll(Credential("claude", f"claude-quota-{LANE_EMAIL}", "keychain-token"))
     assert info.account_key == f"claude:{LANE_EMAIL}"
-    assert info.identity is None
+    assert info.identity == f"org:{LANE_ORG}"
     assert info.label == LANE_EMAIL
     assert info.identity_status == "enrolled"
     assert {r.window for r in info.readings} == {"five_hour", "seven_day"}
 
 
-def test_enrolment_without_an_answer_records_no_capacity():
-    """C-10.6 a lane enrolled while the endpoint was unreachable is unverified,
-    and the windows its enrolment turn reported are not capacity for anyone."""
+def test_enrolment_with_only_an_organization_answer_is_enrolled_on_it():
+    """C-10.6 an unreachable profile is no longer the end of it: the token's own
+    organization header (D-ID1) binds the lane at the organization level."""
     adapter = adapter_for("profile-unavailable", runner=Runner())
     info = adapter.enroll(Credential("claude", f"claude-quota-{LANE_EMAIL}", "keychain-token"))
-    assert info.identity_status == "unverified"
-    assert info.identity is None
-    assert info.readings == ()
+    assert info.identity_status == "enrolled"
+    assert info.identity == f"org:{LANE_ORG}"
+
+
+@pytest.mark.parametrize("profile", ["profile-unavailable", "profile-no-scope"])
+@pytest.mark.parametrize("org_status, org, error", [
+    (200, None, None),                 # an answer that names no organization
+    (401, LANE_ORG, None),             # an unauthenticated answer names nothing
+    (503, LANE_ORG, None),
+    (200, "not:an-id", None),          # a header that is not an organization id
+    (200, None, OSError("down")),
+])
+def test_enrolment_that_cannot_tell_whose_token_it_is_is_refused(profile, org_status, org, error):
+    """C-10.6, D-ID1 enrolment is where an operator is watching, so a token
+    nobody can name is refused there and nothing is recorded, rather than enrolled
+    unverified and found out later."""
+    adapter = adapter_for(profile, runner=Runner(), org=org, org_status=org_status, org_error=error)
+    with pytest.raises(AdapterError) as refused:
+        adapter.enroll(Credential("claude", f"claude-quota-{LANE_EMAIL}", "keychain-token"))
+    assert refused.value.code == 7
+    assert "could not tell whose token" in str(refused.value)
+    assert TOKEN not in str(refused.value) + str(refused.value.fix)
+
+
+def test_enrolment_refuses_a_token_whose_profile_names_another_email():
+    """C-10.6, D-ID1 the keychain item names the account the operator meant; a
+    token whose own profile names another is refused, not relabelled."""
+    adapter = adapter_for("profile-ok", runner=Runner())
+    with pytest.raises(AdapterError) as refused:
+        adapter.enroll(Credential("claude", "claude-quota-someone@else.example", "keychain-token"))
+    assert refused.value.code == 7
+    assert LANE_EMAIL in str(refused.value) and "someone@else.example" in str(refused.value)
 
 
 def test_enrolment_refuses_a_profile_that_names_nobody():

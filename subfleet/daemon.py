@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, folders, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, folders, ids, lane_identity, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
@@ -900,7 +900,12 @@ class Daemon:
         existing = bindings[-1] if bindings else None
         enrollment_holder = None
         if existing:
-            if any(row['enabled'] for row in bindings):
+            # C-10.6, C-10.8 (D-ID1): a binding whose credential proved to hold
+            # another account, or is the same account as another lane, is already
+            # refused work; re-enrolling its credential replaces it (and disables
+            # it), which is the one way C-10.6 lets such a lane be released.
+            replaceable = self._replaceable(bindings)
+            if any(row['enabled'] and row['lane_id'] not in replaceable for row in bindings):
                 raise protocol.ProtocolError(
                     f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
                     Exit.INVALID_INPUT, "subfleet lanes list")
@@ -914,9 +919,11 @@ class Daemon:
             self.timers.active_holders.add(enrollment_holder)
             try:
                 with self.store.transaction('lane.reenroll-reserved', lane_id=existing['lane_id']):
+                    replaceable = self._replaceable(bindings)
                     for row in bindings:
                         current = self.store.get_lane(row['lane_id'])
-                        if current.enabled or current.desktop or current.owner != owner:
+                        if ((current.enabled and row['lane_id'] not in replaceable) or current.desktop
+                                or current.owner != owner):
                             raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
                         if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
                                           "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
@@ -940,24 +947,38 @@ class Daemon:
                 info = adapter.enroll(credential)
             except AdapterError as exc:
                 raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
-            if existing and existing.get('identity') and (
-                    info.identity_status != 'verified' or info.identity != existing['identity']):
+            if (existing and existing.get('identity') and existing['identity_status'] == 'verified'
+                    and lane_identity.account_level(existing['identity'])
+                    and (info.identity_status != 'verified' or info.identity != existing['identity'])):
+                # A binding its own profile proved stays that account: a new
+                # account on its credential is a new credential reference.
                 raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED)
             if existing and info.account_key != existing['account_key']:
                 raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED)
+            info = self._judge_enrollment(credential, info, bindings)
+            # C-10.6: closures carry over to a new binding of the same account. A
+            # binding that turns out to be another account (D-ID1: the old token
+            # was someone else's) keeps only the operator's holds, which are about
+            # the lane, not the token.
+            same = bool(existing) and (not existing.get('identity') or not info.identity
+                                       or lane_identity.same_account(existing['identity'], info.identity))
             lane_id = self._next_lane_id(credential.provider)
             lane = Lane(lane_id, credential.provider, info.account_key, credential,
                         info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
                         info.identity, info.label)
             with self.store.transaction("lane.enrolled", lane_id=lane_id, data={
                     "account_key": info.account_key, "kind": credential.kind, "owner": owner.value,
-                    "label": info.label, "identity_status": info.identity_status,
-                    "supersedes": existing['lane_id'] if existing else None}):
+                    "label": info.label, "identity": info.identity, "identity_status": info.identity_status,
+                    "supersedes": existing['lane_id'] if existing else None,
+                    "replaces": [row['lane_id'] for row in bindings if row['enabled']],
+                    "identity_changed": bool(existing) and not same}):
                 # Keep the old binding fenced through publication, and re-read
                 # facts under the same transaction that creates its successor.
+                replaceable = self._replaceable(bindings)
                 for row in bindings:
                     current = self.store.get_lane(row['lane_id'])
-                    if (current is None or current.enabled or current.desktop or current.owner != owner
+                    if (current is None or (current.enabled and row['lane_id'] not in replaceable)
+                            or current.desktop or current.owner != owner
                             or current.account_key != row['account_key'] or current.identity != row['identity']
                             or current.credential.ref != credential.ref):
                         raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
@@ -968,13 +989,17 @@ class Daemon:
                                       (f"lane:{row['lane_id']}:slot:%", enrollment_holder)):
                         raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED)
                 self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
+                for row in bindings:
+                    if row['enabled']:
+                        # C-1.3: the binding this one replaces is disabled with it.
+                        self.store.update_lane(row['lane_id'], enabled=0)
                 for reading in info.readings:
                     self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
                 # Re-authentication clears only the authentication latch. A new
                 # binding to the same account cannot erase a hold or limit.
                 for old in bindings:
                     for closure in self.store.list_closures(old['lane_id'], active_at=utcnow()):
-                        if closure['reason'] != 'auth-dead':
+                        if closure['reason'] != 'auth-dead' and (same or closure['reason'] == 'operator-hold'):
                             self.store.add_closure(Closure(
                                 lane_id, closure['scope'], closure['until_at'],
                                 ClosureReason(closure['reason']), ClockSource(closure['clock_source']),
@@ -991,6 +1016,45 @@ class Daemon:
                     self.store.release_leases(enrollment_holder)
                     if record:
                         shutil.rmtree(record['directory'], ignore_errors=True)
+
+    def _replaceable(self, bindings: list[dict]) -> set[str]:
+        """C-10.6, C-10.8: the bindings of one credential that re-enrolment may
+        replace while enabled: mismatched, or one account with another lane."""
+        shared = lane_identity.shadowing(self.store.lane_rows())
+        return {row['lane_id'] for row in bindings
+                if row['identity_status'] == IdentityStatus.MISMATCH.value or row['lane_id'] in shared}
+
+    def _judge_enrollment(self, credential: Credential, info: Any, bindings: list[dict]) -> Any:
+        """C-10.6, C-10.8 (D-ID1): refuse a credential that is another enabled lane's
+        account, or whose label a profile fact contradicts; else apply what the
+        facts prove about the label. Read off the store lock, before any write."""
+        if credential.provider != "claude" or not info.identity:
+            return info
+        replaced = {row['lane_id'] for row in bindings}
+        clash = [row for row in self.store.query(
+                     "SELECT lane_id,label,account_key,identity,identity_status FROM lanes "
+                     "WHERE provider='claude' AND enabled=1")
+                 if row['lane_id'] not in replaced and row['identity_status'] != IdentityStatus.MISMATCH.value
+                 and lane_identity.same_account(row['identity'], info.identity)]
+        if clash:
+            names = ", ".join(f"{row['lane_id']} ({row['label'] or row['account_key']})" for row in clash)
+            raise protocol.ProtocolError(
+                f"lanes enroll: {credential.ref} holds a token of the same account as {names} "
+                f"({lane_identity.short(info.identity)}); enrolling it would count that account twice "
+                f"and still give {info.label or 'its label'}'s account no lane (C-10.8)",
+                Exit.REFUSED,
+                f"sign in to claude.ai as {info.label or 'the lane account'}, run claude setup-token, "
+                f"store the token as the keychain item {credential.ref}, and enrol again")
+        status, verdict = lane_identity.judge(IdentityStatus(info.identity_status), label=info.label,
+                                              identity=info.identity, facts=self.timers.identity_facts())
+        if status is IdentityStatus.MISMATCH and verdict.fact is not None:
+            raise protocol.ProtocolError(
+                f"lanes enroll: {credential.ref} holds a token of {verdict.fact.email}'s account "
+                f"({lane_identity.short(info.identity)}, per {verdict.fact.source}), not {info.label}'s (C-10.6)",
+                Exit.REFUSED,
+                f"sign in to claude.ai as {info.label}, run claude setup-token, store the token as the "
+                f"keychain item {credential.ref}, and enrol again")
+        return dataclasses.replace(info, identity_status=status.value) if status else info
 
     def _enrollment_turn(self, lane_id, holder, argv, *, cwd, env, timeout, **_):
         """Run re-authentication through the recoverable guardian process fence.
@@ -1554,9 +1618,13 @@ class Daemon:
         desktop = capacity.desktop_identity(self._desktop_profile(hint or last),
                                             cached_label=hint, last_label=last.get("label"))
         if desktop.verified and (last.get("identity") != desktop.identity
-                                 or last.get("label") != desktop.label):
+                                 or last.get("label") != desktop.label
+                                 or last.get("organization_type") != desktop.org_type):
+            # C-10.6: the desktop's profile is one of the facts a lane's label is
+            # judged on (`lane_identity.account_facts`), its organization type with it.
             self.store.add_event(capacity.DESKTOP_IDENTITY_EVENT,
                                  data={"identity": desktop.identity, "label": desktop.label,
+                                       "organization_type": desktop.org_type,
                                        "observed_at": utcnow()})
         return desktop
 
@@ -1583,39 +1651,20 @@ class Daemon:
         self._desktop_cache = (time.monotonic(), profile)
         return profile
 
-    def _record_identity(self, lane_id: str, outcome: Outcome | None) -> None:
-        """C-10.6: keep the adapter's identity finding on the lane row.
+    def _record_identity(self, lane_id: str, outcome: Outcome | None) -> bool:
+        """C-10.6: keep the adapter's identity finding on the lane row, and say
+        whether the readings that came with it may be stored as capacity.
 
-        The adapter decides; the daemon only remembers, so the scheduler can
-        refuse a lane whose own credential proved to hold another account and an
-        operator can see why in `subfleet lanes`.
+        The adapter decides what the credential said; `lane_identity.record`
+        remembers it (learning a setup token's organization once, D-ID1) and
+        applies the profile facts the timers last read, so the scheduler can
+        refuse a lane whose credential holds another account and an operator can
+        see why in `subfleet lanes`. A lane already `mismatch` is left so, and its
+        readings never count: only enrolment releases it, and C-1.3 gives that a
+        new lane id.
         """
         finding = (outcome.evidence or {}).get("identity") if outcome else None
-        status = IDENTITY_STATUS_BY_EVIDENCE.get((finding or {}).get("status") or "")
-        if status is None:
-            return
-        row = self.store.one("SELECT identity,label,identity_status FROM lanes WHERE lane_id=?",
-                             (lane_id,))
-        if row is None or row["identity_status"] == IdentityStatus.MISMATCH.value:
-            # C-10.6: a lane whose credential proved to hold another account is
-            # not a candidate "until an operator re-enrols it". No later probe
-            # clears that, however the endpoint answers next time; only
-            # enrolment does, and C-1.3 gives that a new lane id.
-            return
-        values: dict[str, Any] = {}
-        if row["identity_status"] != status.value:
-            values["identity_status"] = status.value
-        observed = (finding or {}).get("identity") or {}
-        pair = (f"{observed['account_uuid']}:{observed['org_uuid']}"
-                if observed.get("account_uuid") and observed.get("org_uuid") else None)
-        if status is IdentityStatus.VERIFIED and pair and not row["identity"]:
-            # C-1.4: a lane that carried only a label learns the identity its own
-            # credential reported, once, so the next cycle compares uuids.
-            values["identity"] = pair
-            if observed.get("email") and not row["label"]:
-                values["label"] = observed["email"]
-        if values:
-            self.store.update_lane(lane_id, **values)
+        return lane_identity.record(self.store, lane_id, finding, self.timers.cached_identity_facts())
 
     @staticmethod
     def _identity_binds(outcome: Outcome | None) -> bool:
@@ -4123,12 +4172,12 @@ class Daemon:
             if outcome.cls == OutcomeClass.AUTH_DEAD:
                 self.store.update_lane(record["lane_id"], enabled=0)
                 self.timers.record_auth_dead(record["lane_id"])
-            self._record_identity(record["lane_id"], outcome)
-            for reading in outcome.readings:
+            binds = self._record_identity(record["lane_id"], outcome)
+            for reading in outcome.readings if binds else ():
                 self.store.add_reading(dataclasses.replace(reading, attempt_id=None))
             if outcome.closure:
                 self.store.add_closure(outcome.closure)
-            if outcome.cls == OutcomeClass.OK and self._identity_binds(outcome):
+            if outcome.cls == OutcomeClass.OK and binds and self._identity_binds(outcome):
                 # C-9.1, C-10.6: "this model was admitted on this lane" is a claim
                 # about the lane, and it is only true if the credential is its own.
                 self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
@@ -5399,10 +5448,12 @@ class Daemon:
         # check judges that lane again (review of the uncap plan: reusing the
         # view's answer reserved the lane after Claude Code had become active).
         in_use = self._desktop_answer()
-        lanes = [self.timers.merge_lane(capacity.mark_desktop(
-                     dict(row), desktop=basis["desktop"],
-                     desktop_in_use=basis.get("desktop_in_use") if in_use is None else in_use))
-                 for row in lane_rows]
+        marked = [capacity.mark_desktop(dict(row), desktop=basis["desktop"],
+                                        desktop_in_use=basis.get("desktop_in_use") if in_use is None else in_use)
+                  for row in lane_rows]
+        # C-10.8: one account's lanes, marked as `build_view` marks them, before the merge.
+        lane_identity.mark_shared(marked)
+        lanes = [self.timers.merge_lane(row) for row in marked]
         probes = store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'")
         unavailable = {row["lease_key"].split(":")[1]: row["holder"] for row in probes}
         unavailable.update({lane["lane_id"]: "credential-latched" for lane in lanes if capacity.credential_latched(lane)})
@@ -5524,6 +5575,7 @@ class Daemon:
         if any(lane.get("desktop") for lane in lanes):
             in_use = self._desktop_in_use() if refresh else self._desktop_answer()
             lanes = [capacity.mark_desktop(lane, desktop=desktop, desktop_in_use=in_use) for lane in lanes]
+        lane_identity.mark_shared(lanes)                 # C-10.8, as `build_view` marks them
         lanes = [self.timers.merge_lane(lane) for lane in lanes]
         return {"now": now, "lanes": lanes, "closures": self.store.list_closures(active_at=now),
                 "unavailable_lanes": {lane["lane_id"]: "credential-latched" for lane in lanes
@@ -6800,8 +6852,8 @@ class Daemon:
             if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
                 self.store.update_lane(a["lane_id"], enabled=0)
                 self.timers.record_auth_dead(a["lane_id"])
-            self._record_identity(a["lane_id"], outcome)   # C-10.6
-            for reading in outcome.readings:
+            binds = self._record_identity(a["lane_id"], outcome)   # C-10.6
+            for reading in outcome.readings if binds else ():
                 self.store.add_reading(reading)
             if outcome.closure:
                 self.store.add_closure(outcome.closure)

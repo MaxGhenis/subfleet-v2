@@ -14,7 +14,7 @@ import threading
 import time
 from uuid import uuid4
 
-from . import capacity, claude_cards
+from . import capacity, claude_cards, lane_identity
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
@@ -54,6 +54,9 @@ class Timers:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
+        # C-10.6: the profile facts a lane's label is judged on, read off the
+        # store lock once per probe cycle (`identity_facts`) and used inside it.
+        self._identity_facts: tuple = ()
         self._cycles = ThreadPoolExecutor(max_workers=2, thread_name_prefix='subfleet-timer')
         # The mirror gets its own worker. It is a file-copy pass over the whole
         # desktop session store and an 8.5-minute one was observed on 2026-08-18
@@ -790,6 +793,10 @@ class Timers:
                     releases = self._publishable(lane, probe, opened)
                     if releases is not None:
                         self._persist(lane, probe, releases=releases)
+                    else:
+                        # C-10.6: what the credential said is kept even when the
+                        # read itself is not published.
+                        self._record_probe_identity(lane, probe)
                 except BaseException:
                     self._set_verdict(lane.lane_id, before)
                     raise
@@ -812,10 +819,15 @@ class Timers:
         keeps every closure and reset credit as it stands.
         """
         at = iso(self.now())
+        if not self._record_probe_identity(lane, probe):
+            # C-10.6: the credential is not, or is no longer, this lane's own
+            # account (its row says `mismatch`): its numbers are nobody's capacity.
+            probe = {**probe, 'readings': (), 'limit_reached': None,
+                     'status': 'identity-unbound' if probe.get('status') in ('ok', 'limited') else probe.get('status')}
         status = probe.get('status', 'unknown')
         outcome = probe.get('outcome')
         readings = tuple(Reading(**r) if isinstance(r, dict) else r for r in probe.get('readings', ()))
-        meta = {k: v for k, v in probe.items() if k not in ('readings', 'outcome', 'account_key', 'detail')}
+        meta = {k: v for k, v in probe.items() if k not in ('readings', 'outcome', 'account_key', 'detail', 'identity')}
         actual_account = probe.get('account_key')
         if actual_account and actual_account != lane.account_key:
             readings = ()
@@ -944,16 +956,56 @@ class Timers:
             # login's lane is dispatchable while Claude Code is not using it.
             slot_cap = lane_slot_cap(caps, bool(measured) and not override)
             row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
+                                       not capacity.identity_blocked(row) and not lane_identity.identity_shadowed(row) and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
                                        (slot_cap is None or row['in_flight'] < slot_cap) and
                                        not full)
         return view
 
+    def identity_facts(self):
+        """C-10.6: every profile answer the fleet keeps, as `lane_identity.account_facts`
+        reads them: lanes whose own profile bound them, the logins `claude-cards.json`
+        last read, and the desktop identities the store recorded. Read here, off the
+        store lock, and kept for `cached_identity_facts`."""
+        try:
+            lanes = self.store.query("SELECT lane_id,provider,identity,label,identity_status,updated_at "
+                                     "FROM lanes WHERE provider='claude'")
+            desktop = []
+            for row in self.store.query("SELECT data_json FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 64",
+                                        (capacity.DESKTOP_IDENTITY_EVENT,)):
+                try:
+                    data = json.loads(row['data_json'] or '{}')
+                except ValueError:
+                    continue
+                if isinstance(data, dict):
+                    desktop.append(data)
+            logins = claude_cards.read_snapshot(self.root / claude_cards.SNAPSHOT_FILE).get('accounts') or []
+            facts = lane_identity.account_facts(lanes=lanes, logins=[row for row in logins if isinstance(row, dict)],
+                                                desktop=desktop)
+        except Exception:                 # noqa: BLE001 — no facts is a judgement too: labels stay unproven
+            facts = ()
+        with self._lock:
+            self._identity_facts = facts
+        return facts
+
+    def cached_identity_facts(self):
+        """The facts the last `identity_facts` read; for callers inside a store transaction."""
+        with self._lock:
+            return self._identity_facts
+
+    def _record_probe_identity(self, lane, probe):
+        """C-10.6: keep a read's identity finding on the lane row; may its readings count?"""
+        finding = probe.get('identity')
+        if lane.provider != 'claude' or not finding:
+            return True
+        return lane_identity.record(self.store, lane.lane_id, finding, self.cached_identity_facts())
+
     def probe_cycle(self):
         if self.cancel.is_set():
             return
         self._cycle_error = None
+        self.identity_facts()
         self._identities()
         # An immediately requested next cycle may inherit spacing from its
         # predecessor's last busy Claude read. Pay that wait before taking
@@ -1090,6 +1142,11 @@ class Timers:
             self._release(holder, quarantined=quarantined)
 
     def keepalive_cycle(self):
+        # C-10.8: a lane whose account another lane takes the work of spends no
+        # turn of its own; that account's keepalive is the other lane's.
+        shadowed = {lane_id for lane_id, entry in lane_identity.shadowing(self.store.lane_rows()).items()
+                    if entry['shadowed_by']}
         futures = [self._lanes.submit(self._keepalive_lane, lane) for lane in self.store.list_lanes()
-                   if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop]
+                   if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop
+                   and lane.lane_id not in shadowed]
         return [future.result() for future in as_completed(futures)]
