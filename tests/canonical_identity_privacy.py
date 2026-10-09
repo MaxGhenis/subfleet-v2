@@ -34,7 +34,9 @@ def pytest_configure(config):
     global _active, _home, _patch
     _home = tempfile.TemporaryDirectory(prefix="identity-native-home-")
     _patch = pytest.MonkeyPatch()
-    _patch.setattr(Path, "home", classmethod(lambda cls: Path(_home.name)))
+    # Isolate the default home while allowing tests to redirect HOME to their
+    # own fixtures. A fixed Path.home override masks protected-home checks.
+    _patch.setenv("HOME", _home.name)
     _active = True
 
 
