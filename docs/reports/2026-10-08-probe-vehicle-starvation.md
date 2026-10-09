@@ -44,10 +44,12 @@ Probes stopped at the deadline were common on other days too (probe completions 
 
 ## The fix
 
-- **The turn (C-6.9).** The jobs of a detached pass that wait on an admission probe form a line in the pass's order: `Daemon._probe_line`, with `scheduler.probe_turn` and `scheduler.probe_lanes_taken`. A job carries the probe of a model on a lane only when no job ahead of it in the line waits on a probe of that model and could run on that lane. A job whose chosen lane is another job's turn goes to a lane of the same model whose probe is its own. Failing that, it is held `probe-pending` with `behind` naming the older job, on a capacity clock, and is looked at on the first pass that finds nobody ahead of it. Each pass builds the line again, so a job that started, ended or now waits for anything else holds nobody.
+- **The turn (C-6.9).** The jobs of a detached pass that wait on an admission probe form a line in the pass's order: `Daemon._probe_line`, with `scheduler.probe_turn` and `scheduler.probe_lanes_taken`. A job carries the probe of a model on a lane only when no job ahead of it in the line waits on a probe of that model and could use that lane: a lane of the model's provider, its pin's if it has one, and none its own exclusions or a transient retry's name (`scheduler.probe_reach`). A job whose chosen lane is another job's turn goes to a lane of the same model whose probe is its own. Failing that, it is held `probe-pending` with `behind` naming the older job, on a capacity clock, and is looked at on the first pass that finds nobody ahead of it. Each pass builds the line again, so a job that started, ended or now waits for anything else holds nobody.
 - **The clock (C-6.10).** The wait after an inconclusive probe is `PROBE_RETRY_S` (60 s) from the probe's reservation, not its end. A probe its deadline stopped leaves its job due at once, and that job is first in line on the next pass. A probe that failed in a second still waits out the minute, so the provider is not probed in a loop.
 - **Rotation (C-11.4).** After a probe of a model on a lane says nothing, the job's next probe of that model goes to a lane of that model it has not had such an answer on this round (`Daemon._probe_choice`). Once no other lane would take the job, the round starts again. A model the chain promotes to is never taken this way. The reservation's evaluation after a moved route leaves the same lanes out. This is what bounds the turn: a later job held behind an older one that could use any lane sees its own lane probed within one of the older job's rounds. Without rotation, the turn alone let an older job stuck on a slow top-ranked lane hold a later job pinned to a healthy lane for as long as the slow lane stayed slow.
-- **Evidence (C-11.4).** A probe the deadline stopped records `stopped: deadline` in its record and in the `probe.completed` evidence. `job.probe_waiting` names the lane, the model, the class and the clock. `why` names the probe and whose turn it is (C-6.11).
+- **Busy lanes (C-11.4).** A lane whose probe a look cannot reserve (its `slot:0` held by a timer, the lane disabled or moved, its credential latched) is passed over in the same look, as a lane that said nothing is, so a job never holds every lane's turn while it probes none.
+- **The reservation (C-11.4, C-6.3).** The reservation leaves out the same lanes as the look did. It holds the job back instead of reserving when that would choose another model (rotation never promotes a job) or no lane where a lane it left out was refused for that alone.
+- **Evidence (C-11.4).** A probe the deadline stopped while its guardian ran records `stopped: deadline` in its record and in the `probe.completed` evidence, however it completes (receipt, recovery, an adapter that raised). Its retry clock and its deadline are stamped inside the reservation's transaction, so a wait for the store's writer lock spends neither. `job.probe_waiting` names the lane, the model, the class and the clock. `why` names the probe and whose turn it is (C-6.11).
 
 ## Invariants and how they are checked
 
@@ -78,6 +80,22 @@ Seven single-point mutations of the fix were each caught by at least one test:
 - a moved route that forgets the rotation;
 - no hurry when the turn comes;
 - no line entry for a job whose clock runs.
+
+## Review rounds
+
+- The review of the main port (#154) found that a rotated lane closing before the reservation let the reservation promote the job to Astra, and that recovery and adapter errors dropped `stopped: deadline`. Both held here too and are fixed (446f3334).
+- The review of this PR found three more:
+  - a job that excluded a lane held that lane's turn (P1);
+  - a failed probe reservation held every lane's turn without probing (P1);
+  - a writer-lock wait spent the retry clock and the deadline (P2).
+
+  All three are fixed, with regression tests built from the reviewer's counterexamples.
+- The second review of #154 asked for three narrower changes:
+  - an exact rule for when the reservation holds the job back;
+  - no `stopped` mark when the guardian was already gone;
+  - wording.
+
+  Those are fixed here too.
 
 ## What this does not change
 

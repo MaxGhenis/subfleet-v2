@@ -42,7 +42,7 @@ I6 (rotation, the bound). After a probe of a model on a lane says nothing, the
 """
 
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import tempfile
@@ -400,6 +400,148 @@ def test_rotation_never_promotes_at_the_reservation(routing_state, monkeypatch):
     assert service.store.get_job(job_id)["exclusions"] == "[]"
 
 
+def test_a_lane_a_job_excludes_is_not_its_probe_turn(routing_state, monkeypatch):
+    """I5, review of #153 (P1-1): the older job could use any lane but the one it excludes, so the
+    probe of that lane is the later job's turn; it held it while every codex-1 probe ran out of time."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    older = submit(service, harness, exclusions=["codex-2"])
+    later = submit(service, harness, pinned_lane="codex-2")
+    probes = Probes(service, monkeypatch, bad={"codex-1"})
+    service._admit()
+    assert probes.vehicles == [(older, "codex-1", "astra"), (later, "codex-2", "astra")]
+    assert started(service) == [later]
+
+
+def test_a_retry_exclusion_is_left_out_of_the_turn_too(routing_state, monkeypatch):
+    """I5, review of #153 (P1-1): the same, the exclusion being the older job's own `limited` attempt
+    on codex-2 (C-4.5)."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    older = submit(service, harness)
+    with service.store.transaction("fixture.attempt") as tx:
+        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,outcome_class,"
+                   "evidence_json,reserved_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                   (older + "/a1", older, 1, "codex-2", "gpt-6-astra", "failed", "limited", "{}", utcnow()))
+    later = submit(service, harness, pinned_lane="codex-2")
+    probes = Probes(service, monkeypatch, bad={"codex-1"})
+    for _ in range(2):
+        make_due(service)
+        service._admit()
+    assert later in started(service)
+    assert all(lane == "codex-1" for job_id, lane, _ in probes.vehicles if job_id == older)
+
+
+def test_a_lane_whose_probe_cannot_be_reserved_is_passed_over_in_the_same_look(routing_state, monkeypatch):
+    """I5, review of #153 (P1-2): a timer took codex-1's `slot:0` between the older job's evaluation and
+    its reservation, every pass. The older job never probed, so nothing rotated, yet it held codex-2's
+    turn from the later job pinned there. Now the look goes on to codex-2, and both start."""
+    service, harness = routing_state
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    older = submit(service, harness)
+    later = submit(service, harness, pinned_lane="codex-2")
+    probes = Probes(service, monkeypatch)
+    route, timers = service._route, []
+
+    def timer_wins(job, **options):
+        decision = route(job, **options)
+        if job["job_id"] == older and decision.chosen_lane == "codex-1":
+            timers.append(service.timers._reserve(service.store.get_lane("codex-1"), "read"))
+        return decision
+    monkeypatch.setattr(service, "_route", timer_wins)
+    try:
+        for _ in range(2):
+            for holder in timers:
+                service.timers._release(holder)
+            timers.clear()
+            make_due(service)
+            service._admit()
+    finally:
+        for holder in timers:
+            service.timers._release(holder)
+    assert probes.vehicles[0] == (older, "codex-2", "astra")
+    assert set(started(service)) == {older, later}
+
+
+def test_a_lock_wait_before_the_reservation_spends_neither_clock(routing_state, monkeypatch):
+    """I3, review of #153 (P2-4): 45 s waiting for the store's writer lock before the probe's
+    reservation left a retry clock 15 s after it, and a deadline 15 s after it too."""
+    service, harness = routing_state
+    job_id = submit(service, harness)
+    clock = {"now": datetime.now(timezone.utc).replace(microsecond=0)}
+
+    def stamp(value):
+        return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(clock["now"]))
+    monkeypatch.setattr(daemon_module, "after", lambda seconds: stamp(clock["now"] + timedelta(seconds=seconds)))
+    transaction, deadlines = service.store.transaction, []
+
+    @contextmanager
+    def after_a_lock_wait(kind="state.changed", **kwargs):
+        if kind == "probe.reserved":
+            clock["now"] += timedelta(seconds=45)
+        with transaction(kind, **kwargs) as tx:
+            yield tx
+    monkeypatch.setattr(service.store, "transaction", after_a_lock_wait)
+
+    def probe(job, lane, model, holder):
+        record = service._probe_record(holder)
+        deadlines.append((record["created_at"], record["deadline_at"]))
+        return Outcome(OutcomeClass.UNKNOWN, "fast spawn failure")
+    monkeypatch.setattr(service, "_execute_probe", probe)
+    service._admit()
+    reserved = clock["now"]
+    assert deadlines == [(stamp(reserved), stamp(reserved + timedelta(seconds=60)))]
+    assert service.store.get_job(job_id)["next_check_at"] == stamp(reserved + timedelta(seconds=PROBE_RETRY_S))
+
+
+def rotated_to_codex_2(service, harness, monkeypatch, then):
+    """A job whose probe on codex-1 said nothing; on the next pass rotation probes codex-2, which
+    answers, and `then` runs between that probe and the reservation."""
+    service.store.put_lane(codex_lane(service.root, "codex-2"))
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [CUT, OK])
+    service._admit()
+    prepare = service._prepare_route
+
+    def prepared(*args):
+        result = prepare(*args)
+        if result[0] is not None:
+            then()
+        return result
+    monkeypatch.setattr(service, "_prepare_route", prepared)
+    service._admit()
+    monkeypatch.setattr(service, "_prepare_route", prepare)
+    assert [lane for _, lane, _ in probes.vehicles] == ["codex-1", "codex-2"]
+    return job_id, probes
+
+
+def test_a_lane_rotation_left_out_is_never_refused_the_job(routing_state, monkeypatch):
+    """C-11.4, review of #154: codex-2 closes before the reservation, and codex-1, left out by
+    rotation, is the one lane that would take the job. It is held, not refused, and the next round
+    probes codex-1 and starts there."""
+    service, harness = routing_state
+    job_id, probes = rotated_to_codex_2(service, harness, monkeypatch, lambda: service.store.add_closure(
+        Closure("codex-2", "account", after(3600), ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "race")))
+    assert service._holds[job_id]["reason"] == "probe-pending" and not service.store.list_attempts(job_id)
+    make_due(service)
+    service._admit()
+    assert [lane for _, lane, _ in probes.vehicles] == ["codex-1", "codex-2", "codex-1"]
+    assert [row["lane_id"] for row in service.store.list_attempts(job_id)] == ["codex-1"]
+
+
+def test_a_full_fleet_is_reported_as_one_even_after_rotation(routing_state, monkeypatch):
+    """C-6.11, review of #154 (P3-1): with rotation's lane left out the fleet was full anyway; the job
+    read `probe-pending` for that look rather than `fleet-full`."""
+    service, harness = routing_state
+    service.policy["caps"]["max_active_attempts"] = 1
+
+    def fill():
+        assert service.store.acquire_lease("lane:codex-1:slot:0", "probe:other")
+    job_id, _ = rotated_to_codex_2(service, harness, monkeypatch, fill)
+    assert service._holds[job_id]["reason"] == "fleet-full" and not service.store.list_attempts(job_id)
+
+
 # --- I4: it ends --------------------------------------------------------------------------------
 
 def test_a_job_that_stops_waiting_on_a_probe_holds_nobody(routing_state, monkeypatch):
@@ -485,9 +627,12 @@ def test_a_probe_that_ended_by_itself_is_not_called_stopped(routing_state, monke
 
 
 @pytest.mark.parametrize("receipt_after_stop", [False, True])
-def test_a_recovered_probe_stopped_at_its_deadline_says_so(routing_state, monkeypatch, receipt_after_stop):
-    """Review of #154 (P2, the same code here): recovery completed such a probe without `stopped`, with
-    or without the receipt the stopped guardian wrote during containment."""
+@pytest.mark.parametrize("guardian_alive", [True, False])
+def test_a_recovered_probe_says_it_was_stopped_only_if_it_was(routing_state, monkeypatch, receipt_after_stop,
+                                                              guardian_alive):
+    """Review of #154: recovery completed a probe it stopped at the deadline without `stopped`, with or
+    without the receipt the stopped guardian wrote during containment (P2); and a probe whose guardian
+    was already gone when recovery came after the deadline was stopped by nobody (P3-2)."""
     service, harness = routing_state
     record = reserved_probe(service, submit(service, harness))
     record["deadline_at"] = after(-1)
@@ -498,11 +643,12 @@ def test_a_recovered_probe_stopped_at_its_deadline_says_so(routing_state, monkey
             exit_receipts(value)
         return procs.Containment()
     monkeypatch.setattr(service, "_probe_census", census)
-    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: False)
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: guardian_alive)
+    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *a, **k: pytest.fail("signalled"))
     service._recover_probes()
     completed = json.loads(service.store.query("SELECT data_json FROM events WHERE kind='probe.completed' "
                                                "AND data_json<>'{}'")[-1]["data_json"])
-    assert completed["evidence"]["stopped"] == "deadline"
+    assert completed["evidence"].get("stopped") == ("deadline" if guardian_alive else None)
 
 
 def test_a_probe_whose_adapter_raised_after_its_deadline_says_so(routing_state, monkeypatch):
@@ -519,7 +665,7 @@ def test_a_probe_whose_adapter_raised_after_its_deadline_says_so(routing_state, 
     monkeypatch.setattr(daemon_module.os, "write", lambda fd, value: None if fd == 801 else write(fd, value))
     monkeypatch.setattr(daemon_module.subprocess, "Popen",
                         lambda *a, **k: SimpleNamespace(pid=900001, poll=lambda: None))
-    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: False)
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: True)     # running at its deadline
     monkeypatch.setattr(service, "_probe_census", lambda value: exit_receipts(value) or procs.Containment())
 
     def classify(*args):

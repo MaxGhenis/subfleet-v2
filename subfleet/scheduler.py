@@ -410,6 +410,30 @@ def probe_turn(line: Iterable[tuple[str, str, frozenset[str] | None]], lane_id: 
                  if wanted == model and (lanes is None or lane_id in lanes)), None)
 
 
+def probe_reach(policy: Mapping[str, Any], roster: Iterable[Mapping[str, Any]], model: str,
+                lanes: frozenset[str] | None, exclusions: Iterable[str]) -> frozenset[str]:
+    """C-6.9, C-11.4: the lanes whose probe of `model` a job could use: the lanes of
+    the model's provider in `roster` (as `Daemon._pin_roster` names them), only its
+    pin's when `lanes` (`demand_lanes`) names one, and never one its exclusions name,
+    by any of the names `evaluate` excludes by (`_identities`). A job waiting on a
+    probe holds the turn at exactly these lanes' probes (`probe_turn`)."""
+    provider = ((policy.get("models") or {}).get(model) or {}).get("provider")
+    excluded = {str(name) for name in exclusions}
+    return frozenset(str(lane["lane_id"]) for lane in roster
+                     if lane.get("provider") == provider and (lanes is None or lane["lane_id"] in lanes)
+                     and not _identities(lane) & excluded)
+
+
+def left_out_only(decision: Decision | Mapping[str, Any], lanes: Iterable[str]) -> bool:
+    """C-11.4: whether some lane of `lanes`, left out of an evaluation by the job's
+    probe choice, was refused for that alone (`excluded` its only reason), so an
+    evaluation without it could have chosen that lane."""
+    left = set(lanes)
+    return any(str(row.get("lane_id")) in left and set(row.get("reasons") or [row.get("reason")]) == {"excluded"}
+               for evaluation in _row(decision).get("evaluations", ())
+               for row in evaluation.get("rejections", ()))
+
+
 def probe_lanes_taken(line: Iterable[tuple[str, str, frozenset[str] | None]],
                       model: str) -> frozenset[str] | None:
     """C-6.9: the lanes whose probe of `model` is the turn of a job in `line`
