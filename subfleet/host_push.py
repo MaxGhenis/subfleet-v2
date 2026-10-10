@@ -841,7 +841,7 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
     `git worktree add` in the caller's repo would execute its config/hooks.
     A standalone checkout also keeps its later config edits away from the host.
 
-    Fix round 3: admission calls this for one job of a pass, so it raises only
+    Fix rounds 3–4: the push thread builds this before admission, raising only
     AdapterError (the checkout or Git refused: the job fails, exit 7, with a
     notice) or OSError (the host's own trouble, Git that could not start
     included: C-6.8's workspace wait). Anything else had stopped the detached

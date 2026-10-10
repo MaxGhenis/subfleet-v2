@@ -12,10 +12,11 @@ import pytest
 from subfleet import host_push
 from test_host_push import submit, worlds  # noqa: F401
 from test_host_push_admission import notices, ordinary, pin_routing, placed
+from test_host_push_build import admit_ready
 
 
 def _refused_and_behind_placed(world, job_id, behind, words):
-    world.core._admit_kind("detached")
+    admit_ready(world.core)
     row = world.core._job(job_id)
     assert (row["state"], row["rc"]) == ("failed", 7), dict(row)
     assert words in " ".join(notices(world.core, job_id))

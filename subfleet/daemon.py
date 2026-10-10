@@ -695,8 +695,9 @@ class Daemon:
             os.close(self._lock_fd)
             raise DaemonUnavailable("another daemon holds daemon.lock") from None
         self._lock_finalizer = weakref.finalize(self, os.close, self._lock_fd)
-        # Only this lock owner can discard an interrupted intake. Do so before
-        # the first admission pass or push thread can create a live quarantine.
+        # C-8.5, review r4 P3-2: no live daemon can be using an intake now that
+        # this startup owns daemon.lock. Remove crash leftovers before the
+        # first admission pass or any worker or push thread can create one.
         host_push.clear_quarantine(self.root)
         try:
             ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
@@ -767,6 +768,8 @@ class Daemon:
         # C-8.5 (review P3-5): every host push runs here, one at a time, so push jobs
         # finishing together queue on this thread rather than each holding a worker.
         self.pushes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-push")
+        # Checkout construction shares the serialized push thread. Admission
+        # only queues or consumes a result; it never waits for a build.
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
         # C-16.7: each connection the daemon holds has a reader thread of its own
@@ -829,7 +832,7 @@ class Daemon:
         steps = [no_stack_dumps, closing_log]
         steps += [functools.partial(executor.shutdown, wait=False)
                   for executor in (self.__dict__.get(name)
-                                   for name in ("workers", "requests", "lookups", "waiters"))
+                                   for name in ("workers", "pushes", "requests", "lookups", "waiters"))
                   if executor is not None]
         if (conversations := self.__dict__.get("conversations")) is not None:
             steps.append(conversations.close)           # its pools and its store
@@ -845,6 +848,7 @@ class Daemon:
 
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
+        self._push_workspaces: dict[str, Future] = {}
         # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
         # seconds of the last answer on it, and attempt id -> when an attempt in
         # flight first answered (it is then no pilot): replaced whole under
@@ -3963,6 +3967,58 @@ class Daemon:
             self._record_answer(lane.lane_id, purpose)              # C-6.14: a keepalive or heal turn answered
         return dataclasses.replace(outcome, evidence=evidence)
 
+    def _prepare_push_workspace(self, job: dict, destination: Path) -> None:
+        """Build off admission without a lane or store lock; then record ownership."""
+        try:
+            current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
+            if not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
+                return
+            host_push.prepare_workspace(self.root, Path(job["workdir"]), job["workdir_head"], destination)
+            # Record the whole checkout before exposing readiness. Even if a
+            # cancellation and restart lose this future, retention can find it.
+            with self.store.transaction("job.workspace_built", job_id=job["job_id"]) as tx:
+                kept = tx.execute("UPDATE jobs SET worktree=? WHERE job_id=? "
+                                  "AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                                  (str(destination), job["job_id"])).rowcount
+            if not kept:
+                # Nothing was launched from this new checkout. A cancellation
+                # during the build must not leave an unrecorded worktree behind.
+                shutil.rmtree(destination)
+        finally:
+            self._notify()
+
+    def _discard_cancelled_push_workspace(self, job_id: str) -> None:
+        """Catch cancellation after the worker's last check, off admission."""
+        current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+        if ((not current or current["state"] in TERMINAL or current["cancel_requested_at"])
+                and not self.store.list_attempts(job_id)):
+            shutil.rmtree(self.root / "worktrees" / job_id, ignore_errors=True)
+
+    def _push_workspace_ready(self, job: dict) -> bool:
+        """Queue a push checkout once; consume errors on a later admission look.
+
+        Futures are owned by the serialized detached admission pass. A restart
+        forgets them and rebuilds from scratch after quarantine cleanup.
+        """
+        if (job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
+            return True
+        job_id = job["job_id"]
+        future = self._push_workspaces.get(job_id)
+        if future is not None and future.done():
+            del self._push_workspaces[job_id]
+            future.result()  # existing admission handlers classify the error
+            return True
+        destination = self.root / "worktrees" / job_id
+        if future is None:
+            if job.get("worktree") or destination.exists():
+                return True
+            self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
+        if job["wait_reason"] != "workspace":
+            with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
+                tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
+                           "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL", (job_id,))
+        return False
+
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None, list[str]]:
         """C-6.8: every git call here is capped by policy, and a call that did
         not finish raises rather than answering "no HEAD" or "no branch"."""
@@ -4819,6 +4875,11 @@ class Daemon:
         # whichever pass notices. Each dict is walked as a copy: the other kind's
         # pass writes its own jobs' entries meanwhile (`dict.copy` is one C call).
         pending = {job["job_id"] for job in queued}
+        if kind == "detached":
+            for job_id, future in list(self._push_workspaces.items()):
+                if job_id not in pending and (future.done() or future.cancel()):
+                    self._push_workspaces.pop(job_id, None)
+                    self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
@@ -5110,6 +5171,9 @@ class Daemon:
                 continue
             try:
                 baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
+                if not self._push_workspace_ready(job):
+                    holds[job["job_id"]] = {"reason": "workspace", "preparing": True}
+                    continue
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
