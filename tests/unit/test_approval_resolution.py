@@ -46,7 +46,9 @@ UNSETTLED = ("SELECT 'event without approval' AS what, e.seq AS at, json_extract
 #: - an `approval.resolved` event whose approval still reads pending (the app clears
 #:   a card the daemon still lists as answerable);
 #: - a withdrawn approval whose last event says anything but withdrawn, or an
-#:   answered one with no event saying the person's decision.
+#:   answered one with no event saying the person's decision;
+#: - more than one event saying so: two `withdrawn` for a withdrawn approval, or two
+#:   decisions for an answered one.
 UNRESOLVED = (
     "SELECT 'pending approval, message ' || m.state AS what, a.approval_id AS at, a.provider_request_id AS id "
     f"FROM approvals a JOIN messages m USING(message_id) WHERE a.state='pending' AND m.state IN ({TERMINAL}) "
@@ -66,7 +68,12 @@ UNRESOLVED = (
     "UNION ALL SELECT 'answered approval, no event with its decision', a.approval_id, a.provider_request_id "
     "FROM approvals a WHERE a.state='answered' AND NOT EXISTS (SELECT 1 FROM events e WHERE e.attempt_id=a.attempt_id "
     "AND e.kind='approval.resolved' AND json_extract(e.data_json, '$.request_id')=a.provider_request_id "
-    "AND json_extract(e.data_json, '$.decision')=json_extract(a.decision_json, '$.decision'))")
+    "AND json_extract(e.data_json, '$.decision')=json_extract(a.decision_json, '$.decision')) "
+    "UNION ALL SELECT a.state || ' approval, ' || COUNT(*) || ' approval.resolved saying so', a.approval_id, "
+    "a.provider_request_id FROM approvals a JOIN events e ON e.attempt_id=a.attempt_id AND e.kind='approval.resolved' "
+    "AND json_extract(e.data_json, '$.request_id')=a.provider_request_id "
+    "AND (json_extract(e.data_json, '$.decision')='withdrawn') = (a.state='withdrawn') "
+    "WHERE a.state!='pending' GROUP BY a.approval_id HAVING COUNT(*) > 1")
 
 
 class Commits:
