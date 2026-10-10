@@ -45,6 +45,16 @@ def test_bare_subfleet_and_aliases_reach_the_v1_spellings():
     assert cli.rewrite_aliases(["run", "-p", "x"]) == ["run", "-p", "x"]
 
 
+def test_status_help_documents_the_online_json_projection(capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.build_parser().parse_args(["status", "--help"])
+    assert exited.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "quarantined attempts (without evidence_json)" in help_text
+    assert "nonterminal jobs and those attempts' jobs" in help_text
+    assert "runs / runs show --json" in help_text
+
+
 @pytest.mark.parametrize("argv,handler", [
     ([], "cmd_status"),
     (["status"], "cmd_status"),

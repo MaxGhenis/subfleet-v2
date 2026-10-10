@@ -96,9 +96,18 @@ candidates = st.fixed_dictionaries(
 def views(service):
     """The full view and the route view, built at one instant after the readings."""
     instant = datetime.now(timezone.utc) + timedelta(seconds=1)
-    full = service._capacity_view(None, service._capacity_rows(), now=instant)
+    full = service._capacity_view(None, full_ledger_rows(service), now=instant)
     route = service._capacity_view(None, service._capacity_rows(route=True), now=instant)
     return full, route
+
+
+def full_ledger_rows(service):
+    """The independent full-ledger oracle, even when operator reads are bounded."""
+    with service.store.snapshot():
+        rows = service._capacity_rows()
+        rows["view"]["attempts"] = service.store.list_attempts()
+        rows["view"]["jobs"] = service.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")
+        return rows
 
 
 @settings(max_examples=150, deadline=None, suppress_health_check=FIXTURE_HEALTH)
@@ -169,7 +178,7 @@ def test_the_reservation_recheck_reads_the_same_from_the_route_rows(store_daemon
         decision = service._pick(job, basis=basis)
     except (ValueError, scheduler.RouteError):
         return
-    full = {**basis, "rows": service._capacity_rows()}
+    full = {**basis, "rows": full_ledger_rows(service)}
     now = datetime.now(timezone.utc)
     narrow_rows, full_rows = service._route_rows(basis, now), service._route_rows(full, now)
     assert (narrow_rows is None) == (full_rows is None)
@@ -216,10 +225,10 @@ def test_the_route_statements_read_no_evidence_and_use_the_live_index(store_daem
     assert "jobs_parent" in plan and "attempts_live" in plan and "SCAN jobs" not in plan, plan
 
 
-def test_pick_reads_the_route_rows_and_status_every_row(store_daemon, monkeypatch):
+def test_pick_reads_the_route_rows_and_status_live_rows(store_daemon, monkeypatch):
     """C-6.11, C-6.3: `_pick` (which admission reaches through `_route`, and `why` and
-    `run --dry-run` call) reads the route rows; `daemon.status` still carries every
-    job and attempt."""
+    `run --dry-run` call) reads the route rows; `daemon.status` carries only live
+    jobs and attempts, without evidence."""
     service = store_daemon
     lay(service, [(None, "succeeded", "dispatch"), (0, "running", "dispatch")],
         [(0, "codex-1", "succeeded", 9000), (1, "codex-1", "running", 9000)])
@@ -233,4 +242,6 @@ def test_pick_reads_the_route_rows_and_status_every_row(store_daemon, monkeypatc
     service._pick({"task": "research", "tier": "standard", "sandbox": "read-only"})
     status = service.dispatch("daemon.status", {})
     assert seen[0] is True and seen[1:] and not any(seen[1:]), seen
-    assert {row["job_id"] for row in status["jobs"]} == {"job-0", "job-1"} and len(status["attempts"]) == 2
+    assert {row["job_id"] for row in status["jobs"]} == {"job-1"}
+    assert {row["attempt_id"] for row in status["attempts"]} == {"job-1/a1"}
+    assert all("evidence_json" not in row for row in status["attempts"])
