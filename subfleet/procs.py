@@ -466,7 +466,9 @@ class ForeignOwnership:
                 continue
             leader = identity(known.pid)
             if leader == known.identity:
-                return True
+                if process_group(known.pid) == known.pgid and identity(known.pid) == leader:
+                    return True
+                continue  # A guardian cannot leave its original session group.
             if leader is not None:
                 continue  # A live reused leader proves the old group emptied.
             # An absent leader alone cannot prove foreign ownership: its old
@@ -956,7 +958,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 if confirmed is not None and confirmed != current:
                     retain(confirmed, 0)
                 raise InspectionError("process changed during group inspection")
-            if not local and (current == foreign_seen.get(pid) or foreign_ownership.owns(current, group)):
+            if not local and (current == foreign_seen.get(pid) or foreign_ownership.observes(
+                    current, ambiguous=(*ambiguous_identities, *ambiguous))):
                 excluded_identities.add(current)
                 source.discard(pid)
                 return

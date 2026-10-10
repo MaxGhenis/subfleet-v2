@@ -6497,9 +6497,15 @@ class Daemon:
 
     def _unambiguous_signal_group(self, attempt_id: str, leader: procs.ProcessIdentity | None,
                                   census: procs.Containment, evidence: dict) -> bool:
-        # killpg delivers to every member. One ambiguous member, or a failed
-        # census that cannot certify membership, forbids the whole group signal.
-        return (leader is not None and not census.unverifiable and not census.ambiguous_identities
+        # killpg delivers to every member. A failed census cannot certify that
+        # none overlaps another attempt's claims. With no competing claims,
+        # scalar confirmation still permits C-5.4's original-group protocol,
+        # even when a table start column or an unrelated census source failed.
+        if census.unverifiable:
+            foreign = self._foreign_ownership({"attempt_id": attempt_id})
+            if foreign.claims or foreign.identities or foreign.groups or foreign.launches or foreign.collisions:
+                return False
+        return (leader is not None and not census.ambiguous_identities
                 and self._unambiguous_signal_identity(attempt_id, leader, census, evidence)
                 and all(self._unambiguous_signal_identity(attempt_id, ident, census, evidence)
                         for ident in census.group_identities.values()))

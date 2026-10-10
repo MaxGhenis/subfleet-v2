@@ -13,6 +13,40 @@ from tests.fake.test_state_contract import state_daemon  # noqa: F401
 REAL_SAME_PROCESS = procs.same_process
 
 
+@pytest.mark.parametrize("foreign_claim", [False, True])
+def test_partial_table_keeps_group_protocol_only_without_competing_claims(
+        state_daemon, monkeypatch, foreign_claim):
+    daemon, harness = state_daemon
+    ours, _ = running(daemon, harness, 200, 201)
+    rows = {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201"),
+            202: (201, 200, "S", "p202")}
+    script_table(monkeypatch, rows, markers="")
+    daemon._record_owned(ours, procs.snapshot())
+    if foreign_claim:
+        other, _ = running(daemon, harness, 100, 101)
+        daemon.store.update_attempt(other["attempt_id"], evidence_json=json.dumps({
+            "owned_identity_history": {"202": [{"pid": 202, "boot_id": BOOT, "proc_start": "p202"}]},
+        }))
+    # Scalar reads remain complete; only the table loses the guardian's start.
+    partial = {**rows, 200: (1, 200, "S", "")}
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(partial, boot_id=BOOT))
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
+    delivered, groups = [], []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append(pid))
+    def group_signal(pgid, sig):
+        groups.append(int(sig))
+        delivered.extend(pid for pid, row in rows.items() if row[1] == pgid)
+    monkeypatch.setattr(procs.os, "killpg", group_signal)
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(ours)
+    assert 201 in delivered
+    if foreign_claim:
+        assert not groups and 202 not in delivered
+    else:
+        assert groups == [15, 9] and 202 in delivered
+
+
 def test_ambiguous_guardian_does_not_authenticate_new_ownership(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     running(daemon, harness, 200, 101)
@@ -27,6 +61,28 @@ def test_ambiguous_guardian_does_not_authenticate_new_ownership(state_daemon, mo
         assert not evidence.get("owned_identities")
         assert not evidence.get("provider_identities")
         assert not evidence.get("descendant_identities")
+
+
+def test_ambiguous_foreign_anchor_cannot_exclude_a_late_local_group(
+        state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    running(daemon, harness, 202, 203)
+    ours, _ = running(daemon, harness, 200, 201)
+    # Recycled local writer 202 briefly created group 202, forked 300, and
+    # returned to group 200. The stale foreign guardian's identity collides.
+    rows = {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201"),
+            202: (201, 200, "S", "p202"), 300: (202, 202, "S", "p300")}
+    script_table(monkeypatch, rows, markers="")
+    table = procs.ProcessTable({pid: row for pid, row in rows.items() if pid != 300}, boot_id=BOOT)
+    monkeypatch.setattr(procs, "snapshot", lambda: table)
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({300}))
+    daemon._record_owned(ours, table)
+    census = daemon._contain(ours)
+    assert 300 in census.cwd_pids
+    assert procs.ProcessIdentity(300, BOOT, "p300") not in census.excluded_identities
+    evidence = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+    assert "300" not in evidence.get("owned_identities", {})
+    assert any(root["pid"] == 300 for root in evidence["lineage_roots"])
 
 
 def test_own_marker_collision_before_first_record_is_not_hidden(state_daemon, monkeypatch):
