@@ -6628,7 +6628,7 @@ class Daemon:
         proven_descendants = [dataclasses.asdict(ident) for pid in sorted(descendants)
                               if (ident := verified_identity(pid)) is not None]
         # Signal ownership remains confined to members of the verified leader's
-        # group. Detached descendants are saved only as census roots.
+        # group. Detached descendants delimit containment and foreign lineage.
         members = ({pid: verified_identity(pid) for pid in table.group(a["pgid"]) - excluded}
                    if guardian_live and table.rows[guardian][1] == a["pgid"] else {})
         with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:

@@ -350,7 +350,7 @@ def protected_pids(table: ProcessTable, records: Sequence[ProcessIdentity]) -> s
         if started and known.proc_start and started != known.proc_start:
             continue
         try:
-            match = boot_identity.matches(known.boot_id, table.boot(), table.legacy_seconds)
+            match = boot_identity.matches(known.boot_id, table.boot(), table.legacy_seconds) if known.boot_id else None
         except InspectionError:
             match = None
         if match is not False:

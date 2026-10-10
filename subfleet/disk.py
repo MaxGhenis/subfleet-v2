@@ -56,8 +56,9 @@ class DiskAdmission:
 
         `finished_at` releases a finalizing attempt as soon as its execution
         ends. Quarantine still holds its workspace despite that timestamp, so
-        its budget lasts until resolution or expiry. Older attempts without disk evidence use the configured budget,
-        so enabling the rule also accounts for recent existing placements.
+        its budget lasts until resolution or expiry. Older attempts without
+        disk evidence use the configured budget, so enabling the rule also
+        accounts for recent existing placements.
         """
         self.reservations = self._reservations_for(attempts, now)
         self.snapshot = self._snapshot()

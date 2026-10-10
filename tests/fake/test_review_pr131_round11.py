@@ -268,3 +268,25 @@ def test_full_census_preserves_foreign_descendant_after_reparenting(
     rows.update({200: (1, 200, "Ss", "p200"), 201: (200, 200, "S", "p201")})
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({102}))
     assert daemon._contain(child).live_pids == {200, 201}
+
+
+def test_incomplete_local_identity_holds_against_complete_foreign_history(state_daemon, monkeypatch):
+    daemon, ours, _, rows = owned_writer(state_daemon, monkeypatch)
+    rows.pop(200)
+    rows.pop(201)
+    rows[202] = (1, 202, "Ss", "p202")
+    # Legacy local evidence with an unreadable boot remains ambiguous. A
+    # complete foreign observation of the same PID/start cannot disprove it.
+    local = {"pid": 202, "boot_id": "", "proc_start": "p202"}
+    daemon.store.update_attempt(ours["attempt_id"], evidence_json=json.dumps({
+        "owned_identities": {"202": local}, "owned_identity_history": {"202": [local]},
+    }))
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset())
+    script_table(monkeypatch, rows, markers="")
+    census = daemon._contain(ours)
+    assert not census.verified_empty
+    assert census.unverifiable
+    assert 202 in census.live_pids
+    evidence = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+    assert evidence["owned_identities"]["202"] == local
+    assert local in evidence["owned_identity_history"]["202"]
