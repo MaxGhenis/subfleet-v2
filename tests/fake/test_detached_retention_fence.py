@@ -1011,8 +1011,10 @@ def test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers(tmp_path):
     """An early retention hold participates in release/217's priority queue.
 
     With one detached slot, a priority standard-tier job held on a tree fence
-    keeps a newer hard-tier job behind it. Without adding the early waiter to
-    the priority list, the newer job reserves that slot before the fence goes.
+    keeps the slot from a newer hard-tier job: a lease waiter holds no job back,
+    but the job that passes it keeps it the last slot (C-6.16, C-6.9). Without
+    adding the early waiter to the priority list, the newer job reserves that
+    slot before the fence goes.
     """
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
@@ -1031,8 +1033,11 @@ def test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers(tmp_path):
         assert not _live(daemon, priority), daemon._holds
         assert daemon._holds[priority]["retiring"] == [fence]
         assert not _live(daemon, newer), daemon._holds
-        assert daemon._holds[newer]["reason"] == "behind-older-job", daemon._holds
-        assert daemon._holds[newer]["behind"] == priority
+        # C-6.16 with C-6.9 (#144): a priority job waiting for a lease (here the
+        # tree's fence) holds no later job back, but the job that passes it keeps
+        # it the last slot, so with one slot the newer job still waits.
+        assert daemon._holds[newer]["reason"] == "slot-kept", daemon._holds
+        assert daemon._holds[newer]["kept_for"] == priority
         assert workspaces.calls == []
         daemon.store.release_leases("retention:retired")
         daemon._admit()
