@@ -363,6 +363,26 @@ class ForeignOwnership:
     """Other attempts' recorded processes, never inferred from shared cwd."""
     identities: tuple[ProcessIdentity, ...] = ()
     groups: tuple[CensusRoot, ...] = ()
+    launches: tuple[ProcessIdentity, ...] = ()
+
+    def local_descendants(self, table: ProcessTable, roots: Sequence[int], *,
+                          group_pids: Sequence[int] = ()) -> frozenset[int]:
+        """Local launch/group proof wins collisions; independent launches stop it.
+
+        Historical foreign descendants cannot override current local ancestry.
+        Only verified foreign launch receipts form boundaries in that walk.
+        """
+        local = set(roots)
+        boundaries = set()
+        for known in self.launches:
+            try:
+                if table.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
+                    boundaries.add(known.pid)
+            except InspectionError:
+                pass
+        boundaries.difference_update(local)
+        local.update(set(group_pids) - boundaries)
+        return table.descendants(tuple(local), excluded=boundaries)
 
     def pids(self, table: ProcessTable, *, protected: Sequence[int] = ()) -> frozenset[int]:
         roots = set()
@@ -623,6 +643,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
 
     local_seen: dict[int, ProcessIdentity] = {}
     proven_roots = set()
+    genuine_descendants = ()
     if seen is not None:
         protected = protected_pids(seen, owned_identities)
         for known in owned_identities:
@@ -654,6 +675,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                         proven_roots.add(known.pid)
                 except InspectionError:
                     pass
+        guardian_verified = False
+        if guardian_identity is not None:
+            try:
+                guardian_verified = seen.is_process(guardian_pid, guardian_identity.boot_id,
+                                                     guardian_identity.proc_start, legacy=True)
+            except InspectionError:
+                errors.append("guardian launch identity inspection unavailable")
+        local_group = seen.group(pgid) if guardian_verified and table[guardian_pid][1] == pgid else ()
+        genuine_descendants = foreign_ownership.local_descendants(seen, tuple(proven_roots),
+                                                                 group_pids=local_group)
+        protected.update(genuine_descendants)
         local_seen = {pid: seen.census_root(pid).identity for pid in protected}
         excluded = foreign_ownership.pids(seen, protected=protected)
         foreign_seen = {pid: seen.census_root(pid).identity for pid in excluded}
@@ -724,13 +756,6 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             errors.append("lineage root limit exceeded")
         # A verified guardian's direct children establish the legacy provider
         # identities before signals or finalization can erase the parent link.
-        guardian_verified = False
-        if guardian_identity is not None:
-            try:
-                guardian_verified = seen.is_process(guardian_pid, guardian_identity.boot_id,
-                                                     guardian_identity.proc_start, legacy=True)
-            except InspectionError:
-                errors.append("guardian launch identity inspection unavailable")
         if guardian_verified:
             found_providers = []
             for pid, row in table.items():
@@ -780,7 +805,6 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     observed_groups: dict[ProcessIdentity, set[int]] = {}
     incomplete_roots: list[CensusRoot] = []
     shapes: dict[int, dict[str, Any]] = {}
-    genuine_descendants = seen.descendants(tuple(proven_roots), excluded=excluded) if seen is not None else ()
     proven_descendants = []
 
     def retain(current: ProcessIdentity, group: int) -> None:

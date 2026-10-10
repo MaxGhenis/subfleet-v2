@@ -6404,6 +6404,7 @@ class Daemon:
         """
         identities = set()
         groups = []
+        launches = []
         for other in self.store.query(
                 "SELECT * FROM attempts WHERE state IN "
                 "('reserved','starting','running','finalizing','quarantined') AND attempt_id<>?",
@@ -6418,12 +6419,15 @@ class Daemon:
                 leader = procs.CensusRoot(other["guardian_pid"], other["boot_id"],
                                           other["proc_start"], other.get("pgid") or 0)
                 identities.add(leader.identity)
+                launches.append(leader.identity)
                 if leader.pgid:
                     groups.append(leader)
             start = self._read_json(attempt_dir(self.root, other["job_id"], other["seq"]) / "start.json") or {}
             if start.get("child_identity"):
-                identities.add(procs.ProcessIdentity(**start["child_identity"]))
-        return procs.ForeignOwnership(tuple(identities), tuple(groups))
+                child = procs.ProcessIdentity(**start["child_identity"])
+                identities.add(child)
+                launches.append(child)
+        return procs.ForeignOwnership(tuple(identities), tuple(groups), tuple(launches))
 
     @staticmethod
     def _prune_foreign_lineage(evidence: dict, foreign: procs.ForeignOwnership) -> dict:
@@ -6493,7 +6497,8 @@ class Daemon:
                                                        for value in roots),
                                    lineage_overflow_boot=evidence.get("lineage_overflow_boot", legacy_lineage.get("lineage_overflow_boot")),
                                    foreign_ownership=foreign)
-        foreign = procs.ForeignOwnership(foreign.identities + census.excluded_identities, foreign.groups)
+        foreign = procs.ForeignOwnership(foreign.identities + census.excluded_identities, foreign.groups,
+                                         foreign.launches)
         # Every full census (kill and finalization included) retains observations
         # before parent death can erase them. These never become signal targets.
         # A quarantine recheck records the same census in still_live/release;
@@ -6610,10 +6615,13 @@ class Daemon:
         foreign = self._foreign_ownership(a)
         previous = _json_object(self.store.get_attempt(a["attempt_id"])["evidence_json"])
         local = [ident for values in _local_process_records(previous).values() for ident in values]
-        protected = procs.protected_pids(table, local) | set(roots)
+        local_group = table.group(a["pgid"]) if guardian_live and table.rows[guardian][1] == a["pgid"] else ()
+        local_descendants = foreign.local_descendants(table, roots, group_pids=local_group)
+        protected = procs.protected_pids(table, local) | set(local_descendants)
         excluded = foreign.pids(table, protected=protected)
         foreign = procs.ForeignOwnership(
-            foreign.identities + tuple(table.census_root(pid).identity for pid in excluded), foreign.groups)
+            foreign.identities + tuple(table.census_root(pid).identity for pid in excluded), foreign.groups,
+            foreign.launches)
         descendants = table.descendants(roots, excluded=excluded)
         observed = [dataclasses.asdict(table.census_root(pid)) for pid in sorted(descendants)]
         def verified_identity(pid):
@@ -6626,7 +6634,7 @@ class Daemon:
         providers = [dataclasses.asdict(ident) for pid, row in table.rows.items()
                      if guardian_live and row[0] == guardian and pid not in excluded
                      and (ident := verified_identity(pid)) is not None]
-        proven_descendants = [dataclasses.asdict(ident) for pid in sorted(descendants)
+        proven_descendants = [dataclasses.asdict(ident) for pid in sorted(local_descendants)
                               if (ident := verified_identity(pid)) is not None]
         # Signal ownership remains confined to members of the verified leader's
         # group. Detached descendants delimit containment and foreign lineage.
