@@ -10,6 +10,7 @@ link, and Git only ever reads the daemon's own copy of it.
 from __future__ import annotations
 
 import configparser
+import ctypes
 import errno
 import fnmatch
 import os
@@ -28,7 +29,7 @@ from urllib.parse import urlsplit
 
 from . import folders, retention_fs as rfs
 from .adapters.base import AdapterError
-from .policy import push_settings
+from .policy import DISK_DEFAULTS, push_settings
 
 TIMEOUT_S = 60
 #: Review P3-4: one deadline for every Git call that reads a job's bundle,
@@ -54,11 +55,17 @@ DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 #: The bundle itself: never a link, and a FIFO cannot hold the open.
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 #: Review r2 P3: the most of each checkout metadata file submit reads.
-#: Round 4: 256 KiB covers all 790 surveyed local configs (largest 143,067 B),
-#: while limiting the parser to 1/16 of the former 4 MiB input cap.
 POINTER_CAP = 64 * 1024           # a gitfile, `commondir`, `HEAD`, a loose ref
+#: Round-4 P3-3: a local survey of 790 configs found a 3,118-byte p95 and a
+#: 143,067-byte maximum. 256 KiB covers every surveyed repo, with headroom,
+#: while bounding configparser's many-section cost to 1/16 of the old cap.
 CONFIG_CAP = 256 * 1024          # `config`, `config.worktree`
 PACKED_REFS_CAP = 64 * 1024 * 1024
+#: Object intake gets one third of C-6.17's default 1.5 GB placement reserve:
+#: the quarantine and checkout each keep an object store, leaving the last
+#: third for checkout files. This is a logical-byte cap even on APFS clones;
+#: changing disk policy does not remove this intake limit.
+OBJECT_COPY_CAP = int(DISK_DEFAULTS["placement_reserve_gb"] * 1_000_000_000 / 3)
 #: Review P2-2: names Git or a clone could read as something other than a branch.
 RESERVED_PREFIXES = ("refs/", "heads/", "remotes/")
 SAFE_CONFIG = ("-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
@@ -841,6 +848,64 @@ def _workspace_refused(exc: BaseException) -> AdapterError:
                             "to start from, or omit --push-branch")
 
 
+def _clone_object(source_fd: int, target: Path) -> bool:
+    """Clone the held source inode on APFS; unsupported volumes use a copy.
+
+    A hardlink would let a source writer edit the host's validated objects.
+    `fclonefileat` instead gives an independent copy-on-write snapshot, without
+    reopening any job-controlled pathname. retention_fs owns the native API.
+    """
+    native = rfs._fclonefileat
+    if native is None:
+        return False
+    target_fd = os.open(target.parent, DIRECTORY_FLAGS)
+    try:
+        if native(source_fd, target_fd, os.fsencode(target.name), rfs.CLONE_NOFOLLOW) == 0:
+            return True
+        code = ctypes.get_errno()
+        if code in {errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.ENOSYS, errno.EINVAL}:
+            return False
+        raise OSError(code, os.strerror(code), str(target))
+    finally:
+        os.close(target_fd)
+
+
+def _copy_object(source_fd: int, target: Path, remaining: int) -> int:
+    """Copy one regular, non-sparse object without ever writing past budget.
+
+    Stat the held inode before reading it, bound every fallback read to that
+    size, and reject a changed source. A source growing after the first stat
+    therefore cannot turn a small object into an unbounded byte copy.
+    """
+    before = os.fstat(source_fd)
+    if not stat.S_ISREG(before.st_mode):
+        raise PushError("baseline object is not a regular file")
+    if before.st_blocks * 512 < before.st_size:
+        raise PushError("baseline object is sparse")
+    if before.st_size > remaining:
+        raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes")
+    if _clone_object(source_fd, target):
+        copied = target.stat().st_size
+        if copied > remaining:
+            # A source can grow during the atomic clone. It allocated no data
+            # blocks, and the oversized snapshot never survives this refusal.
+            target.unlink()
+            raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes")
+    else:
+        copied = 0
+        with target.open("xb") as output:
+            while copied < before.st_size:
+                chunk = os.pread(source_fd, min(1 << 16, before.st_size - copied), copied)
+                if not chunk:
+                    break
+                output.write(chunk)
+                copied += len(chunk)
+    if (copied != before.st_size
+            or not rfs.same_content_signature(before, os.fstat(source_fd))):
+        raise PushError("baseline object changed while copying")
+    return copied
+
+
 def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -> None:
     look = _MetadataLook(source)
     checkout_metadata(source, _look=look)
@@ -848,6 +913,7 @@ def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -
     gitdir = look.common
     with quarantine(root, base) as (repo, _):
         objects = gitdir / "objects"
+        copied_bytes = 0
         for folder in objects.iterdir():
             if folder.is_symlink() or not folder.is_dir():
                 continue
@@ -859,12 +925,11 @@ def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -
                     continue
                 target = repo / "objects" / folder.name / item.name
                 target.parent.mkdir(exist_ok=True)
-                fd = os.open(item, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-                with os.fdopen(fd, "rb") as data:
-                    if not stat.S_ISREG(os.fstat(data.fileno()).st_mode):
-                        raise PushError("baseline object is not a regular file")
-                    with target.open("xb") as output:
-                        shutil.copyfileobj(data, output)
+                fd = os.open(item, FILE_FLAGS)
+                try:
+                    copied_bytes += _copy_object(fd, target, OBJECT_COPY_CAP - copied_bytes)
+                finally:
+                    os.close(fd)
         git(repo, "cat-file", "-e", base + "^{commit}")
         git(repo, "fsck", "--strict", "--no-reflogs", base)
         git(repo, "update-ref", "refs/heads/work", base)
