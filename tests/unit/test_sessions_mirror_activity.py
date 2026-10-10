@@ -936,8 +936,8 @@ def test_a_dry_runs_report_is_not_recorded_by_a_later_pass(world, monkeypatch):
     whole = running.splits()
     assert whole["live"] == 0
     rewrite(path(world, 2, name="local_app.json"), isArchived=False)   # now two rows show
-    running.run_once(options(running, dry_run=True))
-    assert running._splits is not None and running._splits["live"] == 1
+    preview = running.run_once(options(running, dry_run=True))
+    assert preview.state == "ok" and running._splits is None, "the preview kept no report"
     scan = running._scan
 
     def unlisted(folder, *args, **kwargs):
