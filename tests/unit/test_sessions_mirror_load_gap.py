@@ -744,14 +744,14 @@ def test_a_copy_that_fails_is_skipped_and_the_pass_goes_on(world, monkeypatch):
     home, store, _root, _log = world
     openable(home, store, ONE, ACCOUNT_A, ORG_A)
     openable(home, store, TWO, ACCOUNT_A, ORG_A)
-    copy = mirror._copy_entry
+    read = mirror._read_record
 
-    def vanish(source, destination, **kwargs):
+    def vanish(source):
         if ONE in source.name:
             raise FileNotFoundError(source)
-        return copy(source, destination, **kwargs)
+        return read(source)
 
-    monkeypatch.setattr(mirror, "_copy_entry", vanish)
+    monkeypatch.setattr(mirror, "_read_record", vanish)
     result = engine(world).run_once()
     assert (result.state, result.added, result.skipped) == ("ok", 1, 1)
     assert len(copies(store, TWO)) == 2
@@ -1050,15 +1050,15 @@ def test_a_name_taken_between_the_listing_and_the_copy_is_left_alone(world, monk
     running.run_once()
     openable(home, store, ONE, ACCOUNT_A, ORG_A, settings={"ultracode": True})
     target = store / ACCOUNT_B / ORG_B / f"local_{ONE}.json"
-    copy = mirror._copy_regular
+    read = mirror._read_record
 
-    def the_app_creates_it_meanwhile(source, destination):
-        result = copy(source, destination)
+    def the_app_creates_it_meanwhile(source):
+        result = read(source)
         if not target.exists():
             target.write_text(json.dumps({"sessionId": "the app's", "cliSessionId": TWO}))
         return result
 
-    monkeypatch.setattr(mirror, "_copy_regular", the_app_creates_it_meanwhile)
+    monkeypatch.setattr(mirror, "_read_record", the_app_creates_it_meanwhile)
     assert running.run_hot().added == 0
     assert json.loads(target.read_text())["sessionId"] == "the app's"
     assert not list(store.glob("*/*/*.tmp-subfleet"))
@@ -1444,8 +1444,9 @@ def test_the_mirror_syncs_what_it_writes_before_the_rename(world, monkeypatch):
     monkeypatch.setattr(mirror.os, "fsync", lambda fd: synced.append(fd) or fsync(fd))
     result = engine(world).run_once()
     assert result.added == 1 and result.flag_synced == 0
-    assert len(synced) == 4, "the copy, the ultracode rewrites of both copies, and the " \
-        "merge base; the journal and the sidecar only feed reports and are not synced"
+    assert len(synced) == 6, "the copy and its stamp's write-ahead, the ultracode rewrites " \
+        "of both copies and their stamp's write-ahead, and the merge base; the journal and " \
+        "the sidecar only feed reports and are not synced"
 
 
 def test_a_batch_split_by_a_racing_save_is_rolled_back(world, monkeypatch):
