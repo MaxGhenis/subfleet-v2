@@ -204,8 +204,10 @@ _PIN_QUERIES = (
     # inside it (a job an agent submitted from its worktree, still queued):
     # the tree must still be there when it runs (design review, Opus 9).
     # SQLite's LIKE ignores ASCII case (the store sets no case_sensitive_like),
-    # which also keeps a tree whose job id a live turn's folder spells in
-    # another case; only after that job ends is the C-8.4 known limit reached.
+    # so a live job whose folder is *inside* this tree, spelled in another case,
+    # still keeps it. The exact-root comparisons (`=`) stay case-sensitive: a
+    # live job whose folder is the tree's root spelled in another case does not
+    # keep it, which is part of the C-8.4 known limit (review of #134's delta, P3).
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
                         "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
@@ -274,7 +276,29 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for row in jobs:
         if row["job_id"] in owned and any(folders.within(folder, row["worktree"]) for folder in in_use):
             add(row["job_id"], "turn-folder")
+    # The same for a `worktree:` lease, which `worktree-lease` above matches on
+    # the worktree itself only: a detached in-place writer in a repository
+    # nested in a job's own worktree holds `worktree:<that repository>`, and a
+    # quarantined attempt leaves its job `lost` with the lease kept (daemon
+    # `_quarantine`), so only the lease says the folder is in use (review of
+    # 31048e67, F3). Recorded spellings, as above; retention's own fence for
+    # the job keeps nothing.
+    exclusive = folders.exclusive_folders(store.query)
+    for row in jobs:
+        if row["job_id"] in owned and any(holder != f"retention:{row['job_id']}" and folders.within(
+                folder, row["worktree"]) for folder, holder in exclusive):
+            add(row["job_id"], "worktree-lease")
     if root is not None:
+        # Retirement moves jobs/<id> too. Keep it for live or queued turns,
+        # including a cwd whose Git hold names a different folder. Read only
+        # recorded paths here: this also runs in the archive commit transaction.
+        turn_workdirs = {row["workdir"] for row in store.query(
+            "SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+            "('queued','running','waiting')")}
+        for row in jobs:
+            job_folder = str(Path(root) / "jobs" / row["job_id"])
+            if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
+                add(row["job_id"], "turn-folder")
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
     # A job registered in a repository inside another job's tree keeps that
@@ -664,6 +688,18 @@ class _Pass:
             retirement = rarch.Retirement(self.ctx, job_id, journal)
             state = journal["state"]
             try:
+                if pending := journal.get("rollback_pending"):
+                    report = retirement.rollback(**pending)
+                    reason = report.get("kept", pending["reason"])
+                    seconds = rarch.DEFER_PINNED_S if report.get("kept") or pending["defer_until"] is None \
+                        else max(0, pending["defer_until"] - time.time())
+                    self.state.defer(job_id, seconds, reason, self.clock())
+                    self.progress["deferred"][job_id] = reason
+                    if report.get("kept"):
+                        self.progress["in_flight"].append(job_id)
+                    else:
+                        self.acted += 1
+                    continue
                 if state == "idle":
                     row = self.store.get_job(job_id)
                     if row is None or now - float(journal.get("idle_since") or 0) > rarch.CACHE_KEEP_S:
@@ -804,6 +840,12 @@ class _Pass:
                     if current and current["holder"] != holder:
                         reason = "resume in progress" if key.startswith("retire:") else "worktree lease"
                         break
+            # And a `worktree:` lease on a folder inside the tree (a detached
+            # writer in a repository nested there, review of 31048e67, F3).
+            if reason is None and folder is not None and any(
+                    other != holder for _, other in folders.exclusive_inside(
+                        lambda sql, params: conn.execute(sql, params).fetchall(), folder)):
+                reason = "worktree lease"
             if reason is None:
                 for key in keys:
                     conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
@@ -958,8 +1000,10 @@ class _Pass:
         keep_cache = not reason.startswith(_IN_USE_AGAIN)
         try:
             if retirement.journal is not None:
-                retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
-                                    failures=failures, defer_until=time.time() + seconds)
+                report = retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
+                                             failures=failures, defer_until=time.time() + seconds)
+                if report.get("kept"):
+                    self.progress["in_flight"].append(job_id)
             else:
                 with self.store.transaction("retention.rolled_back", job_id=job_id, data={"reason": reason}) as conn:
                     conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{job_id}",))
