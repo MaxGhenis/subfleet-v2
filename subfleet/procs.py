@@ -315,12 +315,14 @@ class ProcessTable:
         return frozenset(pid for pid, row in self.rows.items() if row[1] == pgid and self.live(pid))
 
 
-    def descendants(self, roots: Sequence[int]) -> frozenset[int]:
+    def descendants(self, roots: Sequence[int], *, excluded: Sequence[int] = ()) -> frozenset[int]:
         """Walk parent links once, including children of retained group members."""
-        found = set(roots)
+        blocked = set(excluded)
+        found = set(roots) - blocked
         frontier = found
         while frontier:
-            frontier = {pid for pid, row in self.rows.items() if row[0] in frontier and pid not in found}
+            frontier = {pid for pid, row in self.rows.items()
+                        if row[0] in frontier and pid not in found and pid not in blocked}
             found.update(frontier)
         return frozenset(pid for pid in found if self.live(pid))
 
@@ -336,6 +338,49 @@ class CensusRoot:
     @property
     def identity(self) -> ProcessIdentity:
         return ProcessIdentity(self.pid, self.boot_id, self.proc_start)
+
+
+@dataclass(frozen=True)
+class ForeignOwnership:
+    """Other attempts' launch/group authority, never inferred from shared cwd."""
+    identities: tuple[ProcessIdentity, ...] = ()
+    groups: tuple[CensusRoot, ...] = ()
+
+    def pids(self, table: ProcessTable, *, protected: Sequence[int] = ()) -> frozenset[int]:
+        roots = set()
+        for known in self.identities:
+            try:
+                if table.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
+                    roots.add(known.pid)
+            except InspectionError:
+                pass  # Unproved foreign ownership cannot discharge a writer.
+        for known in self.groups:
+            try:
+                if (table.is_process(known.pid, known.boot_id, known.proc_start, legacy=True)
+                    and table.rows[known.pid][1] == known.pgid) or (
+                    not table.live(known.pgid) and known.boot_id and
+                    boot_identity.matches(known.boot_id, table.boot(), table.legacy_seconds) is True
+                ):
+                    roots.update(table.group(known.pgid))
+            except InspectionError:
+                pass
+        # Stop at this attempt's verified launch identities: a child dispatch
+        # can start inside its parent's tree but has its own guardian/group.
+        return table.descendants(tuple(roots), excluded=protected)
+
+    def owns(self, current: ProcessIdentity, group: int | None = None) -> bool:
+        if current in self.identities:
+            return True
+        # A late cwd/marker match may not have appeared in the shared table.
+        # Its fresh identity brackets the group lookup at the call site. Check
+        # the foreign leader afresh too, so a reused PGID is never excluded.
+        for known in self.groups:
+            if group != known.pgid or known.pid != known.pgid or current.boot_id != known.boot_id:
+                continue
+            leader = identity(known.pid)
+            if leader == known.identity or (leader is None and not _stat(known.pid)):
+                return True
+        return False
 
 
 def process_group(pid: int) -> int | None:
@@ -504,7 +549,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 workdir: str | None = None,
                 lineage_roots: Sequence[CensusRoot] = (),
                 lineage_overflow_boot: str | None = None,
-                guardian_identity: ProcessIdentity | None = None) -> Containment:
+                guardian_identity: ProcessIdentity | None = None,
+                foreign_ownership: ForeignOwnership = ForeignOwnership()) -> Containment:
     """Collect C-5.5 group, lineage, cwd and marker sources; failures hold.
 
     General identities describe the census, not authority to signal. Only
@@ -539,6 +585,23 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return pid in table and not table[pid][2].startswith("Z")
 
     if seen is not None:
+        protected = []
+        # Only launch identities protect a nested child from the foreign
+        # ancestor walk; retained census roots may themselves be contaminated.
+        for pid in (guardian_pid, child_pid):
+            values = (recorded or {}).get(pid, ())
+            values = [values] if isinstance(values, ProcessIdentity) else values
+            if pid == guardian_pid and guardian_identity is not None:
+                values = [*values, guardian_identity]
+            for known in values:
+                try:
+                    if seen.is_process(pid, known.boot_id, known.proc_start, legacy=True):
+                        protected.append(pid)
+                        break
+                except InspectionError:
+                    pass
+        excluded = foreign_ownership.pids(seen, protected=protected)
+        foreign_seen = {pid: seen.census_root(pid).identity for pid in excluded}
         def rebooted(known: str | None) -> bool:
             # Only distinct kernel boot-session UUIDs prove every old writer
             # dead. Legacy wall-clock seconds and malformed IDs cannot do so.
@@ -560,6 +623,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         for known in lineage_roots:
             records_by_pid.setdefault(known.pid, []).append(known.identity)
         for pid, observations in records_by_pid.items():
+            if pid in excluded:
+                continue
             try:
                 if not live(pid):
                     gone.add(pid)
@@ -613,7 +678,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         if guardian_verified:
             found_providers = []
             for pid, row in table.items():
-                if row[0] == guardian_pid and live(pid):
+                if row[0] == guardian_pid and live(pid) and pid not in excluded:
                     try:
                         found_providers.append(seen.identity(pid))
                     except InspectionError:
@@ -648,7 +713,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         roots = ({pid for pid in (guardian_pid, child_pid)
                   if pid and pid > 0 and pid not in gone and not roots_rebooted}
                  | owned | groups | uncertain_roots)
-        descendants = set(seen.descendants(tuple(roots)))
+        groups.difference_update(excluded)
+        descendants = set(seen.descendants(tuple(roots), excluded=excluded))
+    else:
+        foreign_seen = {}
     # PID sets describe sources only. Durable observations are keyed by the
     # full identity, since multiple incarnations can appear in one census.
     identities: dict[int, ProcessIdentity] = {}
@@ -700,6 +768,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 if confirmed is not None and confirmed != current:
                     retain(confirmed, 0)
                 raise InspectionError("process changed during group inspection")
+            if current == foreign_seen.get(pid) or foreign_ownership.owns(current, group):
+                source.discard(pid)
+                return
             retain(current, group)
             # Shapes from a different incarnation must not cause the durable
             # merge to attach its group to this newly observed identity.

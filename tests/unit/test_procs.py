@@ -954,6 +954,41 @@ def test_late_group_read_is_a_kernel_lookup(monkeypatch):
     assert procs.process_group(300) == 400
 
 
+@pytest.mark.parametrize("start,boot,expected", [
+    ("foreign", BOOT_OLD, {100, 101}),
+    ("replacement", BOOT_OLD, set()),
+    ("foreign", BOOT_NEW, set()),
+    ("foreign", "unknown", set()),
+])
+def test_foreign_group_exclusion_requires_launch_identity_or_boot_proof(start, boot, expected):
+    foreign = procs.ForeignOwnership(
+        groups=(procs.CensusRoot(100, BOOT_OLD, "foreign", 100),))
+    table = procs.ProcessTable({100: (1, 100, "Ss", start), 101: (100, 100, "S", "member")}, boot)
+    assert foreign.pids(table) == expected
+
+
+def test_foreign_leaderless_group_stops_at_an_owned_child_launch():
+    foreign = procs.ForeignOwnership(groups=(procs.CensusRoot(100, BOOT_OLD, "foreign", 100),))
+    table = procs.ProcessTable({101: (1, 100, "S", "waiter"),
+                               200: (101, 200, "Ss", "child-guardian"),
+                               201: (200, 200, "S", "child-provider")}, BOOT_OLD)
+    assert foreign.pids(table, protected=(200,)) == {101}
+    assert foreign.pids(table) == {101, 200, 201}
+
+
+@pytest.mark.parametrize("incarnation,expected", [("foreign", True), ("writer", False)])
+def test_late_identity_owned_by_another_attempt_never_becomes_a_cwd_root(monkeypatch, incarnation, expected):
+    foreign = procs.ForeignOwnership(identities=(procs.ProcessIdentity(400, BOOT_OLD, "foreign"),))
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({}, BOOT_OLD))
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT_OLD, incarnation))
+    monkeypatch.setattr(procs, "process_group", lambda pid: 500)
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({400}))
+    result = procs.containment(None, None, None, "child/a1", workdir="/workdir", foreign_ownership=foreign)
+    assert result.verified_empty is expected
+    assert bool(result.lineage_roots) is not expected
+
+
 @pytest.mark.parametrize("error,gone", [(ProcessLookupError, True), (PermissionError, False)])
 def test_late_group_read_distinguishes_death_from_inspection_failure(monkeypatch, error, gone):
     def lookup(pid):

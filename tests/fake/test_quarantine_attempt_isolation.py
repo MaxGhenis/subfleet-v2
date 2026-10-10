@@ -37,7 +37,9 @@ def assert_disjoint(daemon):
 
 
 @pytest.mark.parametrize("markers", ["hidden", "root-only", "foreign"])
-def test_child_dispatch_succeeds_while_parent_turn_waiter_is_live(state_daemon, monkeypatch, markers):
+@pytest.mark.parametrize("previous_adoption", [False, True])
+def test_child_dispatch_succeeds_while_parent_turn_waiter_is_live(
+        state_daemon, monkeypatch, markers, previous_adoption):
     daemon, harness = state_daemon
     parent, _ = running(daemon, harness, 100, 101, caller_session="turn-native")
     daemon.store.update_job(parent["job_id"], kind="turn")
@@ -57,6 +59,12 @@ def test_child_dispatch_succeeds_while_parent_turn_waiter_is_live(state_daemon, 
     script_table(monkeypatch, rows, markers=listing)
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({102}))
     daemon._record_owned(child, procs.snapshot())
+    if previous_adoption:
+        evidence = json.loads(daemon.store.get_attempt(child["attempt_id"])["evidence_json"])
+        evidence["lineage_roots"].extend(
+            {"pid": pid, "boot_id": BOOT, "proc_start": f"p{pid}", "pgid": 100}
+            for pid in range(100, 104))
+        daemon.store.update_attempt(child["attempt_id"], evidence_json=json.dumps(evidence))
     daemon._contain(child)
     daemon._contain(child)  # Retained cwd roots used to adopt the entire parent group.
     rows.pop(200)
@@ -71,6 +79,8 @@ def test_child_dispatch_succeeds_while_parent_turn_waiter_is_live(state_daemon, 
     assert_disjoint(daemon)
     assert not daemon.store.one("SELECT 1 FROM events WHERE kind='attempt.quarantined' AND attempt_id=?",
                                 (child["attempt_id"],))
+    evidence = json.loads(daemon.store.get_attempt(child["attempt_id"])["evidence_json"])
+    assert {r["pid"] for r in evidence["lineage_roots"]} == {200, 201}
 
 
 @settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -106,3 +116,37 @@ def test_no_lineage_root_intersects_another_live_attempts_owned_identities(
         census = daemon._contain(attempt)
         assert {attempt["guardian_pid"], attempt["child_pid"]} <= census.live_pids
         assert_disjoint(daemon)
+
+
+def test_foreign_exclusion_keeps_owned_writers_and_never_signals_parent(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    parent, _ = running(daemon, harness, 100, 101)
+    child, _ = running(daemon, harness, 200, 201, parent_job_id=parent["job_id"])
+    rows = {100: (1, 100, "Ss", "p100"), 101: (100, 100, "S", "p101"),
+            102: (101, 100, "S", "p102"), 200: (101, 200, "Ss", "p200"),
+            201: (200, 200, "S", "p201")}
+    script_table(monkeypatch, rows)
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({102, 201}))
+    for attempt in (parent, child):
+        daemon._record_owned(attempt, procs.snapshot())
+    # A child-owned member escapes; its identity must still keep every lease.
+    rows[201] = (1, 201, "Ss", "p201")
+    monkeypatch.setattr(procs, "same_process", lambda pid, boot, start:
+                        pid in rows and rows[pid][3] == start and boot == BOOT)
+    signals = []
+    monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kwargs:
+                        signals.append(("group", pgid)) or True)
+    monkeypatch.setattr(procs, "signal_process", lambda identity, sig:
+                        signals.append(("pid", identity.pid)) or True)
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    before = {lease["lease_key"] for lease in daemon.store.list_leases()
+              if lease["holder"] in {child["job_id"], child["attempt_id"]}}
+    daemon._kill_attempt(child)
+    assert daemon.store.get_attempt(child["attempt_id"])["state"] == "quarantined"
+    after = {lease["lease_key"] for lease in daemon.store.list_leases()
+             if lease["holder"] in {child["job_id"], child["attempt_id"]}}
+    assert before - {key for key in before if key.startswith("lane:")} <= after
+    assert ("pid", 201) in signals
+    assert all(pid in {200, 201} for _, pid in signals)
+    assert daemon._contain(child).live_pids == {200, 201}
+    assert_disjoint(daemon)
