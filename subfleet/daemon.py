@@ -764,6 +764,7 @@ class Daemon:
                 self._disk.floor_info = floor_info
         self._disk_saved_hold = self._disk.holding
         self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
+        self._begin_ramp_pass()                     # status/restart see the ledger before the first pass
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
         self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
@@ -3059,6 +3060,20 @@ class Daemon:
             # boundary, including fractional timestamps before the trailing Z.
             "WHERE j.kind='dispatch' AND a.reserved_at>=?", (since[:19],))
 
+    def _begin_ramp_pass(self) -> dict:
+        """One census at startup or an enabled detached pass; none when off."""
+        cfg = ramp_settings(self.policy)
+        if cfg["enabled"]:
+            now = utcnow()
+            try:
+                since = _later(now, -cfg["window_s"])
+            except OverflowError:
+                since = ""                         # valid integers can exceed datetime's range
+            self._ramp.begin_pass(self.policy, self._ramp_rows(since), now)
+        elif "_ramp_state" in self.__dict__:
+            self._ramp.begin_pass(self.policy, (), utcnow())
+        return cfg
+
     def _save_disk_latch(self) -> None:
         # A restart during recovery must not forget a low-space refusal. Only
         # transitions write an event; disabled admission writes nothing.
@@ -4847,17 +4862,7 @@ class Daemon:
             self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
             self._save_disk_floor()
             self._save_disk_latch()
-            ramp_config = ramp_settings(self.policy)
-            if ramp_config["enabled"]:
-                now = utcnow()
-                try:
-                    since = (datetime.fromisoformat(now.replace("Z", "+00:00"))
-                             - timedelta(seconds=ramp_config["window_s"])).isoformat().replace("+00:00", "Z")
-                except OverflowError:
-                    since = ""                       # a valid window can exceed datetime's range
-                self._ramp.begin_pass(self.policy, self._ramp_rows(since), now)
-            elif "_ramp_state" in self.__dict__:
-                self._ramp.begin_pass(self.policy, (), utcnow())
+            ramp_config = self._begin_ramp_pass()
             self._recover_probes()
             self._probe_line = probe_line
         desktop_account = self._desktop_identity()

@@ -239,6 +239,9 @@ def test_real_restart_counts_completed_attempt_and_retry_until_each_expires(stat
     restarted = daemon_module.Daemon(harness.root)
     try:
         monkeypatch.setattr(restarted, "_workspace", lambda job: (job["workdir"], None, None, []))
+        status = restarted.dispatch("daemon.status", {})
+        assert status["ramp"]["used"] == 2
+        assert status["status"].count("placement ramp:") == 1
         restarted._admit()
         assert len(placed(restarted)) == 2
         assert restarted._holds[waiting]["used"] == 2
