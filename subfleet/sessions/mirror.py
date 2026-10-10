@@ -2337,11 +2337,11 @@ class Mirror:
         run adds no row to it and only reads its file again.
         """
         kept = dict(vars(self))
-        for name, value in kept.items():
-            if type(value) in (dict, set, list):
-                setattr(self, name, type(value)(value))
-        self._payloads = {key: _Payload(row.value, row.size, row.refs)
-                          for key, row in kept["_payloads"].items()}
+        working = {name: type(value)(value) if type(value) in (dict, set, list) else value
+                   for name, value in kept.items()}
+        working["_payloads"] = {key: _Payload(row.value, row.size, row.refs)
+                                for key, row in kept["_payloads"].items()}
+        self.__dict__ = working             # in one step, as `_give_back` undoes it
         return kept
 
     def _give_back(self, kept: dict[str, Any]) -> None:
