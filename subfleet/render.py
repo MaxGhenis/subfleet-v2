@@ -11,6 +11,31 @@ from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
 from .contracts import READING_TTL_S, attempt_dir
+from .quota_projection import instant, weekly_projections
+
+
+def projection_text(projection: Mapping[str, Any]) -> str:
+    reset = instant(projection["resets_at"]).strftime("%a %H:%MZ")
+    basis = "; rate unknown" if projection["basis"] == "rate unknown" else ""
+    return (f"~{projection['projected_unused'] * 100:.0f}% unused at reset {reset} "
+            f"(projection{basis})")
+
+
+def projection_totals(lanes: Any) -> list[str]:
+    """Sum account windows once per lane; model scopes do not add lane-weeks."""
+    providers: dict[str, list[Mapping[str, Any]]] = {}
+    for lane in lanes:
+        projection = lane.get("weekly_projections", {}).get("account")
+        if projection is not None:
+            providers.setdefault(lane["provider"], []).append(projection)
+    lines = []
+    for provider, projections in sorted(providers.items()):
+        total = math.fsum(row["projected_unused"] for row in projections)
+        through = max(instant(row["resets_at"]) for row in projections).strftime("%a %H:%MZ")
+        unknown = sum(row["basis"] == "rate unknown" for row in projections)
+        suffix = f" ({unknown} rate unknown)" if unknown else ""
+        lines.append(f"{provider}: ~{total:.1f} of {len(projections)} lane-weeks projected unused by {through}{suffix}")
+    return lines
 
 
 def _row(value: Any) -> dict[str, Any]:
@@ -114,8 +139,11 @@ def status(view: Mapping[str, Any]) -> str:
     readings = view.get("readings", [row for lane in lanes for row in lane.get("readings", ())])
     closures = view.get("closures", [row for lane in lanes for row in lane.get("closures", ())])
     snapshot = build_view(lanes, readings, closures, view.get("attempts", ()), view.get("jobs", ()),
-                          now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S))
+                          now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S),
+                          weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
+    if view.get("disk") is not None:
+        lines.append(disk_line(view["disk"]))
     rows = []
     for lane in snapshot["lanes"]:
         # C-10.6: an operator looking at a lane with no readings has to be able
@@ -134,10 +162,14 @@ def status(view: Mapping[str, Any]) -> str:
         rows.append([lane["lane_id"], lane["provider"], lane.get("account_key", "unknown"),
                      _label(lane.get("owner", "unknown")), ", ".join(flags) or "-",
                      str(lane["in_flight"]), min(weekly, default="unknown"),
-                     "; ".join(reading_text(row) for row in lane["readings"]) or "unknown",
+                     "; ".join(reading_text(row) + (
+                         " · " + projection_text(lane["weekly_projections"][row["scope"]])
+                         if row["window"] == "seven_day" and row["scope"] in lane["weekly_projections"] else "")
+                         for row in lane["readings"]) or "unknown",
                      "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
+    lines.extend(projection_totals(snapshot["lanes"]))
     jobs = {row["job_id"]: row for row in snapshot["jobs"]}
     # C-26.12: turn jobs hold lane slots like any job, so they are shown, but
     # under their own heading: they are conversations' turns, not detached work.
@@ -174,6 +206,8 @@ def status(view: Mapping[str, Any]) -> str:
 
 #: C-6.11: one line per reason admission can leave a job unplaced.
 _HOLD_TEXT = {
+    "disk": "disk admission is holding: free {free_gb} GB, reserved {reserved_gb} GB, floor {floor_gb} GB; "
+            "resume margin {resume_margin_gb} GB, placement reserve {placement_reserve_gb} GB (C-6.17)",
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
     "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
@@ -200,6 +234,16 @@ _HOLD_TEXT = {
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
 }
+
+
+def disk_line(reading: Mapping[str, Any]) -> str:
+    """C-6.17: one disk line, shared by the capacity and CLI status views."""
+    free = reading.get("free_gb")
+    free_text = "unknown" if free is None else f"{free:.2f} GB"
+    mode = "disabled" if not reading.get("enabled") else "holding" if reading.get("holding") else "open"
+    return (f"disk: free {free_text}, reserved {reading['reserved_gb']:.2f} GB, "
+            f"floor {reading['floor_gb']:g} GB; {mode}"
+            + (f" ({reading['error']})" if reading.get("error") else ""))
 
 #: C-11.8: each standing refusal of a pinned lane, in words (`scheduler.STANDING_REFUSALS`).
 _PIN_REFUSALS = {
@@ -300,6 +344,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                  "Its outcome goes to the conversation, not to a notice or a deliverable (C-26.12)"]
     else:
         lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
+    if standing.get("class") == "priority":
+        lines.append("class priority (admission.priority_callers)")
     hold, recheck = standing.get("hold"), standing.get("recheck")
     if state not in ("queued", "waiting"):
         return lines
@@ -309,17 +355,25 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
             # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
             template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
+        if reason == "probe-pending" and hold.get("behind"):
+            # C-6.9: FIFO on a probe; an older job waits on the same one and carries it first.
+            template = ("{lane} must be probed for {model} before the job may start on it, and {behind}, an "
+                        "older job waiting on that probe, carries it first (C-6.9)")
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
                       "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
+            if reason == "disk" and hold.get("free_gb") is None:
+                fields["free_gb"] = "unknown"
             if reason == "pin-unadmittable":
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id", "tries", "class", "lane_id"), "?"),
+                 "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "disk" and hold.get("error"):
+                lines.append("Disk reading failed: " + hold["error"])
             if reason == "pin-unadmittable":
                 lines.append(f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then "
                              f"`subfleet kill {standing.get('job_id')}`; or make {hold.get('lane_id') or 'the lane'} "

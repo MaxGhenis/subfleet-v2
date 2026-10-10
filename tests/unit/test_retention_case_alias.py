@@ -327,7 +327,8 @@ def test_a_folder_recorded_below_its_checkout_top_while_away_is_found_again(tmp_
         aside.rename(wt)
         daemon._admit_turns()
         assert _live(daemon, turn), daemon._holds.get(turn)
-        assert turn_rows(daemon, turn) == [folders.turn_key(top, turn, writable=writable)]
+        assert set(turn_rows(daemon, turn)) == {folders.turn_key(top, turn, writable=writable),
+                                              folders.turn_key(top + "/src", turn, writable=False)}
         if writable:
             # C-6.5: refused, as a second writer in a checkout a turn writes in is.
             with pytest.raises(AdapterError, match="is being written by a conversation turn"):
@@ -390,7 +391,8 @@ def test_a_tree_away_only_while_git_looks_is_found_again_from_its_checkout_top(t
         assert recorded.get("unspelled") is True and recorded["write_target"].endswith("/src"), recorded
         daemon._admit_turns()
         assert _live(daemon, turn), daemon._holds.get(turn)
-        assert turn_rows(daemon, turn) == [folders.turn_key(top, turn, writable=True)]
+        assert set(turn_rows(daemon, turn)) == {folders.turn_key(top, turn, writable=True),
+                                              folders.turn_key(top + "/src", turn, writable=False)}
         with pytest.raises(AdapterError, match="is being written by a conversation turn"):
             submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(wt))
 

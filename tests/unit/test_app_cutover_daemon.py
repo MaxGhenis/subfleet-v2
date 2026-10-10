@@ -88,9 +88,13 @@ def test_workspace_check_and_create_refuse_writable_protected_branch(svc, tmp_pa
 
 def test_workspace_check_and_create_agree_on_invalid_folder_and_worktree(svc, monkeypatch):
     monkeypatch.setattr(svc, "_person", lambda *args: None)
+    # TMPDIR may be inside a checkout. Stop Git at this fixture's boundary so
+    # the deliberately non-repository workspace cannot inherit that checkout.
+    Path(svc.test_workspace, ".git").write_text("gitdir: ./missing-test-git-directory\n")
     for args in (create_args(Path(svc.test_workspace) / "missing"),
                  create_args(svc.test_workspace, workspace_kind="worktree")):
         check = svc.handle("workspace.check", check_args(args), None)
+        assert check["ok"] is False
         assert (check["ok"], check["reason"], check["fix"]) == accepted(svc, args)
 
 

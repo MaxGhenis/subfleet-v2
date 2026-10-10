@@ -44,8 +44,10 @@ def test_design_12_sidebar_groups_searches_and_filters(core_probe, tmp_path, har
     first = harness.create(title="Fix the parser")
     second = harness.create(title=None)
     codex = harness.create(provider="codex", settings={"model": "gpt-6-astra", "permission": "read-only"})
-    other = tmp_path / "elsewhere"
-    other.mkdir()
+    # Search includes cwd. A physical path under the required .fix-tmp root
+    # would accidentally match "FIX" on the unrelated catalog entry as well.
+    # Catalog entries are synthetic, so give both a stable, independent cwd.
+    other = Path("/example/elsewhere")
     fresh = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")   # a stale one flags nothing
     (harness.root / "catalog.json").write_text(json.dumps({"generated_at": fresh, "complete": True, "items": [
         catalog_item("claude", "fix the build on main", str(other), now - 2 * 86400, live_elsewhere=True),

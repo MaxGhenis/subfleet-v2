@@ -14,7 +14,7 @@ import time
 import pytest
 
 from subfleet import daemon as daemon_module
-from subfleet import protocol, render
+from subfleet import folders, protocol, render
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
 from tests.caps import capped
@@ -66,6 +66,55 @@ def log_lines(service):
 
 
 # --- why (C-6.11) -------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("inherited", [False, True])
+def test_c6_16_why_names_priority_class_and_policy(fleet, inherited, monkeypatch, capsys):
+    from subfleet import cli
+    service, harness = fleet
+    service.policy["admission"]["priority_callers"] = ["CHOSEN"]
+    root = submit(service, harness, caller_session="chosen", pinned_model="astra")
+    job = (submit(service, harness, caller_session="other", parent_job_id=root, pinned_model="astra")
+           if inherited else root)
+    answer = service.dispatch("why", {"job_id": job})
+    assert answer["job"]["class"] == "priority"
+    assert "class priority (admission.priority_callers)" in answer["queue"]
+    assert "class priority (admission.priority_callers)" in answer["text"]
+    class Client:
+        def call(self, *args):
+            return answer
+    monkeypatch.setattr(cli, "_client", lambda args: Client())
+    assert cli.main(["why", job]) == 0
+    assert "class priority (admission.priority_callers)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_c6_16_status_lists_configured_callers_by_registry_name(fleet, monkeypatch, unavailable):
+    from subfleet import cli
+    from subfleet.sessions.registry import SessionRow
+    service, _ = fleet
+    service.policy["admission"]["priority_callers"] = ["CHOSEN", "missing"]
+    row = SessionRow(session_id="chosen", pid=123, socket=None, name="Axiom promise", cwd=None,
+                     started_at=0, alive=True, socket_present=False, registry_path="fixture")
+    monkeypatch.setattr(service, "_session_rows", lambda: None if unavailable else {"rows": [row]})
+    data = service.dispatch("daemon.status", {})
+    assert data["priority_callers"] == [
+        {"session_id": "chosen", "name": None if unavailable else "Axiom promise"},
+        {"session_id": "missing", "name": None},
+    ]
+    text = cli.format_status(data)
+    assert ("priority callers: chosen, missing" if unavailable else
+            "priority callers: Axiom promise (chosen), missing") in text
+
+
+def test_c6_16_status_with_default_callers_has_no_extra_registry_read(fleet, monkeypatch):
+    from subfleet import cli
+    service, _ = fleet
+    def unexpected_read():
+        raise AssertionError("null priority_callers must not read the registry")
+    monkeypatch.setattr(service, "_session_rows", unexpected_read)
+    assert service._priority_callers_status() == []
+    assert "priority callers:" not in cli.format_status({"priority_callers": []})
 
 def test_c6_11_the_incident_why_names_the_job_a_queued_job_is_held_behind(fleet):
     """C-6.11 a job admission skipped has no decision row and is answered anyway."""
@@ -395,8 +444,9 @@ def test_c6_11_a_pass_that_does_not_look_keeps_the_whole_hold(fleet):
     service._admit()
     service.store.update_job(waiting, next_check_at=after(3600))
     service._admit()                                                 # not due: nothing is looked at
-    assert service._holds[waiting]["leases"] == [f"out:{out}"]
-    assert f"held by another job: out:{out}" in service.dispatch("why", {"job_id": waiting})["text"]
+    key = f"out:{folders.identity(out)}"
+    assert service._holds[waiting]["leases"] == [key]
+    assert f"held by another job: {key}" in service.dispatch("why", {"job_id": waiting})["text"]
 
 
 def test_c6_11_the_reason_is_the_latest_looks_even_when_the_verdict_repeats(fleet, monkeypatch):

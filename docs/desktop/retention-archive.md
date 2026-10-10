@@ -227,7 +227,8 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
 
 1. **Select**, in one transaction: re-check the job's pins; take
    `retire:<job>` and `worktree:<path>` for `retention:<job>`. A `retire:` held
-   by a resume, or a worktree lease held by anyone else, keeps the job.
+   by a resume, or a worktree lease held by anyone else on the tree or on a
+   folder inside it (a writer in a repository nested there), keeps the job.
 2. **Begin** (no transaction): find the registration (the tree's gitfile names
    an admin directory directly under `<common>/worktrees` whose `gitdir`
    backlink names this tree), or, when the tree is gone, the registration whose
@@ -597,7 +598,8 @@ remainder, so no half-deleted tree is left where retention works. A
 A job is kept while any of these holds (C-8.4, unchanged from `release/217`
 except salvage): it is not terminal; it is a gate review; an attempt is live or
 quarantined; an unread notice addressed to a session; it is a parent of any
-job; it or an attempt holds a lease; another holder has its worktree lease; a
+job; it or an attempt holds a lease; another holder has its worktree lease, or,
+for a job with its own allocated tree, a worktree lease on a folder inside it; a
 resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
 cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
@@ -909,6 +911,22 @@ descriptors, and deliberately adversarial same-user tricks):
   archive moves a file's ctime: a file with one link then goes to conflicts,
   but one that had other links and still holds its archived bytes is deleted
   (revision 5), with the attributes the clone took.
+
+- *Fences on folders inside a job's tree; why 2.1.11 ships retention dormant*
+  (hub, 2026-10-06). Retention's fences compare a job's own tree exactly:
+  - the `turn-folder` pin and the selecting transaction compare a turn row's
+    folder with the tree;
+  - the `worktree-lease` pin joins `worktree:<tree>`.
+
+  So a turn row or a `worktree:` lease on a folder *inside* a finished job's
+  tree, such as a repository nested in it, does not keep the tree.
+  `worktree-in-use` covers such a folder only while the job working there has
+  not ended. Reviews of #113 and #134 reported this and related gaps: a turn
+  admitted while the fence sits on a folder above its own, and a tree whose
+  name is spelled in another case. Their fixes are the stack on #134 (#137 and
+  the PRs above it). Until it lands, the 2.1.11 installer sets
+  `SUBFLEET_RETENTION_DORMANT=1` in the daemon's launchd plist. A pass then
+  selects, archives and deletes nothing (C-8.4).
 
 **Costs, not risks:**
 
