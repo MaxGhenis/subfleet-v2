@@ -425,8 +425,12 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                 "min_floor_gb", "max_lower_h"):
         item = disk[key]
         positive = key in ("placement_reserve_gb", "reserve_ttl_s", "max_lower_h")
-        if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
-                or item < 0 or (positive and item == 0)):
+        # Check integer sizes before isfinite's implicit float conversion,
+        # which can overflow even though Python integers are finite.
+        if isinstance(item, int) and key.endswith("_gb") and item > DISK_MAX_GB:
+            fail(f"admission.disk.{key}", f"must be at most {DISK_MAX_GB:g} GB")
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or item < 0 or (positive and item == 0) or not math.isfinite(item)):
             fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
                  + " finite number")
         # Sizes are compared in whole bytes (C-6.17): a reserve under a megabyte
