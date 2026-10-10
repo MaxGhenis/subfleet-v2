@@ -115,6 +115,7 @@ the running app will not list until it reloads, which is the load gap above.
 
 from __future__ import annotations
 
+import copy
 import errno
 import fcntl
 import glob as globbing
@@ -2275,9 +2276,10 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current
-            if options.dry_run:
-                kept = self._borrow()
-            return self._run_hot_locked(options)
+            if self._inventoried:
+                if options.dry_run:
+                    kept = self._borrow()
+                return self._run_hot_locked(options)
         finally:
             if lock is not None:
                 if kept is not None:
@@ -2286,7 +2288,9 @@ class Mirror:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
                     lock.close()
-        return current
+        # The inventory this call saw before the lock was a dry run's, on
+        # another thread, and has been given back: this is still the first pass.
+        return self.run_once(options)
 
     def _run_hot_locked(self, options: Options, *, spread: bool = True) -> Pass:
         """A hot pass owned by the caller's flock, including its own sidecar.
@@ -2328,19 +2332,23 @@ class Mirror:
         found no candidates (second review of #167), and a new instance's
         first hot pass was no longer the full one. With the originals put
         back, the instance is as the dry run found it: its retries, its
-        inventory and whether it has one, and the ledger of failed raises.
+        inventory and whether it has one, and whose turn a date raise is.
 
         Called and undone inside the pass's lock. One level of copies is
-        enough: a pass replaces the values these hold (a folder's listing, a
-        cached entry) and changes none in place, except a payload's reference
-        count, so the payloads are copied too. The journal is shared: a dry
-        run adds no row to it and only reads its file again.
+        enough for the containers: a pass replaces the values they hold (a
+        folder's listing, a cached entry) and changes none in place. What it
+        does change in place gets a copy of its own: a payload's reference
+        count and the turn ledger. The journal re-reads its file when a pass
+        starts; a dry run adds no row to it and reads none, so it gets an
+        empty one on the same file and the instance's is left alone.
         """
         kept = dict(vars(self))
         working = {name: type(value)(value) if type(value) in (dict, set, list) else value
                    for name, value in kept.items()}
         working["_payloads"] = {key: _Payload(row.value, row.size, row.refs)
                                 for key, row in kept["_payloads"].items()}
+        working["_activity_turns"] = copy.deepcopy(kept["_activity_turns"])
+        working["journal"] = _Journal(kept["journal"].path)
         self.__dict__ = working             # in one step, as `_give_back` undoes it
         return kept
 

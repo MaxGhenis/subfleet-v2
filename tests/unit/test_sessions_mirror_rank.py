@@ -263,19 +263,22 @@ def test_nan_ranks_as_no_date_where_it_ranked_by_its_place(world):
 
 # --- for every value -------------------------------------------------------------------
 
+#: An integer of any size a record can hold: Python's `json` reads and writes
+#: one of up to 4,300 digits, and these go to 4,001.
+INTEGERS = (st.integers(min_value=-10 ** 30, max_value=10 ** 30)
+            | st.sampled_from([0, 1, -1, 2 ** 53, NEW, NEW + 1])
+            | st.builds(lambda sign, digits, last: sign * (10 ** digits + last),
+                        st.sampled_from([1, -1]), st.integers(min_value=0, max_value=4000),
+                        st.integers(min_value=0, max_value=9)))
 #: Any value Python's `json` reads, NaN and the infinities among them.
 JSON_VALUES = st.recursive(
-    st.none() | st.booleans() | st.text(max_size=6)
-    | st.integers(min_value=-10 ** 30, max_value=10 ** 30)
-    | st.sampled_from([0, 1, -1, 2 ** 53, 10 ** 400, -(10 ** 400), NEW])
+    st.none() | st.booleans() | st.text(max_size=6) | INTEGERS
     | st.floats(allow_nan=True, allow_infinity=True),
     lambda inner: (st.lists(inner, max_size=3)
                    | st.dictionaries(st.text(max_size=3), inner, max_size=3)),
     max_leaves=5)
-#: Any number but NaN: an integer of any size, a float, an infinity.
-NUMBERS = (st.integers(min_value=-10 ** 30, max_value=10 ** 30)
-           | st.sampled_from([0, 1, -1, 2 ** 53, 10 ** 400, -(10 ** 400), NEW, NEW + 1])
-           | st.floats(allow_nan=False, allow_infinity=True))
+#: Any number but NaN: an integer, a float, an infinity.
+NUMBERS = INTEGERS | st.floats(allow_nan=False, allow_infinity=True)
 
 
 def records(values) -> st.SearchStrategy[dict]:
@@ -294,7 +297,6 @@ def test_a_rank_is_a_number_with_a_place_in_the_order(first, second):
         for rank in (one, other):
             assert type(rank) in (int, float) and rank == rank
         assert [one > other, one < other, one == other].count(True) == 1
-    assert max([first, second], key=mirror._rank) in (first, second)
 
 
 @settings(max_examples=500, deadline=None)
@@ -310,8 +312,9 @@ def test_a_value_that_is_no_number_ranks_as_a_missing_field(data):
 @settings(max_examples=500, deadline=None)
 @given(data=records(st.none() | NUMBERS))
 def test_numbers_rank_as_they_did(data):
-    """C-23.28: for fields that hold numbers (any size, any sign, the
-    infinities) or nothing, the rank is the old rule's own value."""
+    """C-23.28: for fields that hold numbers (an integer of any size a record
+    can hold, any sign, a float, the infinities) or nothing, the rank is the
+    old rule's own value."""
     for new, old in ((mirror._rank(data), old_rank(data)),
                      (mirror._rank(data, ("lastActivityAt", "createdAt")), old_active(data))):
         assert new == old and type(new) is type(old)

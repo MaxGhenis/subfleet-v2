@@ -20,8 +20,8 @@ Every test names the clause it proves (C-20.5). The desktop store lives under
 
 from __future__ import annotations
 
-import dataclasses
 import json
+import shutil
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +30,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from subfleet.sessions import mirror
+from subfleet.sessions import desktop, mirror
 from tests import sessions_fixtures as fx
 
 ONE = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
@@ -101,7 +101,8 @@ class World:
         temporary.replace(target)
 
     def files(self) -> dict[str, tuple[int, bytes]]:
-        """Every file of the store and the state root: its inode and its bytes."""
+        """Every file of the store and the state root, its inode and its bytes,
+        but for the lock: any pass makes that file, a dry one too."""
         return {str(file.relative_to(self.base)): (file.stat().st_ino, file.read_bytes())
                 for top in (self.store, self.root) for file in sorted(top.rglob("*"))
                 if file.is_file() and file.name != mirror.LOCK_NAME}
@@ -140,6 +141,10 @@ def refuse_publishing(patch, stuck: set[str]) -> None:
     patch.setattr(mirror, "_install", refusing)
 
 
+#: The modules whose own objects an instance holds: read all the way down.
+OWN = (mirror.__name__, desktop.__name__)
+
+
 def picture(value):
     """Everything the instance holds, all the way down, as plain values."""
     if isinstance(value, dict):
@@ -148,16 +153,24 @@ def picture(value):
         return (type(value).__name__, sorted(repr(item) for item in value))
     if isinstance(value, (list, tuple)):
         return (type(value).__name__, [picture(item) for item in value])
-    if dataclasses.is_dataclass(value) or type(value).__name__ in ("_Journal", "DesktopLog"):
-        return (type(value).__name__, picture(vars(value)))
     if value is None or isinstance(value, (bool, int, float, str, bytes, Path)):
         return repr(value)
+    if type(value).__module__ in OWN and not isinstance(value, mirror.Mirror):
+        return (type(value).__name__, picture(vars(value)))     # a payload, the ledger, the journal
     return ("object", id(value))            # a clock, a cancel event: the same one or not
 
 
 def held(running: mirror.Mirror) -> dict[str, int]:
     """Which objects the instance's attributes are."""
     return {name: id(value) for name, value in vars(running).items()}
+
+
+def reading(result: mirror.Pass) -> dict:
+    """What a pass's record says of its reading alone. A dry pass and a real
+    one in its place read alike when the real one's own writes cannot come
+    between: no embedded hot service, no revival that fails."""
+    return {key: getattr(result, key) for key in (
+        "kind", "state", "accounts", "sessions", "entries_scanned", "folders_scanned", "swept")}
 
 
 def brief(result: mirror.Pass, base: Path) -> dict:
@@ -192,12 +205,13 @@ def test_a_dry_run_keeps_the_retry_of_a_session_held_at_publish(world, monkeypat
     assert world.running._flag_retry == set()
 
 
-def test_a_dry_run_keeps_the_retries_and_the_ledger_of_dates_that_did_not_publish(
+def test_a_dry_run_keeps_the_retries_and_the_turns_of_dates_that_did_not_publish(
         world, monkeypatch):
     """C-17.4, C-23.28: the review's own case. Ten sessions whose date raise
-    cannot be published are held, retried, and counted in the ledger that
-    makes them take turns. A dry hot pass left `_flag_retry` empty; the real
-    hot pass then reported `sessions=0` and `activity_synced=0`."""
+    cannot be published are held and retried, and the ledger records the turn
+    each has had. A dry hot pass left `_flag_retry` empty; the real hot pass
+    then reported `sessions=0` and `activity_synced=0`. A preview takes no
+    one's turn either."""
     sessions = [f"{index:08d}-0000-4000-8000-00000000dead" for index in range(10)]
     for session in sessions:
         world.put(0, session)
@@ -206,14 +220,17 @@ def test_a_dry_run_keeps_the_retries_and_the_ledger_of_dates_that_did_not_publis
     refuse_publishing(monkeypatch, set(sessions))
     first = world.full()
     assert (first.activity_synced, first.flags_held) == (10, 10)
-    retries, ledger = set(world.running._flag_retry), dict(world.running._activity_tries)
-    assert retries == set(sessions) and ledger == dict.fromkeys(sessions, 1)
+    turns = world.running._activity_turns
+    retries, turn, since = set(world.running._flag_retry), turns.turn, dict(turns.since)
+    assert retries == set(sessions) and turn == 1 and set(since) == set(sessions)
     preview = world.hot(dry_run=True)
     assert preview.sessions == 10 and preview.activity_synced == 10
-    assert world.running._flag_retry == retries and world.running._activity_tries == ledger
+    assert world.running._flag_retry == retries
+    assert world.running._activity_turns is turns and (turns.turn, turns.since) == (turn, since)
     real = world.hot()
     assert (real.sessions, real.activity_synced, real.flags_held) == (10, 10, 10)
-    assert world.running._activity_tries == dict.fromkeys(sessions, 2), "it tried them again"
+    assert turns.turn == 2 and all(turns.since[session] > since[session] for session in sessions), \
+        "it took their turns again"
 
 
 # --- the inventory ------------------------------------------------------------------
@@ -251,11 +268,13 @@ def test_the_first_hot_pass_is_still_the_full_one_after_a_dry_run(world):
 
 def busy(world: World, patch) -> None:
     """An instance with something of everything a pass keeps, and work waiting:
-    an inventory, a session held at publish with a date in the ledger, a
-    record whose transcript has not come, and three changes not yet read."""
+    an inventory, a session held at publish that has had a turn in the ledger,
+    a journal with rows, a record whose transcript has not come, and three
+    changes not yet read."""
     for index in range(3):
         world.put(index)
-        world.put(index, TWO)
+    world.put(0, TWO)
+    world.put(1, TWO)                               # copied to the third folder: a journal row
     world.put(0, STUCK, starred=True)
     world.put(1, STUCK, date=NEW - 30 * DAY)
     world.put(2, STUCK, date=NEW - 30 * DAY)
@@ -263,8 +282,8 @@ def busy(world: World, patch) -> None:
     refuse_publishing(patch, {STUCK})
     assert world.full().flags_held == 1
     running = world.running
-    assert running._inventoried and running._flag_retry == {STUCK}
-    assert ORPHAN in running._retry and running._activity_tries == {STUCK: 1}
+    assert running._inventoried and running._flag_retry == {STUCK} and running.journal.rows()
+    assert ORPHAN in running._retry and set(running._activity_turns.since) == {STUCK}
     world.save(0, isStarred=True)                   # a change the next pass would sync
     world.put(0, THREE)                             # a session it would spread
     world.path(2, TWO).unlink()                     # a copy it would put back
@@ -292,27 +311,82 @@ def test_a_dry_run_leaves_every_part_of_the_instance_as_it_was(world, monkeypatc
     assert world.files() == files
 
 
-def test_a_dry_run_works_on_copies_of_every_container_the_instance_holds(world, monkeypatch):
-    """C-17.4, C-23.28: what the comparison above rests on. While a dry run
-    has the instance, each dict, set and list it holds is a copy with the same
-    contents, and so is each payload, whose reference count a pass changes in
-    place. Afterwards the instance holds the originals again."""
+#: What a dry run shares with its instance on purpose, and why that is safe.
+SHARED = {"now": "the clock", "cancel": "the daemon's stop",
+          "_desktop": "the app's log, which only a real pass's report polls"}
+
+
+def changeable(value) -> bool:
+    return not (value is None or isinstance(value, (bool, int, float, str, bytes, tuple,
+                                                    frozenset, Path)))
+
+
+def test_a_dry_run_works_on_a_copy_of_everything_a_pass_could_change(world, monkeypatch):
+    """C-17.4, C-23.28: what the comparison above rests on, and what a new
+    attribute has to meet. While a dry run has the instance, everything it
+    holds that can be changed is another object than the instance's own, with
+    the same contents: each dict, set and list, each payload (a pass changes
+    its reference count in place) and the turn ledger. The journal is an
+    empty one on the same file. Only what `SHARED` names is the same object.
+    Afterwards the instance holds the originals again."""
     busy(world, monkeypatch)
     running = world.running
+    running.cancel = threading.Event()
     before, objects = picture(vars(running)), held(running)
     kept = running._borrow()
     try:
-        assert picture(vars(running)) == before, "the same contents"
-        containers = [name for name, value in kept.items() if type(value) in (dict, set, list)]
-        assert {"_entries", "_folders", "_dirty", "_flag_retry", "_retry", "_activity_tries",
-                "_stems", "_payloads", "_unlisted_accounts"} <= set(containers)
-        for name in containers:
-            assert vars(running)[name] is not kept[name], name
+        names = [name for name, value in kept.items() if changeable(value)]
+        assert {"_entries", "_folders", "_dirty", "_flag_retry", "_retry", "_stems", "_payloads",
+                "_unlisted_accounts", "_activity_turns", "journal", "_desktop"} <= set(names)
+        for name in names:
+            assert (vars(running)[name] is kept[name]) == (name in SHARED), name
         assert kept["_payloads"], "the instance has read the store"
         for digest, payload in kept["_payloads"].items():
             assert running._payloads[digest] is not payload
+        assert running._activity_turns.since is not kept["_activity_turns"].since
+        assert running.journal.path == kept["journal"].path and running.journal._rows is None
+
+        def but_the_journal(whole):
+            return [row for row in whole[1] if row[0] != repr("journal")]
+
+        assert but_the_journal(picture(vars(running))) == but_the_journal(before)
     finally:
         running._give_back(kept)
+    assert picture(vars(running)) == before and held(running) == objects
+
+
+def test_a_dry_run_leaves_the_journal_alone_when_another_process_saved_it(world, monkeypatch):
+    """C-17.4, C-23.28 (review of #168): a pass re-reads the journal when its
+    file has changed. A dry run did that to the instance's journal too: one
+    cached row became two. It now reads no journal at all."""
+    busy(world, monkeypatch)
+    running = world.running
+    saved = json.loads(running.journal.path.read_text(encoding="utf-8"))
+    folder, _name, *rest = saved["writes"][-1]
+    saved["writes"].append([folder, "local_another-process.json", *rest])
+    running.journal.path.write_text(json.dumps(saved), encoding="utf-8")
+    rows = len(running.journal.rows())
+    for kind in ("hot", "full"):
+        before, objects, files = picture(vars(running)), held(running), world.files()
+        preview = world.hot(dry_run=True) if kind == "hot" else world.full(dry_run=True)
+        assert preview.state == "ok" and preview.kind == kind
+        assert picture(vars(running)) == before and held(running) == objects
+        assert world.files() == files and len(running.journal.rows()) == rows
+    world.full()
+    assert len(running.journal.rows()) > rows, "the real pass after it reads the file, as ever"
+
+
+def test_a_dry_run_over_an_emptied_store_keeps_what_the_instance_knew(world, monkeypatch):
+    """C-17.4, C-23.28: a full pass that finds no folder drops its inventory
+    and clears the turn ledger in place. A dry one does both to its copies."""
+    busy(world, monkeypatch)
+    running = world.running
+    for account, _org in FOLDERS:
+        shutil.rmtree(world.store / account)
+    assert running._folders and running._activity_turns.since
+    before, objects = picture(vars(running)), held(running)
+    preview = world.full(dry_run=True)
+    assert preview.state == "ok" and preview.accounts == 0 and preview.sessions == 0
     assert picture(vars(running)) == before and held(running) == objects
 
 
@@ -371,6 +445,51 @@ def test_a_dry_run_that_finds_the_lock_held_touches_nothing(world, monkeypatch):
     assert picture(vars(running)) == before and held(running) == objects
 
 
+def test_a_hot_pass_decides_whether_it_is_the_first_inside_the_lock(world, monkeypatch):
+    """C-23.28 (review of #168): a dry run on a new instance holds an
+    inventory of its own until it gives the instance back. A real hot pass on
+    another thread that looked in that moment took itself for a later pass,
+    and ran hot over an instance with no inventory once the dry run was done.
+    It looks again inside the lock, and is the full pass a first pass is."""
+    world.put(0)
+    running = world.running
+    reading, may_finish = threading.Event(), threading.Event()
+    spread = mirror.Mirror._spread
+
+    def pausing(self, *args, **kwargs):
+        reading.set()
+        assert may_finish.wait(30)
+        return spread(self, *args, **kwargs)
+
+    monkeypatch.setattr(mirror.Mirror, "_spread", pausing)
+    previews: list[mirror.Pass] = []
+    options = world.options()
+    preview = threading.Thread(
+        target=lambda: previews.append(running.run_hot(world.options(dry_run=True))))
+    preview.start()
+    try:
+        assert reading.wait(30)
+        assert running._inventoried, "for now the instance holds the dry run's inventory"
+        lock = running._lock
+
+        def once_the_dry_run_is_done():
+            may_finish.set()
+            preview.join(30)
+            return lock()
+
+        # Set on the instance while the dry run has it, so it goes when the
+        # dry run gives the instance back: only this call's first look at the
+        # lock waits.
+        running._lock = once_the_dry_run_is_done
+        real = running.run_hot(options)
+    finally:
+        may_finish.set()
+        preview.join(30)
+    assert previews[0].dry_run and previews[0].kind == "full" and previews[0].added == 2
+    assert real.kind == "full" and real.added == 2 and running._inventoried
+    assert [world.path(index).exists() for index in range(3)] == [True, True, True]
+
+
 # --- for every sequence of passes ---------------------------------------------------
 
 SESSIONS = tuple(f"{index:08d}-0000-4000-8000-00000000beef" for index in range(3))
@@ -422,9 +541,13 @@ def test_real_passes_do_the_same_with_dry_runs_between_them(warm, rounds, tmp_pa
     and each of those leaves its instance as it was. Every real pass then
     reports the same in both (what it scanned and listed too, so a dry run
     neither used the inventory up nor warmed it), and at the end the stores,
-    the merge base, the retries and the ledger are the same. `warm` starts
-    both from an instance that has passed; without it the first dry run meets
-    a new one."""
+    the merge base, the retries and the turn ledger are the same. Here,
+    with no embedded hot service and no archive to revive from, a dry run
+    also reads what the real pass in its place then reads: the same kind of
+    pass over the same folders, entries and sessions. So its copies are the
+    instance's inventory and not an empty or an old one. `warm` starts both
+    from an instance that has passed; without it the first dry run meets a
+    new one."""
     with monkeypatch.context() as patch:
         base = tmp_path_factory.mktemp("twins")
         plain, previewed = World(base / "plain", patch), World(base / "previewed", patch)
@@ -454,8 +577,12 @@ def test_real_passes_do_the_same_with_dry_runs_between_them(warm, rounds, tmp_pa
             first = plain.hot() if kind == "hot" else plain.full()
             second = previewed.hot() if kind == "hot" else previewed.full()
             assert brief(second, previewed.base) == brief(first, plain.base), (edits, kind)
+            if previews and previews[-1] == kind:
+                assert reading(preview) == reading(second), (edits, kind)
         assert previewed.copies() == plain.copies()
         assert previewed.base_flags() == plain.base_flags()
-        for name in ("_flag_retry", "_activity_tries", "_inventoried"):
+        for name in ("_flag_retry", "_inventoried"):
             assert getattr(previewed.running, name) == getattr(plain.running, name), name
         assert set(previewed.running._retry) == set(plain.running._retry)
+        ledgers = [world.running._activity_turns for world in (previewed, plain)]
+        assert (ledgers[0].turn, ledgers[0].since) == (ledgers[1].turn, ledgers[1].since)
