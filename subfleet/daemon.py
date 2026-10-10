@@ -25,6 +25,7 @@ import signal
 import shutil
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -36,7 +37,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import resource_leases
+from .conversations.store import canonical_native, native_any_case
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
@@ -53,7 +56,7 @@ from .credentials import resolve_credential
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, flatten_chain, load_policy,
+from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
                      policy_hash, resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
@@ -170,7 +173,7 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
-                            "lane-proving"})
+                            "lane-proving", "disk"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
@@ -334,14 +337,14 @@ def audit_kind(event: str) -> str:
 #: caller-scoped, and its holder is the revive job id so every existing
 #: holder-keyed release site frees it. It is the only lease in the `session:`
 #: namespace: C-6.5 tells a session's instances apart at submit and leases the
-#: worktree, not the session. Nothing reads the namespace by prefix.
+#: worktree, not the session. Alias-aware lookup also checks older raw UUID rows.
 def revive_lease_key(session_id: str) -> str:
-    return f"session:{session_id}:revive"
+    return f"session:{canonical_native(session_id)}:revive"
 
 
 def native_session_lease_key(lane_id: str, session_id: str) -> str:
     """A read-only continuation still writes its provider's native transcript."""
-    return f"native-session:{lane_id}:{session_id}"
+    return f"native-session:{lane_id}:{canonical_native(session_id)}"
 
 
 def imported_external(attempt: dict) -> bool:
@@ -454,6 +457,45 @@ def _outside(prefix: str) -> bool:
     return prefix == os.pardir or prefix.startswith(os.pardir + os.sep) or os.path.isabs(prefix)
 
 
+def _resolve_output_path(path: str | Path) -> Path:
+    """Resolve POSIX components, allowing missing names but at most 40 links.
+
+    Expand each link relative to its own directory before consuming '..'.
+    Missing prefixes leave their suffix lexical until '..' reaches an existing
+    directory again. Unlike non-strict pathlib resolution, never suppress ELOOP.
+    """
+    spelling = os.fspath(path)
+    pending = spelling.split(os.sep)[::-1]
+    resolved = os.sep if spelling.startswith(os.sep) else os.getcwd()
+    hops = 0
+    while pending:
+        name = pending.pop()
+        if not name or name == os.curdir:
+            continue
+        if name == os.pardir:
+            resolved = os.path.dirname(resolved) or os.sep
+            continue
+        candidate = os.path.join(resolved, name)
+        try:
+            mode = os.lstat(candidate).st_mode
+            if not stat.S_ISLNK(mode):
+                if pending and not stat.S_ISDIR(mode):
+                    raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), candidate)
+                resolved = candidate
+                continue
+            hops += 1
+            if hops > 40:
+                raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), candidate)
+            target = os.readlink(candidate)
+        except FileNotFoundError:
+            resolved = candidate
+            continue
+        if os.path.isabs(target):
+            resolved = os.sep
+        pending.extend(target.split(os.sep)[::-1])
+    return Path(resolved)
+
+
 def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
     """d261: a writer's refusal of a job the caller did not ask to write: say who
     did, and the way out."""
@@ -512,6 +554,24 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 
 
 class Daemon:
+    #: C-6.17: the last latch written to the store (`_save_disk_latch`).
+    _disk_saved_hold = False
+
+    @property
+    def _disk(self) -> disk.DiskAdmission:
+        """C-6.17's state. `__init__` builds it from policy and the store. A Daemon
+        assembled without `__init__` (unit tests build one by hand) gets a disabled
+        one on first use, so admission behaves there exactly as it did before the
+        rule existed; a pass that reads an enabling policy still turns it on."""
+        state = self.__dict__.get("_disk_state")
+        if state is None:
+            state = self.__dict__["_disk_state"] = disk.DiskAdmission(Path(self.__dict__.get("root", ".")))
+        return state
+
+    @_disk.setter
+    def _disk(self, state: disk.DiskAdmission) -> None:
+        self.__dict__["_disk_state"] = state
+
     @_released_on_failure
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
@@ -659,6 +719,13 @@ class Daemon:
         self.policy_digest = policy_hash(policy_path)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._disk = disk.DiskAdmission(self.root)
+        self._disk.settings = disk_settings(self.policy)
+        if self._disk.settings["enabled"]:
+            latch = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_latch' ORDER BY event_id DESC LIMIT 1")
+            self._disk.holding = bool(latch and json.loads(latch["data_json"]).get("holding"))
+        self._disk_saved_hold = self._disk.holding
+        self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
         self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
@@ -1896,7 +1963,15 @@ class Daemon:
                 # Only a regular file, never waiting in open(): a FIFO (or a device, which
                 # never ends) named here held this submit, `_submit_lock` and every submit after.
                 prompt = read_regular(Path(args.prompt_path).expanduser())
-                out = str(Path(args.out_path).expanduser().resolve()) if args.out_path else None
+                try:
+                    out = None
+                    if args.out_path:
+                        out = str(_resolve_output_path(Path(args.out_path).expanduser()))
+                except (RuntimeError, OSError) as exc:
+                    if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
+                        raise
+                    raise AdapterError(f"cannot resolve output path: {exc}", code=7,
+                                       fix="remove the symlink loop or choose a different -o path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 push_remote = push_default = push_head = push_current = push_top = None
@@ -2006,7 +2081,7 @@ class Daemon:
                 self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                    fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
-            except (OSError, ValueError, TypeError) as exc:
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
                 raise protocol.ProtocolError(str(exc)) from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
@@ -2040,6 +2115,7 @@ class Daemon:
             # C-3.3: the instance and worktree questions need `ps` and `git`, so
             # they are answered here, under the submit lock and outside the
             # transaction; the transaction below re-checks with SQL alone.
+            output_claim = (resource_leases.OutputClaim.prepare(self.store.query, out, census=True) if out else None)
             instance = (self._caller_instance(args.caller_pid)
                         if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
             if turn is None:
@@ -2051,11 +2127,11 @@ class Daemon:
                         raise
                     raise _written_by_policy(exc, args.task) from exc
                 try:
-                    self._validate_conflicts(values, cleared, write_target)
+                    self._validate_conflicts(values, cleared, write_target, output_claim)
                 except AdapterError as exc:
                     # Only the writers' refusals: a read-only job would meet the
                     # others (a cancelled parent, a held output path) all the same.
-                    if not by_policy or not self._read_only_clears(values, write_target):
+                    if not by_policy or not self._read_only_clears(values, write_target, output_claim):
                         raise
                     raise _written_by_policy(exc, args.task) from exc
             else:
@@ -2159,7 +2235,7 @@ class Daemon:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
                 if turn is None:
-                    self._validate_conflicts(values, cleared, write_target)
+                    self._validate_conflicts(values, cleared, write_target, output_claim)
                 columns = ",".join(values)
                 tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
                 if retire_fence is not None:
@@ -2506,7 +2582,7 @@ class Daemon:
         session = job.get("caller_session")
         if not session:
             return frozenset()
-        mine = [row for row in live if row["caller_session"] == session]
+        mine = [row for row in live if canonical_native(row["caller_session"]) == canonical_native(session)]
         for row in mine:
             holder = row["job_id"]
             if job.get("kind") == "revive" or row["kind"] == "revive":
@@ -2542,27 +2618,29 @@ class Daemon:
             # 2026-09-04 incident dressed as patience. Refuse at submit instead,
             # so the second attempt is skipped rather than queued (C-6.5).
             session = job["caller_session"]
-            lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?",
-                                   (revive_lease_key(session),))
+            leases = resource_leases.native_holds(self.store.query, revive_lease_key(session))
+            match, params = native_any_case("caller_session", session)
             live = self.store.one(
-                "SELECT job_id FROM jobs WHERE kind='revive' AND caller_session=? "
-                "AND state NOT IN ('succeeded','failed','cancelled','lost')", (session,))
-            if lease or live:
-                holder = (lease or {}).get("holder") or (live or {}).get("job_id")
+                f"SELECT job_id FROM jobs WHERE kind='revive' AND {match} "
+                "AND state NOT IN ('succeeded','failed','cancelled','lost')", params)
+            if leases or live:
+                holder = leases[0][1] if leases else live["job_id"]
                 raise AdapterError(
                     f"session {session} already has a live revive ({holder})", code=7,
                     fix=f"subfleet runs show {holder}, or kill it before reviving again")
 
-    def _read_only_clears(self, job: dict, write_target: str | None) -> bool:
+    def _read_only_clears(self, job: dict, write_target: str | None,
+                          output_claim: resource_leases.OutputClaim | None = None) -> bool:
         """Whether the same job, read-only, would pass `_validate_conflicts`."""
         try:
-            self._validate_conflicts({**job, "sandbox": Sandbox.READ_ONLY.value}, frozenset(), write_target)
+            self._validate_conflicts({**job, "sandbox": Sandbox.READ_ONLY.value}, frozenset(), write_target, output_claim)
         except AdapterError:
             return False
         return True
 
     def _validate_conflicts(self, job: dict, cleared: frozenset[str] = frozenset(),
-                            write_target: str | None = None) -> None:
+                            write_target: str | None = None,
+                            output_claim: resource_leases.OutputClaim | None = None) -> None:
         if job.get("round_lease"):
             prefix = job["round_lease"].rsplit(":", 1)[0] + ":"
             lease = self.store.one("SELECT holder FROM leases WHERE substr(lease_key,1,?)=?",
@@ -2587,10 +2665,13 @@ class Daemon:
         self._refuse_second_revive(job)
         conflicts: list[tuple[str, Any, str]] = []
         if job.get("out_path"):
-            conflicts.append(("out_path", job["out_path"], "use a different -o path or wait for its owner"))
-            lease = self.store.one("SELECT * FROM leases WHERE lease_key=?", (f"out:{job['out_path']}",))
-            if lease:
+            if output_claim is None:
+                assert not self.store._holds_writer(), "output identity must be prepared outside the transaction"
+                output_claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"], census=True)
+            if output_claim.holds(self.store.query):
                 raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine")
+            if output_claim.live_jobs(self.store.query):
+                raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner")
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
@@ -2608,10 +2689,11 @@ class Daemon:
             if job.get("caller_session"):
                 # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
                 # in `cleared`; one that is not there was never judged.
+                match, params = native_any_case("caller_session", job["caller_session"])
                 for row in self.store.query(
-                        "SELECT job_id FROM jobs WHERE caller_session=? AND sandbox='workspace-write' AND job_id!=? "
+                        f"SELECT job_id FROM jobs WHERE {match} AND sandbox='workspace-write' AND job_id!=? "
                         "AND state NOT IN ('succeeded','failed','cancelled','lost')",
-                        (job["caller_session"], job["job_id"])):
+                        (*params, job["job_id"])):
                     if row["job_id"] not in cleared:
                         raise AdapterError(f"session {job['caller_session']} has a live writable job ({row['job_id']}) this submission was not checked against",
                                            fix="submit again")
@@ -2892,6 +2974,7 @@ class Daemon:
             return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
+            view["disk"] = self._disk_status()
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
                     "claude_cards": self.timers.cards_view(),  # C-9.10
@@ -2902,6 +2985,34 @@ class Daemon:
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
         raise protocol.ProtocolError(f"unknown op {op}")
+
+    def _disk_rows(self) -> list[dict]:
+        # C-3.7: only live attempts and the tiny budget, never their full evidence.
+        return self.store.query(
+            "SELECT a.attempt_id,a.state,a.reserved_at,a.finished_at,j.kind,"
+            "CASE WHEN json_valid(a.evidence_json) THEN json_extract(a.evidence_json,'$.disk_reservation') END "
+            "AS disk_reservation FROM attempts a JOIN jobs j USING(job_id) "
+            "WHERE a.state IN ('reserved','starting','running','finalizing') AND a.finished_at IS NULL "
+            "AND j.kind != 'turn'")
+
+    def _disk_status(self) -> dict:
+        return self._disk.status(self._disk_rows() if self._disk.snapshot["enabled"] else (), utcnow())
+
+    def _save_disk_latch(self) -> None:
+        # A restart during recovery must not forget a low-space refusal. Only
+        # transitions write an event; disabled admission writes nothing.
+        if self._disk.holding != self._disk_saved_hold:
+            # Empty transactions emit no audit record. The explicit event's
+            # kind also differs from its audit, which must not shadow it.
+            with self.store.transaction("admission.disk_latch.recorded") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), "admission.disk_latch", json.dumps({"holding": self._disk.holding})))
+            self._disk_saved_hold = self._disk.holding
+
+    def _disk_hold(self, klass: str) -> dict | None:
+        hold = self._disk.hold(klass)
+        self._save_disk_latch()
+        return hold
 
     def _why_job(self, job: dict) -> dict:
         """C-6.11: `why <job>` always says where the job stands, decision or not.
@@ -3080,10 +3191,10 @@ class Daemon:
     def _conversation_binding(self, session_id: str | None) -> str | None:
         """What makes `session_id` a conversation's (C-26.13), or None.
 
-        Called with no main-store transaction open. `ConversationStore` holds
-        its own lock only inside its own methods and has no reference to the
-        main store, so taking it here, under `_submit_lock` or in the admission
-        pass, adds no lock order.
+        `ConversationStore` holds its own lock only inside its own methods and
+        has no reference to the main store, so taking it here under the submit
+        lock or the reservation transaction adds no reverse lock order. The
+        main-store turn-attempt lookup uses the reserving connection there.
         """
         if not session_id:
             return None
@@ -3115,7 +3226,7 @@ class Daemon:
             wanted = {s for s in args.session_ids if isinstance(s, str) and s} or None
             latest = self._session_events(
                 (NUDGE_EVENT, REVIVE_EVENT, RETIRE_EVENT, UNRETIRE_EVENT), wanted)
-            leases = {row["lease_key"]: row["holder"] for row in
+            leases = {resource_leases.canonical_native_key(row["lease_key"]): row["holder"] for row in
                       self.store.query("SELECT lease_key,holder FROM leases "
                                        "WHERE lease_key LIKE 'session:%:revive'")}
             state: dict[str, dict] = {}
@@ -4585,12 +4696,15 @@ class Daemon:
 
     def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
         """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
+        output_identities: dict[str, str] = {}
         # C-6.9: the jobs of this pass that wait on an admission probe (C-11.4), in
         # its order; `_prepare_route` asks it whose turn a probe is. A turn never
         # carries a probe (C-26.9), so the turn pass, which runs beside this one,
         # keeps none and leaves the detached pass's alone.
         probe_line: list[tuple[str, str, frozenset[str] | None]] = []
         if kind == "detached":
+            self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
+            self._save_disk_latch()
             self._recover_probes()
             self._probe_line = probe_line
         desktop_account = self._desktop_identity()
@@ -4764,7 +4878,7 @@ class Daemon:
                 # priority job. A due workspace retry is held too, before its git
                 # (review of PR #72); one whose clock runs still reports `workspace`
                 # (C-6.11).
-                busy = scheduler.machine_hold(self.policy, reading, klass)
+                busy = self._disk_hold(klass) or scheduler.machine_hold(self.policy, reading, klass)
                 if busy:
                     holds[job["job_id"]] = busy
                     continue
@@ -5033,14 +5147,27 @@ class Daemon:
                 # change it places by is recorded (review of PR #72).
                 self._desktop_in_use()
                 self._record_desktop_use()
+                output_claim = (resource_leases.OutputClaim.prepare(self.store.query, job["out_path"],
+                                                                    identities=output_identities)
+                                if job["out_path"] else None)
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
                     with self._isolated_route(job, holds) as route, \
                             self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                        read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
                         job = self._job(job["job_id"])
                         if job["cancel_requested_at"] or job["state"] in TERMINAL:
                             status = "gone"
                             break
+                        if native_session and job["kind"] in ("resume", "revive"):
+                            # C-26.13: public open may have bound it during route
+                            # preparation, after the early ownership check.
+                            try:
+                                self._refuse_conversation_session(native_session, job["kind"])
+                            except AdapterError as exc:
+                                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                                status = "settled"
+                                break
                         if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                                       "('reserved','starting','running','finalizing','quarantined')",
                                       (job["job_id"],)).fetchone():
@@ -5165,25 +5292,23 @@ class Daemon:
                             # C-26.3: one writer per native session whichever lane, so a
                             # resume or revive and a conversation turn exclude each other.
                             provider = self.policy["models"][decision.chosen_model]["provider"]
-                            leases.append((f"native:{provider}:{native_session}", job["job_id"]))
+                            leases.append((resource_leases.native_key(provider, native_session), job["job_id"]))
                         if turn_block is not None:
                             leases.append((f"conversation:{turn_block['conversation_id']}", job["job_id"]))
                             if turn_block.get("native_session_id") or turn_block.get("new_session_id"):
                                 sid = turn_block.get("native_session_id") or turn_block.get("new_session_id")
-                                leases.append((f"native:{turn_block['provider']}:{sid}", job["job_id"]))
-                                held = tx.execute("SELECT lease_key FROM leases WHERE lease_key LIKE ? AND holder<>?",
-                                                  (f"native-session:%:{sid}", job["job_id"])).fetchone()
-                                if held:
-                                    leases.append((held[0], job["job_id"]))   # contested: waits for the resume/revive
+                                leases.append((resource_leases.native_key(turn_block['provider'], sid), job["job_id"]))
+                                for held_key, holder in resource_leases.continuation_holds(read, sid):
+                                    if holder != job["job_id"]:
+                                        leases.append((held_key, job["job_id"]))  # waits for the resume/revive
                         if job.get("round_lease"):
                             leases.append((job["round_lease"], f"gate-round:{job['job_id']}"))
                         if job["out_path"]:
-                            leases.append((f"out:{job['out_path']}", job["job_id"]))
+                            leases.append((output_claim.key, job["job_id"]))
                         # Keys this job needs free but does not take (C-6.5, C-24.5): a turn
                         # shares its folder with other turns, so it never holds the
                         # exclusive key, yet it may not write beside a detached writer.
                         blockers: list[str] = []
-                        read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
                         if job["sandbox"] == "workspace-write" and job["kind"] == "turn":
                             # C-24.5 (the owner's ruling of 2026-09-28, "nothing should be
                             # queued"): conversations that share a folder run at once, as
@@ -5212,18 +5337,20 @@ class Daemon:
                             # C-23.55: the census the sweep skips on is the lease rows,
                             # read inside the admitting transaction, not a snapshot taken
                             # at the start of the pass.
-                            held = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
-                                              (revive_key,)).fetchone()
-                            if held and held[0] != job["job_id"]:
+                            held = next((holder for _, holder in resource_leases.native_holds(read, revive_key)
+                                         if holder != job["job_id"]), None)
+                            if held:
                                 # Skipped, not queued: waiting for the other revive to
                                 # end would launch the twin the moment it did.
-                                self._skip_revive(tx, job, held[0])
+                                self._skip_revive(tx, job, held)
                                 status = "held"
                                 break
                             leases.append((revive_key, job["job_id"]))
-                        current = {key: r[0] for key, _ in leases
-                                   if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())}
-                        contested = [key for key, holder in leases if key in current and current[key] != holder]
+                        def lease_holds(key):
+                            return (output_claim.holds(read) if output_claim and key == output_claim.key
+                                    else resource_leases.native_holds(read, key))
+                        current = {key: rows for key, _ in leases if (rows := lease_holds(key))}
+                        contested = [key for key, holder in leases if any(owner != holder for _, owner in current.get(key, ()))]
                         blocked = [key for key in dict.fromkeys(blockers)
                                    if (r := tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone())
                                    and r[0] != job["job_id"]]
@@ -5259,9 +5386,12 @@ class Daemon:
                             # C-26.14: the turn's window opens before its start snapshot, and
                             # its folder is where another turn's window may overlap it.
                             evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
+                        reserved_at = utcnow()
+                        if job["kind"] != "turn" and self._disk.settings["enabled"]:
+                            evidence["disk_reservation"] = self._disk.evidence()
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                                    json.dumps(evidence), utcnow()))
+                                    json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -5319,6 +5449,8 @@ class Daemon:
                 continue
             if status != "placed":
                 continue
+            if job["kind"] != "turn":
+                self._disk.reserve(aid, reserved_at)
             tally["placed"] += 1
             tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)
@@ -6996,45 +7128,74 @@ class Daemon:
 
     def _export_locked(self, job_id: str) -> None:
         job = self._job(job_id)
-        if not job["accepted_attempt_id"]:
-            return
-        if job.get("push_branch") is not None and not self._push_settled(job_id):
+        aid = job["accepted_attempt_id"]
+        a = self.store.get_attempt(aid) if aid else None
+        if a and job.get("push_branch") is not None and not self._push_settled(job_id):
             # C-8.5 (review P3-5): one thread publishes every push, so pushes
             # wait for each other there and never hold a pool worker. Leases
-            # stay until it ends; the pass after it exports and releases them.
+            # stay until it ends; the pass after it exports and releases them
+            # by the rules below, as for any job. Only an accepted attempt
+            # has a bundle to push; without one, the export fails below.
             self._schedule("push:" + job_id, self._push_job, job_id, paced=True, pool=self.pushes)
             return
-        a = self.store.get_attempt(job["accepted_attempt_id"])
-        if job["out_path"]:
-            lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"out:{job['out_path']}",))
-            if not lease or lease["holder"] != job_id:
-                if job.get("push_branch") is not None:
-                    with self.store.transaction("job.export_superseded", job_id=job_id) as tx:
-                        tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
-                    self._notify()
-                return  # A replay cannot overwrite a newer owner's output.
-        artifact = self.store.one("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'", (a["attempt_id"],))
-        export_error = None
+        export_error = None if a else "export failed: no accepted attempt"
+        if not aid:
+            ended = self.store.one("SELECT attempt_id FROM attempts WHERE job_id=? "
+                                   "AND state IN ('succeeded','failed','cancelled','lost') ORDER BY seq DESC LIMIT 1",
+                                   (job_id,))
+            aid = ended["attempt_id"] if ended else None
         exported = None
-        if job["out_path"] and not self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (a["attempt_id"],)):
+        already = aid and self.store.one("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (aid,))
+        if job["out_path"] and a and not already:
+            claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"])
+            with self.store.transaction("job.export_decided", job_id=job_id) as tx:
+                read = lambda sql, params: tx.execute(sql, params).fetchall()  # noqa: E731
+                held = claim.holds(read, owner=job_id)  # oldest acquired_at, then holder and key
+                # Re-read after the lease census: another export may have
+                # committed its decision and released its lease meanwhile.
+                export_error = tx.execute("SELECT export_error FROM jobs WHERE job_id=?", (job_id,)).fetchone()[0]
+                if not export_error:
+                    if not held:
+                        export_error = "export failed: output lease not held"
+                    elif held[0][1] != job_id:
+                        export_error = f"superseded by {held[0][1]}"
+                    else:
+                        # Persist the winner before it releases its guard. A
+                        # legacy loser still holds its leases while running,
+                        # but cannot publish after the winner has finished.
+                        for holder in sorted({holder for _, holder in held} - {job_id}):
+                            self._export_error(tx, holder, f"superseded by {job_id}")
+        if job["out_path"] and a and not already and not export_error:
             try:
+                artifact = self.store.one("SELECT * FROM artifacts WHERE attempt_id=? AND role='deliverable'", (aid,))
+                if not artifact:
+                    raise OSError("accepted deliverable is missing")
                 contents = read_regular(artifact["path"])          # only a regular file, never waiting in open()
                 destination = Path(job["out_path"])
                 if hashlib.sha256(contents).hexdigest() != artifact["sha256"]:
                     raise OSError("accepted deliverable digest changed")
                 self._publish("export", destination, contents)
-                self._boundary("export", job_id, a["attempt_id"])
+                self._boundary("export", job_id, aid)
                 exported = {"role": "export", "path": str(destination), "sha256": artifact["sha256"], "bytes": artifact["bytes"]}
             except OSError as exc:
                 export_error = f"export failed: {type(exc).__name__} (errno={exc.errno})"
-        with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=a["attempt_id"]) as tx:
+        with self.store.transaction("job.export_failed" if export_error else "job.exported", job_id=job_id, attempt_id=aid) as tx:
             if exported:
-                self.store.add_artifact(a["attempt_id"], **exported)
+                self.store.add_artifact(aid, **exported)
             if export_error:
-                tx.execute("UPDATE jobs SET export_error=? WHERE job_id=?", (export_error, job_id))
-                tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + export_error, job_id))
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, a["attempt_id"]))
+                self._export_error(tx, job_id, export_error)
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job_id, aid))
         self._notify()
+
+    @staticmethod
+    def _export_error(tx, job_id: str, error: str) -> None:
+        """Persist the refusal and annotate an existing notice once, even on replay."""
+        tx.execute("UPDATE jobs SET export_error=? WHERE job_id=? AND "
+                   "(export_error IS NULL OR export_error<>?)", (error, job_id, error))
+        # A legacy loser may still be running when the winner decides. Its
+        # completion notice then appears later, before the loser's own export.
+        tx.execute("UPDATE notices SET text=text || ? WHERE job_id=? AND instr(text,?)=0",
+                   ("\n" + error, job_id, error))
 
     #: C-8.5: a push whose verification was cut short this many times (a
     #: restart, or a fault of the daemon's own) fails instead of retrying again.

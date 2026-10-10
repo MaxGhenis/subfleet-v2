@@ -410,6 +410,8 @@ def format_status(data: dict[str, Any]) -> str:
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
+    if isinstance(data.get("disk"), dict):
+        lines.append(render.disk_line(data["disk"]))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))

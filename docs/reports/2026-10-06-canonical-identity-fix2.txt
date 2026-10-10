@@ -1,0 +1,237 @@
+Canonical resource identity — fix round 2, 2026-10-06
+
+Base: d24b1a7903c0adc86d8f982cbd5157bbaf17b93f (PR work merged with release/217).
+All work is in the assigned checkout. No push, history rewrite, caller-checkout
+write, provider launch, daemon start, background process or sub-agent was used.
+The review's findings were reading-only; the executed results below replace
+those hypotheses, without treating the predecessor's runs as this round's runs.
+
+Findings, fixes and passing evidence
+
+P1 — REPRODUCED. Submit/admit D/x.md, chmod 000 D, then submit an unrelated
+output: PermissionError escaped OutputClaim.prepare. Replacing D with a real
+self-referencing symlink likewise raised ELOOP. Injecting PermissionError, EIO
+and TimeoutError also raised from identity. The initial five regression cases
+failed on the unchanged implementation (the interrupted initial run is not a
+passing check).
+- subfleet/folders.py:71,88: identity falls back to its exact input string for
+  any OSError, including TimeoutError, and for Darwin kernel-spelling failures.
+  Each failed path logs once. Display helpers retain their existing behavior.
+- subfleet/resource_leases.py:68: the claim boundary also catches an OSError
+  from identity, covering both requests and stored rows.
+- Passing: test_unreachable_stored_output_does_not_stop_submit_admit_or_export
+  (real permission and loop cases); test_identity_failure_falls_back_to_exact_
+  string_through_all_operations (three injected failures), through submit,
+  admission and export. Exact duplicate requests still refuse, healthy jobs
+  admit/export, failed exports record errors, and all export leases release.
+  test_unavailable_identity_never_raises_and_preserves_exact_string adds 32
+  Hypothesis examples over error codes and Unicode names. This tests returned
+  TimeoutError; it does not claim to interrupt a kernel syscall that never returns.
+
+P2 — legacy export leak: REPRODUCED with two real stored jobs and raw case-alias
+leases. Exporting either first retained its output/attempt/native leases, with
+no export_error. Both finish orders failed the release assertion before the fix.
+- subfleet/resource_leases.py:94: holds order by acquired_at, holder, lease_key.
+- subfleet/daemon.py:6674: oldest lease wins. Its decision marks every other
+  holder superseded before publication/release, so the later holder cannot
+  become a publisher just because the winner released its lease. Losers keep
+  guards while running, then record "superseded by <job>" and release both job
+  and accepted-attempt leases at their own export. Replay preserves the result.
+  Missing ownership, accepted attempts or deliverables also settle with an error
+  and release; successful exports retain their artifact record.
+- subfleet/daemon.py:6728: reasons reach notices without duplicate lines,
+  including a notice created after the winner's decision. A small SQLite
+  reproduction exposed that late-notice edge before its correction.
+- Passing: test_oldest_legacy_alias_exports_and_superseded_releases_all_leases
+  (both orders, late notice, replay and a third admitted writer), and three
+  test_export_failure_records_notice_and_releases_leases cases. The predecessor's
+  test_two_legacy_alias_holders_both_remain_guards now asserts oldest publication
+  and release. Its deliverable helper uses separate files for separate jobs;
+  the original shared fixture path corrupted the older digest, and was corrected.
+
+P2 — cost: REPRODUCED. Twelve queued outputs made 210 identity calls in one
+admission pass. On the 4,500-row benchmark, 50/300 live outputs made 3,725/134,850
+calls per pass.
+- subfleet/resource_leases.py:68 and subfleet/daemon.py:4354,4740: use a memo by
+  exact stored path for one submit, one admission pass over a job kind, or one
+  export. Every reservation/retry in that pass shares it. The next pass starts
+  fresh; failure answers are memoized too. No daemon-lifetime identity cache,
+  identity column, migration or back-fill was added. SQL censuses remain fresh;
+  filesystem identity work is linear in the distinct paths in a pass.
+- Passing: test_identity_work_is_linear_per_admission_pass_and_fresh_next_pass;
+  identity calls are unique within each pass and happen again on the next pass.
+  Existing test_output_identity_is_never_resolved_under_the_store_writer_lock
+  passes. Benchmark script: tools/benchmark_identity.py.
+
+P2 — filesystem comparison: REPRODUCED for initially absent APFS destinations.
+The checkpoint's identities differed for ΐ / Ϊ + U+0301 and for ᾼ + U+0342 /
+α + U+0345 + U+0342, although creating them showed samefile=True. Existing-file
+identity already agreed, because kernel spelling unifies existing aliases.
+The review's dotless-i and invisible-character under-collisions did NOT reproduce
+on APFS: those names are distinct files there. HFS+/exFAT remain unverified here.
+- subfleet/folders.py:56,88: canonical caseless comparison is
+  NFD(casefold(NFD(path))). On insensitive volumes, also strip Unicode default-
+  ignorables and equate dotless i with i, conservatively guarding HFS+/exFAT
+  rules even though this sandbox could not create those volumes.
+- Passing: tests/unit/test_filesystem_identity_agreement.py (actual existing and
+  initially absent names; all requested volumes parametrized), its five absent-
+  name controls, and the real submit/admit/export Hypothesis property in
+  tests/fake/test_canonical_identity_fix2.py:232. The property uses samefile as an
+  independent oracle and accepts refusals for distinct names.
+- C-6.5 explicitly identifies over-collisions: full casefold expansions on
+  volumes distinguishing them, dotless i and default-ignorables on APFS, and
+  canonical normalization on sensitive volumes. Exact fallback while unreachable
+  may under-collide aliases, matching 2.1.11. External path replacement/renaming
+  during a live lease remains an under-collision limit (audit L4).
+- Unicode source: https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/
+  (D145); default-ignorables: Unicode 17.0.0 DerivedCoreProperties.txt.
+
+P3 — L3 launch window: REPRODUCED by hooking _launch and invoking it through
+_process_attempt after actual admission/reservation. Public conversation.open
+bound the session instead of refusing it.
+- subfleet/conversations/service.py:491,521: native open checks alias-aware
+  native leases under the main-store transaction, then binds with the same lock
+  held. Catalog/filesystem work precedes the lock. Existing native opens check
+  the guard too. Both job and attempt holders are recognized.
+- Passing: test_public_open_between_reservation_and_launch_refuses_live_native_
+  lease, plus the existing four preparation-time binding cases.
+- Further REPRODUCED: a quarantined attempt still held the native lease after its
+  job became lost, but job-state-only checking let open bind it. Commit
+  629478034 also checks live/quarantined attempts. The new regression refuses
+  that open and permits it after release; the final suite includes it.
+
+P3 — UUID forms: REPRODUCED. {UUID}, urn:uuid:UUID and 32-hex spellings stayed raw.
+- subfleet/conversations/store.py:215,1859: every UUID parsed by canonical_native
+  returns its lowercase hyphenated form; SQL guards also find old rows using the
+  eight conventional combinations of hyphens, braces and urn prefix. Native lease
+  lookup already uses the same parser; opaque identities remain exact.
+- Passing: three real submit/admit alias cases, 80 generated native-key cases,
+  and the existing 300-example UUID/opaque SQL comparison property.
+
+P3 — C-3.3: CONFIRMED by inspection and the existing reservation-time binding
+checks: reservation reads SQL from the conversation store under the main lock.
+The contract now explicitly allows that read. Native binding's SQL write also
+uses main-store-before-conversation-store lock order. Filesystem and catalog
+work stay outside these transactions (docs/acceptance-contract.md:159).
+
+Rollback (also the text for the hub's PR body)
+A rollback to 2.1.11 skips an in-flight output export when its remaining output
+lease is canonical and differs from the exact key "out:" + the stored out_path,
+because 2.1.11 looks up only that exact key. Case, Unicode-normalization, caseless
+expansion and conservative equivalence changes can cause this mismatch. Jobs
+with an exact legacy lease held by that job still export; already exported jobs
+need no export. Drain in-flight output jobs on the new daemon before rollback.
+
+Filesystem agreement (real files, fresh APFS folder verified with statfs)
+All names carry .md; invisible characters are placed inside "result". Equal
+identities for distinct files are accepted over-collisions. The absent column
+compares identities computed before either filename existed.
+
+Pair                                      Volume  samefile  identities equal  absent equal
+Result / result                           APFS    True      True              True
+café / cafe + U+0301                       APFS    True      True              True
+ß / ss                                    APFS    True      True              True
+ﬁ / fi                                    APFS    True      True              True
+ς / σ                                     APFS    True      True              True
+İ / i + U+0307                             APFS    True      True              True
+ı / i                                     APFS    False     True              True
+ı / I                                     APFS    False     True              True
+i / I                                     APFS    True      True              True
+re[U+200B]sult / result                    APFS    False     True              True
+re[U+200C]sult / result                    APFS    False     True              True
+re[U+200D]sult / result                    APFS    False     True              True
+re[U+200E]sult / result                    APFS    False     True              True
+re[U+200F]sult / result                    APFS    False     True              True
+re[U+FEFF]sult / result                    APFS    False     True              True
+re[U+034F]sult / result                    APFS    False     True              True
+re[U+2060]sult / result                    APFS    False     True              True
+re[U+FE0F]sult / result                    APFS    False     True              True
+α U+0345 U+0301 / α U+0301 U+0345           APFS    True      True              True
+α U+0345 U+0301 / άι                       APFS    True      True              True
+U+0345 U+0301 / U+0301 ι                   APFS    True      True              True
+ᾼ U+0342 / α U+0345 U+0342                 APFS    True      True              True
+ΐ / Ϊ U+0301                              APFS    True      True              True
+All pairs above    Case-sensitive HFS+             skipped   skipped           skipped
+All pairs above    HFS+                            skipped   skipped           skipped
+All pairs above    ExFAT                           skipped   skipped           skipped
+
+Each image was attempted locally with hdiutil create -size 20m -fs <format>.
+All three failed: "hdiutil: create failed - Device not configured". Nothing was
+attached, and no image or data was downloaded. The hub can rerun the parametrized
+fixture without modifying it. DiskManagement was unavailable; APFS was verified
+via statfs instead of diskutil.
+
+Cost before/after (seconds; 7 serial samples per cell; interpolated p95)
+Seeded 4,500 job rows, 50 or 300 queued live outputs. Timed operations are real
+submit and _admit with real filesystem identities and SQLite reservation.
+Providers, desktop census and workspace allocation are injected; no launch runs.
+No pytest process ran alongside the measurements. This was a contended shared
+host, so wall-time variation is substantial; call counts are the stable evidence.
+
+Live  Operation  Before median  Before p95  After median  After p95  Identity calls before -> after
+50    submit     0.442599       0.842130    0.318917      0.560749   51 -> 51
+50    _admit    10.782273      14.165822    1.111242      2.434784   3,725 -> 99
+300   submit     0.606808       1.440678    0.319509      0.674148   301 -> 301
+300   _admit    88.705437     307.609383   11.160850     19.008466   134,850 -> 599
+
+Validation
+Final targeted pytest on code head 629478034: 74 passed, 3 image skips in 93.79 s;
+Hypothesis reported 1,024 passing generated/explicit cases. Initial fix checks
+had 20 passes, three skips and two fixture-digest failures; correcting separate
+accepted paths made the subsequent 73-test run pass, and the quarantine follow-up
+then passed the final 74-test run. Syntax and whitespace checks passed.
+
+Command prefix: development .venv/bin/python -B -m pytest -q -r s -s
+-p no:cacheprovider -p tests.canonical_identity_privacy --hypothesis-show-statistics.
+Targets: tests/unit/test_resource_identity.py, tests/fake/test_canonical_identity.py,
+tests/fake/test_canonical_identity_fix2.py, tests/unit/test_filesystem_identity_agreement.py,
+tests/unit/test_folders.py; seven cases selected from tests/fake/test_resume_contract.py
+(readonly serialization, distinct sessions, quarantine and resume/revive lease sharing);
+three from tests/fake/test_writable_fanout.py (one instance fanout, second live instance,
+transaction recheck); tests/unit/test_conversation_store.py's UUID/opaque SQL property.
+Only targeted files/selectors, one pytest process at a time, no -n; full suite left to CI.
+
+All five archived scripts passed, using disposable copies with repository paths
+redirected to this checkout and privacy guards exempting only this checkout.
+Vulnerability assertions were changed to safety assertions in the native scripts;
+the absent-output script now requires exit-7 refusal of the second alias.
+Original inputs, real operations and rollback/distinct/lifecycle controls were kept.
+- atomicity/check_atomicity.py: exit 0; four lease inserts rolled back atomically;
+  UUID aliases one attempt/one refusal, distinct UUIDs two attempts.
+- verification/native/adversarial_native.py: exit 0; case masks one owner and
+  preparation-time public binding zero attempts, failed job.
+- verification/coverage/check_output_and_lifecycle.py: exit 0; four output
+  identity cases and two lifecycle schedules.
+- verification/coverage/check_new_output_paths.py: exit 0; both absent aliases refused.
+- verification/coverage/check_parent_output_aliases.py: exit 0; both parent aliases refused.
+- verification/coverage/recheck_export_recovery.py: exit 0; all 58 cases passed.
+
+Mutation results (tools/check_identity_mutations.py, serial, sources restored
+byte-for-byte in finally; every mutant had pytest exit 1)
+- drop casefold: killed, 1 failed.
+- drop canonical normalization (NFD replaces the original NFC requirement): killed,
+  1 failed, 1 passed.
+- raw native lease key: killed, 1 failed.
+- remove reservation recheck: killed, 1 failed.
+- drop OSError fallback: killed, 1 failed.
+- drop superseded-export release: killed, 1 failed.
+- drop per-pass memo: killed by the cost/call-count test, 1 failed.
+- drop public-open lease check: killed, 1 failed.
+- drop canonical caseless rule: killed, 1 failed, 1 passed.
+- drop default-ignorable equivalence: killed, 1 failed, 4 passed.
+- drop dotless-i equivalence: killed, 1 failed, 3 passed.
+The public-open mutant was repeated on the quarantine-hardened head and killed.
+
+Delivery
+Shared git staging failed with index.lock "Operation not permitted"; commits use
+.git-local on branch fix/canonical-identity. Implementation commits:
+1cc4ec8adf76fff88f08d3c461b1f132e4e279c8 — main fixes, contract, tests and tools.
+629478034490cc50131bfdb5dc621448ad825123 — quarantined native-owner guard.
+This report is a separate coherent commit. Every commit ends with the required
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
+Verified bundle: docs/reports/2026-10-06-canonical-identity-fix2.bundle;
+prerequisite d24b1a7903c0adc86d8f982cbd5157bbaf17b93f;
+head refs/heads/fix/canonical-identity, including the report commit.
+Fresh TMPDIR was below getconf DARWIN_USER_TEMP_DIR with no path component named
+tmp, then removed. No image was attached. Raw logs, JSON evidence and caches
+are not committed. Live ~/.subfleet and subfleet/default_policy.json were untouched.

@@ -1,0 +1,1282 @@
+B drop casefold: CONTROL pytest 0
+....                                                                     [100%]
+4 passed, 20 deselected in 15.79s
+
+B drop casefold: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+__ test_minimized_absent_output_alias_has_one_owner[True-Result.md-result.md] __
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-10/test_minimized_absent_output_a0')
+name = 'Result.md', alias = 'result.md', admit_first = True
+
+    @pytest.mark.parametrize("name,alias", [("Result.md", "result.md"), ("café.md", "cafe\u0301.md")])
+    @pytest.mark.parametrize("admit_first", [True, False])
+    def test_minimized_absent_output_alias_has_one_owner(tmp_path, name, alias, admit_first):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            submit(service, harness, out_path=str(tmp_path / name), caller_session=None)
+            if admit_first:
+                service._admit()
+>           with pytest.raises(AdapterError, match="output|out_path"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE AdapterError
+
+tests/fake/test_canonical_identity.py:198: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4450201920:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_minimized_absent_output_alias_has_one_owner[True-Result.md-result.md]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 20 deselected in 18.30s
+
+B drop canonical normalization: CONTROL pytest 0
+....                                                                     [100%]
+4 passed, 20 deselected in 17.85s
+
+B drop canonical normalization: KILLED BY ASSERTION (pytest 1)
+.F
+=================================== FAILURES ===================================
+_ test_minimized_absent_output_alias_has_one_owner[True-caf\xe9.md-cafe\u0301.md] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-12/test_minimized_absent_output_a1')
+name = 'café.md', alias = 'café.md', admit_first = True
+
+    @pytest.mark.parametrize("name,alias", [("Result.md", "result.md"), ("café.md", "cafe\u0301.md")])
+    @pytest.mark.parametrize("admit_first", [True, False])
+    def test_minimized_absent_output_alias_has_one_owner(tmp_path, name, alias, admit_first):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            submit(service, harness, out_path=str(tmp_path / name), caller_session=None)
+            if admit_first:
+                service._admit()
+>           with pytest.raises(AdapterError, match="output|out_path"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE AdapterError
+
+tests/fake/test_canonical_identity.py:198: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4455841920:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_minimized_absent_output_alias_has_one_owner[True-caf\xe9.md-cafe\u0301.md]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 passed, 20 deselected in 12.17s
+
+B raw native lease key: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 23 deselected in 16.79s
+
+B raw native lease key: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_____________ test_native_aliases_collide_and_distinct_uuids_admit _____________
+
+    @settings(max_examples=12, deadline=None, derandomize=True, database=None)
+>   @given(value=st.integers(min_value=0, max_value=2**128 - 2), mask=st.integers(0, 2**36 - 1))
+                   ^^^
+
+tests/fake/test_canonical_identity.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/venv312/lib/python3.12/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 10, mask = 68719476735
+
+    @settings(max_examples=12, deadline=None, derandomize=True, database=None)
+    @given(value=st.integers(min_value=0, max_value=2**128 - 2), mask=st.integers(0, 2**36 - 1))
+    @example(value=10, mask=2**36 - 1)
+    @example(value=uuid.UUID(MASKED).int, mask=PREFIX_MASK)
+    @example(value=uuid.UUID(MASKED).int, mask=SUFFIX_MASK)
+    def test_native_aliases_collide_and_distinct_uuids_admit(value, mask):
+        lower = str(uuid.UUID(int=value, version=4))
+        alias = "".join(c.upper() if mask & (1 << i) else c for i, c in enumerate(lower))
+        distinct = str(uuid.UUID(int=value + 1, version=4))
+        assert canonical_native(alias) == lower
+        assert canonical_native(canonical_native(alias)) == canonical_native(alias)
+        assert canonical_native(alias) == canonical_native(alias)
+        with tempfile.TemporaryDirectory(prefix="identity-native-") as directory:
+            with fleet_daemon(Path(directory) / "state") as (service, harness, patch):
+                configure(service, patch)
+                first = revive(service, harness, alias)
+                with pytest.raises(AdapterError, match="live revive"):
+                    revive(service, harness, lower, "claude-2")
+                second = revive(service, harness, distinct, "claude-2")
+                service._admit()
+                assert all(len(service.store.list_attempts(job)) == 1 for job in (first, second))
+                keys = {row["lease_key"] for row in service.store.list_leases()}
+>               assert resource_leases.native_key("claude", lower) in keys
+E               AssertionError: assert 'native:claude:00000000-0000-4000-8000-00000000000a' in {'lane:claude-1:slot:1', 'lane:claude-2:slot:1', 'native-session:claude-1:00000000-0000-4000-8000-00000000000a', 'nati...000b', 'native:claude:00000000-0000-4000-8000-00000000000A', 'native:claude:00000000-0000-4000-8000-00000000000b', ...}
+E                +  where 'native:claude:00000000-0000-4000-8000-00000000000a' = <function native_key at 0x109a1eb60>('claude', '00000000-0000-4000-8000-00000000000a')
+E                +    where <function native_key at 0x109a1eb60> = resource_leases.native_key
+E               (note: 2 other explicit examples also failed with this error; use Verbosity.verbose to view)
+E               Failing explicit example: test_native_aliases_collide_and_distinct_uuids_admit(
+E                   value=10,
+E                   mask=68_719_476_735,
+E               )
+
+tests/fake/test_canonical_identity.py:79: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4443940160:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4454154208:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4453832256:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_native_aliases_collide_and_distinct_uuids_admit
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 23 deselected in 10.59s
+
+B remove reservation recheck: CONTROL pytest 0
+....                                                                     [100%]
+4 passed, 20 deselected in 6.68s
+
+B remove reservation recheck: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_ test_binding_during_preparation_is_refused_inside_reservation[public-open-revive] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-16/test_binding_during_preparatio0')
+kind = 'revive', binding = 'public-open'
+
+    @pytest.mark.parametrize("kind", ["revive", "resume"])
+    @pytest.mark.parametrize("binding", ["public-open", "turn-attempt"])
+    def test_binding_during_preparation_is_refused_inside_reservation(tmp_path, kind, binding):
+        from subfleet.conversations import catalog
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = revive(service, harness, MINIMAL)
+            if kind == "resume":
+                service.store.update_job(job, kind="resume")
+                manifest = service._read_json(service.root / "jobs" / job / "manifest.json")
+                manifest["resume"] = {"native_session_id": MINIMAL}
+                service._publish("manifest", service.root / "jobs" / job / "manifest.json", daemon_module.json_bytes(manifest))
+            patch.setattr(catalog, "native_session", lambda *_args, **_kw: {
+                "continuable": True, "model_value": "haiku", "permission": "read-only",
+                "cwd": str(harness.workdir), "title": "Native session", "lane_id": None})
+            prepare = service._prepare_route
+            bound = []
+            def bind(*args):
+                assert not service.store._holds_writer()
+                if not bound:
+                    if binding == "public-open":
+                        bound.append(service.conversations.handle("conversation.open", {
+                            "native": {"provider": "claude", "session_id": MINIMAL.upper()}}, None))
+                    else:
+                        turn = submit_turn(service, harness, 99)
+                        service.store.add_attempt(attempt_id=turn + "/a1", job_id=turn, seq=1,
+                                                  lane_id="claude-1", model_requested="haiku", state="succeeded",
+                                                  native_session_id=MINIMAL.upper())
+                        bound.append(turn)
+                return prepare(*args)
+            patch.setattr(service, "_prepare_route", bind)
+            service._admit()
+            assert bound
+>           assert service.store.get_job(job)["state"] == "failed"
+E           AssertionError: assert 'running' == 'failed'
+E             
+E             - failed
+E             + running
+
+tests/fake/test_canonical_identity.py:277: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4486985632:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_binding_during_preparation_is_refused_inside_reservation[public-open-revive]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 20 deselected in 6.34s
+
+B drop OSError fallback: CONTROL pytest 0
+...                                                                      [100%]
+3 passed, 18 deselected in 6.20s
+
+B drop OSError fallback: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_ test_identity_failure_falls_back_to_exact_string_through_all_operations[error0] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-18/test_identity_failure_falls_ba0')
+error = PermissionError(13, 'fixture')
+caplog = <_pytest.logging.LogCaptureFixture object at 0x106e0c4a0>
+
+    @pytest.mark.parametrize("error", [PermissionError(errno.EACCES, "fixture"),
+                                       OSError(errno.EIO, "fixture"), TimeoutError("fixture")])
+    def test_identity_failure_falls_back_to_exact_string_through_all_operations(tmp_path, error, caplog):
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            def broken(_path):
+                raise error
+            patch.setattr(folders, "_case_sensitive", broken)
+            path = str(tmp_path / "Result.md")
+            try:
+>               answer = folders.identity(path)
+                         ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/fake/test_canonical_identity_fix2.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/folders.py:102: in identity
+    if _case_sensitive(spelled):
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+_path = '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-18/test_identity_failure_falls_ba0/Result.md'
+
+    def broken(_path):
+>       raise error
+E       PermissionError: [Errno 13] fixture
+
+tests/fake/test_canonical_identity_fix2.py:61: PermissionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-18/test_identity_failure_falls_ba0')
+error = PermissionError(13, 'fixture')
+caplog = <_pytest.logging.LogCaptureFixture object at 0x106e0c4a0>
+
+    @pytest.mark.parametrize("error", [PermissionError(errno.EACCES, "fixture"),
+                                       OSError(errno.EIO, "fixture"), TimeoutError("fixture")])
+    def test_identity_failure_falls_back_to_exact_string_through_all_operations(tmp_path, error, caplog):
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            def broken(_path):
+                raise error
+            patch.setattr(folders, "_case_sensitive", broken)
+            path = str(tmp_path / "Result.md")
+            try:
+                answer = folders.identity(path)
+            except OSError as exc:
+>               pytest.fail(f"identity raised {type(exc).__name__} instead of falling back")
+E               Failed: identity raised PermissionError instead of falling back
+
+tests/fake/test_canonical_identity_fix2.py:67: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4410365408:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_identity_failure_falls_back_to_exact_string_through_all_operations[error0]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 18 deselected in 4.09s
+
+B drop superseded-export release: CONTROL pytest 0
+..                                                                       [100%]
+2 passed, 19 deselected in 3.99s
+
+B drop superseded-export release: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+__ test_oldest_legacy_alias_exports_and_superseded_releases_all_leases[True] ___
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-20/test_oldest_legacy_alias_expor0')
+newer_first = True
+
+    @pytest.mark.parametrize("newer_first", [True, False])
+    def test_oldest_legacy_alias_exports_and_superseded_releases_all_leases(tmp_path, newer_first):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            first, second = legacy_pair(service, harness, tmp_path)
+            # A superseded output must not retain a conversation or attempt slot.
+            service.store.acquire_lease(f"native:claude:{MINIMAL}", second)
+            accept_for_export(service, first, b"oldest\n")
+            accept_for_export(service, second, b"newest\n")
+            for job in ((second, first) if newer_first else (first, second)):
+                if job == second:
+                    service.store.add_notice(second, "finished", "fixture")
+                service._export(job)
+>               assert not service.store.list_leases(job)
+E               AssertionError: assert not [{'lease_key': 'native:claude:00000000-0000-4000-8000-00000000000a', 'holder': '20261009-033741-astra', 'acquired_at':...alias_expor0/result.md', 'holder': '20261009-033741-astra', 'acquired_at': '2000-01-02T00:00:00Z', 'expires_at': None}]
+E                +  where [{'lease_key': 'native:claude:00000000-0000-4000-8000-00000000000a', 'holder': '20261009-033741-astra', 'acquired_at':...alias_expor0/result.md', 'holder': '20261009-033741-astra', 'acquired_at': '2000-01-02T00:00:00Z', 'expires_at': None}] = list_leases('20261009-033741-astra')
+E                +    where list_leases = <subfleet.store.Store object at 0x1070b36b0>.list_leases
+E                +      where <subfleet.store.Store object at 0x1070b36b0> = <subfleet.daemon.Daemon object at 0x1072eb890>.store
+
+tests/fake/test_canonical_identity_fix2.py:114: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4415469712:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_oldest_legacy_alias_exports_and_superseded_releases_all_leases[True]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 19 deselected in 8.15s
+
+B drop per-pass memo: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 20 deselected in 4.58s
+
+B drop per-pass memo: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_____ test_identity_work_is_linear_per_admission_pass_and_fresh_next_pass ______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-22/test_identity_work_is_linear_p0')
+
+    def test_identity_work_is_linear_per_admission_pass_and_fresh_next_pass(tmp_path):
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            jobs = [submit(service, harness, out_path=str(tmp_path / f"result-{i}.md"), caller_session=None)
+                    for i in range(12)]
+            identity, calls = folders.identity, []
+            def counted(path):
+                calls.append(str(path))
+                return identity(path)
+            patch.setattr(folders, "identity", counted)
+            service._admit()
+>           assert len(calls) <= 3 * len(jobs), len(calls)
+E           AssertionError: 78
+E           assert 78 <= (3 * 12)
+E            +  where 78 = len(['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-22/test_ide...r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-22/test_identity_work_is_linear_p0/result-1.md', ...])
+E            +  and   12 = len(['20261009-033752-astra', '20261009-033752-astra-1', '20261009-033752-astra-2', '20261009-033752-astra-3', '20261009-033752-astra-4', '20261009-033752-astra-5', ...])
+
+tests/fake/test_canonical_identity_fix2.py:195: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4449612864:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_identity_work_is_linear_per_admission_pass_and_fresh_next_pass
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 20 deselected in 3.03s
+
+B drop public-open lease check: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 20 deselected in 2.77s
+
+B drop public-open lease check: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+__ test_public_open_between_reservation_and_launch_refuses_live_native_lease ___
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-24/test_public_open_between_reser0')
+
+    def test_public_open_between_reservation_and_launch_refuses_live_native_lease(tmp_path):
+        from subfleet.conversations import catalog
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = revive(service, harness, MINIMAL)
+            patch.setattr(catalog, "native_session", lambda *_args, **_kw: {
+                "continuable": True, "model_value": "haiku", "permission": "read-only",
+                "cwd": str(harness.workdir), "title": "Native", "lane_id": None})
+            refused = []
+            def launch(attempt):
+                with pytest.raises(ConversationError, match="live job"):
+                    service.conversations.handle("conversation.open", {
+                        "native": {"provider": "claude", "session_id": MINIMAL.upper()}}, None)
+                refused.append(attempt)
+            patch.setattr(service, "_launch", launch)
+            service._admit()
+>           service._process_attempt(service.store.list_attempts(job)[0]["attempt_id"])
+
+tests/fake/test_canonical_identity_fix2.py:143: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:5833: in _process_attempt
+    self._launch(a)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+attempt = {'attempt_id': '20261009-033800-haiku/a1', 'job_id': '20261009-033800-haiku', 'seq': 1, 'lane_id': 'claude-1', ...}
+
+    def launch(attempt):
+>       with pytest.raises(ConversationError, match="live job"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ConversationError
+
+tests/fake/test_canonical_identity_fix2.py:137: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4458151088:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_public_open_between_reservation_and_launch_refuses_live_native_lease
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 20 deselected in 2.72s
+
+B drop canonical caseless rule: CONTROL pytest 0
+.....                                                                    [100%]
+5 passed, 4 deselected in 1.53s
+
+B drop canonical caseless rule: KILLED BY ASSERTION (pytest 1)
+.F
+=================================== FAILURES ===================================
+_____ test_conservative_rule_also_guards_absent_names[\u0390-\u03aa\u0301] _____
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-26/test_conservative_rule_also_gu1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b415eb0>
+left = 'ΐ', right = 'Ϊ́'
+
+    @pytest.mark.parametrize("left,right", [("α\u0345\u0301", "άι"), ("ΐ", "Ϊ\u0301"),
+                                          ("ᾼ\u0342", "α\u0345\u0342"),
+                                          ("ı", "I"), ("re\u200Bsult", "result")])
+    def test_conservative_rule_also_guards_absent_names(tmp_path, monkeypatch, left, right):
+        monkeypatch.setattr(folders, "_case_sensitive", lambda _: False)
+>       assert folders.identity(tmp_path / left) == folders.identity(tmp_path / right)
+E       AssertionError: assert '/private/var...9\u0308\u0301' == '/private/var.../\u03ca\u0301'
+E         
+E         Skipping 130 identical leading characters in diff, use -v to show
+E         - _also_gu1/ΐ
+E         ?           ^
+E         + _also_gu1/ΐ
+E         ?           ^^
+
+tests/unit/test_filesystem_identity_agreement.py:95: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_filesystem_identity_agreement.py::test_conservative_rule_also_guards_absent_names[\u0390-\u03aa\u0301]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 passed, 4 deselected in 1.20s
+
+B drop default-ignorable equivalence: CONTROL pytest 0
+.....                                                                    [100%]
+5 passed, 4 deselected in 0.99s
+
+B drop default-ignorable equivalence: KILLED BY ASSERTION (pytest 1)
+....F
+=================================== FAILURES ===================================
+_____ test_conservative_rule_also_guards_absent_names[re\u200bsult-result] _____
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-28/test_conservative_rule_also_gu4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108b9a3c0>
+left = 're\u200bsult', right = 'result'
+
+    @pytest.mark.parametrize("left,right", [("α\u0345\u0301", "άι"), ("ΐ", "Ϊ\u0301"),
+                                          ("ᾼ\u0342", "α\u0345\u0342"),
+                                          ("ı", "I"), ("re\u200Bsult", "result")])
+    def test_conservative_rule_also_guards_absent_names(tmp_path, monkeypatch, left, right):
+        monkeypatch.setattr(folders, "_case_sensitive", lambda _: False)
+>       assert folders.identity(tmp_path / left) == folders.identity(tmp_path / right)
+E       AssertionError: assert '/private/var.../re\u200bsult' == '/private/var...so_gu4/result'
+E         
+E         Skipping 132 identical leading characters in diff, use -v to show
+E         - lso_gu4/result
+E         + lso_gu4/re​sult
+E         ?           +
+
+tests/unit/test_filesystem_identity_agreement.py:95: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_filesystem_identity_agreement.py::test_conservative_rule_also_guards_absent_names[re\u200bsult-result]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 4 passed, 4 deselected in 1.00s
+
+B drop dotless-i equivalence: CONTROL pytest 0
+.....                                                                    [100%]
+5 passed, 4 deselected in 1.04s
+
+B drop dotless-i equivalence: KILLED BY ASSERTION (pytest 1)
+...F
+=================================== FAILURES ===================================
+__________ test_conservative_rule_also_guards_absent_names[\u0131-I] ___________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-30/test_conservative_rule_also_gu3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106c6e240>
+left = 'ı', right = 'I'
+
+    @pytest.mark.parametrize("left,right", [("α\u0345\u0301", "άι"), ("ΐ", "Ϊ\u0301"),
+                                          ("ᾼ\u0342", "α\u0345\u0342"),
+                                          ("ı", "I"), ("re\u200Bsult", "result")])
+    def test_conservative_rule_also_guards_absent_names(tmp_path, monkeypatch, left, right):
+        monkeypatch.setattr(folders, "_case_sensitive", lambda _: False)
+>       assert folders.identity(tmp_path / left) == folders.identity(tmp_path / right)
+E       AssertionError: assert '/private/var...le_also_gu3/ı' == '/private/var...le_also_gu3/i'
+E         
+E         Skipping 130 identical leading characters in diff, use -v to show
+E         - _also_gu3/i
+E         ?           ^
+E         + _also_gu3/ı
+E         ?           ^
+
+tests/unit/test_filesystem_identity_agreement.py:95: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_filesystem_identity_agreement.py::test_conservative_rule_also_guards_absent_names[\u0131-I]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 3 passed, 4 deselected in 1.07s
+
+M1 winner does not mark other holders superseded: CONTROL pytest 0
+..                                                                       [100%]
+2 passed, 19 deselected in 2.62s
+
+M1 winner does not mark other holders superseded: KILLED BY ASSERTION (pytest 1)
+.F
+=================================== FAILURES ===================================
+__ test_oldest_legacy_alias_exports_and_superseded_releases_all_leases[False] __
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-32/test_oldest_legacy_alias_expor1')
+newer_first = False
+
+    @pytest.mark.parametrize("newer_first", [True, False])
+    def test_oldest_legacy_alias_exports_and_superseded_releases_all_leases(tmp_path, newer_first):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            first, second = legacy_pair(service, harness, tmp_path)
+            # A superseded output must not retain a conversation or attempt slot.
+            service.store.acquire_lease(f"native:claude:{MINIMAL}", second)
+            accept_for_export(service, first, b"oldest\n")
+            accept_for_export(service, second, b"newest\n")
+            for job in ((second, first) if newer_first else (first, second)):
+                if job == second:
+                    service.store.add_notice(second, "finished", "fixture")
+                service._export(job)
+                assert not service.store.list_leases(job)
+                assert not service.store.list_leases(service.store.list_attempts(job)[0]["attempt_id"])
+>           assert (tmp_path / "Result.md").read_bytes() == b"oldest\n"
+E           AssertionError: assert b'newest\n' == b'oldest\n'
+E             
+E             At index 0 diff: b'n' != b'o'
+E             Use -v to get more diff
+
+tests/fake/test_canonical_identity_fix2.py:116: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4456807408:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_oldest_legacy_alias_exports_and_superseded_releases_all_leases[False]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 passed, 19 deselected in 2.53s
+
+M11 any holder publishes (no oldest-wins arbitration): CONTROL pytest 0
+..                                                                       [100%]
+2 passed, 19 deselected in 2.18s
+
+M11 any holder publishes (no oldest-wins arbitration): KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+__ test_oldest_legacy_alias_exports_and_superseded_releases_all_leases[True] ___
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-34/test_oldest_legacy_alias_expor0')
+newer_first = True
+
+    @pytest.mark.parametrize("newer_first", [True, False])
+    def test_oldest_legacy_alias_exports_and_superseded_releases_all_leases(tmp_path, newer_first):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            first, second = legacy_pair(service, harness, tmp_path)
+            # A superseded output must not retain a conversation or attempt slot.
+            service.store.acquire_lease(f"native:claude:{MINIMAL}", second)
+            accept_for_export(service, first, b"oldest\n")
+            accept_for_export(service, second, b"newest\n")
+            for job in ((second, first) if newer_first else (first, second)):
+                if job == second:
+                    service.store.add_notice(second, "finished", "fixture")
+                service._export(job)
+                assert not service.store.list_leases(job)
+                assert not service.store.list_leases(service.store.list_attempts(job)[0]["attempt_id"])
+>           assert (tmp_path / "Result.md").read_bytes() == b"oldest\n"
+E           AssertionError: assert b'newest\n' == b'oldest\n'
+E             
+E             At index 0 diff: b'n' != b'o'
+E             Use -v to get more diff
+
+tests/fake/test_canonical_identity_fix2.py:116: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4413436992:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_oldest_legacy_alias_exports_and_superseded_releases_all_leases[True]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 19 deselected in 2.48s
+
+M12 prepare ignores legacy raw alias keys: CONTROL pytest 0
+...                                                                      [100%]
+3 passed, 21 deselected in 2.40s
+
+M12 prepare ignores legacy raw alias keys: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_ test_output_reservation_rechecks_an_old_alias_inserted_during_preparation[result.md] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-36/test_output_reservation_rechec0')
+alias = 'result.md'
+
+    @pytest.mark.parametrize("alias", ["result.md", "cafe\u0301.md", "OUTPUT/Result.md"])
+    def test_output_reservation_rechecks_an_old_alias_inserted_during_preparation(tmp_path, alias):
+        require_case_aliases(tmp_path)
+        base = tmp_path / "Output"
+        base.mkdir()
+        left = base / ("café.md" if "cafe" in alias else "Result.md")
+        right = tmp_path / alias if "/" in alias else base / alias
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = submit(service, harness, out_path=str(left), caller_session=None)
+            prepare = service._prepare_route
+            def insert(*args):
+                service.store.acquire_lease(f"out:{right}", "legacy-holder")
+                return prepare(*args)
+            patch.setattr(service, "_prepare_route", insert)
+            service._admit()
+>           assert not service.store.list_attempts(job)
+E           AssertionError: assert not [{'attempt_id': '20261009-033831-astra/a1', 'job_id': '20261009-033831-astra', 'seq': 1, 'lane_id': 'codex-1', ...}]
+E            +  where [{'attempt_id': '20261009-033831-astra/a1', 'job_id': '20261009-033831-astra', 'seq': 1, 'lane_id': 'codex-1', ...}] = list_attempts('20261009-033831-astra')
+E            +    where list_attempts = <subfleet.store.Store object at 0x10b0a1f10>.list_attempts
+E            +      where <subfleet.store.Store object at 0x10b0a1f10> = <subfleet.daemon.Daemon object at 0x10b0a3170>.store
+
+tests/fake/test_canonical_identity.py:240: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4480184688:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_output_reservation_rechecks_an_old_alias_inserted_during_preparation[result.md]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 21 deselected in 2.39s
+
+M13 job-holder branch ignores quarantined attempts: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 20 deselected in 1.96s
+
+M13 job-holder branch ignores quarantined attempts: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+__ test_public_open_refuses_a_quarantined_native_owner_even_after_job_is_lost __
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-38/test_public_open_refuses_a_qua0')
+
+    def test_public_open_refuses_a_quarantined_native_owner_even_after_job_is_lost(tmp_path):
+        from subfleet.conversations import catalog
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = revive(service, harness, MINIMAL)
+            service._admit()
+            attempt = service.store.list_attempts(job)[0]
+            service.store.update_job(job, state="lost")
+            service.store.update_attempt(attempt["attempt_id"], state="quarantined")
+            patch.setattr(catalog, "native_session", lambda *_args, **_kw: {
+                "continuable": True, "model_value": "haiku", "permission": "read-only",
+                "cwd": str(harness.workdir), "title": "Native", "lane_id": None})
+>           with pytest.raises(ConversationError, match="live job"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ConversationError
+
+tests/fake/test_canonical_identity_fix2.py:160: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4488748432:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_public_open_refuses_a_quarantined_native_owner_even_after_job_is_lost
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 20 deselected in 2.01s
+
+R01 opaque native IDs incorrectly casefold: CONTROL pytest 0
+......                                                                   [100%]
+6 passed, 4 deselected in 1.75s
+
+R01 opaque native IDs incorrectly casefold: KILLED BY ASSERTION (pytest 1)
+..F
+=================================== FAILURES ===================================
+_____________ test_opaque_native_ids_are_distinct_and_stable[A-a] ______________
+
+left = 'A', right = 'a'
+
+    @pytest.mark.parametrize("left,right", [("a", "b"), ("café", "cafe"), ("A", "a"),
+                                            ("café", "cafe\u0301"), ("a", "a/"), ("a", "x/../a")])
+    def test_opaque_native_ids_are_distinct_and_stable(left, right):
+        # Case, normalization and path syntax are aliases only for their resource
+        # kind: opaque session ids are not UUIDs and are not filesystem paths.
+>       assert canonical_native(left) == left != right == canonical_native(right)
+E       AssertionError: assert 'a' == 'A'
+E         
+E         - A
+E         + a
+
+tests/unit/test_resource_identity.py:39: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_resource_identity.py::test_opaque_native_ids_are_distinct_and_stable[A-a]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 passed, 4 deselected in 2.11s
+
+R02 insensitive comparison applied on sensitive volumes: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 9 deselected in 2.42s
+
+R02 insensitive comparison applied on sensitive volumes: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+__ test_case_sensitive_volume_preserves_distinct_case_and_normalizes_unicode ___
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b74ba10>
+
+    def test_case_sensitive_volume_preserves_distinct_case_and_normalizes_unicode(tmp_path, monkeypatch):
+        monkeypatch.setattr(folders, "_case_sensitive", lambda _: True)
+>       assert folders.identity(tmp_path / "Absent-A") != folders.identity(tmp_path / "Absent-a")
+E       AssertionError: assert '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0/absent-a' != '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0/absent-a'
+E        +  where '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0/absent-a' = <function identity at 0x10b8da840>((PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0') / 'Absent-A'))
+E        +    where <function identity at 0x10b8da840> = folders.identity
+E        +  and   '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0/absent-a' = <function identity at 0x10b8da840>((PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-42/test_case_sensitive_volume_pre0') / 'Absent-a'))
+E        +    where <function identity at 0x10b8da840> = folders.identity
+
+tests/unit/test_resource_identity.py:30: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_resource_identity.py::test_case_sensitive_volume_preserves_distinct_case_and_normalizes_unicode
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 9 deselected in 1.93s
+
+R03 native lease keys lose provider scope: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 9 deselected in 1.49s
+
+R03 native lease keys lose provider scope: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_____________ test_native_keys_are_idempotent_and_provider_scoped ______________
+
+    @settings(max_examples=80, deadline=None, derandomize=True, database=None)
+>   @given(value=st.uuids(), upper=st.booleans(), form=st.sampled_from(["hyphenated", "braced", "urn", "hex"]))
+                   ^^^
+
+tests/unit/test_resource_identity.py:47: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = UUID('e3e70682-c209-4cac-629f-6fbed82c07cd'), upper = False
+form = 'hyphenated'
+
+    @settings(max_examples=80, deadline=None, derandomize=True, database=None)
+    @given(value=st.uuids(), upper=st.booleans(), form=st.sampled_from(["hyphenated", "braced", "urn", "hex"]))
+    def test_native_keys_are_idempotent_and_provider_scoped(value, upper, form):
+        session = value.hex if form == "hex" else str(value)
+        session = session.upper() if upper else session
+        if form == "braced":
+            session = "{" + session + "}"
+        elif form == "urn":
+            session = "urn:uuid:" + session
+        key = resource_leases.native_key("claude", session)
+        assert key == resource_leases.native_key("claude", str(value))
+        assert resource_leases.canonical_native_key(key) == key
+>       assert resource_leases.native_key("codex", session) != key
+E       AssertionError: assert 'native:claude:e3e70682-c209-4cac-629f-6fbed82c07cd' != 'native:claude:e3e70682-c209-4cac-629f-6fbed82c07cd'
+E        +  where 'native:claude:e3e70682-c209-4cac-629f-6fbed82c07cd' = <function native_key at 0x107df7100>('codex', 'e3e70682-c209-4cac-629f-6fbed82c07cd')
+E        +    where <function native_key at 0x107df7100> = resource_leases.native_key
+E       Failing test case: test_native_keys_are_idempotent_and_provider_scoped(
+E           # The test always failed when commented parts were varied together.
+E           value=UUID('e3e70682-c209-4cac-629f-6fbed82c07cd'),  # or any other generated value
+E           upper=False,  # or any other generated value
+E           form='hyphenated',  # or any other generated value
+E       )
+
+tests/unit/test_resource_identity.py:58: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_resource_identity.py::test_native_keys_are_idempotent_and_provider_scoped
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 9 deselected in 4.88s
+
+R04 legacy UUID lease lookup uses exact strings: CONTROL pytest 0
+...                                                                      [100%]
+3 passed, 21 deselected in 5.51s
+
+R04 legacy UUID lease lookup uses exact strings: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_______ test_old_uppercase_native_leases_still_exclude_new_owner[native] _______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-46/test_old_uppercase_native_leas0')
+legacy = 'native'
+
+    @pytest.mark.parametrize("legacy", ["native", "native-session", "session"])
+    def test_old_uppercase_native_leases_still_exclude_new_owner(tmp_path, legacy):
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = revive(service, harness, MINIMAL)
+            key = {"native": f"native:claude:{MINIMAL.upper()}",
+                   "native-session": f"native-session:claude-1:{MINIMAL.upper()}",
+                   "session": f"session:{MINIMAL.upper()}:revive"}[legacy]
+            service.store.acquire_lease(key, "legacy-holder")
+            service._admit()
+>           assert not service.store.list_attempts(job)
+E           AssertionError: assert not [{'attempt_id': '20261009-033911-haiku/a1', 'job_id': '20261009-033911-haiku', 'seq': 1, 'lane_id': 'claude-1', ...}]
+E            +  where [{'attempt_id': '20261009-033911-haiku/a1', 'job_id': '20261009-033911-haiku', 'seq': 1, 'lane_id': 'claude-1', ...}] = list_attempts('20261009-033911-haiku')
+E            +    where list_attempts = <subfleet.store.Store object at 0x10b909e80>.list_attempts
+E            +      where <subfleet.store.Store object at 0x10b909e80> = <subfleet.daemon.Daemon object at 0x10b90afc0>.store
+
+tests/fake/test_canonical_identity.py:96: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4488998848:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_old_uppercase_native_leases_still_exclude_new_owner[native]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 21 deselected in 3.99s
+
+R05 legacy lane guards stop canonicalizing UUIDs: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 23 deselected in 3.71s
+
+R05 legacy lane guards stop canonicalizing UUIDs: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_______ test_old_lane_scoped_native_guard_blocks_a_turn_on_another_lane ________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-48/test_old_lane_scoped_native_gu0')
+
+    def test_old_lane_scoped_native_guard_blocks_a_turn_on_another_lane(tmp_path):
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = submit_turn(service, harness, 1)
+            manifest = service._read_json(service.root / "jobs" / job / "manifest.json")
+            manifest["turn"].update(native_session_id=MINIMAL, provider="codex")
+            service._publish("manifest", service.root / "jobs" / job / "manifest.json",
+                             daemon_module.json_bytes(manifest))
+            service.store.acquire_lease(f"native-session:codex-9:{MINIMAL.upper()}", "legacy-holder")
+            service._admit_turns()
+>           assert not service.store.list_attempts(job)
+E           AssertionError: assert not [{'attempt_id': '20261009-033927-turn-conversation-1/a1', 'job_id': '20261009-033927-turn-conversation-1', 'seq': 1, 'lane_id': 'codex-1', ...}]
+E            +  where [{'attempt_id': '20261009-033927-turn-conversation-1/a1', 'job_id': '20261009-033927-turn-conversation-1', 'seq': 1, 'lane_id': 'codex-1', ...}] = list_attempts('20261009-033927-turn-conversation-1')
+E            +    where list_attempts = <subfleet.store.Store object at 0x107ad9b20>.list_attempts
+E            +      where <subfleet.store.Store object at 0x107ad9b20> = <subfleet.daemon.Daemon object at 0x107adad80>.store
+
+tests/fake/test_canonical_identity.py:111: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4423789952:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_old_lane_scoped_native_guard_blocks_a_turn_on_another_lane
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 23 deselected in 8.24s
+
+R06 revive lease key retains typed UUID spelling: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 23 deselected in 20.59s
+
+R06 revive lease key retains typed UUID spelling: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_____________ test_native_aliases_collide_and_distinct_uuids_admit _____________
+
+    @settings(max_examples=12, deadline=None, derandomize=True, database=None)
+>   @given(value=st.integers(min_value=0, max_value=2**128 - 2), mask=st.integers(0, 2**36 - 1))
+                   ^^^
+
+tests/fake/test_canonical_identity.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/venv312/lib/python3.12/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 10, mask = 68719476735
+
+    @settings(max_examples=12, deadline=None, derandomize=True, database=None)
+    @given(value=st.integers(min_value=0, max_value=2**128 - 2), mask=st.integers(0, 2**36 - 1))
+    @example(value=10, mask=2**36 - 1)
+    @example(value=uuid.UUID(MASKED).int, mask=PREFIX_MASK)
+    @example(value=uuid.UUID(MASKED).int, mask=SUFFIX_MASK)
+    def test_native_aliases_collide_and_distinct_uuids_admit(value, mask):
+        lower = str(uuid.UUID(int=value, version=4))
+        alias = "".join(c.upper() if mask & (1 << i) else c for i, c in enumerate(lower))
+        distinct = str(uuid.UUID(int=value + 1, version=4))
+        assert canonical_native(alias) == lower
+        assert canonical_native(canonical_native(alias)) == canonical_native(alias)
+        assert canonical_native(alias) == canonical_native(alias)
+        with tempfile.TemporaryDirectory(prefix="identity-native-") as directory:
+            with fleet_daemon(Path(directory) / "state") as (service, harness, patch):
+                configure(service, patch)
+                first = revive(service, harness, alias)
+                with pytest.raises(AdapterError, match="live revive"):
+                    revive(service, harness, lower, "claude-2")
+                second = revive(service, harness, distinct, "claude-2")
+                service._admit()
+                assert all(len(service.store.list_attempts(job)) == 1 for job in (first, second))
+                keys = {row["lease_key"] for row in service.store.list_leases()}
+                assert resource_leases.native_key("claude", lower) in keys
+                assert f"native:claude:{alias}" not in keys or alias == lower
+                assert native_session_lease_key("claude-1", lower) in keys
+>               assert revive_lease_key(lower) in keys
+E               AssertionError: assert 'session:00000000-0000-4000-8000-00000000000a:revive' in {'lane:claude-1:slot:1', 'lane:claude-2:slot:1', 'native-session:claude-1:00000000-0000-4000-8000-00000000000a', 'nati...000b', 'native:claude:00000000-0000-4000-8000-00000000000a', 'native:claude:00000000-0000-4000-8000-00000000000b', ...}
+E                +  where 'session:00000000-0000-4000-8000-00000000000a:revive' = revive_lease_key('00000000-0000-4000-8000-00000000000a')
+E               (note: 2 other explicit examples also failed with this error; use Verbosity.verbose to view)
+E               Failing explicit example: test_native_aliases_collide_and_distinct_uuids_admit(
+E                   value=10,
+E                   mask=68_719_476_735,
+E               )
+
+tests/fake/test_canonical_identity.py:82: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4457061440:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4457886064:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4458167328:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_native_aliases_collide_and_distinct_uuids_admit
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 23 deselected in 9.80s
+
+R07 submit ignores live jobs without output leases: CONTROL pytest 0
+....                                                                     [100%]
+4 passed, 20 deselected in 19.94s
+
+R07 submit ignores live jobs without output leases: KILLED BY ASSERTION (pytest 1)
+..F
+=================================== FAILURES ===================================
+_ test_minimized_absent_output_alias_has_one_owner[False-Result.md-result.md] __
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-52/test_minimized_absent_output_a2')
+name = 'Result.md', alias = 'result.md', admit_first = False
+
+    @pytest.mark.parametrize("name,alias", [("Result.md", "result.md"), ("café.md", "cafe\u0301.md")])
+    @pytest.mark.parametrize("admit_first", [True, False])
+    def test_minimized_absent_output_alias_has_one_owner(tmp_path, name, alias, admit_first):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            submit(service, harness, out_path=str(tmp_path / name), caller_session=None)
+            if admit_first:
+                service._admit()
+>           with pytest.raises(AdapterError, match="output|out_path"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE AdapterError
+
+tests/fake/test_canonical_identity.py:198: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4413317072:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_minimized_absent_output_alias_has_one_owner[False-Result.md-result.md]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 passed, 20 deselected in 21.55s
+
+R08 export only frees job-held leases: CONTROL pytest 0
+...                                                                      [100%]
+3 passed, 18 deselected in 4.93s
+
+R08 export only frees job-held leases: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+___ test_export_failure_records_notice_and_releases_leases[accepted-attempt] ___
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-54/test_export_failure_records_no0')
+missing = 'accepted-attempt'
+
+    @pytest.mark.parametrize("missing", ["accepted-attempt", "deliverable", "output-lease"])
+    def test_export_failure_records_notice_and_releases_leases(tmp_path, missing):
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = submit(service, harness, out_path=str(tmp_path / "result.md"), caller_session=None)
+            service._admit()
+            attempt = accept_for_export(service, job, b"done\n")
+            service.store.add_notice(job, "finished", "fixture")
+            if missing == "accepted-attempt":
+                service.store.update_job(job, accepted_attempt_id=None)
+            elif missing == "deliverable":
+                with service.store.transaction("fixture.missing") as tx:
+                    tx.execute("DELETE FROM artifacts WHERE role='deliverable'")
+            else:
+                service.store.release_leases(job, prefix="out:")
+            service._export(job)
+            error = service.store.get_job(job)["export_error"]
+            assert error
+            assert error in service.store.one("SELECT text FROM notices WHERE job_id=?", (job,))["text"]
+            assert not service.store.list_leases(job)
+>           assert not service.store.list_leases(attempt["attempt_id"])
+E           AssertionError: assert not [{'lease_key': 'lane:codex-1:slot:1', 'holder': '20261009-034135-astra/a1', 'acquired_at': '2026-10-09T07:41:35Z', 'expires_at': None}]
+E            +  where [{'lease_key': 'lane:codex-1:slot:1', 'holder': '20261009-034135-astra/a1', 'acquired_at': '2026-10-09T07:41:35Z', 'expires_at': None}] = list_leases('20261009-034135-astra/a1')
+E            +    where list_leases = <subfleet.store.Store object at 0x109865820>.list_leases
+E            +      where <subfleet.store.Store object at 0x109865820> = <subfleet.daemon.Daemon object at 0x109cb7740>.store
+
+tests/fake/test_canonical_identity_fix2.py:228: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4459296576:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix2.py::test_export_failure_records_notice_and_releases_leases[accepted-attempt]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 18 deselected in 15.04s
+
+R09 unavailable identity alters exact path spelling: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 9 deselected in 14.03s
+
+R09 unavailable identity alters exact path spelling: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+______ test_unavailable_identity_never_raises_and_preserves_exact_string _______
+
+    @settings(max_examples=32, deadline=None, derandomize=True, database=None)
+>   @given(name=st.text(alphabet="abcABCéΐİßı\u200b\u0345012-_", min_size=1, max_size=12),
+                   ^^^
+           code=st.sampled_from([errno.EACCES, errno.EIO, errno.ELOOP, errno.ETIMEDOUT]))
+
+tests/unit/test_resource_identity.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = '0', code = 13
+
+    @settings(max_examples=32, deadline=None, derandomize=True, database=None)
+    @given(name=st.text(alphabet="abcABCéΐİßı\u200b\u0345012-_", min_size=1, max_size=12),
+           code=st.sampled_from([errno.EACCES, errno.EIO, errno.ELOOP, errno.ETIMEDOUT]))
+    def test_unavailable_identity_never_raises_and_preserves_exact_string(name, code):
+        with tempfile.TemporaryDirectory(prefix="identity-fallback-") as directory, pytest.MonkeyPatch.context() as patch:
+            def unavailable(_):
+                raise OSError(code, "fixture")
+            patch.setattr(folders, "_case_sensitive", unavailable)
+            path = str(Path(directory) / name)
+>           assert folders.identity(path) == path
+E           AssertionError: assert '/var/folders...ck-v1l1kr_h/0' == '/var/folders...ck-v1l1kr_h/0'
+E             
+E             Skipping 37 identical leading characters in diff, use -v to show
+E             - y7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-v1l1kr_h/0
+E             ?           ^                ^^  ^
+E             + y7m0000gn/t/sf-pr148-fix4.0kwn8g/identity-fallback-v1l1kr_h/0
+E             ?           ^                ^^  ^
+E           Failing test case: test_unavailable_identity_never_raises_and_preserves_exact_string(
+E               # The test always failed when commented parts were varied together.
+E               name='0',  # or any other generated value
+E               code=13,  # or any other generated value
+E           )
+
+tests/unit/test_resource_identity.py:70: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-88wl7p2l/0: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-fnvwyod9/_AéBb: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-c8uancqt/bb: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jxo7lnxu/b1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-or_ylfoc/Aß0cCB_ıé21c: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-zks8t43g/ıCBé: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-f4hcwpgh/AAΐİ2CB-Ac1​: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-bud6wz8p/cİ: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-buz3a8q2/0A: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jcfo48hj/0: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-a3quj0sh/0: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-vg84uwiz/ı1ba: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-hja9ud6c/ΐé​aBcΐ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-p5zzk16z/c0100A: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ziv5pswk/c_0ßΐ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-e2b0ga1p/B: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-5guszzil/_: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-kgt2adcv/ΐͅc​bAC-: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ncp_2jo1/0Cc: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-dvc8es0b/-0BͅcͅBCΐ_ıA: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-p85hx5jf/Aßbı​0ıB1ß: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-nz3g2b2t/0ab_-ß: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-qp08qbgw/​ͅCC1Ac01: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-fsjz046f/b0aİ0aCa: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-2jrfq6i6/ͅΐıéC2Aı​Caİ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-w_v19det/_​C-C-İıé​é1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jy7qfsb8/​__Bͅc0_aͅA: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-3eifs764/ıc​: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-oloy01bw/1bıß__ıcc1-0: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-u3lcv8gm/_2210ac-ΐCΐß: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-lcym69pm/ΐΐbAb: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-odkwrtwz/-ΐAAß-11c: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-thz6ap4u/2ıcAb2İC: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-f1yvya7l/Cΐß-A1ͅͅA_ıİ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-wd2e1lvr/İaA: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-qlth7ruu/ßͅCͅΐß2: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-_nu7s6oj/Aa: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-9_mky976/ΐ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-penwn3ba/ı1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-a3v7nha6/İ1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-nafoi53c/İBͅaa0​: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-3hzoss0j/A-1C-Aaı1ΐ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-q2b2zf8l/ͅ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-tib6p6on/_ßß: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ixg4smjg/0Bͅΐ_é0: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-94kwjkc6/b: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-zfj7oj9c/İAA: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-nx4mk7pa/_​İı1​_ıAΐ​A: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-306cjw3a/ß-bbΐ1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-6fka9xrw/1B​C2ı_ΐB022: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-pfu0t5k8/A2: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-77ltx3on/1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-bxmtxw66/aͅ1cbßC​_ßͅ0: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-6lb__1l2/1bac-C: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-4zobkv3y/éßB: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-hqyfnvdl/İ_ßΐ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-2cmzmw0y/​İC1cıcı: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-q11ikhkw/-A: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-lrdpdlm3/c​c1b: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-cehafnvs/ß: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-c_qwnsqe/aΐéBbA_: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ms4ofayt/c_2cİCc: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jqqpo868/12B_​A2İ20B: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-8kaeg0rv/CA: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-1prhernp/00: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-_r85pw6v/ΐabC: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-5yuemf0f/ΐ_2​-C: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ohlf4_go/bB2ccΐbΐéC2İ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-_yajnyz2/​Bé: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-bw9pjku2/A_ͅ​​B0_C2: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-wek93xb3/ßC: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-idclkthy/ßİ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jv8oycaa/1ıΐ01_ß-Bé: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-0shflrfg/ͅ_éß2ıß: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-wo4gxyax/_aC: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-q5mxmuf2/_-é_bİ12ııͅ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-k4oog4ip/-C1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-4qvkbdnb/A1ı2​ΐ: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ssusb8ds/_2ͅ-a: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-37v5pztz/B-2Bı2İİΐ2B0: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-0t2l2jrs/​AıBCCbC0Aͅ​: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-37q3pduh/c: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-8uqge1_h/ß2_ͅCC2CaaAc: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-u_px0owt/B_1b: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ga9abfy2/​B0éé_B: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-gr6o1xk1/Aé0-: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-7zlzs51q/ΐCaA​AAß2: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-3ry_hzt1/ıßßcͅa12Ba​é: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-cptabjmu/Cßa: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-u2khs7r1/21ééͅéc: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ink4e5t5/Aé​_-ß1cıaB: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-eb8ine5k/2: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-nyyoxyj4/2ac10: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-lcmlvf23/Cͅΐ_ß-ͅ1: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-qxr3af8r/1A: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-r0ggj7xd/11ßabAbB0ΐß2: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-0w71_moz/1éİa: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-8sc_81eg/ΐé: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-yamn1dz9/ıB​_A_: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-izgua4b_/C: [Errno 13] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-f8i75jwf/0: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-0mqlicdk/0: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-hzy8g688/ı1ba: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-e8pem507/ΐé: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-dhhc172m/aΐéBbA_: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-3g454lem/​İC1cıcı: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-61qw7drr/_: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-032ooqat/ßİ: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-up_pzwbi/2: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-b3_jhsb5/_ßß: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-s5i6q_nj/ßͅCͅΐß2: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-o6ns9fjk/c_0ßΐ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-94hov6ez/ßC: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-e0vzcfdc/ΐabC: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-mf5ku3a6/ßİ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-kdlw874f/İ_ßΐ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-8mb34zbr/A-1C-Aaı1ΐ: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-xg8dfq_6/ͅ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-l6lb_vb4/Aé0-: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-5kuk1ato/1éİa: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-42oug1h3/ΐabC: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-3xqep_u6/-0BͅcͅBCΐ_ıA: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-eoe6unp_/_2210ac-ΐCΐß: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-none4cwq/ΐ: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-kytq8ldz/1: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-anvcvxb9/c: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-okh022ir/ΐCaA​AAß2: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-nve0bvez/​AıBCCbC0Aͅ​: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-2cz_nsk8/​B0éé_B: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jt3rtq9t/ͅ: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-15erp2fv/1bıß__ıcc1-0: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-9qixj64w/B_1b: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-d3e2szcc/C: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-j6st_k3f/b: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-5due2kz3/11ßabAbB0ΐß2: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-tf9_l4u1/B: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-i9du1ixh/A-1C-Aaı1ΐ: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-v24y3o6w/B: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-87c7qhgk/ͅΐıéC2Aı​Caİ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-j877aiq5/ß2_ͅCC2CaaAc: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-q7r22l_2/2ac10: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-u4zazcju/B-2Bı2İİΐ2B0: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-3dlcc0jt/2ac10: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-xg2w71r6/ΐ_2​-C: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-jw6pav9z/21ééͅéc: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-683lgnsc/A2: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-tehigsc5/c_2cİCc: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-cggxh5qa/B-2Bı2İİΐ2B0: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-ko119dpq/_ßß: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-5421a_o7/Cͅΐ_ß-ͅ1: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-5514qj8y/2ıcAb2İC: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-kmjd5d1r/_2ͅ-a: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-gninvg6x/b0aİ0aCa: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-esu9vn1u/A-1C-Aaı1ΐ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-2mc71ad9/bB2ccΐbΐéC2İ: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-lduh0q5_/​Bé: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-4wgtohvh/1ıΐ01_ß-Bé: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-90iwd2o_/_: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-veb2y4jf/_: [Errno 60] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-cmojtbgs/B_1b: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-v4pg82m4/ͅ: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-_czgbtqc/bB2ccΐbΐéC2İ: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-utf8pns6/aͅ1cbßC​_ßͅ0: [Errno 5] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-a58xnanx/Aé0-: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-y70hiw7i/bB2ccΐbΐéC2İ: [Errno 62] fixture; using exact string
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/identity-fallback-v1l1kr_h/0: [Errno 13] fixture; using exact string
+=========================== short test summary info ============================
+FAILED tests/unit/test_resource_identity.py::test_unavailable_identity_never_raises_and_preserves_exact_string
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 9 deselected in 11.58s
+
+R10 native continuation key retains typed UUID spelling: CONTROL pytest 0
+.                                                                        [100%]
+1 passed, 23 deselected in 14.86s
+
+R10 native continuation key retains typed UUID spelling: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_____________ test_native_aliases_collide_and_distinct_uuids_admit _____________
+
+    @settings(max_examples=12, deadline=None, derandomize=True, database=None)
+>   @given(value=st.integers(min_value=0, max_value=2**128 - 2), mask=st.integers(0, 2**36 - 1))
+                   ^^^
+
+tests/fake/test_canonical_identity.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/venv312/lib/python3.12/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 10, mask = 68719476735
+
+    @settings(max_examples=12, deadline=None, derandomize=True, database=None)
+    @given(value=st.integers(min_value=0, max_value=2**128 - 2), mask=st.integers(0, 2**36 - 1))
+    @example(value=10, mask=2**36 - 1)
+    @example(value=uuid.UUID(MASKED).int, mask=PREFIX_MASK)
+    @example(value=uuid.UUID(MASKED).int, mask=SUFFIX_MASK)
+    def test_native_aliases_collide_and_distinct_uuids_admit(value, mask):
+        lower = str(uuid.UUID(int=value, version=4))
+        alias = "".join(c.upper() if mask & (1 << i) else c for i, c in enumerate(lower))
+        distinct = str(uuid.UUID(int=value + 1, version=4))
+        assert canonical_native(alias) == lower
+        assert canonical_native(canonical_native(alias)) == canonical_native(alias)
+        assert canonical_native(alias) == canonical_native(alias)
+        with tempfile.TemporaryDirectory(prefix="identity-native-") as directory:
+            with fleet_daemon(Path(directory) / "state") as (service, harness, patch):
+                configure(service, patch)
+                first = revive(service, harness, alias)
+                with pytest.raises(AdapterError, match="live revive"):
+                    revive(service, harness, lower, "claude-2")
+                second = revive(service, harness, distinct, "claude-2")
+                service._admit()
+                assert all(len(service.store.list_attempts(job)) == 1 for job in (first, second))
+                keys = {row["lease_key"] for row in service.store.list_leases()}
+                assert resource_leases.native_key("claude", lower) in keys
+                assert f"native:claude:{alias}" not in keys or alias == lower
+>               assert native_session_lease_key("claude-1", lower) in keys
+E               AssertionError: assert 'native-session:claude-1:00000000-0000-4000-8000-00000000000a' in {'lane:claude-1:slot:1', 'lane:claude-2:slot:1', 'native-session:claude-1:00000000-0000-4000-8000-00000000000A', 'nati...000b', 'native:claude:00000000-0000-4000-8000-00000000000a', 'native:claude:00000000-0000-4000-8000-00000000000b', ...}
+E                +  where 'native-session:claude-1:00000000-0000-4000-8000-00000000000a' = native_session_lease_key('claude-1', '00000000-0000-4000-8000-00000000000a')
+E               (note: 2 other explicit examples also failed with this error; use Verbosity.verbose to view)
+E               Failing explicit example: test_native_aliases_collide_and_distinct_uuids_admit(
+E                   value=10,
+E                   mask=68_719_476_735,
+E               )
+
+tests/fake/test_canonical_identity.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4401698032:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4410977616:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4411177152:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_native_aliases_collide_and_distinct_uuids_admit
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 23 deselected in 17.46s
+
+A01 public open ignores native attempt-holder leases: CONTROL pytest 0
+..                                                                       [100%]
+2 passed, 16 deselected in 12.47s
+
+A01 public open ignores native attempt-holder leases: KILLED BY ASSERTION (pytest 1)
+F
+=================================== FAILURES ===================================
+_______ test_public_open_refuses_native_lease_held_by_attempt_id[False] ________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-60/test_public_open_refuses_nativ0')
+lost = False
+
+    @pytest.mark.parametrize("lost", [False, True])
+    def test_public_open_refuses_native_lease_held_by_attempt_id(tmp_path, lost):
+        from subfleet.conversations import catalog
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            job = revive(service, harness, MINIMAL)
+            service._admit()
+            attempt = service.store.list_attempts(job)[0]
+            key = f"native:claude:{MINIMAL}"
+            service.store.release_leases(job, prefix="native:")
+            service.store.acquire_lease(key, attempt["attempt_id"])
+            if lost:
+                service.store.update_attempt(attempt["attempt_id"], state="quarantined")
+                service.store.update_job(job, state="lost")
+            patch.setattr(catalog, "native_session", lambda *_a, **_k: {
+                "continuable": True, "model_value": "haiku", "permission": "read-only",
+                "cwd": str(harness.workdir), "title": "Native", "lane_id": None})
+>           with pytest.raises(ConversationError) as refused:
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ConversationError
+
+tests/fake/test_canonical_identity_fix3.py:153: Failed
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4454203360:daemon.py:663 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity_fix3.py::test_public_open_refuses_native_lease_held_by_attempt_id[False]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 16 deselected in 7.82s
+
+Results: 26/26 assertion kills
