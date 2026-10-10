@@ -81,9 +81,139 @@ def test_preparing_job_queues_one_build_across_admission_looks(worlds, looks):
 
 def test_mutation_build_restored_inside_pass_is_caught(worlds):
     with worlds() as world:
-        world.patch.setattr(world.core, "_push_workspace_ready", lambda job: True)
+        def synchronous(job):
+            if job.get("push_branch") is not None:
+                world.core._prepare_push_workspace(job, world.core.root / "worktrees" / job["job_id"])
+            return True
+        world.patch.setattr(world.core, "_push_workspace_ready", synchronous)
         with pytest.raises(AssertionError, match="checkout build blocked"):
             build_does_not_block(world, world.patch)
+
+
+def cancellation_after_snapshot(world, patch, *, skip):
+    """Cancel after the pass reads its row, before it consumes a false build."""
+    from subfleet.protocol import KillArgs
+
+    pin_routing(world, patch)
+    core = world.core
+    job = submit(world)
+    entered, release = threading.Event(), threading.Event()
+    snapshot, consume = threading.Event(), threading.Event()
+    errors, calls, gated = [], [], []
+    prepare = host_push.prepare_workspace
+    worker = core._prepare_push_workspace
+
+    def watched(*args, **kwargs):
+        calls.append(threading.current_thread().name)
+        if not skip:
+            entered.set()
+            assert release.wait(30), "test did not release checkout build"
+        return prepare(*args, **kwargs)
+
+    def held_worker(*args, **kwargs):
+        entered.set()
+        assert release.wait(30), "test did not release cancelled worker"
+        return worker(*args, **kwargs)
+
+    patch.setattr(host_push, "prepare_workspace", watched)
+    if skip:
+        patch.setattr(core, "_prepare_push_workspace", held_worker)
+    core._admit_kind("detached")
+    future = core._push_workspaces[job]
+    behind = ordinary(world)
+    ready = core._push_workspace_ready
+
+    def paused(job_row):
+        if job_row["job_id"] == job:
+            snapshot.set()  # _admit_pass already captured this uncancelled row
+            assert consume.wait(30), "test did not release admission snapshot"
+            result = ready(job_row)
+            gated.append(result)
+            return result
+        return ready(job_row)
+
+    def admission():
+        try:
+            core._admit_kind("detached")
+        except BaseException as exc:
+            errors.append(exc)
+
+    patch.setattr(core, "_push_workspace_ready", paused)
+    caller = threading.Thread(target=admission, name="test-admission-snapshot")
+    try:
+        assert entered.wait(30)
+        caller.start()
+        assert snapshot.wait(30)
+        core.kill(KillArgs(job))
+        release.set()
+        future.result(timeout=180)
+        assert not (core.root / "worktrees" / job).exists()
+    finally:
+        release.set()
+        consume.set()
+        if caller.ident is not None:
+            caller.join(30)
+    assert not caller.is_alive()
+    assert errors == []
+    assert gated == [False], "discarded build was marked ready"
+    assert calls == ([] if skip else ["subfleet-push_0"]), "synchronous rebuild after cancellation"
+    assert core._job(job)["state"] == "cancelled"
+    assert core.store.list_attempts(job) == []
+    assert core.store.list_leases(job) == []
+    assert placed(core, behind)
+
+
+@pytest.mark.parametrize("skip", [False, True], ids=["discarded", "skipped"])
+def test_cancelled_build_after_admission_snapshot_never_rebuilds(worlds, skip):
+    with worlds() as world:
+        cancellation_after_snapshot(world, world.patch, skip=skip)
+
+
+def test_mutation_ignoring_discarded_build_result_is_caught(worlds):
+    with worlds() as world:
+        ready = world.core._push_workspace_ready
+
+        def ignored_false(job):
+            future = world.core._push_workspaces.get(job["job_id"])
+            result = ready(job)
+            if future is not None and future.done() and future.exception() is None:
+                return True
+            return result
+        world.patch.setattr(world.core, "_push_workspace_ready", ignored_false)
+        with pytest.raises(AssertionError, match="discarded build was marked ready"):
+            cancellation_after_snapshot(world, world.patch, skip=False)
+
+
+def test_missing_ready_checkout_never_rebuilds_inside_admission(worlds):
+    import shutil
+
+    with worlds() as world:
+        pin_routing(world, world.patch)
+        core = world.core
+        job = submit(world)
+        core._admit_kind("detached")
+        core._push_workspaces[job].result(timeout=180)
+        behind = ordinary(world)
+        ready = core._push_workspace_ready
+
+        def disappeared(job_row):
+            result = ready(job_row)
+            if job_row["job_id"] == job and result:
+                shutil.rmtree(core.root / "worktrees" / job)
+            return result
+
+        def rebuild(*args, **kwargs):
+            raise AssertionError("synchronous rebuild of missing ready checkout")
+
+        world.patch.setattr(core, "_push_workspace_ready", disappeared)
+        world.patch.setattr(host_push, "prepare_workspace", rebuild)
+        core._admit_kind("detached")
+        row = core._job(job)
+        assert (row["state"], row["rc"]) == ("failed", 7)
+        assert "disappeared after preparation" in " ".join(notices(core, job))
+        assert core.store.list_attempts(job) == []
+        assert core.store.list_leases(job) == []
+        assert placed(core, behind)
 
 
 def test_build_cancelled_while_preparing_is_never_placed(worlds):

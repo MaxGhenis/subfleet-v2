@@ -3967,12 +3967,12 @@ class Daemon:
             self._record_answer(lane.lane_id, purpose)              # C-6.14: a keepalive or heal turn answered
         return dataclasses.replace(outcome, evidence=evidence)
 
-    def _prepare_push_workspace(self, job: dict, destination: Path) -> None:
-        """Build off admission without a lane or store lock; then record ownership."""
+    def _prepare_push_workspace(self, job: dict, destination: Path) -> bool:
+        """Build off admission; return whether a whole, owned checkout remains."""
         try:
             current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
             if not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
-                return
+                return False
             host_push.prepare_workspace(self.root, Path(job["workdir"]), job["workdir_head"], destination)
             # Record the whole checkout before exposing readiness. Even if a
             # cancellation and restart lose this future, retention can find it.
@@ -3984,6 +3984,8 @@ class Daemon:
                 # Nothing was launched from this new checkout. A cancellation
                 # during the build must not leave an unrecorded worktree behind.
                 shutil.rmtree(destination)
+                return False
+            return True
         finally:
             self._notify()
 
@@ -4007,8 +4009,7 @@ class Daemon:
         future = self._push_workspaces.get(job_id)
         if future is not None and future.done():
             del self._push_workspaces[job_id]
-            future.result()  # existing admission handlers classify the error
-            return True
+            return future.result()  # existing admission handlers classify the error
         destination = self.root / "worktrees" / job_id
         if future is None:
             if job.get("worktree") or destination.exists():
@@ -5175,6 +5176,16 @@ class Daemon:
                 if not self._push_workspace_ready(job):
                     holds[job["job_id"]] = {"reason": "workspace", "preparing": True}
                     continue
+                if (job.get("push_branch") is not None and job["sandbox"] == "workspace-write"
+                        and not job["in_place"]):
+                    prepared = job.get("worktree") or str(self.root / "worktrees" / job["job_id"])
+                    if not Path(prepared).is_dir():
+                        raise AdapterError("host push workspace disappeared after preparation", code=7,
+                                           fix="resubmit the job to rebuild its checkout")
+                    # Readiness may race cancellation or removal. This local
+                    # ownership snapshot keeps _workspace's direct-call fallback
+                    # out of admission even if the directory disappears now.
+                    job = {**job, "worktree": prepared}
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
