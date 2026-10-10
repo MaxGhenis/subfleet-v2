@@ -79,7 +79,7 @@ def test_total_fallback_bytes_never_exceed_cap(tmp_path, monkeypatch, cap, sizes
         assert allocated == copied <= cap
 
 
-def intake_budget_invariant(root, patch, sizes, cap):
+def intake_budget_invariant(root, patch, sizes, cap, *, mutant=False):
     """Exercise the production accumulator; over-budget intake never reaches Git."""
     source = root / "source"
     gitdir = source / ".git"
@@ -110,6 +110,13 @@ def intake_budget_invariant(root, patch, sizes, cap):
     patch.setattr(host_push, "quarantine", quarantine)
     patch.setattr(host_push, "git", reached_git)
     patch.setattr(host_push, "_clone_object", lambda *args: False)
+    if mutant:
+        original = inspect.getsource(host_push._prepare_workspace)
+        needle = "OBJECT_COPY_CAP - copied_bytes"
+        assert needle in original
+        namespace = dict(host_push.__dict__)
+        exec(compile(original.replace(needle, "OBJECT_COPY_CAP"), "<accumulator mutant>", "exec"), namespace)
+        patch.setattr(host_push, "_prepare_workspace", namespace["_prepare_workspace"])
     with pytest.raises(AdapterError) as refused:
         host_push.prepare_workspace(root, source, head, root / "checkout")
     assert allocated[0] <= cap, "production intake exceeded total budget"
@@ -129,14 +136,8 @@ def test_production_intake_total_bytes_never_exceed_cap(tmp_path, monkeypatch, s
 
 
 def test_mutation_forgetting_cumulative_copy_budget_is_killed(tmp_path, monkeypatch):
-    original = inspect.getsource(host_push._prepare_workspace)
-    needle = "OBJECT_COPY_CAP - copied_bytes"
-    assert needle in original
-    namespace = dict(host_push.__dict__)
-    exec(compile(original.replace(needle, "OBJECT_COPY_CAP"), "<accumulator mutant>", "exec"), namespace)
-    monkeypatch.setattr(host_push, "_prepare_workspace", namespace["_prepare_workspace"])
     with pytest.raises(AssertionError, match="production intake exceeded total budget"):
-        intake_budget_invariant(tmp_path, monkeypatch, [8192, 8192], 8192)
+        intake_budget_invariant(tmp_path, monkeypatch, [8192, 8192], 8192, mutant=True)
 
 
 @settings(max_examples=40, deadline=None,
