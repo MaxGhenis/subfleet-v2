@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import folders
 from . import retention_fs as rfs
 from . import retention_git as rgit
 from . import retention_qos as rqos
@@ -875,6 +876,22 @@ class Retirement:
                     outcome = "rows changed"
                 else:
                     reason = self.ctx.pinned(self.job_id, landed) if self.ctx.pinned else None
+                    # The pins compare `jobs.worktree` as recorded; the journal holds
+                    # the canonical spelling the selecting transaction checked. A turn
+                    # row on it or on a folder inside it (admission fences only a
+                    # turn's own folder, so one may register in a repository nested in
+                    # the tree after selection) keeps the job whatever the recorded
+                    # spelling, or with none recorded (review of 31048e67, F1).
+                    if not reason and j["worktree"] and folders.turn_holds(
+                            lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
+                        reason = "turn-folder"
+                    # And a `worktree:` lease on a folder inside it, held by a
+                    # detached writer in a repository nested there (review of
+                    # 31048e67, F3); the tree's own key is checked below.
+                    if not reason and j["worktree"] and any(
+                            holder != f"retention:{self.job_id}" for _, holder in folders.exclusive_inside(
+                                lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"])):
+                        reason = "worktree-lease"
                     held = {row["lease_key"]: row["holder"] for row in conn.execute(
                         "SELECT lease_key,holder FROM leases WHERE lease_key IN (?,?)",
                         (f"retire:{self.job_id}", f"worktree:{j['worktree']}")).fetchall()}

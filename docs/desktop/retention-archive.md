@@ -227,7 +227,8 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
 
 1. **Select**, in one transaction: re-check the job's pins; take
    `retire:<job>` and `worktree:<path>` for `retention:<job>`. A `retire:` held
-   by a resume, or a worktree lease held by anyone else, keeps the job.
+   by a resume, or a worktree lease held by anyone else on the tree or on a
+   folder inside it (a writer in a repository nested there), keeps the job.
 2. **Begin** (no transaction): find the registration (the tree's gitfile names
    an admin directory directly under `<common>/worktrees` whose `gitdir`
    backlink names this tree), or, when the tree is gone, the registration whose
@@ -597,7 +598,8 @@ remainder, so no half-deleted tree is left where retention works. A
 A job is kept while any of these holds (C-8.4, unchanged from `release/217`
 except salvage): it is not terminal; it is a gate review; an attempt is live or
 quarantined; an unread notice addressed to a session; it is a parent of any
-job; it or an attempt holds a lease; another holder has its worktree lease; a
+job; it or an attempt holds a lease; another holder has its worktree lease, or,
+for a job with its own allocated tree, a worktree lease on a folder inside it; a
 resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
 cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again

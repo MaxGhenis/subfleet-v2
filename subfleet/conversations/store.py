@@ -221,7 +221,7 @@ def canonical_native(session_id: Any) -> Any:
         parsed = str(uuid.UUID(session_id))
     except (ValueError, AttributeError, TypeError):
         return session_id
-    return parsed if parsed == session_id.lower() else session_id
+    return parsed
 
 
 def validate_settings(provider: str, settings: Any) -> dict:
@@ -1854,8 +1854,11 @@ def status_summary(root: str | Path, *, limit: int = STATUS_ITEMS, timeout_s: fl
     return {"available": True, "counts": counts, "items": items, "truncated": len(rows) > len(items)}
 
 
-#: A binding by native id, matched without regard to the case of a UUID's hex digits.
-_NATIVE_MATCH = "provider=? AND (native_session_id=? OR (? AND lower(native_session_id)=?))"
+#: Old rows may contain any of the conventional UUID spellings as well as case
+#: aliases. Keep opaque ids exact; the expanded comparison is UUID-only.
+_UUID_SPELLINGS = 8
+_UUID_PARAMS = ",".join("?" for _ in range(_UUID_SPELLINGS))
+_NATIVE_MATCH = f"provider=? AND (native_session_id=? OR (? AND lower(native_session_id) IN ({_UUID_PARAMS})))"
 
 
 def native_any_case(column: str, native_session_id: str) -> tuple[str, tuple]:
@@ -1864,9 +1867,9 @@ def native_any_case(column: str, native_session_id: str) -> tuple[str, tuple]:
     digits on either side (C-26.3, review L1). An id that is not a UUID is matched
     exactly. Any store's column: the conversation store's bindings and the main
     store's turn attempts (`Daemon._conversation_binding`) alike."""
-    _, native, is_uuid, lowered = _native_params("claude", native_session_id)
-    return (f"({column} IN (?, ?) OR (? AND lower({column})=?))",
-            (native_session_id, native, is_uuid, lowered))
+    _, native, is_uuid, *aliases = _native_params("claude", native_session_id)
+    return (f"({column} IN (?, ?) OR (? AND lower({column}) IN ({_UUID_PARAMS})))",
+            (native_session_id, native, is_uuid, *aliases))
 
 
 def _native_params(provider: str, native_session_id: str) -> tuple:
@@ -1875,7 +1878,13 @@ def _native_params(provider: str, native_session_id: str) -> tuple:
         is_uuid = str(uuid.UUID(native)) == native
     except (ValueError, AttributeError, TypeError):
         is_uuid = False
-    return provider, native, int(is_uuid), native
+    if is_uuid:
+        bases = (native, native.replace("-", ""))
+        aliases = tuple(prefix + wrapped for base in bases for wrapped in (base, "{" + base + "}")
+                        for prefix in ("", "urn:uuid:"))
+    else:
+        aliases = (native,) * _UUID_SPELLINGS
+    return provider, native, int(is_uuid), *aliases
 
 
 def _decode_conversation(row: dict) -> dict:

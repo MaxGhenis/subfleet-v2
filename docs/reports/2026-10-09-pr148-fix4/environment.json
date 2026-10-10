@@ -1,0 +1,18 @@
+{
+  "python312": "3.12.14 (main, Sep  1 2026, 14:09:38) [Clang 22.1.3 ]",
+  "pytest": "9.1.1",
+  "hypothesis": "6.168.1",
+  "temporary": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/",
+  "base": "82cc04e47bf1586299feec44fe246cc77628e89e",
+  "reviewer_sources": {
+    "test_rollback_r4.py": "0a833c98c654a9765e18e9fe90d45c24e41788c41fb84d8b275ec73de9af46d9",
+    "test_output_loop_r4.py": "cfbf48a3b1aba1e54555a9d3422e14fd98b836e55644a603f8c5952d1dab709a",
+    "extra_mutations_recreated.py": "4da7b03f6cc73a89d728d035f98c9628b112be30a2f1120e7e16e619fe41ea45"
+  },
+  "rules": "No live state, subagents, background processes, parallel pytest, history rewrites, or pushes.",
+  "python314": "3.14.4 (main, Apr 14 2026, 14:46:33) [Clang 22.1.3 ]",
+  "pytest314": "9.1.1",
+  "hypothesis314": "6.168.1",
+  "code_head": "b262588922d33066395eff9801e15913928e7816",
+  "temporary_removed": true
+}
