@@ -40,6 +40,16 @@ file (as when its memory is current). With `stale=True` it may: that is the
 re-save of a value the mirror changed after the app's load, the known limit
 in the 2026-09-24 report.
 
+The publish also carries the session's date (`lastActivityAt`), which the
+flag's decision never reads: `tests/mirror_activity_model.py` is its twin. To
+this model the date is only a wider batch. `also` names the copies whose flag
+already holds the decided value and that the publish checks all the same,
+because the pass decided to raise their date; `skip` names those of them the
+pre-check found already raised by the app, which it does not write. Both are
+arbitrary here (any subset), so every property below holds whatever the date
+does. A copy in `also` holds the session like any other if its flag moved, and
+a write of one that finds it rewritten puts the batch back.
+
 What the model does not cover: an app rename landing between the code's last
 signature check and its own `os.replace` (a window of one syscall), which the
 code can narrow but not close with rename(2).
@@ -49,7 +59,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, replace
-from typing import Iterator
+from itertools import combinations
+from typing import Iterable, Iterator
 
 IDLE, DECIDED, PUBLISHING = "idle", "decided", "publishing"
 CONFLICT = "conflict"
@@ -64,6 +75,9 @@ class State:
     phase: str = IDLE
     snap: tuple[bool, ...] | None = None
     decided: bool | None = None
+    #: From the decision to the end of the pass: the copies the publish checks
+    #: for the date's sake, though their flag needs no write.
+    also: frozenset[int] = frozenset()
     #: While publishing: the copies still to write, in path order.
     pending: tuple[int, ...] = ()
     #: While publishing: the copies this publish has written.
@@ -101,8 +115,8 @@ def _touch(state: State, account: int) -> frozenset[int]:
 
 
 def _idle(state: State) -> State:
-    return replace(state, phase=IDLE, snap=None, decided=None, pending=(), written=(),
-                   touched=frozenset())
+    return replace(state, phase=IDLE, snap=None, decided=None, also=frozenset(), pending=(),
+                   written=(), touched=frozenset())
 
 
 def _finish(state: State, copy: tuple[bool, ...]) -> State:
@@ -149,11 +163,12 @@ def focus(state: State, account: int) -> State:
     return replace(state, touched=_touch(state, account))
 
 
-def pass_decide(state: State) -> State | None:
+def pass_decide(state: State, also: Iterable[int] = ()) -> State | None:
+    """`also`: the copies the pass decided to raise the date of (any subset)."""
     if state.phase != IDLE:
         return None
     return replace(state, phase=DECIDED, snap=state.copy,
-                   decided=decide(state.copy, state.base))
+                   decided=decide(state.copy, state.base), also=frozenset(also))
 
 
 def dirty(state: State) -> tuple[int, ...]:
@@ -161,19 +176,27 @@ def dirty(state: State) -> tuple[int, ...]:
     return tuple(a for a, seen in enumerate(state.snap) if seen != state.decided)
 
 
+def checked(state: State) -> tuple[int, ...]:
+    """Every copy in the session's batch: the pre-check reads each of them."""
+    return tuple(sorted(set(dirty(state)) | state.also))
+
+
 def held(state: State) -> bool:
     assert state.snap is not None
-    return any(state.copy[a] != state.snap[a] for a in dirty(state))
+    return any(state.copy[a] != state.snap[a] for a in checked(state))
 
 
-def pass_check(state: State) -> State | None:
+def pass_check(state: State, skip: Iterable[int] = ()) -> State | None:
+    """`skip`: the copies in `also` that need no write after all (the app saved
+    a later date there since the pass read them)."""
     if state.phase != DECIDED:
         return None
     if held(state):
         return _idle(state)                 # nothing written, base kept
-    if not dirty(state):
+    pending = tuple(sorted(set(dirty(state)) | (state.also - frozenset(skip))))
+    if not pending:
         return _finish(state, state.copy)
-    return replace(state, phase=PUBLISHING, pending=dirty(state), written=(),
+    return replace(state, phase=PUBLISHING, pending=pending, written=(),
                    touched=frozenset())
 
 
@@ -213,7 +236,16 @@ def cancel(state: State) -> State | None:
     return _idle(state)
 
 
-def successors(state: State, *, stale: bool) -> Iterator[tuple[str, State]]:
+def subsets(items: Iterable[int]) -> Iterator[frozenset[int]]:
+    pool = sorted(items)
+    for size in range(len(pool) + 1):
+        for chosen in combinations(pool, size):
+            yield frozenset(chosen)
+
+
+def successors(state: State, *, stale: bool, dates: bool = True) -> Iterator[tuple[str, State]]:
+    """Every enabled action. `dates=False` leaves `also` empty, which is the
+    protocol with the date sync switched off."""
     accounts = len(state.copy)
     for a in range(accounts):
         nxt = load(state, a)
@@ -228,8 +260,13 @@ def successors(state: State, *, stale: bool) -> Iterator[tuple[str, State]]:
         nxt = user_set(state, value)
         if nxt is not None:
             yield f"user_set({value})", nxt
-    for name, step in (("pass_decide", pass_decide), ("pass_check", pass_check),
-                       ("pass_write", pass_write), ("cancel", cancel)):
+    if state.phase == IDLE:
+        for also in (subsets(range(accounts)) if dates else (frozenset(),)):
+            yield "pass_decide", pass_decide(state, also)
+    if state.phase == DECIDED:
+        for skip in subsets(state.also):
+            yield "pass_check", pass_check(state, skip)
+    for name, step in (("pass_write", pass_write), ("cancel", cancel)):
         nxt = step(state)
         if nxt is not None:
             yield name, nxt
@@ -266,7 +303,10 @@ def check_step(before: State, label: str, after: State) -> list[str]:
             broken.append("hold-writes-nothing")
         if held(before) and after.base != before.base:
             broken.append("hold-writes-nothing")
-        if not held(before) and not dirty(before) and after.base != before.decided:
+        if not held(before) and after.phase == IDLE and after.base != before.decided:
+            broken.append("base-agreement")
+        # A publish writes every copy whose flag differs, whatever the date asks.
+        if not held(before) and not set(dirty(before)) <= set(after.pending):
             broken.append("base-agreement")
     if label == "pass_write":
         # No lost update: the mirror writes only a copy nobody rewrote since it
@@ -303,16 +343,21 @@ def check_step(before: State, label: str, after: State) -> list[str]:
 
 def converges_in_one_clean_pass(state: State) -> bool:
     """From an idle state, one pass with nothing written in between leaves
-    every copy and the base equal to the value decided."""
+    every copy and the base equal to the value decided, whichever copies the
+    date adds to its batch."""
     if state.phase != IDLE:
         return True
-    decided = pass_decide(state)
-    after = pass_publish(decided)
-    return all(value == decided.decided for value in after.copy) and after.base == decided.decided
+    for also in subsets(range(len(state.copy))):
+        decided = pass_decide(state, also)
+        after = pass_publish(decided)
+        if not (all(value == decided.decided for value in after.copy)
+                and after.base == decided.decided):
+            return False
+    return True
 
 
-def explore(accounts: int = 3, *, stale: bool,
-            roots: list[State] | None = None) -> tuple[int, dict[str, tuple]]:
+def explore(accounts: int = 3, *, stale: bool, roots: list[State] | None = None,
+            dates: bool = True) -> tuple[int, dict[str, tuple]]:
     """Breadth-first over every reachable state; returns (states, first
     counterexample trace per broken property)."""
     if roots is None:
@@ -325,7 +370,7 @@ def explore(accounts: int = 3, *, stale: bool,
         trace = seen[state]
         if not converges_in_one_clean_pass(state):
             broken.setdefault("convergence", trace)
-        for label, nxt in successors(state, stale=stale):
+        for label, nxt in successors(state, stale=stale, dates=dates):
             for name in check_step(state, label, nxt):
                 broken.setdefault(name, trace + (label,))
             if nxt not in seen:
