@@ -7,11 +7,12 @@ record the resulting state. The shared connection is serialized across workers.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import threading
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -48,6 +49,46 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def notice_fingerprint(row: Mapping[str, Any]) -> str:
+    """C-15.8: what a listed notice is beyond its id: its creation time and a digest
+    of its text. A notice's id is reused once the newest row is deleted (neither
+    notice table has AUTOINCREMENT), so `--ack` and `--withdraw` act on a row only
+    while it still has the fingerprint the listing showed. Two rows alike in id,
+    session, creation second and text are one notice to the session that reads it."""
+    digest = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return f"{row['created_at']} {digest}"
+
+
+#: C-15.8: the columns `notices` lists, common to job and service notices.
+NOTICE_COLUMNS = "notice_id, session_id, text, state, transport, created_at, offered_at, acknowledged_at"
+
+
+def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id: str | None = None,
+                *, resolved: bool = False) -> list[dict[str, Any]]:
+    """C-15.8: a session's notices (every session's when None), as `notices` lists them.
+
+    Unresolved (`pending` or `offered`) only, unless `resolved`: then also the
+    `surfaced` and `acknowledged` rows retention still keeps (C-23.26). A
+    service notice carries its id negated and no job, as `notice.pending`
+    returns it, so one id names one row across both tables. Ordered by session
+    (a job notice with no caller session sorts first, as ""), then creation.
+    """
+    where, params = [], []
+    if session_id is not None:
+        where.append("session_id=?")
+        params.append(session_id)
+    if not resolved:
+        where.append("state IN ('pending','offered')")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS}, job_id FROM notices{clause}", params)]
+    rows += [{**dict(row), "notice_id": -dict(row)["notice_id"], "job_id": None}
+             for row in query(f"SELECT {NOTICE_COLUMNS} FROM service_notices{clause}", params)]
+    rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    for row in rows:
+        row["fingerprint"] = notice_fingerprint(row)            # what `--ack`/`--withdraw` send back
+    return rows
+
+
 class SchemaVersionError(RuntimeError):
     code = 1
 
@@ -58,6 +99,10 @@ class Store:
         self.read_only = read_only if readonly is None else readonly
         self._lock = threading.RLock()
         self._depth = 0
+        # Bumped by every committed top-level transaction that changed a row.
+        # A reader compares it without taking `_lock` (an int read is atomic)
+        # to learn whether anything it derived from the store can have changed.
+        self.generation = 0
         if not self.read_only:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
@@ -157,6 +202,8 @@ class Store:
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
+                if depth == 0 and self.connection.total_changes != before:
+                    self.generation += 1
             except BaseException:
                 if depth == 0:
                     self.connection.rollback()
@@ -387,11 +434,22 @@ class Store:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
 
     def put_closure(self, closure: Closure) -> int:
-        with self.transaction("closure.recorded", lane_id=closure.lane_id):
+        """One open closure per lane and scope: a later end extends the row in place.
+
+        Every call leaves a `closure.recorded` event for the lane, including a
+        limit reported again that ends no later than the open row's and so
+        changes nothing in it (C-18.3). That event is the only trace of such a
+        report, and a busy lane's usage read looks for it before it releases
+        the closure. The row is rewritten as it is so that the transaction has a
+        change to record.
+        """
+        with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
             existing = self.one("SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope))
             if existing:
                 if closure.until_at > existing["until_at"]:
                     self._update("closures", "closure_id", existing["closure_id"], asdict(closure))
+                else:
+                    conn.execute("UPDATE closures SET until_at=until_at WHERE closure_id=?", (existing["closure_id"],))
                 return existing["closure_id"]
             return self._insert("closures", {**asdict(closure), "created_at": utc_now()})
 

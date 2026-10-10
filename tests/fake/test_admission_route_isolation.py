@@ -947,8 +947,8 @@ def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
     service.store.add_closure(Closure("codex-1", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
                                       ClockSource.REPORTED, "fixture"))
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
-    fable = service.policy["models"]["fable"]["id"]
-    _transient_on(service, job_id, "claude-a", fable)                  # the pair: fable, not the chain's opus
+    sonnet = service.policy["models"]["sonnet"]["id"]
+    _transient_on(service, job_id, "claude-a", sonnet)                 # the pair: sonnet, not the chain's opus
     service.store.update_lane("claude-a", desktop=1)
     service._admit()
     assert [row["state"] for row in service.store.list_attempts(job_id)] == ["failed"]
@@ -957,7 +957,7 @@ def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
     service.store.update_job(job_id, next_check_at=utcnow())
     service._admit()
     last = service.store.list_attempts(job_id)[-1]
-    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)
+    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", sonnet)
 
 
 def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet):
@@ -971,12 +971,12 @@ def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet)
     older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
     service.store.update_job(older, state="waiting", wait_reason="capacity", next_check_at=after(600))
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
-    fable = service.policy["models"]["fable"]["id"]
-    _transient_on(service, job_id, "claude-a", fable)
+    sonnet = service.policy["models"]["sonnet"]["id"]
+    _transient_on(service, job_id, "claude-a", sonnet)
     service._retry_verdicts[job_id] = (job_id + "/a1", False)         # a look let the pin go
     service._admit()
     last = service.store.list_attempts(job_id)[-1]
-    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", fable)
+    assert (last["state"], last["lane_id"], last["model_requested"]) == ("reserved", "claude-a", sonnet)
 
 
 def test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once(fleet):
@@ -1018,3 +1018,26 @@ def test_c4_5_finalization_counts_transients_on_a_lane_and_its_successor_as_one(
     service.store.put_lane(claude_lane("claude-z", label="z@example.invalid"))
     elsewhere = {**second, "lane_id": "claude-z"}
     assert service._earlier_transients(service.store.connection, job_id, elsewhere) == 0
+
+
+@pytest.mark.parametrize("error", [AttributeError("'NoneType' object has no attribute 'get'"),
+                                   IndexError("list index out of range")])
+def test_c6_12_any_evaluation_error_of_one_job_is_that_jobs(fleet, monkeypatch, error):
+    """C-6.12 an AttributeError or IndexError raised while evaluating one job's route (a malformed
+    policy such as a `reserve` list, or a defect in evaluation or the capacity view) is handled like a
+    KeyError: the job waits on `route` and the pass goes on."""
+    service, harness = fleet
+    broken = submit(service, harness, pinned_model="astra")
+    later = submit(service, harness, pinned_model="terra")
+    real = service._pick
+
+    def pick(job, **options):
+        if job["job_id"] == broken:
+            raise error
+        return real(job, **options)
+    monkeypatch.setattr(service, "_pick", pick)
+    service._admit()
+    assert admitted(service, later)
+    job = service.store.get_job(broken)
+    assert job["state"] == "waiting" and job["wait_reason"] == "route"
+    assert service._holds[broken]["error_type"] == type(error).__name__

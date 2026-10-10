@@ -15,6 +15,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from ..policy import RETIRED_MODELS, PolicyError, resolve_model
 from ..store import utc_now
 from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
@@ -28,6 +29,15 @@ from .verdict import (VerdictFormatError, clip, decode_output, parse_verdict,
 _INIT_LOCK = threading.Lock()
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
+#: The peers a gate dispatches: Astra for a Claude main, Opus for a Codex main.
+#: `sol` and `fable` stay accepted as retired spellings of their successors (C-17.2).
+PEERS = ("astra", "opus")
+CLAUDE_PEERS = frozenset({"opus"})
+
+
+def current_peer(peer: str) -> str:
+    """The peer a new round dispatches: a retired peer's successor, else the peer itself."""
+    return RETIRED_MODELS.get(peer, peer)
 
 
 def read_context(path: str | None, label: str) -> str:
@@ -45,8 +55,8 @@ def read_context(path: str | None, label: str) -> str:
 def routing(args, peer: str) -> tuple[str | None, tuple[str, ...]]:
     account = getattr(args, "peer_account", None)
     exclusions = tuple(dict.fromkeys(getattr(args, "exclude_account", None) or []))
-    if (account is not None or exclusions) and peer != "fable":
-        raise GateError("--peer-account and --exclude-account require a Claude peer (fable)")
+    if (account is not None or exclusions) and current_peer(peer) not in CLAUDE_PEERS:
+        raise GateError("--peer-account and --exclude-account require a Claude peer (opus)")
     if any(not isinstance(x, str) or not x.strip() for x in (*exclusions, *([account] if account is not None else []))):
         raise GateError("peer account routing requires nonempty account names")
     if account is not None and account.casefold() in {x.casefold() for x in exclusions}:
@@ -89,9 +99,9 @@ def preview(args, root: Path, *, runner=subprocess.run, policy: dict | None = No
             raise GateError("invalid gate id")
         state = load_state(root / "gates" / args.gate_id)
         subject, _ = capture(state, runner=runner)
-        peer = state["peer"]
+        peer = current_peer(state["peer"])
     else:
-        peer = "astra" if args.peer == "sol" else args.peer
+        peer = current_peer(args.peer)
         cwd = Path(args.workdir or Path.cwd()).expanduser().resolve()
         if args.gate_command == "plan":
             source = Path(args.target).expanduser()
@@ -181,9 +191,9 @@ class GateService:
 
     def start(self, args):
         from .merge import capture_pr, verify_pr_workspace
-        peer = "astra" if args.peer == "sol" else args.peer
-        if peer not in {"fable", "astra"}:
-            raise GateError("--peer must be fable, astra, or sol")
+        peer = current_peer(args.peer)
+        if peer not in PEERS:
+            raise GateError("--peer must be astra or opus (sol and fable are retired)")
         account, exclusions = routing(args, peer)
         limit = round_limit(args.max_rounds, self.daemon.policy)
         if not args.main_approve:
@@ -210,9 +220,11 @@ class GateService:
         main_model = getattr(args, "main_model", None)
         peer_family = self.daemon.policy["models"][peer]["provider"]
         if main_model:
-            model = self.daemon.policy["models"].get(main_model)
-            if not model:
-                raise GateError("unknown --main-model")
+            # A retired name or an exact id still names its family (C-11.1).
+            try:
+                model = self.daemon.policy["models"][resolve_model(self.daemon.policy, main_model, note=False)]
+            except PolicyError:
+                raise GateError("unknown --main-model") from None
             main_family = model["provider"]
             if main_family == peer_family:
                 raise GateError("main and peer must be different model families")
@@ -242,6 +254,13 @@ class GateService:
         prior = rounds[-1] if rounds else {}
         if prior.get("status") == "changes_requested" and prior.get("revision") == expected and not response.strip():
             raise GateError("artifact is unchanged after changes requested; change it or pass --response FILE", 3)
+        if current_peer(state["peer"]) != state["peer"]:
+            # A gate opened before its peer was retired continues on the successor,
+            # which is of the same family; its earlier rounds keep the peer they
+            # ran on, and the certificate names the peer of the agreeing round.
+            # Saved with the prepared round below, never on its own, so a failure
+            # before then leaves the gate as it was.
+            state.update(peer=current_peer(state["peer"]), retired_peer=state["peer"])
         stamp = utc_now()
         record = {"number": len(rounds) + 1, "attempt_id": uuid.uuid4().hex,
                   "started_at": stamp, "finished_at": None, "revision": expected,
@@ -418,6 +437,8 @@ class GateService:
             if not job or job["state"] != "succeeded" or job["rc"] != 0:
                 raise GateError(f"peer dispatch exited {job.get('rc') if job else 'without a job'}", 4)
             attempt = self.store.get_attempt(job["accepted_attempt_id"])
+            if attempt:
+                self._retire_round_peer(state, record, attempt)
             if not attempt or attempt["model_requested"] != record["requested_model"]:
                 raise GateError("peer attempt requested a different model", 4)
             evidence = json.loads(attempt.get("evidence_json") or "{}")
@@ -503,6 +524,23 @@ class GateService:
         if retry:
             return self._reserve(state, expected, "", record.get("peer_account"), tuple(record.get("exclude_accounts", [])))
         return self._complete(state) if state["status"] == "agreed" else self._result(state)
+
+    def _retire_round_peer(self, state, record, attempt):
+        """C-17.2: a round submitted on a peer that was retired before it ran.
+
+        The daemon resolves the round's pinned `fable` through the policy's
+        `retired` map when it dispatches, so the attempt asked for Opus. The round
+        then records the model that actually reviewed, and the gate moves to that
+        peer with it; an attempt that asked for any other model still fails.
+        """
+        peer = record.get("peer", state["peer"])
+        successor = current_peer(peer)
+        model = self.daemon.policy["models"].get(successor)
+        if successor == peer or not model or attempt["model_requested"] != model["id"]:
+            return
+        record.update(retired_peer=peer, peer=successor, requested_model=model["id"])
+        if state["peer"] != successor:
+            state.update(retired_peer=state["peer"], peer=successor)
 
     def continue_gate(self, args):
         with self._lock(args.gate_id):

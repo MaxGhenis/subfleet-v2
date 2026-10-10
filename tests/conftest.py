@@ -165,6 +165,19 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_process_caches():
+    """C-5.12, C-10.3: one boot-identity read serves a few seconds and one parse of
+    the login file serves until it changes, and tests stub both, so none may
+    inherit another's."""
+    from subfleet import capacity, procs
+    procs.forget_boot_id()
+    capacity.forget_desktop_account()
+    yield
+    procs.forget_boot_id()
+    capacity.forget_desktop_account()
+
+
+@pytest.fixture(autouse=True)
 def no_desktop_login(monkeypatch):
     """`~/.claude.json` belongs to whoever runs the tests, and the desktop app's
     keychain item holds their real credential. No test reads either by accident
@@ -182,6 +195,23 @@ def no_desktop_login(monkeypatch):
                         lambda path=None: {} if path is None else identity(path))
     monkeypatch.setattr(ClaudeAdapter, "probe_desktop_profile",
                         lambda self: ProfileResult(PROFILE_UNAVAILABLE, detail="no desktop in tests"))
+
+
+@pytest.fixture(autouse=True)
+def no_desktop_store(tmp_path_factory, monkeypatch):
+    """The desktop app's session store and log, and `~/.claude`, belong to
+    whoever runs the tests.
+
+    The sidebar mirror copies into the store, reads the log, and reads
+    `~/.claude` (its saved options and the transcripts), and a daemon under test
+    runs the mirror on a 2 s timer, so no test may reach any of them by
+    accident (C-23.28). All three point at paths that do not exist; a test that
+    wants one says where it is, and its `setenv` wins.
+    """
+    base = tmp_path_factory.mktemp("desktop")
+    monkeypatch.setenv("SUBFLEET_SESSION_STORE", str(base / "claude-code-sessions"))
+    monkeypatch.setenv("SUBFLEET_DESKTOP_LOG", str(base / "logs" / "main.log"))
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(base / "claude"))
 
 
 def profile_body(email: str = LANE_EMAIL, account_uuid: str = LANE_ACCOUNT_UUID,

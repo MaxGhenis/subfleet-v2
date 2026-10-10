@@ -268,7 +268,7 @@ def test_plan_peer_process_finalizes_through_real_daemon(daemon):
     repository = Path(__file__).resolve().parents[2]
     completed = subprocess.run(
         [sys.executable, "-m", "subfleet", "gate", "plan", str(plan), "--peer", "astra",
-         "--main-model", "fable", "--main-approve", "--expect-sha256",
+         "--main-model", "opus", "--main-approve", "--expect-sha256",
          hashlib.sha256(plan.read_bytes()).hexdigest(), "--json"],
         cwd=repository, env={**os.environ, "SUBFLEET_HOME": str(daemon.root),
                              "PYTHONPATH": str(repository)},

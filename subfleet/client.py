@@ -4,6 +4,18 @@ One request line, one response line (C-16.1). The client is the only place in
 the CLI that knows about sockets; every verb either gets a result dict back or
 sees `DaemonUnavailable`, which the CLI maps to exit 69 (C-17.3).
 
+Connecting is the line between "not sent" and "not known" (C-16.3). A refused
+connection means the request never reached a daemon, so it is
+`DaemonUnavailable`. Anything that goes wrong after the connection is made (a
+timeout, a reset, a close with no answer, a line that cannot be decoded) is
+`ResponseLost`: the daemon may have committed the request and written its
+answer after the client stopped reading. `Client.call_settled` sends an
+idempotent request (`submit`, `kill`) once more with the same request id before
+it will call the outcome unknown (incident: 2026-09-24, a `run --batch` entry
+reported "NOT submitted" had been committed about a second before the 15 s
+deadline, and the manual retry, under a fresh request id, created a duplicate
+job).
+
 Liveness has two sources of truth. The socket answering is the strong one. The
 weak one is `daemon.lock`, whose recorded identity the CLI treats as no daemon
 when the recorded process is provably gone (C-5.8): a stale socket file left by
@@ -18,19 +30,22 @@ so the CLI does not import the daemon-side `procs` module.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import random
 import re
 import socket
 import subprocess
 import time
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 from . import boot_identity
 
 from .contracts import Exit
-from .protocol import (PROTOCOL_VERSION, ProtocolError, Request, Response,
+from .protocol import (PROTOCOL_VERSION, ListArgs, ProtocolError, Request, Response,
                         decode_response, encode)
 
 TABLE_CODES = {int(code) for code in Exit}          # C-17.3
@@ -39,9 +54,28 @@ SOCKET_NAME = "daemon.sock"
 LOCK_NAME = "daemon.lock"
 LOG_NAME = "daemon.log"
 DEFAULT_TIMEOUT_S = 15.0
+# C-16.3: the deadline of the one re-send of an unanswered `submit` or `kill`.
+# Longer than the first on purpose: a daemon that did not answer in 15 s is busy
+# (submit runs under one lock on the shared worker pool, C-16.4), and the re-send
+# waits behind the request it repeats.
+REQUERY_TIMEOUT_S = 60.0
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 DEFAULT_STATE_ROOT = "~/.subfleet"
+#: C-16.7: the errors of a request's send that met a socket the daemon had
+#: already answered and closed (at its connection cap it answers `busy` before
+#: reading): BrokenPipeError (EPIPE, ESHUTDOWN), ConnectionResetError, and, on
+#: macOS when the close races the send, ENOTCONN (errno 57). Measured against a
+#: unix-socket server that answers and closes at once, 8,000 sends under Python
+#: 3.12 and 3.14: 510 met EPIPE and 6 ENOTCONN, and the answer was readable
+#: after every one of them.
+SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESET,
+                                   errno.ENOTCONN})
 START_DAEMON_FIX = "subfleet daemon start"
+#: C-16.7: the first pause before a busy answer's request is sent again.
+BUSY_PAUSE_S = .05
+#: The clock and sleep `Client.call`'s busy retries use; tests replace these.
+_clock = time.monotonic
+_sleep = time.sleep
 
 
 def state_root(env: dict[str, str] | None = None) -> Path:
@@ -72,6 +106,51 @@ class DaemonError(Exception):
         super().__init__(message)
         self.code = code
         self.fix = fix
+
+    @property
+    def busy(self) -> bool:
+        """C-16.7: the daemon was at its connection cap and answered before
+        reading the request. It sends 69 over the socket for nothing else, so
+        the request did nothing and may be sent again as it is."""
+        return self.code == Exit.DAEMON_UNAVAILABLE
+
+
+def busy_pause(streak: int) -> float:
+    """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
+    to 1 s, less up to half at random so refused clients do not return together."""
+    return min(1.0, BUSY_PAUSE_S * 2 ** min(streak - 1, 10)) * (1 - random.random() / 2)
+
+
+class ResponseLost(ProtocolError):
+    """The request was sent and no complete answer came back (C-16.3).
+
+    Raised for every failure after `connect` succeeded: a timeout while sending
+    or reading, a reset or broken pipe (even a `sendall` that fails part-way may
+    have delivered the whole line), a close with no line, a line past
+    `MAX_RESPONSE_BYTES`, and a line that does not decode. The daemon may have
+    done the work, so the outcome is unknown, never "not done". It is a
+    `ProtocolError` with exit 1 and the message the CLI has always printed, so
+    every handler written before it still reports it.
+    """
+
+    def __init__(self, message: str, *, op: str = "", request_id: str = ""):
+        super().__init__(message, Exit.OPERATIONAL)
+        self.op = op
+        self.request_id = request_id
+
+
+class OutcomeUnknown(ResponseLost):
+    """An idempotent request sent twice and answered neither time (C-16.3).
+
+    `reasons` holds why each try went unanswered, in order. The caller reports
+    the outcome as unknown and names the request id and the command that
+    settles it; it never reports the request as refused or not done.
+    """
+
+    def __init__(self, op: str, request_id: str, reasons: Iterable[str]):
+        self.reasons = tuple(str(reason) for reason in reasons)
+        super().__init__(f"the outcome of {op} is unknown: " + "; then ".join(self.reasons),
+                         op=op, request_id=request_id)
 
 
 # --- Process identity (C-5.3), kept local to the client ----------------------
@@ -214,9 +293,13 @@ class Client:
     """Connects to `<state root>/daemon.sock` and speaks the C-16 protocol."""
 
     def __init__(self, root: Path | str | None = None, *,
-                 timeout: float = DEFAULT_TIMEOUT_S):
+                 timeout: float | None = None, retry_busy: bool = True):
         self.root = Path(root).expanduser() if root is not None else state_root()
-        self.timeout = timeout
+        # Read at construction, not at definition, so a test can shorten it.
+        self.timeout = DEFAULT_TIMEOUT_S if timeout is None else timeout
+        # C-16.7: False for a caller with a faster answer than waiting, such as
+        # a prompt hook that reads the store offline when the daemon is busy.
+        self.retry_busy = retry_busy
         self._checked = False
 
     # --- paths ---------------------------------------------------------------
@@ -280,10 +363,59 @@ class Client:
     # --- the wire ------------------------------------------------------------
 
     def call(self, op: str, args: dict[str, Any] | None = None, *,
-             request_id: str = "", timeout: float | None = None) -> dict[str, Any]:
-        """Send one request, read one response, return its `result` (C-16.1)."""
-        self.check_available()
+             request_id: str = "", timeout: float | None = None,
+             retry_busy: bool | None = None) -> dict[str, Any]:
+        """Send one request, read one response, return its `result` (C-16.1).
+
+        `DaemonUnavailable` before the request is sent, `ResponseLost` after it
+        was sent and before a complete, decodable answer was read (C-16.3).
+        A busy answer (C-16.7) is not an outcome: the daemon read nothing, so the
+        same request is sent again after `busy_pause`. Retries happen only in the
+        first half of the deadline, so a retry the daemon does read still has at
+        least half the deadline to answer; one admitted with seconds left could
+        time out and turn a clean "busy" into an unknown outcome (C-16.3). The
+        first try has the whole deadline, and every message names it.
+        `retry_busy` overrides the client's own setting for this call: a long
+        poll that loops takes busy as an empty poll instead, so its next poll
+        has the whole deadline. Once a try was answered busy, a later try whose
+        connect is refused reports busy too: a full listen backlog behind a busy
+        daemon is not an absent one, and must not send a caller offline.
+        """
+        retry = self.retry_busy if retry_busy is None else retry_busy
         deadline = self.timeout if timeout is None else timeout
+        started = _clock()
+        busy: DaemonError | None = None
+        streak = 0
+        while True:
+            elapsed = _clock() - started
+            if busy is not None and elapsed > deadline / 2:
+                # Checked when the retry would start, not predicted before the
+                # pause: a slow machine can overrun the sleep or the last try.
+                raise busy
+            try:
+                return self._call_once(op, args, request_id=request_id,
+                                       timeout=deadline - elapsed if busy else deadline,
+                                       stated=deadline)
+            except DaemonUnavailable:
+                if busy is None:
+                    raise
+                raise busy from None
+            except DaemonError as exc:
+                if not exc.busy or not retry:
+                    raise
+                streak += 1
+                pause = busy_pause(streak)
+                if _clock() - started + pause > deadline / 2:
+                    raise
+                busy = exc
+                _sleep(pause)
+
+    def _call_once(self, op: str, args: dict[str, Any] | None, *,
+                   request_id: str, timeout: float, stated: float) -> dict[str, Any]:
+        """One connection and one request; `timeout` bounds it, `stated` is the
+        caller's deadline, which a lost answer's message names."""
+        self.check_available()
+        deadline = timeout
         request = Request(op=op, args=args or {}, id=request_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(deadline)
@@ -295,25 +427,38 @@ class Client:
                 raise DaemonUnavailable(f"no daemon at {self.socket_path}: {exc}") from exc
             except OSError as exc:
                 raise DaemonUnavailable(f"cannot reach {self.socket_path}: {exc}") from exc
+            # From here on the daemon may have the request (C-16.3).
             try:
-                conn.sendall(encode(request))
+                try:
+                    conn.sendall(encode(request))
+                except OSError as exc:
+                    # C-16.7: a daemon at its connection cap answers at once and
+                    # closes before reading the request. Its answer says why, so
+                    # a send that met that close is read past, whichever errno
+                    # the kernel gave it; anything else is a lost answer.
+                    if exc.errno not in SEND_MET_CLOSE_ERRNOS:
+                        raise
                 line = _read_line(conn, time.monotonic() + deadline)
             except TimeoutError as exc:
-                raise ProtocolError(
-                    f"no response from the daemon within {deadline:g}s",
-                    Exit.OPERATIONAL) from exc
+                raise ResponseLost(f"no response from the daemon within {stated:g}s",
+                                   op=op, request_id=request_id) from exc
+            except ProtocolError as exc:          # a line past MAX_RESPONSE_BYTES
+                raise ResponseLost(str(exc), op=op, request_id=request_id) from exc
             except OSError as exc:
-                raise ProtocolError(f"daemon connection failed: {exc}",
-                                    Exit.OPERATIONAL) from exc
+                raise ResponseLost(f"daemon connection failed: {exc}",
+                                   op=op, request_id=request_id) from exc
         finally:
             conn.close()
         if not line.strip():
-            raise ProtocolError("the daemon closed the connection without a response",
-                                Exit.OPERATIONAL)
+            raise ResponseLost("the daemon closed the connection without a response",
+                               op=op, request_id=request_id)
         try:
             response: Response = decode_response(line)
+        except ProtocolError as exc:              # not JSON: "malformed response: ..."
+            raise ResponseLost(str(exc), op=op, request_id=request_id) from exc
         except (AttributeError, TypeError, ValueError) as exc:
-            raise ProtocolError(f"malformed response: {exc}", Exit.OPERATIONAL) from exc
+            raise ResponseLost(f"malformed response: {exc}", op=op,
+                               request_id=request_id) from exc
         if response.v != PROTOCOL_VERSION:
             raise ProtocolError(
                 f"the daemon speaks protocol version {response.v}; this CLI speaks "
@@ -334,3 +479,121 @@ class Client:
             raise DaemonError(code, message, getattr(error, "fix", None))
         result = response.result
         return result if isinstance(result, dict) else {}
+
+    # --- settling a lost answer (C-16.3) -------------------------------------
+
+    def call_settled(self, op: str, args: dict[str, Any] | None = None, *,
+                     request_id: str = "", minted: bool = False,
+                     requery_timeout: float | None = None,
+                     on_lost: Callable[[ResponseLost], None] | None = None) -> dict[str, Any]:
+        """`call` for an idempotent op whose answer must not be guessed (C-16.3).
+
+        `submit` is idempotent per request id (C-6.2) and `kill` per job
+        (C-7.1), so when the first answer is lost the identical request (same
+        op, same arguments, same request id) is sent once more with the longer
+        `REQUERY_TIMEOUT_S` deadline, and its answer is the outcome. The result
+        then carries `requeried: True`; for `submit`, `created: false` there
+        means the first, unanswered request (or, for a caller-supplied id, an
+        earlier one) created the job. Answered neither time, it raises
+        `OutcomeUnknown`.
+
+        Two edges of the re-send:
+
+        * The daemon is gone (`DaemonUnavailable`). The first request may have
+          committed, so a `submit` is `OutcomeUnknown`. Anything else (`kill`)
+          re-raises, and the CLI falls back to offline mode (C-17.5), which is
+          what the operator asked for.
+        * The re-sent `submit` is refused. That alone does not prove the first
+          created nothing: `submit` validates before it looks up the request id,
+          and a checkout whose HEAD moved between the two is "a different
+          payload" (C-6.2). So the request id is looked up. A job found is this
+          invocation's own when `minted` (the caller made the id up for this
+          call, so nothing else can hold it) and is returned as the answer, with
+          the refusal as `refused`; for a supplied id the refusal stands and
+          names that job. Found nowhere, the refusal stands; if the lookup
+          itself fails, the outcome is unknown.
+
+        `on_lost` is called once, with the first failure, before the re-send, so
+        a CLI can say on stderr why it is asking again.
+        """
+        try:
+            return self.call(op, args, request_id=request_id)
+        except ResponseLost as exc:
+            first = exc
+        if on_lost is not None:
+            on_lost(first)
+        deadline = (max(REQUERY_TIMEOUT_S, self.timeout) if requery_timeout is None
+                    else requery_timeout)
+        try:
+            result = self.call(op, args, request_id=request_id, timeout=deadline)
+        except ResponseLost as exc:
+            raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
+        except DaemonUnavailable as exc:
+            if op != "submit":
+                raise
+            raise OutcomeUnknown(op, request_id, (
+                str(first), f"the daemon went away before the re-sent request: {exc}")) from exc
+        except DaemonError as exc:
+            if exc.busy:
+                return self._settle_busy_resend(op, exc, request_id, minted=minted, first=first)
+            if op != "submit" or not request_id:
+                raise
+            return self._settle_refused_submit(exc, request_id, minted=minted, first=first)
+        return {**result, "requeried": True}
+
+    def _settle_busy_resend(self, op: str, busy: DaemonError, request_id: str, *,
+                            minted: bool, first: ResponseLost) -> dict[str, Any]:
+        """The re-send met only busy answers (C-16.7): it was never read, so it
+        settles nothing, and the first request's outcome is still unknown (C-16.3).
+
+        A submit under a request id this call minted is answered by a job that
+        carries the id, as for a refused re-send. Anything else is reported as
+        unknown, never as busy: exit 69 would read as "nothing was sent".
+        """
+        reasons = [str(first), f"the re-sent request was not read: {busy}"]
+        if op == "submit" and request_id:
+            try:
+                job = self.find_request(request_id)
+            except (DaemonUnavailable, DaemonError, ProtocolError) as exc:
+                raise OutcomeUnknown(op, request_id, (
+                    *reasons, f"its request id could not be looked up: {exc}")) from exc
+            if job is not None and minted:
+                return {"job_id": job.get("job_id"), "request_id": request_id, "created": False,
+                        "state": job.get("state"), "requeried": True, "busy": str(busy)}
+            if job is not None:
+                reasons.append(f"job {job.get('job_id')} carries request id {request_id}")
+        raise OutcomeUnknown(op, request_id, reasons) from busy
+
+    def _settle_refused_submit(self, refusal: DaemonError, request_id: str, *,
+                               minted: bool, first: ResponseLost) -> dict[str, Any]:
+        """The re-sent submit was refused: does a job carry its request id? (C-16.3)"""
+        try:
+            job = self.find_request(request_id)
+        except (DaemonUnavailable, DaemonError, ProtocolError) as exc:
+            raise OutcomeUnknown("submit", request_id, (
+                str(first), f"the re-sent request was refused ({refusal})",
+                f"its request id could not be looked up: {exc}")) from exc
+        if job is None:
+            raise refusal
+        job_id = job.get("job_id")
+        if minted:
+            return {"job_id": job_id, "request_id": request_id, "created": False,
+                    "state": job.get("state"), "requeried": True, "refused": str(refusal)}
+        message = str(refusal)
+        if not job_id or str(job_id) not in message:
+            message = f"{message}; job {job_id} carries request id {request_id}"
+        raise DaemonError(refusal.code, message,
+                          refusal.fix or f"subfleet runs show {job_id}") from refusal
+
+    def find_request(self, request_id: str) -> dict[str, Any] | None:
+        """The job row carrying `request_id`, or None (C-6.2, C-16.3).
+
+        `list` filters on `request_id`; a daemon older than that filter ignores
+        the field and lists every job (C-16.2), so the rows are filtered here too.
+        """
+        result = self.call("list", asdict(ListArgs(request_id=request_id)))
+        rows = result.get("jobs")
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict) and row.get("request_id") == request_id:
+                return row
+        return None

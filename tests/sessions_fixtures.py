@@ -192,6 +192,36 @@ def headless(age_s: float = 1800) -> list[dict[str, Any]]:
             assistant_tool_use(uuid="lane-cut", at=ago(age_s))]
 
 
+def stamped(entries: Sequence[dict[str, Any]], entrypoint: str) -> list[dict[str, Any]]:
+    """Every entry as a process with this `entrypoint` writes it (C-23.31).
+
+    Current Claude Code stamps its writer's entrypoint on each entry; the
+    desktop app's prompts also carry `promptSource: sdk`, like a lane's (a
+    session's first record, 2026-10-03: `type user`, `promptSource sdk`,
+    `entrypoint claude-desktop`, `userType external`).
+    """
+    return [{**entry, "entrypoint": entrypoint} for entry in entries]
+
+
+def desktop_interrupted(age_s: float = 1800) -> list[dict[str, Any]]:
+    """A desktop session one message started, cut off mid tool call.
+
+    Its one prompt is `promptSource: sdk`, as a lane's is; only its
+    `entrypoint` says a person runs it (C-23.31).
+    """
+    return stamped([headless_prompt("the whole task", uuid="p0", at=ago(age_s + 60)),
+                    assistant_text("working", uuid="a0", at=ago(age_s + 30)),
+                    assistant_tool_use(uuid="cut", at=ago(age_s))], "claude-desktop")
+
+
+def notified_lane(age_s: float = 1800, prompts: int = 3) -> list[dict[str, Any]]:
+    """A `claude -p` run given more than two prompts (resumed, or notified), cut
+    off mid tool call: v1's prompt rule called it a session (C-23.31)."""
+    return stamped([*(headless_prompt(f"prompt {n}", uuid=f"h{n}", at=ago(age_s + 60 + prompts - n))
+                      for n in range(prompts)),
+                    assistant_tool_use(uuid="lane-cut", at=ago(age_s))], "sdk-cli")
+
+
 def with_mode(entries: Sequence[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     """Stamp a permission mode on the last user turn (C-23.35's candidate filter)."""
     rows = [dict(entry) for entry in entries]
@@ -259,6 +289,7 @@ class FakeSessions:
         self.now = now
         self.pings: list[tuple[str, str]] = []
         self.submits: list[Any] = []
+        self.minted: list[bool] = []
         self.records: list[dict[str, Any]] = []
         self.state_calls: list[Any] = []
         self.notice_id = 0
@@ -318,8 +349,9 @@ class FakeSessions:
         self.notice_id -= 1
         return {"pong": True, "session_id": session_id, "notice_id": self.notice_id}
 
-    def submit(self, args: Any) -> dict[str, Any]:
+    def submit(self, args: Any, *, minted: bool = False) -> dict[str, Any]:
         self.submits.append(args)
+        self.minted.append(minted)                  # C-16.3: whose request id it is
         return {"job_id": f"job-{len(self.submits)}", "created": True}
 
 

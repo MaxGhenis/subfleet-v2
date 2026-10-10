@@ -247,13 +247,54 @@ def test_an_explicit_model_is_used_and_the_substitution_is_recorded(world, polic
     assert "substituted opus for claude-fable-5-1" in result.reason
 
 
-def test_a_retired_pin_revives_on_the_current_id_of_that_tier(world, policy, tmp_path):
-    """C-23.39: a session last served by a retired pin never revives on it."""
-    cold_session(world, model="claude-fable-5")
+@pytest.mark.parametrize("recorded", ["claude-fable-5", "claude-fable-5-1", "fable"])
+def test_a_retired_pin_revives_on_the_current_id_of_that_tier(world, policy, tmp_path, recorded):
+    """C-23.39: a session last served by a retired pin never revives on it. Every
+    Fable spelling is retired onto Opus in the shipped policy (2026-09-27)."""
+    cold_session(world, model=recorded)
     daemon = fx.FakeSessions()
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True)
-    assert result.model == "fable"
-    assert "is retired" in result.reason
+    assert result.model == "opus"
+    assert f"{recorded} is retired; its tier is now opus" in result.reason
+    assert daemon.submits[0].pinned_model == "opus"
+
+
+@pytest.mark.parametrize("recorded", ["claude-fable-5-1", "claude-fable-5", "fable"])
+def test_an_older_policy_that_still_lists_fable_cannot_revive_on_it(world, tmp_path, recorded):
+    """C-17.2, C-23.39: a policy.json written before the retirement still carries a
+    `fable` model and maps `claude-fable-5` onto it; a revive, which runs unattended,
+    must not be the route back to it by any spelling."""
+    from tests.fable_reserve import load_fable_reserve_policy
+    older = load_fable_reserve_policy(writing_chains=True)
+    assert older["models"]["fable"]["id"] == "claude-fable-5-1"
+    assert older["retired"]["claude-fable-5"] == "fable"
+    cold_session(world, model=recorded)
+    daemon = fx.FakeSessions()
+    result = attempt(daemon, older, COLD, tmp_path, opt_in=True)
+    assert result.model == "opus" and daemon.submits[0].pinned_model == "opus"
+    assert f"{recorded} is retired; its tier is now opus" in result.reason
+
+
+@pytest.mark.parametrize("typed", ["fable", "claude-fable-5-1", "claude-fable-5"])
+def test_an_operator_model_that_is_retired_is_substituted_by_its_successor(world, tmp_path, typed):
+    """C-17.2, C-23.39: `--model` is free text, so an exact Fable id reaches revive
+    unremapped by the CLI; under an older policy it still pins Opus, and says why."""
+    from tests.fable_reserve import load_fable_reserve_policy
+    older = load_fable_reserve_policy(writing_chains=True)
+    cold_session(world, model="claude-opus-5-5")
+    daemon = fx.FakeSessions()
+    result = attempt(daemon, older, COLD, tmp_path, opt_in=True, model=typed)
+    assert result.model == "opus"
+    assert f"operator substituted {typed} for claude-opus-5-5; {typed} is retired, so opus" in result.reason
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("claude-opus-5-5", "claude-opus-5-5"), ("opus", "opus"), ("haiku", "haiku"),
+    ("sol", "astra"), ("unknown-model", "unknown-model"),
+])
+def test_live_model_leaves_current_names_alone(policy, name, expected):
+    """Only retired names change; a current short name or exact id is kept as given."""
+    assert revive.live_model(name, policy) == expected
 
 
 def test_a_session_with_no_recorded_model_is_routed_by_task_and_tier(world, policy, tmp_path):
@@ -339,7 +380,7 @@ def test_a_dry_run_decides_everything_and_submits_nothing(world, policy, tmp_pat
     daemon = fx.FakeSessions()
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True, dry_run=True)
     assert daemon.submits == []
-    assert "would revive on claude-fable-5-1" in result.reason
+    assert "would revive on opus" in result.reason   # the recorded Fable pin is retired
 
 
 # --- the cold sweep -----------------------------------------------------------
@@ -354,6 +395,16 @@ def test_the_cold_sweep_sees_neither_live_sessions_nor_lanes(world, policy):
     daemon = fx.FakeSessions(lane_sessions=[LANE])
     found = revive.cold_candidates(daemon, policy, now=fx.NOW)
     assert [item.session_id for item in found] == [COLD]
+
+
+def test_the_cold_sweep_reads_the_writer_not_the_prompt_source(world, policy):
+    """C-23.31: a desktop session one message started has a lane's prompt shape
+    (one `sdk` prompt) and is a cold candidate; a `claude -p` run the ledger no
+    longer holds is not, however many prompts it took."""
+    cold_session(world, entries=fx.desktop_interrupted(age_s=1800))
+    cold_session(world, LANE, entries=fx.notified_lane(age_s=1800), desktop_owned=False)
+    found = revive.cold_candidates(fx.FakeSessions(), policy, now=fx.NOW)
+    assert [(item.session_id, item.lane) for item in found] == [(COLD, False)]
 
 
 # --- the CLI's own vocabulary (C-17.3) ----------------------------------------
@@ -381,3 +432,19 @@ def test_old_claude_cli_reported_as_host_fault_not_no_lane(world, policy, tmp_pa
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True)
     every_reason = " ".join(filter(None, (result.reason, result.fix)))
     assert "no lane serves" not in every_reason
+
+
+@pytest.mark.parametrize("request_id,given,minted", [
+    (None, None, True), ("operator-rid", None, False),
+    ("cli-minted", True, True),            # what every sessions CLI path passes
+    ("cli-minted", False, False)])
+def test_c16_3_revive_says_whether_it_minted_the_request_id(world, policy, tmp_path,
+                                                             request_id, given, minted):
+    """C-16.3: a revive's own fresh id makes a job found after a refused re-send its own;
+    an operator's id keeps the refusal. The kit is told which, and an explicit `minted`
+    (the CLI mints the id before calling) reaches it unchanged."""
+    cold_session(world)
+    daemon = fx.FakeSessions()
+    extra = {} if given is None else {"minted": given}
+    attempt(daemon, policy, COLD, tmp_path, opt_in=True, request_id=request_id, **extra)
+    assert daemon.minted == [minted]

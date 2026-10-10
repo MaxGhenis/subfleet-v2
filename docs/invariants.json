@@ -1609,7 +1609,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/policy.py",
   "test_name": "test_retired_model_alias_normalized_before_closure_scope",
-  "notes": "2026-09-02: `fable` pinned Fable 5 while the app ran 5.1. The `retired` map is policy data; the context suffix now lives in the provider model id (C-1.6) and closure scope uses that id (C-9.4)."
+  "notes": "2026-09-02: `fable` pinned Fable 5 while the app ran 5.1. The `retired` map is policy data; the context suffix now lives in the provider model id (C-1.6) and closure scope uses that id (C-9.4). 2026-09-27: a `retired` alias re-targets pins (submissions, retries, picks, revives) but no longer anything recorded: Fable retired onto Opus, yet a Fable cooldown or weekly window is still Fable's own bucket, never an Opus closure, and an imported Fable run still asked for Fable (`subfleet/importer.py` `_recorded_ids`)."
  },
  {
   "id": 125,
@@ -2064,7 +2064,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/sessions/mirror.py",
   "test_name": "test_mirror_heartbeat_reads_per_pass_sidecar_with_thirty_minute_cutoff",
-  "notes": "2026-08-19 07:08: a quiet log produced a false \"stalled\"; an 8.5-minute pass was observed 2026-08-18. GAP, milestone 6."
+  "notes": "2026-08-19 07:08: a quiet log produced a false \"stalled\"; an 8.5-minute pass was observed 2026-08-18. GAP, milestone 6. 2026-09-24: health is not reach. The app reads a session folder only when it loads it, so C-23.28 also requires the 2 s hot pass and the load-gap report (tests/unit/test_sessions_mirror_load_gap.py). 2026-09-25: the flag protocol is specified (docs/formal/MirrorFlags.tla), model-checked over every reachable state (tests/unit/test_mirror_flags_model.py), and the mirror is held to the model on random interleavings (tests/unit/test_mirror_flags_stateful.py)."
  },
  {
   "id": 160,

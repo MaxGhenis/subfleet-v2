@@ -251,6 +251,21 @@ def test_a_headless_lane_run_is_never_nudged(home, policy):
     assert report.skipped_lanes == [LANE]
 
 
+def test_a_desktop_session_one_message_started_is_nudged(home, policy):
+    """C-23.31, C-23.33: the desktop app sends its prompts as `sdk`, as a lane
+    does; its `entrypoint` makes it a session, so its cut-off turn is nudged.
+    A `claude -p` run is skipped by its `entrypoint` alone, with no ledger row."""
+    live(home, ALICE, entries=fx.desktop_interrupted(age_s=1800))
+    daemon = fx.FakeSessions()
+    report = sweep(daemon, policy, scope="interrupted", manual=False)
+    assert [session for session, _text in daemon.pings] == [ALICE]
+    live(home, LANE, entries=fx.notified_lane(age_s=1800), started_at=2.0)
+    daemon = fx.FakeSessions()
+    report = sweep(daemon, policy, scope="interrupted", manual=False, only=[LANE])
+    assert daemon.pings == []
+    assert report.skipped_lanes == [LANE]
+
+
 def test_a_retired_session_is_never_nudged(home, policy):
     """C-23.35: retirement is durable and both the listing and the sweep honour it."""
     live(home, ALICE, entries=fx.interrupted(age_s=1800))

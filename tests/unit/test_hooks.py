@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import hooks
+from subfleet import hooks, protocol
 from subfleet.client import Client
 from subfleet.contracts import Exit
 
@@ -213,6 +213,85 @@ def test_render_pending_names_the_job_when_a_row_has_no_text(root):
         [{"notice_id": 1, "job_id": JOB, "text": ""}])
 
 
+def service_notice(notice_id: int, text: str = "this session restarted",
+                   created_at: str | None = "2026-09-27T23:42:47Z") -> dict:
+    """A `service_notices` row as `notice.pending` returns it: negated id, no job."""
+    return {"notice_id": -notice_id, "session_id": SESSION, "job_id": None,
+            "state": "pending", "text": text, "created_at": created_at}
+
+
+def test_render_pending_gives_service_notices_their_own_header(root):
+    """C-15.3 a `ping` message is not a run: on 2026-09-29 a two-day-old restart
+    nudge (service notice 1382) was surfaced as "1 detached run dispatched by
+    this session finished while it was not running"."""
+    text = hooks.render_pending([service_notice(1382)])
+    assert text == ("subfleet: 1 message for this session:\n\n"
+                    "queued 2026-09-27T23:42:47Z:\nthis session restarted")
+    assert "detached run" not in text and "subfleet runs" not in text
+
+    mixed = hooks.render_pending([notice(1, text="a"), service_notice(2, text="m"),
+                                  service_notice(3, text="n", created_at=None)])
+    assert mixed == (
+        "subfleet: 1 detached run dispatched by this session finished while it "
+        "was not running:\n\na\n\n"
+        "List: subfleet runs --mine · details: subfleet runs show <id>\n\n"
+        "subfleet: 2 messages for this session:\n\n"
+        "queued 2026-09-27T23:42:47Z:\nm\n\nn")
+
+
+def test_a_message_is_any_row_that_is_not_a_runs_end(root):
+    """C-15.3 a service notice about a job (the release line's pin notice, C-11.8,
+    carries the job id) did not finish a run, and neither did a v1 outbox message
+    the importer carried into `notices` with no job (`import_outbox`)."""
+    about_a_job = {**service_notice(9, text="job waits for a lane"), "job_id": JOB}
+    text = hooks.render_pending([about_a_job])
+    assert text.startswith("subfleet: 1 message for this session:")
+    assert "detached run" not in text and "job waits for a lane" in text
+
+    imported = {"notice_id": 7, "session_id": SESSION, "job_id": None, "state": "offered",
+                "text": "continue the v1 run", "created_at": "2026-09-19T14:00:00Z"}
+    text = hooks.render_pending([imported])
+    assert text == ("subfleet: 1 message for this session:\n\n"
+                    "queued 2026-09-19T14:00:00Z:\ncontinue the v1 run")
+
+    assert hooks.is_message(about_a_job) and hooks.is_message(imported)
+    assert hooks.is_message({"job_id": None, "text": "no id at all"})
+    assert not hooks.is_message(notice(9))
+    assert not hooks.is_message({**notice(9), "notice_id": True})   # a bool is no id
+    assert not hooks.is_message({**notice(9), "text": ""})           # still a run's end
+
+
+def test_offline_surface_reads_service_notices_and_marks_nothing(root):
+    """C-15.2 layer 3 offline: a service notice is printed with the id `notice.pending`
+    would give it, and nothing is written, so it is surfaced again once the daemon
+    is back."""
+    from subfleet.store import Store
+    with Store(root / "state.sqlite3") as store:
+        with store.transaction() as tx:
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                       "VALUES(?,?,?,?)", (SESSION, "parked message", "pending",
+                                           "2026-09-27T23:42:47Z"))
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                       "VALUES(?,?,?,?)", (SESSION, "already seen", "surfaced",
+                                           "2026-09-27T23:42:48Z"))
+            tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                       "VALUES(?,?,?,?)", ("someone-else", "not ours", "pending",
+                                           "2026-09-27T23:42:49Z"))
+    rows = hooks._offline_pending(root, SESSION)
+    assert [(row["notice_id"], row["job_id"], row["text"]) for row in rows] == [
+        (-1, None, "parked message")]
+
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
+                               stdout=stdout) == 0
+    context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert "1 message for this session" in context and "parked message" in context
+    with Store(root / "state.sqlite3") as store:
+        assert [row["state"] for row in store.query(
+            "SELECT state FROM service_notices ORDER BY notice_id")] == [
+            "pending", "surfaced", "pending"]
+
+
 # --- PostToolUse (layer 2) ----------------------------------------------------
 
 class Clock:
@@ -234,8 +313,9 @@ def running_job(job_id: str = JOB, request_id: str = "req-1") -> dict:
 
 
 def finished_job(job_id: str = JOB) -> dict:
+    # The row `wait` returns: a succeeded job carries the attempt it accepted (C-4.3).
     return {"job_id": job_id, "state": "succeeded", "rc": 0,
-            "out_path": "/repo/out.md"}
+            "out_path": "/repo/out.md", "accepted_attempt_id": f"{job_id}/a1"}
 
 
 def test_post_tool_use_delivers_a_finished_job_with_exit_two(daemon, root):
@@ -280,6 +360,9 @@ def test_post_tool_use_exits_zero_and_silent_on_timeout(daemon, root):
 def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
         daemon, root):
     """C-15.1 nothing is invented: every field of the fallback line is copied."""
+    published = root / "jobs" / JOB / "a1" / "deliverable.md"
+    published.parent.mkdir(parents=True)
+    published.write_text("result\n")
     daemon({"list": lambda request: {"jobs": [running_job()]},
             "wait": lambda request: {"jobs": [finished_job()]},
             "notice.pending": lambda request: {"notices": []}})
@@ -292,6 +375,8 @@ def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
     text = stderr.getvalue()
     assert JOB in text and "succeeded" in text and "rc=0" in text
     assert "/repo/out.md" in text and "subfleet runs show" in text
+    # C-15.1: the accepted attempt's deliverable, as the daemon's notice names it.
+    assert f"deliverable={root.resolve() / 'jobs' / JOB / 'a1' / 'deliverable.md'};" in text
 
 
 def test_the_lease_stops_a_second_hook_waiting_on_one_job(daemon, root):
@@ -613,3 +698,55 @@ def test_timeout_is_explicit_and_overridable(monkeypatch):
     assert hooks.desired_groups("/x/sf hook")["PostToolUse"]["hooks"][0]["timeout"] == 45
     monkeypatch.setenv("SUBFLEET_HOOK_TIMEOUT_S", "junk")
     assert hooks.timeout_s() == 600
+
+
+# --- a busy daemon (C-16.7) ---------------------------------------------------
+
+def busy_answer(request):
+    return protocol.fail(request.id, Exit.DAEMON_UNAVAILABLE,
+                         "the daemon is busy: it holds 512 client connections, its limit",
+                         "try again shortly")
+
+
+def test_c16_7_the_prompt_hooks_take_busy_at_once_and_read_offline(daemon, root, monkeypatch):
+    """C-16.7 the pending-notice client never waits out busy answers: the hook reads
+    the store offline instead, which is instant."""
+    made: list[dict] = []
+    real = hooks.Client
+
+    class Recording(real):
+        def __init__(self, *args, **kwargs):
+            made.append(kwargs)
+            super().__init__(*args, **kwargs)
+    monkeypatch.setattr(hooks, "Client", Recording)
+    served = daemon({"notice.pending": busy_answer})
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
+                               stdout=io.StringIO()) == 0
+    assert made and made[0].get("retry_busy") is False
+    assert served.ops() == ["notice.pending"]            # asked once, not retried
+
+
+def test_c16_7_the_post_tool_use_waiter_takes_busy_as_an_empty_poll(daemon, root, monkeypatch):
+    """C-16.7 a busy `wait` is asked again in the hook's own loop, each poll with
+    its whole deadline, never retried inside `Client.call` (whose retry would get
+    less than the poll), and the finished job is still delivered."""
+    from subfleet import client as client_module
+    inner_retries: list[float] = []
+    monkeypatch.setattr(client_module, "_sleep", inner_retries.append)
+    answers = iter([busy_answer, busy_answer])
+
+    def wait(request):
+        step = next(answers, None)
+        return step(request) if step else {"jobs": [finished_job()]}
+    served = daemon({"list": lambda request: {"jobs": [running_job()]},
+                     "wait": wait,
+                     "notice.pending": lambda request: {"notices": [notice(7, text="demo done")]},
+                     "notice.mark": lambda request: {"notices": []}})
+    stderr = io.StringIO()
+    clock = Clock()
+    code = hooks.post_tool_use(
+        payload("PostToolUse", tool_name="Bash",
+                tool_input={"command": "subfleet run -p p.md"}, tool_response=JOB),
+        root, budget_s=30, stderr=stderr, now=clock, sleep=clock.sleep)
+    assert code == 2 and stderr.getvalue().strip() == "demo done"
+    assert served.ops().count("wait") == 3 and inner_retries == []

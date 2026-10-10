@@ -37,6 +37,9 @@ from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
+#: Something to act on that is not subfleet failing: it prints a fix line and,
+#: like `unknown`, never decides the exit status.
+WARN = "warn"
 
 #: A resolved `subfleet` under this directory is still v1 (plan amendment 8:
 #: the shadow period runs both, and the symlink is the visible half of the flip).
@@ -466,9 +469,14 @@ def check_module(name: str) -> dict[str, Any]:
 
 
 def check_live(root: Path) -> dict[str, Any]:
-    """`--live`: one `ping` against the daemon (C-16.2)."""
+    """`--live`: one `ping` against the daemon (C-16.2).
+
+    Without text: a ping with text parks a notice (C-15.8), and a liveness
+    question has nothing to tell anyone. Until 2026-10-03 every `doctor --live`
+    parked a "doctor" notice for the literal session `operator`, which nothing
+    reads."""
     try:
-        result = Client(root, timeout=5).call("ping", {"text": "doctor"})
+        result = Client(root, timeout=5).call("ping", {})
     except DaemonUnavailable as exc:
         return row("ping the daemon", FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:
@@ -480,6 +488,70 @@ def check_live(root: Path) -> dict[str, Any]:
     return row("ping the daemon", PASS,
                f"pong from subfleet {result.get('version')}",
                "`subfleet daemon status` for the rest")
+
+
+#: C-16.6: below this the daemon runs short of descriptors under ordinary load.
+OPEN_FILES_MINIMUM = 1024
+#: C-16.6, C-16.7: `--live` fails when this share of the soft limit is open.
+OPEN_FILES_ALARM = .8
+RESTART_CAUTION = ("it unloads and reloads the launchd job, which can restart the daemon: "
+                   "check `subfleet runs --running` first")
+
+
+def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
+    """C-16.6: does the launchd plist give the daemon room for descriptors?
+
+    The daemon raises its own soft limit at start, so a plist without
+    `NumberOfFiles` is not a failure, only a missing second line of defence;
+    `--live` reports what the running daemon actually has.
+    """
+    from . import descriptors
+    if plist is None:
+        from .cli import PLIST_PATH            # deferred: doctor does not load the CLI at import
+        plist = Path(PLIST_PATH).expanduser()
+    check = "launchd open-file limit"
+    if not plist.exists():
+        return row(check, UNKNOWN, f"no launchd job at {plist}; the daemon raises its own limit at start",
+                   "`subfleet daemon install` when launchd should own the daemon")
+    value = descriptors.plist_open_files(plist)
+    if value is None:
+        return row(check, UNKNOWN,
+                   f"{plist} sets no SoftResourceLimits.NumberOfFiles, so launchd starts the "
+                   f"daemon at its default (`launchctl limit maxfiles`) and the daemon must raise it itself",
+                   f"`subfleet daemon install` writes it; {RESTART_CAUTION}")
+    if value < OPEN_FILES_MINIMUM:
+        return row(check, FAIL, f"{plist} sets NumberOfFiles to {value}",
+                   f"`subfleet daemon install` writes {descriptors.launchd_open_files()}; {RESTART_CAUTION}")
+    return row(check, PASS, f"{plist} sets NumberOfFiles to {value}", "nothing to do while this passes")
+
+
+def check_descriptors_live(root: Path) -> dict[str, Any]:
+    """`--live`, C-16.6 and C-16.7: the running daemon's limit, open descriptors and connections."""
+    check = "daemon descriptors"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except DaemonUnavailable as exc:
+        return row(check, FAIL, str(exc), "`subfleet daemon start`")
+    except (DaemonError, ProtocolError, OSError) as exc:
+        return row(check, FAIL, f"{exc.__class__.__name__}: {exc}", "`subfleet daemon logs -n 40`")
+    budget = status.get("descriptors")
+    if not isinstance(budget, dict):
+        return row(check, UNKNOWN, "the daemon does not report descriptors (it predates C-16.6)",
+                   "restart it on this release when no jobs are running (`subfleet runs --running`)")
+    soft, hard, open_now = budget.get("soft_limit"), budget.get("hard_limit"), budget.get("open")
+    detail = (f"{'unknown' if open_now is None else open_now} open of soft limit "
+              f"{soft if soft is not None else 'unlimited'} (hard {hard if hard is not None else 'unlimited'}); "
+              f"{budget.get('connections')} of {budget.get('max_connections')} client connections; "
+              f"refused {budget.get('refused', 0)}, idle closed {budget.get('idle_closed', 0)}, "
+              f"dropped for departed clients {budget.get('abandoned', 0)}, "
+              f"accept failures {budget.get('accept_failures', 0)}")
+    if soft is not None and soft < OPEN_FILES_MINIMUM:
+        return row(check, FAIL, detail + f"; a soft limit under {OPEN_FILES_MINIMUM} runs out under load",
+                   f"`subfleet daemon install` sets NumberOfFiles in the plist; {RESTART_CAUTION}")
+    if soft is not None and (open_now is None or open_now >= OPEN_FILES_ALARM * soft):
+        return row(check, FAIL, detail + " — close to the limit",
+                   "`subfleet daemon logs -n 80` and look for 'client connections' and 'accept failed'")
+    return row(check, PASS, detail, "nothing to do while this passes")
 
 
 def check_mirror(root: Path) -> dict[str, Any]:
@@ -508,6 +580,36 @@ def check_mirror(root: Path) -> dict[str, Any]:
         return row("desktop sidebar mirror", FAIL, health["detail"], fix)
     return row("desktop sidebar mirror", PASS, health["detail"],
                "`subfleet sessions mirror --status` for the sidecar")
+
+
+def check_sidebar_load(root: Path) -> dict[str, Any]:
+    """C-23.28: health is not reach. The app lists its session folder only when
+    it loads it, so a session the mirror copied in afterwards is missing from
+    the running app's sidebar until the next load.
+
+    Read from the mirror's journal of its own copies and the app's log. A copy
+    waiting for a relaunch is `warn`; a log that names no load is `unknown`.
+    """
+    from .sessions import mirror as mirror_module
+    try:
+        policy = load_policy(root / "policy.json")
+    except (PolicyError, OSError):
+        policy = {}
+    check = "desktop sidebar load"
+    try:
+        gap = mirror_module.load_gap(root, policy)
+    except Exception as exc:                            # noqa: BLE001 - one row, not the table
+        return row(check, UNKNOWN, f"{type(exc).__name__}: {exc}",
+                   "`subfleet sessions mirror --status`")
+    status = gap.get("status")
+    if status == "relaunch":
+        return row(check, WARN, gap["detail"],
+                   "quit and reopen the Claude app (⌘Q + reopen); "
+                   "`subfleet sessions mirror --status` lists the sessions")
+    if status == "unknown":
+        return row(check, UNKNOWN, gap["detail"],
+                   "open the Claude app once so its log records a session-folder load")
+    return row(check, PASS, gap["detail"], "`subfleet sessions mirror --status`")
 
 
 # --- the table ----------------------------------------------------------------
@@ -541,13 +643,16 @@ def checks(root: Path, *, live: bool = False,
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
+        check_launchd_limit(),
         check_queued_pins(root),
         check_mirror(root),
+        check_sidebar_load(root),
         *(check_module(name) for name in ("store", "procs", "compat", "hooks",
                                           "sessions.mirror")),
     ]
     if live:
         rows.append(check_live(root))
+        rows.append(check_descriptors_live(root))
         rows += check_guard_preflight_live(root)
     table = rows
     # C-10.3, C-10.7: the identity checks are rows of this one table. cli imports
@@ -569,7 +674,7 @@ def render(rows: list[dict[str, Any]]) -> str:
 
 
 def exit_code(rows: list[dict[str, Any]]) -> int:
-    """1 when anything failed; an `unknown` never decides the exit status."""
+    """1 when anything failed; an `unknown` or a `warn` never decides the exit status."""
     from .contracts import Exit
     return int(Exit.OPERATIONAL if any(item["status"] == FAIL for item in rows)
                else Exit.OK)

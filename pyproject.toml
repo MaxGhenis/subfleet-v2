@@ -33,8 +33,15 @@ packages = ["subfleet"]
 include = ["/subfleet", "/README.md", "/pyproject.toml", "/uv.lock"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "hypothesis>=6.100",
+    "pytest>=8",
+    "pytest-xdist>=3.8",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "serial: needs the machine to itself; CI runs these after the parallel (-n auto) pass",
+]

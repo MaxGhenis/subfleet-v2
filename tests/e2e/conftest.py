@@ -61,6 +61,8 @@ if Path(sys.argv[0]).name == "subfleetd":
             kwargs["crash_hook"] = hold
         kwargs["guardian_start_delay_s"] = float(
             os.environ.get("SUBFLEET_E2E_START_DELAY_S", "0"))
+        if os.environ.get("SUBFLEET_E2E_STOP_GRACE_S"):
+            kwargs["stop_grace_s"] = float(os.environ["SUBFLEET_E2E_STOP_GRACE_S"])
         original_init(self, *args, **kwargs)
     Daemon.__init__ = observed_init
 '''
@@ -207,8 +209,14 @@ class E2E:
         path.write_text(json.dumps(policy, indent=2) + "\n")
 
     def enable_reserve(self, *, probe_interval_s=1):
-        """C-11.7 on, with a fast probe cycle so the usage sensor reads within a test."""
+        """C-11.7 on, reserving Fable as the shipped policy did until its retirement on
+        2026-09-27 (`tests/fable_reserve.py`), with a fast probe cycle so the usage
+        sensor reads within a test."""
+        from tests.fable_reserve import fable_reserve_data
+        reserved = fable_reserve_data()
+
         def change(policy):
+            policy.update(models=reserved["models"], retired=reserved["retired"])
             policy["reserve"] = {**policy.get("reserve", {}), "models": ["fable"], "usage_spacing_s": 0}
             policy.setdefault("timers", {})["probe_interval_s"] = probe_interval_s
         self.policy_update(change)
@@ -288,6 +296,11 @@ class E2E:
                         os.kill(pid, signal.SIGKILL)
         for log in self.logs:
             log.close()
+        # C-15.1: every notice's header is its job row's state and rc (2026-09-24).
+        if (self.root / "state.sqlite3").exists():
+            from tests.fake.notice_invariant import notice_mismatches
+            problems = notice_mismatches(self.rows)
+            assert not problems, "C-15.1 notice headers disagree with job rows:\n" + "\n".join(problems)
 
 
 @pytest.fixture(scope="session")
@@ -314,10 +327,14 @@ def e2e(request, e2e_process_inspection):
             # store (with any quarantine census) can be read afterwards.
             report = getattr(request.node, "rep_call", None)
             if report is not None and report.failed:
-                import re, shutil, sys
+                import re, shutil, stat, sys
                 keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
                 shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True)
+                # A daemon ended hard (C-5.8a, or a crash) leaves daemon.sock,
+                # which copytree cannot copy.
+                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                ignore=lambda d, names: [n for n in names if stat.S_ISSOCK(
+                                    os.lstat(os.path.join(d, n)).st_mode)])
                 print(f"\n[e2e harness] kept state root at {keep}", file=sys.stderr)
 
 

@@ -565,6 +565,18 @@ P-23.40 under provenance/attestation.
 > **P-23.28** Mirror health is judged from the mirror's per-pass state sidecar, never from log
 > recency: a pass the sidecar records as in flight is healthy until thirty minutes after its
 > recorded start, and only then is the mirror `stalled`.
+>
+> Health is not reach: the desktop app lists a session folder into its sidebar only when it loads
+> that folder (at launch, on an account or org switch, at the first login after a logout, and when a
+> new app window builds its session API), so a record the mirror copies into the loaded folder
+> afterwards is missing from the running app's sidebar until its next load, and a flag the mirror
+> writes there is overwritten by the app's next save of that record. The mirror therefore puts each
+> new session whose transcript exists into every folder within about `mirror_hot_interval_s` (2 s, a
+> `policy.json` cap under C-6.4) of the write while no full pass holds its worker (title, flag and
+> setting changes spread with the full pass), writes each session's flag changes whole or not at
+> all, and reports, from a journal of its own writes and the app's log, how many of its copies into
+> the loaded folder postdate that load and still wait for a relaunch (`sessions mirror --status`,
+> `sessions list`, `doctor`).
 
 - **Ledger rows:** 159 (`keep`, ops-hygiene)
 - **Milestone:** 6
@@ -573,6 +585,14 @@ P-23.40 under provenance/attestation.
 - **Rationale:** row 159's incident is "2026-08-19 07:08 false 'stalled' from the quiet log; an
   8.5-minute pass observed 2026-08-18" — the health signal was log writes, so a pass that was working
   quietly looked dead, and the cutoff has to exceed a real long pass. No clause mentions the mirror.
+- **Amended 2026-09-24 (health is not reach):** a switch at 16:38 ET loaded a folder without 19
+  sessions last active under other accounts; the mirror, whose passes were then taking up to two
+  hours, copied them at 17:13-17:14, and the running app listed none until it relaunched at
+  17:24:47. The app bundle (2.7032.0) reads a session folder only in `doInitialize`; nothing
+  watches it. A healthy mirror can therefore still leave sessions out of the sidebar, so the
+  clause now requires spreading new sessions within seconds and reporting the copies a relaunch
+  would list.
+  Evidence: `docs/reports/2026-09-24-mirror-load-gap.md`.
 
 ### P-23.29 — a keepalive pass is bounded
 
