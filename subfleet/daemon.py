@@ -3026,7 +3026,7 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
-            if self._ramp.snapshot["enabled"]:
+            if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4

@@ -511,3 +511,32 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
                 if restart:
                     active.close()
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("enabled", [None, False], ids=["absent", "disabled"])
+def test_status_omits_ramp_immediately_after_policy_disable_with_cached_full_gate(
+        state_daemon, monkeypatch, enabled):
+    service, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(service, monkeypatch, per_minute=1)
+    submit(service, harness)
+    service._admit()
+    assert service._ramp.snapshot["enabled"] is True
+    assert service._ramp.snapshot["holding"] is True
+    assert service._ramp.snapshot["used"] == 1
+
+    if enabled is None:
+        service.policy["admission"].pop("ramp")
+    else:
+        service.policy["admission"]["ramp"]["enabled"] = False
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("disabled status must not read or count placement ramp starts")
+
+    monkeypatch.setattr(service._ramp, "status", forbidden)
+    monkeypatch.setattr(service, "_ramp_rows", forbidden)
+    status = service.dispatch("daemon.status", {})
+    assert "ramp" not in status
+    assert "placement ramp:" not in status["status"]
+    from subfleet.cli import format_status
+    assert "placement ramp:" not in format_status(status)
