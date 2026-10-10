@@ -37,7 +37,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import __version__
-from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import resource_leases
 from .conversations.store import canonical_native, native_any_case
 from .adapters import claude_mcp
@@ -57,7 +57,7 @@ from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
-                     policy_hash, resolve_model, turn_cap)
+                     policy_hash, ramp_settings, resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
@@ -193,7 +193,7 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
-                            "lane-proving", "disk"})
+                            "lane-proving", "disk", "ramp"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
@@ -592,6 +592,18 @@ class Daemon:
     @_disk.setter
     def _disk(self, state: disk.DiskAdmission) -> None:
         self.__dict__["_disk_state"] = state
+
+    @property
+    def _ramp(self) -> ramp.PlacementRamp:
+        """C-6.18: lazy state also supports daemons assembled without __init__."""
+        state = self.__dict__.get("_ramp_state")
+        if state is None:
+            state = self.__dict__["_ramp_state"] = ramp.PlacementRamp()
+        return state
+
+    @_ramp.setter
+    def _ramp(self, state: ramp.PlacementRamp) -> None:
+        self.__dict__["_ramp_state"] = state
 
     @_released_on_failure
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
@@ -3013,6 +3025,8 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
+            if self._ramp.snapshot["enabled"]:
+                view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
                     "claude_cards": self.timers.cards_view(),  # C-9.10
@@ -3035,6 +3049,15 @@ class Daemon:
 
     def _disk_status(self) -> dict:
         return self._disk.status(self._disk_rows() if self._disk.snapshot["enabled"] else (), utcnow())
+
+    def _ramp_rows(self, since: str) -> list[dict]:
+        # Finished and failed attempts still used a start. One small projection
+        # per enabled detached pass; turns and probes never enter this census.
+        return self.store.query(
+            "SELECT a.attempt_id,a.job_id,a.reserved_at,j.kind FROM attempts a JOIN jobs j USING(job_id) "
+            # Read the whole cutoff second; PlacementRamp applies the exact
+            # boundary, including fractional timestamps before the trailing Z.
+            "WHERE j.kind='dispatch' AND a.reserved_at>=?", (since[:19],))
 
     def _save_disk_latch(self) -> None:
         # A restart during recovery must not forget a low-space refusal. Only
@@ -3747,6 +3770,24 @@ class Daemon:
         return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
                 "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
+    def _retention_pins(self):
+        """Keep the ledger until its starts leave C-6.18's restart window.
+
+        Retention asks this again inside its deleting transaction, so neither
+        a new start nor enabling the policy during an archive can erase it.
+        """
+        pins = self.conversations.retention_pins()
+        cfg = ramp_settings(self.policy)
+        if not cfg["enabled"]:
+            return pins
+        now = utcnow()
+        try:
+            since = _later(now, -cfg["window_s"])
+        except OverflowError:
+            since = ""
+        return set(pins) | {row["job_id"] for row in self._ramp_rows(since)
+                            if _seconds_between(row["reserved_at"], now) < cfg["window_s"]}
+
     def _retention(self):
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
         # conversation service pins the turn jobs it still needs (IR-17). d635:
@@ -3775,7 +3816,7 @@ class Daemon:
         result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                              turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                              turn_keep_s=float(budget["turn_keep_days"]) * 86400,
-                             pins=self.conversations.retention_pins,
+                             pins=self._retention_pins,
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                              state=self._retention_state,
                              remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
@@ -4801,10 +4842,22 @@ class Daemon:
         # carries a probe (C-26.9), so the turn pass, which runs beside this one,
         # keeps none and leaves the detached pass's alone.
         probe_line: list[tuple[str, str, frozenset[str] | None]] = []
+        ramp_hold: dict | None = None
         if kind == "detached":
             self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
             self._save_disk_floor()
             self._save_disk_latch()
+            ramp_config = ramp_settings(self.policy)
+            if ramp_config["enabled"]:
+                now = utcnow()
+                try:
+                    since = (datetime.fromisoformat(now.replace("Z", "+00:00"))
+                             - timedelta(seconds=ramp_config["window_s"])).isoformat().replace("+00:00", "Z")
+                except OverflowError:
+                    since = ""                       # a valid window can exceed datetime's range
+                self._ramp.begin_pass(self.policy, self._ramp_rows(since), now)
+            elif "_ramp_state" in self.__dict__:
+                self._ramp.begin_pass(self.policy, (), utcnow())
             self._recover_probes()
             self._probe_line = probe_line
         desktop_account = self._desktop_identity()
@@ -4984,6 +5037,14 @@ class Daemon:
                 # (review of PR #72); one whose clock runs still reports `workspace`
                 # (C-6.11).
                 busy = self._disk_hold(klass) or scheduler.machine_hold(self.policy, reading, klass)
+                if not busy and job["kind"] == "dispatch" and ramp_config["enabled"]:
+                    # Once full, ordinary placements stop for this whole pass.
+                    # Otherwise an expiry between two jobs could let the later
+                    # one pass the earlier job we just held (C-6.18's FIFO).
+                    busy = (ramp_hold if klass != "priority" and ramp_hold
+                            else self._ramp.hold(klass, utcnow()))
+                    if busy:
+                        ramp_hold = busy
                 if busy:
                     holds[job["job_id"]] = busy
                     continue
@@ -5587,6 +5648,10 @@ class Daemon:
                 continue
             if job["kind"] != "turn":
                 self._disk.reserve(aid, reserved_at)
+            if job["kind"] == "dispatch" and ramp_config["enabled"]:
+                # Only after the reservation transaction commits: failed lease
+                # and route checks consume no start, successes pace this pass.
+                self._ramp.reserve(aid, reserved_at)
             tally["placed"] += 1
             tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)

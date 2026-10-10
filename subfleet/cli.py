@@ -412,6 +412,8 @@ def format_status(data: dict[str, Any]) -> str:
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
         lines.append(render.disk_line(data["disk"]))
+    if isinstance(data.get("ramp"), dict):
+        lines.append(render.ramp_line(data["ramp"]))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
