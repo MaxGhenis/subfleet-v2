@@ -8,6 +8,7 @@ compares disabled/absent policy with the frozen pre-change admission method.
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import json
 import math
 from pathlib import Path
@@ -35,6 +36,16 @@ def non_git_workspace(monkeypatch):
 
 def fake_clock(patch, initial=0):
     clock = [initial]
+
+    class ClockDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime.fromisoformat(stamp(clock[0]).replace("Z", "+00:00"))
+            return instant.astimezone(tz) if tz is not None else instant.astimezone().replace(tzinfo=None)
+
+    # Routing builds and rechecks its view with datetime.now directly. Keep
+    # that clock aligned with the placement ledger and generated readings.
+    patch.setattr(daemon_module, "datetime", ClockDatetime)
     patch.setattr(daemon_module, "utcnow", lambda: stamp(clock[0]))
     patch.setattr(daemon_module, "after", lambda seconds: stamp(clock[0] + seconds))
     patch.setattr(daemon_module, "age", lambda timestamp:
@@ -355,6 +366,8 @@ def test_generated_enabled_daemon_windows_liveness_order_and_restart(tmp_path_fa
     with fleet_daemon(tmp_path_factory.mktemp("ramp-enabled") / "state") as (service, harness, patch):
         clock = fake_clock(patch, initial)
         enable(service, patch, per_minute=per_minute)
+        # Free capacity remains measured for every generated admission window.
+        service.policy["caps"]["reading_ttl_s"] = 86400
         live = scheduler.Liveness(sessions=frozenset({"live"}), jobs=frozenset())
         patch.setattr(service, "_liveness", lambda jobs: live)
         service.policy["admission"]["priority_callers"] = ["chosen"]
@@ -440,6 +453,7 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
                 sessions=frozenset({"live"}), jobs=frozenset()))
             patch.setattr(service.conversations, "admission_hold", lambda job: None)
             service.policy["caps"]["max_active_attempts"] = cap
+            service.policy["caps"]["reading_ttl_s"] = 86400
             service.policy["admission"]["priority_callers"] = ["chosen"]
             if enabled is None:
                 service.policy["admission"].pop("ramp", None)
