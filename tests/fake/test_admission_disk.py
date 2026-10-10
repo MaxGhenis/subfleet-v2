@@ -304,11 +304,12 @@ def test_raise_lower_precedence_and_source_transitions(state_daemon, monkeypatch
     assert len(rulings(daemon)) == 3
 
 
-def test_restart_does_not_repeat_floor_source_event(state_daemon, monkeypatch):
+@pytest.mark.parametrize("restart_at", [1, 3600], ids=["still-live", "expired-offline"])
+def test_restart_recovers_floor_source_and_rechecks_offline_expiry(state_daemon, monkeypatch, restart_at):
     from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
     daemon, harness = state_daemon
-    fake_clock(monkeypatch)
-    enable(daemon, monkeypatch, 0)
+    clock = fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
     daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE)
     files = Files(file(lowering()))
     daemon._disk.read_ruling = files
@@ -316,11 +317,17 @@ def test_restart_does_not_repeat_floor_source_event(state_daemon, monkeypatch):
     assert len(rulings(daemon)) == 1
     (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
     daemon.close()
+    clock[0] = restart_at
     restarted = daemon_module.Daemon(harness.root)
     try:
         restarted._disk.read_ruling = files
         restarted._admit()
-        assert len(rulings(restarted)) == 1
-        assert restarted._disk.snapshot["floor_gb"] == 30
+        if restart_at < 3600:
+            assert len(rulings(restarted)) == 1
+            assert restarted._disk.snapshot["floor_gb"] == 30
+        else:
+            assert len(rulings(restarted)) == 2
+            assert restarted._disk.snapshot["floor_gb"] == 40
+            assert restarted._disk.snapshot["resume_margin_gb"] == 5 and restarted._disk.holding
     finally:
         restarted.close()

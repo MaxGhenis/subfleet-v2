@@ -127,6 +127,7 @@ class DiskAdmission:
         self.read_ruling = read_ruling
         self.settings = disk_settings({})
         self.floor_info: dict[str, Any] = {"floor_source": "policy"}
+        self.previous_numbers: tuple[float, float] | None = None
         self.reservations: dict[str, tuple[float, int]] = {}
         self.measured: int | None = None
         self.holding = holding
@@ -184,8 +185,9 @@ class DiskAdmission:
         return {**snapshot, "reserved_gb": sum(amount for _, amount in current.values()) / GB}
 
     def begin_pass(self, policy: Mapping[str, Any], attempts: Iterable[Mapping[str, Any]], now: str) -> None:
-        previous = (self.settings["floor_gb"], self.settings["resume_margin_gb"])
-        had_ruling = self.floor_info["floor_source"] != "policy"
+        previous = self.previous_numbers or (self.settings["floor_gb"], self.settings["resume_margin_gb"])
+        had_ruling = self.previous_numbers is not None or self.floor_info["floor_source"] != "policy"
+        self.previous_numbers = None
         self.settings = disk_settings(policy)
         self.floor_info = {"floor_source": "policy"}
         if not self.settings["enabled"]:

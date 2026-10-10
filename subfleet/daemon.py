@@ -684,7 +684,10 @@ class Daemon:
             latch = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_latch' ORDER BY event_id DESC LIMIT 1")
             self._disk.holding = bool(latch and json.loads(latch["data_json"]).get("holding"))
             floor = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_floor' ORDER BY event_id DESC LIMIT 1")
-            self._disk_saved_source = json.loads(floor["data_json"])["floor_source"] if floor else "policy"
+            floor_info = json.loads(floor["data_json"]) if floor else {}
+            self._disk_saved_source = floor_info.get("floor_source", "policy")
+            if self._disk_saved_source != "policy":
+                self._disk.previous_numbers = (floor_info["floor_gb"], floor_info["resume_margin_gb"])
         self._disk_saved_hold = self._disk.holding
         self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
