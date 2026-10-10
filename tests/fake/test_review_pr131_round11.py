@@ -290,3 +290,21 @@ def test_incomplete_local_identity_holds_against_complete_foreign_history(state_
     evidence = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
     assert evidence["owned_identities"]["202"] == local
     assert local in evidence["owned_identity_history"]["202"]
+
+
+def test_adopted_guardian_incarnation_cannot_claim_foreign_descendants(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    parent, _ = running(daemon, harness, 100, 101)
+    replacement = {"pid": 100, "boot_id": BOOT, "proc_start": "replacement"}
+    daemon.store.update_attempt(parent["attempt_id"], state="quarantined",
+                                quarantine_reason=json.dumps({"identities": {"100": replacement}}))
+    rows = {100: (1, 100, "Ss", "replacement"), 102: (100, 102, "Ss", "p102")}
+    script_table(monkeypatch, rows, markers="")
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset())
+    # The old guardian's PID was reused. A held census of its replacement
+    # retains its descendants conservatively but cannot claim their ancestry.
+    assert 102 in daemon._contain(parent).live_pids
+    child, _ = running(daemon, harness, 200, 201)
+    rows.update({200: (1, 200, "Ss", "p200"), 201: (200, 200, "S", "p201")})
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({102}))
+    assert 102 in daemon._contain(child).live_pids

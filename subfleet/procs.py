@@ -585,6 +585,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 lineage_roots: Sequence[CensusRoot] = (),
                 lineage_overflow_boot: str | None = None,
                 guardian_identity: ProcessIdentity | None = None,
+                child_identity: ProcessIdentity | None = None,
                 foreign_ownership: ForeignOwnership = ForeignOwnership()) -> Containment:
     """Collect C-5.5 group, lineage, cwd and marker sources; failures hold.
 
@@ -641,8 +642,16 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 try:
                     if seen.is_process(pid, known.boot_id, known.proc_start, legacy=True):
                         protected.add(pid)
-                        proven_roots.add(pid)
                         break
+                except InspectionError:
+                    pass
+        # A retained census observation at a reused launch PID is a hold,
+        # not proof that the current incarnation belongs to this attempt.
+        for known in (guardian_identity, child_identity):
+            if known is not None:
+                try:
+                    if seen.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
+                        proven_roots.add(known.pid)
                 except InspectionError:
                     pass
         local_seen = {pid: seen.census_root(pid).identity for pid in protected}

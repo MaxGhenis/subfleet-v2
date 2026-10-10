@@ -6487,6 +6487,7 @@ class Daemon:
                                    launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
                                    child_unrecorded=child_unrecorded,
                                    guardian_identity=procs.ProcessIdentity(**next(iter(guardian.values()))) if guardian else None,
+                                   child_identity=procs.ProcessIdentity(**child) if child else None,
                                    workdir=job.get("worktree") or job["workdir"],
                                    lineage_roots=tuple(procs.CensusRoot(**value)
                                                        for value in roots),
