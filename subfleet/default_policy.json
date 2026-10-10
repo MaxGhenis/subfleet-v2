@@ -183,11 +183,6 @@
       "min_floor_gb": 20,
       "max_lower_h": 16
     },
-    "ramp": {
-      "enabled": false,
-      "per_minute": 12,
-      "window_s": 60
-    },
     "pin_grace_s": 1800,
     "pin_hold_far_s": 604800,
     "prove_idle_s": 900,

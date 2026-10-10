@@ -5,8 +5,19 @@ import pytest
 
 from subfleet.policy import (
     DEFAULT_POLICY_PATH, RAMP_DEFAULTS, PolicyError, admission_settings, load_policy,
-    ramp_settings,
+    policy_hash, ramp_settings,
 )
+
+
+def test_shipped_policy_preserves_pre_ramp_raw_hash_and_disabled_defaults():
+    # A daemon without policy.json copies these bytes, whose hash enters every
+    # admission decision even when the ramp is absent or disabled (C-6.18 R6).
+    before = "47e1c5111b9cef28751257667cd8aa2eb9ba0ac39ef7e55beff30879a429e49c"
+    assert "ramp" not in json.loads(DEFAULT_POLICY_PATH.read_bytes())["admission"]
+    assert policy_hash(DEFAULT_POLICY_PATH) == before
+    loaded = load_policy(DEFAULT_POLICY_PATH)
+    assert loaded["_policy_hash"] == before
+    assert loaded["admission"]["ramp"] == RAMP_DEFAULTS
 
 
 @pytest.mark.parametrize("section", [None, {}, {"enabled": True}, {"per_minute": 3},
@@ -42,7 +53,7 @@ def test_ramp_defaults_and_partial_config(tmp_path, section):
 ])
 def test_invalid_ramp_setting_names_exact_key(tmp_path, key, value):
     raw = json.loads(DEFAULT_POLICY_PATH.read_bytes())
-    raw["admission"]["ramp"][key] = value
+    raw["admission"].setdefault("ramp", dict(RAMP_DEFAULTS))[key] = value
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(raw))
     with pytest.raises(PolicyError) as caught:
@@ -63,7 +74,7 @@ def test_ramp_section_must_be_an_object(tmp_path, value):
 
 def test_ramp_default_objects_are_not_shared_between_loads(tmp_path):
     raw = json.loads(DEFAULT_POLICY_PATH.read_bytes())
-    raw["admission"].pop("ramp")
+    raw["admission"].pop("ramp", None)
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(raw))
     first = load_policy(path)
