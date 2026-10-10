@@ -180,4 +180,6 @@ def test_real_repo_admission_pass_measurement(worlds):
         assert placed(world.core, behind)
         admit_ready(world.core)
         print(f"REAL_REPO admission_pass_s={pass_s:.6f} git_calls={timings}")
-        assert placed(world.core, job), (dict(world.core._job(job)), notices(world.core, job))
+        row = world.core._job(job)
+        outcome = {key: row[key] for key in ("state", "rc", "wait_reason", "worktree")}
+        assert placed(world.core, job), (outcome, notices(world.core, job))
