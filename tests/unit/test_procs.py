@@ -745,3 +745,11 @@ def test_ps_text_invariants(raw):
     assert printed == "".join(procs.PS_BYTES[byte] for byte in raw)
     if all(0x20 <= byte <= 0x7E for byte in raw):
         assert printed == raw.decode("ascii")
+
+
+@pytest.mark.parametrize("value", ["/tmp/a\x00b", "\x00"])
+def test_ps_text_refuses_a_value_with_a_nul(value):
+    """A NUL ends an environment string, so no process carries a value that holds
+    one. `ps_text` refuses it rather than printing `^@`."""
+    with pytest.raises(ValueError):
+        procs.ps_text(value)
