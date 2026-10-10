@@ -236,13 +236,26 @@ _HOLD_TEXT = {
 }
 
 
+def disk_floor_detail(reading: Mapping[str, Any]) -> str:
+    parts = [reading.get("floor_source", "policy")]
+    if reading.get("floor_why"):
+        parts.append(str(reading["floor_why"]))
+    for key in ("lower_error", "lower_expired", "lower_refused", "override_error", "override_expired"):
+        if key in reading:
+            parts.append(f"{key}: {reading[key]}")
+    return "; ".join(parts)
+
+
 def disk_line(reading: Mapping[str, Any]) -> str:
     """C-6.17: one disk line, shared by the capacity and CLI status views."""
     free = reading.get("free_gb")
     free_text = "unknown" if free is None else f"{free:.2f} GB"
     mode = "disabled" if not reading.get("enabled") else "holding" if reading.get("holding") else "open"
+    floor = reading["floor_gb"]
+    floor_text = floor if isinstance(floor, str) else f"{floor:g}"
     return (f"disk: free {free_text}, reserved {reading['reserved_gb']:.2f} GB, "
-            f"floor {reading['floor_gb']:g} GB; {mode}"
+            f"floor {floor_text} GB; {mode}"
+            + f"; {disk_floor_detail(reading)}"
             + (f" ({reading['error']})" if reading.get("error") else ""))
 
 #: C-11.8: each standing refusal of a pinned lane, in words (`scheduler.STANDING_REFUSALS`).
@@ -374,6 +387,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 **{k: v for k, v in fields.items() if v is not None}}))
             if reason == "disk" and hold.get("error"):
                 lines.append("Disk reading failed: " + hold["error"])
+            if reason == "disk":
+                lines.append("Disk floor: " + disk_floor_detail(hold))
             if reason == "pin-unadmittable":
                 lines.append(f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then "
                              f"`subfleet kill {standing.get('job_id')}`; or make {hold.get('lane_id') or 'the lane'} "

@@ -150,6 +150,9 @@ CREATE TABLE IF NOT EXISTS attempts (
   UNIQUE (job_id, seq)
 );
 CREATE INDEX IF NOT EXISTS attempts_live ON attempts(state) WHERE state IN ('reserved','starting','running','finalizing');
+-- C-17.4: operator snapshots include quarantine through its own indexed branch,
+-- leaving attempts_live and admission's definition of in-flight unchanged.
+CREATE INDEX IF NOT EXISTS attempts_quarantined ON attempts(state) WHERE state='quarantined';
 CREATE INDEX IF NOT EXISTS attempts_lane ON attempts(lane_id, state);
 -- C-3.7: `list_attempts` reads every attempt in this order; without an index each
 -- capacity snapshot sorted the table (39 MB with its evidence on 2026-10-06) in a
