@@ -63,7 +63,7 @@ def mutants(head):
                'blockers.extend(key for key in folders.retiring(read, job["workdir"]) if key != own)',
                PINS, 'writer_git_target')
         yield ('submit-raw-workdir', DAEMON, None,
-               'recorded_workdir = folders.canonical(workdir)', 'recorded_workdir = workdir',
+               'recorded_workdir = folders.canonical(workdir)', 'recorded_workdir = str(workdir)',
                WRITER, 'queued_on_the_tree_under_a_case_alias or data_firmlink')
         yield ('clock-queues-blocked-fence', DAEMON, '_admit_pass',
                'blocked = set(known.get("blocked") or ())', 'blocked = set()',
