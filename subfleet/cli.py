@@ -40,7 +40,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, ids, protocol, render
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -1324,6 +1324,42 @@ def cmd_wait(args: argparse.Namespace) -> int:
 
 # --- runs (C-17.1, C-17.5) ----------------------------------------------------
 
+def cmd_usage(args: argparse.Namespace) -> int:
+    """C-17.8: provider-reported attempt sums with explicit missing coverage."""
+    from .usage_report import parse_since
+    try:
+        parse_since(args.since)
+        result = _client(args).call("usage", _asdict(protocol.UsageArgs(
+            since=args.since, by=args.by, backfill=bool(args.backfill))))
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if args.json:
+        emit(result)
+        return int(Exit.OK)
+    rows = rows_of(result.get("rows"))
+    if not rows:
+        out("No attempts in this usage window.")
+        return int(Exit.OK)
+    labels = [str(row.get("group") or "?") for row in rows]
+    width = max(len(args.by), *(len(label) for label in labels), 5)
+    out(f"{args.by:<{width}}  attempts  missing       prompt   cache_read  cache_write       output   hit share  source")
+    for row in rows + [{"group": "TOTAL", **(result.get("totals") or {})}]:
+        number = lambda field: str(row[field]) if row.get(field) is not None else "?"
+        share = row.get("cache_hit_share")
+        source = "backfilled" if row.get("backfilled") else "stored" if row.get("attempts_with_usage") else "missing"
+        if row.get("cumulative_thread_attempts"):
+            source += f"; {row['cumulative_thread_attempts']} cumulative thread total(s) excluded"
+        out(f"{str(row.get('group') or '?'):<{width}}  {number('attempts'):>8}  "
+            f"{number('attempts_without_usage'):>7}  {number('prompt'):>11}  {number('cache_read'):>11}  "
+            f"{number('cache_write'):>11}  {number('output'):>11}  "
+            f"{f'{share:.1%}' if share is not None else '?':>10}  {source}")
+    return int(Exit.OK)
+
+
 def _daemon_capabilities(client: Client) -> frozenset[str]:
     """C-25.1: the capability names this daemon advertises.
 
@@ -1588,6 +1624,12 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         return fail(exc.code, str(exc))
     if not job:
         return fail(Exit.INVALID_INPUT, f"runs show: no job {args.id!r}")
+    # C-12.10: expose the evidence record as an additive per-attempt field,
+    # including offline shows of attempts the newer daemon finalized.
+    from .usage_report import usage_of
+    job = {**job, "attempts": [{**attempt, "usage": usage_of(attempt)}
+                                if usage_of(attempt) is not None else attempt
+                                for attempt in job.get("attempts", [])]}
     if args.json:
         emit(job)
         return int(Exit.OK)
@@ -1608,6 +1650,11 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
     # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
     # are v2's single-artifact forms.
     emit(job)
+    for attempt in job.get("attempts", []):
+        if usage_of(attempt) is not None:
+            out(f"\n--- attempt a{attempt['seq']} usage ---")
+            for line in render.attempt_usage(usage_of(attempt)):
+                out(line)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
     if path and Path(path).is_file():
@@ -2900,6 +2947,16 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("-p", dest="p", metavar="PROMPTFILE")
     source.add_argument("prompt", nargs="?")
     p_run.set_defaults(handler=cmd_run)
+
+    p_usage = sub.add_parser("usage", help="provider-reported tokens and cache shares")
+    p_usage.add_argument("--since", default="24h", metavar="WINDOW",
+                         help="duration such as 24h or 7d, or an ISO timestamp (default 24h)")
+    p_usage.add_argument("--by", choices=("lane", "conversation", "session"), default="lane",
+                         help="group by lane, conversation or native resume session (default lane)")
+    p_usage.add_argument("--backfill", action="store_true",
+                         help="read retained streams for older attempts; writes no store records")
+    _add_json(p_usage)
+    p_usage.set_defaults(handler=cmd_usage)
 
     p_runs = sub.add_parser("runs", help="the job ledger, newest first")
     p_runs.add_argument("--last", type=int, default=20, help="how many (default 20)")

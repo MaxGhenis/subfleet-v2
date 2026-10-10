@@ -1569,6 +1569,7 @@ class ClaudeAdapter(Adapter):
                 closure=closure, native_session_id=session_id,
                 transcript_path=str(transcript) if transcript else None,
                 served_model=served_model,
+                usage=summary.usage,
             )
 
         # 0. The host CLI, not the lane. Cooling a healthy lane for this would be a

@@ -285,6 +285,9 @@ def _no_steers(value: dict, where: str) -> dict:
     steers = value.pop("steers", None)
     if steers:
         raise SteersNotEmpty(f"{where}: steers {steers!r} for a turn with no steer")
+    # C-12.10 adds optional measurement, absent in these pre-measurement streams.
+    if value.get("usage") is None:
+        value.pop("usage", None)
     return value
 
 

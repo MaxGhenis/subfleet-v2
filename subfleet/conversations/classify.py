@@ -32,6 +32,7 @@ from ..contracts import (
 )
 from ..sessions import transcripts
 from ..state_files import open_state
+from ..usage import parse_usage
 
 GUESSED_S = 3600
 CODEX_WINDOWS = {300: "five_hour", 10080: "seven_day"}
@@ -83,15 +84,21 @@ class TurnAdapter:
             readings, base_closure, base_cls = base.readings, base.closure, base.cls
             transcript = base.transcript_path
             evidence["adapter"] = {"class": base.cls.value, "detail": base.detail}
+            usage = base.usage
         else:
             readings, reached = codex_readings(Path(attempt_dir) / "stdout", lane_id=lane_id,
                                                attempt_id=notes.get("attempt_id"))
             base_closure, base_cls, transcript = None, None, None
+            try:
+                with transcripts.open_regular(Path(attempt_dir) / "stdout", "r", encoding="utf-8", errors="replace") as stream:
+                    usage = parse_usage(stream, "codex", turn_id=turn.get("turn_id"))
+            except (OSError, transcripts.NotRegularFile):
+                usage = None
         served = (turn.get("served") or {}).get("model") or turn.get("served_model")
 
         def outcome(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls=cls, detail=detail, evidence=evidence, readings=tuple(readings), closure=closure,
-                           native_session_id=native, transcript_path=transcript, served_model=served)
+                           native_session_id=native, transcript_path=transcript, served_model=served, usage=usage)
 
         if not turn:
             return outcome(OutcomeClass.UNKNOWN, "turn ended with no recorded outcome")
