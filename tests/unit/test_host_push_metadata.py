@@ -119,10 +119,9 @@ def plant(path, kind, cap, elsewhere):
         path.write_bytes(content + b"\n" * (cap + 1 - len(content)))
 
 
-# A `.git` directory is a main checkout's own layout, so `gitfile` has no
-# directory case.
-@pytest.mark.parametrize("name,kind", [(name, kind) for name in sorted(PATHS) for kind in KINDS
-                                       if (name, kind) != ("gitfile", "directory")])
+# An empty directory replacing a linked checkout's gitfile has no local config
+# and refuses promptly. The valid main-checkout directory is covered above.
+@pytest.mark.parametrize("name,kind", [(name, kind) for name in sorted(PATHS) for kind in KINDS])
 def test_each_metadata_path_refuses_promptly(checkouts, name, kind):
     which, where, cap = PATHS[name]
     if name == "packed-refs":
@@ -135,6 +134,9 @@ def test_each_metadata_path_refuses_promptly(checkouts, name, kind):
     error = outcome.get("error")
     assert isinstance(error, AdapterError) and error.code == 7 and error.fix, outcome
     reason = GITFILE if name == "gitfile" and kind in ("fifo", "symlink") else KINDS[kind]
+    if name == "gitfile" and kind == "directory":
+        reason = "is missing"
+        assert str(path / "config") in str(error), str(error)
     assert reason in str(error) and path.name in str(error), str(error)
     with pytest.raises(host_push.PushError, match=reason):
         host_push.checkout_metadata(checkout)
