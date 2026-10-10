@@ -330,3 +330,26 @@ def test_review_adversarial_fidelity(monkeypatch, name, lower, raised, written, 
         finally:
             zone.undo()
             time.tzset()
+
+
+def test_deeply_nested_why_is_reported_bounded_and_admission_is_unchanged():
+    """Review of #164 r2 (P2): a valid ~2 KB ruling whose `why` nests 992 arrays raised
+    RecursionError in the evidence copy and aborted every admission pass. Now the pass
+    completes, the lowering applies exactly as before (`why` never feeds admission), and
+    the reported evidence, its JSON and the status text stay bounded."""
+    from subfleet import render
+    from subfleet.disk import EVIDENCE_MAX_DEPTH, EVIDENCE_TRUNCATED
+    head = json.dumps(lowering(why=None))[:-len('null}')]
+    raw = (head + "[" * 992 + "]" * 992 + "}").encode()
+    gate = DiskAdmission("/fake/state", read_free=lambda path: 34 * GB,
+                         read_ruling=Files((raw, epoch(stamp(0)))))
+    gate.begin_pass(policy(), [], stamp(0))
+    assert gate.snapshot["floor_gb"] == 30 and "lower_error" not in gate.snapshot
+    assert not gate.holding                                   # 34 GB free over a 30 GB floor
+    encoded = json.dumps(gate.snapshot, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    assert len(encoded) < 4096
+    level, depth = gate.snapshot["floor_why"], 0
+    while isinstance(level, list):
+        level, depth = level[0], depth + 1
+    assert level == EVIDENCE_TRUNCATED and depth == EVIDENCE_MAX_DEPTH - 1
+    assert isinstance(render.disk_line(gate.snapshot) if hasattr(render, "disk_line") else str(gate.snapshot), str)

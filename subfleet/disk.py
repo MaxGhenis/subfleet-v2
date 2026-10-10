@@ -119,21 +119,33 @@ def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) ->
     return info
 
 
-def reported_evidence(value: Any) -> Any:
+#: How deep ruling evidence is copied for reports. A ruling file is untrusted text:
+#: a small file can nest `why` arrays a thousand deep, which recursion (here, in
+#: json.dumps, or in repr) cannot follow (review of #164 r2, P2). Deeper values are
+#: reported as a placeholder; admission never reads them.
+EVIDENCE_MAX_DEPTH = 16
+EVIDENCE_TRUNCATED = "<nested deeper than 16 levels; not shown>"
+
+
+def reported_evidence(value: Any, _depth: int = 0) -> Any:
     """Copy ruling evidence into strict JSON values without changing admission.
 
     Keep non-finite numbers as text and replace lone surrogates in strings,
     including nested why metadata and object keys, for UTF-8 wire readers.
+    Containers deeper than `EVIDENCE_MAX_DEPTH` become a placeholder, so the
+    copy and every later serialisation of it stay bounded.
     The original floor/margin and source remain available to the latch.
     """
     if isinstance(value, float) and not math.isfinite(value):
         return str(value)
     if isinstance(value, str):
         return "".join("\ufffd" if 0xD800 <= ord(char) <= 0xDFFF else char for char in value)
+    if isinstance(value, (dict, list)) and _depth >= EVIDENCE_MAX_DEPTH:
+        return EVIDENCE_TRUNCATED
     if isinstance(value, dict):
-        return {reported_evidence(key): reported_evidence(item) for key, item in value.items()}
+        return {reported_evidence(key, _depth + 1): reported_evidence(item, _depth + 1) for key, item in value.items()}
     if isinstance(value, list):
-        return [reported_evidence(item) for item in value]
+        return [reported_evidence(item, _depth + 1) for item in value]
     return value
 
 
