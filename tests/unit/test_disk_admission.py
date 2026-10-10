@@ -1,7 +1,6 @@
 """C-6.17: production disk admission against an independent sequence oracle."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -9,13 +8,9 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet.disk import DiskAdmission, GB
 
-BASE = datetime(2026, 10, 9, 16, 33, tzinfo=timezone.utc)
+from tests.disk_floor_model import BASE, Files, LOWER, RAISE, agent_rule, file, lowering, policy, stamp
 POLICY = {"admission": {"disk": {"enabled": True}}}
 CLASSES = ("background", "session", "priority", "attended", "probe")
-
-
-def stamp(seconds):
-    return (BASE + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
 actions = st.lists(st.one_of(
@@ -41,7 +36,6 @@ def test_invariants_over_generated_sequences(tmp_path, invariant, with_rulings, 
     now, free, latch, serial = 0, 39.0, False, 0
     waiting, attempts, budgets = [], [], {}
     reads = []
-    from tests.unit.test_disk_floor import Files, LOWER, RAISE, agent_rule, file, lowering, policy
     from subfleet.policy import disk_settings
     files = Files()
     cfg = policy() if with_rulings else POLICY

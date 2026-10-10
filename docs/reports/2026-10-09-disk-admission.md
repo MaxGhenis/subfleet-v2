@@ -258,6 +258,12 @@ Attended passes read neither disk nor ruling files, and probes remain exempt.
 | **F5 null paths** | `test_F5_null_paths_match_161_decisions`: independent frozen #161 decision/expiry oracle over generated sequences, floors, margins and reserves; 120 examples, ruling reads forbidden |
 | **Expiry/latch regression** | `test_latch_recomputed_at_start_and_expiry_even_without_jobs` and real-daemon `test_timed_floor_expiry_visibility_events_and_no_store_lock` check starts and exact expiry without restart, with source events and visibility |
 
+The independent oracle lives in `tests/disk_floor_model.py`, a plain test
+support module with no test decorators or production imports. Both the floor
+properties and pacing properties use it. This avoids importing a test module
+inside a running Hypothesis example, which would create nested `@given` tests
+when pytest and Python load the module under different names.
+
 The F1 oracle retains the agent's drop-field parsing, and its generated drop
 fields are valid numeric inputs. A separate explicit test checks the required
 malformed-drop-field difference. The oracle totalizes the agent's non-object

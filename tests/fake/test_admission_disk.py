@@ -227,7 +227,7 @@ def rulings(daemon):
 
 
 def test_timed_floor_expiry_visibility_events_and_no_store_lock(state_daemon, monkeypatch):
-    from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
+    from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
     daemon, harness = state_daemon
     clock = fake_clock(monkeypatch)
     enable(daemon, monkeypatch, 34)
@@ -273,7 +273,7 @@ def test_timed_floor_expiry_visibility_events_and_no_store_lock(state_daemon, mo
 
 
 def test_raise_lower_precedence_and_source_transitions(state_daemon, monkeypatch):
-    from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
+    from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
     daemon, harness = state_daemon
     fake_clock(monkeypatch)
     enable(daemon, monkeypatch, 0)
@@ -306,7 +306,7 @@ def test_raise_lower_precedence_and_source_transitions(state_daemon, monkeypatch
 
 @pytest.mark.parametrize("restart_at", [1, 3600], ids=["still-live", "expired-offline"])
 def test_restart_recovers_floor_source_and_rechecks_offline_expiry(state_daemon, monkeypatch, restart_at):
-    from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
+    from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
     daemon, harness = state_daemon
     clock = fake_clock(monkeypatch)
     enable(daemon, monkeypatch, 34)
