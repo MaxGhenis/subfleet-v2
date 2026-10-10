@@ -31,8 +31,9 @@ but it is a write that can fail and put the batch back.
 The app is modeled as in the flag twin: it holds in memory the record of the
 folder it loaded and of folders where the session still runs from an earlier
 account. `turn` is the session running in a folder the app holds: the date
-there becomes now, later than any date written before. `focus` is a save that
-keeps the date. With `stale=True` the app may save a date it held from before
+there becomes now, later than any date written before, so no date here is ever
+past the clock (the code takes one that is for no voice, a case outside this
+model). `focus` is a save that keeps the date. With `stale=True` the app may save a date it held from before
 the mirror raised the copy (`app_save`): the documented limit that the app
 writes a record from memory. Unlike a flag, that old date is no one's change:
 it lowers one copy, the mirror never spreads it, and the next pass raises the

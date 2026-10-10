@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import itertools
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -48,6 +48,9 @@ FOLDERS = (("acct-a", "org-a"), ("acct-b", "org-b"), ("acct-c", "org-c"))
 EPOCH = 1_791_000_000_000
 #: Turns a trace may take: more than the exhaustive exploration's two.
 CLOCK_MAX = 10 * dates_model.JUMP
+#: The passes' clock, after every date a trace can write: the models' dates
+#: never pass their clock, and the mirror takes a date from its future for no voice.
+AFTER = datetime.fromtimestamp(EPOCH / 1000, timezone.utc) + timedelta(days=30)
 ENVIRONMENT = ("user_set_true", "user_set_false", "load_0", "load_1", "load_2",
                "focus_0", "focus_1", "focus_2", "stale_0", "stale_1", "stale_2",
                "turn_0", "turn_1", "turn_2")
@@ -74,7 +77,7 @@ class MirrorAgainstBothModels(RuleBasedStateMachine):
         policy = fx.policy(mirror_hot_interval_s=0,
                            mirror_activity_lag_s=dates_model.LAG / 1000)
         self.running = mirror.Mirror(
-            self.root, policy, now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
+            self.root, policy, now=lambda: AFTER + timedelta(seconds=next(ticks)))
         self.options = mirror.options_from(policy)
         self.flags: flags_model.State | None = None
         self.dates: dates_model.State | None = None

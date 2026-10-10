@@ -222,6 +222,11 @@ DEFAULT_ACTIVITY_LAG_S = 3600.0
 #: rest wait for the next pass and are counted in `activity_waiting`. Ten
 #: sessions are about 1,300 writes, 0.4 s at the 0.30 ms measured for one.
 ACTIVITY_SESSIONS_PER_PASS = 10
+#: A date more than this past the pass's own clock is no voice. The app writes
+#: its clock's now, so a later date is a bad record, and a raise is never
+#: undone: spread once, a bad date would sit in every folder and be raised
+#: again from each. Left alone, it stays one folder's.
+ACTIVITY_FUTURE_S = 300.0
 #: How many split ids the full pass's report lists by name.
 SPLIT_REPORT_LIMIT = 10
 
@@ -244,7 +249,8 @@ def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
     and folder the session last ran with. So the function never returns a
     value at or above the newest it was given, never one below the copy's
     own, and nothing once every copy is within `lag_ms`. A copy whose date is
-    not a number is no voice and is never written.
+    not a number is no voice and is never written; `sync_flags` passes a date
+    from the future as None for the same treatment.
     """
     known = [value for value in values if _instant_ms(value)]
     if not known or lag_ms <= 0:
@@ -1709,6 +1715,8 @@ class Mirror:
         moved: the write keeps the later of what the copy holds and what the
         pass decided, and a copy that needs nothing after that is not
         written. A pass raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions.
+        A date more than `ACTIVITY_FUTURE_S` past this pass's clock is no
+        voice: it is not raised and it is never the newest.
         The date's protocol is docs/formal/MirrorActivity.tla, with its twin
         in tests/mirror_activity_model.py.
         """
@@ -1737,6 +1745,7 @@ class Mirror:
         originals: dict[tuple[Path, str], dict] = {}
         owners: dict[tuple[Path, str], str] = {}
         lag_ms = options.activity_lag_s * 1000.0 if options.activity_lag_s > 0 else 0.0
+        horizon_ms = (self.now().timestamp() + ACTIVITY_FUTURE_S) * 1000.0
         #: `(how far its stalest copy trails, session, [(folder, name, date)])`.
         lagging: list[tuple[Any, str, list[tuple[Path, str, Any]]]] = []
 
@@ -1854,7 +1863,9 @@ class Mirror:
             # The date each row shows. A session archived everywhere is in no
             # sidebar list, so its copies' dates are left as they are.
             if lag_ms and not base["isArchived"]:
-                dates = [data.get(ACTIVITY_FIELD) for _p, _n, data in copies]
+                # A date from the future is no voice (`ACTIVITY_FUTURE_S`).
+                dates = [value if _instant_ms(value) and value <= horizon_ms else None
+                         for value in (data.get(ACTIVITY_FIELD) for _p, _n, data in copies)]
                 raises = activity_targets(dates, lag_ms)
                 if raises:
                     newest = max(value for value in dates if _instant_ms(value))
@@ -2754,7 +2765,8 @@ def run_once(root: str | Path, policy: dict[str, Any] | None = None,
     return Mirror(root, policy, now=now).run_once(options)
 
 
-__all__ = ["ACTIVITY_FIELD", "ACTIVITY_SESSIONS_PER_PASS", "DEFAULT_ACTIVITY_LAG_S",
+__all__ = ["ACTIVITY_FIELD", "ACTIVITY_FUTURE_S", "ACTIVITY_SESSIONS_PER_PASS",
+           "DEFAULT_ACTIVITY_LAG_S",
            "DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
            "activity_targets", "health", "load_gap", "options_from", "run_once", "slug",
            "splits", "store_dir"]

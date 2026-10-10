@@ -144,6 +144,12 @@ For one session, with the date in each folder's copy:
 - **The lead is kept.** No write changes the newest date or which copies hold it.
 - **Never lowered.** A write that goes through lowers no copy. A later date
   the app saved between the pass's read and its write is kept.
+- **Not from the future.** A date more than five minutes past the pass's own
+  clock is no voice: it is not raised, and it is never the newest. The app
+  writes its clock's now, so such a date is a bad record. A raise is never
+  undone, so one spread bad date would sit in every folder and be raised
+  again from each; left alone it stays one folder's. No record in the store
+  held one.
 - **Idempotence.** With every copy within the lag, nothing is decided and
   nothing is written.
 - **No lost update.** The mirror writes only a copy nobody rewrote since its
@@ -196,14 +202,17 @@ mirror writes once for each such save by the app.
   between two of the publish's writes, and cancelled passes. After every step
   each file's flag and date and the merge base equal the models'. 150 traces
   of 30 steps.
-- **27 example tests** (`tests/unit/test_sessions_mirror_activity.py`),
-  among them the 2026-10-10 store, the put-back of a date with a flag, the
-  bound of ten, the new folder copied from the record that leads, and the
-  status and doctor output.
-- **Mutation check:** 16 deliberate faults in `mirror.py`, one at a time
+- **30 example tests and one property on real files**
+  (`tests/unit/test_sessions_mirror_activity.py`), among them the 2026-10-10
+  store, the put-back of a date with a flag, the bound of ten, the new folder
+  copied from the record that leads, a date from the future, and the status
+  and doctor output. The property takes any three dates around the pass's
+  clock and checks the bounds above on the files a pass leaves.
+- **Mutation check:** 18 deliberate faults in `mirror.py`, one at a time
   (raise to the newest, raise at exactly the lag, write over a later date,
   raise an archived session, rewrite a copy that needs nothing, least behind
-  first, no bound, ignore the switch, and eight more). Each fails a test.
+  first, no bound, ignore the switch, take a future date for a voice, and
+  nine more). Each fails a test.
   The first run left one real fault alive (the needless rewrite); the test
   that should have caught it now checks that the file is not replaced.
 - **The existing mirror tests** pass: 12 files unchanged (293 tests), and the

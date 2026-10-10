@@ -22,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from subfleet.sessions import mirror
@@ -36,6 +38,9 @@ NEW = 1_791_635_200_000
 DAY = 86_400_000
 OLD = NEW - 55 * DAY
 HOUR = 3_600_000
+#: The passes' clock: three days after NEW, so every fixture date is in its past.
+CLOCK = datetime.fromtimestamp((NEW + 3 * DAY) / 1000, timezone.utc)
+CLOCK_MS = NEW + 3 * DAY
 
 
 @pytest.fixture
@@ -54,7 +59,7 @@ def engine(world, **overrides) -> mirror.Mirror:
     _home, _store, root = world
     ticks = itertools.count()
     return mirror.Mirror(root, fx.policy(mirror_hot_interval_s=0, **overrides),
-                         now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
+                         now=lambda: CLOCK + timedelta(milliseconds=next(ticks)))
 
 
 def options(running: mirror.Mirror, **overrides) -> mirror.Options:
@@ -281,6 +286,76 @@ def test_a_copy_whose_date_is_not_a_number_is_left_as_it_is(world):
     running = engine(world)
     running.run_once(options(running))
     assert dates(world) == (NEW, None, NEW - 1)
+
+
+def test_a_date_from_the_future_is_no_voice_and_spreads_nowhere(world):
+    """C-23.28: a raise is never undone, so a bad record must stay one
+    folder's. C's date is a day past the pass's clock: B is raised to A's,
+    and neither A nor B is raised toward C's."""
+    future = CLOCK_MS + DAY
+    place(world, ONE, (NEW, OLD, future))
+    running = engine(world)
+    result = running.run_once(options(running))
+    assert result.activity_synced == 1
+    assert dates(world) == (NEW, NEW - 1, future)
+    assert running.run_once(options(running)).activity_synced == 0
+
+
+def test_a_session_whose_only_dates_are_from_the_future_is_left_alone(world):
+    """C-23.28: with no voice there is no newest, and nothing is written."""
+    place(world, ONE, (CLOCK_MS + DAY, CLOCK_MS + 9 * DAY, CLOCK_MS + 2 * DAY))
+    running = engine(world)
+    result = running.run_once(options(running))
+    assert result.activity_synced == 0
+    assert dates(world) == (CLOCK_MS + DAY, CLOCK_MS + 9 * DAY, CLOCK_MS + 2 * DAY)
+
+
+def test_a_date_a_minute_past_the_clock_is_a_voice(world):
+    """C-23.28: `ACTIVITY_FUTURE_S` allows for a clock that stepped back. A
+    record the app wrote just before the step is still that session's newest."""
+    ahead = CLOCK_MS + 60_000
+    assert 60 < mirror.ACTIVITY_FUTURE_S < 3600
+    place(world, ONE, (ahead, OLD, OLD))
+    running = engine(world)
+    running.run_once(options(running))
+    assert dates(world) == (ahead, ahead - 1, ahead - 1)
+
+
+@settings(max_examples=60, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(offsets=st.lists(st.integers(min_value=-90 * DAY, max_value=30 * DAY),
+                        min_size=3, max_size=3))
+def test_one_pass_keeps_the_dates_bounds_on_real_files(offsets, tmp_path_factory, monkeypatch):
+    """C-23.28: for any three dates around the pass's clock, on real files. No
+    date is lowered; a date from the future is not written and is no one's
+    target; every other copy ends within the lag of the newest voice, below
+    it, and the copy that held the newest voice still does."""
+    with monkeypatch.context() as patch:
+        base = tmp_path_factory.mktemp("dates")
+        home = fx.claude_home(base, patch)
+        store = fx.desktop_store(base, patch)
+        root = base / "state"
+        root.mkdir()
+        scene = (home, store, root)
+        before = tuple(CLOCK_MS + offset for offset in offsets)
+        place(scene, ONE, before)
+        running = engine(scene)
+        running.run_once(options(running))
+        after = dates(scene)
+    horizon = CLOCK_MS + mirror.ACTIVITY_FUTURE_S * 1000
+    voices = [value for value in before if value <= horizon]
+    for was, now in zip(before, after):
+        assert now >= was, "never lowered"
+        if was > horizon:
+            assert now == was, "a date from the future is not written"
+    if voices:
+        newest = max(voices)
+        for was, now in zip(before, after):
+            if was <= horizon:
+                assert newest - now <= HOUR, "within the lag of the newest voice"
+                assert now <= newest and (now == was or now == newest - 1)
+        assert [was == newest for was in before if was <= horizon] == \
+            [now == newest for was, now in zip(before, after) if was <= horizon]
 
 
 def test_a_dry_run_counts_the_raise_and_writes_nothing(world):
