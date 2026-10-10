@@ -560,7 +560,9 @@ def check_mirror(root: Path) -> dict[str, Any]:
 
     Judged only from the mirror's per-pass sidecar: a pass the sidecar records
     as in flight is healthy until thirty minutes after its recorded start, and
-    only then is the mirror `stalled`. v1 read the log's mtime instead and
+    only then is the mirror `stalled`, unless the last pass before it did not
+    end `ok`: the mirror is then `stalled` from that failure until a pass ends
+    `ok`, in flight or not. v1 read the log's mtime instead and
     reported a false "stalled" on 2026-08-19 07:08, because `--quiet` keeps the
     log silent on a no-op pass. An absent sidecar is `unknown`, not a failure:
     a fresh install has simply never run a pass.

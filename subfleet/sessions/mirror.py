@@ -105,7 +105,7 @@ root, so v2's mirror never edits v1's file and the two can run side by side
 during the shadow period. Health becomes C-23.28: a **per-pass sidecar** records
 each pass as it starts and again as it ends, so "a pass the sidecar records as in
 flight is healthy until thirty minutes after its recorded start, and only then is
-the mirror stalled". v1 inferred an in-flight pass from `pgrep -f
+the mirror stalled", unless the passes before it failed. v1 inferred an in-flight pass from `pgrep -f
 bin/subfleet-mirror`, which a rename would have silently broken and which made
 every long pass a coin flip; and it judged staleness from log recency, which fired
 a false "stalled" on 2026-08-19 07:08 because `--quiet` keeps the log silent on a
@@ -2247,8 +2247,8 @@ class Mirror:
 
         Within the lock, the sidecar is written BEFORE the work starts: a pass
         that hangs is then visible as in flight rather than as silence, and
-        `health` tolerates it for thirty minutes instead of guessing from a
-        process listing.
+        `health` tolerates it for thirty minutes, after a pass that ended `ok`,
+        instead of guessing from a process listing.
 
         A pass that took the lock ends its record however it ends, so that
         only a pass in flight reads as one. Cancellation and OSError are
@@ -3028,8 +3028,9 @@ class Mirror:
         """Mirror health, judged from the sidecar and nothing else (C-23.28).
 
         `absent` when no pass was ever recorded, `running` while a recorded pass
-        is in flight and younger than `mirror_hang_min`, `healthy` when the last
-        pass finished inside `mirror_stall_min`, `stalled` otherwise. Log
+        is in flight and younger than `mirror_hang_min` and the last pass before
+        it ended `ok` (or there was none), `healthy` when the last pass finished
+        `ok` inside `mirror_stall_min`, `stalled` otherwise. Log
         recency is never consulted: `--quiet` keeps a no-op pass silent, and
         reading the log as a heartbeat produced a false "stalled" on 2026-08-19.
 
@@ -3037,8 +3038,10 @@ class Mirror:
         replaced the record of the last of them. What they were is read from
         `last_end` and `not_ok_passes` (`_record`): the detail names the last
         pass that did not end `ok`, and how many in a row, also while the
-        next pass is in flight, and the reply carries all three. They change
-        no reading's status.
+        next pass is in flight, and the reply carries all three. While that
+        run is not empty, a pass in flight reads `stalled`: on a 60 s
+        interval, passes that ran 40 s and then failed had read `running`,
+        and passed `doctor`, in 400 of 600 readings.
         """
         instant = now or self.now()
         settings = self.policy.get("sessions", {})
@@ -3067,7 +3070,11 @@ class Mirror:
                 before = (f"; the {count} passes before it did not end ok, "
                           f"and the last {_how(last)}; {_since_ok(last_ok)}")
             if run_min is not None and run_min <= hang:
-                return {"status": "running", "sidecar": str(self.sidecar_path),
+                # A pass in flight is no news of the passes before it. While
+                # the last of them did not end `ok`, the mirror is as stalled
+                # as it read between them, until a pass ends `ok`.
+                return {"status": "stalled" if count else "running",
+                        "sidecar": str(self.sidecar_path),
                         "age_min": None, "run_min": round(run_min, 1), **over,
                         "detail": f"a pass has been in flight for {run_min:.1f} min" + before}
             return {"status": "stalled", "sidecar": str(self.sidecar_path),

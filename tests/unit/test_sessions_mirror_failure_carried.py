@@ -26,8 +26,9 @@ started). The invariants these tests hold the mirror to:
   the three;
 * once `pass` is over, `last_end` is that pass, and the count is 0 exactly
   when it ended `ok`;
-* the three change no reading's status: for any sidecar, health reads the
-  status it reads with the three removed, and its detail begins with the
+* the three change one status: a pass in flight, inside the hang limit,
+  after a pass that did not end `ok` reads `stalled`; every other reading has
+  the status it has with the three removed, and every detail begins with the
   detail it gives without them (a differential against that reading);
 * while a pass is in flight, the reading names the last pass before it that
   did not end `ok`, and how many in a row, whenever there was one;
@@ -83,11 +84,24 @@ def reader(world: World) -> mirror.Mirror:
     return mirror.Mirror(world.root, world.policy, now=lambda: world.clock)
 
 
-def same_status(world: World, data: dict) -> dict:
-    """The differential: the three change no status, and only add to the detail."""
+def run_of(data: dict) -> int:
+    """`not_ok_passes` where it is one: beside an object `last_end`, a whole
+    number of zero or more that is no boolean. Read here, not by the mirror's
+    own `_carried`, so the rule below is checked against an account of its own."""
+    last, count = data.get("last_end"), data.get("not_ok_passes")
+    return count if isinstance(last, dict) and type(count) is int and count >= 0 else 0
+
+
+def by_the_rule(world: World, data: dict) -> dict:
+    """The rule, against the same sidecar without the three: a pass in flight
+    after a pass that did not end ok reads `stalled`; every other reading has
+    the status it had; every detail only adds to the one it had."""
     engine = reader(world)
     with_them, without = engine._full_health(data), engine._full_health(stripped(data))
-    assert with_them["status"] == without["status"], (with_them, without)
+    record = data.get("pass") or {}
+    in_flight = record.get("state") == "running" and mirror._instant(record.get("finished_at")) is None
+    expected = "stalled" if in_flight and run_of(data) else without["status"]
+    assert with_them["status"] == expected, (with_them, without)
     assert with_them["detail"].startswith(without["detail"]), (with_them, without)
     return with_them
 
@@ -137,8 +151,8 @@ def fail_once(world: World, patch, error: BaseException) -> dict:
                          ids=["RuntimeError", "OSError"])
 def test_the_pass_after_a_failed_one_names_it_while_in_flight(world, monkeypatch, error):
     """C-23.28, C-17.3: the next start replaced the failed record, and every
-    reader said only "a pass has been in flight". Now each names the failure,
-    in its detail and in the JSON reply, and the status is as it was."""
+    reader said only "a pass has been in flight" and passed. Now each names
+    the failure, in its detail and in the JSON reply, and reads `stalled`."""
     on_the_world_clock(world, monkeypatch)
     unspread(world)
     failed = fail_once(world, monkeypatch, error)
@@ -156,14 +170,14 @@ def test_the_pass_after_a_failed_one_names_it_while_in_flight(world, monkeypatch
     assert carried(data) == {"last_end": end_of(failed), "not_ok_passes": 1,
                              "not_ok_since": failed["started_at"]}
     detail = f"a pass has been in flight for 0.7 min; the pass before it failed: {failed['error']}"
-    assert health["status"] == "running" and health["detail"] == detail
-    assert same_status(world, data)["detail"] == detail
-    assert code == 0 and out.splitlines()[0] == f"mirror running: {detail}"
+    assert health["status"] == "stalled" and health["detail"] == detail
+    assert by_the_rule(world, data)["detail"] == detail
+    assert code == 1 and out.splitlines()[0] == f"mirror stalled: {detail}"
     reply = json.loads(json_out)
-    assert json_code == 0 and reply["status"] == "running" and reply["detail"] == detail
+    assert json_code == 1 and reply["status"] == "stalled" and reply["detail"] == detail
     assert reply["last_end"] == end_of(failed) and reply["not_ok_passes"] == 1
     assert reply["not_ok_since"] == failed["started_at"] and reply["last_ok_at"] is None
-    assert row["status"] == doctor.PASS and row["detail"] == detail
+    assert row["status"] == doctor.FAIL and row["detail"] == detail
 
 
 def test_a_run_of_failures_is_named_with_its_length_and_the_last_ok_pass(world, monkeypatch):
@@ -197,7 +211,7 @@ def test_a_run_of_failures_is_named_with_its_length_and_the_last_ok_pass(world, 
     data, health = seen[0]
     assert carried(data) == {"last_end": end_of(last), "not_ok_passes": 3,
                              "not_ok_since": starts[0]}
-    assert health["status"] == "running"
+    assert health["status"] == "stalled"
     assert health["detail"] == ("a pass has been in flight for 0.0 min; the 3 passes before it "
                                 f"did not end ok, and the last failed: {last['error']}; "
                                 f"no pass has ended ok since {good}")
@@ -252,6 +266,7 @@ def test_a_pass_whose_process_died_is_one_that_recorded_no_end(world, monkeypatc
     assert data["last_end"]["started_at"] == started and data["last_end"]["stage"] == stage
     assert data["last_end"]["finished_at"] is None
     assert data["not_ok_passes"] == 1 and data["not_ok_since"] == started
+    assert health["status"] == "stalled"
     assert health["detail"] == ("a pass has been in flight for 0.0 min; the pass before it "
                                 f"recorded no end (last stage: {stage})")
 
@@ -385,9 +400,9 @@ def test_a_sidecar_from_before_the_change_starts_a_run_from_its_record(world, mo
 def test_on_the_daemons_interval_every_reading_after_a_failure_names_one(world, monkeypatch):
     """C-23.28: passes started by the daemon's scheduler (`Timers.tick`) on its
     60 s interval, each running 40 s and then raising. Read every 5 s for four
-    passes, the readings in flight had said only "a pass has been in flight";
-    now each one taken after the first failure names a failure, and none
-    reads another status than it would without the three."""
+    passes, the readings in flight had said only "a pass has been in flight",
+    and passed `doctor`; now each one taken after the first failure names a
+    failure and reads `stalled`."""
     from subfleet.store import Store
     from subfleet.timers import Timers
     origin = time.monotonic()
@@ -401,7 +416,7 @@ def test_on_the_daemons_interval_every_reading_after_a_failure_names_one(world, 
     def read(in_flight: bool) -> None:
         data = world.sidecar()
         if data.get("pass"):
-            readings.append((in_flight, same_status(world, data)))
+            readings.append((in_flight, by_the_rule(world, data)))
 
     def slow(engine, exclude):
         for _step in range(8):
@@ -436,7 +451,7 @@ def test_on_the_daemons_interval_every_reading_after_a_failure_names_one(world, 
     in_flight = [reading for flight, reading in after if flight]
     assert len(in_flight) >= 16 and len(after) - len(in_flight) >= 4
     for flight, reading in after:
-        assert reading["not_ok_passes"] >= 1
+        assert reading["status"] == "stalled" and reading["not_ok_passes"] >= 1
         assert ("before it failed: RuntimeError: fixture" in reading["detail"]
                 or "and the last failed: RuntimeError: fixture" in reading["detail"]
                 if flight else reading["detail"].startswith("last pass failed: RuntimeError")), reading
@@ -541,7 +556,7 @@ def test_the_run_is_carried_across_every_sequence_of_passes(interval, steps, tmp
                         if calls[0] == look:
                             world.wait(ran)
                             data = world.sidecar()
-                            seen.append((data, same_status(world, data)))
+                            seen.append((data, by_the_rule(world, data)))
                         if calls[0] == nth:
                             if ending == "died" and real:
                                 snapshot.append(world.running.sidecar_path.read_bytes())
@@ -610,7 +625,7 @@ def test_the_run_is_carried_across_every_sequence_of_passes(interval, steps, tmp
             if real:                                 # ended, or as it stood in flight
                 run.holds(data)
             world.wait(after)
-            reading = same_status(world, world.sidecar())
+            reading = by_the_rule(world, world.sidecar())
             if (real and run.pending is None and run.count > 1
                     and data["pass"]["state"] in ("error", "cancelled")):
                 assert f"; {run.count} passes in a row did not end ok; " in reading["detail"]
@@ -648,15 +663,18 @@ SIDECARS = st.fixed_dictionaries(
 @given(data=SIDECARS)
 def test_no_value_in_the_three_changes_a_status_or_raises(data):
     """C-23.28: a sidecar an older mirror or a hand edit left. Health reads
-    the status it reads without the three, gives a reply whose three are
-    sane, and the run a new pass would start from is sane and held to the
-    record: `last_end` is the record once it is over, and the run counts it
-    exactly when it did not end ok; a record in flight is unfinished."""
+    by the rule (`stalled` for a pass in flight after a run that is one,
+    otherwise the status it reads without the three), gives a reply whose
+    three are sane, and the run a new pass would start from is sane and held
+    to the record: `last_end` is the record once it is over, and the run
+    counts it exactly when it did not end ok; a record in flight is
+    unfinished."""
     engine = mirror.Mirror("/nonexistent-state-root", fx.policy(),
                            now=lambda: mirror._instant("2026-10-13T12:26:40Z"))
     with_them = engine._full_health(data)
     without = engine._full_health(stripped(data))
-    assert with_them["status"] == without["status"]
+    flight = mirror._in_flight(data["pass"])
+    assert with_them["status"] == ("stalled" if flight and run_of(data) else without["status"])
     assert with_them["detail"].startswith(without["detail"])
     count = with_them["not_ok_passes"]
     assert isinstance(count, int) and not isinstance(count, bool) and count >= 0
