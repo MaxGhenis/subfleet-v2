@@ -77,6 +77,55 @@ def test_c13_1_reservation_records_actual_working_tree(state_daemon, provider_ch
     assert (workdir / ".git" / "index").read_bytes() == index
 
 
+def sparse_repository(daemon, harness):
+    """`repository` as a sparse checkout shaped like chief-of-staff's: code the
+    patterns keep on disk, and state files they leave off it."""
+    workdir = repository(daemon, harness)
+    for name in ("bin/tool", "state/a.json", "state/deep/b.json"):
+        (workdir / name).parent.mkdir(parents=True, exist_ok=True)
+        (workdir / name).write_text(f"{name}\n")
+    git(workdir, "add", ".")
+    git(workdir, "commit", "-m", "code and state")
+    git(workdir, "sparse-checkout", "set", "--no-cone", "/bin/", "/tracked.txt")
+    assert not (workdir / "state").exists()
+    return workdir
+
+
+@pytest.mark.parametrize("provider_changed", [False, True])
+def test_c13_1_a_writable_job_in_a_sparse_checkout_is_prepared_and_salvaged(state_daemon, provider_changed):
+    """C-13.1, C-6.8 the 2026-10-09 failure, through admission and finalization. A
+    writable in-place job in a sparse checkout with an untracked file outside the
+    patterns failed before launch ("workspace preparation failed: SalvageError:
+    git add failed: The following paths and/or pathspecs matched paths that exist
+    outside of your sparse-checkout definition"). It is reserved; its baseline
+    holds that file and every file the patterns leave out; and its salvage, when
+    the provider wrote anything, records the work in the patterns and outside them."""
+    daemon, harness = state_daemon
+    workdir = sparse_repository(daemon, harness)
+    (workdir / ".review-scratch" / "opus").mkdir(parents=True)
+    (workdir / ".review-scratch" / "opus" / "baseline.txt").write_text("scratch\n")
+    index = (workdir / ".git" / "index").read_bytes()
+    job_id, attempt, adir = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
+    assert git(workdir, "diff-tree", "-r", "--name-status", "HEAD^{tree}", attempt["baseline_tree"]) \
+        == "A\t.review-scratch/opus/baseline.txt"
+    if provider_changed:
+        (workdir / "bin" / "tool").write_text("provider progress\n")
+        (workdir / "state").mkdir()
+        (workdir / "state" / "a.json").write_text("provider wrote outside the patterns\n")
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    assert daemon.store.get_job(job_id)["state"] == "succeeded"
+    artifacts = [row for row in daemon.store.list_artifacts(attempt["attempt_id"])
+                 if row["role"] == "salvage"]
+    assert len(artifacts) == int(provider_changed)
+    if provider_changed:
+        ref = artifacts[0]["path"]
+        assert sorted(git(workdir, "diff-tree", "-r", "--name-status", attempt["baseline_tree"],
+                          ref).splitlines()) == ["M\tbin/tool", "M\tstate/a.json"]
+        assert git(workdir, "rev-parse", f"{ref}:state/deep/b.json") \
+            == git(workdir, "rev-parse", "HEAD:state/deep/b.json")
+    assert (workdir / ".git" / "index").read_bytes() == index
+
+
 @pytest.mark.parametrize("receipt_has_rc", [False, True])
 def test_c4_4_exit_receipt_without_return_code_is_lost(state_daemon, receipt_has_rc):
     """C-4.4 a final attempt with no recorded rc is lost even when a receipt exists."""
