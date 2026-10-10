@@ -23,6 +23,7 @@ quotations were not treated as observed provider failures.
 | `refresh-token-revoked` | Synthetic explicit refresh-token revocation. |
 | `cli-too-old` | Synthetic CLI rejecting the required `--json` flag. |
 | `content-filter` | Synthetic nonretryable content-filter rejection. |
+| `content-cyber-flag` | Real output from `20261009-092734-pr158-review-sol` (gpt-6.1-sol, 2026-10-09): the provider flagged the turn for cybersecurity risk after an opening agent message and some tool calls. Tool transcript removed. |
 | `stream-disconnect` | Synthetic interrupted provider stream. |
 | `model-at-capacity` | Synthetic temporary model-capacity rejection. |
 | `spawn-fail` | Synthetic rc 127 spawn failure. |

@@ -60,6 +60,8 @@ struct ApprovalCard: Equatable {
     var display: ApprovalDisplay
     var options: [String]
     var state: State
+    /// Answers this app successfully submitted, retained on the settled row.
+    var answers: [String: String] = [:]
 
     var isPending: Bool { state == .pending }
     /// An event summary alone cannot identify the approval the person answers.
@@ -137,6 +139,7 @@ struct TurnTimeline: Equatable {
     var origin: String?
     var continues: String?
     var personText: String?
+    var createdTS: String?
     var attachments: [String] = []
     /// A message state, or `sending` before the first receipt.
     var state: String
@@ -150,6 +153,8 @@ struct TurnTimeline: Equatable {
     var eventServed = Served()
     var receiptServed: Served?
     var outcome: TurnOutcome?
+    /// Display timing from the existing public event timestamps.
+    var completedTS: String?
     var limits: JSONValue?
     var diff: String?
     var items: [TimelineItem] = []
@@ -376,6 +381,7 @@ struct Timeline: Equatable {
     private var arrival: [String: Int] = [:]
     /// Transcript items older than the first Subfleet turn, oldest first.
     private(set) var history: [TimelineItem] = []
+    private var outsideHistoryIDs: Set<String> = []
     private(set) var historyBefore: Int?
     private(set) var historyComplete = false
     private(set) var historyPagesLoaded = 0
@@ -389,6 +395,10 @@ struct Timeline: Equatable {
     /// Every approval `attach` has seen, by approval id. A card the events make
     /// again (after a reset re-reads the log) gets its approval id back from here.
     private var knownApprovals: [String: ApprovalView] = [:]
+    /// Answers submitted by this app are local state, independent of event
+    /// cards which compaction can remove and recreate. Immutable approval ids
+    /// keep them separate from replacement requests with identical questions.
+    private var knownApprovalAnswers: [String: [String: String]] = [:]
     /// Whether the log has been read to its end since the timeline began or last
     /// reset (a page that added nothing): until then rows still arrive above
     /// whatever the view scrolled to.
@@ -516,6 +526,10 @@ struct Timeline: Equatable {
                                                content: .notice(words + "; the model now works from a summary of it"),
                                                ts: event.ts))
             }
+            if data["phase"]?.string == "wake-refused", let detail = data["detail"]?.string {
+                turn.items.append(TimelineItem(id: "wake-refused:\(event.seq)", messageID: id,
+                                               content: .notice(detail), ts: event.ts))
+            }
         case "accepted":
             turn.accepted = true
             if turn.phases.last?.phase != "accepted" { turn.phases.append(PhaseStamp(phase: "accepted", ts: event.ts)) }
@@ -581,9 +595,11 @@ struct Timeline: Equatable {
                 row.ts = event.ts ?? row.ts
                 turn.items.append(row)
             } else {
+                let approvalID = knownApprovalID(in: turn, requestID: requestID)
                 let card = ApprovalCard(requestID: requestID,
-                                        approvalID: knownApprovalID(in: turn, requestID: requestID),
-                                        kind: kind, display: display, options: options, state: .pending)
+                                        approvalID: approvalID,
+                                        kind: kind, display: display, options: options, state: .pending,
+                                        answers: approvalID.flatMap { knownApprovalAnswers[$0] } ?? [:])
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
             }
@@ -604,6 +620,7 @@ struct Timeline: Equatable {
                 turn.state = MessageState.running.rawValue
             }
         case "turn.completed":
+            turn.completedTS = event.ts
             turn.outcome = TurnOutcome(state: data["state"]?.string ?? "unknown", reason: data["reason"]?.string,
                                        detail: data["detail"]?.string, servedModel: data["served_model"]?.string,
                                        data: data)
@@ -742,6 +759,7 @@ struct Timeline: Equatable {
         }
         turn.seq = receipt.seq ?? turn.seq
         turn.origin = receipt.origin ?? turn.origin
+        turn.createdTS = receipt.created_at ?? turn.createdTS
         turn.continues = receipt.continues ?? turn.continues
         turn.settings = receipt.settings ?? turn.settings
         turn.stopRequested = receipt.stop_requested ?? turn.stopRequested
@@ -803,6 +821,19 @@ struct Timeline: Equatable {
 
     // MARK: Approvals
 
+    mutating func noteApprovalAnswer(approvalID: String, answers: [String: String]) {
+        knownApprovalAnswers[approvalID] = answers
+        for messageID in order {
+            guard var turn = turns[messageID] else { continue }
+            for index in turn.items.indices {
+                guard case .approval(var card) = turn.items[index].content, card.approvalID == approvalID else { continue }
+                card.answers = answers
+                turn.items[index].content = .approval(card)
+            }
+            turns[messageID] = turn
+        }
+    }
+
     /// Join the daemon's approvals (which carry `approval_id`) to the cards the
     /// events made (which carry the provider's request id): by message and exact
     /// request id. Summaries cannot identify a request (C-27.1). A legacy view
@@ -820,6 +851,7 @@ struct Timeline: Equatable {
             }), case .approval(var card) = turn.items[index].content {
                 if card.requestID == nil { card.requestID = approval.requestID }
                 if card.isPending { card.state = state }
+                card.answers = knownApprovalAnswers[approval.approval_id] ?? card.answers
                 turn.items[index].content = .approval(card)
             } else if let index = turn.items.firstIndex(where: { item in
                 guard case .approval(let card) = item.content, card.approvalID == nil else { return false }
@@ -830,11 +862,12 @@ struct Timeline: Equatable {
                 card.approvalID = approval.approval_id
                 card.requestID = card.requestID ?? approval.requestID
                 if card.isPending { card.state = state }
+                card.answers = knownApprovalAnswers[approval.approval_id] ?? card.answers
                 turn.items[index].content = .approval(card)
             } else if approval.state == "pending" {
                 let card = ApprovalCard(requestID: approval.requestID, approvalID: approval.approval_id,
                                         kind: approval.kind, display: approval.display, options: approval.options,
-                                        state: .pending)
+                                        state: .pending, answers: knownApprovalAnswers[approval.approval_id] ?? [:])
                 let rowID = "approval:\(approval.message_id):\(approval.approval_id)"
                 turn.items.append(TimelineItem(id: rowID, messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
@@ -959,14 +992,25 @@ struct Timeline: Equatable {
                 setPersonText(item.text, for: id)
                 continue
             }
-            if let lastSubfleetRow, index <= lastSubfleetRow { continue }
-            if afterBoundary(item.ts) { continue }
+            if item.source == "subfleet" { continue }
+            let outside = item.source == "other-app"
+            if !outside, let lastSubfleetRow, index <= lastSubfleetRow { continue }
+            if !outside, afterBoundary(item.ts) { continue }
             let cursor = item.cursor ?? -1
             let index = perCursor[cursor, default: 0]
             perCursor[cursor] = index + 1
             let itemID = "history:\(cursor):\(index)"
             guard !history.contains(where: { $0.id == itemID }) else { continue }
             older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item, provider: provider), ts: item.ts))
+            if outside {
+                outsideHistoryIDs.insert(itemID)
+                if item.role == "user", item.kind == "text" {
+                    let labelID = "other-app:\(cursor)"
+                    outsideHistoryIDs.insert(labelID)
+                    older.append(TimelineItem(id: labelID, messageID: nil,
+                                              content: .notice("Made in another app"), ts: item.ts))
+                }
+            }
         }
         history = older.reversed() + history
         historyAddedByLastPage = older.count
@@ -1001,7 +1045,7 @@ struct Timeline: Equatable {
 
     private mutating func trimHistory() {
         let boundary = firstEventTS
-        history.removeAll { Timeline.after($0.ts, boundary: boundary) }
+        history.removeAll { !outsideHistoryIDs.contains($0.id) && Timeline.after($0.ts, boundary: boundary) }
     }
 
     // MARK: Display
@@ -1025,6 +1069,20 @@ struct Timeline: Equatable {
                       let message = turns[steered], let person = personItem(message) else { continue }
                 out.append(person)
             }
+        }
+        // Native rows from another app can fall between or after Subfleet turns.
+        // Stable merge keeps the events within each turn and the queue's order.
+        let outside = out.filter { outsideHistoryIDs.contains($0.id) }
+        out.removeAll { outsideHistoryIDs.contains($0.id) }
+        for item in outside {
+            var index = out.count
+            if let time = item.ts.flatMap(parseTimestamp) {
+                index = out.firstIndex { row in
+                    guard let stamp = row.ts.flatMap(parseTimestamp) else { return false }
+                    return stamp > time
+                } ?? out.count
+            }
+            out.insert(item, at: index)
         }
         return out
     }
@@ -1126,10 +1184,13 @@ struct Timeline: Equatable {
             return TimelineItem(id: id, messageID: turn.messageID,
                                 content: .notice("The stopped turn was left; the next turn starts without resuming it"),
                                 ts: nil)
+        case "wake":
+            return TimelineItem(id: id, messageID: turn.messageID,
+                                content: .notice(turn.personText ?? "Subfleet check-back"), ts: turn.createdTS)
         default:
             return TimelineItem(id: id, messageID: turn.messageID,
                                 content: .person(text: turn.personText, attachments: turn.attachments, state: turn.state),
-                                ts: nil)
+                                ts: turn.createdTS)
         }
     }
 

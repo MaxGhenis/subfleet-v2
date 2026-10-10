@@ -153,7 +153,8 @@ def test_same_folder_can_retry_a_transport_failure(review_probe, tmp_path, world
 
 def test_last_successful_retry_clears_only_its_notice(review_probe, tmp_path, world):
     data = data_for(tmp_path, world, steps=[{"action": "change-failure", "id": "app-second"},
-                    {"action": "folder", "path": str(world.workspace)}, {"action": "start"}])
+                    {"action": "folder", "path": str(world.workspace)}, {"action": "start"},
+                    {"action": "relaunch-pump"}])
     support = Path(data["root"]) / "support"
     settings = world.settings(permission="read-only")
     mid, journal = refused_journal(support / "outbox.json", settings)

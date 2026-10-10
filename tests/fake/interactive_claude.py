@@ -577,9 +577,30 @@ class Fake:
             {"type": "tool_result", "tool_use_id": tool_id, "content": stdout or stderr,
              "is_error": rc != 0}]}})
         self.tool_boundary(model)
-        self.say(model, "The command ran." if rc == 0 else f"The command failed (rc={rc}).")
-        return self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
-                           text="The command ran.")
+        final = "The command ran." if rc == 0 else f"The command failed (rc={rc})."
+        if os.environ.get("SUBFLEET_FAKE_BASH_WAKE") and rc == 0:
+            final += "\nWAKE-ME: runs=" + stdout.strip() + ' note="Inspect the finished run"'
+        # REVIEW R2 (not for merge): a Bash call with run_in_background, as the
+        # global CLAUDE.md asks ("keep a background `subfleet wait <id>` armed").
+        # D-15: Claude -p stays alive after `result` while a background task runs,
+        # up to CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS (120 s for a turn).
+        background = None
+        if os.environ.get("SUBFLEET_FAKE_BG_COMMAND") and rc == 0:
+            background = subprocess.Popen(
+                ["/bin/sh", "-c", os.environ["SUBFLEET_FAKE_BG_COMMAND"] + " " + shlex.quote(stdout.strip())],
+                env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.say(model, final)
+        outcome = self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
+                              text=final)
+        if background is not None:
+            try:
+                out, err = background.communicate(timeout=120)
+            except subprocess.TimeoutExpired:
+                background.kill()
+                out, err = background.communicate()
+            self.log({"background": os.environ["SUBFLEET_FAKE_BG_COMMAND"], "rc": background.returncode,
+                      "stdout": out, "stderr": err[-4000:], "pid": os.getpid()})
+        return outcome
 
 
     def scenario_stubborn_result(self, model: str, reply: str):

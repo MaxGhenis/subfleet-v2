@@ -1,0 +1,314 @@
+# Mutation: command
+--- app/Sources/ApprovalPresentation.swift
++++ command/app/Sources/ApprovalPresentation.swift
+@@ -18,7 +18,7 @@
+     static func command(_ card: ApprovalCard, request: JSONValue?) -> String? {
+         // Prefer the person-only, masked request over a provider's display summary.
+         if let request {
+-            return request["params"]?["command"]?.string ?? request["input"]?["command"]?.string ?? request["command"]?.string
++            return request["input"]?["command"]?.string ?? request["command"]?.string
+         }
+         if let command = card.display.command { return command }
+         if let input = card.display.fields["input"] {
+# Mutation: grants
+--- app/Sources/UIApprovals.swift
++++ grants/app/Sources/UIApprovals.swift
+@@ -26,7 +26,7 @@
+                 case .withdrawn: Text("Withdrawn").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                 }
+             }
+-            ApprovalGrantView(card: card, request: detail?.request)
++            EmptyView()
+             if card.isPending && detail == nil {
+                 if loadFailed {
+                     Button("Reload request") { Task { await load() } }
+@@ -317,7 +317,7 @@
+         VStack(alignment: .leading, spacing: 12) {
+             Text(ApprovalPresentation.headline(card)).readingFont(.subheading, weight: .bold)
+             if let detail {
+-                ApprovalGrantView(card: card, request: detail.request)
++                EmptyView()
+                 DisclosureGroup("Details") {
+                     ScrollView {
+                         Text(prettyApprovalRequest(detail.request)).readingFont(.code, design: .monospaced)
+# Mutation: outcomes
+--- app/Sources/WorkPresentation.swift
++++ outcomes/app/Sources/WorkPresentation.swift
+@@ -137,7 +137,7 @@
+     /// Live status belongs to the bottom strip; settled outcomes stay by the message.
+     /// Queued and steered messages still need their own delivery acknowledgment.
+     var showsMessageAcknowledgment: Bool {
+-        (messageState.map(MessageState.terminal.contains) ?? false) || isReadSteer || isUnreadSteer || messageState == .queued || messageState == .steering
++        isReadSteer || isUnreadSteer || messageState == .queued || messageState == .steering
+             || messageState == .deliveryUnknown || messageState == .unknown || (messageState == nil && state == "sending")
+     }
+ }
+# Mutation: work-outcome
+--- app/Sources/WorkPresentation.swift
++++ work-outcome/app/Sources/WorkPresentation.swift
+@@ -117,7 +117,7 @@
+                 flush()
+                 if emitted.insert(id).inserted {
+                     rows.append(.work(WorkGroup(id: "work:\(id)", items: items.filter { $0.messageID == id && isWork($0) },
+-                                               completed: true, duration: duration(turn), outcome: turn.state)))
++                                               completed: true, duration: duration(turn), outcome: nil)))
+                 }
+             } else if isWork(item) {
+                 if pending.last?.messageID != item.messageID { flush() }
+# Mutation: tool-labels
+--- app/Sources/WorkPresentation.swift
++++ tool-labels/app/Sources/WorkPresentation.swift
+@@ -3,49 +3,24 @@
+ 
+ extension ToolActivity {
+     /// Claude descriptions are retained as `description:` in the public summary.
+-    /// Older recordings without one retain a useful verb and public input detail.
++    /// Older recordings without one get a useful verb, never a shell command.
+     var label: String {
+         if hidden { return "Credential access (hidden)" }
+         let lines = summary.components(separatedBy: "\n")
+-        let json = summary.data(using: .utf8).flatMap({ try? JSONValue.parse($0) })
+-        if let json,
++        if let description = lines.first(where: { $0.hasPrefix("description: ") }) {
++            return String(description.dropFirst("description: ".count))
++        }
++        if let json = summary.data(using: .utf8).flatMap({ try? JSONValue.parse($0) }),
+            let description = json["description"]?.string, !description.isEmpty { return description }
+-        // Summary metadata follows the command. A description inside a heredoc
+-        // is command input, even when truncation leaves it as the last line.
+-        var heredoc: String?
+-        let heredocPattern = try? NSRegularExpression(pattern: "<<-?\\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
+-        for (index, line) in lines.enumerated() {
+-            if let delimiter = heredoc {
+-                if line.trimmingCharacters(in: .whitespaces) == delimiter { heredoc = nil }
+-                continue
+-            }
+-            if index == lines.count - 1, line.hasPrefix("description: ") {
+-                return String(line.dropFirst("description: ".count))
+-            }
+-            let range = NSRange(line.startIndex..., in: line)
+-            if let match = heredocPattern?.firstMatch(in: line, range: range),
+-               let token = Range(match.range(at: 1), in: line) { heredoc = String(line[token]) }
+-        }
+-        func field(_ key: String) -> String? {
+-            json?[key]?.string ?? lines.first { $0.hasPrefix(key + ": ") }.map { String($0.dropFirst(key.count + 2)) }
+-        }
+         let file = lines.first(where: { $0.hasPrefix("file_path: ") || $0.hasPrefix("path: ") || $0.hasPrefix("notebook_path: ") })
+             .map { line in String(line[line.range(of: ": ")!.upperBound...]) }
+         let filename = file.map { URL(fileURLWithPath: $0).lastPathComponent }
+         switch name.lowercased() {
+-        case "command":
+-            return (field("command") ?? lines.first ?? "").split(whereSeparator: \.isWhitespace).prefix(2).joined(separator: " ")
+         case "bash", "shell", "exec_command", "commandexecution": return "Run a command"
+         case "read", "read_file": return filename.map { "Read \($0)" } ?? "Read a file"
+-        case "edit", "write", "apply_patch", "filechange":
+-            let files = file?.components(separatedBy: ", ").map { URL(fileURLWithPath: $0).lastPathComponent } ?? []
+-            if files.count > 1 { return "Edit \(files.count) files (\(files.joined(separator: ", ")))" }
+-            return filename.map { "Edit \($0)" } ?? "Edit files"
+-        case "glob": return field("pattern").map { "Find files matching \($0)" } ?? "Find files"
+-        case "grep", "search":
+-            return "Search " + (filename ?? "files") + (field("pattern").map { " for \($0)" } ?? "")
+-        case "webfetch": return field("url").map { "Fetch \($0)" } ?? "Fetch a web page"
+-        case "websearch", "web search": return "Search the web" + (field("query").map { " for \($0)" } ?? "")
++        case "edit", "write", "apply_patch", "filechange": return filename.map { "Edit \($0)" } ?? "Edit files"
++        case "glob", "grep", "search": return "Search files"
++        case "websearch", "webfetch": return "Search the web"
+         default: return name
+         }
+     }
+@@ -56,19 +31,17 @@
+     let items: [TimelineItem]
+     let completed: Bool
+     let duration: String?
+-    var outcome: String? = nil
+     var tools: [ToolActivity] { items.compactMap { if case .tool(let t) = $0.content { return t }; return nil } }
+     var failed: Int { tools.filter { $0.state == .failed }.count }
+     var running: ToolActivity? { tools.last { $0.state == .running } }
+     var count: Int { tools.count }
+     var label: String {
+         if completed {
+-            let verb = outcome == "failed" ? "Failed" : outcome == "interrupted" ? "Stopped" : outcome == "cancelled" ? "Withdrawn" : "Worked"
+-            return verb + (duration.map { (verb == "Worked" ? " for " : " after ") + $0 } ?? "") + " · \(count) step\(count == 1 ? "" : "s")"
++            return "Worked" + (duration.map { " for \($0)" } ?? "") + " · \(count) step\(count == 1 ? "" : "s")"
+         }
+         if tools.isEmpty { return "Work details" }
+         let names = Set(tools.map { $0.name.lowercased() })
+-        if names.isSubset(of: ["bash", "shell", "exec_command", "commandexecution", "command"]) {
++        if names.isSubset(of: ["bash", "shell", "exec_command", "commandexecution"]) {
+             return "Ran \(count) command\(count == 1 ? "" : "s")"
+         }
+         if names.isSubset(of: ["read", "read_file"]) { return "Read \(count) file\(count == 1 ? "" : "s")" }
+@@ -117,7 +90,7 @@
+                 flush()
+                 if emitted.insert(id).inserted {
+                     rows.append(.work(WorkGroup(id: "work:\(id)", items: items.filter { $0.messageID == id && isWork($0) },
+-                                               completed: true, duration: duration(turn), outcome: turn.state)))
++                                               completed: true, duration: duration(turn))))
+                 }
+             } else if isWork(item) {
+                 if pending.last?.messageID != item.messageID { flush() }
+# Mutation: serving
+--- app/Sources/UIWindow.swift
++++ serving/app/Sources/UIWindow.swift
+@@ -614,7 +614,7 @@
+                 }
+             }
+             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
+-                ServedChipView(chip: chip)
++                EmptyView()
+             }
+         }
+         .task(id: askChanges ? turn.messageID : nil) {
+# Mutation: sidebar
+--- app/Sources/UIWindow.swift
++++ sidebar/app/Sources/UIWindow.swift
+@@ -154,7 +154,6 @@
+     @ObservedObject var model: UIModel
+     @Binding var selection: String?
+     var search: () -> Void = {}
+-    @FocusState private var listFocused: Bool
+ 
+     private var sections: [SidebarSection] {
+         let sections = model.state.sidebar()
+@@ -186,50 +185,41 @@
+                 }.menuStyle(.borderlessButton).fixedSize().help("Group conversations by date or workspace")
+                 Spacer()
+                 Menu {
+-                    Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "" }, set: {
+-                        model.setProviderFilter($0.isEmpty ? nil : $0)
+-                    })) {
+-                        Text("All providers").tag("")
+-                        Text("Claude").tag("claude")
+-                        Text("Codex").tag("codex")
+-                    }
++                    Button("All providers") { model.setProviderFilter(nil) }
++                    Button("Claude") { model.setProviderFilter("claude") }
++                    Button("Codex") { model.setProviderFilter("codex") }
+                 } label: {
+-                    Label(model.state.providerFilter?.capitalized ?? "All providers", systemImage: "line.3.horizontal.decrease")
++                    Image(systemName: "line.3.horizontal.decrease")
+                 }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
+             }.windowFont(.heading).foregroundColor(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
+-            List(selection: $selection) {
+-                if !model.failedDrafts.isEmpty {
+-                    Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+-                    ForEach(model.failedDrafts) { draft in
+-                        Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
+-                            .windowFont(.sidebar).lineLimit(1)
+-                            .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
+-                            .tag("failed:" + draft.id).help(draft.failure.message)
++            ScrollView {
++                VStack(alignment: .leading, spacing: 0) {
++                    if !model.failedDrafts.isEmpty {
++                        Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
++                        ForEach(model.failedDrafts) { draft in
++                            Button { model.selectFailedDraft(draft.id); selection = "failed:" + draft.id } label: {
++                                Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
++                                    .windowFont(.sidebar).lineLimit(1)
++                                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
++                            }.buttonStyle(QuietButtonStyle()).help(draft.failure.message)
++                        }
+                     }
+-                }
+-                ForEach(sections) { section in
+-                    Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+-                        .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
+-                    ForEach(section.entries) { entry in
+-                        SidebarRow(entry: entry) {
+-                            if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
+-                            selection = entry.id
++                    ForEach(sections) { section in
++                        Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
++                            .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
++                        ForEach(section.entries) { entry in
++                            Button { selection = entry.id } label: {
++                                SidebarRow(entry: entry) {
++                                    if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
++                                    selection = entry.id
++                                }
++                                .padding(.horizontal, Theme.space.inset)
++                                .background(RoundedRectangle(cornerRadius: Theme.radius.control)
++                                    .fill(selection == entry.id ? Theme.surface.selected.color : Theme.clear))
++                            }.buttonStyle(QuietButtonStyle()).help(entry.title + "\n" + entry.subtitle)
+                         }
+-                        .padding(.horizontal, Theme.space.inset)
+-                        .background(RoundedRectangle(cornerRadius: Theme.radius.control)
+-                            .fill(selection == entry.id ? Theme.surface.selected.color : Theme.clear))
+-                        .tag(entry.id).help(entry.title + "\n" + entry.subtitle)
+-                        .listRowInsets(EdgeInsets())
+-                        .listRowSeparator(.hidden)
+                     }
+                 }
+-            }
+-            .listStyle(.sidebar).scrollContentBackground(.hidden)
+-            .focused($listFocused)
+-            .background {
+-                Button("Focus conversations") { listFocused = true }
+-                    .keyboardShortcut("s", modifiers: [.command, .option])
+-                    .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
+             }
+         }
+         .padding(Theme.space.inset)
+# Mutation: badge-control
+--- app/Sources/UIWindow.swift
++++ badge-control/app/Sources/UIWindow.swift
+@@ -248,7 +248,7 @@
+             Text(entry.title).windowFont(.sidebar).lineLimit(1)
+             Spacer(minLength: Theme.space.step)
+             if entry.pendingApprovals > 0 {
+-                Button(action: showApprovals) {
++                Group {
+                     Label("\(entry.pendingApprovals)", systemImage: "hand.raised")
+                         .windowFont(.heading).foregroundStyle(Theme.state.attention)
+                 }
+# Mutation: disabled
+--- app/Sources/Theme.swift
++++ disabled/app/Sources/Theme.swift
+@@ -114,7 +114,7 @@
+         @State private var hovered = false
+         var body: some View {
+             configuration.label
+-                .opacity(enabled ? 1 : 0.4)
++                .opacity(1)
+                 .background(RoundedRectangle(cornerRadius: Theme.radius.control)
+                     .fill(enabled && (hovered || configuration.isPressed) ? Theme.surface.hover.color : Theme.clear))
+                 .overlay(RoundedRectangle(cornerRadius: Theme.radius.control)
+# Mutation: amber
+--- app/Sources/Theme.swift
++++ amber/app/Sources/Theme.swift
+@@ -70,7 +70,7 @@
+         })
+     }
+     enum state {
+-        static let attention = text.attention.color
++        static let attention = Color(nsColor: .systemOrange)
+         static let error = Color(nsColor: .systemRed)
+         static let success = Color(nsColor: .systemGreen)
+         static let added = success.opacity(0.12)
+# Mutation: snapshot-scale
+--- tests/frontend/SnapshotProbe.swift
++++ snapshot-scale/tests/frontend/SnapshotProbe.swift
+@@ -249,10 +249,7 @@
+     host.layoutSubtreeIfNeeded()
+     // Natural capture doubles again on Retina displays. Fix the pixel backing
+     // independently of the display's scale, and map it to the hosting bounds.
+-    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2880, pixelsHigh: 1800,
+-        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+-        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+-    rep.size = host.bounds.size
++    let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+     host.cacheDisplay(in: host.bounds, to: rep)
+     precondition(rep.pixelsWide == 2880 && rep.pixelsHigh == 1800)
+     try rep.representation(using: .png, properties: [:])!.write(to: url)
+# Mutation: snapshot-capability
+--- tests/frontend/SnapshotProbe.swift
++++ snapshot-capability/tests/frontend/SnapshotProbe.swift
+@@ -67,7 +67,7 @@
+     let draftScene = ["new", "refused", "permission"].contains(scenario)
+     var state = ConversationStoreState()
+     state.availability = .ready(Capabilities(protocol: 1, daemon_version: "fixture", conversation_schema: 1,
+-        capabilities: ["conversation.v1", "diff.v1", "steer.v1", "workspace.check.v1"], codex_writable: true, steer_providers: ["claude"]))
++        capabilities: ["conversation.v1", "diff.v1", "steer.v1"], codex_writable: true, steer_providers: ["claude"]))
+     state.models["claude"] = [ModelEntry(short: "Opus 5.5", id: "claude-opus-5-5", provider: "claude",
+         value: "claude-opus-5-5", values: ["claude-opus-5-5"], efforts: ["medium", "high", "ultracode"],
+         default_effort: "medium", fast: ModelFast(supported: true, billing: "subscription"))]

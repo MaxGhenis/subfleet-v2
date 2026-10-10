@@ -164,6 +164,29 @@ def test_c6_9_the_last_slot_is_kept_for_a_job_waiting_for_a_lease(world, tmp_pat
     assert _live(service, later[2]) is (kind == "conversation"), service._holds.get(later[2])
 
 
+@pytest.mark.parametrize("clocked", [False, True], ids=["look", "clock"])
+def test_c6_16_a_priority_lease_waiter_passes_later_tiers_and_keeps_its_slot(world, clocked):
+    """Release's cross-tier priority queue keeps #144's lease-wait distinction."""
+    service, harness, patch, _ = world
+    older, let_go = _older("detached-out", service, harness)
+    service.store.update_job(older, caller_session="chosen", tier="hard", pinned_model="astra")
+    patch.setitem(service.policy["admission"], "priority_callers", ["chosen"])
+    _cap(service, patch, "detached-out", 3)
+    if clocked:
+        service._admit()
+        assert service._holds[older]["reason"] == "lease-held"
+    later = [submit(service, harness, tier="trivial", caller_session="other", pinned_model="astra")
+             for _ in range(3)]
+    service._admit()
+    assert service._holds[older]["reason"] == "lease-held", service._holds.get(older)
+    assert [_live(service, job) for job in later] == [True, True, False], service._holds
+    hold = service._holds[later[2]]
+    assert (hold["reason"], hold["kept_for"], hold["live"]) == ("slot-kept", older, 2), hold
+    let_go()
+    service._admit()
+    assert _live(service, older), service._holds.get(older)
+
+
 def test_c26_9_a_lease_freed_mid_pass_goes_to_the_older_turn_even_against_one_that_competes(world):
     """C-26.9's queue keeps a lease's order with a cap too, now that C-6.9's hold-back no
     longer does it for a competing turn. An older turn waits for its conversation, which

@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import event, example, given, settings, strategies as st
+from hypothesis import HealthCheck, event, example, given, settings, strategies as st
 
 from subfleet import folders, retention, scheduler
 from subfleet import retention_archive as rarch
@@ -29,6 +29,25 @@ def world(tmp_path):
     w = World(tmp_path)
     yield w
     w.close()
+
+
+@pytest.fixture
+def begun(monkeypatch):
+    """The jobs whose retirement began (`Retirement.begin`). The selecting
+    transaction keeps a job before its tree is quarantined; the commit's own
+    checks also keep it, but only by rolling back a tree that was moved from
+    under the live turn meanwhile. So a test of the selection layer asserts
+    this stays empty, not just that the tree survived (8a112986's commit check
+    otherwise hides the selection check's removal)."""
+    started = []
+    real = rarch.Retirement.begin
+
+    def begin(retirement, job, pool):
+        started.append(retirement.job_id)
+        return real(retirement, job, pool)
+
+    monkeypatch.setattr(rarch.Retirement, "begin", begin)
+    return started
 
 
 def nested_repository(wt: Path, branch: str = "main") -> str:
@@ -72,9 +91,10 @@ def test_live_turn_folder_protects_job_through_full_pass(world, writable):
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
-def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypatch, writable, where):
+def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypatch, begun, writable, where):
     """`nested`: the selecting transaction also reads rows on a folder inside
-    the tree (review of 599af189, P3-1); the census is blinded below."""
+    the tree (review of 599af189, P3-1); the census is blinded below. The
+    retirement never begins, so the tree is never moved from under the turn."""
     wt = world.job("job")
     folder = turn_folder(wt, where)
     before = snapshot(wt)
@@ -93,6 +113,7 @@ def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypa
     assert snapshot(wt) == before and world.admin("job").is_dir()
     assert world.store.get_job("job")
     assert {r["holder"] for r in world.store.list_leases()} == {"late"}
+    assert begun == [], "the selecting transaction let the retirement begin under a live turn"
 
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
@@ -393,7 +414,7 @@ def admitted(daemon, turn, mid, prepared) -> dict:
             "reason": reason(daemon, mid), "prepared": prepared.count(turn)}
 
 
-@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory"])
+@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory", "external"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
 def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(tmp_path, writable, where):
     """Differential (C-8.4, C-6.10, C-6.11): a turn whose folder is in a tree retention
@@ -401,8 +422,9 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
     the admitting transaction holds it when that look is left out: the same hold but
     its clock, the same capacity wait (its signature, so its backoff, and what `why`
     reads), the same `waiting` row and the same message reason. Only the start
-    snapshot is spared. `subdirectory`: a turn submitted in a folder inside the tree
-    keys its row, and so its hold, on the tree, not on the folder it was opened in."""
+    snapshot is spared. `subdirectory`: its Git row stays on the tree, while its
+    hold names its actual cwd. `external`: persisted core.worktree puts its Git
+    folder outside the tree; both folders' fences still spare its start snapshot."""
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout
     from tests.fake.test_turn_wait_reasons import message_in, SETTINGS
@@ -412,9 +434,18 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
         for lane in CODEX:
             measure(daemon, lane)
         tree, nested = retiring_tree(daemon, harness)
-        folder = nested if where == "nested" else tree
+        folder = nested if where in ("nested", "external") else tree
         workspace = Path(tree) / "pkg" if where == "subdirectory" else folder
         Path(workspace).mkdir(exist_ok=True)
+        fence = [folders.exclusive_key(tree)]
+        if where == "external":
+            external = tmp_path / "external"
+            external.mkdir()
+            (external / "f.txt").write_text("nested\n")
+            git(Path(nested), "config", "core.worktree", str(external))
+            key = folders.exclusive_key(folders.canonical(external))
+            assert daemon.store.acquire_lease(key, "retention:external")
+            fence.insert(0, key)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
         prepare, fence_hold, prepared = daemon._workspace, daemon._fence_hold, []
@@ -425,8 +456,8 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
             _, mid, turn = message_in(daemon, harness, path, workspace=workspace, settings=options)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
-        fence = [folders.exclusive_key(tree)]
-        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "folder": folder}, seen
+        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence,
+                                                "folder": folders.canonical(workspace)}, seen
         assert seen["transaction"]["prepared"] == 1 and seen["transaction"]["row"] == ("waiting", "capacity", True)
         assert seen["look"] == {**seen["transaction"], "prepared": 0}, seen
 
@@ -715,7 +746,7 @@ phase = st.sampled_from(["select", "begin", "lock", "archive", "verify", "delete
 operation = st.tuples(phase, st.sampled_from(["start", "end"]), st.booleans(), st.sampled_from(["tree", "nested"]))
 
 
-@settings(max_examples=40, deadline=None, derandomize=True)
+@settings(max_examples=40, deadline=None, derandomize=True, suppress_health_check=[HealthCheck.too_slow])
 @example([("select", "start", True, "tree")])
 @example([("select", "start", False, "tree")])
 @example([("begin", "start", True, "tree"), ("archive", "end", True, "tree"), ("delete", "start", False, "tree")])
@@ -855,10 +886,12 @@ def test_turn_pin_recheck_does_no_filesystem_work_in_transaction(world, monkeypa
 
 
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
-def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, writable):
+def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, begun, writable):
     """The census compares recorded spellings, so only the selecting
     transaction's canonical turn_holds keeps a job whose jobs.worktree is spelt
-    in another case while a turn row (canonical, as admission keys it) is live."""
+    in another case while a turn row (canonical, as admission keys it) is live.
+    It keeps it before the retirement begins (the commit's check would keep it
+    too, but only after quarantining the tree)."""
     wt = world.job("Job")
     alias = wt.with_name(wt.name.swapcase())
     if not alias.exists() or not alias.samefile(wt):
@@ -869,6 +902,7 @@ def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, wri
     result = run(world)
     assert result["pruned"] == [] and "Job" in result["protected"], result
     assert snapshot(wt) == before and world.store.get_job("Job") and world.admin("Job").is_dir()
+    assert begun == [], "the selecting transaction let the retirement begin under a live turn"
 
 
 def test_a_restart_mid_retirement_keeps_the_canonical_fence(world):
