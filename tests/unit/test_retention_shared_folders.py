@@ -652,6 +652,7 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
         for lane in CODEX:
             measure(daemon, lane)
         turn = submit_turn(daemon, harness, "fence-differential")
+        daemon.policy["caps"]["reading_ttl_s"] = 3600   # Keep routing stable throughout the generated cases.
         fence_hold, present = daemon._fence_hold, folders.present
         prepared, submitted = [], {}
         patch.setattr(daemon, "_submitted", lambda job_id: submitted)
