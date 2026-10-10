@@ -54,8 +54,10 @@ DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 #: The bundle itself: never a link, and a FIFO cannot hold the open.
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 #: Review r2 P3: the most of each checkout metadata file submit reads.
+#: Round 4: 256 KiB covers all 790 surveyed local configs (largest 143,067 B),
+#: while limiting the parser to 1/16 of the former 4 MiB input cap.
 POINTER_CAP = 64 * 1024           # a gitfile, `commondir`, `HEAD`, a loose ref
-CONFIG_CAP = 4 * 1024 * 1024      # `config`, `config.worktree`
+CONFIG_CAP = 256 * 1024          # `config`, `config.worktree`
 PACKED_REFS_CAP = 64 * 1024 * 1024
 #: Review P2-2: names Git or a clone could read as something other than a branch.
 RESERVED_PREFIXES = ("refs/", "heads/", "remotes/")
@@ -218,15 +220,38 @@ def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
     return top, gitdir, common
 
 
-def checkout_metadata(workdir: Path) -> tuple[str, str, str | None, Path]:
+class _MetadataLook:
+    """One checkout look: resolve directories once and parse each config once.
+
+    Submit and workspace validation need both origin/HEAD and object-store
+    checks. Sharing this snapshot keeps a large config from being parsed by
+    both checks, and keeps one look's origin and clone flags consistent. No
+    cache survives the look: the next admission or launch reads fresh files.
+    """
+
+    def __init__(self, workdir: Path):
+        self.top, self.gitdir, self.common = _git_directories(workdir)
+        self._configs: tuple[configparser.RawConfigParser, ...] | None = None
+
+    @property
+    def configs(self) -> tuple[configparser.RawConfigParser, ...]:
+        if self._configs is None:
+            configs = [_config(_read_metadata(self.common / "config", CONFIG_CAP))]
+            if _git_true(configs[0].get("extensions", "worktreeconfig", fallback="false")):
+                text = _read_metadata(self.gitdir / "config.worktree", CONFIG_CAP, optional=True)
+                if text is not None:
+                    configs.append(_config(text))
+            self._configs = tuple(configs)
+        return self._configs
+
+
+def checkout_metadata(workdir: Path, *, _look: _MetadataLook | None = None) -> tuple[str, str, str | None, Path]:
     """Host snapshot at submit, supporting linked worktrees and packed refs."""
-    top, gitdir, common = _git_directories(workdir)
-    config = _config(_read_metadata(common / "config", CONFIG_CAP))
-    remote = config.get('remote "origin"', "url", fallback=None)
-    if (config.get("extensions", "worktreeconfig", fallback="false") or "true").lower() == "true":
-        text = _read_metadata(gitdir / "config.worktree", CONFIG_CAP, optional=True)
-        if text is not None:
-            remote = _config(text).get('remote "origin"', "url", fallback=remote)
+    look = _look or _MetadataLook(workdir)
+    top, gitdir, common = look.top, look.gitdir, look.common
+    remote = None
+    for config in look.configs:
+        remote = config.get('remote "origin"', "url", fallback=remote)
     if remote and remote.startswith('"') and remote.endswith('"'):
         remote = remote[1:-1]
     if not remote:
@@ -272,7 +297,7 @@ def _git_true(value: str | None) -> bool:
         return False
 
 
-def check_object_store(workdir: Path, *, in_place: bool) -> None:
+def check_object_store(workdir: Path, *, in_place: bool, _look: _MetadataLook | None = None) -> None:
     """Fix round 3: a checkout whose own objects cannot make a full history.
 
     Read as data, as `checkout_metadata` reads: `shallow` with lstat, the
@@ -285,7 +310,8 @@ def check_object_store(workdir: Path, *, in_place: bool) -> None:
     own objects, as data. In place, the job's own Git builds the bundle and
     reads those objects itself, so only a shallow checkout is refused there.
     """
-    _, gitdir, common = _git_directories(workdir)
+    look = _look or _MetadataLook(workdir)
+    common = look.common
     shallow = common / "shallow"
     try:
         info = os.lstat(shallow)
@@ -302,11 +328,7 @@ def check_object_store(workdir: Path, *, in_place: bool) -> None:
         raise PushError("push requires a checkout that holds its own objects: this one borrows them "
                         "through objects/info/alternates (git clone --shared or --reference); "
                         "run git repack -a -d and remove that file, or pass --in-place")
-    configs = [_config(_read_metadata(common / "config", CONFIG_CAP))]
-    if _git_true(configs[0].get("extensions", "worktreeconfig", fallback="false")):
-        text = _read_metadata(gitdir / "config.worktree", CONFIG_CAP, optional=True)
-        if text is not None:
-            configs.append(_config(text))
+    configs = look.configs
     # Section names compare in any case, as Git reads them; keys are lowercased.
     promisor = any(
         (section.lower() == "extensions" and config.has_option(section, "partialclone"))
@@ -332,10 +354,11 @@ def validate_write_location(workdir: Path) -> None:
     Fix round 3: it raises only AdapterError, whatever the checkout holds, so
     no workspace stops the admission pass at its job."""
     try:
-        _, _, current, _ = checkout_metadata(workdir)
+        look = _MetadataLook(workdir)
+        _, _, current, _ = checkout_metadata(workdir, _look=look)
         if current in {"main", "master"}:
             raise PushError("writable in-place jobs require a feature branch")
-        check_object_store(workdir, in_place=True)
+        check_object_store(workdir, in_place=True, _look=look)
     except Exception as exc:  # noqa: BLE001 - every refusal is this job's, never the pass's
         raise AdapterError(f"workspace refused: {_reason(exc)}", code=7,
                            fix="choose a committed feature branch in a full clone") from exc
@@ -517,8 +540,9 @@ def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_
         if not settings["enabled"]:
             raise PushError("host push is disabled by policy push.enabled")
         check_branch(branch, settings)
-        remote, head, current, top = checkout_metadata(workdir)
-        check_object_store(workdir, in_place=in_place)
+        look = _MetadataLook(workdir)
+        remote, head, current, top = checkout_metadata(workdir, _look=look)
+        check_object_store(workdir, in_place=in_place, _look=look)
         check_policy(branch, remote, policy)
         with quarantine(root, head) as (repo, credentials):
             default, refs = remote_refs(repo, remote, credentials)
@@ -818,9 +842,10 @@ def _workspace_refused(exc: BaseException) -> AdapterError:
 
 
 def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -> None:
-    checkout_metadata(source)
-    check_object_store(source, in_place=False)
-    _, _, gitdir = _git_directories(source)
+    look = _MetadataLook(source)
+    checkout_metadata(source, _look=look)
+    check_object_store(source, in_place=False, _look=look)
+    gitdir = look.common
     with quarantine(root, base) as (repo, _):
         objects = gitdir / "objects"
         for folder in objects.iterdir():
