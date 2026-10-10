@@ -317,8 +317,9 @@ def fold(path: str) -> str:
 def under_git(folder: str) -> bool:
     """Whether `folder` or a folder above it (`above`) holds a `.git`, a directory or
     a linked worktree's file, where git looks for one. Filesystem work, outside any
-    store transaction. When git finds no checkout for a folder this says there is
-    one, git did not see the folder where it is now (`Daemon._row_folder`)."""
+    store transaction. An entry does not prove Git accepts the repository (it
+    may be ignored or broken); after a failed discovery it warrants one more
+    Git look for a tree restored during spelling (`Daemon._row_folder`)."""
     return any(os.path.lexists(os.path.join(each, ".git")) for each in (folder, *above(folder)))
 
 

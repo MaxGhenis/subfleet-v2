@@ -2501,15 +2501,24 @@ class Daemon:
     def _row_folder(self, workdir: str | Path) -> tuple[str, bool]:
         """C-6.5, C-8.4: the folder a row for a job in `workdir` names (its checkout's
         top level, or `workdir` outside git), spelled (`folders.present`), and whether
-        that may not be it. It may not when a name of it was not there to spell, or when
-        git found no checkout while a `.git` is at or above the folder: the tree was away
-        for git's look and back for the spelling, so `workdir` may be a folder below its
-        checkout's top. Submit records such a folder `unspelled`, and admission looks
-        again (review of fb674463, Q1 and Q1b). One spelling gives both answers, so the
-        folder recorded is the one judged."""
-        top = git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+        a name of it was not there to spell. Submit records such a folder `unspelled`,
+        and admission finds it again.
+
+        When git finds no checkout but a `.git` is at or above the folder
+        (`folders.under_git`), the tree may have been away for git's look and back for
+        the spelling, and `workdir` may be a folder below its checkout's top: git is
+        asked once more (review of fb674463, Q1, Q1b and Q1c). A `.git` git
+        deliberately ignores (GIT_CEILING_DIRECTORIES, an owner `safe.directory`
+        refuses) answers the same twice, and the folder is then `workdir`, as before.
+        One spelling gives both answers, so the folder recorded is the one judged."""
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        top = git_toplevel(workdir, timeout_s=cap)
         folder, missing = folders.present(top or workdir)
-        return folder, missing is not None or (top is None and folders.under_git(folder))
+        if top is None and missing is None and folders.under_git(folder):
+            top = git_toplevel(workdir, timeout_s=cap)
+            if top is not None:
+                folder, missing = folders.present(top)
+        return folder, missing is not None
 
     def _write_target(self, job: dict, workspace: str) -> str:
         """The worktree lease's subject: the checkout for an in-place job, the
