@@ -21,6 +21,14 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+# C-8.5: host credential use is opt-in both in policy and on each job.
+PUSH_DEFAULTS = {"enabled": False, "allowed_remotes": [], "protected": [],
+                 "max_bundle_mb": 256, "max_commits": 100}
+
+
+def push_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    return {**PUSH_DEFAULTS, **policy.get("push", {})}
+
 
 def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
     """C-11.2: candidates from this tier upward, in first-preference order.
@@ -650,6 +658,21 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("conversations.stop_close_after_s",
              "the stop escalation must keep its order: "
              "stop_sigint_after_s < stop_close_after_s < stop_contain_after_s")
+
+    supplied = value.get("push", {})
+    if not isinstance(supplied, dict):
+        fail("push", "must be an object")
+    settings = push_settings(value)
+    if not isinstance(settings["enabled"], bool):
+        fail("push.enabled", "must be a boolean")
+    for key in ("allowed_remotes", "protected"):
+        if not isinstance(settings[key], list) or not all(_name(item) for item in settings[key]):
+            fail(f"push.{key}", "must be a list of nonempty patterns")
+    for key in ("max_bundle_mb", "max_commits"):
+        item = settings[key]
+        if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
+            fail(f"push.{key}", "must be a positive whole number")
+    value["push"] = settings
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

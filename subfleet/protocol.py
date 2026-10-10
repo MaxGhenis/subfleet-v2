@@ -37,6 +37,10 @@ UNKNOWN_OP = "unknown op"
 #: `include_turns`. A client sends those fields only to a daemon advertising it.
 JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 
+#: C-8.5 (review P3-10): `submit` honours `push_branch`. A daemon without it drops
+#: the field (C-16.2) and never pushes, so a client sends it only to one that lists this.
+PUSH_CAPABILITY = "push.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
@@ -127,6 +131,8 @@ class SubmitArgs:
     # C-17.7: {"id", "label", "index", "size"} for a job submitted by `run --batch`.
     # A label for people and the app, never an input to routing or the digest.
     batch: dict | None = None
+    # C-8.5: explicit host-side publication of this dispatch's accepted bundle.
+    push_branch: str | None = None
 
 
 @dataclass
