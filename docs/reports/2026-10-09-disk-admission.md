@@ -350,3 +350,76 @@ it afterward. Final runs used Python 3.13.15, pytest 9.1.1 and Hypothesis
 6.168.5, with inherited `PYTHONPATH` cleared. No live policy, external agent
 or caller checkout was modified. No logs, JSON evidence or bundles were
 committed; no agents were delegated and nothing was pushed.
+
+## Review fix round 1: #164 (2026-10-10)
+
+Base: `76eac97ed869d8ca32521cc1f27eb936637420c5`. Tested implementation:
+`520f99cc808291993140db13d0b98f4df0bb1cf2`, on `feat/disk-admission-overrides`
+in this workspace's `.git-local`. Shared Git metadata is outside the writable
+workspace. The final response names the delivery head containing this report.
+
+| File:line | Fix |
+| --- | --- |
+| `subfleet/disk.py:122`, `:269`; `subfleet/daemon.py:2978`; `subfleet/render.py:255` | Report non-finite values as strings, retain original floor/margin text, and replace lone surrogates recursively, including metadata keys. Snapshots, holds, notices and floor audit events encode as strict UTF-8 JSON. Admission retains the original numbers and strings. |
+| `subfleet/daemon.py:723`; `subfleet/disk.py:239` | Recheck the recovered latch against the first pass's current floor, margin, measurement and reservations, even with no candidates. Stop recovering numbers from transition-only source events. Later unchanged-policy passes retain existing behavior. |
+| `subfleet/policy.py:430` | Reject oversized integer GB settings before float conversion can overflow, naming each of the four GB keys. |
+
+The three review tests were ported and run before production edits:
+
+| Ported test | At the base | After fixes |
+| --- | --- | --- |
+| `tests/fake/test_admission_disk.py:353` — `test_review_live_ruling_status_is_valid_wire_json` | 6 failed | 6 passed; also checks why, floor events and notice signatures |
+| `tests/fake/test_admission_disk.py:414` — `test_review_restart_after_same_source_offline_edit` | 1 failed | 1 passed |
+| `tests/unit/test_policy_disk.py:83` — `test_review_large_size_rejected_with_key` | 4 failed, 8 passed | 12 passed |
+
+The base run had **11 failed, 8 passed**. All **19** ported cases pass after
+the fixes. The 26 review fidelity cases were also ported to
+`tests/unit/test_disk_floor.py:314`; all admission numbers and hold decisions
+match their original expectations. Generated agent parity and admission
+invariant checks pass. Additional coverage checks nested metadata, both ruling
+paths, raw numeric preservation, recovery thresholds and safe source events
+after restart.
+
+The real app's `DaemonClient.decodeResponse<JSONValue>` and menu `Snapshot`
+decoder both accept reported evidence in **6 Swift cases**, using
+`tests/frontend/DiskRulingProbe.swift:7` and
+`tests/frontend/test_disk_ruling.py:33`. No app source changes were needed.
+
+| Verification | Result |
+| --- | --- |
+| Disk policy suite | 57 passed |
+| Focused JSON evidence, agent differential and Swift checks | 18 passed |
+| Required files plus Swift ruling tests | **275 passed, 6 failed, 1 skipped**, 282 total, 25.85 s |
+| Python syntax and `git diff --check` | Passed |
+
+The complete run selected `tests/unit/test_disk_*.py`,
+`tests/unit/test_policy_disk.py`, `tests/fake/test_admission_disk.py`,
+`tests/unit/test_gate_admission.py`, `tests/unit/test_gate_service.py`,
+`tests/unit/test_legacy_hold.py`, `tests/fake/test_gate_end_to_end.py`, and
+`tests/frontend/test_disk_ruling.py`.
+
+The six failures occur in legacy fixture setup because the sandbox denies
+`/bin/ps`; these need host execution, rather than a passing claim:
+
+- `tests/unit/test_legacy_hold.py::test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait[False]`
+- `tests/unit/test_legacy_hold.py::test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait[True]`
+- `tests/unit/test_legacy_hold.py::test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[same-False]`
+- `tests/unit/test_legacy_hold.py::test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[same-True]`
+- `tests/unit/test_legacy_hold.py::test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[upper-stored-False]`
+- `tests/unit/test_legacy_hold.py::test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[lower-stored-False]`
+
+`tests/fake/test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon`
+was skipped because permitted sysctl/ps inspection is needed for macOS boot
+identity. The remaining gate cases pass, including the previously reported
+fixture-child timeout case.
+
+Python **3.14.7**, pytest **9.1.1**, Hypothesis **6.168.5**. Every pytest process
+ran serially under `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`.
+TMPDIR and caches were under a task directory within
+`$(getconf DARWIN_USER_TEMP_DIR)`, removed after verification. No caller
+checkout or host policy/state was modified, no sub-agents were used, and
+nothing was pushed. Only source, tests and this report were committed.
+
+Fix commits: `d29e57869` (policy), `5124e5234` (reported evidence),
+`520f99cc8` (restart recovery). Each ends with the requested Claude Opus 5.5
+co-author trailer.
