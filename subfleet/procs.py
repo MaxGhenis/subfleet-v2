@@ -493,6 +493,9 @@ class ForeignOwnership:
             # group may have emptied and been reused on this same boot. A
             # still-identical recorded member must anchor a leaderless group.
             for member in members:
+                if boot_identity.matches(member.boot_id, current.boot_id,
+                                         lambda: boot_identity.boot_seconds(_read)) is not True:
+                    continue
                 observed = identity(member.pid)
                 if (observed is not None and _qualified_identity_matches(member, observed)
                         and process_group(member.pid) == group and identity(member.pid) == observed):
