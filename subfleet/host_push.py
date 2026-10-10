@@ -515,6 +515,25 @@ def host_credentials(repo: Path) -> tuple[str, ...]:
     return tuple(settings)
 
 
+def clear_quarantine(root: Path) -> None:
+    """Discard interrupted intakes while the new daemon exclusively owns its lock.
+
+    Run only at daemon startup, before any intake or workspace preparation can
+    start. A link is unlinked rather than followed; rmtree likewise leaves the
+    targets of links inside the daemon-owned tree untouched. A deletion failure
+    prevents startup, so abandoned data cannot quietly persist across retries.
+    """
+    parent = root / "push-quarantine"
+    try:
+        entry = parent.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(entry.st_mode):
+        shutil.rmtree(parent)
+    else:
+        parent.unlink()
+
+
 @contextmanager
 def quarantine(root: Path, head: str):
     parent = root / "push-quarantine"

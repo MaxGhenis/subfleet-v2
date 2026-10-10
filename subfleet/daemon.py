@@ -695,6 +695,9 @@ class Daemon:
             os.close(self._lock_fd)
             raise DaemonUnavailable("another daemon holds daemon.lock") from None
         self._lock_finalizer = weakref.finalize(self, os.close, self._lock_fd)
+        # Only this lock owner can discard an interrupted intake. Do so before
+        # the first admission pass or push thread can create a live quarantine.
+        host_push.clear_quarantine(self.root)
         try:
             ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
                      "proc_start": procs.proc_start(os.getpid()), "version": __version__}
