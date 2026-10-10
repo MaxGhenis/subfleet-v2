@@ -24,6 +24,8 @@ from test_host_push import accept, commit, git, remote_heads, submit, worlds  # 
 #: The fixture adapter's deliverable (`test_host_push.worlds`).
 DELIVERABLE = b"Finished and tested.\n"
 OLDER, NEWER = "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"
+#: How every message of a check made while the push is in flight ends.
+IN_FLIGHT = "before the push ended"
 #: What the export decides, for the job and for the legacy job holding the
 #: output's other spelling. `{job}` and `{legacy}` are the two job ids.
 DECISIONS = {
@@ -116,14 +118,15 @@ def test_a_push_settles_with_leases_held_then_the_canonical_export_is_an_ordinar
 
         def in_flight():
             # The push is queued or running: nothing is decided or written, every lease is held.
+            # Every message ends IN_FLIGHT: a lease released on the push thread can
+            # be seen by any of these first, so a mutation test matches on that.
             assert {lease["lease_key"] for lease in core.store.list_leases(job)} == before | {"push:" + job}, (
-                "leases released before the push ended")
-            assert core.store.query("SELECT * FROM artifacts WHERE role='export'") == [], (
-                "exported before the push ended")
+                "leases released " + IN_FLIGHT)
+            assert core.store.query("SELECT * FROM artifacts WHERE role='export'") == [], "exported " + IN_FLIGHT
             assert core._job(job)["export_error"] is None and core._job(legacy)["export_error"] is None, (
-                "export decided before the push ended")
-            assert core._wait_answer([job]) is None
-            assert core._pending_exports() == [job]
+                "export decided " + IN_FLIGHT)
+            assert core._wait_answer([job]) is None, "wait answered " + IN_FLIGHT
+            assert core._pending_exports() == [job], "export no longer pending " + IN_FLIGHT
         core._publish_bundle = held
         try:
             row = accept(world, job, bundle=push != "none", settle=False)   # and acceptance's export pass

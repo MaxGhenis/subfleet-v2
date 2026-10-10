@@ -14,6 +14,7 @@ import pytest
 from subfleet import host_push
 from subfleet.daemon import Daemon, read_regular
 from test_host_push_export import (
+    IN_FLIGHT,
     test_a_push_settles_with_leases_held_then_the_canonical_export_is_an_ordinary_jobs as export_invariant,
 )
 from test_host_push import (
@@ -206,13 +207,17 @@ def test_mutation_merge_keeping_only_158_export_is_caught(worlds, monkeypatch):
 
 
 def test_mutation_leases_released_before_the_push_ends_is_caught(worlds, monkeypatch):
+    # The release runs on the push thread, so whichever in-flight check runs
+    # after it fails first (review r3 P3: the lease check, or the wait or the
+    # pending export after it). By the check after `_publish_bundle` is
+    # entered, it has run.
     actual = Daemon._push_job
 
     def early(self, job_id):
         self.store.release_leases(job_id)
         return actual(self, job_id)
     monkeypatch.setattr(Daemon, "_push_job", early)
-    with pytest.raises(AssertionError, match="leases released before the push ended"):
+    with pytest.raises(AssertionError, match=IN_FLIGHT):
         export_invariant(worlds, "pushed", "superseded")
 
 
