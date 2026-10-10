@@ -776,6 +776,77 @@ def _raised_at(exc: BaseException) -> str:
     return f" ({os.path.basename(code.co_filename)}:{found.tb_lineno} in {code.co_name})"
 
 
+#: What `last_end` keeps of a full pass that is over (C-23.28).
+END_FIELDS = ("state", "error", "started_at", "finished_at", "stage")
+#: `last_end`'s state for a pass that recorded no end: the next pass to take
+#: the lock found its record still `running`.
+UNFINISHED = "unfinished"
+
+
+def _in_flight(record: dict[str, Any]) -> bool:
+    """A full pass's record as health reads it: started, and no finish on it."""
+    return record.get("state") == "running" and _instant(record.get("finished_at")) is None
+
+
+def _carried(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]:
+    """`(last_end, not_ok_passes, not_ok_since)` as the sidecar holds them.
+
+    No pass and a run of none from a sidecar without them, or with values
+    that are not theirs: one an earlier mirror wrote, or one edited by hand.
+    """
+    last, count, since = data.get("last_end"), data.get("not_ok_passes"), data.get("not_ok_since")
+    if (not isinstance(last, dict) or isinstance(count, bool) or not isinstance(count, int)
+            or count < 0):
+        return None, 0, None
+    return last, count, since if count and isinstance(since, str) else None
+
+
+def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]:
+    """The same three for a pass that has just taken the lock.
+
+    Every full pass before it is over, the one in the sidecar's `pass` among
+    them. That record says how its pass ended, and `last_end` is taken from
+    it; the sidecar's own three add how long the run of passes that did not
+    end `ok` is. Two records need more than that:
+
+    * One still `running`. Only the lock's holder writes `pass`, and the
+      caller holds the lock, so that pass is over and recorded no end: its
+      process died, or its end could not be written. It did not end `ok`,
+      and it joins the run.
+    * One that the three do not describe: written by a mirror that kept
+      none of them, or edited by hand. The record is then the whole run
+      that is known, so a failed one is a run of one.
+    """
+    last, count, since = _carried(data)
+    record = data.get("pass")
+    if not isinstance(record, dict) or not record:
+        return last, count, since
+    end = {key: record.get(key) for key in END_FIELDS}
+    start = record.get("started_at") if isinstance(record.get("started_at"), str) else None
+    if _in_flight(record):
+        return {**end, "state": UNFINISHED}, count + 1, since or start
+    if record.get("state") not in ("error", "cancelled"):
+        return end, 0, None
+    if last is None or not count or last.get("started_at") != record.get("started_at"):
+        return end, 1, start
+    return end, count, since or start
+
+
+def _how(last: dict[str, Any]) -> str:
+    """`failed: OSError: …`: how the pass `last_end` holds ended, for a status line."""
+    state, error, stage = last.get("state"), last.get("error"), last.get("stage")
+    if state == UNFINISHED:
+        return "recorded no end" + (f" (last stage: {stage})" if stage else "")
+    how = ("failed" if state == "error" else "was cancelled" if state == "cancelled"
+           else "did not end ok")
+    return how + (f": {error}" if error else "")
+
+
+def _since_ok(last_ok: Any) -> str:
+    return (f"no pass has ended ok since {last_ok}" if last_ok
+            else "no pass on record has ended ok")
+
+
 def _short(account: str, org: str) -> str:
     return f"{account[:8]}…/{org[:8]}…"
 
@@ -933,6 +1004,9 @@ class Mirror:
         #: that pass records it. Never kept: a process that wrote a report it
         #: took earlier could put it over a later one of another process's.
         self._splits: dict[str, Any] | None = None
+        #: The full pass that last recorded, and what `_over` read when it
+        #: first did: the passes that were over before it (`_record`).
+        self._began: tuple[Pass, tuple[dict[str, Any] | None, int, str | None]] | None = None
         #: `<session> -> the flag syncs that chose its date raise and could not
         #: publish it`, since it last went through. A sync takes the sessions
         #: with the fewest first, so those that never publish take turns behind
@@ -1129,14 +1203,44 @@ class Mirror:
 
     def _record(self, current: Pass, *, last_ok: str | None = None,
                 load_gap: dict[str, Any] | None = None) -> None:
+        """Write the full pass's record, and what was over before it (C-23.28).
+
+        `pass` holds one pass, and a pass writes its start before it does any
+        work, so a failed pass's record is gone as soon as the next pass
+        starts. Health then read that pass as in flight and said nothing of
+        the failures before it: on a fixture store on a 60 s interval, a
+        mirror whose every pass ran 40 s and then failed read `running`, with
+        no word of a failure, in 400 of 600 readings a second apart. So the
+        sidecar also keeps, beside `last_ok_at`:
+
+        * `last_end`: the last full pass that is over (`END_FIELDS`);
+        * `not_ok_passes`: how many passes in a row, that one the last of
+          them, are over and did not end `ok`;
+        * `not_ok_since`: when the first of those started.
+
+        A pass's start and its progress carry the three as the pass found
+        them. Its end replaces them. Both are worked out from what stood
+        when the pass first recorded, so an end that is written twice counts
+        once.
+        """
         if current.dry_run:
             return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
         previous = self.sidecar()
+        if self._began is None or self._began[0] is not current:
+            self._began = (current, _over(previous))
+        last, count, since = self._began[1]
+        if current.state != "running":
+            failed = current.state != "ok"
+            last = {key: getattr(current, key) for key in END_FIELDS}
+            count, since = (count + 1, since or current.started_at) if failed else (0, None)
         value = {key: previous[key] for key in ("hot", "load_gap", "splits") if key in previous}
         value.update({
             "pass": current.to_dict(),
             "last_ok_at": last_ok or previous.get("last_ok_at"),
+            "last_end": last,
+            "not_ok_passes": count,
+            "not_ok_since": since,
             "interval_s": self.policy.get("sessions", {}).get("mirror_interval_s", 60),
             "updated_at": _iso(self.now()),
         })
@@ -2928,6 +3032,13 @@ class Mirror:
         pass finished inside `mirror_stall_min`, `stalled` otherwise. Log
         recency is never consulted: `--quiet` keeps a no-op pass silent, and
         reading the log as a heartbeat produced a false "stalled" on 2026-08-19.
+
+        A pass in flight says nothing of the passes before it, and its start
+        replaced the record of the last of them. What they were is read from
+        `last_end` and `not_ok_passes` (`_record`): the detail names the last
+        pass that did not end `ok`, and how many in a row, also while the
+        next pass is in flight, and the reply carries all three. They change
+        no reading's status.
         """
         instant = now or self.now()
         settings = self.policy.get("sessions", {})
@@ -2938,33 +3049,48 @@ class Mirror:
             return {"status": "absent", "sidecar": str(self.sidecar_path),
                     "age_min": None, "run_min": None, "detail":
                     "no pass recorded; the mirror has not run against this state root"}
+        # In flight: the passes before this one, as its start found them.
+        # Over: the run this record ends, held to the record itself.
+        flight = _in_flight(record)
+        last, count, since = _carried(data) if flight else _over(data)
+        last_ok = data.get("last_ok_at")
+        over = {"last_end": last, "not_ok_passes": count, "not_ok_since": since,
+                "last_ok_at": last_ok}
         started = _instant(record.get("started_at"))
         finished = _instant(record.get("finished_at"))
-        if record.get("state") == "running" and finished is None:
+        if flight:
             run_min = ((instant - started).total_seconds() / 60) if started else None
+            before = ""
+            if count == 1:
+                before = f"; the pass before it {_how(last)}"
+            elif count:
+                before = (f"; the {count} passes before it did not end ok, "
+                          f"and the last {_how(last)}; {_since_ok(last_ok)}")
             if run_min is not None and run_min <= hang:
                 return {"status": "running", "sidecar": str(self.sidecar_path),
-                        "age_min": None, "run_min": round(run_min, 1),
-                        "detail": f"a pass has been in flight for {run_min:.1f} min"}
+                        "age_min": None, "run_min": round(run_min, 1), **over,
+                        "detail": f"a pass has been in flight for {run_min:.1f} min" + before}
             return {"status": "stalled", "sidecar": str(self.sidecar_path),
                     "age_min": None,
-                    "run_min": round(run_min, 1) if run_min is not None else None,
+                    "run_min": round(run_min, 1) if run_min is not None else None, **over,
                     "detail": (f"run hung for {run_min:.1f} min" if run_min is not None
-                               else "a pass is in flight with no recorded start")}
+                               else "a pass is in flight with no recorded start") + before}
         reference = _instant(data.get("updated_at")) or finished
         age_min = ((instant - reference).total_seconds() / 60) if reference else None
         if record.get("state") in ("error", "cancelled"):
             return {"status": "stalled", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1) if age_min is not None else None,
-                    "run_min": None,
-                    "detail": f"last pass failed: {record.get('error')}"}
+                    "run_min": None, **over,
+                    "detail": f"last pass failed: {record.get('error')}"
+                              + (f"; {count} passes in a row did not end ok; {_since_ok(last_ok)}"
+                                 if count > 1 else "")}
         if age_min is not None and age_min <= stall:
             held = int(record.get("flags_held") or 0)
             causes = record.get("held_by") or []
             why = "; ".join(f"{item.get('path')}: {item.get('reason')}" for item in causes[:2])
             return {"status": "healthy", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1), "run_min": None, "flags_held": held,
-                    "held_by": causes,
+                    "held_by": causes, **over,
                     "detail": f"last pass {age_min:.1f} min ago: "
                               f"{record.get('added', 0)} added, "
                               f"{record.get('repaired', 0)} repaired"
@@ -2972,7 +3098,7 @@ class Mirror:
                                  + (f" ({why})" if why else "") if held else "")}
         return {"status": "stalled", "sidecar": str(self.sidecar_path),
                 "age_min": round(age_min, 1) if age_min is not None else None,
-                "run_min": None,
+                "run_min": None, **over,
                 "detail": (f"sidecar idle {age_min:.1f} min, no pass in flight"
                            if age_min is not None else "sidecar records no pass time")}
 

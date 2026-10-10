@@ -189,6 +189,9 @@ The sidecar holds one pass, so the next start replaces the record.
   and then fail would read `running` for 40 s of every minute. This is so
   for `OSError` failures today. Health that carries a failure across the next
   start needs a change to what C-23.28 says a pass in flight means.
+  (Since then the sidecar keeps the run of failed passes, and every reading
+  names it while the next pass is in flight; the status is unchanged:
+  `docs/reports/2026-10-10-mirror-failure-carried.md`.)
 - **A failed hot pass still loses what it read.** What it listed is no longer
   new to the next hot pass, so a session it was to spread waits for the next
   full pass, which the daemon runs every `mirror_interval_s` (60 s) and which
