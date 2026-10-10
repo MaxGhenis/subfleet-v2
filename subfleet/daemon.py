@@ -3998,7 +3998,8 @@ class Daemon:
         """Queue a push checkout once; consume errors on a later admission look.
 
         Futures are owned by the serialized detached admission pass. A restart
-        forgets them and rebuilds from scratch after quarantine cleanup.
+        forgets incomplete builds after quarantine cleanup and reuses whole
+        checkouts whose ownership the worker recorded before completing.
         """
         if (job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
             return True
