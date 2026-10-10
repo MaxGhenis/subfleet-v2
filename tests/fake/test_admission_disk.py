@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pytest
 
 from subfleet import daemon as daemon_module
@@ -219,3 +220,248 @@ def test_disabled_or_absent_is_the_existing_daemon_path(state_daemon, monkeypatc
     assert [row["job_id"] for row in placed(daemon)] == jobs
     assert daemon._disk.reserved_bytes == 0
     assert all("disk_reservation" not in json.loads(row["evidence_json"]) for row in placed(daemon))
+
+
+def rulings(daemon):
+    return [json.loads(row["data_json"]) for row in daemon.store.query(
+        "SELECT data_json FROM events WHERE kind='admission.disk_floor' ORDER BY event_id")]
+
+
+def test_timed_floor_expiry_visibility_events_and_no_store_lock(state_daemon, monkeypatch):
+    from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
+    daemon, harness = state_daemon
+    clock = fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE)
+    files = Files()
+
+    def read(path):
+        import threading
+        held = daemon.store._lock.held
+        assert held is None or held[0] != threading.get_ident()
+        return files(path)
+
+    daemon._disk.read_ruling = read
+    waiting = submit(daemon, harness)
+    daemon._admit()
+    assert daemon._disk.holding and not placed(daemon)
+    assert not rulings(daemon)
+    files.files[LOWER] = file(lowering(until=100, why="overnight ruling"))
+    clock[0] = 1
+    daemon._admit()
+    assert len(placed(daemon)) == 1
+    status = daemon.dispatch("daemon.status", {})
+    assert status["disk"]["floor_gb"] == 30 and status["disk"]["resume_margin_gb"] == 0
+    assert "lowered until" in status["status"] and "overnight ruling" in status["status"]
+    why = daemon.dispatch("why", {"job_id": waiting})
+    assert why["disk"]["floor_gb"] == 30 and "lowered until" in why["text"]
+    daemon._admit()
+    assert len(rulings(daemon)) == 1
+    # No queued jobs: the next pass must still restore and latch the policy.
+    clock[0] = 100
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 40
+    assert daemon._disk.snapshot["resume_margin_gb"] == 5 and daemon._disk.holding
+    waiting = submit(daemon, harness)
+    daemon._admit()
+    why = daemon.dispatch("why", {"job_id": waiting})
+    assert "floor 40 GB" in why["text"] and "policy; lower_expired:" in why["text"]
+    status = daemon.dispatch("daemon.status", {})
+    assert "policy; lower_expired:" in status["status"]
+    assert [event["floor_source"] for event in rulings(daemon)] == [
+        f"lowered until {stamp(100)} by Max", "policy"]
+    assert files.reads == [LOWER, RAISE] * 5
+
+
+def test_raise_lower_precedence_and_source_transitions(state_daemon, monkeypatch):
+    from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 0)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE,
+                                             floor_gb=60, resume_margin_gb=7)
+    files = Files(file(lowering()), file({"floor_gb": 35, "until": stamp(100)}))
+    daemon._disk.read_ruling = files
+    job = submit(daemon, harness)
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 35  # Agent's pass_once beats lower, even below policy.
+    assert daemon._disk.snapshot["resume_margin_gb"] == 7
+    assert "raised until" in daemon.dispatch("why", {"job_id": job})["text"]
+    daemon._admit()
+    assert len(rulings(daemon)) == 1
+    files.files[RAISE] = file({"floor_gb": 25, "until": stamp(100)})
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 30 and daemon._disk.snapshot["resume_margin_gb"] == 0
+    assert "lowered until" in daemon.dispatch("why", {"job_id": job})["text"]
+    files.files[LOWER] = None
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 60 and daemon._disk.snapshot["floor_source"] == "policy"
+    assert len(rulings(daemon)) == 3
+    files.files[LOWER] = OSError("cannot read")
+    files.files[RAISE] = (b"broken JSON", epoch(stamp(0)))
+    daemon._admit()
+    why = daemon.dispatch("why", {"job_id": job})["text"]
+    assert "lower_error:" in why and "override_error:" in why
+    assert len(rulings(daemon)) == 3
+
+
+@pytest.mark.parametrize("restart_at", [1, 3600], ids=["still-live", "expired-offline"])
+@pytest.mark.parametrize("edit_same_source", [False, True])
+def test_restart_recovers_floor_source_and_rechecks_offline_expiry(state_daemon, monkeypatch, restart_at, edit_same_source):
+    from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
+    daemon, harness = state_daemon
+    clock = fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE)
+    files = Files(file(lowering(40, release_margin_gb=5) if edit_same_source else lowering()))
+    daemon._disk.read_ruling = files
+    daemon._admit()
+    assert len(rulings(daemon)) == 1
+    if edit_same_source:
+        assert daemon._disk.holding
+        files.files[LOWER] = file(lowering())
+        daemon._admit()
+        assert not daemon._disk.holding
+        assert len(rulings(daemon)) == 1
+    (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
+    daemon.close()
+    clock[0] = restart_at
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        restarted._disk.read_ruling = files
+        restarted._admit()
+        if restart_at < 3600:
+            assert len(rulings(restarted)) == 1
+            assert restarted._disk.snapshot["floor_gb"] == 30
+        else:
+            assert len(rulings(restarted)) == 2
+            assert restarted._disk.snapshot["floor_gb"] == 40
+            assert restarted._disk.snapshot["resume_margin_gb"] == 5 and restarted._disk.holding
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize("fields", [
+    {"floor_gb": "Infinity"},
+    {"release_margin_gb": "Infinity"},
+    {"why": float("nan")},
+    {"why": {"value": float("inf")}},
+    {"ruling": "\ud800"},
+    {"why": "\ud800"},
+], ids=["infinite-floor", "infinite-margin", "nan-why", "nested-infinite-why",
+        "surrogate-ruling", "surrogate-why"])
+def test_review_live_ruling_status_is_valid_wire_json(state_daemon, monkeypatch, fields):
+    from subfleet import protocol
+    from tests.disk_floor_model import Files, LOWER, file, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    reading = enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=None)
+    daemon._disk.read_ruling = Files(file(lowering(**fields)))
+    daemon._admit()
+    result = daemon.dispatch("daemon.status", {})
+
+    def forbidden(token):
+        raise ValueError("wire contains non-JSON constant: " + token)
+
+    wire = protocol.encode({"v": 1, "id": "review", "ok": True, "result": result})
+    json.loads(wire, parse_constant=forbidden)
+    assert result["disk"]["holding"] == ("floor_gb" in fields)
+    for key in ("floor_gb", "resume_margin_gb"):
+        if result["disk"][key] == "inf":
+            assert result["disk"][key + "_raw"] == "Infinity"
+
+    job = submit(daemon, harness)
+    reading["gb"] = 0
+    daemon._admit()
+    assert daemon._holds[job]["reason"] == "disk"
+    for op, args in (("daemon.status", {}), ("why", {"job_id": job})):
+        result = daemon.dispatch(op, args)
+        wire = protocol.encode({"v": 1, "id": "review", "ok": True, "result": result})
+        json.loads(wire, parse_constant=forbidden)
+    rows = daemon.store.query("SELECT data_json FROM events WHERE kind='admission.disk_floor'")
+    assert len(rows) == 1
+    for row in rows:
+        event = json.loads(row["data_json"], parse_constant=forbidden)
+        protocol.encode(event)
+    # Notices sign the same reported holds; they must also encode strictly.
+    daemon.conversations.note_holds(daemon._holds)
+    for signature, _ in daemon.conversations._noted.values():
+        json.loads(signature, parse_constant=forbidden)
+
+
+@pytest.mark.parametrize("fields", [
+    {"floor_gb": "Infinity"},
+    {"why": {"\ud800": [float("nan"), float("-inf"), "\udfff"]}},
+])
+def test_raise_ruling_evidence_is_safe(state_daemon, monkeypatch, fields):
+    from subfleet import protocol
+    from tests.disk_floor_model import Files, RAISE, file
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=None, raise_path=RAISE)
+    daemon._disk.read_ruling = Files(raised=file({"floor_gb": 80, "until": stamp(100), **fields}))
+    job = submit(daemon, harness)
+    daemon._admit()
+    assert daemon._disk.holding
+    for result in (daemon.dispatch("daemon.status", {}), daemon.dispatch("why", {"job_id": job}),
+                   *rulings(daemon)):
+        json.dumps(result, allow_nan=False, ensure_ascii=False).encode("utf-8")
+        protocol.encode(result)
+
+
+def test_review_restart_after_same_source_offline_edit(state_daemon, monkeypatch, tmp_path):
+    from tests.disk_floor_model import BASE, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    path = tmp_path / "lower.json"
+    daemon.policy["admission"]["disk"].update(lower_path=str(path), raise_path=None)
+
+    def write(value):
+        path.write_text(json.dumps(value))
+        os.utime(path, (BASE.timestamp(), BASE.timestamp()))
+
+    write(lowering())
+    daemon._admit()
+    assert not daemon._disk.holding and len(rulings(daemon)) == 1
+    write(lowering(40, release_margin_gb=5))
+    daemon._admit()
+    assert daemon._disk.holding and len(rulings(daemon)) == 1
+    (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
+    daemon.close()
+    write(lowering())
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        restarted._admit()
+        assert restarted._disk.snapshot["floor_gb"] == 30
+        assert restarted._disk.snapshot["resume_margin_gb"] == 0
+        assert restarted._disk.holding is False, "free34 at floor30/margin0 retained stale held latch"
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize("fields", [
+    {"floor_gb": "Infinity"}, {"release_margin_gb": "Infinity"}, {"ruling": "\ud800"},
+], ids=["infinite-floor", "infinite-margin", "surrogate-source"])
+def test_restart_rechecks_raw_ruling_and_keeps_safe_source_event(state_daemon, monkeypatch, tmp_path, fields):
+    from tests.disk_floor_model import BASE, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 0)
+    path = tmp_path / "lower.json"
+    path.write_text(json.dumps(lowering(**fields)))
+    os.utime(path, (BASE.timestamp(), BASE.timestamp()))
+    daemon.policy["admission"]["disk"].update(lower_path=str(path), raise_path=None)
+    daemon._admit()
+    assert daemon._disk.holding and len(rulings(daemon)) == 1
+    (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
+    daemon.close()
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        restarted._admit()
+        assert restarted._disk.holding and len(rulings(restarted)) == 1
+        json.dumps(restarted.dispatch("daemon.status", {}), allow_nan=False, ensure_ascii=False).encode("utf-8")
+    finally:
+        restarted.close()

@@ -12,6 +12,8 @@ release site frees a turn's row with the job's other leases.
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
   A turn whose provider cwd differs from its Git hold also has a reader row
   on that canonical cwd, preserving the Git hold's exact-folder writer rules.
+  Detached jobs also hold a reader row on their resolved reservation cwd for
+  the job lease's lifetime, including retries and quarantined attempts.
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
   job's tree. No turn, writable or read-only, and no detached job starts on
   that folder or on one inside it while it is held (`retiring`, C-8.4): not a

@@ -414,16 +414,17 @@ def admitted(daemon, turn, mid, prepared) -> dict:
             "reason": reason(daemon, mid), "prepared": prepared.count(turn)}
 
 
-@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory"])
+@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory", "external"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
 def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(tmp_path, writable, where):
     """Differential (C-8.4, C-6.10, C-6.11): a turn whose folder is in a tree retention
-    is retiring waits on the same fence before its workspace (`_fence_hold`) and
-    inside the admitting transaction: the same capacity signature and backoff,
-    and the same `waiting` row. The early check names its recorded Git/read hold;
-    the transaction names its actual cwd when fenced (#138), with each message
-    describing the checked folder. A subdirectory cwd can differ from the Git
-    hold. Only the early check spares the start snapshot."""
+    is retiring is held by the look before its workspace (`_fence_hold`) exactly as
+    the admitting transaction holds it when that look is left out: the same hold but
+    its clock, the same capacity wait (its signature, so its backoff, and what `why`
+    reads), the same `waiting` row and the same message reason. Only the start
+    snapshot is spared. `subdirectory`: its Git row stays on the tree, while its
+    hold names its actual cwd. `external`: persisted core.worktree puts its Git
+    folder outside the tree; both folders' fences still spare its start snapshot."""
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout
     from tests.fake.test_turn_wait_reasons import message_in, SETTINGS
@@ -433,32 +434,32 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
         for lane in CODEX:
             measure(daemon, lane)
         tree, nested = retiring_tree(daemon, harness)
-        folder = nested if where == "nested" else tree
+        folder = nested if where in ("nested", "external") else tree
         workspace = Path(tree) / "pkg" if where == "subdirectory" else folder
         Path(workspace).mkdir(exist_ok=True)
+        fence = [folders.exclusive_key(tree)]
+        if where == "external":
+            external = tmp_path / "external"
+            external.mkdir()
+            (external / "f.txt").write_text("nested\n")
+            git(Path(nested), "config", "core.worktree", str(external))
+            key = folders.exclusive_key(folders.canonical(external))
+            assert daemon.store.acquire_lease(key, "retention:external")
+            fence.insert(0, key)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
         prepare, fence_hold, prepared = daemon._workspace, daemon._fence_hold, []
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         seen = {}
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, mid, turn = message_in(daemon, harness, path, workspace=workspace, settings=options)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
-        fence = [folders.exclusive_key(tree)]
-        expected = {}
-        for path, named in (("transaction", folders.canonical(workspace)), ("look", folder)):
-            hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": named}
-            where = " in this folder" if named == tree else " that this folder is in"
-            reason = f"lease: retention is removing a finished job's worktree{where} ({tree})"
-            assert seen[path]["hold"] == hold and seen[path]["wait"]["hold"] == hold, seen
-            assert seen[path]["reason"] == reason, seen
-            expected[path] = (hold, reason)
+        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "retiring": fence,
+                                                "folder": folders.canonical(workspace)}, seen
         assert seen["transaction"]["prepared"] == 1 and seen["transaction"]["row"] == ("waiting", "capacity", True)
-        hold, reason = expected["look"]
-        assert seen["look"] == {**seen["transaction"], "prepared": 0, "hold": hold, "reason": reason,
-                                "wait": {**seen["transaction"]["wait"], "hold": hold}}, seen
+        assert seen["look"] == {**seen["transaction"], "prepared": 0}, seen
 
 
 def test_a_fenced_turn_names_the_fence_whatever_else_holds_it(tmp_path):
@@ -484,7 +485,7 @@ def test_a_fenced_turn_names_the_fence_whatever_else_holds_it(tmp_path):
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         seen = {}
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, mid, turn = message_in(daemon, harness, path, workspace=nested)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared) | {"turn": turn, "mid": mid}
@@ -718,7 +719,7 @@ def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_tur
         seen = {}
         fence_hold = daemon._fence_hold
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, _, older = message_in(daemon, harness, f"older-{path}", workspace=nested)
             reader = {**SETTINGS, "permission": "read-only"}
             _, _, later = message_in(daemon, harness, f"later-{path}", workspace=elsewhere, settings=reader)

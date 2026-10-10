@@ -1,7 +1,7 @@
 """C-8.4, C-6.5, C-6.11: a detached job that takes no lease on its folder waits while
 retention retires a tree that folder is in.
 
-A read-only detached job takes no folder lease, and a writer that is not in place
+A read-only detached job takes a reader row that excludes no writer, and a writer that is not in place
 takes one only on the worktree the daemon cuts for it, so reservation checked no
 fence for either: submitted after retention's selection with its workdir in a
 finished job's tree (the tree itself, a folder in it, or a repository nested in
@@ -138,8 +138,8 @@ def test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it(tmp_p
             assert registrations(nested) == ([job_id] if where == "nested" else [])
             assert lease(daemon, folders.exclusive_key(str(daemon.root / "worktrees" / job_id))) == job_id
         else:
-            assert daemon.store.one("SELECT 1 FROM leases WHERE lease_key LIKE 'worktree%' AND holder=?",
-                                    (job_id,)) is None      # a read-only job takes no folder lease
+            assert folders.turn_holds(daemon.store.query, folder, (folders.READER,))
+            assert lease(daemon, folders.exclusive_key(folder)) is None  # readers exclude no writer
 
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
@@ -618,6 +618,12 @@ def test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_i
         daemon.store.release_leases("retention:retired")
         daemon._admit()
         assert _live(daemon, job_id), daemon._holds.get(job_id)
+
+        # Reservation retains the actual resolved cwd through the provider gap.
+        assert folders.turn_holds(daemon.store.query, nested, (folders.READER,))
+        result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
+                                       holders=lambda watches, **_: {})
+        assert "retired" not in result["pruned"] and Path(nested).is_dir(), result
 
 
 folder_names = st.lists(st.sampled_from(["retired", "RETIRED", "Retired", "rETIRED", "retired2", "vendor",

@@ -104,6 +104,26 @@ ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,re
 ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job_id > '' OR job_id IN "
               "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')) "
               "ORDER BY +created_at,rowid")
+#: C-17.4, D-ST2: operator views need live attempts, not the retained ledger or
+#: its evidence. Keep quarantine visible without counting it as in flight.
+#: Separate branches let SQLite use `attempts_live` and `attempts_quarantined`;
+#: adding quarantine to the live predicate would stop using its partial index.
+#: Rowid breaks equal timestamp/seq ties as the old `attempts_reserved` index
+#: did, preserving renderer order without returning the internal rowid.
+STATUS_ATTEMPTS = (
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM ("
+    "SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "WHERE state IN ('reserved','starting','running','finalizing') "
+    "UNION ALL SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "WHERE state='quarantined') ORDER BY reserved_at,seq,rowid")
+#: All nonterminal jobs (including queued/waiting turns), plus the jobs of the
+#: attempts above: even a cancelled job can have an uncontained attempt. Keep
+#: their existing columns for CLI/MCP JSON callers. `+created_at` prevents an
+#: ordering scan of every retained job, as it does for `ROUTE_JOBS`.
+STATUS_JOBS = (
+    "SELECT * FROM jobs WHERE state IN ('queued','waiting','running') OR job_id IN "
+    "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
+    "UNION ALL SELECT job_id FROM attempts WHERE state='quarantined') ORDER BY +created_at,rowid")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -556,6 +576,7 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 class Daemon:
     #: C-6.17: the last latch written to the store (`_save_disk_latch`).
     _disk_saved_hold = False
+    _disk_saved_source = "policy"
 
     @property
     def _disk(self) -> disk.DiskAdmission:
@@ -719,11 +740,16 @@ class Daemon:
         self.policy_digest = policy_hash(policy_path)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
-        self._disk = disk.DiskAdmission(self.root)
+        self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
             latch = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_latch' ORDER BY event_id DESC LIMIT 1")
             self._disk.holding = bool(latch and json.loads(latch["data_json"]).get("holding"))
+            floor = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_floor' ORDER BY event_id DESC LIMIT 1")
+            floor_info = json.loads(floor["data_json"]) if floor else {}
+            self._disk_saved_source = floor_info.get("floor_source", "policy")
+            if self._disk_saved_source != "policy":
+                self._disk.floor_info = floor_info
         self._disk_saved_hold = self._disk.holding
         self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
@@ -1204,7 +1230,8 @@ class Daemon:
         and jobs a route can depend on (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`, C-11.2),
         and `scheduler.evaluate` reaches the same decision over them as over
         every row (a differential property test). Status and the operator's
-        views read every row.
+        views read live/quarantined attempts without evidence and their jobs,
+        plus every nonterminal job (`STATUS_ATTEMPTS`, `STATUS_JOBS`, C-17.4).
 
         Only the reads: the view is built after the snapshot ends, so building
         it holds no read connection. Six views building at once used to hold
@@ -1213,8 +1240,8 @@ class Daemon:
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
                     "closures": self.store.list_closures(),
-                    "attempts": self.store.query(ROUTE_ATTEMPTS) if route else self.store.list_attempts(),
-                    "jobs": self.store.query(ROUTE_JOBS if route else "SELECT * FROM jobs ORDER BY created_at,rowid")}
+                    "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
+                    "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
             if not route:
                 rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt
@@ -2525,7 +2552,7 @@ class Daemon:
             return self._write_target(job, workspace)
         return self._submitted(job["job_id"]).get("folder") or workspace
 
-    def _detached_folders(self, job: dict) -> list[tuple[str, bool]]:
+    def _detached_folders(self, job: dict, *, run_folder: str | None = None) -> list[tuple[str, bool]]:
         """C-8.4, C-6.5: the folders whose fence holds a detached job, without
         preparing its workspace, each with whether its names are compared folded
         (`folders.retiring_folded`). Spelling is filesystem work, done here, outside
@@ -2546,7 +2573,9 @@ class Daemon:
         submitted = self._submitted(job["job_id"])
         recorded = (submitted.get("write_target") if job["sandbox"] == "workspace-write" and job["in_place"]
                     else submitted.get("folder"))
-        now = folders.canonical(job["workdir"])
+        # The early look resolves the source; after preparation, a reader or
+        # in-place writer rechecks the exact resolved cwd its lease will pin.
+        now = run_folder if run_folder is not None else folders.canonical(job["workdir"])
         if not recorded:
             return [(now, True)]
         return [(recorded, False)] + ([(now, False)] if now != recorded else [])
@@ -3020,6 +3049,15 @@ class Daemon:
         self._save_disk_latch()
         return hold
 
+    def _save_disk_floor(self) -> None:
+        floor_info = disk.reported_evidence(self._disk.floor_info)
+        source = floor_info["floor_source"]
+        if self._disk.settings["enabled"] and source != self._disk_saved_source:
+            with self.store.transaction("admission.disk_floor.recorded") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), "admission.disk_floor", json.dumps(floor_info, allow_nan=False)))
+            self._disk_saved_source = source
+
     def _why_job(self, job: dict) -> dict:
         """C-6.11: `why <job>` always says where the job stands, decision or not.
 
@@ -3071,8 +3109,12 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
+        if disk_reading is not None and (hold or {}).get("reason") != "disk":
+            lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "text": "\n".join(lines)}
+                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:
         """C-6.11: what admission is holding and for how long, for `status`."""
@@ -4640,10 +4682,12 @@ class Daemon:
             self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
 
     def _fence_hold(self, job: dict, folder: str, holds: dict[str, dict], waiters: dict, tier: str,
-                    models: frozenset[str] | None, lanes: frozenset[str] | None, *, fold: bool = False,
+                    models: frozenset[str] | None, lanes: frozenset[str] | None,
+                    run_folder: str | None = None, *, fold: bool = False,
                     priority_waiters: list | None = None) -> bool:
-        """C-8.4, C-6.10: whether `job` waits on retention's fence on `folder` or a
-        folder above it (`folders.retiring`), found before its workspace is prepared.
+        """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
+        folder, actual cwd or a folder above either (`folders.retiring`), found
+        before its workspace is prepared. The cwd is canonicalized off the lock.
 
         The admitting transaction reads that fence too, and its answer is the one
         that counts. This look spares a job that cannot start its start snapshot
@@ -4652,7 +4696,7 @@ class Daemon:
         times of a nested repository's `.git`, which retention signs, and a git still
         running when the tree went to quarantine would be a holder there (I7,
         `retention_holders`). A plain read comes first, so a look with no fence costs
-        one indexed query here and no write lock. A look whose read came just before
+        one indexed query per distinct folder here and no write lock. A look whose read came just before
         retention took the fence still prepares the workspace, in that tree, and the
         transaction then holds the job. A fence found is read again inside the
         transaction that records the wait, and the hold is the one the admitting
@@ -4664,18 +4708,24 @@ class Daemon:
         job's folder, which its reason names, with the keys again as `retiring`
         (C-6.11). A job that ended or was cancelled meanwhile is not held, and not
         prepared either."""
-        retiring = folders.retiring_folded if fold else folders.retiring     # `_detached_folders`
-        if not retiring(self.store.query, folder):
+        retiring = folders.retiring_folded if fold else folders.retiring
+
+        def fences(read):
+            git_fences = retiring(read, folder)
+            run_fences = folders.retiring(read, run_folder) if run_folder and run_folder != folder else []
+            return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+
+        if not fences(self.store.query)[0]:
             return False
         with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
             current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
                                  (job["job_id"],)).fetchone()
             if current is None or current[1] or current[0] not in ("queued", "waiting"):
                 return True
-            fence = retiring(lambda sql, params: tx.execute(sql, params).fetchall(), folder)
+            fence, held_folder = fences(lambda sql, params: tx.execute(sql, params).fetchall())
             if not fence:
                 return False                # let go since the read above: the job is looked at now
-            hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": folder}
+            hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": held_folder}
             # A key it only needs free, as for the transaction's `blocked` (C-6.11): every
             # fence but an in-place writer's own target, a lease that writer takes.
             own = (folders.exclusive_key(self._write_target(job, job["workdir"]))
@@ -4771,6 +4821,7 @@ class Daemon:
         probe_line: list[tuple[str, str, frozenset[str] | None]] = []
         if kind == "detached":
             self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
+            self._save_disk_floor()
             self._save_disk_latch()
             self._recover_probes()
             self._probe_line = probe_line
@@ -5058,8 +5109,9 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
+            run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             if job["kind"] == "turn" and self._fence_hold(job, self._turn_folder(job), holds, waiters, tier,
-                                                          models, lanes):
+                                                          models, lanes, run_folder):
                 # C-8.4: retention is retiring the tree the turn's folder is in; no
                 # git runs there for a turn that cannot start (the transaction below
                 # still reads the fence, and decides).
@@ -5105,9 +5157,12 @@ class Daemon:
             # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
-            # Git's persisted core.worktree can put the hold outside the cwd
-            # the provider runs in. Spell that cwd before taking the store lock.
-            run_folder = folders.canonical(workspace) if job["kind"] == "turn" else None
+            # A submitted path can be replaced before admission, and Git's
+            # core.worktree can put the writer hold outside the provider cwd.
+            # Resolve once off the lock; fence, pin and launch this same folder.
+            run_folder = folders.canonical(workspace)
+            if job["kind"] != "turn" and (job["in_place"] or job["sandbox"] == "read-only"):
+                job_folders = self._detached_folders(job, run_folder=run_folder)
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -5443,10 +5498,16 @@ class Daemon:
                                 fenced = (folders.retiring_folded if fold else folders.retiring)(read, folder)
                                 blockers.extend(key for key in fenced if key != own)
                         run_fences = folders.retiring(read, run_folder) if run_folder else []
-                        blockers.extend(run_fences)
-                        if run_folder and run_folder != (write_target or read_folder):
-                            # Preserve the Git hold's writer rules. This extra
-                            # reader row only keeps the provider's cwd in place.
+                        # The detached writer already contests its own exclusive
+                        # key; report that fence once, as before.
+                        own_run_key = (folders.exclusive_key(write_target)
+                                       if job["kind"] != "turn" and write_target else None)
+                        blockers.extend(key for key in run_fences if key != own_run_key)
+                        if job["kind"] != "turn" or run_folder != (write_target or read_folder):
+                            # A job-held reader row survives retries and quarantine
+                            # and is released by the existing holder-keyed cleanup.
+                            # It keeps the resolved cwd without changing C-6.5's
+                            # writer contention on the submitted write target.
                             leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
@@ -5518,6 +5579,7 @@ class Daemon:
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                    "run_folder": run_folder,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
                         if job["kind"] == "turn":
@@ -6119,6 +6181,11 @@ class Daemon:
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         evidence = json.loads(a["evidence_json"] or "{}")
+        if job["kind"] != "turn" and evidence.get("run_folder"):
+            # Use the folder whose reader row was reserved, even if the caller
+            # replaces the submitted path again before the provider launches.
+            field = "worktree" if job.get("worktree") else "workdir"
+            job = {**job, field: evidence["run_folder"]}
         model = self.policy["models"][evidence["model_short"]]
         prompt_path = Path(job["prompt_path"])
         prepared_path = prompt_path.with_name("prompt.prepared.md")
