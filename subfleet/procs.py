@@ -951,8 +951,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             local = current in owned_identities or current == local_seen.get(pid)
             collision = (any(identities_overlap(known, current) for known in (*ambiguous_identities, *ambiguous))
                          or foreign_ownership.ambiguous(current)
-                         or ((local or local_marker) and foreign_ownership.claimed(current))
-                         or (local_marker and foreign_ownership.observes(current, ambiguous=(*ambiguous_identities, *ambiguous))))
+                         or ((local or local_marker) and foreign_ownership.claimed(current)))
             if collision:
                 ambiguous.add(current)
                 excluded_identities.discard(current)
@@ -966,6 +965,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 if confirmed is not None and confirmed != current:
                     retain(confirmed, 0)
                 raise InspectionError("process changed during group inspection")
+            # The current identity already brackets this group read. Foreign
+            # group proof can use it without consuming another scalar capture.
+            if local_marker and foreign_ownership.owns(
+                    current, group, ambiguous=(*ambiguous_identities, *ambiguous)):
+                ambiguous.add(current)
+                excluded_identities.discard(current)
+                local = True
             if not local and (current == foreign_seen.get(pid) or foreign_ownership.owns(
                     current, group, ambiguous=(*ambiguous_identities, *ambiguous))):
                 excluded_identities.add(current)

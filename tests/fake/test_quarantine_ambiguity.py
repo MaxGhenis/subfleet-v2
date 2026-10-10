@@ -103,6 +103,23 @@ def test_own_marker_collision_before_first_record_is_not_hidden(state_daemon, mo
     assert known in evidence["ambiguous_identities"]
 
 
+def test_own_marker_holds_on_fresh_foreign_group_proof_without_a_table_row(
+        state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    running(daemon, harness, 300, 301)
+    ours, _ = running(daemon, harness, 200, 201)
+    rows = {300: (1, 300, "S", "p300"), 301: (300, 300, "S", "p301"),
+            202: (301, 300, "S", "p202")}
+    script_table(monkeypatch, rows, markers=f"202 writer SUBFLEET_ATTEMPT={ours['attempt_id']}\n")
+    # The marker and scalar reads see the writer after the empty table read.
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({}, boot_id=BOOT))
+    census = daemon._contain(ours)
+    assert 202 in census.marker_pids
+    assert procs.ProcessIdentity(202, BOOT, "p202") in census.ambiguous_identities
+    evidence = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+    assert "202" not in evidence.get("owned_identities", {})
+
+
 @pytest.mark.parametrize("launch_kind", ["guardian", "child"])
 def test_group_collision_before_first_record_holds_after_guardian_exit(
         state_daemon, monkeypatch, launch_kind):
