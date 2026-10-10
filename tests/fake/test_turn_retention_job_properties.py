@@ -112,6 +112,7 @@ def test_t2_retention_never_moves_a_live_turns_actual_cwd(where, depth, after_se
                         target.rename(source)
                     self.renamed.clear()
                     daemon.store.release_leases("retention:retired")
+                    return {"conflicts": []}
 
             patch.setattr(rarch, "Retirement", FakeRetirement)
             if not after_selection:

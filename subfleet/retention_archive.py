@@ -991,7 +991,7 @@ class Retirement:
             self.ctx.check()
             read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
             turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
-                                 "('running','waiting')").fetchall()
+                                 "('running')").fetchall()
             if folders.turn_holds(read, folder, inside=True) or any(
                     folders.within(row["workdir"], folder) for row in turns):
                 return f"turn-folder: {folder}"

@@ -76,7 +76,8 @@ def test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd(tmp_path, ending, loc
 
 
 @pytest.mark.parametrize("ending", ["commit", "holder-rollback"])
-def test_turn_arriving_after_quarantine_cleanup_fence_waits(tmp_path, ending):
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_turn_arriving_after_quarantine_cleanup_fence_waits(tmp_path, ending, interrupted):
     """A submission between the final guard and cleanup cannot become live."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         _checkout(harness)
@@ -86,6 +87,9 @@ def test_turn_arriving_after_quarantine_cleanup_fence_waits(tmp_path, ending):
         relative = Path(nested).relative_to(tree)
         seen = {}
         fence = rarch.Retirement._fence_quarantine
+
+        class Crash(BaseException):
+            pass
 
         def submit_after_fence(retirement):
             result = fence(retirement)
@@ -99,10 +103,17 @@ def test_turn_arriving_after_quarantine_cleanup_fence_waits(tmp_path, ending):
                 daemon._admit_turns()
                 assert not _live(daemon, turn), daemon._holds
                 assert daemon._holds[turn]["leases"] == [folders.exclusive_key(str(retirement.work))]
+                assert daemon._job(turn)["state"] == "waiting"
+                if interrupted:
+                    raise Crash()
             return result
 
         patch.setattr(rarch.Retirement, "_fence_quarantine", submit_after_fence)
         holders = lambda watches, **_: {"retired": ["review: rollback"]} if ending == "holder-rollback" else {}
+        if interrupted:
+            with pytest.raises(Crash):
+                retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0, holders=holders)
+            assert daemon.store.list_leases("retention:retired")
         retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0, holders=holders)
         assert seen and not _live(daemon, seen["turn"])
         assert not daemon.store.list_leases("retention:retired")
