@@ -93,4 +93,3 @@ def agent_rule(cfg, files, seconds):
 
 def policy(**settings):
     return {"admission": {"disk": {"enabled": True, "lower_path": LOWER, "raise_path": RAISE, **settings}}}
-
