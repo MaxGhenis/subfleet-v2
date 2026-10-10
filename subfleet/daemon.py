@@ -1981,7 +1981,8 @@ class Daemon:
                                        code=7, fix="pass -s workspace-write, or omit --push-branch")
                 if args.push_branch is not None:
                     push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
-                        workdir, args.push_branch, self.policy, self.root)
+                        workdir, args.push_branch, self.policy, self.root,
+                        in_place=bool(args.in_place))
                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
                     if push_current in ("main", "master"):
                         raise AdapterError("writable in-place jobs require a feature branch", code=7,

@@ -182,6 +182,16 @@ def _config(text: str) -> configparser.RawConfigParser:
     return config
 
 
+def _resolve(path: Path) -> Path:
+    """Fix round 3: Python 3.12's `resolve` raises RuntimeError on a symlink
+    loop, which no caller's refusal caught; 3.13 and later return the path,
+    whose read then refuses as a symlink."""
+    try:
+        return path.resolve()
+    except RuntimeError:
+        raise PushError(f"checkout metadata {str(path)!r} is a symlink loop") from None
+
+
 def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
     """(checkout top, its gitdir, the common gitdir), read as data. `.git` is
     looked at with lstat: a directory, or a gitfile read as one regular file."""
@@ -198,13 +208,13 @@ def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
         text = _read_metadata(gitdir, POINTER_CAP).strip()
         if not text.startswith("gitdir: "):
             raise PushError("invalid checkout gitdir")
-        gitdir = (top / text[8:]).resolve()
+        gitdir = _resolve(top / text[8:])
     elif not stat.S_ISDIR(info.st_mode):
         raise PushError(f"{str(gitdir)!r} must be a directory or a gitdir file, not a symlink or special file")
     common = gitdir
     pointer = _read_metadata(gitdir / "commondir", POINTER_CAP, optional=True)
     if pointer is not None:
-        common = (gitdir / pointer.strip()).resolve()
+        common = _resolve(gitdir / pointer.strip())
     return top, gitdir, common
 
 
@@ -249,6 +259,65 @@ def checkout_metadata(workdir: Path) -> tuple[str, str, str | None, Path]:
     return remote, read_ref(head), branch, top
 
 
+def _git_true(value: str | None) -> bool:
+    """A Git boolean as `git config --type=bool` reads one; a bare key is true."""
+    if value is None:
+        return True
+    value = value.strip().strip('"').lower()
+    if value in {"true", "yes", "on"}:
+        return True
+    try:
+        return int(value) != 0
+    except ValueError:
+        return False
+
+
+def check_object_store(workdir: Path, *, in_place: bool) -> None:
+    """Fix round 3: a checkout whose own objects cannot make a full history.
+
+    Read as data, as `checkout_metadata` reads: `shallow` with lstat, the
+    `alternates` file as one capped regular file, and the configs' text. A
+    shallow checkout never pushes: its bundle lacks the boundary's parents,
+    and an empty quarantine refuses it. A checkout that borrows objects
+    (`clone --shared`, `objects/info/alternates`) or is a partial clone
+    (`extensions.partialClone`, a promisor remote) cannot give a job that is
+    not in place its baseline: `prepare_workspace` copies only the checkout's
+    own objects, as data. In place, the job's own Git builds the bundle and
+    reads those objects itself, so only a shallow checkout is refused there.
+    """
+    _, gitdir, common = _git_directories(workdir)
+    shallow = common / "shallow"
+    try:
+        info = os.lstat(shallow)
+    except (FileNotFoundError, NotADirectoryError):
+        info = None
+    if info is not None and (not stat.S_ISREG(info.st_mode) or info.st_size):
+        raise PushError("push requires a full clone: the checkout is shallow; "
+                        "run git fetch --unshallow there, or push it yourself")
+    if in_place:
+        return
+    alternates = _read_metadata(common / "objects/info/alternates", POINTER_CAP, optional=True)
+    if alternates is not None and any(line.strip() and not line.lstrip().startswith("#")
+                                      for line in alternates.splitlines()):
+        raise PushError("push requires a checkout that holds its own objects: this one borrows them "
+                        "through objects/info/alternates (git clone --shared or --reference); "
+                        "run git repack -a -d and remove that file, or pass --in-place")
+    configs = [_config(_read_metadata(common / "config", CONFIG_CAP))]
+    if _git_true(configs[0].get("extensions", "worktreeconfig", fallback="false")):
+        text = _read_metadata(gitdir / "config.worktree", CONFIG_CAP, optional=True)
+        if text is not None:
+            configs.append(_config(text))
+    # Section names compare in any case, as Git reads them; keys are lowercased.
+    promisor = any(
+        (section.lower() == "extensions" and config.has_option(section, "partialclone"))
+        or (section.lower().startswith(('remote "', "remote.")) and config.has_option(section, "promisor")
+            and _git_true(config.get(section, "promisor")))
+        for config in configs for section in config.sections())
+    if promisor:
+        raise PushError("push requires a full clone: this one is a partial clone whose missing objects "
+                        "its promisor remote supplies; clone it without --filter, or pass --in-place")
+
+
 def _environment() -> dict[str, str]:
     # Only the host process's identity/credential locations survive. No lane
     # launch environment, GIT_* overrides, askpass, proxy, or Python variables.
@@ -259,13 +328,25 @@ def _environment() -> dict[str, str]:
 
 
 def validate_write_location(workdir: Path) -> None:
+    """Admission's and launch's check of the checkout a push job writes in.
+    Fix round 3: it raises only AdapterError, whatever the checkout holds, so
+    no workspace stops the admission pass at its job."""
     try:
         _, _, current, _ = checkout_metadata(workdir)
         if current in {"main", "master"}:
             raise PushError("writable in-place jobs require a feature branch")
-    except (ValueError, OSError, configparser.Error) as exc:
-        raise AdapterError(f"workspace refused: {exc}", code=7,
+        check_object_store(workdir, in_place=True)
+    except Exception as exc:  # noqa: BLE001 - every refusal is this job's, never the pass's
+        raise AdapterError(f"workspace refused: {_reason(exc)}", code=7,
                            fix="choose a committed feature branch") from exc
+
+
+def _reason(exc: BaseException) -> str:
+    """A refusal's words: a PushError's own, else what kind of error it was too.
+    Valid UTF-8 always: they reach the job's notice, which SQLite writes strictly,
+    and a surrogate there would raise out of the pass all the same."""
+    text = str(exc) if isinstance(exc, (PushError, OSError)) else f"{type(exc).__name__}: {exc}"
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
 
 
 def _stop(process: subprocess.Popen) -> None:
@@ -430,13 +511,14 @@ def remote_refs(repo: Path, remote: str, credentials: tuple[str, ...]) -> tuple[
     return default, refs
 
 
-def validate_submit(workdir: Path, branch: str, policy: dict, root: Path):
+def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_place: bool = False):
     try:
         settings = push_settings(policy)
         if not settings["enabled"]:
             raise PushError("host push is disabled by policy push.enabled")
         check_branch(branch, settings)
         remote, head, current, top = checkout_metadata(workdir)
+        check_object_store(workdir, in_place=in_place)
         check_policy(branch, remote, policy)
         with quarantine(root, head) as (repo, credentials):
             default, refs = remote_refs(repo, remote, credentials)
@@ -686,8 +768,36 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
 
     `git worktree add` in the caller's repo would execute its config/hooks.
     A standalone checkout also keeps its later config edits away from the host.
+
+    Fix round 3: admission calls this for one job of a pass, so it raises only
+    AdapterError (the checkout or Git refused: the job fails, exit 7, with a
+    notice) or OSError (the host's own trouble, Git that could not start
+    included: C-6.8's workspace wait). Anything else had stopped the detached
+    pass at this job on every try. The checkout is built in the quarantine and
+    renamed into place last, so the retry a workspace wait makes never finds
+    half of one.
     """
+    try:
+        _prepare_workspace(root, source, base, destination)
+    except OSError:
+        raise
+    except PushError as exc:
+        if isinstance(exc.__cause__, OSError):
+            raise OSError(exc.__cause__.errno, str(exc)) from exc
+        raise _workspace_refused(exc) from exc
+    except Exception as exc:  # noqa: BLE001 - every failure here is this job's, never the pass's
+        raise _workspace_refused(exc) from exc
+
+
+def _workspace_refused(exc: BaseException) -> AdapterError:
+    return AdapterError(f"host push workspace refused: {_reason(exc)}", code=7,
+                        fix="resubmit from a full clone whose origin and HEAD still name the commit "
+                            "to start from, or omit --push-branch")
+
+
+def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -> None:
     checkout_metadata(source)
+    check_object_store(source, in_place=False)
     _, _, gitdir = _git_directories(source)
     with quarantine(root, base) as (repo, _):
         objects = gitdir / "objects"
@@ -712,9 +822,12 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
         git(repo, "fsck", "--strict", "--no-reflogs", base)
         git(repo, "update-ref", "refs/heads/work", base)
         git(repo, "symbolic-ref", "HEAD", "refs/heads/work")
+        checkout = repo.parent / "checkout"
         git(repo, "clone", "--no-local", "--template=" + str(repo.parent / "empty-template"),
-            "--", str(repo), str(destination))
-        (destination / ".git/HEAD").write_text(base + "\n")
+            "--", str(repo), str(checkout))
+        (checkout / ".git/HEAD").write_text(base + "\n")
         # The bundle is the job's delivery, never part of its commits.
-        (destination / ".git/info").mkdir(exist_ok=True)
-        (destination / ".git/info/exclude").write_text(f"/{BUNDLE_PATH[0]}/\n")
+        (checkout / ".git/info").mkdir(exist_ok=True)
+        (checkout / ".git/info/exclude").write_text(f"/{BUNDLE_PATH[0]}/\n")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(checkout, destination)
