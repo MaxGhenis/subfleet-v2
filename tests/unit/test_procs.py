@@ -7,9 +7,12 @@ import json
 import signal
 import subprocess
 import threading
+from pathlib import Path
 from unittest import mock
 
+import hypothesis
 import pytest
+from hypothesis import strategies as st
 
 import os
 
@@ -677,3 +680,164 @@ def test_a_pipe_is_returned_empty_whatever_its_raw_ends_took_in(monkeypatch):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_containment_finds_a_marker_under_a_root_that_is_not_ascii(monkeypatch):
+    """C-5.5 (2026-09-27): `ps` runs in the C locale, where it prints `é` as `M-CM-)`,
+    so the census looks for the root as `ps` prints it. Matched as written, a root
+    that is not printable ASCII found no marked process, and one outside the group
+    and the walk was in no source: the census said verified empty while it lived."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers=("   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/subfleet-JosM-CM-)-root\n"
+                    "  100 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/subfleet-Jose-root\n"))
+    found = procs.containment(None, None, None, "job/a1", root="/tmp/subfleet-José-root")
+    assert found.marker_pids == {99}
+    assert not found.verified_empty
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/subfleet-Jose-root").marker_pids == {100}
+
+
+def test_containment_looks_for_the_attempt_id_as_ps_prints_it_too(monkeypatch):
+    """C-5.5: the attempt marker is rendered like the root. Attempt ids are ASCII
+    today (a timestamp, a `[a-z0-9-]` slug, `probe:` and hex), where rendering changes
+    nothing; an id that were not would still be found."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers="   99 python SUBFLEET_ATTEMPT=jM-CM-)b/a1 SUBFLEET_ROOT=/tmp/root\n")
+    assert procs.containment(None, None, None, "jéb/a1", root="/tmp/root").marker_pids == {99}
+
+
+def test_containment_keeps_the_space_a_root_ends_in(monkeypatch):
+    """C-5.5: a root that ends in a space ends the row when SUBFLEET_ROOT is the last
+    variable, so only the pid's padding is stripped from a row."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers="   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/root \n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/root ").marker_pids == {99}
+
+
+def test_two_roots_that_print_alike_are_one_root_to_the_census(monkeypatch):
+    """C-5.5, intended: `ps` passes `VIS_NOSLASH`, so its notation puts no backslash
+    before an `M-` form and cannot tell `é` from the text `M-CM-)`; the census counts a
+    marked process of either root for both. That errs toward holding on, and it needs
+    the attempt id too."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers="   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/aM-CM-)\n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/aé").marker_pids == {99}
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/aM-CM-)").marker_pids == {99}
+
+
+@pytest.mark.parametrize("line", [
+    "python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a b",                 # the root, then more after a space
+    "python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/b SUBFLEET_ROOT=/tmp/a",  # inside a longer root
+    "python SUBFLEET_ATTEMPT=job/a1 NOTE=see SUBFLEET_ROOT=/tmp/a here SUBFLEET_ROOT=/tmp/b",  # in another variable
+    "python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a",                   # the attempt marker as argv text
+], ids=["root then a space", "inside a longer root", "in another variable", "attempt in argv"])
+def test_a_process_counts_when_its_line_holds_both_markers_as_tokens(monkeypatch, line):
+    """C-5.5, intended (and older than `ps_text`): a process counts when its printed
+    line holds both markers as space-bounded tokens, wherever they come from (its
+    argv, another variable's value, or a longer root that holds a space), because
+    `ps` joins every string with a space. Each errs toward holding on: no caller
+    signals a pid the marker source alone found (C-5.6)."""
+    census(monkeypatch, parents="42 1 42 S\n", markers=f"   99 {line}\n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == {99}
+
+
+def test_a_longer_root_without_a_space_is_another_root(monkeypatch):
+    """C-5.5: the root's token ends where the printed line has a space or ends, so a
+    root that only starts like the census's root is another root."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers="   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/ab\n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == frozenset()
+
+
+@pytest.mark.parametrize("line", [
+    "python SUBFLEET_ATTEMPT=job/a1 MY_SUBFLEET_ROOT=/tmp/a",
+    "python MY_SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a",
+], ids=["root", "attempt"])
+def test_a_marker_is_a_whole_token_from_its_name(monkeypatch, line):
+    """C-5.5: each marker starts where the printed line starts or has a space, so a
+    variable whose name only ends in a marker's name is not that marker."""
+    census(monkeypatch, parents="42 1 42 S\n", markers=f"   99 {line}\n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == frozenset()
+
+
+def test_ps_text_prints_every_byte_as_ps_printed_it():
+    """C-5.5: `PS_BYTES` is what `ps` printed for each of the 255 bytes an environment
+    can hold, measured on macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json; the process
+    test `test_ps_rendering.py` measures again wherever it runs)."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ps_vis_bytes.json"
+    measured = json.loads(fixture.read_text())["bytes"]
+    assert sorted(measured) == [f"{value:02X}" for value in range(1, 256)]
+    assert {name: procs.PS_BYTES[int(name, 16)] for name in measured} == measured
+
+
+@pytest.mark.parametrize("value,printed", [
+    ("/tmp/subfleet-José-root", "/tmp/subfleet-JosM-CM-)-root"),
+    ("a\tb\nc", "a\\011b\\012c"),
+    ("a back\\slash and a space ", "a back\\slash and a space "),
+    ("\u00a0", "M-B\\240"),
+    ("\x01\x1b\x7f", "^A^[^?"),
+    (os.fsdecode(b"\x80\x89\xa0\xde\xff"), "M^@M^I\\240M-^M^?"),
+    ("M-CM-)", "M-CM-)"),
+])
+def test_ps_text_examples(value, printed):
+    """C-5.5: a value as `ps` prints it, byte by byte, from its `os.fsencode` bytes."""
+    assert procs.ps_text(value) == printed
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(raw=st.binary(max_size=64).map(lambda raw: raw.replace(b"\0", b"")))
+def test_ps_text_invariants(raw):
+    """C-5.5 invariants the census's `(?:^|\\s)` and `(?=\\s|$)` boundaries rely on: for
+    any bytes a value can hold, `ps_text` prints only printable ASCII, with a space
+    exactly where the value had one (so no other byte can end or start a variable),
+    prints printable ASCII as itself, and prints a value one byte at a time."""
+    printed = procs.ps_text(os.fsdecode(raw))
+    assert all(" " <= char <= "~" for char in printed)
+    assert printed.count(" ") == raw.count(b" ")
+    assert printed == "".join(procs.PS_BYTES[byte] for byte in raw)
+    if all(0x20 <= byte <= 0x7E for byte in raw):
+        assert printed == raw.decode("ascii")
+
+
+def ps_row(pid, argv, env):
+    """A `ps -axEww -o pid=,command=` row as `ps` prints it in the C locale."""
+    words = [*argv, *(f"{name}={value}" for name, value in env)]
+    return f"{pid:>5} " + " ".join(procs.ps_text(word) for word in words) + "\n"
+
+
+@hypothesis.settings(max_examples=200, deadline=None)
+@hypothesis.given(raw=st.binary(min_size=1, max_size=48).map(lambda raw: raw.replace(b"\0", b"")).filter(bool),
+                  root_last=st.booleans())
+def test_containment_finds_the_marker_under_any_root(raw, root_last):
+    """C-5.5 for every root: whatever bytes the state root holds, and wherever its
+    variable falls, the census finds the process that carries both markers as `ps`
+    prints them, and a root one byte longer does not. (What `ps` prints is pinned by
+    the fixture above and measured by tests/process/test_ps_rendering.py.)"""
+    root = os.fsdecode(raw)
+    markers = [("SUBFLEET_ATTEMPT", "job/a1"), ("SUBFLEET_ROOT", root)]
+    env = [("PATH", "/bin"), *(markers if root_last else markers[::-1])]
+    with pytest.MonkeyPatch.context() as patch:
+        census(patch, parents="42 1 42 S\n", markers=ps_row(99, ["python", "-c", "pass"], env))
+        assert procs.containment(None, None, None, "job/a1", root=root).marker_pids == {99}
+        longer = os.fsdecode(raw + b"x")
+        assert procs.containment(None, None, None, "job/a1", root=longer).marker_pids == frozenset()
+
+
+def test_a_root_that_cannot_be_encoded_leaves_the_census_unverifiable(monkeypatch):
+    """C-5.5: a root `os.fsencode` cannot encode (a lone surrogate) is carried by no
+    process, and the census cannot say what `ps` would print for it; the marker
+    source is unavailable, never empty."""
+    census(monkeypatch, parents="42 1 42 S\n", markers="   99 python SUBFLEET_ATTEMPT=job/a1\n")
+    result = procs.containment(None, None, None, "job/a1", root="/tmp/\ud800")
+    assert result.unverifiable and "marker enumeration unavailable" in result.errors
+
+
+@pytest.mark.parametrize("value", ["/tmp/a\x00b", "\x00"])
+def test_a_value_with_a_nul_is_one_no_environment_holds(monkeypatch, value):
+    """C-5.5: a NUL ends an environment string, so no process carries a root or an
+    attempt id that holds one. `ps_text` refuses it rather than printing `^@`, and a
+    census asked for one is unverifiable, as for a lone surrogate, never empty."""
+    with pytest.raises(ValueError):
+        procs.ps_text(value)
+    census(monkeypatch, parents="42 1 42 S\n", markers="   99 python SUBFLEET_ATTEMPT=job/a1\n")
+    assert procs.containment(None, None, None, "job/a1", root=value).unverifiable
+    assert procs.containment(None, None, None, "job/a\x001", root="/tmp/a").unverifiable

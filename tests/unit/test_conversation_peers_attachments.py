@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet.conversations import attachments
+from subfleet.conversations import attachments, peers
 from subfleet.conversations.peers import Proc, executable_path, judge
 from subfleet.conversations.store import ConversationError, ConversationStore
 
@@ -77,6 +77,29 @@ def test_anything_subfleet_launched_is_refused_even_with_a_terminal(ancestor):
     act as the person, whatever its terminal."""
     v = judge(10, chain=chain_of(Proc(10, 9, "ttys001", "/bin/zsh"), ancestor, Proc(8, 1, "ttys001", "login")))
     assert not v.person
+
+
+def test_a_root_marker_is_found_as_ps_prints_it():
+    """C-25.6 with C-5.5: `ps` prints the caller's environment in vis(3) notation, so
+    a state root that is not printable ASCII is looked for as it prints (`é` is
+    `M-CM-)`); matched as written, the root marker of such a root never matched."""
+    ancestor = Proc(9, 8, "ttys001", "python SUBFLEET_ROOT=/tmp/subfleet-JosM-CM-)-root")
+    v = judge(10, chain=chain_of(Proc(10, 9, "ttys001", "/bin/zsh"), ancestor, Proc(8, 1, "ttys001", "login")),
+              root="/tmp/subfleet-José-root", executable=lambda pid: "/bin/zsh")
+    assert not v.person and v.reason == "the caller carries Subfleet's attempt markers"
+
+
+def test_the_chain_keeps_the_space_a_root_ends_in(monkeypatch):
+    """C-25.6 with C-5.5: only the newline is stripped from what `ps` prints, so a
+    root that ends in a space, whose variable ends the line, is still found."""
+    def ps(argv):
+        if argv[1] == "-axo":
+            return "   10     1 ttys001\n"
+        return "python SUBFLEET_ROOT=/tmp/root \n"
+    monkeypatch.setattr(peers, "_ps", ps)
+    assert peers.process_chain(10)[0].command == "python SUBFLEET_ROOT=/tmp/root "
+    v = judge(10, chain=peers.process_chain, root="/tmp/root ", executable=lambda pid: "/bin/zsh")
+    assert not v.person and v.reason == "the caller carries Subfleet's attempt markers"
 
 
 def test_an_unidentified_caller_is_refused():

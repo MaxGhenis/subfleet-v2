@@ -20,6 +20,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable
 
+from ..procs import ps_text
+
 MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
 APP_EXECUTABLES = ("/Applications/Subfleet.app/Contents/MacOS/Subfleet",)
 
@@ -78,7 +80,9 @@ def process_chain(pid: int) -> list[Proc]:
     while current and current not in seen and current in table and len(chain) < 64:
         seen.add(current)
         ppid, tty = table[current]
-        command = _ps(["/bin/ps", "-Ewwp", str(current), "-o", "command="]).strip()
+        # Only the newline is stripped: a root that ends in a space ends the line
+        # when SUBFLEET_ROOT is the last variable (C-5.5).
+        command = _ps(["/bin/ps", "-Ewwp", str(current), "-o", "command="]).rstrip("\n")
         chain.append(Proc(current, ppid, tty, command))
         if current == 1:
             break
@@ -94,7 +98,9 @@ def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain
     procs = chain(pid)
     if not procs:
         return Verdict(False, "the caller's process could not be inspected", pid)
-    root_marker = f"SUBFLEET_ROOT={root}" if root else None
+    # `ps` prints the environment in vis(3) notation, so the root is looked for as
+    # it prints (C-5.5): `é` is `M-CM-)`.
+    root_marker = f"SUBFLEET_ROOT={ps_text(root)}" if root else None
     for proc in procs:
         if "subfleet.guardian" in proc.command:
             return Verdict(False, "the caller runs under a Subfleet guardian", pid)
