@@ -20,6 +20,9 @@ from test_host_push import (
     worlds,
 )
 from test_host_push_intake import test_intake_refuses_anything_but_a_regular_file_in_a_plain_directory as intake_invariant
+from test_host_push_metadata import (
+    test_a_submit_refused_on_planted_metadata_leaves_the_submit_lock_free as metadata_invariant,
+)
 from test_host_push_names import (
     test_three_spellings_of_one_repository_racing_for_one_branch_have_one_owner as ownership_invariant,
 )
@@ -107,3 +110,25 @@ def test_mutation_ownership_keyed_on_the_raw_url_is_caught(worlds, monkeypatch):
     monkeypatch.setattr(host_push, "ownership_key", lambda remote: remote)
     with pytest.raises(AssertionError, match="was not refused as another family's: pushed [0-9a-f]{40}"):
         ownership_invariant(worlds)
+
+
+# Fix round 2 (re-review of #158): each fix, removed, fails its integration test.
+
+#: kind -> what the metadata invariant reports when `read_text` reads it: a
+#: FIFO holds the submit and its lock; a link or an oversize file is accepted.
+READ_TEXT_CAUGHT = {"fifo": "still blocked", "symlink": "'value'", "oversize": "'value'"}
+
+
+@pytest.mark.parametrize("kind", sorted(READ_TEXT_CAUGHT))
+def test_mutation_read_text_restored_is_caught(worlds, monkeypatch, kind):
+    def read_text(path, cap, *, optional=False):
+        try:
+            return path.read_text()
+        except (FileNotFoundError, NotADirectoryError):
+            if optional:
+                return None
+            raise
+    monkeypatch.setattr(host_push, "_read_metadata", read_text)
+    with pytest.raises(AssertionError, match=READ_TEXT_CAUGHT[kind]):
+        metadata_invariant(worlds, kind)
+

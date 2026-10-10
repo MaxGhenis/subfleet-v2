@@ -1,7 +1,8 @@
 """C-8.5: data-only bundle intake and host-side, non-forcing branch publication.
 
 Never give Git a lane's worktree, gitdir, config, environment, or object store.
-Submit reads checkout metadata as text; all Git subprocesses use a fresh bare
+Submit reads checkout metadata as data, each file only as a capped regular file
+that no link names and no FIFO holds; all Git subprocesses use a fresh bare
 repository with only the host's directly configured credential helpers. The
 job's bundle is read as bytes through directory handles that never follow a
 link, and Git only ever reads the daemon's own copy of it.
@@ -9,6 +10,7 @@ link, and Git only ever reads the daemon's own copy of it.
 from __future__ import annotations
 
 import configparser
+import errno
 import fnmatch
 import os
 from pathlib import Path
@@ -24,6 +26,7 @@ import unicodedata
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 
+from . import retention_fs as rfs
 from .adapters.base import AdapterError
 from .policy import push_settings
 
@@ -50,6 +53,10 @@ BUNDLE_RELATIVE = "/".join(BUNDLE_PATH)
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 #: The bundle itself: never a link, and a FIFO cannot hold the open.
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+#: Review r2 P3: the most of each checkout metadata file submit reads.
+POINTER_CAP = 64 * 1024           # a gitfile, `commondir`, `HEAD`, a loose ref
+CONFIG_CAP = 4 * 1024 * 1024      # `config`, `config.worktree`
+PACKED_REFS_CAP = 64 * 1024 * 1024
 #: Review P2-2: names Git or a clone could read as something other than a branch.
 RESERVED_PREFIXES = ("refs/", "heads/", "remotes/")
 SAFE_CONFIG = ("-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
@@ -148,31 +155,67 @@ def check_policy(branch: str, remote: str, policy: dict, default: str | None = N
     return settings
 
 
-def _config(path: Path) -> configparser.RawConfigParser:
+def _read_metadata(path: Path, cap: int, *, optional: bool = False) -> str | None:
+    """One checkout metadata file, as data (review r2 P3): never through a final
+    link, never waiting in open() on a FIFO, only a regular file, and never more
+    than `cap` bytes (`retention_fs.read_regular`). A FIFO planted at a nested
+    `.git/config` had held submit, `_submit_lock` and every submit after it.
+    An `optional` file that is absent is None; anything else there refuses."""
+    try:
+        data = rfs.read_regular(path, cap)
+    except (FileNotFoundError, NotADirectoryError):
+        if optional:
+            return None
+        raise PushError(f"checkout metadata {str(path)!r} is missing") from None
+    except OSError as exc:
+        why = {errno.ELOOP: "is a symlink", errno.EFBIG: f"is larger than {cap} bytes"}.get(
+            exc.errno, "is not a regular file")
+        raise PushError(f"checkout metadata {str(path)!r} {why}") from None
+    return data.decode("utf-8")
+
+
+def _config(text: str) -> configparser.RawConfigParser:
     # This is a data parser, not `git config`: include/includeIf are never read.
     config = configparser.RawConfigParser(strict=False, interpolation=None, allow_no_value=True)
-    config.read_string(path.read_text())
+    config.read_string(text)
     return config
+
+
+def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
+    """(checkout top, its gitdir, the common gitdir), read as data. `.git` is
+    looked at with lstat: a directory, or a gitfile read as one regular file."""
+    for top in (workdir, *workdir.parents):
+        try:
+            info = os.lstat(top / ".git")
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        break
+    else:
+        raise PushError("push requires a committed Git checkout with an origin")
+    gitdir = top / ".git"
+    if stat.S_ISREG(info.st_mode):
+        text = _read_metadata(gitdir, POINTER_CAP).strip()
+        if not text.startswith("gitdir: "):
+            raise PushError("invalid checkout gitdir")
+        gitdir = (top / text[8:]).resolve()
+    elif not stat.S_ISDIR(info.st_mode):
+        raise PushError(f"{str(gitdir)!r} must be a directory or a gitdir file, not a symlink or special file")
+    common = gitdir
+    pointer = _read_metadata(gitdir / "commondir", POINTER_CAP, optional=True)
+    if pointer is not None:
+        common = (gitdir / pointer.strip()).resolve()
+    return top, gitdir, common
 
 
 def checkout_metadata(workdir: Path) -> tuple[str, str, str | None, Path]:
     """Host snapshot at submit, supporting linked worktrees and packed refs."""
-    top = next((p for p in (workdir, *workdir.parents) if (p / ".git").exists()), None)
-    if top is None:
-        raise PushError("push requires a committed Git checkout with an origin")
-    gitdir = top / ".git"
-    if gitdir.is_file():
-        text = gitdir.read_text().strip()
-        if not text.startswith("gitdir: "):
-            raise PushError("invalid checkout gitdir")
-        gitdir = (top / text[8:]).resolve()
-    common = gitdir
-    if (gitdir / "commondir").is_file():
-        common = (gitdir / (gitdir / "commondir").read_text().strip()).resolve()
-    config = _config(common / "config")
+    top, gitdir, common = _git_directories(workdir)
+    config = _config(_read_metadata(common / "config", CONFIG_CAP))
     remote = config.get('remote "origin"', "url", fallback=None)
-    if (config.get("extensions", "worktreeconfig", fallback="false") or "true").lower() == "true" and (gitdir / "config.worktree").is_file():
-        remote = _config(gitdir / "config.worktree").get('remote "origin"', "url", fallback=remote)
+    if (config.get("extensions", "worktreeconfig", fallback="false") or "true").lower() == "true":
+        text = _read_metadata(gitdir / "config.worktree", CONFIG_CAP, optional=True)
+        if text is not None:
+            remote = _config(text).get('remote "origin"', "url", fallback=remote)
     if remote and remote.startswith('"') and remote.endswith('"'):
         remote = remote[1:-1]
     if not remote:
@@ -187,19 +230,20 @@ def checkout_metadata(workdir: Path) -> tuple[str, str, str | None, Path]:
             ref = value[5:]
             if ".." in ref or "\\" in ref:
                 break
-            loose = next((p / ref for p in (gitdir, common) if (p / ref).is_file()), None)
-            if loose:
-                value = loose.read_text().strip()
+            loose = next((text for text in (_read_metadata(p / ref, POINTER_CAP, optional=True)
+                                            for p in (gitdir, common)) if text is not None), None)
+            if loose is not None:
+                value = loose.strip()
                 continue
-            packed = common / "packed-refs"
-            if packed.is_file():
-                for line in packed.read_text().splitlines():
+            packed = _read_metadata(common / "packed-refs", PACKED_REFS_CAP, optional=True)
+            if packed is not None:
+                for line in packed.splitlines():
                     if line.endswith(" " + ref) and SHA.fullmatch(line.split(" ", 1)[0]):
                         return line.split(" ", 1)[0]
             break
         raise PushError("push requires a checkout HEAD naming a committed baseline")
 
-    head = (gitdir / "HEAD").read_text().strip()
+    head = _read_metadata(gitdir / "HEAD", POINTER_CAP).strip()
     branch = head.removeprefix("ref: refs/heads/") if head.startswith("ref: refs/heads/") else None
     return remote, read_ref(head), branch, top
 
@@ -631,12 +675,8 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
     `git worktree add` in the caller's repo would execute its config/hooks.
     A standalone checkout also keeps its later config edits away from the host.
     """
-    _, _, _, top = checkout_metadata(source)
-    gitdir = top / ".git"
-    if gitdir.is_file():
-        gitdir = (top / gitdir.read_text().strip()[8:]).resolve()
-    if (gitdir / "commondir").is_file():
-        gitdir = (gitdir / (gitdir / "commondir").read_text().strip()).resolve()
+    checkout_metadata(source)
+    _, _, gitdir = _git_directories(source)
     with quarantine(root, base) as (repo, _):
         objects = gitdir / "objects"
         for folder in objects.iterdir():
