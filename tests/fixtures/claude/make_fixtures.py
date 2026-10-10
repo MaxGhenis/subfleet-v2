@@ -704,7 +704,7 @@ def build() -> None:
             "class": "auth-dead",
             "detail_contains": "organization has disabled",
             "evidence": {
-                "auth": "organisation block",
+                "auth": "subscription access refused (error-kind)",
                 "admission": "not reached",
                 "quota": "not reached",
             },
@@ -1237,6 +1237,115 @@ def build() -> None:
             },
         },
     )
+
+
+    # 20 — the refusal of subscription access exactly as Claude Code 2.1.284 streamed
+    #      it to a real attempt.
+    write_case(
+        "org-block-recorded",
+        stdout=stream(RECORDED_ORG_BLOCK_ROWS),
+        stderr="",
+        rc=1,
+        expected={
+            "synthetic": False,
+            "provenance": (
+                "Recorded: ~/.subfleet/jobs/20260930-114348-pr89-review/a1/stream.jsonl "
+                "(lane claude-5, mghenis@gmail.com, Claude Code 2.1.284, rc 1, empty "
+                "stderr), one of 37 attempts on that lane that day with the same "
+                "detail. Every frame's decoded values are as recorded (key order and "
+                "JSON spacing are not) except: the init frame's tools, agents, "
+                "plugins and capabilities lists are emptied, its cwd is shortened, and "
+                "the assistant frame's request_id is redacted. The prompt never "
+                "appears in the stream."
+            ),
+            "requested_model": "claude-opus-5-5",
+            "session_id": RECORDED_ORG_BLOCK_SID,
+            "class": "auth-dead",
+            "detail_contains": TEXT_ORG_BLOCK,
+            "evidence": {
+                "auth": "subscription access refused (error-kind)",
+                "admission": "not reached",
+                "quota": "not reached",
+            },
+            "closure": None,
+            "readings": [],
+            "deliverable": TEXT_ORG_BLOCK,
+            "attestation": {"status": "unattested", "served_model": None},
+            "stream": {
+                "init": True,
+                "assistants": 1,
+                "assistant_models": [],
+                "rate_limit_events": 0,
+                "result_subtype": "success",
+                "truncated_tail": False,
+                "bad_lines": 0,
+            },
+        },
+    )
+
+
+# Case 20's frames: the recorded stream's decoded values, but for the redactions
+# its provenance lists.
+RECORDED_ORG_BLOCK_SID = "6b04683d-23dd-4b9e-9276-e78579780cea"
+RECORDED_ZERO_USAGE = {
+    "input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 0,
+    "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0},
+    "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0},
+}
+RECORDED_ORG_BLOCK_ROWS = [
+    {"type": "system", "subtype": "commands_changed", "commands": [],
+     "uuid": "30331248-dcce-4f6e-ad34-073dd6715fa6", "session_id": RECORDED_ORG_BLOCK_SID},
+    {"type": "system", "subtype": "init",
+     "cwd": "/Users/maxghenis/subfleet-v2/.claude/worktrees/[job worktree]",
+     "session_id": RECORDED_ORG_BLOCK_SID, "tools": [], "mcp_servers": [],
+     "model": "claude-opus-5-5", "permissionMode": "plan", "slash_commands": [],
+     "apiKeySource": "none", "claude_code_version": "2.1.284", "output_style": "default",
+     "agents": [], "skills": [], "plugins": [], "capabilities": [],
+     "analytics_disabled": False, "product_feedback_disabled": True,
+     "uuid": "e592f0f9-da6a-4b49-98ab-b8ac0c598b5f",
+     "messaging_socket_path": "/tmp/cc-socks/34672.sock", "fast_mode_state": "off",
+     "fast_mode_disabled_reason": "sdk_opt_in_required", "per_turn_effort_active": True,
+     "view_mode": "default"},
+    {"type": "assistant",
+     "message": {
+         "diagnostics": None, "id": "8dcc511e-1a22-4468-9274-86db8c5316b6",
+         "container": None, "model": "<synthetic>", "role": "assistant",
+         "stop_details": None, "stop_reason": "stop_sequence", "stop_sequence": "",
+         "type": "message",
+         "usage": {"output_tokens_details": None, **RECORDED_ZERO_USAGE,
+                   "service_tier": None, "inference_geo": None, "iterations": None,
+                   "speed": None},
+         "content": [{"type": "text", "text": TEXT_ORG_BLOCK}],
+         "context_management": None,
+     },
+     "parent_tool_use_id": None, "session_id": RECORDED_ORG_BLOCK_SID,
+     "uuid": "7e687462-0cdb-4b93-b0d9-d3406a12e97f",
+     "timestamp": "2026-09-30T15:45:49.154Z", "error": "oauth_org_not_allowed",
+     "request_id": "req_REDACTED", "is_api_error_message": True,
+     "api_error_code": "oauth_not_allowed_for_organization"},
+    {"type": "result", "subtype": "success", "is_error": True, "duration_ms": 31079,
+     "duration_api_ms": 0, "num_turns": 1, "result": TEXT_ORG_BLOCK,
+     "stop_reason": "stop_sequence", "session_id": RECORDED_ORG_BLOCK_SID,
+     "total_cost_usd": 0,
+     "usage": {"output_tokens_details": {"thinking_tokens": 0}, **RECORDED_ZERO_USAGE,
+               "service_tier": "standard", "inference_geo": "", "iterations": [],
+               "speed": "standard"},
+     "modelUsage": {}, "permission_denials": [], "terminal_reason": "api_error",
+     "fast_mode_state": "off", "fast_mode_disabled_reason": "sdk_opt_in_required",
+     "subagent_stats": {
+         "spawned": 0, "requested": {"background": 0, "foreground": 0, "unset": 0},
+         "started_in_background": 0, "max_depth": 0, "spawned_by_subagents": 0,
+         "completed": 0, "failed": 0, "killed": {"parent": 0, "user": 0, "system": 0},
+         "refused": {"depth_limit": 0, "concurrency_limit": 0, "budget": 0},
+         "by_type": {},
+     },
+     "api_error_status": 403, "api_error_code": "oauth_not_allowed_for_organization",
+     "uuid": "5378f828-b545-4314-8b5c-79fa2b0d05b8", "queued_turn_count": 0,
+     "result_index": 0},
+]
 
 
 if __name__ == "__main__":
