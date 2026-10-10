@@ -1,8 +1,8 @@
-"""C-8.4, C-6.5, C-6.11: a detached job that takes no lease on its folder waits while
-retention retires a tree that folder is in.
+"""C-8.4, C-6.5, C-6.11: detached admission checks retention's source and cwd fences
+and pins the resolved cwd while its job lease lasts.
 
-A read-only detached job takes a reader row that excludes no writer, and a writer that is not in place
-takes one only on the worktree the daemon cuts for it, so reservation checked no
+Before these fences, a read-only detached job took no folder lease; a writer not in place
+took one only on the worktree the daemon cuts for it, so reservation checked no
 fence for either: submitted after retention's selection with its workdir in a
 finished job's tree (the tree itself, a folder in it, or a repository nested in
 it), such a job was reserved while retention held `worktree:<tree>` (probe in the
