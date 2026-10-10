@@ -292,6 +292,30 @@ def test_a_dry_run_leaves_every_part_of_the_instance_as_it_was(world, monkeypatc
     assert world.files() == files
 
 
+def test_a_dry_run_works_on_copies_of_every_container_the_instance_holds(world, monkeypatch):
+    """C-17.4, C-23.28: what the comparison above rests on. While a dry run
+    has the instance, each dict, set and list it holds is a copy with the same
+    contents, and so is each payload, whose reference count a pass changes in
+    place. Afterwards the instance holds the originals again."""
+    busy(world, monkeypatch)
+    running = world.running
+    before, objects = picture(vars(running)), held(running)
+    kept = running._borrow()
+    try:
+        assert picture(vars(running)) == before, "the same contents"
+        containers = [name for name, value in kept.items() if type(value) in (dict, set, list)]
+        assert {"_entries", "_folders", "_dirty", "_flag_retry", "_retry", "_activity_tries",
+                "_stems", "_payloads", "_unlisted_accounts"} <= set(containers)
+        for name in containers:
+            assert vars(running)[name] is not kept[name], name
+        assert kept["_payloads"], "the instance has read the store"
+        for digest, payload in kept["_payloads"].items():
+            assert running._payloads[digest] is not payload
+    finally:
+        running._give_back(kept)
+    assert picture(vars(running)) == before and held(running) == objects
+
+
 @pytest.mark.parametrize("kind", ["hot", "full"])
 def test_a_dry_run_that_fails_gives_the_instance_back(world, monkeypatch, kind):
     """C-17.4, C-23.28: an exception out of the pass is no reason to keep
