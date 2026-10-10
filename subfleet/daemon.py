@@ -108,6 +108,15 @@ def _identity_history(*sources: dict) -> dict[str, list[dict]]:
             for pid, records in _identity_union(*sources).items()}
 
 
+def _local_process_records(evidence: dict) -> dict[int, list[procs.ProcessIdentity]]:
+    """The attempt's own group and provider observations, including history."""
+    providers = {}
+    for value in evidence.get("provider_identities", []):
+        providers.setdefault(str(value["pid"]), []).append(value)
+    return _identity_union(evidence.get("owned_identities", {}),
+                           evidence.get("owned_identity_history", {}), providers)
+
+
 def _recent_census_identities(*sources: dict) -> tuple[dict[str, list[dict]], str | None]:
     """Bound the quarantine's duplicated identity history as well as its roots."""
     recent = []
@@ -6408,21 +6417,18 @@ class Daemon:
 
     @staticmethod
     def _prune_foreign_lineage(evidence: dict, foreign: procs.ForeignOwnership) -> dict:
-        """Remove earlier adoption of a still-owned foreign incarnation."""
+        """Remove foreign census adoption without erasing local ownership.
+
+        PID/start collisions are possible within ps's one-second resolution.
+        Another attempt's history cannot disprove our own recorded authority
+        (C-5.7); only local liveness checks may discharge that writer.
+        """
         result = dict(evidence)
-        for key in ("owned_identities", "owned_identity_history"):
-            if key in result:
-                history = _identity_union(result[key])
-                retained = {str(pid): [dataclasses.asdict(value) for value in values
-                                       if value not in foreign.identities] for pid, values in history.items()}
-                result[key] = {pid: (values[-1] if key == "owned_identities" else values)
-                               for pid, values in retained.items() if values}
-        if "provider_identities" in result:
-            result["provider_identities"] = [value for value in result["provider_identities"]
-                                              if procs.ProcessIdentity(**value) not in foreign.identities]
+        local = {ident for values in _local_process_records(evidence).values() for ident in values}
         if "lineage_roots" in result:
             result["lineage_roots"] = [value for value in result["lineage_roots"]
-                                        if procs.CensusRoot(**value).identity not in foreign.identities]
+                                        if procs.CensusRoot(**value).identity in local
+                                        or procs.CensusRoot(**value).identity not in foreign.identities]
         return result
 
     def _contain(self, a: dict):
@@ -6462,6 +6468,8 @@ class Daemon:
         foreign = self._foreign_ownership(a)
         census = procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
                                    a["attempt_id"], root=str(self.root), recorded=recorded,
+                                   owned_identities=tuple(ident for values in _local_process_records(evidence).values()
+                                                          for ident in values),
                                    launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
                                    child_unrecorded=child_unrecorded,
                                    guardian_identity=procs.ProcessIdentity(**next(iter(guardian.values()))) if guardian else None,
@@ -6585,7 +6593,10 @@ class Daemon:
             return
         roots = tuple(pid for pid, live in ((guardian, guardian_live), (child.get("pid"), child_live)) if live)
         foreign = self._foreign_ownership(a)
-        excluded = foreign.pids(table, protected=roots)
+        previous = _json_object(self.store.get_attempt(a["attempt_id"])["evidence_json"])
+        local = [ident for values in _local_process_records(previous).values() for ident in values]
+        protected = procs.protected_pids(table, local) | set(roots)
+        excluded = foreign.pids(table, protected=protected)
         foreign = procs.ForeignOwnership(
             foreign.identities + tuple(table.census_root(pid).identity for pid in excluded), foreign.groups)
         observed = [dataclasses.asdict(table.census_root(pid))

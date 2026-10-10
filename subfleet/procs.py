@@ -340,6 +340,24 @@ class CensusRoot:
         return ProcessIdentity(self.pid, self.boot_id, self.proc_start)
 
 
+def protected_pids(table: ProcessTable, records: Sequence[ProcessIdentity]) -> set[int]:
+    """Foreign history cannot override a live or ambiguous local observation."""
+    protected = set()
+    for known in records:
+        if not table.live(known.pid):
+            continue
+        started = table.rows[known.pid][3]
+        if started and known.proc_start and started != known.proc_start:
+            continue
+        try:
+            match = boot_identity.matches(known.boot_id, table.boot(), table.legacy_seconds)
+        except InspectionError:
+            match = None
+        if match is not False:
+            protected.add(known.pid)
+    return protected
+
+
 @dataclass(frozen=True)
 class ForeignOwnership:
     """Other attempts' launch/group authority, never inferred from shared cwd."""
@@ -554,6 +572,7 @@ def group_members(pgid: int) -> dict[int, str]:
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
                 attempt_id: str, root: str | None = None, *,
                 recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None,
+                owned_identities: Sequence[ProcessIdentity] = (),
                 launch_boot_id: str | None = None,
                 lineage_boot_ids: Sequence[str] = (),
                 child_unrecorded: bool = False,
@@ -596,10 +615,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
+    local_seen: dict[int, ProcessIdentity] = {}
     if seen is not None:
-        protected = []
-        # Only launch identities protect a nested child from the foreign
-        # ancestor walk; retained census roots may themselves be contaminated.
+        protected = protected_pids(seen, owned_identities)
+        # Launch and locally recorded ownership stop foreign ancestor walks.
+        # Census-only roots may themselves be contaminated and do not do so.
         for pid in (guardian_pid, child_pid):
             values = (recorded or {}).get(pid, ())
             values = [values] if isinstance(values, ProcessIdentity) else values
@@ -608,10 +628,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             for known in values:
                 try:
                     if seen.is_process(pid, known.boot_id, known.proc_start, legacy=True):
-                        protected.append(pid)
+                        protected.add(pid)
                         break
                 except InspectionError:
                     pass
+        local_seen = {pid: seen.census_root(pid).identity for pid in protected}
         excluded = foreign_ownership.pids(seen, protected=protected)
         foreign_seen = {pid: seen.census_root(pid).identity for pid in excluded}
         excluded_identities.update(foreign_seen.values())
@@ -772,7 +793,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 raise InspectionError("missing process start identity")
             # A shared cwd does not make another attempt our writer. Exclude
             # only the same incarnation observed with its different marker.
-            if current == foreign:
+            local = current in owned_identities or current == local_seen.get(pid)
+            if current == foreign and not local:
                 source.discard(pid)
                 return
             group = process_group(pid)
@@ -781,7 +803,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 if confirmed is not None and confirmed != current:
                     retain(confirmed, 0)
                 raise InspectionError("process changed during group inspection")
-            if current == foreign_seen.get(pid) or foreign_ownership.owns(current, group):
+            if not local and (current == foreign_seen.get(pid) or foreign_ownership.owns(current, group)):
                 excluded_identities.add(current)
                 source.discard(pid)
                 return
