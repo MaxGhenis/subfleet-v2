@@ -341,8 +341,8 @@ def format_status(data: dict[str, Any]) -> str:
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
     closures = rows_of(data.get("closures"))
-    # `daemon.status` carries every job the store holds as `jobs` (it is the
-    # capacity view); only the live ones belong under this heading. A turn job
+    # `daemon.status` carries nonterminal jobs and live/quarantined attempts'
+    # jobs; older daemons carry the whole ledger, so filter it here too. A turn job
     # is its conversation's (C-26.12): it is counted on its own line, never as
     # a running job.
     live = [row for row in rows_of(data.get("running") or data.get("jobs"))
@@ -2945,7 +2945,12 @@ def build_parser() -> argparse.ArgumentParser:
     from .gate.cli import configure as configure_gate
     configure_gate(sub.add_parser("gate", help="main/peer agreement for an exact revision"))
 
-    p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs")
+    p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs",
+        description="Show current capacity. Online --json includes only reserved, starting, running, "
+                    "finalizing and quarantined attempts (without evidence_json), nonterminal jobs "
+                    "and those attempts' jobs. Attempt fields: attempt_id, job_id, seq, lane_id, "
+                    "model_requested, state, reserved_at. Use runs / runs show --json for history "
+                    "and full attempt evidence.")
     _add_json(p_status)
     p_status.set_defaults(handler=cmd_status)
 
