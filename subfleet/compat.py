@@ -134,6 +134,7 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("lanes",): ["lanes"],
     ("enroll",): ["lanes", "enroll"],
     ("why",): ["why"],
+    ("usage",): ["usage"],                            # C-18.6: v2 measurement report
     ("daemon",): ["daemon"],
     ("doctor",): ["doctor"],
     ("hook",): ["hook"],
