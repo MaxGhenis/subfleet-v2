@@ -43,11 +43,15 @@ def test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fenc
         assert daemon.conversations._validate_workspace(
             "codex", nested, options, kind="in-place", allow_main=False) == nested
         seen = {"moves": []}
+        prepared = []
+        prepare = daemon._workspace
+        patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         begin, quarantine = rarch.Retirement.begin, rarch.Retirement.quarantine
 
         def admit_and_record():
             turn = seen["turn"]
             daemon._admit_turns()
+            assert turn not in prepared, "cwd fence must prevent workspace preparation"
             seen["reserved_under_fence"] = _live(daemon, turn)
             seen["rows_in_tree"] = folders.turn_holds(daemon.store.query, tree, inside=True)
             seen["hold"] = daemon._holds.get(turn)
