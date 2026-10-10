@@ -228,6 +228,53 @@ def test_window_expiring_mid_pass_does_not_let_newer_job_pass_older(state_daemon
     assert [row["job_id"] for row in placed(service)] == [first, older, newer]
 
 
+def test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart(state_daemon, monkeypatch):
+    """A detached gate review consumes the same window as dispatch work."""
+    service, harness = state_daemon
+    clock = fake_clock(monkeypatch)
+    enable(service, monkeypatch, per_minute=1)
+
+    def review(gate_id):
+        return submit(service, harness, kind="gate-review", isolated_review=True,
+                      review_root=str(harness.workdir), round_lease=f"gate:{gate_id}:round:1")
+
+    first = review("ramp-first")
+    service._admit()
+    assert [row["job_id"] for row in placed(service)] == [first]
+    assert service.store.get_job(first)["kind"] == "gate-review"
+    assert service._ramp.snapshot["used"] == 1
+    finish(service, placed(service)[0], stamp(1))
+    clock[0] = 1
+    waiting_review = review("ramp-second")
+    waiting_dispatch = submit(service, harness)
+    service._admit()
+    assert len(placed(service)) == 1
+    assert service._holds[waiting_review]["reason"] == "ramp"
+    assert service._holds[waiting_dispatch]["reason"] == "ramp"
+    assert waiting_review not in service._capacity_waits
+    assert service.store.one("SELECT 1 FROM leases WHERE lease_key='gate:ramp-second:round:1'") is None
+    (service.root / "policy.json").write_text(json.dumps(service.policy))
+    service.close()
+    clock[0] = 2
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        monkeypatch.setattr(restarted, "_workspace", lambda job: (job["workdir"], None, None, []))
+        assert restarted.dispatch("daemon.status", {})["ramp"]["used"] == 1
+        restarted._admit()
+        assert len(placed(restarted)) == 1
+        assert restarted._holds[waiting_review]["next_slot_at"] == stamp(60)
+        clock[0] = 60
+        restarted._admit()
+        assert [row["job_id"] for row in placed(restarted)] == [first, waiting_review]
+        assert restarted._holds[waiting_dispatch]["reason"] == "ramp"
+        assert restarted._ramp.snapshot["used"] == 1
+        clock[0] = 120
+        restarted._admit()
+        assert [row["job_id"] for row in placed(restarted)] == [first, waiting_review, waiting_dispatch]
+    finally:
+        restarted.close()
+
+
 def test_real_restart_counts_completed_attempt_and_retry_until_each_expires(state_daemon, monkeypatch):
     """R5: two persisted starts leave zero slots at t=2, one at t=60."""
     service, harness = state_daemon

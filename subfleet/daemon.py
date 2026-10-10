@@ -3052,13 +3052,14 @@ class Daemon:
         return self._disk.status(self._disk_rows() if self._disk.snapshot["enabled"] else (), utcnow())
 
     def _ramp_rows(self, since: str) -> list[dict]:
-        # Finished and failed attempts still used a start. One small projection
-        # per enabled detached pass; turns and probes never enter this census.
+        # Every detached kind counts, including gate reviews and native-session
+        # continuations. One small projection per enabled detached pass; turns
+        # and probes never enter this census, including after attempts finish.
         return self.store.query(
             "SELECT a.attempt_id,a.job_id,a.reserved_at,j.kind FROM attempts a JOIN jobs j USING(job_id) "
             # Read the whole cutoff second; PlacementRamp applies the exact
             # boundary, including fractional timestamps before the trailing Z.
-            "WHERE j.kind='dispatch' AND a.reserved_at>=?", (since[:19],))
+            "WHERE j.kind NOT IN ('turn','probe') AND a.reserved_at>=?", (since[:19],))
 
     def _begin_ramp_pass(self) -> dict:
         """One census at startup or an enabled detached pass; none when off."""
@@ -5042,7 +5043,7 @@ class Daemon:
                 # (review of PR #72); one whose clock runs still reports `workspace`
                 # (C-6.11).
                 busy = self._disk_hold(klass) or scheduler.machine_hold(self.policy, reading, klass)
-                if not busy and job["kind"] == "dispatch" and ramp_config["enabled"]:
+                if not busy and job["kind"] != "turn" and ramp_config["enabled"]:
                     # Once full, ordinary placements stop for this whole pass.
                     # Otherwise an expiry between two jobs could let the later
                     # one pass the earlier job we just held (C-6.18's FIFO).
@@ -5653,7 +5654,7 @@ class Daemon:
                 continue
             if job["kind"] != "turn":
                 self._disk.reserve(aid, reserved_at)
-            if job["kind"] == "dispatch" and ramp_config["enabled"]:
+            if job["kind"] != "turn" and ramp_config["enabled"]:
                 # Only after the reservation transaction commits: failed lease
                 # and route checks consume no start, successes pace this pass.
                 self._ramp.reserve(aid, reserved_at)

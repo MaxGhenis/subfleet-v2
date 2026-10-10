@@ -155,3 +155,24 @@ def test_enabling_ramp_after_archive_selection_is_rechecked_inside_delete(state_
     assert service.store.get_job("late-policy") is not None
     assert service.store.get_attempt("late-policy/a1") is not None
     assert (harness.root / "jobs" / "late-policy").is_dir()
+
+
+@pytest.mark.parametrize("kind", ["dispatch", "resume", "revive", "gate-review", "handoff"])
+def test_every_detached_kind_enters_census_and_stays_retention_pinned(
+        state_daemon, monkeypatch, kind):
+    service, harness = state_daemon
+    clock = clock_at(monkeypatch, 59)
+    enable(service)
+    seed_completed(service, harness, "detached-start", kind=kind)
+    seed_completed(service, harness, "attended-start", kind="turn")
+    seed_completed(service, harness, "synthetic-probe", kind="probe")
+    monkeypatch.setattr(service.conversations, "retention_pins", lambda: set())
+
+    assert [row["job_id"] for row in service._ramp_rows(stamp(-1))] == ["detached-start"]
+    service._begin_ramp_pass()
+    assert service._ramp.snapshot["used"] == 1
+    assert service._retention_pins() == {"detached-start"}
+    clock[0] = 60
+    service._begin_ramp_pass()
+    assert service._ramp.snapshot["used"] == 0
+    assert service._retention_pins() == set()

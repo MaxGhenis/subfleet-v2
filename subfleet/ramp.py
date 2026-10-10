@@ -13,7 +13,7 @@ from .policy import ramp_settings
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _US = 1_000_000
-_EXEMPT = frozenset({"attended", "turn", "probe", "revive"})
+_EXEMPT = frozenset({"attended", "turn", "probe"})
 
 
 def _tick(stamp: str) -> int:
@@ -43,7 +43,7 @@ class PlacementRamp:
         self.snapshot: dict[str, Any] = self._snapshot(0)
 
     def begin_pass(self, policy: Mapping[str, Any], attempts: Iterable[Mapping[str, Any]], now: str) -> None:
-        """Reconstruct all dispatch starts, including ended and retry attempts.
+        """Reconstruct all detached starts, including ended and retry attempts.
 
         An absent or disabled rule never consumes the attempt iterable or
         parses its clock. Attended admission therefore needs no ledger read.
@@ -57,7 +57,7 @@ class PlacementRamp:
         cutoff = clock - self.settings["window_s"] * _US
         reservations = {}
         for row in attempts:
-            if row.get("kind") != "dispatch":
+            if row.get("kind") in ("turn", "probe"):
                 continue
             when = _tick(row["reserved_at"])
             if when > cutoff:

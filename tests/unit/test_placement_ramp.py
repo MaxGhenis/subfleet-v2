@@ -69,7 +69,7 @@ def test_fractional_quota_uses_the_literal_preplacement_comparison():
 def test_restart_reconstructs_completed_retries_and_ignores_other_kinds():
     rows = [attempt("old", -60), attempt("completed", -20, state="done", finished_at=stamp(-19)),
             attempt("retry", -10, state="failed", finished_at=stamp(-9)),
-            *[attempt(kind, -5, kind=kind) for kind in ("turn", "probe", "revive")]]
+            *[attempt(kind, -5, kind=kind) for kind in ("turn", "probe")]]
     gate = PlacementRamp()
     gate.begin_pass(policy(3), rows, stamp())
     assert gate.snapshot["used"] == 2
@@ -83,13 +83,13 @@ def test_attended_and_probes_never_read_clock_or_consume_slots():
     gate.begin_pass(policy(1), [], stamp())
     place(gate, "first")
     before = dict(gate.snapshot)
-    for klass in ("attended", "turn", "probe", "revive"):
+    for klass in ("attended", "turn", "probe"):
         assert gate.hold(klass, "clock must not be read") is None
         gate.reserve(klass, "clock must not be read", klass)
         assert gate.snapshot == before
     gate.begin_pass(policy(1), [attempt("first"), *[
         {"attempt_id": kind, "reserved_at": "clock must not be read", "kind": kind}
-        for kind in ("turn", "probe", "revive")]], stamp())
+        for kind in ("turn", "probe")]], stamp())
     assert gate.snapshot["used"] == 1
 
 
@@ -344,3 +344,17 @@ def test_R5_restart_grants_only_the_remaining_allowance(per_minute, prior, resta
         placed += 1
         assert placed <= per_minute
     assert placed == per_minute - prior                                 # R5
+
+
+@pytest.mark.parametrize("kind", ["dispatch", "resume", "revive", "gate-review", "handoff"])
+def test_every_detached_kind_counts_after_restart_and_at_commit(kind):
+    gate = PlacementRamp()
+    gate.begin_pass(policy(1), [attempt("completed", kind=kind, state="failed", finished_at=stamp(1))], stamp(59))
+    assert gate.snapshot["used"] == 1
+    assert gate.hold("session", stamp(59))["next_slot_at"] == stamp(60)
+
+    gate.begin_pass(policy(1), [], stamp(60))
+    assert gate.hold(kind, stamp(60)) is None
+    gate.reserve("new-start", stamp(60), kind)
+    assert gate.snapshot["used"] == 1
+    assert gate.hold("background", stamp(60))["next_slot_at"] == stamp(120)
