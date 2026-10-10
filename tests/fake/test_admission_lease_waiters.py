@@ -10,7 +10,7 @@ for an output path did the same to a later detached job. With no cap each later 
 was placed at once.
 
 These run the daemon's own admission, in-process, on the fake providers. The pure
-pass model's properties are in `tests/unit/test_admission_lease_waiters.py`; the
+pass model's properties are in `tests/unit/test_lease_waiter_selection.py`; the
 last test here checks the daemon against that model.
 """
 
