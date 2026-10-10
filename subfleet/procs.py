@@ -358,8 +358,7 @@ class ForeignOwnership:
             try:
                 if (table.is_process(known.pid, known.boot_id, known.proc_start, legacy=True)
                     and table.rows[known.pid][1] == known.pgid) or (
-                    not table.live(known.pgid) and known.boot_id and
-                    boot_identity.matches(known.boot_id, table.boot(), table.legacy_seconds) is True
+                    any(table.rows[pid][1] == known.pgid for pid in roots)
                 ):
                     roots.update(table.group(known.pgid))
             except InspectionError:
@@ -378,8 +377,16 @@ class ForeignOwnership:
             if group != known.pgid or known.pid != known.pgid or current.boot_id != known.boot_id:
                 continue
             leader = identity(known.pid)
-            if leader == known.identity or (leader is None and not _stat(known.pid)):
+            if leader == known.identity:
                 return True
+            # An absent leader alone cannot prove foreign ownership: its old
+            # group may have emptied and been reused on this same boot. A
+            # still-identical recorded member must anchor a leaderless group.
+            for member in self.identities:
+                if member.boot_id != current.boot_id:
+                    continue
+                if identity(member.pid) == member and process_group(member.pid) == group and identity(member.pid) == member:
+                    return True
         return False
 
 
@@ -485,6 +492,10 @@ class Containment:
     # The caller must confirm its leader and each member before recording them
     # as signal authority. Retained groups never populate this mapping.
     group_identities: dict[int, ProcessIdentity] = field(default_factory=dict)
+    # Transient ownership exclusions let the daemon remove old foreign roots,
+    # including group members not yet present in their owner's paced record.
+    # They are deliberately absent from the persisted census representation.
+    excluded_identities: tuple[ProcessIdentity, ...] = ()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -572,6 +583,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     markers: set[int] = set()
     cwds: set[int] = set()
     providers: tuple[ProcessIdentity, ...] = ()
+    excluded_identities: set[ProcessIdentity] = set()
     errors: list[str] = []
     try:
         seen: ProcessTable | None = snapshot()
@@ -602,6 +614,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     pass
         excluded = foreign_ownership.pids(seen, protected=protected)
         foreign_seen = {pid: seen.census_root(pid).identity for pid in excluded}
+        excluded_identities.update(foreign_seen.values())
         def rebooted(known: str | None) -> bool:
             # Only distinct kernel boot-session UUIDs prove every old writer
             # dead. Legacy wall-clock seconds and malformed IDs cannot do so.
@@ -769,6 +782,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     retain(confirmed, 0)
                 raise InspectionError("process changed during group inspection")
             if current == foreign_seen.get(pid) or foreign_ownership.owns(current, group):
+                excluded_identities.add(current)
                 source.discard(pid)
                 return
             retain(current, group)
@@ -855,7 +869,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                      for group in sorted(groups_seen)) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
-                       frozenset(cwds), captured, providers, group_identities)
+                       frozenset(cwds), captured, providers, group_identities, tuple(excluded_identities))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

@@ -150,3 +150,22 @@ def test_foreign_exclusion_keeps_owned_writers_and_never_signals_parent(state_da
     assert all(pid in {200, 201} for _, pid in signals)
     assert daemon._contain(child).live_pids == {200, 201}
     assert_disjoint(daemon)
+
+
+def test_previous_adoption_of_a_late_parent_group_member_is_removed(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    parent, _ = running(daemon, harness, 100, 101)
+    rows = {100: (1, 100, "Ss", "p100"), 101: (100, 100, "S", "p101")}
+    script_table(monkeypatch, rows)
+    daemon._record_owned(parent, procs.snapshot())
+    child, _ = running(daemon, harness, 200, 201, parent_job_id=parent["job_id"])
+    rows.update({102: (101, 100, "S", "late-waiter"),
+                 200: (101, 200, "Ss", "p200"), 201: (200, 200, "S", "p201")})
+    # The parent has not had another paced inspection since the waiter forked.
+    daemon.store.update_attempt(child["attempt_id"], evidence_json=json.dumps({
+        "lineage_roots": [{"pid": 102, "boot_id": BOOT, "proc_start": "late-waiter", "pgid": 100}],
+    }))
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({102}))
+    assert daemon._contain(child).live_pids == {200, 201}
+    evidence = json.loads(daemon.store.get_attempt(child["attempt_id"])["evidence_json"])
+    assert {r["pid"] for r in evidence["lineage_roots"]} == {200, 201}

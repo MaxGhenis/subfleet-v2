@@ -960,7 +960,7 @@ def test_late_group_read_is_a_kernel_lookup(monkeypatch):
     ("foreign", BOOT_NEW, set()),
     ("foreign", "unknown", set()),
 ])
-def test_foreign_group_exclusion_requires_launch_identity_or_boot_proof(start, boot, expected):
+def test_foreign_group_exclusion_requires_launch_identity_and_boot_proof(start, boot, expected):
     foreign = procs.ForeignOwnership(
         groups=(procs.CensusRoot(100, BOOT_OLD, "foreign", 100),))
     table = procs.ProcessTable({100: (1, 100, "Ss", start), 101: (100, 100, "S", "member")}, boot)
@@ -968,12 +968,31 @@ def test_foreign_group_exclusion_requires_launch_identity_or_boot_proof(start, b
 
 
 def test_foreign_leaderless_group_stops_at_an_owned_child_launch():
-    foreign = procs.ForeignOwnership(groups=(procs.CensusRoot(100, BOOT_OLD, "foreign", 100),))
+    foreign = procs.ForeignOwnership(identities=(procs.ProcessIdentity(101, BOOT_OLD, "waiter"),),
+                                     groups=(procs.CensusRoot(100, BOOT_OLD, "foreign", 100),))
     table = procs.ProcessTable({101: (1, 100, "S", "waiter"),
                                200: (101, 200, "Ss", "child-guardian"),
                                201: (200, 200, "S", "child-provider")}, BOOT_OLD)
     assert foreign.pids(table, protected=(200,)) == {101}
     assert foreign.pids(table) == {101, 200, 201}
+
+
+def test_reused_leaderless_foreign_group_cannot_discharge_an_owned_writer(monkeypatch):
+    foreign = procs.ForeignOwnership(groups=(procs.CensusRoot(100, BOOT_OLD, "foreign", 100),))
+    writer = procs.ProcessIdentity(202, BOOT_OLD, "owned-writer")
+    # The old foreign group emptied; a later group with the same number now
+    # holds our escaped writer, and its new leader has also exited.
+    table = procs.ProcessTable({202: (1, 100, "S", writer.proc_start)}, BOOT_OLD)
+    assert not foreign.pids(table)
+    monkeypatch.setattr(procs, "snapshot", lambda: table)
+    monkeypatch.setattr(procs, "identity", table.identity)
+    monkeypatch.setattr(procs, "process_group", lambda pid: table.rows[pid][1])
+    monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {202})
+    census = procs.containment(200, 200, 201, "child/a1", recorded={202: writer},
+                               workdir="/workdir", foreign_ownership=foreign)
+    assert census.live_pids == {202}
+    assert not census.verified_empty
 
 
 @pytest.mark.parametrize("incarnation,expected", [("foreign", True), ("writer", False)])

@@ -6409,6 +6409,7 @@ class Daemon:
                                                        for value in roots),
                                    lineage_overflow_boot=evidence.get("lineage_overflow_boot", legacy_lineage.get("lineage_overflow_boot")),
                                    foreign_ownership=foreign)
+        foreign = procs.ForeignOwnership(foreign.identities + census.excluded_identities, foreign.groups)
         # Every full census (kill and finalization included) retains observations
         # before parent death can erase them. These never become signal targets.
         # A quarantine recheck records the same census in still_live/release;
@@ -6524,6 +6525,8 @@ class Daemon:
         roots = tuple(pid for pid, live in ((guardian, guardian_live), (child.get("pid"), child_live)) if live)
         foreign = self._foreign_ownership(a)
         excluded = foreign.pids(table, protected=roots)
+        foreign = procs.ForeignOwnership(
+            foreign.identities + tuple(table.census_root(pid).identity for pid in excluded), foreign.groups)
         observed = [dataclasses.asdict(table.census_root(pid))
                     for pid in sorted(table.descendants(roots, excluded=excluded))]
         def verified_identity(pid):
