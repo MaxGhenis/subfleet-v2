@@ -247,7 +247,7 @@ Attended passes read neither disk nor ruling files, and probes remain exempt.
 
 | Invariant | Test |
 | --- | --- |
-| **F1 agent parity** | `test_F1_agent_differential`: independent small oracle translated from the three agent methods; generated files, mtimes, clock, policy floor, margin, lower limits and fake disk; 400 examples |
+| **F1 agent parity** | `test_F1_agent_differential` and `test_F1_both_live_rulings_differential`: independent small oracle translated from the three agent methods; generated files, mtimes, clock, policy floor, margin, lower limits and fake disk; 400 examples each, including guaranteed live pairs |
 | **F2 invalid files** | `test_F2_invalid_and_unreadable_never_change_policy`: generated bad bytes, bad shapes and read failures; 400 examples; real FIFO/symlink/directory/oversize rejection also runs through a pass |
 | **F3 lower limit/lifetime** | `test_F3_lower_bound_and_lifetime`: generated floor, minimum, duration, mtime and clock; 400 examples |
 | **F4 pacing I1–I5** | `test_invariants_over_generated_sequences[timed-floor-*]`: independent agent floor substituted into all five original generated sequence invariants, with timed lower/raise actions, expiry, restarts, reservations, ends and disk changes; 120 examples per invariant; original policy-only variants rerun too |

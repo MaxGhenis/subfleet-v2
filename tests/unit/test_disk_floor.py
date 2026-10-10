@@ -129,6 +129,24 @@ def test_F1_agent_differential(lower, raised, now, base, margin, minimum, hours,
 
 
 @PROPERTIES
+@given(now=st.integers(-100000, 200000), base=st.integers(0, 200),
+       lower=st.integers(20, 100), raised=st.integers(0, 200),
+       margin=st.integers(0, 12), release=st.integers(0, 12), ttl=st.integers(1, 14 * 3600))
+def test_F1_both_live_rulings_differential(now, base, lower, raised, margin, release, ttl):
+    # Guarantee live pairs as well as the malformed/expired inputs above;
+    # generated policy floors expose the agent's raw-raise precedence.
+    cfg = policy(floor_gb=base, resume_margin_gb=margin)
+    files = Files(file(lowering(lower, now + ttl, release_margin_gb=release), now - 3600),
+                  file({"floor_gb": raised, "until": stamp(now + ttl)}, now))
+    floor, expected_margin, source, reasons = agent_rule(disk_settings(cfg), files, now)
+    gate = DiskAdmission("/fake/state", read_free=lambda path: 100 * GB, read_ruling=files)
+    gate.begin_pass(cfg, [], stamp(now))
+    assert gate.snapshot["floor_gb"] == floor and gate.snapshot["resume_margin_gb"] == expected_margin
+    assert gate.snapshot["floor_source"].startswith("raised" if source == "override" else "lowered")
+    assert not reasons
+
+
+@PROPERTIES
 @given(bad=st.one_of(st.just(OSError("denied")), st.binary(max_size=40).map(lambda b: b"\x00" + b),
                     st.sampled_from([[], None, {}, {"floor_gb": "bad", "until": stamp(50)}]).map(file)),
        name=st.sampled_from([LOWER, RAISE]), base=st.integers(0, 100), now=st.integers(0, 1000))
