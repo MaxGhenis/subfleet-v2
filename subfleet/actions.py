@@ -146,19 +146,58 @@ def _moment(value: Any) -> datetime | None:
         return None
 
 
-def lane_hold(row: Mapping[str, Any], *, now: str | datetime) -> str | None:
+def store_holds(store, *, now: str | datetime) -> dict[str, str]:
+    """C-23.16 (e): lane id -> the operator or auth hold in force on it at `now`, read from the store.
+
+    An open `operator-hold` or `auth-dead` closure of any scope, and an
+    operator hold's own `lane.held` and `lane.released` events:
+    `Store.put_closure` keeps one open closure per lane and scope, so a hold
+    that ends before an open provider limit on the account scope leaves no
+    `operator-hold` row, though it is in force (as `Timers._card_lanes` reads
+    it). Releasing such a hold changes no row and so writes no `lane.released`
+    event; the hold then lasts until its own end, which errs toward spending
+    nothing.
+    """
+    stamp = _iso(_time(now))
+    found = {row["lane_id"]: row["reason"] for row in store.query(
+        "SELECT lane_id,reason FROM closures WHERE reason IN ('auth-dead','operator-hold') "
+        "AND released_at IS NULL AND until_at>? ORDER BY closure_id", (stamp,))}
+    until: dict[str, str] = {}
+    for row in store.query("SELECT lane_id,kind,data_json FROM events WHERE kind IN ('lane.held','lane.released') "
+                           "ORDER BY event_id"):
+        if not row["lane_id"]:
+            continue
+        if row["kind"] == "lane.released":
+            until.pop(row["lane_id"], None)
+            continue
+        try:
+            value = json.loads(row["data_json"] or "{}").get("until")
+        except ValueError:
+            continue
+        if isinstance(value, str) and value > until.get(row["lane_id"], ""):
+            until[row["lane_id"]] = value
+    for lane_id, value in until.items():
+        if (moment := _moment(value)) is not None and moment > _time(stamp):
+            found.setdefault(lane_id, "operator-hold")
+    return found
+
+
+def lane_hold(row: Mapping[str, Any], *, now: str | datetime, held: Mapping[str, str] | None = None) -> str | None:
     """C-23.16 (e): why no credit may go on this lane whatever waits, or None.
 
-    A disabled lane or one another owner holds; an open `operator-hold` or
-    `auth-dead` closure of any scope (2026-09-30: a credit was redeemed on a
-    lane under an operator hold); a latched credential; a credential that
-    holds another account. Read from the lane row as a view has it: its
-    `closures` are the ones active at `now`.
+    A disabled lane or one another owner holds; an `operator-hold` or
+    `auth-dead` hold in force (2026-09-30: a credit was redeemed on a lane under
+    an operator hold), from the row's own active closures of any scope or from
+    `held` (`store_holds`); a latched credential; a credential that holds
+    another account. The row is a lane as a view has it: its `closures` are
+    the ones active at `now`.
     """
     if not row.get("enabled", True):
         return "disabled"
     if row.get("owner", "v2") != "v2":
         return "owner"
+    if held and row.get("lane_id") in held:
+        return held[row["lane_id"]]
     instant = _time(now)
     for item in row.get("closures") or ():
         closure = asdict(item) if is_dataclass(item) else dict(item)
@@ -246,7 +285,8 @@ def demand_verdict(decision: Any) -> dict[str, Any]:
 
 
 def lane_condition(row: Mapping[str, Any], *, now: str | datetime, override: bool = False,
-                   floor: float = HEADROOM_FLOOR, reading_ttl_s: int = READING_TTL_S) -> str:
+                   floor: float = HEADROOM_FLOOR, reading_ttl_s: int = READING_TTL_S,
+                   held: Mapping[str, str] | None = None) -> str:
     """C-23.16 (d): a lane's own state, whatever job asks: capacity, limited or unusable.
 
     Limited only by an account-wide limit closure or, outside a confirmed
@@ -256,7 +296,7 @@ def lane_condition(row: Mapping[str, Any], *, now: str | datetime, override: boo
     shown limited, so all three are capacity.
     """
     if (not row.get("enabled", True) or row.get("owner", "v2") != "v2" or row.get("desktop")
-            or lane_hold(row, now=now) is not None):
+            or lane_hold(row, now=now, held=held) is not None):
         return UNUSABLE
     instant = _time(now)
     closures = [item for item in (asdict(c) if is_dataclass(c) else c for c in row.get("closures") or ())
@@ -463,7 +503,8 @@ class ResetCredits:
                     or action["state"] == "unknown" and action["action_id"] in reconciled)
                 and (moment := _moment(action["updated_at"])) is not None and moment > instant - RESET_WINDOW]
 
-    def reset_lanes_open(self, rows: Iterable[dict], *, now: str | datetime) -> list[str]:
+    def reset_lanes_open(self, rows: Iterable[dict], *, now: str | datetime,
+                         held: Mapping[str, str] | None = None) -> list[str]:
         """C-23.16 (d): lanes reset in the last seven days that still have room.
 
         While one exists no credit is spent, automatic or an operator's,
@@ -475,6 +516,7 @@ class ResetCredits:
         recent = self._recent_resets(instant)
         if not recent:
             return []
+        held = store_holds(self.store, now=instant) if held is None else held
         opened, lanes = [], {}
         context = self.override_context()
         for row in rows:
@@ -482,7 +524,7 @@ class ResetCredits:
                 continue
             override = self.confirmed_override(row["lane_id"], now=instant, context=context) is not None
             if lane_condition(row, now=instant, override=override, floor=self._floor(),
-                              reading_ttl_s=self._ttl()) == CAPACITY:
+                              reading_ttl_s=self._ttl(), held=held) == CAPACITY:
                 opened.append(row["lane_id"])
         return sorted(opened)
 
@@ -498,10 +540,10 @@ class ResetCredits:
                    and fresh_provider(item, now=instant, reading_ttl_s=self._ttl())
                    and item["utilization"] < 1 - self._floor() for item in readings)
 
-    def _eligible(self, rows: list[dict], instant: datetime) -> list[dict]:
+    def _eligible(self, rows: list[dict], instant: datetime, held: Mapping[str, str]) -> list[dict]:
         """C-23.16 (c), (e): no hold on the lane, and its account reports `limit_reached` in a fresh read."""
         context = self.override_context()
-        return sorted([row for row in rows if lane_hold(row, now=instant) is None
+        return sorted([row for row in rows if lane_hold(row, now=instant, held=held) is None
                        and (row.get("probe") or {}).get("limit_reached") is True
                        and (row.get("probe") or {}).get("status") in ("ok", "limited")
                        and self._fresh_usage(row.get("probe") or {}, instant)
@@ -523,11 +565,11 @@ class ResetCredits:
         only once every cheaper gate has passed, so a disabled policy never
         evaluates the queue. A confirmed reset makes its job due at once.
 
-        Automatic (no `target_lane_id`): not while `reset_credits.enabled` is
-        false. Operator (`target_lane_id`, the `reset codex <lane>` verb): the
-        same rule, whatever the switch says, but only that lane is a candidate;
-        if no waiting job could use it, or it is not eligible, nothing is spent
-        and no other lane is tried. Both paths keep every guard: the no-reset
+        Nothing is spent while `reset_credits.enabled` is false. Automatic: no
+        `target_lane_id`. Operator (`target_lane_id`, the `reset codex <lane>`
+        verb): the same rule, but only that lane is a candidate; if no waiting
+        job could use it, or it is not eligible, nothing is spent and no other
+        lane is tried. Both paths keep every guard: the switch, the no-reset
         marker, one unsettled action at a time, the minimum interval, no spend
         while a lane reset in the last seven days still has room (d), no hold on
         the lane (e), a fresh `limit_reached` read of the lane's own account, a
@@ -565,18 +607,20 @@ class ResetCredits:
             hold = self.inhibited()
             if hold:
                 return {**result, "status": "inhibited", "inhibited_by": hold}
-            if not manual and not settings["enabled"]:
+            if not settings["enabled"]:
+                # Off is off, for the timer and an operator's lane alike, as before.
                 return result
             gate = self._gate(self._history(), self._reconciled(), instant, settings)
             if gate:
                 return {**result, "status": gate}
-            opened = self.reset_lanes_open(rows, now=instant)
+            holds = store_holds(self.store, now=instant)
+            opened = self.reset_lanes_open(rows, now=instant, held=holds)
             if opened:
                 return {**result, "status": "reset-lane-open", "reset_lanes": opened}
-            eligible = self._eligible(rows, instant)
+            eligible = self._eligible(rows, instant, holds)
             if manual:
                 target = next((row for row in all_rows if row.get("lane_id") == target_lane_id), None)
-                held = lane_hold(target, now=instant) if target is not None else None
+                held = lane_hold(target, now=instant, held=holds) if target is not None else None
                 if held:
                     return {**result, "status": "lane-held", "lane_id": target_lane_id, "hold": held}
                 eligible = [row for row in eligible if row["lane_id"] == target_lane_id]
@@ -753,13 +797,15 @@ class ResetCredits:
         for the timer, no fresh weekly reading with headroom.
         """
         rows = self._lanes_now(rows, instant)
-        opened = self.reset_lanes_open(rows, now=instant)
+        holds = store_holds(self.store, now=instant)
+        opened = self.reset_lanes_open(rows, now=instant, held=holds)
         if opened:
             return {"status": "reset-lane-open", "reset_lanes": opened}
         row = next((row for row in rows if row["lane_id"] == lane_id), None)
-        if row is None or not self._eligible([row], instant) or (not manual and self._weekly_has_room(row, instant)):
+        if (row is None or not self._eligible([row], instant, holds)
+                or (not manual and self._weekly_has_room(row, instant))):
             return {"status": "lane-changed", "lane_id": lane_id,
-                    **({"hold": held} if row is not None and (held := lane_hold(row, now=instant)) else {})}
+                    **({"hold": held} if row is not None and (held := lane_hold(row, now=instant, held=holds)) else {})}
         return None
 
     def _select(self, candidates: list[dict], rows: list[dict], listed: dict,
