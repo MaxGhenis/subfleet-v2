@@ -1,0 +1,214 @@
+"""C-5.6/C-5.7: overlapping attempt claims hold and never authorize signals."""
+
+import json
+
+import pytest
+from hypothesis import HealthCheck, given, settings, strategies as st
+
+from subfleet import procs, protocol
+from tests.fake.test_quarantine_attempt_isolation import running
+from tests.fake.test_review_pr131_probes import BOOT, NEXT_BOOT, script_table
+from tests.fake.test_state_contract import state_daemon  # noqa: F401
+
+REAL_SAME_PROCESS = procs.same_process
+
+
+def test_own_marker_collision_before_first_record_is_not_hidden(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    other, _ = running(daemon, harness, 100, 101)
+    ours, _ = running(daemon, harness, 200, 201)
+    known = {"pid": 202, "boot_id": BOOT, "proc_start": "p202"}
+    daemon.store.update_attempt(other["attempt_id"], evidence_json=json.dumps({"owned_identity_history": {"202": [known]}}))
+    script_table(monkeypatch, {202: (1, 202, "S", "p202")},
+                 markers=f"202 writer SUBFLEET_ATTEMPT={ours['attempt_id']} SUBFLEET_ROOT={daemon.root}\n")
+    census = daemon._contain(ours)
+    current = procs.ProcessIdentity(**known)
+    assert census.marker_pids == {202}
+    assert current in census.ambiguous_identities
+    assert current not in census.excluded_identities
+    evidence = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+    assert "202" not in evidence.get("owned_identities", {})
+    assert known in evidence["ambiguous_identities"]
+
+
+@pytest.mark.parametrize("launch_kind", ["guardian", "child"])
+def test_group_collision_before_first_record_holds_after_guardian_exit(
+        state_daemon, monkeypatch, launch_kind):
+    daemon, harness = state_daemon
+    if launch_kind == "guardian":
+        running(daemon, harness, 202, 203)
+    else:
+        running(daemon, harness, 100, 202)
+    ours, _ = running(daemon, harness, 200, 201)
+    daemon.store.acquire_lease("native:" + ours["attempt_id"], ours["attempt_id"])
+    rows = {202: (1, 200, "S", "p202")}
+    script_table(monkeypatch, rows, markers="")
+    census = daemon._contain(ours)
+    assert 202 in census.live_pids
+    assert procs.ProcessIdentity(202, BOOT, "p202") in census.ambiguous_identities
+    deliveries = []
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "kill", lambda *args: deliveries.append(args))
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: deliveries.append(args))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(ours)
+    after = daemon.store.get_attempt(ours["attempt_id"])
+    assert after["state"] == "quarantined"
+    assert "202" not in json.loads(after["evidence_json"]).get("owned_identities", {})
+    assert any(row["lease_key"] == "native:" + ours["attempt_id"] for row in daemon.store.list_leases())
+    assert not deliveries
+
+
+def test_probe_cannot_signal_an_identity_with_an_attempt_claim(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    other, _ = running(daemon, harness, 100, 101)
+    ours, _ = running(daemon, harness, 200, 201)
+    known = {"pid": 202, "boot_id": BOOT, "proc_start": "p202"}
+    daemon.store.update_attempt(other["attempt_id"], evidence_json=json.dumps({"owned_identities": {"202": known}}))
+    record = {"holder": "probe:independent", "job_id": ours["job_id"], "lane_id": ours["lane_id"],
+              "directory": str(harness.workdir), "guardian_pid": 500, "pgid": 500,
+              "boot_id": BOOT, "proc_start": "p500", "state": "running",
+              "owned_identities": {"202": known}}
+    script_table(monkeypatch, {202: (1, 202, "S", "p202")}, markers="")
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "kill", lambda *args: pytest.fail("probe signalled an ambiguous identity"))
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: pytest.fail("absent probe guardian authorized a signal"))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    assert not daemon._contain_probe(record)
+    assert record["state"] == "quarantined"
+    assert record["owned_identities"]["202"] == known
+
+
+@pytest.mark.parametrize("table_outage", [False, True])
+def test_foreign_group_proof_blocks_reuse_before_foreign_paced_record(
+        state_daemon, monkeypatch, table_outage):
+    daemon, harness = state_daemon
+    ours, _ = running(daemon, harness, 200, 201)
+    running(daemon, harness, 300, 301)
+    rows = {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201"),
+            202: (201, 200, "S", "p202")}
+    script_table(monkeypatch, rows)
+    daemon._record_owned(ours, procs.snapshot())
+    rows.clear()
+    rows.update({300: (1, 300, "S", "p300"), 301: (300, 300, "S", "p301"),
+                 202: (301, 300, "S", "p202")})
+    if table_outage:
+        def unavailable():
+            raise procs.InspectionError("scripted table outage")
+        monkeypatch.setattr(procs, "snapshot", unavailable)
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "kill", lambda *args: pytest.fail("recycled foreign writer signalled"))
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: pytest.fail("absent local guardian authorized signal"))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(ours)
+    after = daemon.store.get_attempt(ours["attempt_id"])
+    assert after["state"] == "quarantined"
+    assert {"pid": 202, "boot_id": BOOT, "proc_start": "p202"} in json.loads(after["evidence_json"])["ambiguous_identities"]
+
+
+def test_ambiguity_survives_restart_and_removed_foreign_history(state_daemon, monkeypatch):
+    from tests.fake.test_review_pr131_round11 import owned_writer
+
+    daemon, ours, _, rows = owned_writer(state_daemon, monkeypatch)
+    rows.clear()
+    rows[202] = (1, 202, "S", "p202")
+    daemon._quarantine(ours, daemon._contain(ours), "identity ambiguity")
+    other = daemon.store.one("SELECT * FROM attempts WHERE attempt_id<>?", (ours["attempt_id"],))
+    daemon.store.update_attempt(other["attempt_id"], state="succeeded", evidence_json="{}")
+    daemon.close()
+    restored = type(daemon)(daemon.root, term_grace_s=0, kill_settle_s=0)
+    try:
+        monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+        monkeypatch.setattr(procs.os, "kill", lambda *args: pytest.fail("restart restored ambiguous signal authority"))
+        monkeypatch.setattr(procs.os, "killpg", lambda *args: pytest.fail("absent guardian authorized group signal"))
+        held = restored.store.get_attempt(ours["attempt_id"])
+        restored._kill_attempt(held)
+        after = restored.store.get_attempt(ours["attempt_id"])
+        assert after["state"] == "quarantined"
+        assert "202" in json.loads(after["evidence_json"])["owned_identities"]
+        rows.clear()
+        restored._resolve_quarantine(after, protocol.KillArgs(ours["job_id"], confirm_dead=True))
+        assert restored.store.get_attempt(ours["attempt_id"])["state"] != "quarantined"
+        assert not any(row["lease_key"] == "native:" + ours["attempt_id"] for row in restored.store.list_leases())
+    finally:
+        restored.close()
+
+
+@settings(max_examples=800, derandomize=True, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(claims=st.sets(st.integers(200, 205)),
+       source=st.sampled_from(["owned_identities", "owned_identity_history",
+                              "provider_identities", "descendant_identities",
+                              "guardian", "child", "ambiguous_identities"]),
+       foreign_state=st.sampled_from(["running", "finalizing", "quarantined", "succeeded"]),
+       same_start=st.booleans(), same_boot=st.booleans(),
+       guardian_live=st.booleans(), table_outage=st.booleans())
+def test_no_signal_to_an_identity_claimed_by_another_attempt(
+        state_daemon, monkeypatch, claims, source, foreign_state,
+        same_start, same_boot, guardian_live, table_outage):
+    daemon, harness = state_daemon
+    daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
+    attempts = getattr(daemon, "_signal_collision_attempts", None)
+    if attempts is None:
+        ours, _ = running(daemon, harness, 200, 201)
+        other, directory = running(daemon, harness, 100, 101)
+        attempts = daemon._signal_collision_attempts = (ours, other, directory)
+    ours, other, directory = attempts
+    for attempt in (ours, other):
+        daemon.store.update_attempt(attempt["attempt_id"], state="running", evidence_json="{}",
+                                    killed_by=None, quarantine_reason=None)
+    daemon.store.update_attempt(other["attempt_id"], guardian_pid=100, pgid=100,
+                                boot_id=BOOT, proc_start="p100")
+    (directory / "start.json").write_text("{}")
+    rows = {pid: (1 if pid == 200 else 200, 200, "S", f"p{pid}")
+            for pid in range(200, 206)}
+    script_table(monkeypatch, rows, markers="")
+    daemon._record_owned(ours, procs.snapshot())
+    before = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+    records = [{"pid": pid, "boot_id": BOOT if same_boot else NEXT_BOOT,
+                "proc_start": f"p{pid}" if same_start else f"old-p{pid}"}
+               for pid in sorted(claims)]
+    if source in {"guardian", "child"}:
+        records = records[:1]
+        if records:
+            record = records[0]
+            if source == "guardian":
+                daemon.store.update_attempt(other["attempt_id"], guardian_pid=record["pid"],
+                                            pgid=record["pid"], boot_id=record["boot_id"],
+                                            proc_start=record["proc_start"])
+            else:
+                (directory / "start.json").write_text(json.dumps({"child_identity": record}))
+        evidence = {}
+    elif source == "owned_identities":
+        evidence = {source: {str(record["pid"]): record for record in records}}
+    elif source == "owned_identity_history":
+        evidence = {source: {str(record["pid"]): [record] for record in records}}
+    else:
+        evidence = {source: records}
+    daemon.store.update_attempt(other["attempt_id"], state=foreign_state,
+                                evidence_json=json.dumps(evidence))
+    if not guardian_live:
+        rows.pop(200)
+    if table_outage:
+        def unavailable():
+            raise procs.InspectionError("scripted table outage")
+        monkeypatch.setattr(procs, "snapshot", unavailable)
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
+    delivered = []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pgid, sig:
+                        delivered.extend(pid for pid, row in rows.items() if row[1] == pgid))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(ours)
+    # This oracle comes directly from the generated per-attempt claims,
+    # independently of the production ambiguity/exclusion implementation.
+    ambiguous = {record["pid"] for record in records
+                 if record["boot_id"] == BOOT and record["proc_start"] == f"p{record['pid']}"}
+    assert ambiguous.isdisjoint(delivered), (ambiguous, delivered, records)
+    assert set(delivered) <= rows.keys()
+    after = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+    assert all(after["owned_identities"][pid] == value
+               for pid, value in before["owned_identities"].items())
+    if not table_outage:
+        assert set(range(201, 206)) - ambiguous <= set(delivered)

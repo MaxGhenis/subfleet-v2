@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from . import boot_identity, folders
@@ -358,12 +358,52 @@ def protected_pids(table: ProcessTable, records: Sequence[ProcessIdentity]) -> s
     return protected
 
 
+def identities_overlap(left: ProcessIdentity, right: ProcessIdentity) -> bool:
+    """Whether coarse/legacy identities can describe the same incarnation.
+
+    Missing identity components and unavailable legacy boot inspection cannot
+    disprove a collision. This grants containment protection, never authority.
+    """
+    if left.pid != right.pid:
+        return False
+    if left.proc_start and right.proc_start and left.proc_start != right.proc_start:
+        return False
+    if not left.boot_id or not right.boot_id:
+        return True
+    try:
+        return boot_identity.matches(left.boot_id, right.boot_id,
+                                     lambda: boot_identity.boot_seconds(_read)) is not False
+    except InspectionError:
+        return True
+
+
 @dataclass(frozen=True)
 class ForeignOwnership:
     """Other attempts' recorded processes, never inferred from shared cwd."""
     identities: tuple[ProcessIdentity, ...] = ()
     groups: tuple[CensusRoot, ...] = ()
     launches: tuple[ProcessIdentity, ...] = ()
+    # All attempts' claims, including terminal histories, can invalidate signal
+    # authority. Only the active identities/groups above can exclude a process.
+    claims: tuple[ProcessIdentity, ...] = ()
+    collisions: tuple[ProcessIdentity, ...] = ()
+
+    def claimed(self, current: ProcessIdentity) -> bool:
+        return any(identities_overlap(known, current) for known in self.claims + self.identities)
+
+    def ambiguous(self, current: ProcessIdentity) -> bool:
+        return any(identities_overlap(known, current) for known in self.collisions)
+
+    def observes(self, current: ProcessIdentity, *, ambiguous: Sequence[ProcessIdentity] = ()) -> bool:
+        """Fresh foreign group proof, including before its next ownership record."""
+        # A colliding leader cannot authenticate either attempt's whole group.
+        groups = tuple(known for known in self.groups
+                       if not any(identities_overlap(value, known.identity) for value in ambiguous))
+        if not groups or identity(current.pid) != current:
+            return False
+        group = process_group(current.pid)
+        return (group is not None and replace(self, groups=groups).owns(current, group)
+                and identity(current.pid) == current)
 
     def local_descendants(self, table: ProcessTable, roots: Sequence[int], *,
                           group_pids: Sequence[int] = ()) -> frozenset[int]:
@@ -380,7 +420,10 @@ class ForeignOwnership:
                     boundaries.add(known.pid)
             except InspectionError:
                 pass
-        boundaries.difference_update(local)
+        # A stale foreign launch can reuse a member of the authenticated local
+        # group within the same lstart second. Retain that collision; independent
+        # foreign groups still delimit nested dispatches.
+        boundaries.difference_update(local | set(group_pids))
         local.update(set(group_pids) - boundaries)
         return table.descendants(tuple(local), excluded=boundaries)
 
@@ -403,7 +446,7 @@ class ForeignOwnership:
                 pass
         # Stop at this attempt's verified launch identities: a child dispatch
         # can start inside its parent's tree but has its own guardian/group.
-        return table.descendants(tuple(roots), excluded=protected)
+        return table.descendants(tuple(roots), excluded=set(protected) | protected_pids(table, self.collisions))
 
     def owns(self, current: ProcessIdentity, group: int | None = None) -> bool:
         if current in self.identities:
@@ -538,6 +581,8 @@ class Containment:
     # Unlike general census roots, these can exclude a foreign observation;
     # like all detached descendants, they confer no authority to signal.
     descendant_identities: tuple[ProcessIdentity, ...] = ()
+    # Collisions hold leases/quarantine, but are never new signal ownership.
+    ambiguous_identities: tuple[ProcessIdentity, ...] = ()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -545,7 +590,7 @@ class Containment:
 
     @property
     def verified_empty(self) -> bool:
-        return not self.unverifiable and not self.errors and not self.live_pids
+        return not self.unverifiable and not self.errors and not self.live_pids and not self.ambiguous_identities
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -553,6 +598,7 @@ class Containment:
             "lineage_roots": [asdict(value) for value in self.lineage_roots],
             "provider_identities": [asdict(value) for value in self.provider_identities],
             "descendant_identities": [asdict(value) for value in self.descendant_identities],
+            "ambiguous_identities": [asdict(value) for value in self.ambiguous_identities],
             "group_pids": sorted(self.group_pids),
             "descendant_pids": sorted(self.descendant_pids),
             "marker_pids": sorted(self.marker_pids),
@@ -598,6 +644,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 attempt_id: str, root: str | None = None, *,
                 recorded: dict[int, ProcessIdentity | Sequence[ProcessIdentity]] | None = None,
                 owned_identities: Sequence[ProcessIdentity] = (),
+                ambiguous_identities: Sequence[ProcessIdentity] = (),
                 launch_boot_id: str | None = None,
                 lineage_boot_ids: Sequence[str] = (),
                 child_unrecorded: bool = False,
@@ -629,6 +676,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     cwds: set[int] = set()
     providers: tuple[ProcessIdentity, ...] = ()
     excluded_identities: set[ProcessIdentity] = set()
+    ambiguous: set[ProcessIdentity] = set()
     errors: list[str] = []
     try:
         seen: ProcessTable | None = snapshot()
@@ -645,7 +693,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     proven_roots = set()
     genuine_descendants = ()
     if seen is not None:
-        protected = protected_pids(seen, owned_identities)
+        protected = protected_pids(seen, (*owned_identities, *ambiguous_identities))
         for known in owned_identities:
             try:
                 if seen.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
@@ -686,6 +734,26 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         genuine_descendants = foreign_ownership.local_descendants(seen, tuple(proven_roots),
                                                                  group_pids=local_group)
         protected.update(genuine_descendants)
+        launch_boundaries = tuple(known.pid for known in (guardian_identity, child_identity)
+                                  if known is not None and known.pid in proven_roots
+                                  and table[known.pid][1] == pgid)
+        observed_foreign = foreign_ownership.pids(seen, protected=launch_boundaries)
+        # The original group can outlive its guardian before paced recording.
+        # Its observed members also hold on a foreign claim, without becoming
+        # authenticated ownership or overriding a live reused group leader.
+        leaderless_group = set()
+        if pgid and not seen.live(pgid) and launch_boot_id:
+            try:
+                if boot_identity.matches(launch_boot_id, seen.boot(), seen.legacy_seconds) is not False:
+                    leaderless_group.update(seen.group(pgid))
+            except InspectionError:
+                leaderless_group.update(seen.group(pgid))
+        for pid in protected | leaderless_group | protected_pids(seen, foreign_ownership.collisions):
+            current = seen.census_root(pid).identity
+            if (pid in observed_foreign or foreign_ownership.claimed(current) or any(identities_overlap(known, current)
+                                                        for known in ambiguous_identities)):
+                ambiguous.add(current)
+                protected.add(pid)
         local_seen = {pid: seen.census_root(pid).identity for pid in protected}
         excluded = foreign_ownership.pids(seen, protected=protected)
         foreign_seen = {pid: seen.census_root(pid).identity for pid in excluded}
@@ -798,6 +866,18 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         descendants = set(seen.descendants(tuple(roots), excluded=excluded))
     else:
         foreign_seen = {}
+        # An outage cannot turn a known collision into signal authority.
+        ambiguous.update(known for known in owned_identities if foreign_ownership.claimed(known))
+        ambiguous.update(ambiguous_identities)
+        if foreign_ownership.groups:
+            for known in owned_identities:
+                try:
+                    current = identity(known.pid)
+                    if (current is not None and identities_overlap(known, current)
+                            and foreign_ownership.observes(current, ambiguous=tuple(ambiguous))):
+                        ambiguous.add(current)
+                except InspectionError:
+                    pass  # The census outage already holds containment.
     # PID sets describe sources only. Durable observations are keyed by the
     # full identity, since multiple incarnations can appear in one census.
     identities: dict[int, ProcessIdentity] = {}
@@ -818,15 +898,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             current = seen.identity(pid)
             if current is not None:
                 retain(current, row[1])
-                if pid in genuine_descendants:
+                if pid in genuine_descendants and current not in ambiguous:
                     proven_descendants.append(current)
                 if row[1] == pgid:
-                    group_identities[pid] = current
+                    if current not in ambiguous:
+                        group_identities[pid] = current
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
             incomplete_roots.append(seen.census_root(pid))
 
-    def observe_later(pid: int, source: set[int], *, foreign: ProcessIdentity | None = None) -> None:
+    def observe_later(pid: int, source: set[int], *, foreign: ProcessIdentity | None = None,
+                      local_marker: bool = False) -> None:
         source.add(pid)
         current = None
         group = None
@@ -844,6 +926,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             # A shared cwd does not make another attempt our writer. Exclude
             # only the same incarnation observed with its different marker.
             local = current in owned_identities or current == local_seen.get(pid)
+            collision = (any(identities_overlap(known, current) for known in (*ambiguous_identities, *ambiguous))
+                         or foreign_ownership.ambiguous(current)
+                         or ((local or local_marker) and foreign_ownership.claimed(current))
+                         or (local_marker and foreign_ownership.observes(current, ambiguous=(*ambiguous_identities, *ambiguous))))
+            if collision:
+                ambiguous.add(current)
+                excluded_identities.discard(current)
+                local = True
             if current == foreign and not local:
                 source.discard(pid)
                 return
@@ -900,8 +990,16 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     earlier = seen.identity(pid) if seen is not None and pid in table else None
                     current = identity(pid) if earlier is not None or workdir is not None else None
                     if current is not None and current == earlier:
-                        foreign_attempts[pid] = current
-                    elif current is not None and workdir is not None:
+                        if current in owned_identities or current == local_seen.get(pid):
+                            ambiguous.add(current)
+                        else:
+                            foreign_attempts[pid] = current
+                    elif current is not None and earlier is not None:
+                        # Reuse between the table and marker census is ambiguous
+                        # even when a second marker read is stable. It cannot
+                        # discharge the cwd writer or become our ownership.
+                        ambiguous.add(current)
+                    elif current is not None and pid not in table and workdir is not None:
                         # A background waiter can start after the table. Read
                         # its marker again between fresh identities, so excluding
                         # it cannot instead exclude a reused PID's cwd writer.
@@ -913,14 +1011,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                         elif marker.search(command) or (root_marker is not None and root_marker.search(command)
                                                        and not attempt_marker.search(command)):
                             observed_writer = True
-                            observe_later(pid, markers)
+                            observe_later(pid, markers, local_marker=bool(marker.search(command)))
                 except InspectionError:
                     pass
                 continue
             if marker.search(command) or (root_marker is not None and root_marker.search(command)):
                 observed_writer = True
                 pid = int(pid_text)
-                observe_later(pid, markers)
+                observe_later(pid, markers, local_marker=bool(marker.search(command)))
     except (InspectionError, ValueError):
         errors.append("marker enumeration unavailable")
     if workdir is not None:
@@ -939,10 +1037,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     captured = tuple(CensusRoot(ident.pid, ident.boot_id, ident.proc_start, group)
                      for ident, groups_seen in observed_groups.items()
                      for group in sorted(groups_seen)) + tuple(incomplete_roots)
+    providers = tuple(value for value in providers if value not in ambiguous)
+    group_identities = {pid: value for pid, value in group_identities.items() if value not in ambiguous}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
                        frozenset(cwds), captured, providers, group_identities, tuple(excluded_identities),
-                       tuple(proven_descendants))
+                       tuple(value for value in proven_descendants if value not in ambiguous),
+                       tuple(sorted(ambiguous, key=lambda value: (value.pid, value.boot_id, value.proc_start))))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

@@ -53,6 +53,15 @@ def test_finished_run_does_not_adopt_a_waiter_born_during_census(
     daemon._finalize(daemon.store.get_attempt(a["attempt_id"]))
     job = daemon.store.get_job(job_id)
     actual = daemon.store.get_attempt(a["attempt_id"])
+    if earlier == "reused":
+        # A table/marker reuse race is ambiguous. It must hold, without adopting
+        # the waiter as local signal ownership or excluding it as foreign.
+        assert actual["state"] == "quarantined"
+        evidence = json.loads(actual["evidence_json"])
+        assert waiter.__dict__ in evidence["ambiguous_identities"]
+        assert "200" not in evidence.get("owned_identities", {})
+        assert daemon.store.list_leases()
+        return
     assert (job["state"], job["rc"]) == ("succeeded", 0), actual["quarantine_reason"]
     assert actual["state"] == "succeeded"
     assert not json.loads(actual["evidence_json"] or "{}").get("lineage_roots")

@@ -81,8 +81,9 @@ def test_finalization_retains_leases_despite_foreign_history_collision(
     assert leases <= retained
 
 
-def test_kill_signals_local_writer_despite_foreign_history_collision(state_daemon, monkeypatch):
-    daemon, ours, _, rows = owned_writer(state_daemon, monkeypatch)
+@pytest.mark.parametrize("same_start", [True, False])
+def test_kill_holds_colliding_writer_and_signals_only_unambiguous_identity(state_daemon, monkeypatch, same_start):
+    daemon, ours, _, rows = owned_writer(state_daemon, monkeypatch, same_start=same_start)
     rows.pop(200)
     rows.pop(201)
     rows[202] = (1, 200, "S", "p202")
@@ -95,7 +96,7 @@ def test_kill_signals_local_writer_despite_foreign_history_collision(state_daemo
                         sent.append(("pid", known.pid)) or True)
     daemon.term_grace_s = daemon.kill_settle_s = 0
     daemon._kill_attempt(ours)
-    assert ("pid", 202) in sent, sent
+    assert (("pid", 202) in sent) is not same_start, sent
     assert daemon.store.get_attempt(ours["attempt_id"])["state"] == "quarantined"
 
 
@@ -177,7 +178,7 @@ def test_all_36_existing_isolation_cases(state_daemon, monkeypatch, order, sourc
     isolation_property.hypothesis.inner_test(state_daemon, monkeypatch, order, source, detached)
 
 
-@settings(max_examples=120, derandomize=True, deadline=None,
+@settings(max_examples=800, derandomize=True, deadline=None,
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(writers=st.sets(st.integers(202, 207), min_size=1),
        foreign_history=st.lists(st.tuples(
