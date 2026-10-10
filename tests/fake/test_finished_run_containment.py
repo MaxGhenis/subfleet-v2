@@ -18,6 +18,8 @@ def test_finished_run_does_not_adopt_a_waiter_born_during_census(
     daemon, harness = state_daemon
     job_id, a, adir = reserve(daemon, harness)
     a = receipt_fixture(daemon, a, adir)
+    lease = "native:" + a["attempt_id"]
+    daemon.store.acquire_lease(lease, a["attempt_id"])
     now = [0.0]
     monkeypatch.setattr(dm.time, "monotonic", lambda: now[0])
     waiter = procs.ProcessIdentity(200, BOOT, "waiter-start")
@@ -60,8 +62,9 @@ def test_finished_run_does_not_adopt_a_waiter_born_during_census(
         evidence = json.loads(actual["evidence_json"])
         assert waiter.__dict__ in evidence["ambiguous_identities"]
         assert "200" not in evidence.get("owned_identities", {})
-        assert daemon.store.list_leases()
+        assert any(row["lease_key"] == lease for row in daemon.store.list_leases())
         return
     assert (job["state"], job["rc"]) == ("succeeded", 0), actual["quarantine_reason"]
     assert actual["state"] == "succeeded"
+    assert not any(row["lease_key"] == lease for row in daemon.store.list_leases())
     assert not json.loads(actual["evidence_json"] or "{}").get("lineage_roots")
