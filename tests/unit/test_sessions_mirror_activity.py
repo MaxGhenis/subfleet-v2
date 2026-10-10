@@ -598,8 +598,7 @@ def app_saves_every_record(world, number: int) -> None:
 def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, monkeypatch):
     """C-23.28 (review of #167): ten sessions furthest behind whose writes
     always fail took the whole bound every pass, and an eleventh that could be
-    written never was. A session chosen and not published goes behind those
-    that were not."""
+    written never was. A session a sync takes goes to the back of the queue."""
     writable = WRITABLE
     stuck_and_one_writable(world, monkeypatch, mirror.ACTIVITY_SESSIONS_PER_PASS)
     running = engine(world)
@@ -616,8 +615,8 @@ def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, mo
 def test_two_groups_that_cannot_be_published_do_not_take_turns_for_ever(world, monkeypatch):
     """C-23.28 (second review of #167): with a memory of one sync, twenty
     failing sessions alternated in tens and the twenty-first was never chosen.
-    The ledger counts: once each of the twenty has failed once, the one that
-    has not comes first."""
+    First come, first served: all twenty-one started waiting together, so the
+    twenty-first is taken once the twenty furthest behind have had their turn."""
     refused = stuck_and_one_writable(world, monkeypatch, 2 * mirror.ACTIVITY_SESSIONS_PER_PASS)
     running = engine(world)
     chosen = []
@@ -630,9 +629,10 @@ def test_two_groups_that_cannot_be_published_do_not_take_turns_for_ever(world, m
     assert chosen[0] == (names[:10], 10, NEW - 2 * DAY)
     assert chosen[1] == (names[10:], 10, NEW - 2 * DAY)
     assert chosen[2] == (names[:9], 9, NEW - 1), "the writable one, and nine behind it"
-    assert chosen[3] == (names[9:19], 10, NEW - 1), "then those that have failed once"
-    assert WRITABLE not in running._activity_tries, "one that went through leaves the ledger"
-    assert sorted(running._activity_tries.values()) == [1] + [2] * 19
+    assert chosen[3] == (names[9:19], 10, NEW - 1), "then those that have waited longest"
+    since = running._activity_turns.since
+    assert WRITABLE not in since, "one that needs no raise any more stops waiting"
+    assert min(since, key=since.get).startswith(names[19]), "and this one is next"
 
 
 def test_the_hot_pass_keeps_the_same_ledger(world, monkeypatch):
@@ -670,26 +670,107 @@ def test_the_embedded_hot_pass_and_the_full_pass_share_one_ledger(world, monkeyp
     assert running._hot_services == 1 and len(refused) >= 10
     assert running._hot_worker is None and result.state == "ok"
     assert record(world, 1, WRITABLE)["lastActivityAt"] == NEW - 1, \
-        "the full sync put the ten that had just failed behind the one that had not"
+        "the full sync put the ten that had just had a turn behind the one that had not"
     worker = running._fork_hot()
-    assert worker._activity_tries is running._activity_tries
+    assert worker._activity_turns is running._activity_turns
 
 
-def test_a_session_that_no_longer_needs_a_raise_leaves_the_ledger(world, monkeypatch):
-    """C-23.28: the count is of failures since the session last went through.
-    One that the app has since run, or that is gone, starts again from nothing."""
+def test_a_session_held_before_its_decision_keeps_its_count(world, monkeypatch):
+    """C-23.28 (third review of #167, the reviewer's schedule): ten sessions'
+    writes fail in each full pass, because the app saves each copy just before
+    it. Between the full passes a hot pass cannot read those ten copies and
+    holds the ten undecided. Holding them forgot their counts, so each full
+    pass chose the same ten first, and the eleventh was never written."""
+    home, store, _root = world
+    (store / "acct-c" / "org-c").rmdir()
+    stuck = {f"{index:08d}-0000-4000-8000-00000000dead" for index in range(10)}
+    for session in sorted(stuck | {WRITABLE}):
+        fx.transcript(home, session, fx.completed())
+        fx.index_entry(store, *FOLDERS[0], session, last_activity=NEW,
+                       settings={"ultracode": True})
+        fx.index_entry(store, *FOLDERS[1], session, settings={"ultracode": True},
+                       last_activity=NEW - (30 if session in stuck else 2) * DAY)
+    behind = store / "acct-b" / "org-b"
+    install, read = mirror._install, mirror._read_entry
+    saves = itertools.count(1)
+
+    def app_saves_first(temporary, destination, **kwargs):
+        name = destination.stem.removeprefix("local_")
+        if destination.parent == behind and name in stuck and kwargs.get("expect"):
+            rewrite(destination, lastFocusedAt=next(saves))  # a real save, a real refusal
+        return install(temporary, destination, **kwargs)
+
+    def unreadable(where):
+        if where.parent == behind and where.stem.removeprefix("local_") in stuck:
+            raise OSError(24, "Too many open files")
+        return read(where)
+
+    monkeypatch.setattr(mirror, "_install", app_saves_first)
+    running = engine(world)
+
+    def cycle():
+        full = running.run_once(options(running))
+        with monkeypatch.context() as patch:
+            patch.setattr(mirror, "_read_entry", unreadable)
+            hot = running.run_hot(options(running))
+        assert (full.state, hot.state, hot.activity_synced) == ("ok", "ok", 0)
+        return full, hot
+
+    full, hot = cycle()
+    assert (full.activity_synced, full.flags_held, hot.flags_held) == (10, 10, 10)
+    assert sorted(running._activity_turns.since.values()) == [2] + [3] * 10, \
+        "held, not decided: the ten keep their place behind the one still waiting"
+    assert record(world, 1, WRITABLE)["lastActivityAt"] == NEW - 2 * DAY
+    full, _hot = cycle()
+    assert full.flags_held == 9, "the one still waiting came first, nine behind it"
+    assert record(world, 1, WRITABLE)["lastActivityAt"] == NEW - 1
+
+
+def test_an_emptied_store_empties_the_ledger(world, monkeypatch):
+    """C-23.28 (third review of #167): an empty store returns before the flag
+    sync that prunes the queue, and its entries stayed."""
+    import shutil
+    with monkeypatch.context() as patch:
+        stuck_and_one_writable(world, patch, 3)
+        running = engine(world)
+        running.run_once(options(running))
+    assert len(running._activity_turns.since) == 4
+    for account in ("acct-a", "acct-b"):
+        shutil.rmtree(world[1] / account)
+    assert running.run_once(options(running)).sessions == 0
+    assert running._activity_turns.since == {}
+
+
+def test_a_session_that_no_longer_needs_a_raise_stops_waiting(world, monkeypatch):
+    """C-23.28: the queue holds only sessions that are behind. One the app has
+    since run, one that is gone, and one whose raise went through all leave it,
+    and would start from the back if they fell behind again."""
     running = engine(world)
     with monkeypatch.context() as patch:
         stuck_and_one_writable(world, patch, 3)
         running.run_once(options(running))
-    assert len(running._activity_tries) == 3
+    since = running._activity_turns.since
+    assert len(since) == 4
+    third = "00000002-0000-4000-8000-00000000dead"
     rewrite(path(world, 1, "00000000-0000-4000-8000-00000000dead"),
             lastActivityAt=NEW)                             # the app runs one in B
     for index in (0, 1):                                    # one is deleted
         path(world, index, "00000001-0000-4000-8000-00000000dead").unlink()
     running.run_once(options(running))                      # and the third's write goes through
-    assert record(world, 1, "00000002-0000-4000-8000-00000000dead")["lastActivityAt"] == NEW - 1
-    assert running._activity_tries == {}
+    assert record(world, 1, third)["lastActivityAt"] == NEW - 1
+    assert set(since) == {third}, "taken this sync; the others stopped waiting"
+    running.run_once(options(running))
+    assert since == {}
+
+
+def test_a_dry_run_takes_no_ones_turn(world):
+    """C-17.4 and C-23.28: a preview says what a pass would raise and leaves
+    the queue as it was."""
+    place(world, ONE, (NEW, OLD, OLD))
+    running = engine(world)
+    result = running.run_once(options(running, dry_run=True))
+    assert result.activity_synced == 1
+    assert (running._activity_turns.turn, running._activity_turns.since) == (0, {})
 
 
 # --- the switch ------------------------------------------------------------------------
@@ -1000,18 +1081,178 @@ def test_a_project_directory_that_failed_to_list_is_listed_again_next_pass(world
     assert (report["count"], report["live"]) == (1, 1)
 
 
-def test_a_project_directory_the_user_may_not_read_does_not_hold_the_report(world, monkeypatch):
-    """C-23.28: what the user may not read, the app cannot open either. Its
-    sessions are dead to every sidebar, and the inventory is whole without it."""
+def test_a_project_directory_that_may_not_be_listed_holds_the_report_too(world, monkeypatch):
+    """C-23.28 (third review of #167): a transcript is opened by its name, not
+    found by a listing, so a directory the user may not list can still hold
+    transcripts the app opens. Whatever the cause, its contents are unknown."""
     split(world)
     running = engine(world)
     running.run_once(options(running))
+    whole = running.splits()
     running._last_sweep = None
     with monkeypatch.context() as patch:
         listing_fails(patch, world[0] / "projects" / fx.project_slug(), error=13)
         result = running.run_once(options(running))
-    assert result.state == "ok" and running._stems_whole is True
-    assert running.splits()["count"] == 0
+    assert result.state == "ok" and running._stems_whole is False
+    assert running.splits() == whole
+    assert running.run_once(options(running)).sessions == 2, "and nothing was kept as empty"
+
+
+def test_one_entry_that_may_not_be_read_hides_no_other_transcript(world):
+    """C-23.28 (third review of #167, on the real filesystem with nothing
+    patched): one unrelated link in the project directory points into a
+    directory the user may not enter. Looking at it raised, the whole
+    directory's listing was dropped, both conversations looked dead, and the
+    report said no id was split. That one entry is no transcript; the rest are."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    assert whole["live"] == 1
+    home = world[0]
+    hidden = home / "inaccessible"
+    hidden.mkdir()
+    (hidden / "junk-target.jsonl").write_text("not a session")
+    project = home / "projects" / fx.project_slug()
+    (project / "junk.jsonl").symlink_to(hidden / "junk-target.jsonl")
+    hidden.chmod(0)
+    try:
+        with os.scandir(project) as listing:
+            junk = next(item for item in listing if item.name == "junk.jsonl")
+            with pytest.raises(PermissionError):
+                junk.is_file()
+        result = running.run_once(options(running))
+    finally:
+        hidden.chmod(0o700)
+    assert result.state == "ok" and result.sessions == 2 and running._stems_whole is True
+    report = running.splits()
+    assert (report["count"], report["live"]) == (1, 1)
+    assert "junk" not in running._stems
+
+
+@pytest.mark.parametrize("error", [5, 24])
+def test_a_linked_transcript_that_cannot_be_looked_at_just_now_is_unknown(
+        world, monkeypatch, error):
+    """C-23.28 (third review of #167): a transcript that is a link is checked
+    again on every pass. `Path.is_file` answered False for any error, so an
+    I/O error or EMFILE on that check made the conversation look dead with the
+    inventory still called whole."""
+    split(world)
+    home = world[0]
+    link = home / "projects" / fx.project_slug() / f"{FORK}.jsonl"
+    target = home / "fork-target.jsonl"
+    link.rename(target)
+    link.symlink_to(target)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    assert whole["live"] == 1
+    actual = mirror.os.stat
+
+    def failing(where, *args, **kwargs):
+        if os.fspath(where) == str(link):
+            raise OSError(error, os.strerror(error), str(where))
+        return actual(where, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.os, "stat", failing)
+        result = running.run_once(options(running))
+    assert result.state == "ok" and running._stems_whole is False
+    assert running.splits() == whole
+    assert running.run_once(options(running)).sessions == 2
+
+
+@pytest.mark.parametrize("failure", ["the directory's stat", "one entry", "the listing midway"])
+def test_no_failure_while_looking_for_transcripts_reads_as_a_whole_inventory(
+        world, monkeypatch, failure):
+    """C-23.28 (third review of #167): each place the discovery can fail for a
+    cause that may pass. The report stands, and the next pass sees both
+    transcripts again: nothing was kept as an empty listing."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    project = world[0] / "projects" / fx.project_slug()
+    running._last_sweep = None
+    scan, actual = mirror.os.scandir, mirror.os.stat
+
+    class Entry:
+        def __init__(self, item):
+            self.item = item
+
+        def __getattr__(self, name):
+            return getattr(self.item, name)
+
+        def is_file(self, *args, **kwargs):
+            if self.item.name == f"{FORK}.jsonl":
+                raise OSError(5, "Input/output error")
+            return self.item.is_file(*args, **kwargs)
+
+    class Listing:
+        def __init__(self, items):
+            self.items = items
+
+        def __enter__(self):
+            return self.items
+
+        def __exit__(self, *args):
+            return False
+
+    def broken():
+        with scan(project) as listing:
+            items = list(listing)
+        yield items[0]
+        raise OSError(5, "Input/output error")
+
+    def scanning(where="."):
+        if Path(where) == project and failure != "the directory's stat":
+            with scan(where) as listing:
+                items = [Entry(item) for item in listing]
+            return Listing(broken() if failure == "the listing midway" else iter(items))
+        return scan(where)
+
+    def statting(where, *args, **kwargs):
+        if failure == "the directory's stat" and os.fspath(where) == str(project):
+            raise OSError(5, "Input/output error")
+        return actual(where, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.os, "scandir", scanning)
+        patch.setattr(mirror.os, "stat", statting)
+        result = running.run_once(options(running))
+    assert result.state == "ok" and running._stems_whole is False
+    assert running.splits() == whole
+    after = running.run_once(options(running))
+    assert after.sessions == 2 and running._stems_whole is True
+
+
+def test_a_report_whose_record_could_not_be_written_is_written_by_the_next_record(
+        world, monkeypatch):
+    """C-23.28 (third review of #167): the pending report was cleared before
+    the write that carried it, so a sidecar write that failed lost it, and the
+    older report stood until another whole inventory."""
+    split(world, fork_archived=True)
+    running = engine(world)
+    running.run_once(options(running))
+    assert running.splits()["live"] == 0
+    rewrite(path(world, 2, name="local_app.json"), isArchived=False)
+    rewrite(path(world, 0, name=f"local_{FORK}.json"), isArchived=False)
+    rewrite(path(world, 1, name=f"local_{FORK}.json"), isArchived=False)
+    write, failed = mirror._write_json, []
+
+    def failing_once(where, value, **kwargs):
+        if where == running.sidecar_path and (value.get("splits") or {}).get("live") == 1 \
+                and not failed:
+            failed.append(True)
+            raise OSError(24, "Too many open files")
+        return write(where, value, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_write_json", failing_once)
+        result = running.run_once(options(running))
+    assert failed == [True] and result.state == "error"
+    assert running.splits()["live"] == 1, "the pass's closing record carried it"
+    assert running._splits is None
 
 
 def run_cli(argv) -> tuple[int, str, str]:
@@ -1078,6 +1319,24 @@ def test_doctor_warns_while_both_rows_of_a_split_show(world):
     running.run_once(relaxed)                                # the report reads the result
     item = row()
     assert item["status"] == doctor.PASS and "1 split id" in item["detail"]
+
+
+@pytest.mark.parametrize("minutes,status", [(20, "pass"), (29, "pass"), (31, "unknown"),
+                                             (45, "unknown")])
+def test_doctors_patience_with_an_old_report_is_the_mirrors_hang_window(
+        world, minutes, status):
+    """C-17.3 and C-23.28 (third review of #167): thirty minutes, the window
+    after which C-23.28 calls a pass in flight hung. A report older than that
+    was not replaced by any pass that should have."""
+    from subfleet import doctor
+    assert mirror.DEFAULT_HANG_MIN == 30
+    split(world, fork_archived=True)
+    then = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    running = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0), now=lambda: then)
+    running.run_once(mirror.Options(activity_lag_s=0))
+    item = next(item for item in doctor.checks(world[2])
+                if item["check"] == "desktop sidebar split ids")
+    assert item["status"] == status
 
 
 def test_doctor_does_not_vouch_for_a_report_no_recent_pass_could_replace(world):

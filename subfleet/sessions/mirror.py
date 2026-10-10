@@ -277,6 +277,44 @@ def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
             if _instant_ms(value) and newest - value > lag and value < goal < newest}
 
 
+def take_turns(behind: dict[str, Any], since: dict[str, int], turn: int,
+               bound: int) -> list[str]:
+    """Which of the sessions `behind` one flag sync raises, at most `bound`.
+
+    `behind` is `<session> -> how far its stalest copy trails`. First come,
+    first served. `since` says when each started waiting: twice the number of
+    the sync that first saw it behind. A session a sync takes goes to the
+    back, with twice that sync's number plus one, behind every session that
+    was already waiting and before any that arrives later; whether its raise
+    was then published does not matter. Sessions that started waiting
+    together go furthest behind first. `since` is updated in place.
+
+    So a session waits only for those that were waiting before it: with `r`
+    of them, it is taken within `r // bound + 1` syncs that consider it,
+    whatever arrives, fails or succeeds meanwhile. Three rounds of review
+    found a schedule that starved a session under each rule that looked at
+    outcomes (furthest behind first; yield after a failure; count failures).
+    """
+    for identity in behind:
+        since.setdefault(identity, 2 * turn)
+    taken = sorted(behind, key=lambda identity: (since[identity], -behind[identity],
+                                                 identity))[:bound]
+    for identity in taken:
+        since[identity] = 2 * turn + 1
+    return taken
+
+
+class _Turns:
+    """Whose date is raised next: the sync count and `take_turns`' `since`.
+
+    One for the process. The hot pass a full pass runs at its checkpoints
+    shares its parent's, as it shares the journal."""
+
+    def __init__(self) -> None:
+        self.turn = 0
+        self.since: dict[str, int] = {}
+
+
 class _Cancelled(Exception):
     pass
 
@@ -510,6 +548,23 @@ def _remove_leftovers(paths: Iterable[str]) -> None:
                 os.unlink(path)
         except OSError:
             pass
+
+
+def _no_transcript(exc: OSError) -> bool:
+    """The error says there is no transcript here that anyone could open: it
+    is gone, or the app, which runs as the same user and opens the same path,
+    is refused as the mirror is. Anything else may pass, and leaves the entry
+    unknown."""
+    return isinstance(exc, FileNotFoundError) or _permanent(exc)
+
+
+def _regular(path: str | Path) -> bool | None:
+    """Whether `path` is a regular file, following links: None when a failure
+    that may pass (EMFILE, EIO) leaves it unknown."""
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except OSError as exc:
+        return False if _no_transcript(exc) else None
 
 
 def _stat_signature(info: os.stat_result) -> tuple[int, ...]:
@@ -888,13 +943,8 @@ class Mirror:
         #: that pass records it. Never kept: a process that wrote a report it
         #: took earlier could put it over a later one of another process's.
         self._splits: dict[str, Any] | None = None
-        #: `<session> -> the flag syncs that chose its date raise and could not
-        #: publish it`, since it last went through. A sync takes the sessions
-        #: with the fewest first, so those that never publish take turns behind
-        #: the rest instead of holding the bound (second review of #167: with a
-        #: memory of one sync, two groups of ten alternated for ever). One
-        #: ledger for the process: the embedded hot worker shares it.
-        self._activity_tries: dict[str, int] = {}
+        #: The queue for the bound on date raises (`take_turns`).
+        self._activity_turns = _Turns()
         #: The last transcript discovery listed every project directory.
         self._stems_whole = True
 
@@ -1036,7 +1086,7 @@ class Mirror:
         worker._account_orgs = dict(self._account_orgs)
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
-        worker._activity_tries = self._activity_tries      # shared, as the journal is
+        worker._activity_turns = self._activity_turns      # shared, as the journal is
         worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
@@ -1093,12 +1143,15 @@ class Mirror:
         })
         if load_gap is not None:
             value["load_gap"] = load_gap
-        if self._splits is not None:
+        pending = self._splits
+        if pending is not None:
             # Recorded once, by the pass that took the inventory, inside its
             # lock: passes are ordered by that lock, so the latest report is
             # the last one written, whatever any clock says.
-            value["splits"], self._splits = self._splits, None
+            value["splits"] = pending
         _write_json(self.sidecar_path, value)
+        if pending is not None:
+            self._splits = None                 # only once it is on disk
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
         """The hot pass's own block; never the heartbeat C-23.28 judges by."""
@@ -1224,16 +1277,18 @@ class Mirror:
         """
         stems: dict[str, Path] = {}
         base = projects_dir()
-        # `_stems_whole` is False when a listing failed for a cause that may
-        # pass (EMFILE): what it hid is unknown, not absent. What the user may
-        # not read, the app cannot open either (`_permanent`).
+        # `_stems_whole` is False when something here could not be looked at:
+        # what it hid is unknown, not absent. A directory that will not list
+        # is unknown whatever the cause, since a transcript is opened by its
+        # name, not found by a listing. Only one entry that the app could not
+        # open either (`_regular`) is known to be no transcript.
         self._stems_whole = True
         try:
             with os.scandir(base) as listing:
                 directories = sorted(item.path for item in listing
                                      if item.is_dir(follow_symlinks=False))
         except OSError as exc:
-            self._stems_whole = isinstance(exc, FileNotFoundError) or _permanent(exc)
+            self._stems_whole = isinstance(exc, FileNotFoundError)
             return stems
         seen = set()
         for directory in directories:
@@ -1243,37 +1298,57 @@ class Mirror:
             try:
                 mtime = os.stat(directory).st_mtime_ns
             except OSError as exc:
-                if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
+                if not isinstance(exc, FileNotFoundError):
                     self._stems_whole = False
                 continue
             cached = self._stem_dirs.get(directory)
             if sweep or cached is None or cached[0] != mtime:
-                found, links, leftovers = {}, set(), []
+                found, links, leftovers, unsure = {}, set(), [], False
                 try:
                     with os.scandir(directory) as listing:
                         for item in listing:
-                            if item.name.endswith(".jsonl") and item.is_file():
-                                found[item.name[:-6]] = Path(item.path)
-                                if item.is_symlink():
-                                    links.add(item.name[:-6])
+                            if item.name.endswith(".jsonl"):
+                                # One entry at a time: a link whose target may
+                                # not be read made `is_file` raise, and the
+                                # whole directory's transcripts were dropped
+                                # with it (third review of #167).
+                                try:
+                                    regular, link = item.is_file(), item.is_symlink()
+                                except OSError as exc:
+                                    unsure = unsure or not _no_transcript(exc)
+                                    continue
+                                if regular:
+                                    found[item.name[:-6]] = Path(item.path)
+                                    if link:
+                                        links.add(item.name[:-6])
                             elif sweep and item.name.endswith(".tmp-revive"):
                                 leftovers.append(item.path)
                 except OSError as exc:
-                    if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
-                        # Not kept as an empty listing: the directory's mtime
-                        # has not moved, so a kept one would hide its
-                        # transcripts until the next sweep.
+                    # Never kept as an empty listing: the directory's mtime has
+                    # not moved, so a kept one would hide its transcripts until
+                    # the next sweep. The last good listing, if any, stands.
+                    if not isinstance(exc, FileNotFoundError):
                         self._stems_whole = False
-                        self._stem_dirs.pop(directory, None)
-                        continue
-                    found, links = {}, set()
+                    continue
                 _remove_leftovers(leftovers)
-                self._stem_dirs[directory] = (mtime, found, frozenset(links))
+                if unsure:
+                    self._stems_whole = False
+                    self._stem_dirs.pop(directory, None)     # look again next pass
+                else:
+                    self._stem_dirs[directory] = (mtime, found, frozenset(links))
                 stems.update(found)
                 continue
             listed, links = cached[1], cached[2]
-            stems.update(listed if not links else
-                         {stem: path for stem, path in listed.items() if stem not in links or path.is_file()})
+            for stem, path in listed.items():
+                if stem in links:
+                    # `Path.is_file` answers False for any error at all; a link
+                    # that cannot be looked at just now is unknown.
+                    regular = _regular(path)
+                    if regular is None:
+                        self._stems_whole = False
+                    if not regular:
+                        continue
+                stems[stem] = path
         for directory in list(self._stem_dirs):
             if directory not in seen:
                 del self._stem_dirs[directory]
@@ -1767,7 +1842,7 @@ class Mirror:
         moved: the write keeps the later of what the copy holds and what the
         pass decided, and a copy that needs nothing after that is not
         written. A sync raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions,
-        those chosen and not published the fewest times first. A date
+        first come first served (`take_turns`). A date
         more than `ACTIVITY_FUTURE_S` past this pass's clock, or not above
         zero, is no voice: it is not raised and it is never the newest. A
         write that changed only a date does not invalidate the full pass's
@@ -1801,6 +1876,8 @@ class Mirror:
         owners: dict[tuple[Path, str], str] = {}
         lag_ms = options.activity_lag_s * 1000.0 if options.activity_lag_s > 0 else 0.0
         horizon_ms = (self.now().timestamp() + ACTIVITY_FUTURE_S) * 1000.0
+        #: The sessions this sync decided, as against those it held undecided.
+        reached: set[str] = set()
         #: `(how far its stalest copy trails, session, [(folder, name, date)])`.
         lagging: list[tuple[Any, str, list[tuple[Path, str, Any]]]] = []
 
@@ -1917,6 +1994,7 @@ class Mirror:
 
             # The date each row shows. A session archived everywhere is in no
             # sidebar list, so its copies' dates are left as they are.
+            reached.add(identity)
             if lag_ms and not base["isArchived"]:
                 # A date from the future is no voice (`ACTIVITY_FUTURE_S`), nor
                 # is zero or less, which the app takes for no date.
@@ -1938,23 +2016,30 @@ class Mirror:
                 record["tmt"] = stamp
             fresh[identity] = record
 
-        # The dates join the same publish, a bounded number of sessions a pass
-        # (`ACTIVITY_SESSIONS_PER_PASS`): first those chosen and not published
-        # the fewest times, and among them the furthest behind. A session that
-        # needs no raise any more, or is gone, leaves the ledger.
-        tries = self._activity_tries
-        behind = {identity for _behind, identity, _targets in lagging}
-        for identity in [key for key in tries if key not in behind
-                         and (key in groups or complete)]:
-            del tries[identity]
-        lagging.sort(key=lambda item: (tries.get(item[1], 0), -item[0], item[1]))
-        chosen: set[str] = set()
-        for _behind, identity, targets in lagging[:ACTIVITY_SESSIONS_PER_PASS]:
-            for path, name, value in targets:
-                writable(path, name)[ACTIVITY_FIELD] = value
-            chosen.add(identity)
-            current.activity_synced += 1
-        current.activity_waiting += len(lagging[ACTIVITY_SESSIONS_PER_PASS:])
+        # The dates join the same publish, a bounded number of sessions a sync
+        # (`ACTIVITY_SESSIONS_PER_PASS`), first come first served (`take_turns`).
+        turns = self._activity_turns
+        behind = {identity: lag for lag, identity, _targets in lagging}
+        since = turns.since
+        if options.dry_run:
+            since = dict(since)                 # a preview takes no one's turn
+        else:
+            turns.turn += 1
+            # A session that needs no raise any more, or is gone, stops waiting,
+            # and starts again from the back if it falls behind later. Only one
+            # this sync decided: a session held before its decision (a copy
+            # that could not be read) is not known to need none, and dropping
+            # it put it first again (third review of #167).
+            for identity in [key for key in since if key not in behind and (
+                    key in reached or (complete and key not in groups))]:
+                del since[identity]
+        taken = set(take_turns(behind, since, turns.turn, ACTIVITY_SESSIONS_PER_PASS))
+        for _lag, identity, targets in lagging:
+            if identity in taken:
+                for path, name, value in targets:
+                    writable(path, name)[ACTIVITY_FIELD] = value
+                current.activity_synced += 1
+        current.activity_waiting += len(lagging) - len(taken)
 
         if not options.dry_run:
             # Once writes start, finish the matching merge base. Cancellation
@@ -2058,11 +2143,6 @@ class Mirror:
                     fresh.pop(identity, None)
             if retry is not None:
                 retry.update(held)
-            for identity in chosen:
-                if identity in held:
-                    tries[identity] = tries.get(identity, 0) + 1
-                else:
-                    tries.pop(identity, None)
             if fresh != base_all:
                 self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
                 # Synced like the records it describes: a base lost to a crash
@@ -2231,6 +2311,7 @@ class Mirror:
             self._drop_folders(folders)
             self._inventoried = True            # an empty store is a complete inventory
             self._splits = self._split_report({}, set(), {})
+            self._activity_turns.since.clear()  # and no session is left waiting
             return
         sweep = self._sweep_due()
         current.swept = sweep
@@ -2852,7 +2933,7 @@ def run_once(root: str | Path, policy: dict[str, Any] | None = None,
 
 
 __all__ = ["ACTIVITY_FIELD", "ACTIVITY_FUTURE_S", "ACTIVITY_SESSIONS_PER_PASS",
-           "DEFAULT_ACTIVITY_LAG_S", "SAFE_MS",
+           "DEFAULT_ACTIVITY_LAG_S", "SAFE_MS", "take_turns",
            "DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
            "activity_targets", "health", "load_gap", "options_from", "run_once", "slug",
            "splits", "store_dir"]

@@ -116,8 +116,8 @@ also raises `lastActivityAt`:
 - one flag sync raises at most ten sessions, those furthest behind first, and
   counts the rest in `activity_waiting`, so the 750-session backlog drains
   over about 75 passes and no publish is long;
-- a sync takes first the sessions it has chosen and failed to publish the
-  fewest times, and among those the furthest behind.
+- the sessions that are behind are taken first come, first served; those
+  that started waiting together go furthest behind first.
 
 A date is a voice only if it is a number above zero, within JavaScript's safe
 integers, and not more than five minutes past the pass's own clock. Anything
@@ -166,16 +166,23 @@ For one session, with the date in each folder's copy:
 - **A date is not a flag write.** A write that changed only a date changes no
   field a flag decision reads, so it does not make the full pass read the
   flags again. Flags, titles and bases keep the liveness they had.
-- **Fair under the bound.** A ledger counts, for each session, the syncs that
-  chose its raise and could not publish it since it last went through. A
-  sync takes the fewest first. Sessions that never go through therefore take
-  turns behind every session that has failed less, and cannot keep the bound
-  from them. The full pass, the hot pass and the hot pass a full pass runs at
-  its checkpoints share the one ledger.
+- **First come, first served under the bound** (`take_turns`). A session
+  that is behind joins a queue. A sync takes the first ten. A session it
+  takes goes to the back, whether or not its raise was published; one that
+  needs no raise any more leaves; one held before its decision keeps its
+  place. So a session waits only for those that were waiting no later than
+  it: with `r` of them, it is passed over at most `r // 10` times, whatever
+  arrives, fails or succeeds meanwhile. Those that started waiting together
+  go furthest behind first. The full pass, the hot pass and the hot pass a
+  full pass runs at its checkpoints share the one queue. A sync orders only
+  the sessions its pass looked at, which for a hot pass are those that
+  changed; the full pass looks at all of them every minute.
 - **The report is whole or it is the last whole one.** A pass that could not
-  list a folder, read a copy or list a project directory does not replace
-  the split report. A report is written once, by its own pass and inside its
-  lock, so the latest inventory's is the last written.
+  list a folder, read a copy, list a project directory, or look at one of
+  its entries does not replace the split report. One entry the app could not
+  open either is no transcript and hides no other. A report is written once,
+  by its own pass and inside its lock, so the latest inventory's is the last
+  written.
 - **Idempotence.** With every copy within the lag, nothing is decided and
   nothing is written.
 - **No lost update.** The mirror writes only a copy nobody rewrote since its
@@ -183,7 +190,8 @@ For one session, with the date in each folder's copy:
 - **All or nothing.** The date is in the session's batch. A held session
   writes no date. A write that finds its copy rewritten puts back every copy
   the batch wrote, date and flag, except one rewritten since.
-- **Cancellation safety.** A cancelled pass changes no copy.
+- **Cancellation safety.** A pass cancelled before it publishes changes no
+  copy. The publish has no cancellation point.
 - **The merge base is untouched.** It holds no date, and a pass's flag, title
   and base decisions are the same with the sync on or off. Across passes, the
   title rule's tie-break among several changed copies reads this date; the
@@ -208,9 +216,10 @@ copied from is `_rank`'s rule, and it takes the latest date. A record with a
 date from the future can therefore be the one copied into a new login's
 folder, whole. The date sync does not raise any copy toward it.
 
-**Outside the models.** Each model is one session. Fairness across sessions
-under the bound, and the full pass's refresh after an embedded hot pass, are
-tested by example, not explored.
+**Outside the models.** Each model is one session. Which sessions a sync
+takes under the bound is a pure function with its own property test, for any
+schedule. The full pass's refresh after an embedded hot pass is tested by
+example, not explored.
 
 ## Verification
 
@@ -241,7 +250,11 @@ tested by example, not explored.
   date was put back (155), a flag and a date were put back together (133), a
   moved flag held a date (409), a copy the app raised itself was left out
   (241).
-- **61 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`),
+- **The queue** (`mirror.take_turns`): a Hypothesis property over any
+  schedule of sessions falling behind, catching up and being taken. No
+  session is passed over for one that started waiting later, and none is
+  passed over more than `r // bound` times.
+- **75 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`),
   among them the 2026-10-10 store, the put-back of a date with a flag, the
   bound of ten and its fairness, the new folder copied from the record that
   leads, numbers of any size, a date from the future, the reviewer's schedule
@@ -249,22 +262,23 @@ tested by example, not explored.
   inventory, and the status and doctor output. One is a property: any three
   dates around the pass's clock, and the bounds above on the files a pass
   leaves.
-- **Mutation check:** 41 deliberate faults, one at a time, 38 in `mirror.py`
-  and three in `doctor.py` and the CLI (raise to the newest, raise at exactly
+- **Mutation check:** 53 deliberate faults, one at a time, 49 in `mirror.py`
+  and four in `doctor.py` and the CLI (raise to the newest, raise at exactly
   the lag, write over a later date, raise an archived session, rewrite a copy
-  that needs nothing, least behind first, no bound, ignore the switch, take a
-  future date for a voice, count a date as a flag write, take a partial
-  inventory for a report, convert any number to a float, give the hot worker
-  a ledger of its own, and 28 more). On the final code each fails a test.
-  Earlier runs left three alive, and each changed something. The needless
-  rewrite was real; its test now checks that the file is not replaced.
-  Taking zero for a date at the decision changed no file once the write
-  refused it, but chose the session again every pass; its test now checks
-  that a second pass chooses nothing. The third was the decision's last
-  test, `value < goal < newest`. I judged it dead under the safe-integer rule
-  and removed it. The second review showed it is not: for a negative float
-  just above a power of two, one before the newest rounds onto the copy's own
-  date. It is back, with that case as its test.
+  that needs nothing, ignore the switch, take a future date for a voice,
+  count a date as a flag write, take a partial inventory for a report, drop a
+  directory for one unreadable entry, take whoever is furthest behind over
+  whoever was waiting, give the hot worker a queue of its own, and 41 more).
+  On the final code each fails a test. Earlier runs left three alive, and
+  each changed something. The needless rewrite was real; its test now checks
+  that the file is not replaced. Taking zero for a date at the decision
+  changed no file once the write refused it, but chose the session again
+  every pass; its test now checks that a second pass chooses nothing. The
+  third was the decision's last test, `value < goal < newest`. I judged it
+  dead under the safe-integer rule and removed it. The second review showed
+  it is not: for a negative float just above a power of two, one before the
+  newest rounds onto the copy's own date. It is back, with that case as its
+  test.
 - **The existing mirror tests** pass: 12 files unchanged (293 tests), and the
   flag model's file, which gained three tests for the wider batch.
 - **Dry run on the live store** (nothing written): 94.5 s cold, 0 copies to
@@ -343,6 +357,29 @@ partly, and asked for changes again. Each finding was executed.
 Round 2 also reported, as older than this change and not part of it: `_rank`
 raises on a record whose date field is a string, a list or an object, and a
 dry-run hot pass on the same instance clears the flag retries.
+
+Round 3 (at `81fa3ec7e`) confirmed three of round 2's five fixed and two
+partly, and asked for changes a third time.
+
+- **A session held before its decision lost its count.** A hot pass that
+  could not read ten failing sessions' copies dropped them from the ledger,
+  so each full pass took the same ten first. That was the third rule that
+  looked at outcomes, and the third schedule that starved a session. The
+  bound's queue is now first come, first served, as one pure function with a
+  property for any schedule; a session held before its decision keeps its
+  place.
+- **One unreadable entry hid a whole project directory.** A link whose
+  target the user may not read made the listing raise, every transcript
+  beside it was dropped, and the report said no id was split. The reviewer
+  showed it on the real filesystem with nothing patched. Entries are now
+  looked at one at a time. A linked transcript that could not be looked at
+  for a passing cause had read as no transcript, with the inventory still
+  called whole; it is unknown now. A project directory that will not list
+  is unknown whatever the cause, since a transcript is opened by its name.
+- **Notes.** A report whose record failed to write was lost; the next record
+  writes it. An emptied store kept the ledger's entries; it clears them. The
+  cancellation invariant here said less than the contract; it now says
+  "before it publishes".
 
 ## Cost
 
