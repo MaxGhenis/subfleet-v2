@@ -61,11 +61,11 @@ POINTER_CAP = 64 * 1024           # a gitfile, `commondir`, `HEAD`, a loose ref
 #: while bounding configparser's many-section cost to 1/16 of the old cap.
 CONFIG_CAP = 256 * 1024          # `config`, `config.worktree`
 PACKED_REFS_CAP = 64 * 1024 * 1024
-#: Object intake gets one third of C-6.17's default 1.5 GB placement reserve:
+#: Object intake gets two fifths of C-6.17's default 1.5 GB placement reserve:
 #: the quarantine and checkout each keep an object store, leaving the last
-#: third for checkout files. This is a logical-byte cap even on APFS clones;
+#: fifth for checkout files. This is a logical-byte cap even on APFS clones;
 #: changing disk policy does not remove this intake limit.
-OBJECT_COPY_CAP = int(DISK_DEFAULTS["placement_reserve_gb"] * 1_000_000_000 / 3)
+OBJECT_COPY_CAP = int(DISK_DEFAULTS["placement_reserve_gb"] * 1_000_000_000 * 2 / 5)
 #: Review P2-2: names Git or a clone could read as something other than a branch.
 RESERVED_PREFIXES = ("refs/", "heads/", "remotes/")
 SAFE_CONFIG = ("-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
