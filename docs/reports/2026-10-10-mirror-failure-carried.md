@@ -196,14 +196,14 @@ For the three the full pass's record keeps:
 
 ## Verification
 
-`tests/unit/test_sessions_mirror_failure_carried.py`, 13 tests.
+`tests/unit/test_sessions_mirror_failure_carried.py`, 14 tests.
 
 - Example tests: the pass after a failed one, by RuntimeError and by OSError,
   read by `Mirror.health()`, `--status`, `--status --json` and `doctor`'s row
   (2, 7); a run of three failures in three ways between two clean passes,
   between passes and in flight (1, 2, 7); a cancelled pass named as cancelled;
-  a pass whose process died, and one whose end could not be written, counted
-  as unfinished by the next (1); an end written twice (3); hot passes, dry
+  a pass whose process died, alone and after two failures, and one whose end
+  could not be written, counted as unfinished by the next (1); an end written twice (3); hot passes, dry
   runs and passes without the lock (4); a sidecar written before the change
   (5); passes started by `Timers.tick` on the 60 s interval, read every 5 s,
   where every reading after the first failure names one (6, 7).
@@ -217,10 +217,15 @@ For the three the full pass's record keeps:
   700 s after it. A model of the run is checked after every pass and at every
   reading in flight (1, 2, 4, 5, 7), and the differential at every reading (6).
 - `test_no_value_in_the_three_changes_a_status_or_raises` (Hypothesis, 400
-  cases): any JSON value in the three, beside records of every state (6, 8).
+  cases, and seven fixed examples Hypothesis reaches only now and then: a count
+  that is a boolean, below zero or not whole, a run beside a record that ended
+  `ok`, a start that is no string): any JSON value in the three, beside
+  records of every state (6, 8).
 - `test_a_pass_over_any_value_in_the_three_records_a_sane_run` (Hypothesis,
   25 cases): a real pass over a hand-edited three (8).
-- Mutants: 26, each one change to this change. The test file fails on each.
+- Mutants: 26, each one change to this change. The test file fails on each,
+  and on every run: five that only a random draw had caught were then pinned
+  by a fixed example.
   The script and its results are with the review's evidence, outside the
   repository.
 

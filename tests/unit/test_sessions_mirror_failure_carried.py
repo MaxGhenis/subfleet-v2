@@ -47,9 +47,10 @@ import errno
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
-from hypothesis import HealthCheck, event, given, settings
+from hypothesis import HealthCheck, event, example, given, settings
 from hypothesis import strategies as st
 
 from subfleet import doctor
@@ -254,6 +255,28 @@ def test_a_pass_whose_process_died_is_one_that_recorded_no_end(world, monkeypatc
     assert data["not_ok_passes"] == 1 and data["not_ok_since"] == started
     assert health["detail"] == ("a pass has been in flight for 0.0 min; the pass before it "
                                 f"recorded no end (last stage: {stage})")
+
+
+def test_a_pass_that_died_after_failures_lengthens_their_run(world, monkeypatch):
+    """C-23.28: a pass that recorded no end joins the run before it, which
+    keeps its first start; it does not start a run of its own."""
+    unspread(world)
+    first = fail_once(world, monkeypatch, RuntimeError("first"))
+    world.wait(60)
+    fail_once(world, monkeypatch, OSError(errno.EIO, "second"))
+    world.wait(60)
+    with monkeypatch.context() as patch:
+        snapshot = during(world, patch, 3, lambda _current: world.running.sidecar_path.read_bytes())
+        world.full()
+    world.running.sidecar_path.write_bytes(snapshot[0])
+    world.running = mirror.Mirror(world.root, world.policy, now=lambda: world.clock,
+                                  cancel=world.cancel)
+    world.wait(60)
+    with monkeypatch.context() as patch:
+        seen = during(world, patch, 2, lambda _current: world.sidecar())
+        world.full()
+    assert seen[0]["last_end"]["state"] == mirror.UNFINISHED
+    assert seen[0]["not_ok_passes"] == 3 and seen[0]["not_ok_since"] == first["started_at"]
 
 
 def test_an_end_that_could_not_be_written_is_counted_by_the_next_pass(world, monkeypatch):
@@ -644,8 +667,28 @@ SIDECARS = st.fixed_dictionaries(
               "not_ok_since": st.one_of(JSON, INSTANTS), "last_ok_at": st.one_of(JSON, INSTANTS)})
 
 
+def left_by_hand(state: str, count, started: Any = "2026-10-13T12:20:00Z") -> dict:
+    """A sidecar whose `not_ok_passes` is `count`, beside an object `last_end`."""
+    record = {"state": state, "started_at": started, "error": None,
+              "finished_at": None if state == "running" else "2026-10-13T12:21:00Z",
+              "stage": "reading entries"}
+    return {"pass": record, "updated_at": "2026-10-13T12:20:00Z", "not_ok_passes": count,
+            "last_end": {"state": "error", "started_at": "2026-10-13T12:19:00Z"},
+            "not_ok_since": "2026-10-13T12:19:00Z"}
+
+
 @settings(max_examples=400, deadline=None)
 @given(data=SIDECARS)
+# Values Hypothesis reaches only now and then, beside a record in flight and
+# one that is over: a count that is a boolean, below zero, or not whole.
+@example(data=left_by_hand("running", True))
+@example(data=left_by_hand("error", True))
+@example(data=left_by_hand("running", -1))
+@example(data=left_by_hand("error", -1))
+@example(data=left_by_hand("running", 2.0))
+# A run beside a record that ended ok, and a start that is no string.
+@example(data=left_by_hand("ok", 2))
+@example(data=left_by_hand("running", 0, started=7))
 def test_no_value_in_the_three_changes_a_status_or_raises(data):
     """C-23.28: a sidecar an older mirror or a hand edit left. Health reads
     the status it reads without the three, gives a reply whose three are
