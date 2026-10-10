@@ -68,7 +68,8 @@ pass: `Mirror.health()`, `subfleet sessions mirror --status`, and `doctor`'s
 mirror row (`check_mirror`).
 
 Readings out of 600, before the change (#170's head, 05c4e1e7a) and after
-(this branch). The count of readings `running` is also the count of
+carrying the run (#172, before the rule below). The count of readings
+`running` is also the count of
 `--status` exiting 0 and of `doctor` passing its mirror row: the three
 readers gave the same counts.
 
@@ -142,7 +143,8 @@ unchanged, and change none of the three. `doctor` and `sessions mirror
 
 ## What each reader says now
 
-After one failed pass, while the next is in flight:
+With the run carried (#172, before the rule below), after one failed pass,
+while the next is in flight:
 
     mirror running: a pass has been in flight for 0.7 min; the pass before it failed: RuntimeError: no pass expects this (mirror.py:2473 in _pass)
 
@@ -160,26 +162,26 @@ failed pass only; from two, it adds how many in a row and when a pass last
 ended `ok`. `--status --json` carries `last_end`, `not_ok_passes`,
 `not_ok_since` and `last_ok_at` whatever the run.
 
-The status is what it was: on the fixture store above, the readings `running`
-are as many as before at every pass length, and every reading after the first
-failure names one.
+Carrying the run left the status as it was: on the fixture store above, the
+readings `running` were as many as before at every pass length, and every
+reading after the first failure named one. The rule below changes the first
+two lines' `running` to `stalled`.
 
-## The status of a pass in flight: Max's call
+## The status of a pass in flight
 
-C-23.28's first sentence says a pass in flight is healthy until thirty
-minutes after its recorded start. This change keeps that. Two other readings
-are defensible, and each changes what `doctor` reports, so the choice is
-queued for Max rather than made here:
+C-23.28's first sentence said a pass in flight is healthy until thirty
+minutes after its recorded start. Carrying the run made every reading name
+the failure, and left that status as it was, so three readings were put to
+Max (d1286):
 
-1. **Recommended: a pass in flight reads `stalled` while the last pass that is
-   over did not end `ok`.** `doctor` fails and `--status` exits 1 from the
-   first failed pass until a pass ends `ok`, in flight or not. This is the
-   reading between passes carried across the next start, which is what the
-   gap was. It never flaps between `stalled` and `running`. Its cost: a lone
-   failure, or a daemon stop that caught a pass mid-flight (recorded
-   `cancelled`), keeps `doctor` failing through the length of the next pass,
-   where today it fails only until that pass starts.
-2. **`stalled` once no pass has ended `ok` for longer than a limit**, say
+1. A pass in flight reads `stalled` while the last pass that is over did not
+   end `ok`: `doctor` fails and `--status` exits 1 from the first failed pass
+   until a pass ends `ok`, in flight or not. It is the reading between passes
+   carried across the next start, and it never turns between `stalled` and
+   `running`. Its cost: a lone failure, or a daemon stop that caught a pass
+   mid-flight (recorded `cancelled`), keeps `doctor` failing through the
+   length of the next pass, where it had failed only until that pass started.
+2. `stalled` once no pass has ended `ok` for longer than a limit, say
    `mirror_stall_min` (10 min) from `not_ok_since`. Applied only to a pass in
    flight, a lone failure lets the next pass read `running`, but between
    passes it already reads `stalled`, so for the first ten minutes the
@@ -187,11 +189,19 @@ queued for Max rather than made here:
    failure reads healthy between passes too, until the limit), it does not
    turn; it changes what #170 made a failed pass read between passes, and a
    mirror that never succeeds passes `doctor` for those ten minutes.
-3. **Keep `running`**, as this change does: the failure is in every reading's
-   detail, and `doctor`'s row still passes while a pass is in flight.
+3. Keep `running`, with the failure in every reading's detail.
 
-The decision and a draft that applies the first reading are linked from the
-PR.
+The first is the rule. A pass in flight after a pass that ended `ok`, or
+after none, is healthy for thirty minutes, as before; one in flight after a
+pass that did not end `ok` reads `stalled` with the same detail:
+
+    mirror stalled: a pass has been in flight for 0.7 min; the pass before it failed: RuntimeError: no pass expects this (mirror.py:… in _pass)
+
+On the fixture store above, every reading after the first failure reads
+`stalled`, `--status` exits 1 and `doctor` fails its mirror row: 600 of 600
+at every pass length from 1 s to 75 s, for OSError and for RuntimeError. The
+two control runs of passes that end `ok` read as before (9 s: 90 `running`,
+510 `healthy`; 40 s: 400 and 200).
 
 ## Invariants
 
@@ -210,9 +220,10 @@ For the three the full pass's record keeps:
    that never took the lock change none of the three.
 5. **Held to the record.** Once `pass` is over, `last_end` is that pass, and
    the count is 0 exactly when it ended `ok`.
-6. **No status changes.** For any sidecar, health reads the status it reads
-   with the three removed, and its detail begins with the detail it gives
-   without them.
+6. **One status changes.** A pass in flight, inside the hang limit, after a
+   pass that did not end `ok` reads `stalled`. Every other reading has the
+   status it has with the three removed, and every detail begins with the
+   detail it gives without them.
 7. **Named in flight.** While a pass is in flight, the reading names the last
    pass before it that did not end `ok` whenever there was one, and how many
    in a row when there were two or more.
@@ -273,7 +284,8 @@ For the three the full pass's record keeps:
   check, a FIFO where the sidecar belongs, a sidecar whose read is denied).
   Over 34 in one run on the fixed tree, 33 were caught; C31 (a sidecar that
   is no regular file taken for an unreadable one) survived, so it now has a
-  test, and a rerun caught it; C35 came with its test. The reviewer's three (a snapshot taken after the first
+  test, and a rerun caught it; C35 came with its test. Four more cover the rule (undone; every pass in flight `stalled`; only a run
+  of two or more; not after a pass that recorded no end). The reviewer's three (a snapshot taken after the first
   write, a pass known by its start, the hang limit's boundary) are now tests.
   The script and its results are with the review's evidence, outside the
   repository.
@@ -282,12 +294,12 @@ The pass-failure tests and the mirror's other health tests pass unchanged.
 
 ## What it does not do
 
-- **The status of a pass in flight is unchanged.** See Max's call above.
 - **A hot pass's failures stay detail on the full pass's status.** They are
   neither counted in the run nor change it.
 - **A pass whose process died still reads `running`** until thirty minutes
-  after its start or until the next pass starts, as before. The next pass
-  names it.
+  after its start or until the next pass starts, after a pass that ended `ok`
+  or none; after one that did not, it reads `stalled`, as any pass in flight
+  then does. The next pass names it.
 - **A pass that could read the sidecar at none of its records leaves none**,
   and is not counted: the sidecar is as the pass before it left it.
 - **The timer's event still holds the type only.**
