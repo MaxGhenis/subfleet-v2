@@ -142,6 +142,8 @@ def status(view: Mapping[str, Any]) -> str:
                           now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S),
                           weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
+    if view.get("disk") is not None:
+        lines.append(disk_line(view["disk"]))
     rows = []
     for lane in snapshot["lanes"]:
         # C-10.6: an operator looking at a lane with no readings has to be able
@@ -204,6 +206,8 @@ def status(view: Mapping[str, Any]) -> str:
 
 #: C-6.11: one line per reason admission can leave a job unplaced.
 _HOLD_TEXT = {
+    "disk": "disk admission is holding: free {free_gb} GB, reserved {reserved_gb} GB, floor {floor_gb} GB; "
+            "resume margin {resume_margin_gb} GB, placement reserve {placement_reserve_gb} GB (C-6.17)",
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
     "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
@@ -230,6 +234,16 @@ _HOLD_TEXT = {
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
 }
+
+
+def disk_line(reading: Mapping[str, Any]) -> str:
+    """C-6.17: one disk line, shared by the capacity and CLI status views."""
+    free = reading.get("free_gb")
+    free_text = "unknown" if free is None else f"{free:.2f} GB"
+    mode = "disabled" if not reading.get("enabled") else "holding" if reading.get("holding") else "open"
+    return (f"disk: free {free_text}, reserved {reading['reserved_gb']:.2f} GB, "
+            f"floor {reading['floor_gb']:g} GB; {mode}"
+            + (f" ({reading['error']})" if reading.get("error") else ""))
 
 #: C-11.8: each standing refusal of a pinned lane, in words (`scheduler.STANDING_REFUSALS`).
 _PIN_REFUSALS = {
@@ -350,12 +364,16 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                       "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
+            if reason == "disk" and hold.get("free_gb") is None:
+                fields["free_gb"] = "unknown"
             if reason == "pin-unadmittable":
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
                  "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "disk" and hold.get("error"):
+                lines.append("Disk reading failed: " + hold["error"])
             if reason == "pin-unadmittable":
                 lines.append(f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then "
                              f"`subfleet kill {standing.get('job_id')}`; or make {hold.get('lane_id') or 'the lane'} "
