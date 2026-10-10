@@ -338,7 +338,7 @@ def validate_write_location(workdir: Path) -> None:
         check_object_store(workdir, in_place=True)
     except Exception as exc:  # noqa: BLE001 - every refusal is this job's, never the pass's
         raise AdapterError(f"workspace refused: {_reason(exc)}", code=7,
-                           fix="choose a committed feature branch") from exc
+                           fix="choose a committed feature branch in a full clone") from exc
 
 
 def _reason(exc: BaseException) -> str:
