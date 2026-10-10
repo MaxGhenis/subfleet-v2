@@ -85,6 +85,7 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "mirror_stall_min": 10,
     "mirror_hang_min": 30,           # C-23.28's in-flight tolerance
     "mirror_ultracode_default": True,
+    "mirror_activity_lag_s": 3600,   # C-23.28: a row's date trails its session by at most this
 }
 
 #: `conversations.*` (C-24 to C-30): the desktop workspace's timings.
