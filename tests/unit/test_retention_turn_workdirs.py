@@ -30,4 +30,3 @@ def test_live_turn_workdir_guard_uses_an_index(tmp_path, monkeypatch):
             assert any("jobs_state" in row["detail"] for row in plan), (sql, plan)
     finally:
         w.close()
-
