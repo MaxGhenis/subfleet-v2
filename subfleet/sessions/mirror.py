@@ -813,9 +813,32 @@ def _short(account: str, org: str) -> str:
     return f"{account[:8]}…/{org[:8]}…"
 
 
-def _rank(data: dict) -> Any:
-    return (data.get("lastActivityAt") or data.get("lastFocusedAt")
-            or data.get("createdAt") or 0)
+#: The dates a record is ranked by: the first of them it holds.
+RANK_FIELDS = ("lastActivityAt", "lastFocusedAt", "createdAt")
+
+
+def _rank(data: dict, fields: Sequence[str] = RANK_FIELDS) -> Any:
+    """How recent a record is: the first date it holds among `fields`, or 0.
+
+    The callers compare two ranks with `>`, and a record is whatever the file
+    held. A string, list or object in one of these fields used to be returned
+    as the rank, and the comparison raised TypeError out of the pass (second
+    review of #167). Every full pass then failed the same way and left the
+    sidecar at `running`, so the mirror stopped for every session while its
+    health read `running`. So only a number is a date here. Any other value
+    ranks as no date, as a missing field and a zero always did, and so does
+    NaN, which has no place in an order. A bool is not a number.
+
+    Not `_instant_ms`: that also refuses a number beyond JavaScript's safe
+    integers, and which record the numbers choose must not change. For
+    numbers this returns what `a or b or c or 0` returned.
+    """
+    for field in fields:
+        value = data.get(field)
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and value == value and value):
+            return value
+    return 0
 
 
 class _Journal:
@@ -1898,7 +1921,8 @@ class Mirror:
             return data.get("titleSource") or "auto"
 
         def active_of(data: dict) -> Any:
-            return data.get("lastActivityAt") or data.get("createdAt") or 0
+            # `max` compares these, so they are ranked as `_rank` ranks.
+            return _rank(data, ("lastActivityAt", "createdAt"))
 
         for identity, copies in groups.items():
             self._checkpoint(current)
@@ -2179,6 +2203,7 @@ class Mirror:
         options = options or Options()
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run)
         lock = None
+        kept = None
         try:
             lock = self._lock()
             if lock is None:
@@ -2186,8 +2211,10 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current           # deliberately without touching the sidecar
+            if options.dry_run:
+                kept = self._borrow()
             self.journal.refresh()
-            self._splits = None                 # a dry run's, or a pass's that never recorded
+            self._splits = None                 # a pass's that never recorded
             self._record(current)
             self._pass_payloads = {}
             self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
@@ -2214,6 +2241,8 @@ class Mirror:
                 self._pass_payloads = {}
                 self._hot_worker = None
                 self._hot_options = None
+                if kept is not None:
+                    self._give_back(kept)
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
@@ -2238,6 +2267,7 @@ class Mirror:
             return self.run_once(options)
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run, kind="hot")
         lock = None
+        kept = None
         try:
             lock = self._lock()
             if lock is None:
@@ -2245,9 +2275,13 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current
+            if options.dry_run:
+                kept = self._borrow()
             return self._run_hot_locked(options)
         finally:
             if lock is not None:
+                if kept is not None:
+                    self._give_back(kept)
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
@@ -2282,6 +2316,37 @@ class Mirror:
             except OSError:
                 pass
         return current
+
+    def _borrow(self) -> dict[str, Any]:
+        """Before a dry run: put copies in place of everything a pass changes
+        on this instance, and return the originals for `_give_back`.
+
+        A dry run decides as a real pass does, so it reads the store into the
+        inventory, which makes each change it read no longer new to the next
+        hot pass, and it clears the retries it decided on. But it published
+        nothing. On an instance that passes again, the next real hot pass then
+        found no candidates (second review of #167), and a new instance's
+        first hot pass was no longer the full one. With the originals put
+        back, the instance is as the dry run found it: its retries, its
+        inventory and whether it has one, and the ledger of failed raises.
+
+        Called and undone inside the pass's lock. One level of copies is
+        enough: a pass replaces the values these hold (a folder's listing, a
+        cached entry) and changes none in place, except a payload's reference
+        count, so the payloads are copied too. The journal is shared: a dry
+        run adds no row to it and only reads its file again.
+        """
+        kept = dict(vars(self))
+        for name, value in kept.items():
+            if type(value) in (dict, set, list):
+                setattr(self, name, type(value)(value))
+        self._payloads = {key: _Payload(row.value, row.size, row.refs)
+                          for key, row in kept["_payloads"].items()}
+        return kept
+
+    def _give_back(self, kept: dict[str, Any]) -> None:
+        """After a dry run: the instance holds exactly what `_borrow` took."""
+        self.__dict__ = kept
 
     def _lock(self):
         path = self.dir / LOCK_NAME

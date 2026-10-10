@@ -356,7 +356,10 @@ partly, and asked for changes again. Each finding was executed.
 
 Round 2 also reported, as older than this change and not part of it: `_rank`
 raises on a record whose date field is a string, a list or an object, and a
-dry-run hot pass on the same instance clears the flag retries.
+dry-run hot pass on the same instance clears the flag retries. Both were fixed
+after this change: a value that is no number ranks as no date
+(`tests/unit/test_sessions_mirror_rank.py`), and a dry run leaves the instance
+as it found it (`tests/unit/test_sessions_mirror_dry_run.py`).
 
 Round 3 (at `81fa3ec7e`) confirmed three of round 2's five fixed and two
 partly, and asked for changes a third time.
