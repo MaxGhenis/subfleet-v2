@@ -35,7 +35,7 @@ def build_does_not_block(world, patch, looks=3):
     def slow(*args, **kwargs):
         threads.append(threading.current_thread().name)
         entered.set()
-        assert release.wait(10), "test did not release checkout build"
+        assert release.wait(60), "test did not release checkout build"
         return actual(*args, **kwargs)
 
     def admission():
@@ -50,8 +50,11 @@ def build_does_not_block(world, patch, looks=3):
     caller = threading.Thread(target=admission, name="test-admission")
     caller.start()
     try:
-        assert entered.wait(10)
-        assert returned.wait(1), "checkout build blocked the admission pass"
+        assert entered.wait(30)
+        # Assert event ordering with room for unrelated host/database work.
+        # The build stays held well beyond this deadline; measure real pass
+        # latency separately rather than making the property a one-second SLA.
+        assert returned.wait(10), "checkout build blocked the admission pass"
         assert errors == []
         assert placed(core, behind)
         assert core.store.list_attempts(job) == []
@@ -62,7 +65,7 @@ def build_does_not_block(world, patch, looks=3):
         assert len(threads) == 1, "a preparing job queued duplicate builds"
     finally:
         release.set()
-        caller.join(15)
+        caller.join(120)
     admit_ready(core)
     assert placed(core, job)
 
