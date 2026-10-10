@@ -230,6 +230,11 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
 }
 
 
+#: C-6.17: bounds on disk sizes in policy, so whole-byte arithmetic stays exact.
+DISK_MAX_GB = 1_000_000          # a petabyte
+DISK_MIN_RESERVE_GB = 0.001      # a megabyte
+
+
 def disk_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """C-6.17: omitted disk settings leave admission off, including raw policies."""
     return {**DISK_DEFAULTS, **((policy.get("admission") or {}).get("disk") or {})}
@@ -424,6 +429,13 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                 or item < 0 or (positive and item == 0)):
             fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
                  + " finite number")
+        # Sizes are compared in whole bytes (C-6.17): a reserve under a megabyte
+        # rounds to almost nothing and disables pacing, and a size past a petabyte
+        # overflows nothing useful (review of #161, P3s).
+        if key.endswith("_gb") and item > DISK_MAX_GB:
+            fail(f"admission.disk.{key}", f"must be at most {DISK_MAX_GB:g} GB")
+        if key == "placement_reserve_gb" and item < DISK_MIN_RESERVE_GB:
+            fail(f"admission.disk.{key}", f"must be at least {DISK_MIN_RESERVE_GB:g} GB (1 MB), or pacing is off in effect")
     if disk["path"] is not None and not _name(disk["path"]):
         fail("admission.disk.path", "must be a nonempty path string, or null for the state root's volume")
     for key in ("lower_path", "raise_path"):

@@ -62,3 +62,16 @@ def test_default_objects_are_not_shared_between_loads(tmp_path):
     first = load_policy(path)
     first["admission"]["disk"]["enabled"] = True
     assert load_policy(path)["admission"]["disk"] == copy.deepcopy(DISK_DEFAULTS)
+
+
+@pytest.mark.parametrize("key,value", [("placement_reserve_gb", 1e-10), ("placement_reserve_gb", 0.0009),
+                                       ("floor_gb", 1e308), ("resume_margin_gb", 1e7), ("min_floor_gb", 2e6)])
+def test_disk_sizes_outside_whole_byte_bounds_are_refused(tmp_path, key, value):
+    """C-6.17 (review of #161, P3s): a reserve that rounds to nothing, or a size that
+    overflows whole-byte arithmetic, is refused at load with the key named."""
+    policy = json.loads(DEFAULT_POLICY_PATH.read_text())
+    policy.setdefault("admission", {})["disk"] = {"enabled": True, key: value}
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(policy))
+    with pytest.raises(PolicyError, match=f"admission.disk.{key}"):
+        load_policy(path)
