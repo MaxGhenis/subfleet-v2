@@ -903,6 +903,52 @@ def test_unverifiable_cwd_spelling_holds(monkeypatch):
         procs.cwd_pids("/workdir")
 
 
+@pytest.mark.parametrize("race", ["stable", "reuse", "identity-unavailable", "marker-unavailable",
+                                  "our-marker", "root-marker", "no-marker"])
+def test_late_foreign_cwd_exclusion_requires_a_marker_inside_identity_checks(monkeypatch, race):
+    """A late waiter is foreign only while its full identity brackets its marker."""
+    foreign = procs.ProcessIdentity(400, BOOT_OLD, "waiter")
+    replacement = procs.ProcessIdentity(400, BOOT_OLD, "writer")
+    calls = []
+
+    def current(pid):
+        calls.append(pid)
+        if race == "identity-unavailable" and len(calls) == 1:
+            raise procs.InspectionError("identity unavailable")
+        return replacement if race == "reuse" and len(calls) > 1 else foreign
+
+    def read(argv, **kwargs):
+        if "pid=,command=" in argv:
+            return "400 wait SUBFLEET_ATTEMPT=parent/a1 SUBFLEET_ROOT=/fixture\n"
+        assert argv == ["/bin/ps", "-p", "400", "-Eww", "-o", "command="]
+        assert kwargs == {"empty_ok": True}
+        if race == "marker-unavailable":
+            raise procs.InspectionError("marker unavailable")
+        if race == "our-marker":
+            return "writer SUBFLEET_ATTEMPT=job/a1\n"
+        if race == "root-marker":
+            return "writer SUBFLEET_ROOT=/fixture\n"
+        if race == "no-marker":
+            return "writer\n"
+        return "wait SUBFLEET_ATTEMPT=parent/a1 SUBFLEET_ROOT=/fixture\n"
+
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({}, BOOT_OLD))
+    monkeypatch.setattr(procs, "identity", current)
+    monkeypatch.setattr(procs, "process_group", lambda pid: 500)
+    monkeypatch.setattr(procs, "_read", read)
+    # The own marker found on reinspection must hold even without a cwd match.
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir:
+                        frozenset() if race in {"our-marker", "root-marker"} else frozenset({400}))
+    result = procs.containment(None, None, None, "job/a1", root="/fixture", workdir="/workdir")
+    assert result.verified_empty == (race == "stable"), result.to_dict()
+    if race != "stable":
+        assert result.live_pids == {400}
+        assert result.lineage_roots
+    if race == "reuse":
+        assert not result.marker_pids
+        assert result.cwd_pids == {400}
+
+
 def test_late_group_read_is_a_kernel_lookup(monkeypatch):
     monkeypatch.setattr(procs.os, "getpgid", lambda pid: 400)
     assert procs.process_group(300) == 400

@@ -43,7 +43,7 @@ def test_finished_run_does_not_adopt_a_waiter_born_during_census(
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
     monkeypatch.setattr(procs, "snapshot", snapshot)
     monkeypatch.setattr(procs, "identity", lambda pid: waiter)
-    monkeypatch.setattr(procs, "process_group", lambda pid: 500)
+    monkeypatch.setattr(procs, "process_group", lambda pid: 500, raising=False)
     monkeypatch.setattr(procs, "_read", read)
     # release/217 has no cwd source; run the identical world on both versions.
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({200}), raising=False)

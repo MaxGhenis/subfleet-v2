@@ -28,9 +28,13 @@ def script_table(monkeypatch, rows, *, markers="", boot=BOOT, table_fails=False,
         return procs.ProcessTable(dict(rows), boot_id=boot)
 
     def read(argv, **kwargs):
-        if "pid=,command=" in argv:
+        if "pid=,command=" in argv or "command=" in argv:
             if markers_fail:
                 raise procs.InspectionError("marker enumeration unavailable")
+            if "command=" in argv:
+                pid = argv[argv.index("-p") + 1]
+                return "".join(line.partition(" ")[2] + "\n" for line in markers.splitlines()
+                               if line.partition(" ")[0] == pid)
             return markers
         if "stat=" in argv:          # `_stat` for a marker pid the table lacks
             pid = int(argv[argv.index("-p") + 1])

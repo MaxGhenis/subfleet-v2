@@ -737,15 +737,28 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             pid_text, _, command = row.strip().partition(" ")
             if attempt_marker.search(command) and not marker.search(command):
                 # Qualify cwd exclusions by full identity, never by bare PID.
-                # A new or unreadable incarnation remains a cwd census root.
+                # An unverified incarnation remains a cwd census root.
                 pid = int(pid_text)
-                if seen is not None and pid in table:
-                    try:
-                        earlier = seen.identity(pid)
-                        if earlier is not None and identity(pid) == earlier:
-                            foreign_attempts[pid] = earlier
-                    except InspectionError:
-                        pass
+                try:
+                    earlier = seen.identity(pid) if seen is not None and pid in table else None
+                    current = identity(pid) if earlier is not None or workdir is not None else None
+                    if current is not None and current == earlier:
+                        foreign_attempts[pid] = current
+                    elif current is not None and workdir is not None:
+                        # A background waiter can start after the table. Read
+                        # its marker again between fresh identities, so excluding
+                        # it cannot instead exclude a reused PID's cwd writer.
+                        command = _read(["/bin/ps", "-p", str(pid), "-Eww", "-o", "command="],
+                                        empty_ok=True)
+                        if (attempt_marker.search(command) and not marker.search(command)
+                                and identity(pid) == current):
+                            foreign_attempts[pid] = current
+                        elif marker.search(command) or (root_marker is not None and root_marker.search(command)
+                                                       and not attempt_marker.search(command)):
+                            observed_writer = True
+                            observe_later(pid, markers)
+                except InspectionError:
+                    pass
                 continue
             if marker.search(command) or (root_marker is not None and root_marker.search(command)):
                 observed_writer = True
