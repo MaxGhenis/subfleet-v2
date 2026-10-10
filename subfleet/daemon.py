@@ -4658,12 +4658,29 @@ class Daemon:
         if wait:
             self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
 
+    @staticmethod
+    def _turn_fences(read: Callable, folder: str, absent: OSError | None,
+                     run_folder: str | None, run_absent: OSError | None) -> tuple[list[str], str]:
+        """C-8.4: the early look and reservation compare the same spelled folders.
+
+        Callers spell both with `folders.present` outside the store lock. Names
+        that were absent may alias a quarantined tree, so compare those folded.
+        The actual cwd names the hold whenever its fence is among the blockers.
+        """
+        git_fences = folders.retiring(read, folder, folded=absent is not None)
+        run_fences = []
+        if run_folder:
+            run_fences = (git_fences if run_folder == folder else
+                          folders.retiring(read, run_folder, folded=run_absent is not None))
+        return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+
     def _fence_hold(self, job: dict, folder: str, holds: dict[str, dict], waiters: dict, tier: str,
                     models: frozenset[str] | None, lanes: frozenset[str] | None,
                     run_folder: str | None = None) -> bool:
         """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
         folder, actual cwd or a folder above either (`folders.retiring`), found
-        before its workspace is prepared. The cwd is canonicalized off the lock.
+        before its workspace is prepared. Both folders are spelled off the lock,
+        with absent names compared folded, just as in the reserving transaction.
 
         The admitting transaction reads that fence too, and its answer is the one
         that counts. This look spares a job that cannot start its start snapshot
@@ -4682,10 +4699,11 @@ class Daemon:
         capacity wait under the same signature, the job's `waiting` row and clock, and
         the job's folder, which its reason names (C-6.11). A job that ended or was
         cancelled meanwhile is not held, and not prepared either."""
+        folder, absent = folders.present(folder)
+        run_folder, run_absent = folders.present(run_folder) if run_folder else (None, None)
+
         def fences(read):
-            git_fences = folders.retiring(read, folder)
-            run_fences = folders.retiring(read, run_folder) if run_folder and run_folder != folder else []
-            return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+            return self._turn_fences(read, folder, absent, run_folder, run_absent)
 
         if not fences(self.store.query)[0]:
             return False
@@ -5112,10 +5130,12 @@ class Daemon:
             named, absent = read_folder or (write_target if job["kind"] == "turn" or job["in_place"] else None), None
             if named:
                 spelled, absent = folders.present(named)
-                if absent is None and read_folder:
+                named = spelled
+                if read_folder:
                     read_folder = spelled
-                elif absent is None:
+                else:
                     write_target = spelled
+            git_absent = absent
             # The provider's cwd may differ from Git's hold (core.worktree).
             # Require that extra reader row's folder to be present too.
             run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn" else (None, None))
@@ -5421,10 +5441,6 @@ class Daemon:
                             # retention and a detached writer still see the folder in use.
                             leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
                             blockers.append(folders.exclusive_key(write_target))
-                            # C-8.4: nor while retention retires a tree its folder is
-                            # in, a repository nested in a job's worktree; a detached
-                            # writer above it holds another checkout (C-6.5).
-                            blockers.extend(folders.retiring(read, write_target))
                         elif job["sandbox"] == "workspace-write":
                             # C-6.5: the hold is where the job writes. A session is not a
                             # place, so it takes no lease; its instances are told apart
@@ -5437,14 +5453,19 @@ class Daemon:
                             # retention never removes a folder a turn is working in, or
                             # the tree it is nested in.
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
-                            blockers.extend(folders.retiring(read, read_folder))
-                        run_fences = folders.retiring(read, run_folder, folded=run_absent is not None) if run_folder else []
-                        blockers.extend(run_fences)
+                        held_folder = write_target or read_folder
+                        if job["kind"] == "turn":
+                            # C-8.4: only retention's fences above either folder
+                            # hold a turn; a detached writer above holds another
+                            # checkout (C-6.5). Use the early look's comparison.
+                            fence, held_folder = self._turn_fences(read, held_folder, git_absent,
+                                                                    run_folder, run_absent)
+                            blockers.extend(fence)
                         if run_folder and run_folder != (write_target or read_folder):
                             # Preserve the Git hold's writer rules. This extra
                             # reader row only keeps the provider's cwd in place.
                             leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
-                        if absent is not None:
+                        if absent is not None and job["kind"] != "turn":
                             # C-8.4: its folder is not there now, so the names that could not
                             # be looked up may not be the ones its volume stores: retention may
                             # have its tree in quarantine under a fence spelled `Job`. Any
@@ -5492,7 +5513,7 @@ class Daemon:
                             # A turn's hold names its folder: a fence it waits for may be
                             # on a tree that folder is in, which its reason says (C-6.11).
                             hold = {"reason": "lease-held", "leases": contested + blocked,
-                                    **({"folder": run_folder if run_fences else write_target or read_folder}
+                                    **({"folder": held_folder}
                                        if job["kind"] == "turn" and (write_target or read_folder) else {}),
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
