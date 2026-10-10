@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterable, Mapping
 from .policy import disk_settings
 
 GB = 1_000_000_000
-LIVE = frozenset({"reserved", "starting", "running", "finalizing"})
+LIVE = frozenset({"reserved", "starting", "running", "finalizing", "quarantined"})
 
 
 def free_bytes(path: str | Path) -> int:
@@ -55,7 +55,8 @@ class DiskAdmission:
         """Reservations start at placement, even while the attempt awaits launch.
 
         `finished_at` releases a finalizing attempt as soon as its execution
-        ends. Older attempts without disk evidence use the configured budget,
+        ends. Quarantine still holds its workspace despite that timestamp, so
+        its budget lasts until resolution or expiry. Older attempts without disk evidence use the configured budget,
         so enabling the rule also accounts for recent existing placements.
         """
         self.reservations = self._reservations_for(attempts, now)
@@ -65,7 +66,8 @@ class DiskAdmission:
         clock = epoch(now)
         current = {}
         for row in attempts:
-            if row["state"] not in LIVE or row.get("finished_at") or row.get("kind") == "turn":
+            if (row["state"] not in LIVE or row.get("kind") == "turn"
+                    or (row.get("finished_at") and row["state"] != "quarantined")):
                 continue
             if "disk_reservation" in row:
                 reservation = json.loads(row["disk_reservation"] or "null") or self.evidence()

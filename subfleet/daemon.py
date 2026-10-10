@@ -3069,12 +3069,13 @@ class Daemon:
         raise protocol.ProtocolError(f"unknown op {op}")
 
     def _disk_rows(self) -> list[dict]:
-        # C-3.7: only live attempts and the tiny budget, never their full evidence.
+        # C-3.7/C-6.17: live or held workspaces and only the tiny budget.
         return self.store.query(
             "SELECT a.attempt_id,a.state,a.reserved_at,a.finished_at,j.kind,"
             "CASE WHEN json_valid(a.evidence_json) THEN json_extract(a.evidence_json,'$.disk_reservation') END "
             "AS disk_reservation FROM attempts a JOIN jobs j USING(job_id) "
-            "WHERE a.state IN ('reserved','starting','running','finalizing') AND a.finished_at IS NULL "
+            "WHERE a.state IN ('reserved','starting','running','finalizing','quarantined') "
+            "AND (a.finished_at IS NULL OR a.state='quarantined') "
             "AND j.kind != 'turn'")
 
     def _disk_status(self) -> dict:
