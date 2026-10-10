@@ -132,3 +132,9 @@ def test_mutation_read_text_restored_is_caught(worlds, monkeypatch, kind):
     with pytest.raises(AssertionError, match=READ_TEXT_CAUGHT[kind]):
         metadata_invariant(worlds, kind)
 
+
+@pytest.mark.parametrize("case", ["into-git", "into-git-any-case"])
+def test_mutation_dot_git_component_check_removed_is_caught(worlds, monkeypatch, case):
+    monkeypatch.setattr(host_push, "_dotgit_component", lambda part: False)
+    with pytest.raises(AssertionError, match=r"pushed [0-9a-f]{40}"):
+        symlink_invariant(worlds, case)

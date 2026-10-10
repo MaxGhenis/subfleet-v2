@@ -438,6 +438,9 @@ SYMLINKS = {
     "two-dot-leader": ({"link": "\u2025/x"}, "'..' component"),
     "chain": ({"a": "b", "b": "c"}, "passes through another symlink"),
     "through-directory-link": ({"d": "sub", "e": "D/file"}, "passes through another symlink"),
+    # Review r2 P3: inside the tree, but into a checkout's own Git metadata.
+    "into-git": ({"cfg": ".git/config"}, "'.git' component"),
+    "into-git-any-case": ({"x": "sub/.GIT/hooks"}, "'.git' component"),
 }
 
 
@@ -454,6 +457,32 @@ def test_escaping_symlinks_including_chains_are_refused(worlds, case):
         git(world.repo, "add", ".")
         git(world.repo, "commit", "-m", "unsafe link")
         assert_failed(world, accept(world), reason)
+
+
+@pytest.mark.parametrize("target", [".git/config", "sub/.GIT/hooks", "./.Git", "a/.git", "．ｇｉｔ/config",
+                                    ".git./config", ".git /hooks"])
+def test_a_symlink_into_dot_git_is_refused_in_any_spelling(target):
+    with pytest.raises(host_push.PushError, match="'.git' component"):
+        host_push.check_symlinks({b"link": target.encode()})
+
+
+@pytest.mark.parametrize("target", [".gitignore", ".github/workflows", "sub/git/config", "sub/.gitx", "x.git"])
+def test_a_symlink_near_dot_git_is_not_refused_for_it(target):
+    host_push.check_symlinks({b"link": target.encode()})
+
+
+def test_symlinks_with_harmless_targets_are_still_published(worlds):
+    """The control for the `.git` rule: names like it, through real push."""
+    with worlds() as world:
+        submit(world)
+        (world.repo / "sub").mkdir()
+        (world.repo / "sub/file").write_text("inside")
+        for name, target in {"notes": "sub/file", "ignore": ".gitignore", "tool": "sub/git/config"}.items():
+            (world.repo / name).symlink_to(target)
+        git(world.repo, "add", ".")
+        git(world.repo, "commit", "-m", "harmless links")
+        row = accept(world)
+        assert row["push_sha"] and not row["push_error"]
 
 
 def test_internal_symlink_allowed_and_gitlink_refused(worlds):

@@ -566,11 +566,20 @@ def _parent_component(part: str) -> bool:
     return re.fullmatch(r"[. ]*\.\.[. ]*", unicodedata.normalize("NFKC", part).casefold()) is not None
 
 
+def _dotgit_component(part: str) -> bool:
+    """Review r2 P3: `.git` casefolded and NFC-normalized, as the other checks
+    compare names (and NFKC, with the trailing dots and spaces Windows ignores,
+    as `_parent_component` reads `..`). A link there reaches a checkout's own
+    config and hooks."""
+    return any(re.fullmatch(r"\.git[. ]*", form) is not None
+               for form in (fold(part), unicodedata.normalize("NFKC", part).casefold()))
+
+
 def check_symlinks(links: dict[bytes, bytes]) -> None:
     """Review P2-3: a symlink may name only a place inside its tree that no other
-    symlink stands on. Refused when its target is absolute, has a `..`
-    component, or passes through or ends at a symlink of the same tree; paths
-    compare casefolded and NFC-normalized, as a macOS checkout resolves them."""
+    symlink stands on. Refused when its target is absolute, has a `..` or a
+    `.git` component, or passes through or ends at a symlink of the same tree;
+    paths compare casefolded and NFC-normalized, as a macOS checkout resolves them."""
     def text(raw: bytes) -> str:
         try:
             return raw.decode("utf-8")
@@ -589,6 +598,8 @@ def check_symlinks(links: dict[bytes, bytes]) -> None:
         # into a separator, exposing a normalized parent component.
         if any(_parent_component(part) for part in unicodedata.normalize("NFKC", target).split("/")):
             raise PushError(f"symlink {shown} has a '..' component in its target")
+        if any(_dotgit_component(part) for part in (*parts, *unicodedata.normalize("NFKC", target).split("/"))):
+            raise PushError(f"symlink {shown} has a '.git' component in its target")
         walk = name.split("/")[:-1]
         steps = [walk[:end] for end in range(1, len(walk) + 1)]
         for part in parts:
