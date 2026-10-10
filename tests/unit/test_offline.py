@@ -394,13 +394,15 @@ def test_reads_say_so_when_the_store_is_newer(root, capsys):
     """C-3.5 a store ahead of this CLI is named on every read, not only on kill."""
     path = build_store(root)
     conn = sqlite3.connect(path)
-    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (7, ?)",
-                 (NOW,))
+    from subfleet.store import SCHEMA_VERSION
+    newer = SCHEMA_VERSION + 1
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                 (newer, NOW))
     conn.commit()
     conn.close()
     for argv in (["runs"], ["status"], ["runs", "show", JOB]):
         assert cli.main(argv) == 0, argv
-        assert "schema version 7" in capsys.readouterr().err, argv
+        assert f"schema version {newer}" in capsys.readouterr().err, argv
 
 
 def test_reap_prefers_the_core_lanes_identity_check_when_it_lands(store, capsys,

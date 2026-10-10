@@ -268,6 +268,9 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            job["pushes"] = ([dict(item) for item in conn.execute(
+                "SELECT * FROM job_pushes WHERE job_id=?", (job_id,))]
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE name='job_pushes'").fetchone() else [])
             decisions = conn.execute(
                 "SELECT decision_json FROM decisions WHERE job_id = ?"
                 " ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1",

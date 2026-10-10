@@ -1,4 +1,5 @@
--- subfleet v2 store schema, version 4 (2: jobless operator notices; 3: gate job fields; 4: lane identity columns). See docs/acceptance-contract.md section 3.
+-- subfleet v2 store schema, version 7 (host push authorization and audit).
+-- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
 -- identity_status to `lanes`; store.py migrates a version-1 database in place.
@@ -83,6 +84,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   unmeasured_reserve_reason TEXT,
   workdir TEXT NOT NULL,
   workdir_head TEXT,
+  push_branch TEXT,
+  push_remote TEXT,
+  push_default_branch TEXT,
+  push_sha TEXT,
+  push_error TEXT,
   worktree TEXT,
   prompt_path TEXT NOT NULL,
   out_path TEXT,
@@ -117,6 +123,37 @@ CREATE INDEX IF NOT EXISTS jobs_parent ON jobs(parent_job_id);
 -- C-3.7: the capacity snapshot reads every job in this order; without an index
 -- SQLite sorts the table in a temp file (about 3 MB a snapshot on the live store).
 CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
+
+-- C-8.5: these audit/ownership rows survive job retention. A claim is durable
+-- before network I/O; one job can attempt a push only once, including replay.
+-- Ownership is keyed on the repository however its URL is spelled
+-- (`host_push.ownership_key`) and on the branch casefolded and NFC-normalized
+-- (`host_push.fold`); `branch` and `remote` keep the spellings pushed.
+CREATE TABLE IF NOT EXISTS job_owned_branches (
+  remote_key TEXT NOT NULL,
+  branch_key TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  remote TEXT NOT NULL,
+  family_job_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  sha TEXT,
+  claimed_at TEXT NOT NULL,
+  PRIMARY KEY (remote_key, branch_key)
+);
+-- `pushing_at` is committed immediately before `git push`: a pending row
+-- without it sent nothing and is verified again (`intakes` times at most 3).
+CREATE TABLE IF NOT EXISTS job_pushes (
+  job_id TEXT PRIMARY KEY,
+  branch TEXT NOT NULL,
+  remote TEXT NOT NULL,
+  sha TEXT,
+  started_at TEXT NOT NULL,
+  intakes INTEGER NOT NULL DEFAULT 1,
+  pushing_at TEXT,
+  finished_at TEXT,
+  result TEXT NOT NULL CHECK (result IN ('pending','succeeded','failed')),
+  error TEXT
+);
 
 -- C-4.2, C-5
 CREATE TABLE IF NOT EXISTS attempts (
