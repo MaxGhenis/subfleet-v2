@@ -71,7 +71,7 @@ def test_c9_9_a_rate_limited_lane_is_left_alone_until_retry_after(e2e):
     # claude-2's readings can commit before claude-1's verdict in the same cycle.
     verdicts = e2e.until(lambda: e2e.rows(
         "SELECT data_json FROM events WHERE kind='timer.verdict' AND lane_id='claude-1' "
-        "ORDER BY event_id"), timeout=30)
+        "AND data_json!='{}' ORDER BY event_id"), timeout=30)
     verdict = json.loads(verdicts[-1]["data_json"])
     assert verdict["probe_status"] == "rate-limited" and verdict["retry_after_s"] == 3035
     assert not e2e.rows("SELECT 1 FROM closures WHERE lane_id='claude-1'")
