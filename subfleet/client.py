@@ -145,15 +145,18 @@ def busy_pause(streak: int) -> float:
 
 
 #: C-15.4: how long a read-only poller (`subfleet wait`, `run --wait`, `kill --wait`,
-#: the PostToolUse hook) keeps asking after its daemon dropped a poll or stopped
-#: taking connections, counted from the first poll of that outage it failed.
-#: After the slowest stop launchd allows (the plist's ExitTimeOut: `STOP_GRACE_S`
-#: plus `STOP_BACKSTOP_S`, 40 s) and launchd's 10 s respawn throttle, it leaves
-#: 130 s for a start. Incident: 2026-10-10 (D-WT1), the 2.1.11.4 install at 09:06Z
-#: and a `launchctl kickstart -k` at 09:08Z each ended all five of the Subfleet
-#: hub's `subfleet wait`s with "the daemon closed the connection without a
-#: response" while their jobs ran on.
-RESTART_WINDOW_S = 180.0
+#: the PostToolUse hook) keeps asking after its daemon dropped a poll, answered
+#: none within the poll's budget, or stopped taking connections, counted from when
+#: the first failed poll of that outage failed. After the slowest stop launchd
+#: allows (the plist's ExitTimeOut: `STOP_GRACE_S` plus `STOP_BACKSTOP_S`, 40 s)
+#: and launchd's 10 s respawn throttle, it leaves 250 s for a start. Incidents,
+#: 2026-10-10: the 2.1.11.4 install at 09:06Z and a `launchctl kickstart -k` at
+#: 09:08Z each ended all five of the Subfleet hub's `subfleet wait`s with "the
+#: daemon closed the connection without a response" while their jobs ran on
+#: (D-WT1); and from 22:28Z to 22:32Z a daemon starved of CPU (load1 about 465 on
+#: 18 CPUs) let every wait time out after 75 s and refused connects (D-DS1), an
+#: outage of about four minutes, which 180 s would not have covered.
+RESTART_WINDOW_S = 300.0
 
 
 class RestartWindow:
@@ -161,7 +164,7 @@ class RestartWindow:
 
     `lost(now)` records a poll the daemon dropped or could not take, and says
     whether the poller may ask again: True while no more than `seconds` have
-    passed since the first such poll of this outage. `answered()` records a poll
+    passed since the first such failure of this outage. `answered()` records a poll
     the daemon answered, busy or not, which ends the outage, and says whether one
     was in progress. Only a caller that reads may use it: asking again repeats
     nothing a daemon could have done.

@@ -610,8 +610,9 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
                 window.answered()
             elif not (busy and isinstance(exc, DaemonUnavailable)
                       and refused_while_busy(client, exc) is not False):
-                # C-15.4: the daemon dropped the poll, or its socket is gone or
-                # refusing with no busy daemon behind it, as a restart leaves it.
+                # C-15.4: the daemon dropped the poll or did not answer within its
+                # budget, or its socket is gone or refusing with no busy daemon
+                # behind it, as a restart or a starved daemon (D-DS1) leaves it.
                 # `_candidates` was answered, so this hook has reached a daemon,
                 # and a wait only reads: ask again for RESTART_WINDOW_S, silently,
                 # within the hook's own deadline. A connect refused after a busy

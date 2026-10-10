@@ -4,8 +4,8 @@ The 2.1.11.4 install (09:06Z) and a `launchctl kickstart -k` (09:08Z) each ended
 all five of the Subfleet hub's `subfleet wait`s with "the daemon closed the
 connection without a response" while their jobs ran on, waking the hub. A `wait`
 only reads, so once it has reached a daemon it asks again after a lost answer
-or a socket gone or refused, for `RESTART_WINDOW_S` and always within
-`--timeout`.
+(dropped, or too late from a starved daemon: D-DS1) or a socket gone or
+refused, for `RESTART_WINDOW_S` and always within `--timeout`.
 
 The first half drives the real CLI, the real client and the PostToolUse hook over
 a Unix socket held by `FakeDaemon`, which each test stops and starts. The second
@@ -18,14 +18,16 @@ each run checked against `reference`, an independent statement of the rule:
 * W2 with `--timeout T` the wait ends by T plus one poll budget (in fact by T
   plus the under-0.2 s poll an immediate answer's pause may follow), and exits
   124 only once T has passed;
-* W3 the wait never gives up inside the restart window, and a daemon gone for
-  good ends it within the window, one poll budget and one pause of the first
-  poll that daemon failed;
+* W3 the wait stops at the first poll the rule stops it at, so never inside the
+  restart window, and a daemon gone for good ends it within the window, one
+  poll budget and one pause of when the outage's first failed poll failed;
 * W4 no job outside the requested set changes the exit, the polls or the time
   (C-17.3);
 * W5 nothing is sent but `wait`, for requested jobs only;
 * W6 one stderr line per outage that ended with an answer, saying "restarted"
-  exactly when `daemon.lock` names another process than before.
+  exactly when `daemon.lock` names another process than at the answer before;
+  and every other line about the daemon is one the rule calls for (a poll cut
+  by the wait's own `--timeout` is no outage: review of 2c1a0f0e, P2).
 """
 
 from __future__ import annotations
@@ -79,6 +81,8 @@ class FakeDaemon:
         self.closed_unanswered = 0
         self.hold = 30.0
         self.drop = False                      # close every request unanswered
+        self.late = 0.0                        # starved: answer only this long after reading
+        self.late_answers = 0
         self._lock = threading.Lock()
         self._held: set[socket.socket] = set()
         self._stop: threading.Event | None = None
@@ -166,6 +170,16 @@ class FakeDaemon:
 
     def _wait(self, conn: socket.socket, args: dict) -> dict | None:
         ids = [str(job_id) for job_id in args.get("job_ids") or ()]
+        read_at = time.monotonic()
+        late = self.late > 0
+        while time.monotonic() - read_at < self.late:      # starved (D-DS1)
+            with self._lock:
+                if conn not in self._held:
+                    return None
+            time.sleep(.01)
+        if late:
+            with self._lock:
+                self.late_answers += 1
         ends = time.monotonic() + min(self.hold, float(args.get("deadline_s", 60)))
         while True:
             with self._lock:
@@ -360,8 +374,8 @@ def test_c15_4_a_daemon_gone_for_good_ends_the_wait_after_the_window(fake, capsy
     def stop_for_good():
         until(lambda: fake.polls() >= 1)
         time.sleep(.05)
+        stopped.append(time.monotonic())                # before the stop cuts the poll
         fake.stop(unlink=True)
-        stopped.append(time.monotonic())
     joined = in_background(stop_for_good)
     assert wait(JOB) == int(Exit.DAEMON_UNAVAILABLE)
     ended = time.monotonic()
@@ -369,7 +383,7 @@ def test_c15_4_a_daemon_gone_for_good_ends_the_wait_after_the_window(fake, capsy
     # The window, then at most one pause (C-16.7's 1 s cap) and some scheduling slack.
     assert 1.5 <= ended - stopped[0] <= 1.5 + 1.0 + 2.0, ended - stopped[0]
     err = capsys.readouterr().err
-    assert "past the 1.5s restart window" in err
+    assert "the 1.5s restart window from its first failed poll has passed" in err
     assert "no daemon at" in err and "subfleet daemon start" in err
     assert not LINE.findall(err)
 
@@ -383,7 +397,7 @@ def test_c15_4_a_daemon_that_drops_every_poll_ends_the_wait_after_the_window(fak
     assert wait(JOB) == int(Exit.OPERATIONAL)
     assert 1.5 <= time.monotonic() - started <= 1.5 + 1.0 + 2.0
     err = capsys.readouterr().err
-    assert "past the 1.5s restart window" in err
+    assert "the 1.5s restart window from its first failed poll has passed" in err
     assert "the daemon closed the connection without a response" in err
     assert fake.polls() >= 3 and only_waits_for(fake, [JOB])
 
@@ -404,6 +418,45 @@ def test_c15_4_a_timeout_shorter_than_the_window_still_exits_124(fake, capsys):
     err = capsys.readouterr().err
     assert f"{JOB} still running after" in err and "(timeout)" in err
     assert "the daemon has not answered for" in err and "restart window" not in err
+
+
+def test_c15_4_a_timeout_on_a_healthy_daemon_says_nothing_about_the_daemon(fake, capsys):
+    """Review of 2c1a0f0e, P2: with under 1 s of `--timeout` left, the last poll asks
+    the daemon to hold 1 s and has less than that to read the answer, so the answer
+    is lost. That loss is the wait's own timeout, not an outage: 124, and no line
+    saying the daemon has stopped answering. (2.5 s: the first poll is answered at
+    2 s, the second has 0.5 s.)"""
+    fake.start(this_process())
+    assert wait(JOB, "--timeout", "2.5") == int(Exit.WAIT_TIMEOUT)
+    err = capsys.readouterr().err
+    assert f"{JOB} still running after" in err
+    assert "has not answered" not in err and "restart window" not in err and not LINE.findall(err)
+    assert 1 <= fake.polls() <= 2 and only_waits_for(fake, [JOB])   # 1 if the first answer came late
+
+
+def test_c15_4_a_starved_daemon_that_answers_too_late_does_not_end_the_wait(fake, capsys, monkeypatch):
+    """D-DS1, 2026-10-10 22:28Z to 22:32Z: with load1 about 465 on 18 CPUs the daemon
+    took each poll and answered none within the 75 s budget ("no response from the
+    daemon within 75s"), for about four minutes. A late answer is lost (C-16.3)
+    like a dropped one, so it is an outage too. The budget here is shrunk to 2 s (a
+    1 s deadline and 1 s of slack) and the starved daemon answers 3 s after reading,
+    the shape of 90 s against 75 s; then it recovers."""
+    monkeypatch.setattr(cli, "WAIT_POLL_MAX_S", 1)
+    monkeypatch.setattr(cli, "WAIT_TRANSPORT_SLACK_S", 1)
+    fake.late = 3.0
+    fake.start(this_process())
+
+    def recover():
+        until(lambda: fake.polls() >= 3, timeout=60)     # two polls already timed out
+        fake.states[JOB] = ("succeeded", 0)
+        fake.late = 0.0
+    joined = in_background(recover)
+    assert wait(JOB) == 0
+    joined()
+    err = capsys.readouterr().err
+    assert LINE.findall(err) == ["answered again"]       # slow, the same process
+    assert "no response from the daemon" not in err and "restart window" not in err
+    assert fake.late_answers >= 2 and only_waits_for(fake, [JOB])
 
 
 def test_c15_4_a_wait_that_never_reached_a_daemon_reports_it_absent_at_once(root, capsys):
@@ -488,11 +541,14 @@ EPS = .001
 JOBS = ("20261010-000001-a", "20261010-000002-b", "20261010-000003-c")
 OUTSIDERS = [{"job_id": "20261010-999999-outsider", "state": "failed", "rc": 3},
              {"job_id": "20261010-999998-outsider", "state": "running"}]
+BUSY = "the daemon is busy: it holds 512 client connections, its limit"
+LOST = "the daemon closed the connection without a response"
+REFUSED = "no daemon at daemon.sock: [Errno 61] Connection refused"
+GONE = "no daemon at daemon.sock: [Errno 2] No such file or directory"
 
 
 def busy_answer() -> DaemonError:
-    return DaemonError(69, "the daemon is busy: it holds 512 client connections, its limit",
-                       "try again shortly")
+    return DaemonError(69, BUSY, "try again shortly")
 
 
 def unavailable(cause: OSError) -> DaemonUnavailable:
@@ -522,13 +578,17 @@ class ModelDaemon:
     """The daemon a property run waits on: a script of failures and answers, then a
     tail repeated for ever, on a fake clock.
 
-    Steps: `busy` (answered busy), `refused` (connect refused, the socket file
-    there), `gone` (the socket unlinked; a new process, so `daemon.lock` changes),
-    `lost` (taken, then no answer after the step's seconds, at most the budget),
-    `timeout` (answered with nothing new), `progress` (the next requested job ends,
-    and the answer reports every requested job ended so far), and as tails `done`
-    (every job ends and the answer says so) and `lost` for ever (a wedged daemon).
-    An answer that would come after the caller's transport budget is lost (C-16.3).
+    Steps: `busy` (answered busy); `refused` (connect refused, the socket file
+    there, the same process); `respawned` (a new process has written
+    `daemon.lock` and does not listen yet: connect refused); `gone` (the socket
+    unlinked); `lost` (taken, then no answer after the step's seconds, at most
+    the budget); `timeout` (answered with nothing new); `swap` (answered, by a new
+    process: a restart this wait never saw); `progress` (the next requested job
+    ends, and the answer reports every requested job ended so far); and as tails
+    `done` (every job ends and the answer says so) and `lost` for ever (a starved
+    or wedged daemon). An answer that would come after the caller's transport
+    budget is lost (C-16.3). Each call is logged as (time after it, kind,
+    `daemon.lock` generation, whether every requested job has been reported).
     """
 
     def __init__(self, clock: Clock, script, tail: str, alive, outcomes, requested,
@@ -541,7 +601,7 @@ class ModelDaemon:
         self.reported: set[str] = set()
         self.generation = 0
         self.calls: list[tuple[str, dict, object, object]] = []
-        self.log: list[tuple[float, str, int]] = []      # (time after the call, kind, generation)
+        self.log: list[tuple[float, str, int, bool]] = []
         self.tail_started: float | None = None
 
     def lock_info(self) -> dict:
@@ -554,6 +614,10 @@ class ModelDaemon:
         state, rc = self.outcomes[job_id]
         self.ended.setdefault(job_id, {"job_id": job_id, "state": state, "rc": rc})
 
+    def _record(self, kind: str) -> None:
+        self.log.append((self.clock.now, kind, self.generation,
+                         all(job_id in self.reported for job_id in self.requested)))
+
     def call(self, op, args=None, *, timeout=None, retry_busy=None, request_id=""):
         args = dict(args or {})
         self.calls.append((op, args, retry_busy, timeout))
@@ -565,15 +629,15 @@ class ModelDaemon:
                 self.tail_started = self.clock.now
             kind, seconds = self.tail, (POLL_BUDGET_S if self.tail == "lost" else 0.0)
         budget = float(timeout)
-        if kind in ("busy", "refused", "gone"):
+        if kind in ("respawned", "swap"):
+            self.generation += 1
+        if kind in ("busy", "refused", "respawned", "gone"):
             self.clock.now += min(EPS, budget)
-            if kind == "gone":
-                self.generation += 1
-            self.log.append((self.clock.now, kind, self.generation))
+            self._record(kind)
             if kind == "busy":
                 raise busy_answer()
-            raise unavailable(ConnectionRefusedError(61, "Connection refused") if kind == "refused"
-                              else FileNotFoundError(2, "No such file or directory"))
+            raise unavailable(FileNotFoundError(2, "No such file or directory") if kind == "gone"
+                              else ConnectionRefusedError(61, "Connection refused"))
         if kind == "progress":
             pending = [job_id for job_id in self.requested if job_id not in self.ended]
             if pending:
@@ -581,69 +645,104 @@ class ModelDaemon:
         elif kind == "done":
             for job_id in self.requested:
                 self._end(job_id)
-        if kind == "timeout":
+        if kind in ("timeout", "swap"):
             seconds = min(seconds, float(args.get("deadline_s", WAIT_POLL_MAX_S)))
         if kind == "lost" or seconds >= budget:
             self.clock.now += min(seconds, budget)
-            self.log.append((self.clock.now, "lost", self.generation))
-            raise ResponseLost("the daemon closed the connection without a response",
-                               op=op, request_id=request_id)
+            self._record("lost")
+            raise ResponseLost(LOST, op=op, request_id=request_id)
         self.clock.now += seconds
         rows = [self.ended[job_id] for job_id in args.get("job_ids") or () if job_id in self.ended]
         self.reported.update(row["job_id"] for row in rows)
-        self.log.append((self.clock.now, "answer", self.generation))
+        self._record("answer")
         return {"jobs": [dict(row) for row in rows] + (OUTSIDERS if self.outsiders else []),
                 "timeout": not rows}
 
 
-def reference(log, *, reached: bool, alive, timeout, window: float, hook: bool = False):
-    """C-15.4 and C-16.7, stated apart from the code: what each poll's result means.
+FAILED_CONNECT = {"refused": REFUSED, "respawned": REFUSED, "gone": GONE}
 
-    `answered` and `back` (an answer that ended an outage) go on; `backlog` is a
-    connect refused behind a busy daemon (C-16.7), which goes on too; `outage` is
-    a poll a restart can explain, inside the window; `give-up` is one past it (or
-    `timeout`, when `--timeout` has passed as well, which wins); `absent` is a
-    connect that failed before any daemon answered this wait (C-17.5). Returns the
-    verdicts and, for each outage, when it began."""
-    busy, since, verdicts, began = False, None, [], []
-    for at, kind, _generation in log:
+
+def reference(log, *, reached: bool, alive, timeout, window: float, hook: bool = False) -> dict:
+    """C-15.4 and C-16.7 restated, in three passes over what each poll got, apart
+    from the loop's own branches: what the wait must have done, and every line
+    about the daemon it must have printed (CLI only; the hook prints none).
+
+    1. Each poll is an `answer` (busy or not), `cut` (a lost poll whose budget ran
+       to `--timeout`: the wait's own end, never an outage), `absent` (a connect
+       that failed before any daemon answered this wait, C-17.5), `backlog` (a
+       connect refused right after a busy answer, the lock still naming that
+       busy daemon, and alive, or unknown under `--timeout`; the hook asks only
+       that the lock not say dead), or `fail`.
+    2. An outage is a run of `fail`s with no `answer` between; it starts when its
+       first fail failed. A fail more than `window` after that start gives up,
+       unless `--timeout` has passed as well, which then wins.
+    3. The wait stops at the first `absent`, `cut`, give-up, or answer after which
+       every requested job has been reported; or at `--timeout` between polls.
+    """
+    kinds, last_answer, busy_gen, seen = [], None, None, reached
+    for _at, kind, generation, _complete in log:
         if kind in ("answer", "busy"):
-            verdicts.append("back" if since is not None else "answered")
-            since, busy, reached = None, kind == "busy", True
-        elif kind in ("refused", "gone") and not reached:
-            verdicts.append("absent")
-        elif kind == "refused" and busy and (alive is not False if hook
-                                             else alive is True or (alive is None and timeout is not None)):
-            verdicts.append("backlog")
+            kinds.append("answer")
+            busy_gen, seen = (generation if kind == "busy" else None), True
+        elif kind == "lost" and not hook and timeout is not None and _at >= timeout:
+            kinds.append("cut")
+        elif kind in FAILED_CONNECT and not seen:
+            kinds.append("absent")
+        elif (kind in ("refused", "respawned") and busy_gen is not None
+              and (hook or generation == busy_gen)
+              and (alive is not False if hook else
+                   alive is True or (alive is None and timeout is not None))):
+            kinds.append("backlog")
         else:
-            busy, reached = False, True
-            if since is None:
-                since = at
-                began.append(at)
-            if at - since <= window:
-                verdicts.append("outage")
-            elif timeout is not None and at >= timeout:
-                verdicts.append("timeout")
-            else:
-                verdicts.append("give-up")
-    return verdicts, began
+            kinds.append("fail")
+            busy_gen, seen = None, True
+    verdicts, start = [], None
+    for (at, _kind, _generation, _complete), kind in zip(log, kinds):
+        if kind == "answer":
+            start = None
+        if kind != "fail":
+            verdicts.append(kind)
+            continue
+        start = at if start is None else start
+        if at - start <= window:
+            verdicts.append("fail")
+        elif timeout is not None and at >= timeout and not hook:
+            verdicts.append("timeout")
+        else:
+            verdicts.append("give-up")
+    stop = next((index for index, (verdict, entry) in enumerate(zip(verdicts, log))
+                 if verdict in ("absent", "cut", "give-up", "timeout")
+                 or (verdict == "answer" and entry[3])), None)
+    # The lines about the daemon, in order.
+    lines, generation_then, answered_then, failing, busy_then = [], 0, 0.0, None, False
+    for index, ((at, kind, generation, _complete), verdict) in enumerate(zip(log, verdicts)):
+        if verdict == "answer":
+            if failing is not None:
+                lines.append("subfleet wait: daemon "
+                             + ("restarted" if generation != generation_then else "answered again")
+                             + "; still waiting")
+            generation_then, answered_then, failing, busy_then = generation, at, None, kind == "busy"
+        elif verdict in ("fail", "give-up", "timeout"):
+            failing, busy_then = kind, False
+        if verdict == "give-up":
+            lines.append(f"subfleet wait: the daemon has not answered for {at - answered_then:.0f}s, "
+                         f"and the {window:g}s restart window from its first failed poll has passed")
+        if verdict in ("give-up", "absent"):
+            lines += ([f"subfleet: {LOST}"] if kind == "lost"
+                      else [f"subfleet: {FAILED_CONNECT[kind]}", "  fix: subfleet daemon start"])
+        if index == stop:
+            break
+    return {"verdicts": verdicts, "stop": stop, "lines": lines, "answered_then": answered_then,
+            "failing": failing, "busy_then": busy_then}
 
 
-def expected_lines(log, verdicts) -> list[str]:
-    """W6: per outage that an answer ended, "restarted" when the lock's process
-    changed since the answer before it (or the wait's start)."""
-    lines, generation = [], 0
-    for (_at, _kind, now), verdict in zip(log, verdicts):
-        if verdict == "back":
-            lines.append("restarted" if now != generation else "answered again")
-        if verdict in ("back", "answered"):
-            generation = now
-    return lines
+def daemon_lines(err: str) -> list[str]:
+    return [line for line in err.splitlines() if "daemon" in line]
 
 
 STEP = st.one_of(
-    st.tuples(st.sampled_from(("busy", "refused", "gone")), st.just(0.0)),
-    st.tuples(st.sampled_from(("lost", "timeout", "progress")),
+    st.tuples(st.sampled_from(("busy", "refused", "respawned", "gone")), st.just(0.0)),
+    st.tuples(st.sampled_from(("lost", "timeout", "swap", "progress")),
               st.floats(0.0, 80.0, allow_nan=False, allow_infinity=False)),
 )
 OUTCOME = st.sampled_from([("succeeded", 0), ("failed", 1), ("failed", 3), ("cancelled", 130)])
@@ -671,15 +770,15 @@ def run_wait(script, tail, alive, outcomes, count, timeout, reached, window, out
        alive=st.sampled_from((True, False, None)), outcomes=st.lists(OUTCOME, min_size=3, max_size=3),
        count=st.integers(1, 3), reached=st.booleans(),
        timeout=st.one_of(st.none(), st.floats(.5, 400.0, allow_nan=False)),
-       window=st.sampled_from((.5, 3.0, 180.0)))
+       window=st.sampled_from((.5, 3.0, 300.0)))
 def test_c15_4_wait_invariants_over_every_interleaving(script, tail, alive, outcomes, count,
                                                        reached, timeout, window):
     code, model, elapsed, err = run_wait(script, tail, alive, outcomes, count, timeout,
                                          reached, window, outsiders=True)
     requested = model.requested
-    verdicts, began = reference(model.log, reached=reached, alive=alive, timeout=timeout,
-                                window=window)
-    stops = ("give-up", "absent")
+    expected = reference(model.log, reached=reached, alive=alive, timeout=timeout, window=window)
+    verdicts, stop = expected["verdicts"], expected["stop"]
+    last = len(model.log) - 1
 
     # W5: only reads, only for requested jobs, each poll handing busy back to the loop.
     for op, args, retry_busy, _budget in model.calls:
@@ -687,14 +786,15 @@ def test_c15_4_wait_invariants_over_every_interleaving(script, tail, alive, outc
         assert set(args["job_ids"]) <= set(requested) and args["mine"] is None and not args["last"]
         assert 1 <= args["deadline_s"] <= WAIT_POLL_MAX_S
 
-    # W3: no poll before the last was one the rule stops at; the CLI asked again.
-    assert not any(verdict in stops for verdict in verdicts[:-1]), (verdicts, model.log)
-    if verdicts and verdicts[-1] in stops:
-        last_kind = model.log[-1][1]
-        assert code == (int(Exit.OPERATIONAL) if last_kind == "lost" else int(Exit.DAEMON_UNAVAILABLE))
-        assert ("restart window" in err) == (verdicts[-1] == "give-up")
-        if verdicts[-1] == "absent":
-            assert len(model.log) == 1                       # C-17.5: at once
+    # W3: the wait stopped at the first poll the rule stops at, never before (it asked
+    # again inside the window) and never after.
+    assert stop is None or stop == last, (stop, last, verdicts)
+    lines = list(expected["lines"])
+    if stop is not None and verdicts[stop] in ("absent", "give-up"):
+        assert code == (int(Exit.OPERATIONAL) if model.log[stop][1] == "lost"
+                        else int(Exit.DAEMON_UNAVAILABLE))
+        if verdicts[stop] == "absent":
+            assert stop == 0                                     # C-17.5: at once
     else:
         # W1: once every requested job was answered, the exit is theirs; else 124.
         rows = [model.ended[job_id] for job_id in requested if job_id in model.reported]
@@ -702,25 +802,36 @@ def test_c15_4_wait_invariants_over_every_interleaving(script, tail, alive, outc
         missing = [job_id for job_id in requested if job_id not in model.reported]
         assert code == max(exits + ([int(Exit.WAIT_TIMEOUT)] if missing else [])), (code, verdicts)
         if missing:
-            assert timeout is not None and elapsed >= timeout - 1e-9   # W2: never early
+            # W2: 124 only once `--timeout` has passed; and then the closing lines.
+            assert timeout is not None and elapsed >= timeout - 1e-9
+            if expected["busy_then"]:
+                lines.append(f"subfleet wait: the daemon was still busy ({BUSY}); the jobs are unaffected")
+            if expected["failing"] is not None:
+                reason = LOST if expected["failing"] == "lost" else FAILED_CONNECT[expected["failing"]]
+                lines.append(f"subfleet wait: the daemon has not answered for "
+                             f"{elapsed - expected['answered_then']:.0f}s ({reason})")
         else:
-            assert model.log[-1][1] == "answer"
+            assert verdicts[last] == "answer" and model.log[last][3]
     if code == 0:
         assert all(model.ended.get(job_id, {}).get("state") == "succeeded" and job_id in model.reported
                    for job_id in requested)
 
-    # W2: `--timeout` bounds every path that reached it.
+    # W6, and the review of 2c1a0f0e (P2): every line about the daemon is one the rule
+    # calls for. One reconnect line per outage an answer ended, "restarted" exactly
+    # when `daemon.lock` names another process than at the answer before.
+    assert daemon_lines(err) == lines, (daemon_lines(err), lines, verdicts)
+
+    # W2: `--timeout` bounds every path.
     if timeout is not None:
         assert elapsed <= timeout + POLL_BUDGET_S
         assert elapsed <= timeout + .2 + 1e-6, (elapsed, timeout)
-    # W3: a daemon gone for good ends the wait within the window of its outage.
-    if timeout is None and tail != "done" and model.tail_started is not None and began:
-        assert elapsed <= began[-1] + window + POLL_BUDGET_S + 1.0 + EPS, (elapsed, began)
-        if tail == "gone":
-            assert elapsed <= max(began[-1], model.tail_started) + window + 1.0 + 2 * EPS
-
-    # W6: one line per outage an answer ended, naming a restart only for a new process.
-    assert LINE.findall(err) == expected_lines(model.log, verdicts)
+    # W3: a daemon gone for good ends the wait within the window of its outage, counted
+    # from when the outage's first failed poll failed.
+    if timeout is None and tail != "done" and model.tail_started is not None:
+        starts = [model.log[index][0] for index, verdict in enumerate(verdicts)
+                  if verdict == "fail" and (index == 0 or verdicts[index - 1] != "fail")]
+        if starts:
+            assert elapsed <= starts[-1] + window + POLL_BUDGET_S + 1.0 + EPS, (elapsed, starts)
 
     # W4: the outsiders the daemon mentioned changed nothing.
     alone = run_wait(script, tail, alive, outcomes, count, timeout, reached, window, outsiders=False)
@@ -745,24 +856,24 @@ def run_hook(script, tail, alive, budget, window):
 @settings(max_examples=300, deadline=None, derandomize=True)
 @given(script=st.lists(STEP, max_size=24), tail=st.sampled_from(("gone", "lost", "done")),
        alive=st.sampled_from((True, False, None)),
-       budget=st.floats(1.0, 600.0, allow_nan=False), window=st.sampled_from((.5, 3.0, 180.0)))
+       budget=st.floats(1.0, 600.0, allow_nan=False), window=st.sampled_from((.5, 3.0, 300.0)))
 def test_c15_4_hook_wait_invariants_over_every_interleaving(script, tail, alive, budget, window):
     """The PostToolUse hook's wait: delivered only once its job was answered ended;
-    silent otherwise; never gives up inside the window; bounded by its deadline
-    plus one poll's transport slack (10 s); only `wait`."""
+    silent otherwise; it stops where the rule stops it and nowhere earlier; bounded
+    by its deadline plus one poll's transport slack (10 s); only `wait`."""
     code, model, clock_end, delivered, err = run_hook(script, tail, alive, budget, window)
     deadline = 1000.0 + budget
-    verdicts, _began = reference(model.log, reached=True, alive=alive, timeout=None,
-                                 window=window, hook=True)
+    expected = reference(model.log, reached=True, alive=alive, timeout=None, window=window, hook=True)
+    verdicts, stop, last = expected["verdicts"], expected["stop"], len(model.log) - 1
     for op, args, retry_busy, _transport in model.calls:
         assert op == "wait" and retry_busy is False and args["job_ids"] == [JOBS[0]]
     assert err == ""
-    assert not any(verdict == "give-up" for verdict in verdicts[:-1]), verdicts
+    assert stop is None or stop == last, (stop, last, verdicts)
     if code == 2:
         assert delivered and delivered[0]["job_id"] in model.reported
-        assert model.log[-1][1] == "answer"
+        assert verdicts[last] == "answer" and model.log[last][3]
     else:
         assert code == 0 and not delivered
-        # Silent: past the window at its last poll, or out of time.
-        assert (verdicts and verdicts[-1] == "give-up") or clock_end >= deadline - 1e-9, verdicts
+        # Silent: past the window at its last poll, or out of time between polls.
+        assert (stop == last and verdicts[last] == "give-up") or clock_end >= deadline - 1e-9, verdicts
     assert clock_end <= deadline + 10 + EPS
