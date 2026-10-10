@@ -1,0 +1,71 @@
+{
+ "since": "2026-09-19T00:00:00Z",
+ "claude_attempts": 2237,
+ "with_usage": 2218,
+ "ttl_split": {
+  "1h-only": 2004,
+  "no-writes": 112
+ },
+ "share_by_kind": {
+  "dispatch": {
+   "n": 1933,
+   "read": 13503046191,
+   "prompt": 13803868499,
+   "share": 0.9782
+  },
+  "gate-review": {
+   "n": 51,
+   "read": 38965465,
+   "prompt": 43441042,
+   "share": 0.897
+  },
+  "turn": {
+   "n": 121,
+   "read": 1267450625,
+   "prompt": 1303538070,
+   "share": 0.9723
+  },
+  "resume": {
+   "n": 11,
+   "read": 399100187,
+   "prompt": 403591904,
+   "share": 0.9889
+  }
+ },
+ "turn_stays": {
+  "n": 47,
+  "first_write_median": 7253,
+  "first_read_median": 230869,
+  "first_prompt_median": 469739,
+  "first_write_sum": 10441706,
+  "first_read_sum": 12006634,
+  "first_prompt_sum": 22448432
+ },
+ "turn_moves": {
+  "n": 37,
+  "first_write_median": 430549,
+  "first_read_median": 34035,
+  "first_prompt_median": 440724,
+  "first_write_sum": 15998282,
+  "first_read_sum": 742646,
+  "first_prompt_sum": 16741002
+ },
+ "stays_gap_over_1h": {
+  "n": 21,
+  "first_write_median": 523316,
+  "first_read_median": 0,
+  "first_prompt_median": 523318,
+  "first_write_sum": 10339240,
+  "first_read_sum": 342905,
+  "first_prompt_sum": 10682185
+ },
+ "stays_gap_under_1h": {
+  "n": 26,
+  "first_write_median": 1811,
+  "first_read_median": 436997,
+  "first_prompt_median": 438317,
+  "first_write_sum": 102466,
+  "first_read_sum": 11663729,
+  "first_prompt_sum": 11766247
+ }
+}
