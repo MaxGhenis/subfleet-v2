@@ -71,7 +71,7 @@ def mutants(head):
         yield ('resume-realpath', DAEMON, '_launch_dir',
                'folders.canonical(workspace["worktree"]) != folders.canonical(root)',
                'os.path.realpath(workspace["worktree"]) != os.path.realpath(root)',
-               POLICY, 'resume_starts_where_its_source_attempt_actually_started')
+               POLICY, 'source_started_under_a_state_root_typed_in_other_capitals')
     else:
         yield ('no-source-fence', DAEMON, '_detached_folders',
                'return [(recorded, False)] + ([(now, False)] if now != recorded else [])',
