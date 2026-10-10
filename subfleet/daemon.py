@@ -4859,10 +4859,15 @@ class Daemon:
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
-        # Each waiter carries the leases it waits for another holder to release:
-        # a job never waits behind a waiter for a lease the job itself holds.
+        # Each waiter carries the leases it waits for (held by another, needed free,
+        # or kept for an older job): a job never waits behind a waiter for a lease
+        # the job itself holds. A waiter with any is waiting for a lease, not a slot,
+        # so it holds no later job back; it only keeps the last slot (`kept`), and
+        # its lease keeps its order through `lease_queue` (fenced-turn-precheck
+        # review P3-4: with a turn cap, a turn waiting on retention's fence held
+        # every competing later turn for the whole retirement, slots free).
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]]] = {}
-        # C-6.16: a waiting priority job holds back later competing detached jobs
+        # C-6.16: a priority job waiting for a slot holds back later competing detached jobs
         # of every tier, as any waiter holds back its own tier's (review of PR
         # #147: a waiting hard-tier priority job let later standard and trivial
         # jobs take the slots it was waiting for).
@@ -4997,7 +5002,8 @@ class Daemon:
             # from another (`scheduler.pool_capped`): with no cap (the default) no
             # job waits for a slot, and an older job that cannot be placed (its lane
             # closed, its checkout leased) would otherwise keep every later one
-            # waiting while lanes were free. A lease keeps its FIFO below.
+            # waiting while lanes were free. A lease keeps its FIFO below, capped or
+            # not, and a job waiting for one holds no later job back (`ahead`).
             scope = scheduler.hold_scope(self.policy, job)
             family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
 
@@ -5017,17 +5023,20 @@ class Daemon:
                 return not (waiter[3] and waiter[3] & own_leases())
 
             def ahead(models, lanes):
-                """The oldest waiter this job may not pass (C-6.9), or None. Never one
-                waiting for a lease this job holds: that waiter moves only once this
-                job has run, so holding this job behind it holds both until
-                `max_wall_s` (review of PR #72: a retrying resume and a newer one
-                of the same native session, the newer ordered first by class)."""
+                """The oldest waiter this job may not pass (C-6.9), or None: only one
+                waiting for a slot. A waiter on a lease waits for no slot this job
+                could take; its lease keeps its place in `lease_queue`, and the last
+                slot is kept for it (`kept`). So this job is never held behind one
+                waiting for a lease this job holds either, which moves only once this
+                job has run (review of PR #72: a retrying resume and a newer one of
+                the same native session, the newer ordered first by class, each
+                waited for the other until `max_wall_s`)."""
                 if scope is None:
                     return None
                 return next((waiter[0] for waiter in older_waiters(tier)
-                             if scheduler.competes(models, waiter[1], lanes, waiter[2])
-                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))
-                             and blocks(waiter)), None)
+                             if not waiter[3]
+                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
             behind = ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
@@ -5065,7 +5074,9 @@ class Daemon:
                 asked = job["wait_reason"] == "capacity" and (scope is not None or lease_held)
                 for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo) if asked else None
                 if job["wait_reason"] == "capacity" and not for_good:
-                    waiting_for = (frozenset(known["hold"].get("leases") or ()) if lease_held else frozenset())
+                    # C-6.9: a lease wait, those kept for an older job too, is no slot wait.
+                    waiting_for = (frozenset([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())])
+                                   if lease_held else frozenset())
                     wait(tier, klass, (job["job_id"], models, lanes, waiting_for))
                     if probing:
                         probe_line.append((job["job_id"], probing["model"],
@@ -5328,8 +5339,9 @@ class Daemon:
                         saturated[pool] = pool_cap is not None and live >= pool_cap
                         # A job that passes an older waiting job of its tier leaves one
                         # active slot free, so the older job can start the moment its
-                        # capacity appears instead of waiting out the jobs that passed it.
-                        # An uncapped pool (C-26.9) has no last slot to keep.
+                        # capacity appears instead of waiting out the jobs that passed it:
+                        # its lane, or a lease it waits for (which holds no job back,
+                        # `ahead`). An uncapped pool (C-26.9) has no last slot to keep.
                         kept = [waiter for waiter in older_waiters(tier) if blocks(waiter)]
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
@@ -5478,9 +5490,11 @@ class Daemon:
                         queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
                         if contested or blocked or queued:
-                            wait(tier, klass, (job["job_id"], models, lanes, frozenset(contested + blocked)))
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset(contested + blocked + queued)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
+                            # Either way it waits for a lease, not a slot: it holds no later job
+                            # back, and passing jobs keep the last slot for it (C-6.9).
                             # A key it only needs free (`blocked`) is never queued for: turns
                             # share their folder, so no turn takes it from another, and no
                             # detached job takes a turn's row. It is among the keys the waiter
