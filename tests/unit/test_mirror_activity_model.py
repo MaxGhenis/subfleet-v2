@@ -244,6 +244,23 @@ def test_the_decision_never_fails_and_keeps_its_promise_for_any_numbers(values, 
     assert mirror.activity_targets(after, lag) == {}, "a second decision writes nothing"
 
 
+@settings(max_examples=600, deadline=None)
+@given(values=st.lists(st.floats(min_value=-(2.0 ** 53), max_value=2.0 ** 53,
+                                 exclude_min=True, exclude_max=True),
+                       min_size=1, max_size=6),
+       lag=st.floats(min_value=1e-3, max_value=1e6))
+def test_the_promise_holds_for_every_float_within_the_safe_integers(values, lag):
+    """C-23.28 (second review of #167): above its own date and below the
+    newest, for floats of either sign anywhere in the range, and a second
+    decision never chooses a copy the first one raised."""
+    raises = mirror.activity_targets(values, lag)
+    newest = max(values)
+    assert all(values[index] < goal < newest for index, goal in raises.items())
+    after = applied(values, raises)
+    assert max(after) == newest
+    assert not set(mirror.activity_targets(after, lag)) & set(raises)
+
+
 @settings(max_examples=400, deadline=None)
 @given(dates=st.lists(st.one_of(st.integers(min_value=0, max_value=2 * 10**12),
                                 st.floats(min_value=0, max_value=2e12)),
@@ -266,6 +283,31 @@ def test_the_decision_keeps_its_bounds_for_dates_that_parse_as_floats(dates, lag
 def test_a_lag_of_zero_switches_the_sync_off(dates, lag):
     """C-6.4: zero is off, as for every window under `sessions`."""
     assert mirror.activity_targets(dates, lag) == {}
+
+
+def test_a_float_whose_one_before_rounds_onto_the_copy_is_not_raised_to_itself():
+    """C-23.28 (second review of #167): the two dates straddle a power of two.
+    One before the newest is not a number a float there can hold, and it rounds
+    onto the older copy's own date. Without the decision's last test that copy
+    was "raised" to the date it already held, on every pass."""
+    older, newest = -2251799813685249.0, -2251799813685247.8
+    assert newest - older > 1 and newest - 1 == older
+    assert mirror.activity_targets([older, newest], 1) == {}
+    assert mirror.activity_targets([-older - 3, -newest], 1) == {0: -newest - 1}, \
+        "the same magnitudes above zero, where one before is exact"
+
+
+def test_a_voice_is_a_number_within_the_safe_integers_and_nothing_else():
+    """C-23.28: the edges, each side. JavaScript's largest safe integer is a
+    date; the next integer is not."""
+    assert mirror.SAFE_MS == 2 ** 53
+    for value in (1, 0, -1, 2 ** 53 - 1, -(2 ** 53) + 1, 2.0 ** 52 + 0.5, 1.5, 2 ** 52 + 1):
+        assert mirror._instant_ms(value), value
+    for value in (2 ** 53, -(2 ** 53), 2.0 ** 53, 10 ** 400, float("inf"), float("nan"),
+                  True, False, None, "5", [5], {"at": 5}):
+        assert not mirror._instant_ms(value), value
+    upper = 2 ** 53 - 1
+    assert mirror.activity_targets([upper, upper - 10], 5) == {1: upper - 1}
 
 
 def test_a_lag_under_one_millisecond_still_raises_only_what_it_can_move():

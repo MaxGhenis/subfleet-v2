@@ -116,7 +116,8 @@ also raises `lastActivityAt`:
 - one flag sync raises at most ten sessions, those furthest behind first, and
   counts the rest in `activity_waiting`, so the 750-session backlog drains
   over about 75 passes and no publish is long;
-- a session it chose and could not publish goes last in the next sync.
+- a sync takes first the sessions it has chosen and failed to publish the
+  fewest times, and among those the furthest behind.
 
 A date is a voice only if it is a number above zero, within JavaScript's safe
 integers, and not more than five minutes past the pass's own clock. Anything
@@ -129,8 +130,9 @@ could be copied from the older record.
 
 **2. Split ids are reported.** A full pass records each record name whose
 copies hold more than one conversation with a transcript, and how many of them
-still show two rows. Only a pass that listed every folder and read every copy
-replaces the report, and no process puts an older report over a later one. `sessions mirror --status` names each of those with both
+still show two rows. Only a pass that listed every folder, read every copy and
+listed every project directory replaces the report. The report is written
+once, by the pass that took the inventory. `sessions mirror --status` names each of those with both
 conversations, the folders that open each, and each one's newest date.
 `doctor` has a row for it: `warn` while one shows, and `unknown` when no pass
 has replaced the report for thirty minutes. The mirror archives, retitles and
@@ -164,9 +166,16 @@ For one session, with the date in each folder's copy:
 - **A date is not a flag write.** A write that changed only a date changes no
   field a flag decision reads, so it does not make the full pass read the
   flags again. Flags, titles and bases keep the liveness they had.
-- **Fair under the bound.** A session chosen and not published yields its
-  place in the next sync, so sessions that never go through cannot keep the
-  bound from the rest.
+- **Fair under the bound.** A ledger counts, for each session, the syncs that
+  chose its raise and could not publish it since it last went through. A
+  sync takes the fewest first. Sessions that never go through therefore take
+  turns behind every session that has failed less, and cannot keep the bound
+  from them. The full pass, the hot pass and the hot pass a full pass runs at
+  its checkpoints share the one ledger.
+- **The report is whole or it is the last whole one.** A pass that could not
+  list a folder, read a copy or list a project directory does not replace
+  the split report. A report is written once, by its own pass and inside its
+  lock, so the latest inventory's is the last written.
 - **Idempotence.** With every copy within the lag, nothing is decided and
   nothing is written.
 - **No lost update.** The mirror writes only a copy nobody rewrote since its
@@ -232,7 +241,7 @@ tested by example, not explored.
   date was put back (155), a flag and a date were put back together (133), a
   moved flag held a date (409), a copy the app raised itself was left out
   (241).
-- **52 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`),
+- **61 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`),
   among them the 2026-10-10 store, the put-back of a date with a flag, the
   bound of ten and its fairness, the new folder copied from the record that
   leads, numbers of any size, a date from the future, the reviewer's schedule
@@ -240,39 +249,45 @@ tested by example, not explored.
   inventory, and the status and doctor output. One is a property: any three
   dates around the pass's clock, and the bounds above on the files a pass
   leaves.
-- **Mutation check:** 28 deliberate faults in `mirror.py`, one at a time
-  (raise to the newest, raise at exactly the lag, write over a later date,
-  raise an archived session, rewrite a copy that needs nothing, least behind
-  first, no bound, ignore the switch, take a future date for a voice, count
-  a date as a flag write, take a partial inventory for a report, convert any
-  number to a float, and sixteen more). On the final code each fails a test.
+- **Mutation check:** 41 deliberate faults, one at a time, 38 in `mirror.py`
+  and three in `doctor.py` and the CLI (raise to the newest, raise at exactly
+  the lag, write over a later date, raise an archived session, rewrite a copy
+  that needs nothing, least behind first, no bound, ignore the switch, take a
+  future date for a voice, count a date as a flag write, take a partial
+  inventory for a report, convert any number to a float, give the hot worker
+  a ledger of its own, and 28 more). On the final code each fails a test.
   Earlier runs left three alive, and each changed something. The needless
-  rewrite was real; its test now checks that the file is not replaced. A
-  guard in the decision had been made dead by the safe-integer rule; the
-  guard was removed. Taking zero for a date at the decision changed no file
-  once the write refused it, but chose the session again every pass; its
-  test now checks that a second pass chooses nothing.
+  rewrite was real; its test now checks that the file is not replaced.
+  Taking zero for a date at the decision changed no file once the write
+  refused it, but chose the session again every pass; its test now checks
+  that a second pass chooses nothing. The third was the decision's last
+  test, `value < goal < newest`. I judged it dead under the safe-integer rule
+  and removed it. The second review showed it is not: for a negative float
+  just above a power of two, one before the newest rounds onto the copy's own
+  date. It is back, with that case as its test.
 - **The existing mirror tests** pass: 12 files unchanged (293 tests), and the
   flag model's file, which gained three tests for the wider batch.
 - **Dry run on the live store** (nothing written): 94.5 s cold, 0 copies to
   add, 0 flags held, 750 sessions to raise, 12 splits and none showing two
   rows, the same 12 an independent read of the store found.
-- **TLC.** The independent review parsed both modules with SANY and ran TLC
-  2.19 on every configuration at `bc452d310` (below). `WriteBelowNewest` was
-  added to `MirrorActivity.tla` after that run; the twin has checked the same
-  bound at the write since the first commit.
+- **TLC.** Both reviews parsed both modules with SANY and ran TLC 2.19 on
+  every configuration: the first at `bc452d310`, the second at `dadfff358`,
+  which has `WriteBelowNewest`. Only comments in the modules have changed
+  since. The two runs counted the same distinct states.
 
-| Configuration | TLC 2.19 at `bc452d310` |
-|---|---|
-| `MirrorActivity.cfg` | no error, 450,278 distinct states |
-| `MirrorFlags.cfg` | no error, 616,753 |
-| `MirrorActivityStale.cfg` | no error, 190,155 |
-| `MirrorFlagsStale.cfg` | no error, 1,178,106 |
-| `MirrorActivityStaleLowered.cfg` | `StaysFresh` violated, as expected |
-| `MirrorFlagsStaleUndo.cfg` | `IntentWins` violated, as expected; `NeverUndoSettled` too, with `IntentWins` left out |
+| Configuration | TLC 2.19 at `dadfff358` | Distinct / generated states |
+|---|---|---|
+| `MirrorActivity.cfg` | no error | 450,278 / 2,303,170 |
+| `MirrorFlags.cfg` | no error | 616,753 / 3,392,312 |
+| `MirrorActivityStale.cfg` | no error | 190,155 / 976,775 |
+| `MirrorFlagsStale.cfg` | no error | 1,178,106 / 7,226,420 |
+| `MirrorActivityStaleLowered.cfg` | `StaysFresh` violated, as expected | 8,411 / 26,292 |
+| `MirrorFlagsStaleUndo.cfg` | `IntentWins` violated, as expected | 82,934 / 268,014 |
 
-TLC counts more states than the twins because the modules keep a pass's
-snapshot after the pass and carry a `clean` ghost (the reviewer's reading).
+With `IntentWins` left out of the last configuration, TLC found
+`NeverUndoSettled` violated as well. TLC counts more states than the twins
+because the modules keep a pass's snapshot after the pass and carry a `clean`
+ghost (the first reviewer's reading).
 
 ## Review
 
@@ -303,6 +318,31 @@ It reproduced each finding, and each is now a test.
   example now unarchives, the run counts its shapes, and floats are covered.
 - **Ten sessions that never publish could starve an eleventh.** A session
   chosen and not published now yields its place.
+
+Round 2 (the same tier, at `dadfff358`) confirmed five of those fixed and two
+partly, and asked for changes again. Each finding was executed.
+
+- **The yielding remembered one sync.** Twenty failing sessions alternated in
+  tens and a twenty-first was never chosen, through full passes and hot
+  passes alike. The ledger now counts failures, so the twenty-first comes
+  first at the third sync, and the twenty then take turns.
+- **A pass that could not list the transcripts reported no split.** With
+  `projects/` unlistable for a moment every conversation looked dead, the
+  pass finished `ok`, and doctor passed. Transcript discovery now says when
+  it was not whole, and such a pass leaves the report alone. A project
+  directory whose listing failed was also kept as an empty listing until its
+  next sweep, which predates this change; it is listed again on the next
+  pass.
+- **Two inventories in one second.** `checked_at` has whole seconds, so the
+  earlier process's next record put its report back over the later one. A
+  report is no longer kept after it is recorded, and no clock is compared.
+- **The embedded hot pass kept its own yield.** Ten it had just failed were
+  chosen again by the full sync that followed. One ledger now.
+- **The guard I removed was needed** (the mutation note above).
+
+Round 2 also reported, as older than this change and not part of it: `_rank`
+raises on a record whose date field is a string, a list or an object, and a
+dry-run hot pass on the same instance clears the flag retries.
 
 ## Cost
 

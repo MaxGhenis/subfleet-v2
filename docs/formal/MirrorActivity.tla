@@ -40,9 +40,9 @@
 (* is explored exhaustively by tests/unit/test_mirror_activity_model.py,    *)
 (* and tests/unit/test_mirror_activity_stateful.py holds the implementation *)
 (* to it and to the flag twin together. SANY and TLC 2.19 checked this      *)
-(* module on 2026-10-10, in the review of PR #167, as it stood before       *)
-(* WriteBelowNewest was added; docs/reports/2026-10-10-mirror-stale-dates.md *)
-(* has the runs. TLC is not part of CI.                                     *)
+(* module on 2026-10-10, in the reviews of PR #167;                         *)
+(* docs/reports/2026-10-10-mirror-stale-dates.md has the runs. TLC is not   *)
+(* part of CI.                                                              *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 

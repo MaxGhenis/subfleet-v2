@@ -267,10 +267,14 @@ def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
         return {}
     newest = max(known)
     lag = max(float(lag_ms), 1.0)       # a raise must move the copy: newest - 1 > its date
-    # Within the safe integers `newest - 1` is exact and is not `newest`, and
-    # a difference above one is a true one: the promise needs no further test.
-    return {index: newest - 1 for index, value in enumerate(values)
-            if _instant_ms(value) and newest - value > lag}
+    goal = newest - 1
+    # The last test is the promise itself. For integers it never decides: one
+    # before the newest is exact. For a negative float just above a power of
+    # two it does: `newest - 1` rounds onto the copy's own date there, and
+    # without the test the copy would be "raised" to itself on every pass
+    # (second review of #167; the dates a pass passes in are positive).
+    return {index: goal for index, value in enumerate(values)
+            if _instant_ms(value) and newest - value > lag and value < goal < newest}
 
 
 class _Cancelled(Exception):
@@ -880,10 +884,19 @@ class Mirror:
         #: A published flag decision or copy write left standing this hot pass.
         self._flags_moved = False
         self._flags_active = False
-        #: This process's last complete inventory's split-id report.
+        #: The split-id report of the inventory the running pass took, until
+        #: that pass records it. Never kept: a process that wrote a report it
+        #: took earlier could put it over a later one of another process's.
         self._splits: dict[str, Any] | None = None
-        #: Sessions whose date raise the last flag sync chose and could not publish.
-        self._activity_yield: set[str] = set()
+        #: `<session> -> the flag syncs that chose its date raise and could not
+        #: publish it`, since it last went through. A sync takes the sessions
+        #: with the fewest first, so those that never publish take turns behind
+        #: the rest instead of holding the bound (second review of #167: with a
+        #: memory of one sync, two groups of ten alternated for ever). One
+        #: ledger for the process: the embedded hot worker shares it.
+        self._activity_tries: dict[str, int] = {}
+        #: The last transcript discovery listed every project directory.
+        self._stems_whole = True
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -1023,7 +1036,7 @@ class Mirror:
         worker._account_orgs = dict(self._account_orgs)
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
-        worker._activity_yield = set(self._activity_yield)
+        worker._activity_tries = self._activity_tries      # shared, as the journal is
         worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
@@ -1080,12 +1093,11 @@ class Mirror:
         })
         if load_gap is not None:
             value["load_gap"] = load_gap
-        mine, theirs = self._splits, previous.get("splits")
-        # Another process may have taken a later inventory: never put an
-        # older report over it.
-        if mine is not None and not (isinstance(theirs, dict) and str(
-                theirs.get("checked_at") or "") > str(mine.get("checked_at") or "")):
-            value["splits"] = mine
+        if self._splits is not None:
+            # Recorded once, by the pass that took the inventory, inside its
+            # lock: passes are ordered by that lock, so the latest report is
+            # the last one written, whatever any clock says.
+            value["splits"], self._splits = self._splits, None
         _write_json(self.sidecar_path, value)
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
@@ -1212,11 +1224,16 @@ class Mirror:
         """
         stems: dict[str, Path] = {}
         base = projects_dir()
+        # `_stems_whole` is False when a listing failed for a cause that may
+        # pass (EMFILE): what it hid is unknown, not absent. What the user may
+        # not read, the app cannot open either (`_permanent`).
+        self._stems_whole = True
         try:
             with os.scandir(base) as listing:
                 directories = sorted(item.path for item in listing
                                      if item.is_dir(follow_symlinks=False))
-        except OSError:
+        except OSError as exc:
+            self._stems_whole = isinstance(exc, FileNotFoundError) or _permanent(exc)
             return stems
         seen = set()
         for directory in directories:
@@ -1225,7 +1242,9 @@ class Mirror:
             seen.add(directory)
             try:
                 mtime = os.stat(directory).st_mtime_ns
-            except OSError:
+            except OSError as exc:
+                if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
+                    self._stems_whole = False
                 continue
             cached = self._stem_dirs.get(directory)
             if sweep or cached is None or cached[0] != mtime:
@@ -1239,7 +1258,14 @@ class Mirror:
                                     links.add(item.name[:-6])
                             elif sweep and item.name.endswith(".tmp-revive"):
                                 leftovers.append(item.path)
-                except OSError:
+                except OSError as exc:
+                    if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
+                        # Not kept as an empty listing: the directory's mtime
+                        # has not moved, so a kept one would hide its
+                        # transcripts until the next sweep.
+                        self._stems_whole = False
+                        self._stem_dirs.pop(directory, None)
+                        continue
                     found, links = {}, set()
                 _remove_leftovers(leftovers)
                 self._stem_dirs[directory] = (mtime, found, frozenset(links))
@@ -1741,7 +1767,7 @@ class Mirror:
         moved: the write keeps the later of what the copy holds and what the
         pass decided, and a copy that needs nothing after that is not
         written. A sync raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions,
-        and one it chose and could not publish goes last in the next. A date
+        those chosen and not published the fewest times first. A date
         more than `ACTIVITY_FUTURE_S` past this pass's clock, or not above
         zero, is no voice: it is not raised and it is never the newest. A
         write that changed only a date does not invalidate the full pass's
@@ -1912,11 +1938,16 @@ class Mirror:
                 record["tmt"] = stamp
             fresh[identity] = record
 
-        # The dates join the same publish, furthest behind first, a bounded
-        # number of sessions a pass (`ACTIVITY_SESSIONS_PER_PASS`). A session
-        # the last sync chose and could not publish goes last this time, so
-        # ten that never go through cannot keep the bound from the rest.
-        lagging.sort(key=lambda item: (item[1] in self._activity_yield, -item[0], item[1]))
+        # The dates join the same publish, a bounded number of sessions a pass
+        # (`ACTIVITY_SESSIONS_PER_PASS`): first those chosen and not published
+        # the fewest times, and among them the furthest behind. A session that
+        # needs no raise any more, or is gone, leaves the ledger.
+        tries = self._activity_tries
+        behind = {identity for _behind, identity, _targets in lagging}
+        for identity in [key for key in tries if key not in behind
+                         and (key in groups or complete)]:
+            del tries[identity]
+        lagging.sort(key=lambda item: (tries.get(item[1], 0), -item[0], item[1]))
         chosen: set[str] = set()
         for _behind, identity, targets in lagging[:ACTIVITY_SESSIONS_PER_PASS]:
             for path, name, value in targets:
@@ -2027,7 +2058,11 @@ class Mirror:
                     fresh.pop(identity, None)
             if retry is not None:
                 retry.update(held)
-            self._activity_yield = held & chosen
+            for identity in chosen:
+                if identity in held:
+                    tries[identity] = tries.get(identity, 0) + 1
+                else:
+                    tries.pop(identity, None)
             if fresh != base_all:
                 self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
                 # Synced like the records it describes: a base lost to a crash
@@ -2072,6 +2107,7 @@ class Mirror:
                 current.error = "another pass holds the lock"
                 return current           # deliberately without touching the sidecar
             self.journal.refresh()
+            self._splits = None                 # a dry run's, or a pass's that never recorded
             self._record(current)
             self._pass_payloads = {}
             self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
@@ -2267,10 +2303,12 @@ class Mirror:
                 if identity not in canonical or score > canonical[identity][0]:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
-        if not (unlisted or unknown or failed or self._unread):
-            # Only from every folder and every copy: a folder that did not list
-            # this pass may hold the other half of a split, and a report without
-            # it would read as clean. The last whole report stands until then.
+        if self._stems_whole and not (unlisted or unknown or failed or self._unread):
+            # Only from every folder, every copy and every project directory: a
+            # folder that did not list this pass may hold the other half of a
+            # split, and a transcript the pass could not see makes its
+            # conversation look dead. A report without them would read as
+            # clean. The last whole report stands until then.
             self._splits = self._split_report(bound, shown, canonical)
         # A new record this pass read before its transcript existed is no
         # longer fresh to the hot pass, so hand it over to the hot pass's retry.
@@ -2361,9 +2399,10 @@ class Mirror:
         folder, the second under a `local_<conversation>.json` name, with the
         same title. `live` counts the ids of which two or more conversations
         still have an unarchived copy: two rows a person can confuse. Counted
-        from this pass's inventory, before its flag sync, and only from a
-        whole one (`_pass`). How a name comes to hold two conversations is not
-        this report's to say; it lists what the store holds.
+        from this pass's inventory, before its flag sync, only from a whole
+        one, and recorded once, by this pass (`_pass`, `_record`). How a name
+        comes to hold two conversations is not this report's to say; it lists
+        what the store holds.
         """
         rows = []
         for name, holders in bound.items():

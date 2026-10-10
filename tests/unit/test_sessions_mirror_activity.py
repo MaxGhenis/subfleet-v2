@@ -558,30 +558,50 @@ def test_a_pass_raises_a_bounded_number_of_sessions_furthest_behind_first(world)
     assert running.run_once(options(running)).activity_synced == 0
 
 
-def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, monkeypatch):
-    """C-23.28 (review of #167): ten sessions furthest behind whose writes
-    always fail took the whole bound every pass, and an eleventh that could be
-    written never was. A session chosen and not published goes last next time."""
+WRITABLE = "99999999-0000-4000-8000-00000000beef"
+
+
+def stuck_and_one_writable(world, monkeypatch, count: int) -> list[str]:
+    """`count` sessions thirty days behind in B whose writes always fail, as if
+    the app saved each just before, and one two days behind that can be written.
+    Returns what each refused write was for, in order."""
     home, store, _root = world
     (store / "acct-c" / "org-c").rmdir()
-    stuck = [f"{index:08d}-0000-4000-8000-00000000dead" for index in
-             range(mirror.ACTIVITY_SESSIONS_PER_PASS)]
-    writable = "99999999-0000-4000-8000-00000000beef"
-    for session in (*stuck, writable):
+    stuck = [f"{index:08d}-0000-4000-8000-00000000dead" for index in range(count)]
+    for session in (*stuck, WRITABLE):
         fx.transcript(home, session, fx.completed())
         fx.index_entry(store, *FOLDERS[0], session, last_activity=NEW,
                        settings={"ultracode": True})
         fx.index_entry(store, *FOLDERS[1], session, settings={"ultracode": True},
-                       last_activity=NEW - (2 if session == writable else 30) * DAY)
+                       last_activity=NEW - (2 if session == WRITABLE else 30) * DAY)
     install = mirror._install
+    refused: list[str] = []
 
     def refusing(temporary, destination, **kwargs):
         if kwargs.get("expect") is not None and any(name in destination.name for name in stuck):
+            refused.append(destination.stem.removeprefix("local_")[:8])
             temporary.unlink()
-            return False                                # as if the app had just saved it
+            return False
         return install(temporary, destination, **kwargs)
 
     monkeypatch.setattr(mirror, "_install", refusing)
+    return refused
+
+
+def app_saves_every_record(world, number: int) -> None:
+    """A save that keeps flags and dates, so every session is a hot candidate."""
+    for index in (0, 1):
+        for record_path in (world[1] / FOLDERS[index][0] / FOLDERS[index][1]).glob("*.json"):
+            rewrite(record_path, lastFocusedAt=number)
+
+
+def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, monkeypatch):
+    """C-23.28 (review of #167): ten sessions furthest behind whose writes
+    always fail took the whole bound every pass, and an eleventh that could be
+    written never was. A session chosen and not published goes behind those
+    that were not."""
+    writable = WRITABLE
+    stuck_and_one_writable(world, monkeypatch, mirror.ACTIVITY_SESSIONS_PER_PASS)
     running = engine(world)
     first = running.run_once(options(running))
     assert (first.activity_synced, first.activity_waiting, first.flags_held) == (10, 1, 10)
@@ -591,6 +611,85 @@ def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, mo
     assert record(world, 1, writable)["lastActivityAt"] == NEW - 1
     third = running.run_once(options(running))
     assert (third.activity_synced, third.flags_held) == (10, 10), "and the ten are tried again"
+
+
+def test_two_groups_that_cannot_be_published_do_not_take_turns_for_ever(world, monkeypatch):
+    """C-23.28 (second review of #167): with a memory of one sync, twenty
+    failing sessions alternated in tens and the twenty-first was never chosen.
+    The ledger counts: once each of the twenty has failed once, the one that
+    has not comes first."""
+    refused = stuck_and_one_writable(world, monkeypatch, 2 * mirror.ACTIVITY_SESSIONS_PER_PASS)
+    running = engine(world)
+    chosen = []
+    for _ in range(4):
+        refused.clear()
+        result = running.run_once(options(running))
+        chosen.append((sorted(refused), result.flags_held,
+                       record(world, 1, WRITABLE)["lastActivityAt"]))
+    names = [f"{index:08d}" for index in range(20)]
+    assert chosen[0] == (names[:10], 10, NEW - 2 * DAY)
+    assert chosen[1] == (names[10:], 10, NEW - 2 * DAY)
+    assert chosen[2] == (names[:9], 9, NEW - 1), "the writable one, and nine behind it"
+    assert chosen[3] == (names[9:19], 10, NEW - 1), "then those that have failed once"
+    assert WRITABLE not in running._activity_tries, "one that went through leaves the ledger"
+    assert sorted(running._activity_tries.values()) == [1] + [2] * 19
+
+
+def test_the_hot_pass_keeps_the_same_ledger(world, monkeypatch):
+    """C-23.28 (second review of #167): the same schedule through the pass that
+    runs every two seconds, with the app saving every record in between."""
+    stuck_and_one_writable(world, monkeypatch, 2 * mirror.ACTIVITY_SESSIONS_PER_PASS)
+    running = engine(world)
+    running.run_once(mirror.Options(activity_lag_s=0))      # an inventory, and no raise
+    for number in range(1, 4):
+        app_saves_every_record(world, number)
+        assert running.run_hot(options(running)).state == "ok"
+    assert record(world, 1, WRITABLE)["lastActivityAt"] == NEW - 1
+
+
+def test_the_embedded_hot_pass_and_the_full_pass_share_one_ledger(world, monkeypatch):
+    """C-23.28 (second review of #167): the hot pass a full pass runs at its
+    checkpoints chose ten that failed; the full pass's own sync, moments
+    later, must not choose the same ten first."""
+    refused = stuck_and_one_writable(world, monkeypatch, mirror.ACTIVITY_SESSIONS_PER_PASS)
+    _home, _store, root = world
+    running = mirror.Mirror(root, fx.policy(mirror_hot_interval_s=2), now=lambda: CLOCK)
+    running.run_once(mirror.Options(activity_lag_s=0))
+    app_saves_every_record(world, 1)
+    checkpoint, serviced = running._checkpoint, []
+
+    def one_hot_service(current, stage=None):
+        if stage == "reading entries" and not serviced:
+            serviced.append(True)
+            running._service_hot()
+            running._hot_due = float("inf")
+        return checkpoint(current, stage)
+
+    monkeypatch.setattr(running, "_checkpoint", one_hot_service)
+    result = running.run_once(options(running))
+    assert running._hot_services == 1 and len(refused) >= 10
+    assert running._hot_worker is None and result.state == "ok"
+    assert record(world, 1, WRITABLE)["lastActivityAt"] == NEW - 1, \
+        "the full sync put the ten that had just failed behind the one that had not"
+    worker = running._fork_hot()
+    assert worker._activity_tries is running._activity_tries
+
+
+def test_a_session_that_no_longer_needs_a_raise_leaves_the_ledger(world, monkeypatch):
+    """C-23.28: the count is of failures since the session last went through.
+    One that the app has since run, or that is gone, starts again from nothing."""
+    running = engine(world)
+    with monkeypatch.context() as patch:
+        stuck_and_one_writable(world, patch, 3)
+        running.run_once(options(running))
+    assert len(running._activity_tries) == 3
+    rewrite(path(world, 1, "00000000-0000-4000-8000-00000000dead"),
+            lastActivityAt=NEW)                             # the app runs one in B
+    for index in (0, 1):                                    # one is deleted
+        path(world, index, "00000001-0000-4000-8000-00000000dead").unlink()
+    running.run_once(options(running))                      # and the third's write goes through
+    assert record(world, 1, "00000002-0000-4000-8000-00000000dead")["lastActivityAt"] == NEW - 1
+    assert running._activity_tries == {}
 
 
 # --- the switch ------------------------------------------------------------------------
@@ -799,9 +898,120 @@ def test_a_process_with_an_older_report_never_puts_it_over_a_later_one(world):
                           now=lambda: CLOCK + timedelta(minutes=5))
     later.run_once(options(later))
     newest = later.splits()
-    assert newest["count"] == 0 and newest["checked_at"] > earlier._splits["checked_at"]
+    assert newest["count"] == 0
+    assert earlier._splits is None, "a recorded report is not kept to be written again"
     earlier._record(mirror.Pass(started_at="2026-10-13T12:30:00Z"))   # a heartbeat, no inventory
     assert earlier.splits() == newest
+
+
+def test_two_inventories_in_one_second_are_ordered_by_the_lock_not_the_clock(world):
+    """C-23.28 (second review of #167): `checked_at` has whole seconds, and two
+    reports a few hundred milliseconds apart compared equal, so the earlier
+    process's next record put its report back. A report is written once, by
+    the pass that took the inventory, and passes are ordered by their lock."""
+    import shutil
+    split(world)
+    earlier = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0),
+                            now=lambda: CLOCK + timedelta(milliseconds=100))
+    earlier.run_once(options(earlier))
+    for account, _org in FOLDERS:
+        shutil.rmtree(world[1] / account)
+    (world[1] / "acct-a" / "org-a").mkdir(parents=True)
+    later = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0),
+                          now=lambda: CLOCK + timedelta(milliseconds=900))
+    later.run_once(options(later))
+    newest = later.splits()
+    assert newest["count"] == 0 and newest["checked_at"] == mirror._iso(CLOCK)
+    earlier._record(mirror.Pass(started_at="2026-10-13T12:26:41Z"))
+    assert earlier.splits() == newest
+
+
+def test_a_dry_runs_report_is_not_recorded_by_a_later_pass(world, monkeypatch):
+    """C-17.4 and C-23.28: a preview records nothing, now or later. The real
+    pass after it cannot list a folder, so the last whole report must stand,
+    not the one the preview computed."""
+    split(world, fork_archived=True)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    assert whole["live"] == 0
+    rewrite(path(world, 2, name="local_app.json"), isArchived=False)   # now two rows show
+    running.run_once(options(running, dry_run=True))
+    assert running._splits is not None and running._splits["live"] == 1
+    scan = running._scan
+
+    def unlisted(folder, *args, **kwargs):
+        if folder == world[1] / "acct-a" / "org-a":
+            raise mirror._Unlisted(str(folder), transient=True)
+        return scan(folder, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(running, "_scan", unlisted)
+        assert running.run_once(options(running)).state == "ok"
+    assert running.splits() == whole
+
+
+def listing_fails(patch, where: Path, error: int = 24) -> None:
+    scan = mirror.os.scandir
+
+    def failing(target="."):
+        if Path(target) == where:
+            raise OSError(error, os.strerror(error), str(target))
+        return scan(target)
+
+    patch.setattr(mirror.os, "scandir", failing)
+
+
+def test_a_pass_that_could_not_list_the_transcripts_keeps_the_last_whole_report(
+        world, monkeypatch):
+    """C-23.28 (second review of #167): with `projects/` unlistable for a
+    moment (EMFILE), every conversation looked dead, the pass was `ok`, and
+    the report said no id was split. Both transcripts were still there."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    assert whole["live"] == 1
+    with monkeypatch.context() as patch:
+        listing_fails(patch, world[0] / "projects")
+        result = running.run_once(options(running))
+    assert result.state == "ok" and result.sessions == 0 and running._stems_whole is False
+    assert running.splits() == whole
+
+
+def test_a_project_directory_that_failed_to_list_is_listed_again_next_pass(world, monkeypatch):
+    """C-23.28 (second review of #167): the failed listing was kept as an empty
+    one, and since the directory's mtime had not moved, the two passes after
+    it saw no transcripts there either. It is not kept, and the report waits."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    running.run_once(options(running))
+    whole = running.splits()
+    running._last_sweep = None                              # a sweep lists it again
+    with monkeypatch.context() as patch:
+        listing_fails(patch, world[0] / "projects" / fx.project_slug())
+        failed = running.run_once(options(running))
+    assert failed.state == "ok" and running._stems_whole is False
+    assert running.splits() == whole
+    after = running.run_once(options(running))
+    assert after.sessions == 2 and running._stems_whole is True, "its transcripts are back"
+    report = running.splits()
+    assert (report["count"], report["live"]) == (1, 1)
+
+
+def test_a_project_directory_the_user_may_not_read_does_not_hold_the_report(world, monkeypatch):
+    """C-23.28: what the user may not read, the app cannot open either. Its
+    sessions are dead to every sidebar, and the inventory is whole without it."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    running._last_sweep = None
+    with monkeypatch.context() as patch:
+        listing_fails(patch, world[0] / "projects" / fx.project_slug(), error=13)
+        result = running.run_once(options(running))
+    assert result.state == "ok" and running._stems_whole is True
+    assert running.splits()["count"] == 0
 
 
 def run_cli(argv) -> tuple[int, str, str]:
