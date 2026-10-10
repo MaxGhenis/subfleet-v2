@@ -186,7 +186,7 @@ values report the exact dotted policy key. No live configuration is changed.
 
 A valid lowering has a future `until`, a floor at least `min_floor_gb`, a ruling
 that stringifies and trims to a nonempty value, and an expiry at most
-`max_lower_h` after **min(now, file mtime)**. The writing-time cap means an
+`max_lower_h` after **min(now, file mtime)**. For a writing time at or before now, the cap means an
 initially overlong file cannot become valid just because time passed. A future
 mtime cannot extend the cap. Its floor replaces the policy floor and its
 `release_margin_gb` defaults to zero, with negative values clamped to zero.
@@ -212,6 +212,10 @@ The source wins over these differences in the brief:
 - When both are live, a raise above a lowered floor can still be below the
   policy floor (policy 60, lower 30, raise 35 gives **35 with policy margin**).
   Without a live lowering, that same raise leaves the floor at 60.
+- The agent validates `drop_gb` and `drop_window_min` while parsing a
+  lowering. That validation is retained: malformed values reject the whole
+  lowering, even though their drop-trigger effect is ignored. The brief's
+  instruction that the code wins resolves this difference.
 - Naive ISO timestamps use the machine's local timezone, as in the agent.
 - JSON is decoded as UTF-8 text before parsing, matching the agent: UTF-16,
   UTF-32 and UTF-8 BOM files are ignored rather than silently accepted.
@@ -225,9 +229,8 @@ Deliberate differences required for native admission:
   A failed mtime read is an error here, rather than the agent's fallback to now.
 - Non-object JSON and deeply nested malformed JSON are ignored as errors;
   the agent can raise on some non-object values. This satisfies F2.
-- `drop_gb` and `drop_window_min` are wholly ignored, including malformed
-  values. The agent parses them and can reject malformed values or trigger
-  a drop hold; native placement reservations already pace launches.
+- Drop values never trigger a native hold; placement reservations already
+  pace launches. The numeric validation still matches the agent.
 
 Floor and margin changes re-evaluate the hysteresis latch against the current
 measurement and outstanding reservations, including passes with no queued
@@ -264,8 +267,9 @@ properties and pacing properties use it. This avoids importing a test module
 inside a running Hypothesis example, which would create nested `@given` tests
 when pytest and Python load the module under different names.
 
-The F1 oracle retains the agent's drop-field parsing, and its generated drop
-fields are valid numeric inputs. A separate explicit test checks the required
-malformed-drop-field difference. The oracle totalizes the agent's non-object
+The F1 oracle retains the agent's drop-field parsing, and generated drop
+fields include both valid and malformed values. Explicit tests also check that
+malformed fields reject the lowering while valid drop values never trigger a
+native hold. The oracle totalizes the agent's non-object
 crash into an error so invalid inputs are safe while valid-input rules remain
 independent of production code.

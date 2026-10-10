@@ -56,8 +56,8 @@ def _until(value: Any) -> datetime:
 def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) -> dict[str, Any]:
     """The external agent's floor_gb/lower_override/pass_once precedence.
 
-    Keep its numeric and ruling coercions. Drop-trigger fields are deliberately
-    not parsed: placement reservations supply pacing in native admission.
+    Keep its numeric and ruling coercions, including drop-field validation.
+    Drop values never trigger native holds: placement reservations supply pacing.
     """
     clock = datetime.fromtimestamp(epoch(now), timezone.utc)
     info: dict[str, Any] = {"floor_gb": settings["floor_gb"],
@@ -75,6 +75,9 @@ def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) ->
             if name == "lower":
                 parsed.update(ruling=str(ov.get("ruling") or "").strip(),
                               release_margin_gb=max(0.0, float(ov.get("release_margin_gb", 0.0))))
+                if ov.get("drop_gb") is not None:
+                    float(ov["drop_gb"])
+                float(ov.get("drop_window_min", 10.0))
         except FileNotFoundError:
             continue
         except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:

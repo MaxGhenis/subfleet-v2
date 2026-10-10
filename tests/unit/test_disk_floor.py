@@ -21,7 +21,7 @@ untils = st.one_of(st.integers(-200000, 200000).map(stamp), st.sampled_from([Non
 document = st.one_of(
     st.fixed_dictionaries({}, optional={"floor_gb": numeric, "until": untils, "ruling": ruling,
                                        "release_margin_gb": numeric, "why": st.text(max_size=20),
-                                       "drop_gb": st.integers(0, 20), "drop_window_min": st.integers(1, 20)}),
+                                       "drop_gb": numeric, "drop_window_min": numeric}),
     st.sampled_from([[], None, "text", 13]))
 fake_file = st.one_of(st.none(), st.just(OSError("unreadable")),
                      st.tuples(document, st.integers(-200000, 200000)).map(lambda pair: file(*pair)),
@@ -175,11 +175,21 @@ def test_latch_recomputed_at_start_and_expiry_even_without_jobs():
     assert gate.snapshot["holding"] and "lower_expired" in gate.snapshot
 
 
-def test_drop_fields_are_ignored_including_malformed_values():
-    files = Files(file(lowering(drop_gb="ignored", drop_window_min=[])))
+def test_drop_values_do_not_trigger_native_holds():
+    files = Files(file(lowering(drop_gb=-100, drop_window_min=10)))
     gate = DiskAdmission("/fake/state", read_free=lambda path: 34 * GB, read_ruling=files)
     gate.begin_pass(policy(), [], stamp(0))
     assert gate.snapshot["floor_gb"] == 30
+    assert gate.hold("background") is None
+
+
+@pytest.mark.parametrize("fields", [{"drop_gb": "bad"}, {"drop_window_min": []}, {"drop_window_min": None}])
+def test_malformed_drop_fields_reject_the_lowering_as_in_agent(fields):
+    files = Files(file(lowering(**fields)))
+    gate = DiskAdmission("/fake/state", read_free=lambda path: 34 * GB, read_ruling=files)
+    gate.begin_pass(policy(), [], stamp(0))
+    assert gate.snapshot["floor_gb"] == 40 and "lower_error" in gate.snapshot
+    assert agent_rule(disk_settings(policy()), files, 0)[0] == 40
 
 
 def test_disabled_rule_reads_no_ruling_files():
