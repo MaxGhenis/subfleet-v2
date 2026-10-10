@@ -5085,9 +5085,10 @@ class Daemon:
             # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
-            # Git's persisted core.worktree can put the hold outside the cwd
-            # the provider runs in. Spell that cwd before taking the store lock.
-            run_folder = folders.canonical(workspace) if job["kind"] == "turn" else None
+            # A submitted path can be replaced before admission, and Git's
+            # core.worktree can put the writer hold outside the provider cwd.
+            # Resolve once off the lock; fence, pin and launch this same folder.
+            run_folder = folders.canonical(workspace)
             if job["wait_reason"] == "workspace":
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
@@ -5410,10 +5411,16 @@ class Daemon:
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
                             blockers.extend(folders.retiring(read, read_folder))
                         run_fences = folders.retiring(read, run_folder) if run_folder else []
-                        blockers.extend(run_fences)
-                        if run_folder and run_folder != (write_target or read_folder):
-                            # Preserve the Git hold's writer rules. This extra
-                            # reader row only keeps the provider's cwd in place.
+                        # The detached writer already contests its own exclusive
+                        # key; report that fence once, as before.
+                        own_run_key = (folders.exclusive_key(write_target)
+                                       if job["kind"] != "turn" and write_target else None)
+                        blockers.extend(key for key in run_fences if key != own_run_key)
+                        if job["kind"] != "turn" or run_folder != (write_target or read_folder):
+                            # A job-held reader row survives retries and quarantine
+                            # and is released by the existing holder-keyed cleanup.
+                            # It keeps the resolved cwd without changing C-6.5's
+                            # writer contention on the submitted write target.
                             leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
@@ -5469,6 +5476,7 @@ class Daemon:
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                    "run_folder": run_folder,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
                         if job["kind"] == "turn":
@@ -6070,6 +6078,11 @@ class Daemon:
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         evidence = json.loads(a["evidence_json"] or "{}")
+        if job["kind"] != "turn" and evidence.get("run_folder"):
+            # Use the folder whose reader row was reserved, even if the caller
+            # replaces the submitted path again before the provider launches.
+            field = "worktree" if job.get("worktree") else "workdir"
+            job = {**job, field: evidence["run_folder"]}
         model = self.policy["models"][evidence["model_short"]]
         prompt_path = Path(job["prompt_path"])
         prepared_path = prompt_path.with_name("prompt.prepared.md")
