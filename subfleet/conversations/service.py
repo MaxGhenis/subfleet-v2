@@ -1203,6 +1203,12 @@ class ConversationService:
         decision = args.get("decision")
         if decision not in approval["options"]:
             raise ConversationError("bad-decision", f"{decision!r} is not offered here")
+        answers = args.get("answers")
+        if decision == "answer" and not (isinstance(answers, dict) and answers):
+            # Refused here, not by the driver after the answer is recorded (and its
+            # `approval.resolved` written, C-27.3): the card would read answered while
+            # the provider still waited on it (C-27.2).
+            raise ConversationError("bad-answer", "an answer needs the chosen answers")
         runner = self.runners.get(approval["attempt_id"])
         if runner is None or runner.driver.outcome is not None:
             raise ConversationError("turn-ended", "the turn that asked has ended")

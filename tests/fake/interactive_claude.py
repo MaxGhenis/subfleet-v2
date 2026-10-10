@@ -17,6 +17,7 @@ its text; `[fake:write]` combines with any other:
                       lines) and appends `edited by <those 8>` to `tracked.txt` in its
                       working directory, as a turn that edits files does (C-26.14)
     approval          asks to run a Bash command; allow runs it, deny says so
+    approval-exit     asks to run a Bash command, then exits with no result while it is pending
     question          AskUserQuestion; the chosen answers are echoed back
     questions         AskUserQuestion with several questions, including multiSelect
     slow              streams until interrupted; the interrupt ends the turn
@@ -466,8 +467,8 @@ class Fake:
         self.say(model, "Background task finished.", stream=False)
         return None
 
-    def ask(self, model: str, tool: str, tool_input: dict) -> dict | None:
-        """A tool_use, its `can_use_tool` request, and the host's answer."""
+    def request(self, model: str, tool: str, tool_input: dict) -> tuple[str, str]:
+        """A tool_use and its `can_use_tool` request; returns their ids."""
         tool_id = f"toolu_{uuid.uuid4().hex[:10]}"
         request_id = f"perm-{uuid.uuid4().hex[:8]}"
         self.emit({"type": "assistant", "parent_tool_use_id": None, "message": {
@@ -476,6 +477,11 @@ class Fake:
         self.emit({"type": "control_request", "request_id": request_id, "request": {
             "subtype": "can_use_tool", "tool_name": tool, "input": tool_input, "tool_use_id": tool_id,
             "permission_suggestions": [], "decision_reason": "fake: asks every time"}})
+        return tool_id, request_id
+
+    def ask(self, model: str, tool: str, tool_input: dict) -> dict | None:
+        """A tool_use, its `can_use_tool` request, and the host's answer."""
+        tool_id, request_id = self.request(model, tool, tool_input)
         while True:
             if self.interrupted.is_set():
                 self.emit({"type": "control_cancel_request", "request_id": request_id})
@@ -487,6 +493,11 @@ class Fake:
                 answer = (row["response"].get("response") or {})
                 answer["_tool_id"] = tool_id
                 return answer
+
+    def scenario_approval_exit(self, model: str, reply: str):
+        """The process ends while its request waits for the person: no result (C-27.3)."""
+        self.request(model, "Bash", {"command": "echo approved-by-person", "description": "Say hello"})
+        return 1
 
     def scenario_approval(self, model: str, reply: str):
         answer = self.ask(model, "Bash", {"command": "echo approved-by-person", "description": "Say hello"})

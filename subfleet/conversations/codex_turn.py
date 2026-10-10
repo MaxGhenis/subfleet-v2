@@ -275,6 +275,10 @@ class CodexTurn(SteerTracking):
                                accepted=self.accepted, answered=self.answered, limited=self.limited,
                                served_model=self.served_model, ended_by="eof", steers=self.steers)
         self.phase = "ended"
+        # As `_end`: a pending request went with the process (C-27.3); no
+        # `turn.completed`, since delivery is reconciliation's to say (C-24.6).
+        step.resolved = sorted(self.pending)
+        self.pending.clear()
         step.outcome = self.outcome
         return step
 
