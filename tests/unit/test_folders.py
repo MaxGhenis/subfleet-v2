@@ -336,3 +336,178 @@ def test_a_mount_point_and_a_firmlinked_folder_are_spelled_as_the_system_shows_t
     if not home.startswith("/Users/") or not os.path.isdir(data) or not os.path.samefile(data, home):
         pytest.skip("needs a home under the Data volume's /Users firmlink, as macOS has")
     assert folders.spelling(data) == (home, None)
+
+
+def test_present_says_whether_every_name_of_a_folder_is_there(insensitive):
+    """`present` (C-8.4, review of 8a112986, finding 1) is `spelling`'s first value,
+    and None as its second only when the kernel looked up every name: a folder
+    typed in another case, or through a directory that can be searched but not
+    listed, is there and spelled as stored. A missing name is kept as typed by both,
+    which `spelling` calls the one spelling (nothing else names anything), and
+    `present` says it is not there, naming the first name it could not look up, so
+    admission reserves no row on it; so for a name under a file, and for one under
+    a directory that cannot be searched, which `spelling` doubts too."""
+    import errno
+    (insensitive / "Present" / "Inner").mkdir(parents=True)
+    (insensitive / "Present" / "a-file").write_text("")
+    base = folders.canonical(insensitive)
+    assert folders.present(insensitive / "present" / "INNER") == (os.path.join(base, "Present", "Inner"), None)
+    for typed, kind, first in [(("present", "Gone", "deeper"), FileNotFoundError, ("Present", "Gone")),
+                               (("PRESENT", "A-FILE", "x"), NotADirectoryError, ("Present", "a-file", "x"))]:
+        spelled, missing = folders.present(insensitive.joinpath(*typed))
+        assert spelled == folders.spelling(insensitive.joinpath(*typed))[0]
+        assert isinstance(missing, kind) and missing.filename == os.path.join(base, *first), missing
+    locked, sealed = insensitive / "Locked", insensitive / "Sealed"
+    (locked / "Inner").mkdir(parents=True)
+    (sealed / "Inner").mkdir(parents=True)
+    locked.chmod(0o111)                         # searchable, not listable
+    sealed.chmod(0o000)                         # neither
+    try:
+        assert folders.present(insensitive / "LOCKED" / "inner") == (os.path.join(base, "Locked", "Inner"), None)
+        spelled, missing = folders.present(insensitive / "SEALED" / "inner")
+        assert spelled == os.path.join(base, "Sealed", "inner") and missing.errno == errno.EACCES, missing
+        assert folders.spelling(insensitive / "SEALED" / "inner")[1]
+    finally:
+        locked.chmod(0o755)
+        sealed.chmod(0o755)
+
+
+def test_present_without_getattrlist_is_whether_the_real_path_exists(tmp_path, monkeypatch):
+    """Where the kernel spells nothing (no getattrlist, ENOSYS) `spelling` keeps the
+    real path and says so, and `present` takes a folder as there when its real path
+    exists: such a system compares names as given, so no other spelling of it can
+    come back. A real path that does not exist is not there."""
+    import errno
+
+    def no_getattrlist(path):
+        raise OSError(errno.ENOSYS, "this system has no getattrlist", path)
+
+    (tmp_path / "Here").mkdir()
+    monkeypatch.setattr(folders, "_kernel_path", no_getattrlist)
+    here, gone = os.path.realpath(tmp_path / "Here"), os.path.realpath(tmp_path / "Gone")
+    assert folders.present(tmp_path / "Here") == (here, None)
+    assert folders.spelling(tmp_path / "Here") == (here, f"{here}: this system has no getattrlist")
+    spelled, missing = folders.present(tmp_path / "Gone")
+    assert spelled == gone and isinstance(missing, FileNotFoundError) and missing.filename == gone
+
+
+TREE_NAMES = ("Alpha", "Ünï", "straße")
+
+
+@settings(max_examples=120, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(depth=st.integers(0, len(TREE_NAMES)), extra=st.lists(st.sampled_from(["Gone", "x", "ÉTÉ"]), max_size=2),
+       flips=st.lists(st.booleans(), min_size=20, max_size=20), decomposed=st.booleans())
+def test_present_is_the_one_spelling_of_a_folder_exactly_when_it_is_there(insensitive, depth, extra, flips,
+                                                                          decomposed):
+    """For any spelling of a path on a case-insensitive volume (each name in any
+    case, NFC or NFD) whose first `depth` names exist and whose others do not:
+    `present` gives `spelling`'s string; says the folder is there exactly when it
+    is (no missing names); and when it is, gives the one spelling of the existing
+    folder, which is its own answer again. When it is not, the names after the
+    existing part are kept as typed, so another spelling of the same path gives
+    another string: the reason no row is keyed on it."""
+    import unicodedata
+    existing = insensitive.joinpath(*TREE_NAMES)
+    existing.mkdir(parents=True, exist_ok=True)
+    letters = iter(flips * 4)
+    names = [*TREE_NAMES[:depth], *extra]
+    typed = ["".join(c.swapcase() if next(letters) else c for c in name) for name in names]
+    if decomposed:
+        typed = [unicodedata.normalize("NFD", name) for name in typed]
+    path = insensitive.joinpath(*typed)
+    spelled, missing = folders.present(path)
+    assert spelled == folders.spelling(path)[0]
+    there = not extra
+    assert (missing is None) == there == os.path.isdir(path), (path, missing)
+    if there:
+        assert spelled == os.path.join(folders.canonical(insensitive), *TREE_NAMES[:depth]) or depth == 0
+        assert folders.present(spelled) == (spelled, None)
+    else:
+        assert spelled.endswith(os.path.join(*typed[depth:]))       # kept as typed
+
+
+@given(text=st.text(max_size=12))
+def test_fold_is_blind_to_case_and_normal_form_and_keeps_separators(text):
+    """`fold` (C-8.4): one string for a name in either case of ASCII letters and in
+    either normal form, and a `/` for each `/`, none added or lost, so `within`
+    between folded spellings is `within` up to case and normal form."""
+    import unicodedata
+    assert folders.fold(text) == folders.fold(unicodedata.normalize("NFC", text)) \
+        == folders.fold(unicodedata.normalize("NFD", text))
+    ascii_text = "".join(c for c in text if c.isascii())
+    assert folders.fold(ascii_text) == folders.fold(ascii_text.swapcase()) == ascii_text.lower()
+    assert folders.fold(text).count("/") == text.count("/")
+
+
+FOLD_SEGMENT = st.text(st.sampled_from("aAbBjJoO:-.ßẞéÉ́"), min_size=1, max_size=4).filter(
+    lambda name: name not in (".", ".."))
+FOLD_FOLDER = st.lists(FOLD_SEGMENT, min_size=1, max_size=3).map(lambda parts: "/" + "/".join(parts))
+
+
+@settings(max_examples=400, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(data=st.data())
+def test_folded_retiring_names_exactly_retentions_fences_a_folder_folds_into(data):
+    """`retiring(..., folded=True)` (C-8.4) against a scan of every row: the
+    `worktree:` keys held by retention (`retention:<job>`) whose folder the probe is
+    `within` once both are `fold`ed, nearest first; never a detached writer's, an
+    attempt's or a gate round's, nor a turn's row. It names every fence the exact
+    `retiring` names, and, for a probe spelled as the fences are, nothing more."""
+    import unicodedata
+    probe = data.draw(FOLD_FOLDER, label="probe")
+    swap = lambda text: "".join(c.swapcase() if data.draw(st.booleans()) else c for c in text)   # noqa: E731
+    spots = st.one_of(st.sampled_from([probe, *folders.above(probe)]), FOLD_FOLDER,
+                      st.sampled_from([probe, *folders.above(probe)]).map(swap),
+                      st.sampled_from([probe, *folders.above(probe)]).map(lambda s: unicodedata.normalize("NFC", s)))
+    fences = data.draw(st.lists(st.tuples(spots, HOLDER), max_size=10), label="fences")
+    turns = data.draw(st.lists(st.tuples(spots, JOB, st.booleans()), max_size=4), label="turns")
+    rows = [(folders.exclusive_key(spot), holder) for spot, holder in fences]
+    rows += [(folders.turn_key(spot, job, writable=writable), job) for spot, job, writable in turns]
+    read = table(rows)
+    stored = dict(read("SELECT lease_key, holder FROM leases", ()))
+    want = [key for key, holder in stored.items()
+            if key.startswith("worktree:") and holder.startswith("retention:")
+            and folders.within(folders.fold(probe), folders.fold(key[len("worktree:"):]))]
+    found = folders.retiring(read, probe, folded=True)
+    assert sorted(found) == sorted(want) and len(found) == len(set(found))
+    assert [key.count("/") for key in found] == sorted((key.count("/") for key in found), reverse=True)
+    exact = folders.retiring(read, probe)
+    assert set(exact) <= set(found)
+    if all(folders.fold(key[len("worktree:"):]) != folders.fold(other) or key[len("worktree:"):] == other
+           for key in stored for other in (probe, *folders.above(probe))):
+        assert set(found) == set(exact)
+
+
+def test_folded_retiring_reads_no_file_system(monkeypatch):
+    """C-8.4: the folded check runs inside the reserving transaction too: string
+    operations on the keys it reads, no folder spelled or looked up."""
+    import types
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("no filesystem work in the admitting transaction")
+
+    for name in ("canonical", "spelling", "present", "_spelled", "_kernel_path"):
+        monkeypatch.setattr(folders, name, unexpected)
+    monkeypatch.setattr(folders, "os", types.SimpleNamespace(path=types.SimpleNamespace(dirname=os.path.dirname)))
+    read = table([("worktree:/s/Job", "retention:j"), ("worktree:/s/jOB/x", "detached"), ("worktree:/", "retention:k"),
+                  (folders.turn_key("/s/Job/x", "t", writable=True), "t")])
+    assert folders.retiring(read, "/s/jOB/x/y", folded=True) == ["worktree:/s/Job", "worktree:/"]
+    assert folders.retiring(read, "/s/jOB/x/y") == ["worktree:/"]
+
+
+def test_under_git_finds_a_git_entry_at_or_above_a_folder(tmp_path):
+    """`under_git`: a `.git` directory or file (a linked worktree's) on the folder or
+    on any folder above it; none beside it or below it."""
+    (tmp_path / "repo" / "sub" / "deeper").mkdir(parents=True)
+    (tmp_path / "repo" / ".git").mkdir()
+    (tmp_path / "linked" / "x").mkdir(parents=True)
+    (tmp_path / "linked" / ".git").write_text("gitdir: /elsewhere\n")
+    (tmp_path / "plain" / "y").mkdir(parents=True)
+    (tmp_path / "plain" / "y" / "z" / ".git").mkdir(parents=True)
+    base = os.path.realpath(tmp_path)
+    if folders.under_git(base):
+        pytest.skip("the test directory is itself inside a git checkout")
+    assert folders.under_git(os.path.join(base, "repo", "sub", "deeper"))
+    assert folders.under_git(os.path.join(base, "repo"))
+    assert folders.under_git(os.path.join(base, "linked", "x"))
+    assert not folders.under_git(os.path.join(base, "plain", "y"))
+    assert not folders.under_git(os.path.join(base, "repo-beside"))
