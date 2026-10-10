@@ -612,6 +612,77 @@ def check_sidebar_load(root: Path) -> dict[str, Any]:
     return row(check, PASS, gap["detail"], "`subfleet sessions mirror --status`")
 
 
+def _timers_row(check: str, timers: Any, source: str) -> dict[str, Any]:
+    """C-18.5: one row for every daemon timer, judged from its failure records.
+
+    `fail` while an exception ended any timer's last run; `warn` for one that
+    has run clean since (the record is kept a day) and for a last run that
+    reported an error type without raising; `unknown` when no timer has
+    recorded a run.
+    """
+    from . import render
+    notes = render.timer_notes(timers)
+    if not timers:
+        return row(check, UNKNOWN, f"no timer has recorded a run ({source})",
+                   "`subfleet daemon start`: the first probe cycle records itself within a minute")
+    if not notes:
+        return row(check, PASS, f"{len(timers)} timers; no run of theirs was ended by an exception "
+                                f"in the last day, and none reported an error ({source})",
+                   "nothing to do while this passes")
+    detail = "; ".join(f"{name} {text}" for _, name, text in notes) + f" ({source})"
+    records = "`subfleet status --json` has each record under `timers`"
+    if any(state == "failing" for state, _, _ in notes):
+        return row(check, FAIL, detail,
+                   f"the message and the place name the defect; {records}, and the `timer.error` events in "
+                   f"the store's `events` table hold the frames it came through")
+    if any(state == "cleared" for state, _, _ in notes):
+        return row(check, WARN, detail,
+                   f"nothing to do if it stays clean: a record leaves a day after the clean run; {records}")
+    return row(check, WARN, detail,
+               f"the run finished and named an error of part of its work (a lane's usage read, a pass's "
+               f"deadline): `subfleet daemon logs -n 80`; {records}")
+
+
+def check_timers(root: Path) -> dict[str, Any]:
+    """C-18.5: has an exception ended a daemon timer's run?
+
+    Until 2026-10-10 a timer that raised kept its exception's type for one
+    interval in `daemon.status` and in events no command read, so any timer
+    could fail on every run while `doctor` and `status` said nothing. Read here
+    from the store's own record of each timer's last run: files only (C-17.5),
+    so it also answers for a daemon that is down. `mirror_hot` records a change
+    between failing and not within a minute, and its count of runs when the
+    store is told of them; `--live` adds the running daemon's own count.
+    """
+    from . import timers as timers_module
+    check = "daemon timers"
+    try:
+        with Offline(root).reading() as conn:
+            timers = timers_module.recorded(conn.execute(timers_module.RECORDED_QUERY))
+    except (OfflineUnavailable, SchemaTooNew, OSError, sqlite3.Error) as exc:
+        return row(check, UNKNOWN, f"no readable store: {exc}",
+                   "`subfleet daemon start` once, so a store exists, then run doctor again")
+    return _timers_row(check, timers, "as the store last recorded them")
+
+
+def check_timers_live(root: Path) -> dict[str, Any]:
+    """`--live`, C-18.5: the running daemon's own record of each timer."""
+    check = "daemon timers (live)"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except DaemonUnavailable as exc:
+        return row(check, FAIL, str(exc), "`subfleet daemon start`")
+    except (DaemonError, ProtocolError, OSError) as exc:
+        return row(check, FAIL, f"{exc.__class__.__name__}: {exc}", "`subfleet daemon logs -n 40`")
+    timers = status.get("timers")
+    if not isinstance(timers, dict) or not all(isinstance(item, dict) and "failure" in item
+                                               for item in timers.values()):
+        return row(check, UNKNOWN, "the daemon keeps no failure records (it predates C-18.5)",
+                   "restart it on this release when no jobs are running (`subfleet runs --running`)")
+    return _timers_row(check, {name: item for name, item in timers.items() if item.get("last_run")},
+                       "as the daemon holds them")
+
+
 # --- the table ----------------------------------------------------------------
 
 def _with_fix(row: dict[str, Any]) -> dict[str, Any]:
@@ -645,6 +716,7 @@ def checks(root: Path, *, live: bool = False,
         check_daemon_lock(root),
         check_launchd_limit(),
         check_queued_pins(root),
+        check_timers(root),
         check_mirror(root),
         check_sidebar_load(root),
         *(check_module(name) for name in ("store", "procs", "compat", "hooks",
@@ -653,6 +725,7 @@ def checks(root: Path, *, live: bool = False,
     if live:
         rows.append(check_live(root))
         rows.append(check_descriptors_live(root))
+        rows.append(check_timers_live(root))
         rows += check_guard_preflight_live(root)
     table = rows
     # C-10.3, C-10.7: the identity checks are rows of this one table. cli imports
