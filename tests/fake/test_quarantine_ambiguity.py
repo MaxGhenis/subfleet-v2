@@ -13,6 +13,22 @@ from tests.fake.test_state_contract import state_daemon  # noqa: F401
 REAL_SAME_PROCESS = procs.same_process
 
 
+def test_ambiguous_guardian_does_not_authenticate_new_ownership(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    running(daemon, harness, 200, 101)
+    ours, _ = running(daemon, harness, 200, 201)
+    script_table(monkeypatch, {200: (1, 200, "S", "p200"), 202: (200, 200, "S", "p202")})
+    daemon._record_owned(ours, procs.snapshot())
+    for _ in range(2):
+        census = daemon._contain(ours)
+        evidence = json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"])
+        assert {200, 202} <= census.live_pids
+        assert procs.ProcessIdentity(200, BOOT, "p200") in census.ambiguous_identities
+        assert not evidence.get("owned_identities")
+        assert not evidence.get("provider_identities")
+        assert not evidence.get("descendant_identities")
+
+
 def test_own_marker_collision_before_first_record_is_not_hidden(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     other, _ = running(daemon, harness, 100, 101)

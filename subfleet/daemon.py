@@ -6715,11 +6715,14 @@ class Daemon:
                 # identity grants neither signal nor publication authority.
                 return None
         guardian_authority = guardian_live and table.census_root(guardian).identity not in ambiguous
+        safe_roots = tuple(pid for pid in roots if table.census_root(pid).identity not in ambiguous)
+        authenticated_descendants = foreign.local_descendants(
+            table, safe_roots, group_pids=local_group if guardian_authority else ())
         providers = [dataclasses.asdict(ident) for pid, row in table.rows.items()
                      if guardian_authority and row[0] == guardian and pid not in excluded
                      and table.census_root(pid).identity not in ambiguous
                      and (ident := verified_identity(pid)) is not None]
-        proven_descendants = [dataclasses.asdict(ident) for pid in sorted(local_descendants)
+        proven_descendants = [dataclasses.asdict(ident) for pid in sorted(authenticated_descendants)
                               if table.census_root(pid).identity not in ambiguous
                               if (ident := verified_identity(pid)) is not None]
         # Signal ownership remains confined to members of the verified leader's

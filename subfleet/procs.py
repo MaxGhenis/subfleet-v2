@@ -402,7 +402,9 @@ class ForeignOwnership:
         if not groups or identity(current.pid) != current:
             return False
         group = process_group(current.pid)
-        return (group is not None and replace(self, groups=groups).owns(current, group)
+        members = tuple(known for known in self.identities
+                        if not any(identities_overlap(value, known) for value in ambiguous))
+        return (group is not None and replace(self, groups=groups, identities=members).owns(current, group)
                 and identity(current.pid) == current)
 
     def local_descendants(self, table: ProcessTable, roots: Sequence[int], *,
@@ -428,25 +430,30 @@ class ForeignOwnership:
         return table.descendants(tuple(local), excluded=boundaries)
 
     def pids(self, table: ProcessTable, *, protected: Sequence[int] = ()) -> frozenset[int]:
+        blocked = set(protected) | protected_pids(table, self.collisions)
         roots = set()
         for known in self.identities:
+            if known.pid in blocked:
+                continue
             try:
                 if table.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
                     roots.add(known.pid)
             except InspectionError:
                 pass  # Unproved foreign ownership cannot discharge a writer.
         for known in self.groups:
+            if known.pid in blocked:
+                continue
             try:
                 if (table.is_process(known.pid, known.boot_id, known.proc_start, legacy=True)
                     and table.rows[known.pid][1] == known.pgid) or (
                     any(table.rows[pid][1] == known.pgid for pid in roots)
                 ):
-                    roots.update(table.group(known.pgid))
+                    roots.update(table.group(known.pgid) - blocked)
             except InspectionError:
                 pass
         # Stop at this attempt's verified launch identities: a child dispatch
         # can start inside its parent's tree but has its own guardian/group.
-        return table.descendants(tuple(roots), excluded=set(protected) | protected_pids(table, self.collisions))
+        return table.descendants(tuple(roots), excluded=blocked)
 
     def owns(self, current: ProcessIdentity, group: int | None = None) -> bool:
         if current in self.identities:
@@ -460,6 +467,8 @@ class ForeignOwnership:
             leader = identity(known.pid)
             if leader == known.identity:
                 return True
+            if leader is not None:
+                continue  # A live reused leader proves the old group emptied.
             # An absent leader alone cannot prove foreign ownership: its old
             # group may have emptied and been reused on this same boot. A
             # still-identical recorded member must anchor a leaderless group.
@@ -737,7 +746,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         launch_boundaries = tuple(known.pid for known in (guardian_identity, child_identity)
                                   if known is not None and known.pid in proven_roots
                                   and table[known.pid][1] == pgid)
-        observed_foreign = foreign_ownership.pids(seen, protected=launch_boundaries)
+        claimed_local = tuple(pid for pid in protected if foreign_ownership.claimed(seen.census_root(pid).identity))
+        observed_foreign = foreign_ownership.pids(seen, protected=(*launch_boundaries, *claimed_local))
         # The original group can outlive its guardian before paced recording.
         # Its observed members also hold on a foreign claim, without becoming
         # authenticated ownership or overriding a live reused group leader.
@@ -754,6 +764,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                                                         for known in ambiguous_identities)):
                 ambiguous.add(current)
                 protected.add(pid)
+        safe_roots = tuple(pid for pid in proven_roots if seen.census_root(pid).identity not in ambiguous)
+        safe_group = local_group if guardian_identity is not None and guardian_identity.pid not in {value.pid for value in ambiguous} else ()
+        authenticated_descendants = foreign_ownership.local_descendants(seen, safe_roots, group_pids=safe_group)
         local_seen = {pid: seen.census_root(pid).identity for pid in protected}
         excluded = foreign_ownership.pids(seen, protected=protected)
         foreign_seen = {pid: seen.census_root(pid).identity for pid in excluded}
@@ -824,7 +837,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             errors.append("lineage root limit exceeded")
         # A verified guardian's direct children establish the legacy provider
         # identities before signals or finalization can erase the parent link.
-        if guardian_verified:
+        if guardian_verified and guardian_pid not in {value.pid for value in ambiguous}:
             found_providers = []
             for pid, row in table.items():
                 if row[0] == guardian_pid and live(pid) and pid not in excluded:
@@ -898,7 +911,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             current = seen.identity(pid)
             if current is not None:
                 retain(current, row[1])
-                if pid in genuine_descendants and current not in ambiguous:
+                if pid in authenticated_descendants and current not in ambiguous:
                     proven_descendants.append(current)
                 if row[1] == pgid:
                     if current not in ambiguous:
@@ -1037,6 +1050,16 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     captured = tuple(CensusRoot(ident.pid, ident.boot_id, ident.proc_start, group)
                      for ident, groups_seen in observed_groups.items()
                      for group in sorted(groups_seen)) + tuple(incomplete_roots)
+    if seen is not None:
+        safe_roots = tuple(pid for pid in proven_roots if not any(
+            identities_overlap(seen.census_root(pid).identity, value) for value in ambiguous))
+        guardian_ambiguous = guardian_verified and any(
+            identities_overlap(seen.census_root(guardian_pid).identity, value) for value in ambiguous)
+        if guardian_ambiguous:
+            providers = ()
+        authenticated_descendants = foreign_ownership.local_descendants(
+            seen, safe_roots, group_pids=local_group if guardian_verified and not guardian_ambiguous else ())
+        proven_descendants = [value for value in proven_descendants if value.pid in authenticated_descendants]
     providers = tuple(value for value in providers if value not in ambiguous)
     group_identities = {pid: value for pid, value in group_identities.items() if value not in ambiguous}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
