@@ -177,7 +177,11 @@
       "resume_margin_gb": 5,
       "placement_reserve_gb": 1.5,
       "reserve_ttl_s": 600,
-      "path": null
+      "path": null,
+      "lower_path": null,
+      "raise_path": null,
+      "min_floor_gb": 20,
+      "max_lower_h": 16
     },
     "pin_grace_s": 1800,
     "pin_hold_far_s": 604800,
