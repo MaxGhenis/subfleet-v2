@@ -48,6 +48,18 @@ def items_of(result: dict, message_id: str, kind: str | None = None) -> list[dic
     return [i for i in result["items"] if i["message_id"] == message_id and (kind is None or i["type"] == kind)]
 
 
+def test_quarantine_release_is_a_labelled_subfleet_system_notice(core_probe, tmp_path):
+    cid, mid = str(uuid.uuid4()), str(uuid.uuid4())
+    event = {"seq": 1, "message_id": mid, "kind": "status", "ts": "2026-10-05T12:00:00Z",
+             "data": {"phase": "quarantine-released", "author": "Subfleet",
+                      "message": "Turn released from quarantine; its writers are gone and its leases are free."}}
+    page = {"events": [event], "next": 1, "reset": False, "floor": 0}
+    result = fold(core_probe, tmp_path, cid, [{"page": page}, {"page": page}])
+    notices = items_of(result, mid, "notice")
+    assert len(notices) == 1
+    assert notices[0]["text"] == "Subfleet: " + event["data"]["message"]
+
+
 def test_design_12_real_block_framing_shows_each_block_once_and_says_where_the_turn_is(core_probe, tmp_path, harness):
     """Claude 2.1.280 frames each block as start, deltas, a one-block `assistant`
     row, stop. Each block is one item; while thinking whose text the API omits

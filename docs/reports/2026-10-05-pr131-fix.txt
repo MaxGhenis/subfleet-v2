@@ -1,0 +1,127 @@
+PR #131 fix round, 2026-10-05
+
+Applied the supplied review patch first (d45a3837), with review attribution,
+then merged origin/integrate/2111-features at ceb1f15f (eb9c1836).
+Implementation: 9587c09b, lease/search follow-up: 70df599c,
+loss-fixture follow-ups: db91b432 and c21e71c4. Every job commit includes
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
+
+Findings and regression proofs
+
+P1-1: subfleet/procs.py:450,466 keeps live nonleader group members and
+descendants even when their PID matches an older recorded identity. The
+reused-leader exclusion remains. Proofs:
+  tests/fake/test_quarantine_review_fixes.py:70
+    test_recycled_group_member_keeps_every_lease_in_both_resolvers
+    (automatic/operator; output, worktree, native, native-session, conversation)
+  tests/fake/test_quarantine_review_fixes.py:60
+    test_a_recycled_descendant_pid_is_not_removed_from_an_owned_writers_walk
+  tests/unit/test_review_pr131_census_property.py:36
+    test_every_live_group_member_is_in_the_census_unless_the_leader_pid_was_reused
+    (500 Hypothesis examples), plus the reviewer's group/finalization probes.
+
+P2-1: subfleet/daemon.py:83,5845,5961,6036 and subfleet/procs.py:421 retain
+every distinct identity per PID, including observation history. Any matching
+identity establishes ownership; unknown inspection holds. Proofs:
+  tests/fake/test_quarantine_review_fixes.py:19,32,50
+    test_any_recorded_identity_for_the_same_pid_keeps_its_writers
+    test_rechecks_preserve_all_observed_identities_per_pid
+    test_owned_identity_recording_retains_older_observations
+  tests/unit/test_procs.py:145,154
+    test_any_identity_for_a_pid_can_establish_ownership
+    test_all_identities_must_be_proven_gone_before_a_pid_is_discarded
+
+P2-2: tests/unit/test_offline.py:398 uses SCHEMA_VERSION + 1 for a future
+store. Proof: test_reads_say_so_when_the_store_is_newer (:393).
+
+P3-1: subfleet/guardian.py:157 publishes child PID/start identity before
+wait or relay; subfleet/daemon.py:5848 consumes it. Legacy children without
+identity remain held conservatively. Proofs:
+  tests/unit/test_guardian.py:66
+    test_provider_identity_is_durable_before_wait_or_relay (both paths)
+  tests/fake/test_quarantine_review_fixes.py:99,110
+    test_legacy_child_without_identity_still_holds_conservatively
+    test_child_launch_identity_distinguishes_a_live_escape_from_pid_reuse
+
+P3-2: subfleet/daemon.py:74 handles plain/scalar quarantine reasons;
+:6218 and :6460 handle corrupt turn manifests and clear notice pins.
+Owned evidence stays strict so corruption cannot prove death. Proofs:
+  tests/fake/test_quarantine_review_fixes.py:130,143,154
+    test_legacy_quarantine_reasons_do_not_wedge_either_resolver (10 cases)
+    test_bad_reason_still_holds_a_live_owned_writer
+    test_corrupt_manifest_after_release_clears_the_notice_pin (4 cases)
+
+P3-3: subfleet/store.py:310 supports atomic unaudited bookkeeping;
+subfleet/daemon.py:6111,6144,6157 commits retry clocks without audit rows and
+audits only changed censuses. Proofs:
+  tests/fake/test_quarantine_review_fixes.py:167,191
+    test_unchanged_census_does_not_grow_the_audit_but_changes_are_recorded
+    test_pace_claim_survives_a_census_failure_without_an_audit_row
+  tests/unit/test_quarantine_pacing_store.py:7
+    test_unaudited_bookkeeping_is_atomic_visible_and_increments_generation
+
+Mutation checks (all killed; every source restored byte-for-byte)
+
+Restored stale-PID group pruning: 4 failing assertions, including both
+lease-resolution paths. Restored descendant pruning: 1 failure.
+Kept only the last PID identity: 2 failures, 1 positive control passed.
+Ignored child identity: 1 failure, 1 positive control passed.
+Parsed legacy reason strictly: 1 failure.
+Audited every pace claim: 1 failure. Audited every census: 2 failures.
+Hard-coded future schema 7: 1 failure.
+Raised on corrupt manifest: 1 failure, 3 positive controls passed.
+Nine distinct mutants killed, 14 failed cases and 5 passing controls.
+The group mutant was also killed after the final fixture correction.
+
+Validation
+
+All runs set TMPDIR=$PWD/.fix-tmp/, use foreground slices with a 540-second
+cap, and complete below ten minutes; longest measured run: 397.82 seconds.
+Python 3.12 environment installed from the locked dependency set.
+Ran every review-named suite, merge-touched Python tests, all retention
+suites, the supplied probes/migration builder, and changed fixture dependents.
+
+Deduplicated final results: 2,694 cases; 2,518 passed normally, 121 more
+passed with identity scripted only during Daemon construction, 27 host-
+inspection cases blocked, 27 skipped, and 1 pre-existing cold-lane property
+failure. The constructor substitution is diagnostic, remains uncommitted,
+and restores normal census inspection immediately after construction.
+All 148 original host-dependent failures reproduced on merged eb9c1836;
+121 then passed with constructor-only identity. The remaining 27 need
+/bin/ps or macOS sysctl, which this sandbox denies. The cold-lane property
+also fails on eb9c1836 with seed 57: an unproven lane receives two attempts
+after auth-dead completions. It is outside the quarantine fixes.
+
+Selected results (overlap is intentional; totals above are deduplicated):
+  Retention: 246 passed.
+  Native Foundation probes: 82 passed after search fixture correction.
+  Reviewer/migration/self-resolution/pacing regression slice: 64 passed.
+  Focused procs/guardian/offline/property slice: 119 passed, 2 host-blocked.
+  Final quarantine review regression file: 30 passed.
+  State-contract/notice-header files: 59 passed.
+  State-fixture dependents: 435 passed, 1 baseline cold-lane failure.
+  Process integration tests: 4 skipped because inspection is unavailable.
+  Live-shaped v6 migration: 211 quarantines/493 leases retained initially;
+    152 gone attempts released; 52 unverifiable and 7 live remain held;
+    all 211 checked fairly in 27 passes, remaining 59 in the next 8 passes.
+
+Fixture corrections preserve the intended assertions: a bare child PID
+cannot prove reuse, so the reviewer probe now supplies its launch identity;
+release admission checks integration's shared-folder lease rather than the
+obsolete exclusive worktree lease. Native search also searches paths, so
+"FIX THE" avoids matching the pr131-fix checkout name while retaining the
+case-insensitivity check. The two explicit lost-guardian scenarios request
+an empty-table/dead-guardian fixture; the shared fixture retains its original
+liveness behavior. No expected safety behavior was weakened.
+
+Delivery
+
+Shared Git metadata is unwritable. Commits use workspace-local .git-local
+on refs/heads/fix/pr131; neither it nor test logs/artifacts are committed.
+Bundle: docs/reports/2026-10-05-pr131-fix.bundle (uncommitted, ignored).
+Prerequisite: fa1f4421a1899eb33b84ec601e88d6e6b9669cec.
+The bundle head is refs/heads/fix/pr131, including this report commit;
+read its exact object ID with git bundle list-heads. Verify and import into
+a fresh repository seeded only with the prerequisite before delivery.
+No push, history rewrite, sub-agents, background test run, live daemon/app
+access, or default_policy.json edit. All foreground sessions completed.

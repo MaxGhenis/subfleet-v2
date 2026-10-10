@@ -1283,6 +1283,17 @@ class ConversationService:
                                     fix="try again" if exc.transient else "check the workspace's repository")
         return {"available": True, "path": path, "from": start, "to": end, **result}
 
+    def record_quarantine_release(self, turn: dict, attempt: dict, *, override: bool = False) -> None:
+        """C-5.7: an idempotent system status line in the turn's timeline."""
+        mark = self.store.mark(attempt["attempt_id"])
+        self.store.append_events(
+            conversation_id=turn["conversation_id"], message_id=turn["message_id"], attempt_id=attempt["attempt_id"],
+            events=[("command", "cmd:quarantine-release", 0, "status",
+                     {"phase": "quarantine-released", "author": "Subfleet",
+                      "message": ("Turn released from quarantine by operator override; its leases are free." if override else
+                                  "Turn released from quarantine; its writers are gone and its leases are free.")})],
+            stdout_offset=mark["stdout_offset"], stdin_seq=mark["stdin_seq"])
+
     def record_trees(self, turn: dict, attempt: dict, receipt: dict) -> None:
         """The daemon's finalization seam: a turn attempt's end (C-26.10, C-26.14)."""
         evidence = _evidence(attempt)

@@ -1,0 +1,61 @@
+F
+=================================== FAILURES ===================================
+___________________________ TestProcessWorld.runTest ___________________________
+
+self = <hypothesis.stateful.ProcessWorldMachine.TestCase testMethod=runTest>
+
+    def runTest(self):
+>       run_state_machine_as_test(cls, settings=self.settings)
+
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:507:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:271: in run_state_machine_as_test
+    state_machine_test()
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:122: in run_state_machine
+    @given(st.data())
+               ^^^
+tests/fake/test_quarantine_process_world.py:392: in initial
+    self.pair(resolve=True)
+tests/fake/test_quarantine_process_world.py:363: in pair
+    self.safety()
+tests/fake/test_quarantine_process_world.py:510: in safety
+    def safety(self):
+               ^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:1154: in invariant_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = ProcessWorldMachine({})
+
+    @invariant()
+    def safety(self):
+        alive = [p for p in self.world.processes.values() if p.writer and not p.zombie]
+        for a in self.attempts:
+            actual = self.daemon.store.get_attempt(a["attempt_id"])
+            leases = {(l["lease_key"], l["holder"]) for l in self.daemon.store.list_leases()
+                      if l["holder"] in {a["attempt_id"], a["job_id"]}}
+            held = actual["state"] == "quarantined"
+>           assert (not alive or held) and (not held or (
+                self.protected_leases[a["attempt_id"]] <= leases
+                and all(path.exists() for path in self.protected_workspaces[a["attempt_id"]]))), (
+                "S1 premature release", actual["state"], self.world.rows(), self.world.trace)
+E           AssertionError: ('S1 premature release', 'lost', {200: (1, 200, 'S', 'start-1')}, [('spawn', 200, 'start-1', 100, True), ('read', 'table', 1), ('setsid', 200, 300), ('exit', 100), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1)])
+E           Failing test case:
+E           state = ProcessWorldMachine()
+E           state.initial(source='marker', scenario='paced-missing-start', consumer='attempt')
+E           state.teardown()
+
+tests/fake/test_quarantine_process_world.py:517: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4496492256:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498311216:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498313232:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498315584:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498317936:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498312560:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4498324992:daemon.py:743 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_quarantine_process_world.py::TestProcessWorld::runTest
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 26.46s

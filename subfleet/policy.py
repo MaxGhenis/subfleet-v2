@@ -21,6 +21,9 @@ from .contracts import (
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
 
+# C-5.7: durable pacing of automatic quarantine censuses; not a force release.
+QUARANTINE_RECHECK_S = 600.0
+
 
 def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
     """C-11.2: candidates from this tier upward, in first-preference order.
@@ -300,6 +303,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         raise PolicyError(path, "$", f"cannot read policy JSON: {error}") from error
     if not isinstance(value, dict):
         fail("$", "must be an object")
+    pace = value.setdefault("quarantine_recheck_s", QUARANTINE_RECHECK_S)
+    if (not isinstance(pace, (int, float)) or isinstance(pace, bool)
+            or not math.isfinite(pace) or pace <= 0):
+        fail("quarantine_recheck_s", "must be a positive finite number of seconds")
     required = ("tiers", "chains", "fallback", "permissions", "models", "retired",
                 "desktop_login", "caps", "reset_credits")
     for key in required:

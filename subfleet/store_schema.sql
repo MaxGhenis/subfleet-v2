@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   evidence_json TEXT,
   killed_by TEXT,
   quarantine_reason TEXT,
+  quarantine_recheck_at TEXT NOT NULL DEFAULT '',
+  quarantine_notice_pending INTEGER NOT NULL DEFAULT 0,
   reserved_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT,
@@ -151,6 +153,8 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_live ON attempts(state) WHERE state IN ('reserved','starting','running','finalizing');
 CREATE INDEX IF NOT EXISTS attempts_lane ON attempts(lane_id, state);
+CREATE INDEX IF NOT EXISTS attempts_quarantine_due ON attempts(quarantine_recheck_at,attempt_id) WHERE state='quarantined';
+CREATE INDEX IF NOT EXISTS attempts_quarantine_notice ON attempts(quarantine_recheck_at,attempt_id) WHERE quarantine_notice_pending=1;
 -- C-3.7: `list_attempts` reads every attempt in this order; without an index each
 -- capacity snapshot sorted the table (39 MB with its evidence on 2026-10-06) in a
 -- temp file, and the 2.1.10 daemon wrote about 30 MB/s to the disk doing it.

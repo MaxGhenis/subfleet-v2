@@ -23,7 +23,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from tests.caps import capped
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -38,6 +38,7 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
+    monkeypatch.setattr(daemon_module.procs, "cwd_pids", lambda workdir: frozenset())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
     def refuse_real_launch(*args):
@@ -48,6 +49,13 @@ def state_daemon(tmp_path, monkeypatch):
     finally:
         daemon.close()
     harness.check_notices()                 # C-15.1, after every in-process test too
+
+
+@pytest.fixture
+def dead_guardian(monkeypatch):
+    """C-5.12: model an absent guardian for the explicit loss scenarios."""
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, boot_id="unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
 
 
 def test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts(state_daemon):
@@ -335,7 +343,7 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, dead_guardian):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
@@ -498,7 +506,8 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     guardian = ProcessIdentity(42001, "unit-test-boot", "unit-test-start")
     child = ProcessIdentity(42002, "unit-test-boot", "unit-test-start")
     members = Containment(group_pids=frozenset({42001, 42002}),
-                          identities={42001: guardian, 42002: child})
+                          identities={42001: guardian, 42002: child},
+                          group_identities={42001: guardian, 42002: child})
     census = iter([members, Containment(group_pids=frozenset({42002}), identities={42002: child}),
                    Containment()])
     monkeypatch.setattr(daemon, "_contain", lambda attempt: next(census))

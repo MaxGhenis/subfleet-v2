@@ -1,0 +1,25 @@
+Round-8 item 3 — every protected lease and actual worktree
+
+Reproduction is in reproduction.txt: deleting one worktree lease while native
+ownership remains produced DID NOT RAISE. The original fixture had only one
+synthetic native lease. Every primary world now has a read-only twin and a
+writable twin admitted through production into a real temporary Git worktree.
+It captures all required (lease key, holder) pairs and both workspace paths.
+S1 requires all of them while quarantine is held, even without a visible
+writer, and forbids release while a covered writer lives. The captured set is
+never regenerated from potentially damaged store state.
+
+Controls delete each lease kind independently, delete the actual writable
+worktree while its source workspace remains, challenge an unverifiable hold
+without visible writers, and verify complete release after all evidence empties.
+The temporary xfail is removed. item3-controls.txt records passing controls.
+item3-model-50.txt is the initial writable-world check; final proof follows.
+
+oracle-mutations.txt: the two original oracle challenges plus the S2 owned-
+escape regression and S1 partial-lease-loss regression are all killed, with
+passing controls and byte-for-byte restoration. The S2 oracle also rejects
+an original group number reused by a foreign leader.
+
+SQLite's model fixture uses synchronous=NORMAL for committed state simulations;
+this is not a model of power-loss recovery. Real Git worktree creation and
+release/salvage paths are exercised. No production code changed.

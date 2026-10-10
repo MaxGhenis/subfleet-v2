@@ -1,0 +1,59 @@
+F
+=================================== FAILURES ===================================
+___________________________ TestProcessWorld.runTest ___________________________
+
+self = <hypothesis.stateful.ProcessWorldMachine.TestCase testMethod=runTest>
+
+    def runTest(self):
+>       run_state_machine_as_test(cls, settings=self.settings)
+
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:507: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:271: in run_state_machine_as_test
+    state_machine_test()
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:122: in run_state_machine
+    @given(st.data())
+               ^^^
+tests/fake/test_quarantine_process_world.py:384: in initial
+    self.pair(resolve=True)
+tests/fake/test_quarantine_process_world.py:330: in pair
+    self.safety()
+tests/fake/test_quarantine_process_world.py:462: in safety
+    def safety(self):
+               ^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:1154: in invariant_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ProcessWorldMachine({})
+
+    @invariant()
+    def safety(self):
+        alive = [p for p in self.world.processes.values() if p.writer and not p.zombie]
+        for a in self.attempts:
+            actual = self.daemon.store.get_attempt(a["attempt_id"])
+            leases = [l for l in self.daemon.store.list_leases() if l["holder"] in {a["attempt_id"], a["job_id"]}]
+>           assert not alive or (actual["state"] == "quarantined" and leases and self.harness.workdir.exists()), (
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                "S1 premature release", actual["state"], self.world.rows(), self.world.trace)
+E           AssertionError: ('S1 premature release', 'lost', {200: (1, 700, 'S', 'start-2')}, [('exit', 100), ('read', 'table', 1), ('spawn', 99, 'start-1', 700, True), ('read', 'markers', 1), ('read', 'identity', 1), ('read', 'group', 1), ('spawn', 200, 'start-2', 700, True), ('exit', 99), ('read', 'confirm', 1), ('read', 'cwd', 1), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'cwd', 1)])
+E           Failing test case:
+E           state = ProcessWorldMachine()
+E           state.initial(source='marker', scenario='failed-bracket-child', consumer='attempt')
+E           state.teardown()
+
+tests/fake/test_quarantine_process_world.py:467: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4505487744:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499851984:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499853328:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499855344:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499857360:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499859376:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499861056:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4516397472:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_quarantine_process_world.py::TestProcessWorld::runTest
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 29.14s

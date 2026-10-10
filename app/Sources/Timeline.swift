@@ -512,6 +512,11 @@ struct Timeline: Equatable {
         var missed: String?
         switch event.kind {
         case "status":
+            if data["phase"]?.string == "quarantine-released" {
+                turn.items.append(TimelineItem(id: "quarantine-release:\(event.seq)", messageID: id,
+                                               content: .notice("Subfleet: " + (data["message"]?.string ?? "Turn released from quarantine")),
+                                               ts: event.ts))
+            }
             // A new attempt starts its own clock, even after one that never got further.
             if let phase = data["phase"]?.string, turn.phases.last?.phase != phase || phase == "starting-provider" {
                 turn.phases.append(PhaseStamp(phase: phase, ts: event.ts))

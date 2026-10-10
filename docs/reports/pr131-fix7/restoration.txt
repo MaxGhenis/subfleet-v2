@@ -1,0 +1,4 @@
+Exact SHA-256 restoration after all 33 mutations:
+b604276383e7f4e0e1f5792b90c4a28631f176756e949428191a10011f327243  subfleet/daemon.py
+1e02e12a638dfeff47e29b342e4183c0a39c22454da8b07ee7b71a214e1a8ab3  subfleet/procs.py
+Production diff against the committed fixes: empty.

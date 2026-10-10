@@ -22,6 +22,8 @@ actions = st.lists(st.one_of(
     st.tuples(st.just("free"), st.integers(0, 160)),  # half-GB readings, including every boundary
     st.tuples(st.just("submit"), st.sampled_from(CLASSES)),
     st.tuples(st.just("end"), st.integers(0, 20)),
+    st.tuples(st.just("quarantine"), st.integers(0, 20)),
+    st.tuples(st.just("resolve"), st.integers(0, 20)),
     st.tuples(st.just("clock"), st.integers(0, 1200)),
     st.tuples(st.just("restart"), st.just(0)),
 ), min_size=1, max_size=65)
@@ -56,6 +58,15 @@ def test_invariants_over_generated_sequences(tmp_path, invariant, sequence):
             row = attempts[value % len(attempts)]
             row.update(state="finalizing", finished_at=stamp(now))
             budgets.pop(row["attempt_id"], None)
+        elif action == "quarantine" and attempts:
+            row = attempts[value % len(attempts)]
+            if row["state"] in ("reserved", "quarantined"):
+                row.update(state="quarantined", finished_at=stamp(now))
+        elif action == "resolve" and attempts:
+            row = attempts[value % len(attempts)]
+            if row["state"] == "quarantined":
+                row.update(state="lost", finished_at=stamp(now))
+                budgets.pop(row["attempt_id"], None)
         elif action == "restart":
             old = dict(gate.reservations)
             gate = DiskAdmission(tmp_path, read_free=read, holding=gate.holding)
@@ -159,6 +170,30 @@ def test_restart_keeps_original_size_and_ttl_after_policy_change(tmp_path):
     assert gate.reserved_bytes == 0
 
 
+@pytest.mark.parametrize("release", ["expiry", "resolution"])
+def test_quarantine_budget_survives_restart_until_expiry_or_resolution(tmp_path, release):
+    import json
+    gate = DiskAdmission(tmp_path, read_free=lambda path: 43 * GB)
+    gate.begin_pass(POLICY, [], stamp(0))
+    row = {"attempt_id": "a", "state": "quarantined", "kind": "dispatch",
+           "reserved_at": stamp(0), "finished_at": stamp(1),
+           "evidence_json": json.dumps({"disk_reservation": gate.evidence()})}
+    gate.begin_pass(POLICY, [row], stamp(599))
+    assert gate.reserved_bytes == 1.5 * GB
+    restarted = DiskAdmission(tmp_path, read_free=lambda path: 43 * GB)
+    restarted.begin_pass(POLICY, [row], stamp(599))
+    assert restarted.reservations == gate.reservations
+    assert restarted.status([row], stamp(599))["reserved_gb"] == 1.5
+    if release == "resolution":
+        row["state"] = "lost"
+    now = stamp(600 if release == "expiry" else 599)
+    # Read-side status reflects release without changing the pass's map.
+    assert restarted.status([row], now)["reserved_gb"] == 0
+    assert restarted.reserved_bytes == 1.5 * GB
+    restarted.begin_pass(POLICY, [row], now)
+    assert restarted.reserved_bytes == 0
+
+
 @SEQUENCES
 @given(actions)
 def test_I6_disabled_matches_absent_over_generated_sequences(tmp_path, sequence):
@@ -192,6 +227,12 @@ def test_I6_disabled_matches_absent_over_generated_sequences(tmp_path, sequence)
             history.append(job)
         elif action == "end" and attempts:
             attempts.pop(value % len(attempts))
+        elif action == "quarantine" and attempts:
+            attempts[value % len(attempts)].update(state="quarantined", finished_at=stamp(now))
+        elif action == "resolve" and attempts:
+            row = attempts[value % len(attempts)]
+            if row["state"] == "quarantined":
+                attempts.remove(row)
         elif action == "clock":
             now += value
         elif action == "restart":

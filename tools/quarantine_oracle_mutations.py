@@ -1,0 +1,107 @@
+"""Serial independent mutations of the process model's own assertions.
+
+Run only when no other pytest process is active, with a fresh caller-owned
+TMPDIR. Restore exact model bytes after each mutant; no production edits.
+"""
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+import sys
+import signal
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MODEL = ROOT / "tests/fake/test_quarantine_process_world.py"
+MUTATIONS = (
+    ("S1 ignores writers after markers disappear",
+     "if p.writer and not p.zombie]",
+     "if p.writer and not p.zombie and p.marked]",
+     "tests/fake/test_quarantine_process_world.py::test_unconditional_s1_has_the_documented_invisible_writer_counterexample"),
+    ("S2 accepts confirmed foreign-group identities",
+     "(p.pgid == 100 and original_group) or (pid, p.start) in self.owned",
+     "True",
+     "tests/fake/test_review_pr131_round7_model.py::test_s2_oracle_rejects_foreign_group_signal"),
+    ("S2 rejects a confirmed previously owned escape",
+     "(p.pgid == 100 and original_group) or (pid, p.start) in self.owned",
+     "p.pgid == 100 and original_group",
+     "tests/fake/test_review_pr131_round7_model.py::test_previously_owned_escape_is_a_valid_signal_target[attempt]"),
+    ("S1 accepts losing one protected lease",
+     'self.protected_leases[a["attempt_id"]] <= leases',
+     'bool(leases)',
+     "tests/fake/test_review_pr131_round7_model.py::test_s1_oracle_rejects_loss_of_one_protected_lease[worktree:]"),
+    ("S2 rejects full member ownership after scalar leader confirmation",
+     "self.owned.update(self.ownership_candidates)",
+     "pass",
+     "tests/fake/test_review_pr131_round7_model.py::test_fresh_leader_confirmation_respects_member_identity[table-attempt]"),
+    ("K1 permits an omitted confirmed owned survivor",
+     "for pid, start in self.world.owned:",
+     "for pid, start in ():",
+     "tests/fake/test_quarantine_process_world.py::test_k1_oracle_rejects_omitted_owned_survivor_signal"),
+    ("S1 ignores recorded writers without visible markers",
+     "if p.writer and not p.zombie]",
+     "if p.writer and not p.zombie and p.marked]",
+     "tests/fake/test_quarantine_process_world.py::test_s1_oracle_rejects_release_with_recorded_writer"),
+    ("K1 transfers probe-only ownership to the attempt",
+     "                    attempt_owned, attempt_observed, attempt_groups)",
+     "                    self.probe_owned, attempt_observed, attempt_groups)",
+     "tests/fake/test_quarantine_process_world.py::test_probe_ownership_does_not_grant_attempt_signal_authority"),
+    ("S1 transfers probe-only observations to the attempt",
+     "                    attempt_owned, attempt_observed, attempt_groups)",
+     "                    attempt_owned, self.probe_observed, attempt_groups)",
+     "tests/fake/test_quarantine_process_world.py::test_probe_census_does_not_expand_attempt_coverage"),
+    ("S1 transfers probe-only groups to the attempt",
+     "                    attempt_owned, attempt_observed, attempt_groups)",
+     "                    attempt_owned, attempt_observed, self.probe_groups)",
+     "tests/fake/test_quarantine_process_world.py::test_probe_census_does_not_expand_attempt_coverage"),
+)
+
+
+def run(node):
+    for cache in (ROOT / "tests/fake/__pycache__").glob("test_quarantine_process_world.*.pyc"):
+        cache.unlink()
+    return subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "--assert=plain", "-q", node],
+        cwd=ROOT, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True, text=True, timeout=540)
+
+
+def main():
+    original = MODEL.read_bytes()
+    source = original.decode()
+    before = hashlib.sha256(original).hexdigest()
+    killed = 0
+    try:
+        for name, old, new, node in MUTATIONS:
+            assert source.count(old) == 1, (name, source.count(old))
+            control = run(node)
+            print(f"CONTROL {name}: exit {control.returncode}", flush=True)
+            print(control.stdout, flush=True)
+            assert control.returncode == 0, control.stderr
+            try:
+                MODEL.write_text(source.replace(old, new))
+                mutant = run(node)
+                detected = mutant.returncode == 1 and any(
+                    label in mutant.stdout for label in ("DID NOT RAISE", "AssertionError"))
+                print(f"{'KILLED' if detected else 'MISSED'} {name}: exit {mutant.returncode}", flush=True)
+                print(mutant.stdout, mutant.stderr, flush=True)
+                killed += int(detected)
+            finally:
+                MODEL.write_bytes(original)
+                assert MODEL.read_bytes() == original
+    finally:
+        MODEL.write_bytes(original)
+    after = hashlib.sha256(MODEL.read_bytes()).hexdigest()
+    print(f"{killed}/{len(MUTATIONS)} own-oracle mutations killed", flush=True)
+    print(f"model SHA-256 before/after: {before} / {after}", flush=True)
+    return int(killed != len(MUTATIONS))
+
+
+if __name__ == "__main__":
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt(f"oracle mutations interrupted by signal {signum}")
+    previous = signal.signal(signal.SIGTERM, interrupted)
+    try:
+        sys.exit(main())
+    finally:
+        signal.signal(signal.SIGTERM, previous)

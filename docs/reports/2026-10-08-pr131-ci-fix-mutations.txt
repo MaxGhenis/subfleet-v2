@@ -1,0 +1,60 @@
+CONTROL: shared cwd mistakes another attempt for a writer: 1 passed in 4.32s
+KILLED: shared cwd mistakes another attempt for a writer: 1 failed in 4.95s
+CONTROL: shared root mistakes another attempt for a writer: 1 passed in 10.48s
+KILLED: shared root mistakes another attempt for a writer: 1 failed in 11.56s
+CONTROL: failed confirmation drops the conservative group: 1 passed in 10.51s
+KILLED: failed confirmation drops the conservative group: 1 failed in 18.47s
+CONTROL: later observations reuse the old identity: 1 passed in 12.00s
+KILLED: later observations reuse the old identity: 1 failed in 15.44s
+CONTROL: later observations inherit the old zombie verdict: 1 passed in 17.00s
+KILLED: later observations inherit the old zombie verdict: 1 failed in 17.68s
+CONTROL: later observations inherit the old group: 1 passed in 7.95s
+KILLED: later observations inherit the old group: 1 failed in 8.20s
+CONTROL: missing start identity treated as absence: 1 passed in 7.09s
+KILLED: missing start identity treated as absence: 1 failed in 4.25s
+CONTROL: paced inspection forgets missing starts: 1 passed in 6.16s
+KILLED: paced inspection forgets missing starts: 1 failed in 3.67s
+CONTROL: late observations lack durable roots: 1 passed in 4.23s
+KILLED: late observations lack durable roots: 1 failed in 3.40s
+CONTROL: cwd kernel aliases ignored: 1 passed in 1.72s
+KILLED: cwd kernel aliases ignored: 1 failed in 2.74s
+CONTROL: reused guardian root proves provider publication: 1 passed in 4.66s
+KILLED: reused guardian root proves provider publication: 1 failed in 3.71s
+CONTROL: failed identity observations forgotten: 2 passed in 2.76s
+KILLED: failed identity observations forgotten: 1 failed in 2.63s
+CONTROL: saved lineage identities ignored: 1 passed in 1.25s
+KILLED: saved lineage identities ignored: 1 failed in 1.24s
+CONTROL: saved lineage groups ignored: 1 passed in 2.03s
+KILLED: saved lineage groups ignored: 1 failed in 2.00s
+CONTROL: cwd writer excluded from live census: 1 passed in 1.00s
+KILLED: cwd writer excluded from live census: 1 failed in 1.31s
+CONTROL: partial markers discarded: 2 passed in 0.77s
+KILLED: partial markers discarded: 1 failed in 0.82s
+CONTROL: legacy owned provider cannot discharge: 1 passed in 1.52s
+KILLED: legacy owned provider cannot discharge: 1 failed in 1.06s
+CONTROL: lineage overflow silently releases: 1 passed in 1.28s
+KILLED: lineage overflow silently releases: 1 failed in 1.35s
+CONTROL: corrupt diagnostic boots accepted as ownership proof: 8 passed in 2.35s
+KILLED: corrupt diagnostic boots accepted as ownership proof: 1 failed in 2.02s
+CONTROL: same-boot reboot gate restored: 2 passed in 4.31s
+KILLED: same-boot reboot gate restored: 1 failed in 3.99s
+CONTROL: marker scan ignored: 2 passed in 3.74s
+KILLED: marker scan ignored: 1 failed in 2.86s
+CONTROL: missing child publication accepted: 1 passed in 2.66s
+KILLED: missing child publication accepted: 1 failed in 2.71s
+CONTROL: retained group descendant roots omitted: 1 passed in 2.47s
+KILLED: retained group descendant roots omitted: 1 failed in 2.58s
+CONTROL: pre-reboot group roots retained: 1 passed in 2.46s
+KILLED: pre-reboot group roots retained: 1 failed in 2.81s
+CONTROL: unverifiable census accepted: 1 passed in 2.88s
+KILLED: unverifiable census accepted: 1 failed in 2.31s
+CONTROL: PID reuse ignored: 1 passed in 286.44s (0:04:46)
+KILLED: PID reuse ignored: 1 failed in 5.53s
+CONTROL: leases retained after release: 1 passed in 2.29s
+KILLED: leases retained after release: 1 failed in 2.03s
+CONTROL: durable pace disabled: 1 passed in 1.51s
+KILLED: durable pace disabled: 1 failed in 1.25s
+CONTROL: salvage receipt ignored: 1 passed in 1.52s
+KILLED: salvage receipt ignored: 1 failed in 1.60s
+29/29 mutations killed; production source restored
+Survivors: []; no control: []; inconclusive: []

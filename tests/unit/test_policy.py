@@ -22,6 +22,20 @@ def write_policy(tmp_path, value):
     return path
 
 
+@pytest.mark.parametrize("pace", [None, 0, -1, True, "600", float("inf"), float("nan")])
+def test_quarantine_recheck_pace_must_be_positive_and_finite(tmp_path, policy_data, pace):
+    policy_data["quarantine_recheck_s"] = pace
+    with pytest.raises(PolicyError, match="quarantine_recheck_s"):
+        load_policy(write_policy(tmp_path, policy_data))
+
+
+def test_quarantine_pace_defaults_in_code_and_accepts_subseconds(tmp_path, policy_data):
+    assert "quarantine_recheck_s" not in policy_data
+    assert load_policy(write_policy(tmp_path, policy_data))["quarantine_recheck_s"] == 600
+    policy_data["quarantine_recheck_s"] = .25
+    assert load_policy(write_policy(tmp_path, policy_data))["quarantine_recheck_s"] == .25
+
+
 @pytest.mark.parametrize("key", [
     "tiers", "chains", "fallback", "permissions", "models", "retired",
     "desktop_login", "caps", "reset_credits",

@@ -1,0 +1,7 @@
+{
+  "fixed_examples": 2000,
+  "fixed_seed": 131,
+  "fresh_examples": 500,
+  "fresh_seed": 3027837772367224465,
+  "stateful_step_count": 25
+}

@@ -40,7 +40,7 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 Row = dict[str, Any]
 
 # Canonical observations use the partial time index; offset/fractional clocks
@@ -91,6 +91,9 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     5: ("ALTER TABLE jobs ADD COLUMN unmeasured_reserve_reason TEXT",),
     # C-12.9, d714: the MCP servers a job named; an older job named none.
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
+    # C-5.7: restart-safe census pace and a turn's release notification outbox.
+    7: ("ALTER TABLE attempts ADD COLUMN quarantine_recheck_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE attempts ADD COLUMN quarantine_notice_pending INTEGER NOT NULL DEFAULT 0"),
 }
 
 
@@ -308,7 +311,9 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
-                    if column in present:
+                    if not present or column in present:
+                        # Older sparse stores acquire an absent table from the
+                        # current schema immediately after numbered migrations.
                         continue
                 self.connection.execute(statement)
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
@@ -322,11 +327,13 @@ class Store:
     @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
-                    data: Mapping[str, Any] | None = None) -> Iterator[sqlite3.Connection]:
+                    data: Mapping[str, Any] | None = None, audit: bool = True) -> Iterator[sqlite3.Connection]:
         """C-3.2: serialize a mutation and its audit event; nested calls use savepoints.
 
         C-3.7: never inside a `snapshot()` on the same thread (`SnapshotWriteError`);
-        another thread's transaction is how a commit reaches a snapshot's lifetime."""
+        another thread's transaction is how a commit reaches a snapshot's lifetime.
+        `audit=False` is only for retry-clock bookkeeping, never state transitions;
+        it still commits atomically and advances the store generation."""
         if self.read_only:
             raise sqlite3.OperationalError("store is read-only")
         if getattr(self._local, "in_snapshot", False):
@@ -342,7 +349,7 @@ class Store:
             before = self.connection.total_changes
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                if audit and self.connection.total_changes != before:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
