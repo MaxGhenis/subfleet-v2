@@ -4,12 +4,14 @@ import errno
 import inspect
 import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet import host_push
+from subfleet.adapters.base import AdapterError
 from test_host_push import submit, worlds  # noqa: F401
 from test_host_push_admission import notices, ordinary, pin_routing, placed
 from test_host_push_build import admit_ready
@@ -75,6 +77,66 @@ def test_total_fallback_bytes_never_exceed_cap(tmp_path, monkeypatch, cap, sizes
                 break
         allocated = sum(path.stat().st_size for path in outputs if path.exists())
         assert allocated == copied <= cap
+
+
+def intake_budget_invariant(root, patch, sizes, cap):
+    """Exercise the production accumulator; over-budget intake never reaches Git."""
+    source = root / "source"
+    gitdir = source / ".git"
+    objects = gitdir / "objects/00"
+    objects.mkdir(parents=True)
+    head = "1" * 40
+    (gitdir / "HEAD").write_text(head + "\n")
+    (gitdir / "config").write_text('[remote "origin"]\nurl = file:///budget-origin.git\n')
+    for index, size in enumerate(sizes):
+        (objects / f"{index:038x}").write_bytes(b"x" * size)
+    allocated, git_calls = [], []
+
+    @contextmanager
+    def quarantine(*args):
+        with tempfile.TemporaryDirectory(dir=root) as directory:
+            repo = Path(directory) / "repo.git"
+            (repo / "objects").mkdir(parents=True)
+            try:
+                yield repo, ()
+            finally:
+                allocated.append(sum(p.stat().st_size for p in (repo / "objects").glob("*/*")))
+
+    def reached_git(*args, **kwargs):
+        git_calls.append(args)
+        raise AssertionError("an over-budget intake reached Git")
+
+    patch.setattr(host_push, "OBJECT_COPY_CAP", cap)
+    patch.setattr(host_push, "quarantine", quarantine)
+    patch.setattr(host_push, "git", reached_git)
+    patch.setattr(host_push, "_clone_object", lambda *args: False)
+    with pytest.raises(AdapterError) as refused:
+        host_push.prepare_workspace(root, source, head, root / "checkout")
+    assert allocated[0] <= cap, "production intake exceeded total budget"
+    assert not git_calls
+    assert refused.value.code == 7 and "object copy exceeds" in str(refused.value)
+
+
+@settings(max_examples=20, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(sizes=st.lists(st.integers(min_value=4096, max_value=16384), min_size=2, max_size=8),
+       fraction=st.floats(min_value=0, max_value=1, allow_nan=False))
+def test_production_intake_total_bytes_never_exceed_cap(tmp_path, monkeypatch, sizes, fraction):
+    largest, total = max(sizes), sum(sizes)
+    cap = largest + int((total - largest - 1) * fraction)
+    with tempfile.TemporaryDirectory(dir=tmp_path) as directory, monkeypatch.context() as patch:
+        intake_budget_invariant(Path(directory), patch, sizes, cap)
+
+
+def test_mutation_forgetting_cumulative_copy_budget_is_killed(tmp_path, monkeypatch):
+    original = inspect.getsource(host_push._prepare_workspace)
+    needle = "OBJECT_COPY_CAP - copied_bytes"
+    assert needle in original
+    namespace = dict(host_push.__dict__)
+    exec(compile(original.replace(needle, "OBJECT_COPY_CAP"), "<accumulator mutant>", "exec"), namespace)
+    monkeypatch.setattr(host_push, "_prepare_workspace", namespace["_prepare_workspace"])
+    with pytest.raises(AssertionError, match="production intake exceeded total budget"):
+        intake_budget_invariant(tmp_path, monkeypatch, [8192, 8192], 8192)
 
 
 @settings(max_examples=40, deadline=None,
