@@ -60,7 +60,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    isolated_review: bool = False, review_root: str | None = None,
                    round_lease: str | None = None, resume: Mapping[str, Any] | None = None,
                    unmeasured_reserve_reason: str | None = None,
-                   mcp_servers: Collection[str] = ()) -> str:
+                   mcp_servers: Collection[str] = (), push_branch: str | None = None,
+                   push_remote: str | None = None) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -93,6 +94,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
         if mcp_servers:
             # C-12.9: likewise, a job that names no MCP server keeps its old digest.
             payload["mcp_servers"] = sorted(mcp_servers)
+        if push_branch is not None:
+            payload.update(push_branch=push_branch, push_remote=push_remote)
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 

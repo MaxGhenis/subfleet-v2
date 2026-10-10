@@ -739,6 +739,7 @@ def _prepare_submit(args: argparse.Namespace,
         pinned_provider="claude" if args.a else "codex" if args.H else None,
         unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
+        push_branch=getattr(args, "push_branch", None),
         name=args.name,
         exclusions=list(args.exclude or []),
         allow_desktop=bool(args.allow_desktop),
@@ -840,6 +841,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     minted = not args.request_id
     try:
         client = _client(args)
+        if submit.push_branch is not None:
+            refused = _push_unsupported(client, "run")
+            if refused is not None:
+                return refused
         if submit.dry_run:
             # Explains a placement and creates nothing, so there is nothing to settle.
             result = client.call("submit", _asdict(submit), request_id=request_id)
@@ -928,6 +933,7 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
     "mcp": ("mcp", "list"),
+    "push_branch": ("push_branch", "str"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -1059,6 +1065,15 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         prepared.append((options["name"], submit))
 
     client, root = _client(args), _root(args)
+    if any(submit.push_branch is not None for _, submit in prepared):
+        try:
+            refused = _push_unsupported(client, "run --batch")
+        except DaemonUnavailable as exc:
+            return _daemon_down(exc)
+        except DaemonError as exc:
+            return _daemon_error(exc)
+        if refused is not None:
+            return refused
     minted = not args.request_id
     # C-17.7: the same manifest under the same batch id sends every entry again,
     # and an entry the daemon already holds comes back as its job (C-6.2).
@@ -1431,6 +1446,18 @@ def _daemon_capabilities(client: Client) -> frozenset[str]:
     return frozenset(name for name in names if isinstance(name, str))
 
 
+def _push_unsupported(client: Client, verb: str) -> int | None:
+    """C-8.5 (review P3-10): a daemon that does not advertise `push.v1` drops
+    `push_branch` (C-16.2) and would accept the job without ever pushing, so
+    `--push-branch` is refused before anything is sent. Exit 69 with the
+    restart, as `runs --kind` answers a daemon older than the CLI."""
+    if protocol.PUSH_CAPABILITY in _daemon_capabilities(client):
+        return None
+    return fail(Exit.DAEMON_UNAVAILABLE,
+                f"{verb} --push-branch: this daemon does not advertise `{protocol.PUSH_CAPABILITY}`, so it "
+                f"would drop the branch and never push; it is older than this CLI", RESTART_DAEMON)
+
+
 def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:
     """C-26.12 on the client: does this `list` row answer the request?
 
@@ -1592,6 +1619,8 @@ def _format_job(job: dict[str, Any]) -> str:
                        ("sandbox", "sandbox"), ("out_path", "-o"),
                        ("created_at", "created"), ("finished_at", "finished"),
                        ("export_error", "export error"),
+                       ("push_branch", "push branch"), ("push_sha", "pushed"),
+                       ("push_error", "push error"),
                        ("unmeasured_reserve_reason", "unmeasured reserve"),
                        ("cancel_requested_at", "cancel requested")):
         value = job.get(key)
@@ -1623,6 +1652,9 @@ def _format_job(job: dict[str, Any]) -> str:
         for artifact in artifacts:
             lines.append(f"  {str(artifact.get('role') or '-'):<12} "
                          f"{artifact.get('path')} ({artifact.get('bytes')} bytes)")
+    for push in rows_of(job.get("pushes")):
+        lines.append(f"push     [{push.get('result')}] {push.get('remote')} "
+                     f"{push.get('branch')} {push.get('sha') or '-'} at {push.get('finished_at') or push.get('started_at')}")
     for notice in rows_of(job.get("notices")):
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
     return "\n".join(lines)
@@ -2961,6 +2993,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-I", "--independent-review", dest="isolated_review", action="store_true")
     p_run.add_argument("-D", "--review-root", dest="review_root")
     p_run.add_argument("-o", dest="o", metavar="OUT", help="export the deliverable here")
+    p_run.add_argument("--push-branch", metavar="BRANCH",
+                       help="after acceptance, have the host push push.bundle to this branch (requires push policy)")
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
