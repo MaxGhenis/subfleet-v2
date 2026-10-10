@@ -57,14 +57,19 @@ the others are read from the code cited.
    whole pending-list reconciliation withdraws them. Kind and display alone
    never join cards, so a legacy replacement cannot inherit stale drafts.
 
-6. **A withdrawn approval has no event and no change row.** When a turn ends,
-   the driver withdraws pending requests (`_end` returns them as `resolved`)
-   without an `approval.resolved` event, and `store.withdraw_approvals` writes
-   no `changes` row. The app marks a turn's pending cards withdrawn on
-   `turn.completed`; the badge corrects itself with the next change row for
-   that conversation (the settling `set_state` writes one). Ask: an
-   `approval.resolved {decision:"withdrawn"}` event per withdrawn request, and
-   a change row.
+6. **A withdrawn approval has no event and no change row** (*fixed*, C-27.3).
+   The driver withdrew pending requests at a turn's end (`_end` returned them
+   as `resolved`) without an `approval.resolved` event, `store.withdraw_approvals`
+   wrote no `changes` row, and a provider that exited without a result (`eof`)
+   returned no `resolved` ids at all and wrote no `turn.completed`: its card
+   stayed pending in the log for good, and an app that clears cards only on
+   `approval.resolved` or `turn.completed` showed it answerable ("That approval
+   is no longer pending." on every click). Now every withdrawal writes
+   `approval.resolved {decision:"withdrawn"}` and a change row in the commit that
+   withdraws, ahead of a `turn.completed` in the same batch; a person's answer
+   writes its `approval.resolved`, a change row and the move back to `running`
+   in the answer's commit. The app's own rule (`Timeline.withdrawIfEnded`: an
+   ended message has no pending card) stays as a second line.
 
 7. **`changes.pending_approvals` has two meanings.** Rows written by
    `add_approval` and `answer_approval` carry the count for the *message*;
