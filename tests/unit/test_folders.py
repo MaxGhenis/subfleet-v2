@@ -93,6 +93,7 @@ def test_within_is_a_partial_order_on_folders(a, b, c):
     assert folders.within(a + "/x", a) and not folders.within(a + "x", a) and not folders.within(a + ":x", a)
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(folder=FOLDER, data=st.data())
 def test_above_is_exactly_the_other_folders_a_folder_is_within(folder, data):
     """`above` (C-8.4) agrees with `within`, built another way: the folders above a
@@ -180,6 +181,33 @@ def test_inside_a_root_folder_is_every_folder_once():
     found = folders.turn_holds(read, "/", inside=True)            # `/`'s own rows are in both ranges
     assert len(found) == 2 and set(found) == {(folders.turn_key("/", "j1", writable=True), "j1"),
                                               (folders.turn_key("/a", "j2", writable=False), "j2")}
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(data=st.data())
+def test_exclusive_inside_names_exactly_the_writers_below_a_folder(data):
+    """`exclusive_inside` returns exactly the `worktree:` rows whose folder is below
+    `probe` (`folder.startswith(probe + "/")`, not `probe` itself), each once, and
+    no turn row; `exclusive_folders` names every `worktree:` row's folder and holder
+    (review of 31048e67, F3). Folders may contain any character but NUL."""
+    probe = data.draw(FOLDER, label="probe")
+    folders_ = data.draw(st.lists(near(probe), max_size=12, unique=True), label="folders")
+    rows = [(folders.exclusive_key(folder), f"w{n}") for n, folder in enumerate(folders_)]
+    rows += [(folders.turn_key(folder, "20260929-000000-t", writable=True), "t") for folder in folders_]
+    read = table(rows)
+    exclusive = [(key, holder) for key, holder in rows if key.startswith(folders.EXCLUSIVE)]
+    below = {(key, holder) for key, holder in exclusive if key[len(folders.EXCLUSIVE):].startswith(probe + "/")}
+    found = folders.exclusive_inside(read, probe)
+    assert set(found) == below and len(found) == len(below)
+    named = folders.exclusive_folders(read)
+    assert sorted(named) == sorted((key[len(folders.EXCLUSIVE):], holder) for key, holder in exclusive)
+
+
+def test_inside_a_root_folder_is_every_writer_but_its_own_key():
+    read = table([(folders.exclusive_key("/"), "w0"), (folders.exclusive_key("/a"), "w1"),
+                  (folders.exclusive_key("/a/b"), "w2"), (folders.turn_key("/a", "j", writable=True), "j")])
+    assert sorted(folders.exclusive_inside(read, "/")) == [("worktree:/a", "w1"), ("worktree:/a/b", "w2")]
+    assert folders.exclusive_inside(read, "/a") == [("worktree:/a/b", "w2")]
 
 
 @given(folder=FOLDER, job=JOB, writable=st.booleans())

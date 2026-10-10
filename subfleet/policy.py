@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +20,17 @@ from .contracts import (
 )
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
+
+
+def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
+    """C-11.2: candidates from this tier upward, in first-preference order.
+
+    Slice tiers before flattening: a model repeated below the job's tier must
+    not suppress its occurrence in an eligible tier. Each model is tried once.
+    """
+    return list(dict.fromkeys(name for entry in chain[tier_index:]
+                             for name in (entry if isinstance(entry, list) else [entry])))
+
 
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
@@ -153,7 +164,7 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     return min(limits) if limits else None
 
 
-#: `admission.*` (C-6.9, C-6.13, C-10.3, C-11.3): how admission orders and places
+#: `admission.*` (C-6.9, C-6.13, C-6.17, C-10.3, C-11.3): how admission orders and places
 #: work once no count caps it (2026-09-27).
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
@@ -162,9 +173,12 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
+#: `priority_callers` names Claude Code caller session ids whose detached work,
+#: including descendants, goes first in FIFO order (C-6.16); null is no override.
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
-#: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
-#: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
+#: saturated (C-6.13). It never holds `attended` turns or `priority` jobs,
+#: and it is off (null) by default: Max, 2026-09-28, "remove *all* caps" and
+#: "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
 #: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
 #: it waits for that to change before it fails with rc 3 (C-11.8); null never
@@ -185,17 +199,38 @@ MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
 }
+#: C-6.17: disk admission is opt-in. GB is decimal (1e9 bytes). A detached
+#: placement needs room for its reserve above the floor; a low refusal latches
+#: until effective free reaches floor + margin. Budgets expire at attempt end
+#: or TTL. An omitted path measures the state root's volume.
+DISK_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "floor_gb": 40,
+    "resume_margin_gb": 5,
+    "placement_reserve_gb": 1.5,
+    "reserve_ttl_s": 600,
+    "path": None,
+}
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
     "weekly_reserve": 0.02,
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "disk": DISK_DEFAULTS,
+    "priority_callers": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
     "prove_wait_s": 300,
 }
+
+
+def disk_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-6.17: omitted disk settings leave admission off, including raw policies."""
+    return {**DISK_DEFAULTS, **((policy.get("admission") or {}).get("disk") or {})}
+
+
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
 GUARDED_CLASSES = ("session", "background")
@@ -204,7 +239,7 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
-    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}), "disk": disk_settings(policy)}
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -308,9 +343,17 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(key, "task name must be nonempty")
         if not isinstance(chain, list) or len(chain) != len(tiers):
             fail(key, "must be a list with one short model name per tier")
-        for index, model in enumerate(chain):
-            if not _name(model) or model not in models:
-                fail(f"{key}[{index}]", f"unknown model {model!r}; expected a models key")
+        for index, entry in enumerate(chain):
+            entry_key = f"{key}[{index}]"
+            if isinstance(entry, list) and not entry:
+                fail(entry_key, f"unknown model {entry!r}; expected a models key")
+            names = entry if isinstance(entry, list) else [entry]
+            for offset, model in enumerate(names):
+                model_key = f"{entry_key}[{offset}]" if isinstance(entry, list) else entry_key
+                if not _name(model) or model not in models:
+                    fail(model_key, f"unknown model {model!r}; expected a models key")
+                if model in names[:offset]:
+                    fail(model_key, f"duplicate model {model!r}")
     if value["fallback"] != "upward-only":
         fail("fallback", 'must be "upward-only"')
     if value["desktop_login"] != "never":
@@ -360,6 +403,25 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if key not in ADMISSION_DEFAULTS:
             fail(f"admission.{key}", f"is not an admission setting ({', '.join(sorted(ADMISSION_DEFAULTS))})")
     settings = {**ADMISSION_DEFAULTS, **admission}
+    disk = settings["disk"]
+    if not isinstance(disk, dict):
+        fail("admission.disk", "must be an object")
+    for key in disk:
+        if key not in DISK_DEFAULTS:
+            fail(f"admission.disk.{key}", "is not a disk admission setting")
+    disk = {**DISK_DEFAULTS, **disk}
+    if not isinstance(disk["enabled"], bool):
+        fail("admission.disk.enabled", "must be a boolean")
+    for key in ("floor_gb", "resume_margin_gb", "placement_reserve_gb", "reserve_ttl_s"):
+        item = disk[key]
+        positive = key in ("placement_reserve_gb", "reserve_ttl_s")
+        if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
+                or item < 0 or (positive and item == 0)):
+            fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
+                 + " finite number")
+    if disk["path"] is not None and not _name(disk["path"]):
+        fail("admission.disk.path", "must be a nonempty path string, or null for the state root's volume")
+    settings["disk"] = disk
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
@@ -370,6 +432,11 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
     guard = settings["machine_guard"]
+    callers = settings["priority_callers"]
+    if callers is not None:
+        if not isinstance(callers, list) or any(not isinstance(item, str) or not item.strip() for item in callers):
+            fail("admission.priority_callers", "must be a list of nonempty caller session ids, or null")
+        settings["priority_callers"] = [item.strip().lower() for item in callers]
     if guard is not None:
         if not isinstance(guard, dict):
             fail("admission.machine_guard", "must be an object of per-class thresholds, or null")
@@ -377,7 +444,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             where = f"admission.machine_guard.{klass}"
             if klass not in GUARDED_CLASSES:
                 fail(where, f"is not a class the guard may hold ({', '.join(GUARDED_CLASSES)}); "
-                            "a conversation turn is never held")
+                            "attended turns and priority jobs are never held")
             if limits is None:
                 continue
             if not isinstance(limits, dict) or not limits:

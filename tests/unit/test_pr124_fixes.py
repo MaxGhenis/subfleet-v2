@@ -56,6 +56,16 @@ def test_codex_default_uses_first_active_unscoped_model_without_hard_routing(svc
     assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6-astra"}
 
 
+def test_codex_default_reads_preference_list_in_hard_tier(svc):
+    """C-11.2, C-30.1: catalog defaults understand lists and their order."""
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    policy["models"]["sol61"] = {"provider": "codex", "id": "gpt-6.1-sol"}
+    for chain in policy["chains"].values():
+        chain[policy["tiers"].index("hard")] = ["opus", "sol61", "astra"]
+    svc.daemon.policy = policy
+    assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6.1-sol"}
+
+
 def test_active_astra_alone_without_hard_routing_is_the_published_default(svc):
     svc.daemon.policy = {"models": {"astra": {"provider": "codex", "id": "gpt-6-astra"}}}
     assert svc.handle("models.list", {"provider": "codex"}, None)["default_models"] == {"codex": "gpt-6-astra"}

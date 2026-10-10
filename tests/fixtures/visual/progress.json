@@ -1,0 +1,459 @@
+[
+  {
+    "seq": 1,
+    "message_id": "m1",
+    "kind": "accepted",
+    "ts": "2026-10-04T10:00:00Z",
+    "data": {}
+  },
+  {
+    "seq": 2,
+    "message_id": "m1",
+    "kind": "served",
+    "ts": "2026-10-04T10:00:01Z",
+    "data": {
+      "lane_id": "claude-2",
+      "account": "max@example.com",
+      "model": "claude-opus-5-5",
+      "effort": "medium"
+    }
+  },
+  {
+    "seq": 3,
+    "message_id": "m1",
+    "kind": "text",
+    "ts": "2026-10-04T10:00:02Z",
+    "data": {
+      "block": "text0",
+      "text": "I\u2019ll trace how the sidebar and timeline render, then check the actions they expose."
+    }
+  },
+  {
+    "seq": 4,
+    "message_id": "m1",
+    "kind": "thinking",
+    "ts": "2026-10-04T10:00:03Z",
+    "data": {
+      "block": "think0",
+      "text": ""
+    }
+  },
+  {
+    "seq": 5,
+    "message_id": "m1",
+    "kind": "thinking",
+    "ts": "2026-10-04T10:00:04Z",
+    "data": {
+      "block": "think1",
+      "text": ""
+    }
+  },
+  {
+    "seq": 6,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:00:06Z",
+    "data": {
+      "id": "tool0",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Read the timeline view"
+    }
+  },
+  {
+    "seq": 7,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:00:10Z",
+    "data": {
+      "id": "tool0",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 8,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:00:14Z",
+    "data": {
+      "id": "tool1",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Read sidebar state"
+    }
+  },
+  {
+    "seq": 9,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:00:18Z",
+    "data": {
+      "id": "tool1",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 10,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:00:22Z",
+    "data": {
+      "id": "tool2",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Check composer controls"
+    }
+  },
+  {
+    "seq": 11,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:00:26Z",
+    "data": {
+      "id": "tool2",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 12,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:00:30Z",
+    "data": {
+      "id": "tool3",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Inspect tool labels"
+    }
+  },
+  {
+    "seq": 13,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:00:34Z",
+    "data": {
+      "id": "tool3",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 14,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:00:38Z",
+    "data": {
+      "id": "tool4",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Compare the reference"
+    }
+  },
+  {
+    "seq": 15,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:00:42Z",
+    "data": {
+      "id": "tool4",
+      "is_error": true,
+      "hidden": false,
+      "preview": "No matching file"
+    }
+  },
+  {
+    "seq": 16,
+    "message_id": "m1",
+    "kind": "text",
+    "ts": "2026-10-04T10:01:02Z",
+    "data": {
+      "block": "text1",
+      "text": "The repeated rows are tool history. I\u2019m grouping the calls so the agent\u2019s updates stay easy to read."
+    }
+  },
+  {
+    "seq": 17,
+    "message_id": "m1",
+    "kind": "thinking",
+    "ts": "2026-10-04T10:01:03Z",
+    "data": {
+      "block": "think2",
+      "text": "Tool descriptions are available in the scrubbed summary."
+    }
+  },
+  {
+    "seq": 18,
+    "message_id": "m1",
+    "kind": "thinking",
+    "ts": "2026-10-04T10:01:04Z",
+    "data": {
+      "block": "think3",
+      "text": ""
+    }
+  },
+  {
+    "seq": 19,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:01:06Z",
+    "data": {
+      "id": "tool5",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Check the work duration"
+    }
+  },
+  {
+    "seq": 20,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:01:10Z",
+    "data": {
+      "id": "tool5",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 21,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:01:14Z",
+    "data": {
+      "id": "tool6",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Review approval reachability"
+    }
+  },
+  {
+    "seq": 22,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:01:18Z",
+    "data": {
+      "id": "tool6",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 23,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:01:22Z",
+    "data": {
+      "id": "tool7",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Inspect the recovery actions"
+    }
+  },
+  {
+    "seq": 24,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:01:26Z",
+    "data": {
+      "id": "tool7",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 25,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:01:30Z",
+    "data": {
+      "id": "tool8",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Check Markdown rendering"
+    }
+  },
+  {
+    "seq": 26,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:01:34Z",
+    "data": {
+      "id": "tool8",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 27,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:01:38Z",
+    "data": {
+      "id": "tool9",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Measure token contrast"
+    }
+  },
+  {
+    "seq": 28,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:01:42Z",
+    "data": {
+      "id": "tool9",
+      "is_error": true,
+      "hidden": false,
+      "preview": "No matching file"
+    }
+  },
+  {
+    "seq": 29,
+    "message_id": "m1",
+    "kind": "text",
+    "ts": "2026-10-04T10:02:02Z",
+    "data": {
+      "block": "text2",
+      "text": "The visual pass is ready. The reading column, sidebar and composer now share neutral surfaces."
+    }
+  },
+  {
+    "seq": 30,
+    "message_id": "m1",
+    "kind": "thinking",
+    "ts": "2026-10-04T10:02:03Z",
+    "data": {
+      "block": "think4",
+      "text": "The existing actions must remain reachable."
+    }
+  },
+  {
+    "seq": 31,
+    "message_id": "m1",
+    "kind": "thinking",
+    "ts": "2026-10-04T10:02:04Z",
+    "data": {
+      "block": "think5",
+      "text": ""
+    }
+  },
+  {
+    "seq": 32,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:02:06Z",
+    "data": {
+      "id": "tool10",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Check the model menu"
+    }
+  },
+  {
+    "seq": 33,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:02:10Z",
+    "data": {
+      "id": "tool10",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 34,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:02:14Z",
+    "data": {
+      "id": "tool11",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Inspect focus labels"
+    }
+  },
+  {
+    "seq": 35,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:02:18Z",
+    "data": {
+      "id": "tool11",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 36,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:02:22Z",
+    "data": {
+      "id": "tool12",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Run frontend tests"
+    }
+  },
+  {
+    "seq": 37,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:02:26Z",
+    "data": {
+      "id": "tool12",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 38,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:02:30Z",
+    "data": {
+      "id": "tool13",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Build the app"
+    }
+  },
+  {
+    "seq": 39,
+    "message_id": "m1",
+    "kind": "tool.completed",
+    "ts": "2026-10-04T10:02:34Z",
+    "data": {
+      "id": "tool13",
+      "is_error": false,
+      "hidden": false,
+      "preview": "Completed successfully"
+    }
+  },
+  {
+    "seq": 40,
+    "message_id": "m1",
+    "kind": "tool.started",
+    "ts": "2026-10-04T10:02:38Z",
+    "data": {
+      "id": "tool14",
+      "name": "Bash",
+      "hidden": false,
+      "summary": "git show 75972d4a:app/Sources/UIWindow.swift\ndescription: Render the final snapshots"
+    }
+  }
+]

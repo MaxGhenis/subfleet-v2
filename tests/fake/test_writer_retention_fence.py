@@ -324,6 +324,8 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
                              max_size=4, unique_by=lambda pair: pair[0]))
         def agrees(where, held):
             count[0] += 1
+            for lane in CODEX:          # fresh readings each example: aged past reading_ttl_s, a placement probes
+                measure(daemon, lane)
             folder = writers[where]
             writer = writer_in(daemon, harness, folder, caller_session=f"session-{count[0]}")
             try:

@@ -999,3 +999,38 @@ def test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree(ho
     plain = "\n".join(render.why_queue({"job_id": "j", "state": "waiting", "hold": {
         "reason": "lease-held", "leases": ["worktree:/w"]}}))
     assert "a lease this job needs is held by another job: worktree:/w" in plain
+
+
+def test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers(tmp_path):
+    """An early retention hold participates in release/217's priority queue.
+
+    With one detached slot, a priority standard-tier job held on a tree fence
+    keeps a newer hard-tier job behind it. Without adding the early waiter to
+    the priority list, the newer job reserves that slot before the fence goes.
+    """
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["admission"]["priority_callers"] = ["CHOSEN"]
+        daemon.policy["caps"]["max_active_attempts"] = 1
+        tree, nested = retiring_tree(daemon, harness)
+        fence = folders.exclusive_key(tree)
+        priority = detached_in(daemon, harness, nested, "read-only", tier="standard",
+                               caller_session="chosen", pinned_model="astra")
+        newer = detached_in(daemon, harness, harness.workdir, "read-only", tier="hard",
+                            caller_session="other", pinned_model="astra")
+        assert daemon.store.acquire_lease(fence, "retention:retired")
+        patch.setattr(daemon, "_disk_hold", lambda *_: None)
+        workspaces = Workspaces(daemon, patch, real=False)
+        daemon._admit()
+        assert not _live(daemon, priority), daemon._holds
+        assert daemon._holds[priority]["retiring"] == [fence]
+        assert not _live(daemon, newer), daemon._holds
+        assert daemon._holds[newer]["reason"] == "behind-older-job", daemon._holds
+        assert daemon._holds[newer]["behind"] == priority
+        assert workspaces.calls == []
+        daemon.store.release_leases("retention:retired")
+        daemon._admit()
+        assert _live(daemon, priority) and not _live(daemon, newer), daemon._holds
+        _end(daemon, priority)
+        daemon._admit()
+        assert _live(daemon, newer), daemon._holds

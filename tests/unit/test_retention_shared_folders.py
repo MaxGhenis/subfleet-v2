@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import event, example, given, settings, strategies as st
+from hypothesis import HealthCheck, event, example, given, settings, strategies as st
 
 from subfleet import folders, retention, scheduler
 from subfleet import retention_archive as rarch
@@ -418,12 +418,12 @@ def admitted(daemon, turn, mid, prepared) -> dict:
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
 def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(tmp_path, writable, where):
     """Differential (C-8.4, C-6.10, C-6.11): a turn whose folder is in a tree retention
-    is retiring is held by the look before its workspace (`_fence_hold`) exactly as
-    the admitting transaction holds it when that look is left out: the same hold but
-    its clock, the same capacity wait (its signature, so its backoff, and what `why`
-    reads), the same `waiting` row and the same message reason. Only the start
-    snapshot is spared. `subdirectory`: a turn submitted in a folder inside the tree
-    keys its row, and so its hold, on the tree, not on the folder it was opened in."""
+    is retiring waits on the same fence before its workspace (`_fence_hold`) and
+    inside the admitting transaction: the same capacity signature and backoff,
+    and the same `waiting` row. The early check names its recorded Git/read hold;
+    the transaction names its actual cwd when fenced (#138), with each message
+    describing the checked folder. A subdirectory cwd can differ from the Git
+    hold. Only the early check spares the start snapshot."""
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout
     from tests.fake.test_turn_wait_reasons import message_in, SETTINGS
@@ -447,10 +447,18 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
         fence = [folders.exclusive_key(tree)]
-        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "retiring": fence,
-                                               "folder": folder}, seen
+        expected = {}
+        for path, named in (("transaction", folders.canonical(workspace)), ("look", folder)):
+            hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": named}
+            where = " in this folder" if named == tree else " that this folder is in"
+            reason = f"lease: retention is removing a finished job's worktree{where} ({tree})"
+            assert seen[path]["hold"] == hold and seen[path]["wait"]["hold"] == hold, seen
+            assert seen[path]["reason"] == reason, seen
+            expected[path] = (hold, reason)
         assert seen["transaction"]["prepared"] == 1 and seen["transaction"]["row"] == ("waiting", "capacity", True)
-        assert seen["look"] == {**seen["transaction"], "prepared": 0}, seen
+        hold, reason = expected["look"]
+        assert seen["look"] == {**seen["transaction"], "prepared": 0, "hold": hold, "reason": reason,
+                                "wait": {**seen["transaction"]["wait"], "hold": hold}}, seen
 
 
 def test_a_fenced_turn_names_the_fence_whatever_else_holds_it(tmp_path):
@@ -736,7 +744,7 @@ phase = st.sampled_from(["select", "begin", "lock", "archive", "verify", "delete
 operation = st.tuples(phase, st.sampled_from(["start", "end"]), st.booleans(), st.sampled_from(["tree", "nested"]))
 
 
-@settings(max_examples=40, deadline=None, derandomize=True)
+@settings(max_examples=40, deadline=None, derandomize=True, suppress_health_check=[HealthCheck.too_slow])
 @example([("select", "start", True, "tree")])
 @example([("select", "start", False, "tree")])
 @example([("begin", "start", True, "tree"), ("archive", "end", True, "tree"), ("delete", "start", False, "tree")])
