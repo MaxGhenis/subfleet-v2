@@ -453,7 +453,7 @@ def test_priority_callers_reject_invalid_values(tmp_path, policy_data, callers):
 
 def test_admission_settings_default_and_validate(tmp_path, policy_data):
     """C-6.13, C-10.3, C-11.3: the `admission` section's defaults, and what it keeps."""
-    from subfleet.policy import ADMISSION_DEFAULTS, admission_settings
+    from subfleet.policy import ADMISSION_DEFAULTS, DISK_DEFAULTS, admission_settings
 
     policy_data.pop("admission", None)
     loaded = load_policy(write_policy(tmp_path, policy_data))
@@ -472,7 +472,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
                                    "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
                                    "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10,
-                                   "priority_callers": None}
+                                   "priority_callers": None, "disk": DISK_DEFAULTS}
     policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans
     loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
     assert (loaded["prove_idle_s"], loaded["prove_wait_s"]) == (0.5, 0.25)
