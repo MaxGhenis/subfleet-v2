@@ -849,6 +849,8 @@ class Daemon:
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
         self._push_workspaces: dict[str, Future] = {}
+        self._push_unused_workspaces: set[str] = set()
+        self._push_preparation_offered = False
         # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
         # seconds of the last answer on it, and attempt id -> when an attempt in
         # flight first answered (it is then no pilot): replaced whole under
@@ -3996,6 +3998,59 @@ class Daemon:
                 and not self.store.list_attempts(job_id)):
             shutil.rmtree(self.root / "worktrees" / job_id, ignore_errors=True)
 
+    def _reap_push_workspaces(self, holds: dict[str, dict]) -> set[str]:
+        """Consume finished builds before a job's pin or other hold can hide them.
+
+        A successful worker has already recorded checkout ownership, so its
+        slot can be released without placing the job. Failures retain the
+        existing workspace refusal or retry treatment.
+        """
+        skipped: set[str] = set()
+        for job_id, future in list(self._push_workspaces.items()):
+            if not future.done():
+                continue
+            job = self.store.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+            if not job or job["state"] in TERMINAL or job["cancel_requested_at"]:
+                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self._push_unused_workspaces.discard(job_id)
+                del self._push_workspaces[job_id]
+                continue
+            try:
+                ready = future.result()
+            except AdapterError as exc:
+                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                skipped.add(job_id)
+            except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                self._workspace_failed(job, exc)
+                self._capacity_waits.pop(job_id, None)
+                holds[job_id] = {"reason": "workspace", "error_type": type(exc).__name__,
+                                 "error": str(exc)[:200]}
+                skipped.add(job_id)
+            else:
+                if not ready:
+                    # A discarded build never opens the gate, even if a row
+                    # stayed live while the worker completed. Retry only on a
+                    # fresh look, after that look's disk and admission checks.
+                    holds[job_id] = {"reason": "workspace", "preparing": True}
+                    skipped.add(job_id)
+                else:
+                    self._push_unused_workspaces.add(job_id)
+            # A store failure while applying the result belongs to the pass.
+            # Keep the future until that application succeeds, so retrying the
+            # pass does not silently lose a refusal or workspace error.
+            del self._push_workspaces[job_id]
+        # A completed checkout can remain queued behind an unrelated hold.
+        # Keep watching it after its future releases the preparation slot,
+        # until an attempt makes retention responsible for its lifetime.
+        for job_id in self._push_unused_workspaces.copy():
+            current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+            if self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job_id,)):
+                self._push_unused_workspaces.discard(job_id)
+            elif not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
+                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self._push_unused_workspaces.discard(job_id)
+        return skipped
+
     def _push_workspace_ready(self, job: dict) -> bool:
         """Queue a push checkout once; consume errors on a later admission look.
 
@@ -4008,13 +4063,30 @@ class Daemon:
         job_id = job["job_id"]
         future = self._push_workspaces.get(job_id)
         if future is not None and future.done():
+            try:
+                ready = future.result()
+            except (AdapterError, OSError, subprocess.SubprocessError, SalvageError):
+                # Apply failures only at the startup reaper, which retains the
+                # result if its store update fails. A mid-pass completion stays
+                # queued until then, without another preparation offer.
+                return False
+            # This may be a previous pass's build that finished after this
+            # pass sampled disk. Another build needs the next fresh reading.
+            self._push_preparation_offered = True
             del self._push_workspaces[job_id]
-            return future.result()  # existing admission handlers classify the error
+            if ready:
+                self._push_unused_workspaces.add(job_id)
+            return ready
         destination = self.root / "worktrees" / job_id
         if future is None:
             if job.get("worktree") or destination.exists():
                 return True
-            self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
+            # Completed results count until consumed. Each new offer also
+            # needs a fresh pass: a fast completion must not let another build
+            # use the same disk reading before any reservation exists.
+            if not self._push_workspaces and not self._push_preparation_offered:
+                self._push_preparation_offered = True
+                self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
         if job["wait_reason"] != "workspace":
             with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
                 tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
@@ -4862,7 +4934,10 @@ class Daemon:
         # carries a probe (C-26.9), so the turn pass, which runs beside this one,
         # keeps none and leaves the detached pass's alone.
         probe_line: list[tuple[str, str, frozenset[str] | None]] = []
+        workspace_skips: set[str] = set()
         if kind == "detached":
+            self._push_preparation_offered = False
+            workspace_skips = self._reap_push_workspaces(holds)
             self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
             self._save_disk_floor()
             self._save_disk_latch()
@@ -4988,6 +5063,8 @@ class Daemon:
         # C-6.9, C-6.16: attended, priority, session, background. Priority is
         # FIFO across tiers; the other classes keep tier then FIFO.
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
+            if job["job_id"] in workspace_skips:
+                continue
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
