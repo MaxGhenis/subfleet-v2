@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import replace
 from typing import Any, Callable
 
 from ..adapters.claude import model_matches_requested
 from ..adapters.claude_stream import is_synthetic_api_error
+from ..usage import parse_usage
 from . import redact
 from .reconcile import SETTINGS_FRAME
 from .turn import (
@@ -180,6 +182,7 @@ class ClaudeTurn(SteerTracking):
         self.expected_model: str | None = None            # from the initialize catalog (D-19)
         self.catalog: list[dict] | None = None            # the initialize catalog, for models.json
         self.outcome: Outcome | None = None
+        self._usage_lines: list[str] = []                 # C-18.5: usage-bearing provider frames only
         self.terminal_after_end = False                   # a `result` arrived after the driver ended the turn
         self.pending: dict[str, dict[str, Any]] = {}     # request id → original can_use_tool request
         self._tools: dict[str, bool] = {}                 # tool_use id → hidden
@@ -376,7 +379,8 @@ class ClaudeTurn(SteerTracking):
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
                                accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model, ended_by="eof", steers=self.steers)
+                               limited=self.limited, served_model=self.served_model, ended_by="eof", steers=self.steers,
+                               usage=parse_usage(self._usage_lines, "claude"))
         self.phase = "ended"
         step.outcome = self.outcome
         return step
@@ -391,6 +395,14 @@ class ClaudeTurn(SteerTracking):
             return Step()
         if not isinstance(row, dict):
             return Step()
+        if row.get("type") == "result":
+            self._usage_lines.append(json.dumps({key: row.get(key) for key in ("type", "uuid", "usage", "modelUsage")}))
+        elif row.get("type") == "assistant" and isinstance(row.get("message"), dict):
+            message = row["message"]
+            self._usage_lines.append(json.dumps({"type": "assistant", "parent_tool_use_id": row.get("parent_tool_use_id"),
+                                                 "message": {key: message.get(key) for key in ("id", "model", "usage")}}))
+        if self.outcome is not None:
+            self.outcome = replace(self.outcome, usage=parse_usage(self._usage_lines, "claude"))
         source = _Sources(offset)
         kind = row.get("type")
         if kind == "command_lifecycle":
@@ -860,7 +872,8 @@ class ClaudeTurn(SteerTracking):
         if self.outcome is not None:
             return Step()
         self.outcome = Outcome(state, reason, detail, accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model, ended_by=ended_by, steers=self.steers)
+                               limited=self.limited, served_model=self.served_model, ended_by=ended_by, steers=self.steers,
+                               usage=parse_usage(self._usage_lines, "claude"))
         self.phase = "ended"
         withdrawn = sorted(self.pending)
         self.pending.clear()

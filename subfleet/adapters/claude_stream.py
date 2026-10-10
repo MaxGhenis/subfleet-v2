@@ -41,6 +41,8 @@ import json
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable
 
+from ..usage import parse_usage
+
 # The closed `error` enum Claude Code stamps on assistant / api_retry frames.
 ERROR_KINDS = (
     "authentication_failed",
@@ -281,6 +283,7 @@ class StreamSummary:
     unknown_types: tuple[str, ...] = ()
     #: C-4.5, C-6.14: some event showed the model answering (`model_answered`).
     answered: bool = False
+    usage: dict[str, Any] | None = None   # C-18.5: result segments and distinct main requests
 
     # --- convenience the classifier leans on --------------------------------
 
@@ -479,6 +482,8 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
     session_id: str | None = None
     answered = False
 
+    usage_rows: list[str] = []
+
     for row in rows:
         if not isinstance(row, dict):
             bad += 1
@@ -486,6 +491,13 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
         answered = answered or model_answered(row)
         session_id = session_id or _as_str(row.get("session_id"))
         kind = row.get("type")
+        if kind == "result":
+            usage_rows.append(json.dumps({key: row.get(key) for key in ("type", "uuid", "usage", "modelUsage")}))
+        elif kind == "assistant":
+            message = row.get("message")
+            if isinstance(message, dict):
+                usage_rows.append(json.dumps({"type": kind, "parent_tool_use_id": row.get("parent_tool_use_id"),
+                                               "message": {key: message.get(key) for key in ("id", "model", "usage")}}))
 
         if kind == "system":
             subtype = row.get("subtype")
@@ -574,6 +586,7 @@ def _summarize(rows: Iterable[Any], counts: dict[str, Any]) -> StreamSummary:
         truncated_tail=counts["truncated"],
         unknown_types=tuple(dict.fromkeys(unknown)),
         answered=answered,
+        usage=parse_usage(usage_rows, "claude"),
     )
 
 
