@@ -748,6 +748,17 @@ def test_a_longer_root_without_a_space_is_another_root(monkeypatch):
     assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == frozenset()
 
 
+@pytest.mark.parametrize("line", [
+    "python SUBFLEET_ATTEMPT=job/a1 MY_SUBFLEET_ROOT=/tmp/a",
+    "python MY_SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a",
+], ids=["root", "attempt"])
+def test_a_marker_is_a_whole_token_from_its_name(monkeypatch, line):
+    """C-5.5: each marker starts where the printed line starts or has a space, so a
+    variable whose name only ends in a marker's name is not that marker."""
+    census(monkeypatch, parents="42 1 42 S\n", markers=f"   99 {line}\n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == frozenset()
+
+
 def test_ps_text_prints_every_byte_as_ps_printed_it():
     """C-5.5: `PS_BYTES` is what `ps` printed for each of the 255 bytes an environment
     can hold, measured on macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json; the process
