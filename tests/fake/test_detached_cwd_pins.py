@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 
-from hypothesis import example, given, settings, strategies as st
+from hypothesis import Phase, example, given, settings, strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module, folders, retention
@@ -186,7 +186,7 @@ def test_detached_quarantined_attempt_keeps_a_cwd_in_retention_quarantine(tmp_pa
         assert not seen["cwd"].exists(), result
 
 
-@settings(max_examples=40, deadline=None, derandomize=True)
+@settings(max_examples=40, deadline=None, derandomize=True, phases=[Phase.explicit, Phase.generate])
 @example(actions=["swap", "admit", "retain", "launch", "retain", "finish"], writable=False, uncertain=False)
 @example(actions=["swap", "admit", "retain", "launch", "retain", "finish"], writable=True, uncertain=True)
 @example(actions=["admit", "swap", "launch", "retain", "finish"], writable=False, uncertain=True)
@@ -217,9 +217,13 @@ def test_any_detached_cwd_lifetime_interleaving_preserves_the_reservation(action
                     swapped = True
                 elif action == "admit" and resolved is None and not ended:
                     expected = outside.resolve()
-                    daemon.store.update_job(job, next_check_at=None)
-                    daemon._admit()
-                    if _live(daemon, job):
+                    # A sweep before reservation may already have reclaimed
+                    # the target. Admission of a missing cwd is not a valid
+                    # transition in this provider-lifetime model.
+                    if expected.is_dir():
+                        daemon.store.update_job(job, next_check_at=None)
+                        daemon._admit()
+                        assert _live(daemon, job), (actions, daemon._holds.get(job))
                         resolved = expected
                 elif action == "launch" and _live(daemon, job) and not launched:
                     assert Path(launch(daemon, job)) == resolved

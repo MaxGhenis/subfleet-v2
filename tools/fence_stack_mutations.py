@@ -40,7 +40,7 @@ def mutants(head):
     yield ('no-resolved-reader-row', DAEMON, '_admit_pass',
            'if job["kind"] != "turn" or run_folder != (write_target or read_folder):',
            'if job["kind"] == "turn" and run_folder != (write_target or read_folder):',
-           PINS, 'entire_lease and reserved')
+           PINS, '(entire_lease and reserved) or any_detached_cwd_lifetime')
     yield ('reader-row-uses-raw-workspace', DAEMON, '_admit_pass',
            'folders.turn_key(run_folder, job["job_id"], writable=False)',
            'folders.turn_key(workspace, job["job_id"], writable=False)',
