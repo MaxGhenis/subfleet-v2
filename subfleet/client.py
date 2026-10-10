@@ -115,23 +115,17 @@ class DaemonError(Exception):
         return self.code == Exit.DAEMON_UNAVAILABLE
 
 
-#: C-16.7: how long a loop with no deadline of its own keeps taking refused
-#: connects after a busy answer as busy while `daemon.lock` cannot say whether its
-#: holder lives (no lock, no usable pid, `ps` blocked by a sandbox); past it the
-#: daemon is reported absent (review of 4fc5b49, P2).
-REFUSED_UNVERIFIED_MAX_S = 60.0
-
-
 def refused_while_busy(client: Any, exc: BaseException) -> bool | None:
     """C-16.7: whether a `DaemonUnavailable` that followed a busy answer is that busy
     daemon's full listen backlog. True: a refused connect (ECONNREFUSED) while
     `daemon.lock` names a living daemon, so busy. None: refused, but the lock
-    cannot say whether its holder lives, which a caller with no deadline of its own
-    takes as busy for at most `REFUSED_UNVERIFIED_MAX_S` (a busy daemon must not
-    send a sandboxed caller, which cannot run `ps`, offline). False: a socket gone
-    (the daemon stopped and unlinked it), a holder that is dead, or any other
-    failure, so absent, and no loop asks for ever (reviews of eac0706 and
-    4fc5b49). The lock check costs a `ps` and a `sysctl`, paid only on this path."""
+    cannot say whether its holder lives, which a caller with a deadline takes as
+    busy (a busy daemon must not send a sandboxed caller, which cannot run `ps`,
+    offline); a CLI wait with no `--timeout` takes it as the daemon gone, which
+    `RESTART_WINDOW_S` bounds (C-15.4). False: a socket gone (the daemon stopped
+    and unlinked it), a holder that is dead, or any other failure, so absent, and
+    no loop asks for ever (reviews of eac0706 and 4fc5b49). The lock check costs a
+    `ps` and a `sysctl`, paid only on this path."""
     if not isinstance(getattr(exc, "__cause__", None), ConnectionRefusedError):
         return False
     alive = getattr(client, "lock_holder_alive", None)
@@ -148,6 +142,47 @@ def busy_pause(streak: int) -> float:
     """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
     to 1 s, less up to half at random so refused clients do not return together."""
     return min(1.0, BUSY_PAUSE_S * 2 ** min(streak - 1, 10)) * (1 - random.random() / 2)
+
+
+#: C-15.4: how long a read-only poller (`subfleet wait`, `run --wait`, `kill --wait`,
+#: the PostToolUse hook) keeps asking after its daemon dropped a poll, answered
+#: none within the poll's budget, or stopped taking connections, counted from when
+#: the first failed poll of that outage failed. After the slowest stop launchd
+#: allows (the plist's ExitTimeOut: `STOP_GRACE_S` plus `STOP_BACKSTOP_S`, 40 s)
+#: and launchd's 10 s respawn throttle, it leaves 250 s for a start. Incidents,
+#: 2026-10-10: the 2.1.11.4 install at 09:06Z and a `launchctl kickstart -k` at
+#: 09:08Z each ended all five of the Subfleet hub's `subfleet wait`s with "the
+#: daemon closed the connection without a response" while their jobs ran on
+#: (D-WT1); and from 22:28Z to 22:32Z a daemon starved of CPU (load1 about 465 on
+#: 18 CPUs) let every wait time out after 75 s and refused connects (D-DS1), an
+#: outage of about four minutes, which 180 s would not have covered.
+RESTART_WINDOW_S = 300.0
+
+
+class RestartWindow:
+    """C-15.4: since when a read-only poller's daemon has not answered.
+
+    `lost(now)` records a poll the daemon dropped or could not take, and says
+    whether the poller may ask again: True while no more than `seconds` have
+    passed since the first such failure of this outage. `answered()` records a poll
+    the daemon answered, busy or not, which ends the outage, and says whether one
+    was in progress. Only a caller that reads may use it: asking again repeats
+    nothing a daemon could have done.
+    """
+
+    def __init__(self, seconds: float | None = None):
+        # Read at construction, not at definition, so a test can shorten it.
+        self.seconds = RESTART_WINDOW_S if seconds is None else seconds
+        self.since: float | None = None
+
+    def lost(self, now: float) -> bool:
+        if self.since is None:
+            self.since = now
+        return now - self.since <= self.seconds
+
+    def answered(self) -> bool:
+        ended, self.since = self.since is not None, None
+        return ended
 
 
 class ResponseLost(ProtocolError):
