@@ -168,8 +168,9 @@ def _read_metadata(path: Path, cap: int, *, optional: bool = False) -> str | Non
             return None
         raise PushError(f"checkout metadata {str(path)!r} is missing") from None
     except OSError as exc:
-        why = {errno.ELOOP: "is a symlink", errno.EFBIG: f"is larger than {cap} bytes"}.get(
-            exc.errno, "is not a regular file")
+        why = {errno.ELOOP: "is a symlink", errno.EFBIG: f"is larger than {cap} bytes",
+               errno.EINVAL: "is not a regular file"}.get(
+            exc.errno, f"cannot be read ({errno.errorcode.get(exc.errno, exc.errno)})")
         raise PushError(f"checkout metadata {str(path)!r} {why}") from None
     return data.decode("utf-8")
 
