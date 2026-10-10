@@ -120,7 +120,6 @@ import fcntl
 import glob as globbing
 import hashlib
 import json
-import math
 import os
 import re
 import shutil
@@ -224,18 +223,28 @@ DEFAULT_ACTIVITY_LAG_S = 3600.0
 ACTIVITY_SESSIONS_PER_PASS = 10
 #: A date more than this past the pass's own clock is no voice. The app writes
 #: its clock's now, so a later date is a bad record, and a raise is never
-#: undone: spread once, a bad date would sit in every folder and be raised
-#: again from each. Left alone, it stays one folder's.
+#: undone: raised from, a bad date would sit in every folder and be raised
+#: again from each. The date sync therefore never spreads one. `_rank` still
+#: takes it for the latest when a new folder needs a record to copy, as it did
+#: before the sync existed.
 ACTIVITY_FUTURE_S = 300.0
 #: How many split ids the full pass's report lists by name.
 SPLIT_REPORT_LIMIT = 10
 
 
+#: Beyond JavaScript's safe integers a number is not a date the app wrote, and
+#: one millisecond before it is no longer a different number.
+SAFE_MS = 2 ** 53
+
+
 def _instant_ms(value: Any) -> bool:
-    """A date as the app writes it: a finite number (every one of the 410,585
-    records read on 2026-10-10 held an integer of milliseconds)."""
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value))
+    """A date as the app writes it: a number within JavaScript's safe integers
+    (every one of the 410,585 records read on 2026-10-10 held an integer of
+    milliseconds). Compared, never converted: an integer of any size must not
+    raise here, and NaN and the infinities compare false."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return -SAFE_MS < value < SAFE_MS
 
 
 def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
@@ -248,15 +257,18 @@ def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
     folder is copied from by this date, and that copy alone holds the model
     and folder the session last ran with. So the function never returns a
     value at or above the newest it was given, never one below the copy's
-    own, and nothing once every copy is within `lag_ms`. A copy whose date is
-    not a number is no voice and is never written; `sync_flags` passes a date
-    from the future as None for the same treatment.
+    own, and nothing once every copy is within `lag_ms`, for any numbers at
+    all. A copy whose date is not a number within JavaScript's safe integers
+    is no voice and is never written; `sync_flags` passes a date from the
+    future, or one not above zero, as None for the same treatment.
     """
     known = [value for value in values if _instant_ms(value)]
     if not known or lag_ms <= 0:
         return {}
     newest = max(known)
     lag = max(float(lag_ms), 1.0)       # a raise must move the copy: newest - 1 > its date
+    # Within the safe integers `newest - 1` is exact and is not `newest`, and
+    # a difference above one is a true one: the promise needs no further test.
     return {index: newest - 1 for index, value in enumerate(values)
             if _instant_ms(value) and newest - value > lag}
 
@@ -870,6 +882,8 @@ class Mirror:
         self._flags_active = False
         #: This process's last complete inventory's split-id report.
         self._splits: dict[str, Any] | None = None
+        #: Sessions whose date raise the last flag sync chose and could not publish.
+        self._activity_yield: set[str] = set()
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -1009,6 +1023,7 @@ class Mirror:
         worker._account_orgs = dict(self._account_orgs)
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
+        worker._activity_yield = set(self._activity_yield)
         worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
@@ -1065,8 +1080,12 @@ class Mirror:
         })
         if load_gap is not None:
             value["load_gap"] = load_gap
-        if self._splits is not None:
-            value["splits"] = self._splits
+        mine, theirs = self._splits, previous.get("splits")
+        # Another process may have taken a later inventory: never put an
+        # older report over it.
+        if mine is not None and not (isinstance(theirs, dict) and str(
+                theirs.get("checked_at") or "") > str(mine.get("checked_at") or "")):
+            value["splits"] = mine
         _write_json(self.sidecar_path, value)
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
@@ -1399,18 +1418,25 @@ class Mirror:
     # --- writes into the store -----------------------------------------------
 
     def _journal_write(self, destination: Path, inode: int | None, identity: str,
-                       data: dict, kind: str) -> None:
-        """Journal a write, unless the app replaced the file before we looked."""
+                       data: dict, kind: str, *, flags: bool = True) -> None:
+        """Journal a write, unless the app replaced the file before we looked.
+
+        `flags` is False for an update that changed only the date. It leaves
+        every field a flag decision reads as it was, so it does not invalidate
+        the full pass's refresh: if it did, an app re-saving one old date could
+        hold every session's flags pass after pass (review of #167).
+        """
+        moved = kind == "updated" and flags
         try:
             info = os.stat(destination)
         except OSError:
             # A failed observation cannot prove the write no longer stands.
-            if kind == "updated":
+            if moved:
                 self._flags_moved = True
             return
         if inode is not None and info.st_ino != inode:
             return
-        if kind == "updated":
+        if moved:
             # Includes a write left standing when its put-back failed; an app
             # replacement rejected above is not one of our surviving writes.
             self._flags_moved = True
@@ -1714,9 +1740,12 @@ class Mirror:
         merge base. And the pre-check does not hold a session whose date
         moved: the write keeps the later of what the copy holds and what the
         pass decided, and a copy that needs nothing after that is not
-        written. A pass raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions.
-        A date more than `ACTIVITY_FUTURE_S` past this pass's clock is no
-        voice: it is not raised and it is never the newest.
+        written. A sync raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions,
+        and one it chose and could not publish goes last in the next. A date
+        more than `ACTIVITY_FUTURE_S` past this pass's clock, or not above
+        zero, is no voice: it is not raised and it is never the newest. A
+        write that changed only a date does not invalidate the full pass's
+        refresh (`_journal_write`).
         The date's protocol is docs/formal/MirrorActivity.tla, with its twin
         in tests/mirror_activity_model.py.
         """
@@ -1863,8 +1892,9 @@ class Mirror:
             # The date each row shows. A session archived everywhere is in no
             # sidebar list, so its copies' dates are left as they are.
             if lag_ms and not base["isArchived"]:
-                # A date from the future is no voice (`ACTIVITY_FUTURE_S`).
-                dates = [value if _instant_ms(value) and value <= horizon_ms else None
+                # A date from the future is no voice (`ACTIVITY_FUTURE_S`), nor
+                # is zero or less, which the app takes for no date.
+                dates = [value if _instant_ms(value) and 0 < value <= horizon_ms else None
                          for value in (data.get(ACTIVITY_FIELD) for _p, _n, data in copies)]
                 raises = activity_targets(dates, lag_ms)
                 if raises:
@@ -1883,11 +1913,15 @@ class Mirror:
             fresh[identity] = record
 
         # The dates join the same publish, furthest behind first, a bounded
-        # number of sessions a pass (`ACTIVITY_SESSIONS_PER_PASS`).
-        lagging.sort(key=lambda item: (-item[0], item[1]))
-        for _behind, _identity, targets in lagging[:ACTIVITY_SESSIONS_PER_PASS]:
+        # number of sessions a pass (`ACTIVITY_SESSIONS_PER_PASS`). A session
+        # the last sync chose and could not publish goes last this time, so
+        # ten that never go through cannot keep the bound from the rest.
+        lagging.sort(key=lambda item: (item[1] in self._activity_yield, -item[0], item[1]))
+        chosen: set[str] = set()
+        for _behind, identity, targets in lagging[:ACTIVITY_SESSIONS_PER_PASS]:
             for path, name, value in targets:
                 writable(path, name)[ACTIVITY_FIELD] = value
+            chosen.add(identity)
             current.activity_synced += 1
         current.activity_waiting += len(lagging[ACTIVITY_SESSIONS_PER_PASS:])
 
@@ -1926,15 +1960,18 @@ class Mirror:
                         # Never lowered: the app may have saved a later date
                         # here since the pass read this copy, and that date is
                         # not among the fields whose change holds the session.
+                        # And never over what is no date now, as at the decision.
                         held_now = body.get(ACTIVITY_FIELD)
-                        if _instant_ms(held_now) and held_now < raised:
+                        if _instant_ms(held_now) and 0 < held_now < raised:
                             body[ACTIVITY_FIELD] = raised
                     if body == before:
                         continue                # the app's own save already carries it
-                    ready.append((target, body, before, resolved, expect))
+                    flagged = any(body.get(key) != before.get(key) for key in FLAG_WRITES)
+                    ready.append((target, body, before, flagged, expect))
                 else:
-                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
-                    for target, body, before, resolved, expect in ready:
+                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...],
+                                        bool]] = []
+                    for target, body, before, flagged, expect in ready:
                         try:
                             self._forget(target)
                             inode = _write_json(target, body, keep_mtime=True, expect=expect,
@@ -1946,7 +1983,8 @@ class Mirror:
                             # check. Put back the copies already written, so the
                             # held merge base matches every file again (a copy
                             # changed since the mirror's write is left alone).
-                            for done, old, done_inode, done_expect, was in reversed(written):
+                            for (done, old, done_inode, done_expect, was,
+                                 done_flagged) in reversed(written):
                                 try:
                                     self._forget(done)
                                     back = _write_json(done, old, keep_mtime=True,
@@ -1955,7 +1993,7 @@ class Mirror:
                                     # The mirror's write stands: journal it.
                                     self._journal_write(done, done_inode, identity,
                                                         folder_files[done.parent][done.name],
-                                                        "updated")
+                                                        "updated", flags=done_flagged)
                                     continue
                                 if back is not None:
                                     self._journal_restamp(done, was, back)
@@ -1968,13 +2006,16 @@ class Mirror:
                             # This successful write cannot enter the rollback
                             # list without its signature. It may survive a later
                             # failed copy, even though no journal call sees it.
-                            self._flags_moved = True
+                            if flagged:
+                                self._flags_moved = True
                         if now_signature is not None and now_signature[1] == inode:
-                            written.append((target, before, inode, now_signature, expect))
+                            written.append((target, before, inode, now_signature, expect,
+                                            flagged))
                     else:
-                        for target, _before, inode, _signature, _was in written:
+                        for target, _before, inode, _signature, _was, was_flagged in written:
                             self._journal_write(target, inode, identity,
-                                                folder_files[target.parent][target.name], "updated")
+                                                folder_files[target.parent][target.name],
+                                                "updated", flags=was_flagged)
                     continue
                 held.add(identity)
             for identity in held:
@@ -1986,6 +2027,7 @@ class Mirror:
                     fresh.pop(identity, None)
             if retry is not None:
                 retry.update(held)
+            self._activity_yield = held & chosen
             if fresh != base_all:
                 self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
                 # Synced like the records it describes: a base lost to a crash
@@ -2152,6 +2194,7 @@ class Mirror:
         if not folders and not kept and not failed:
             self._drop_folders(folders)
             self._inventoried = True            # an empty store is a complete inventory
+            self._splits = self._split_report({}, set(), {})
             return
         sweep = self._sweep_due()
         current.swept = sweep
@@ -2224,7 +2267,11 @@ class Mirror:
                 if identity not in canonical or score > canonical[identity][0]:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
-        self._splits = self._split_report(bound, shown, canonical)
+        if not (unlisted or unknown or failed or self._unread):
+            # Only from every folder and every copy: a folder that did not list
+            # this pass may hold the other half of a split, and a report without
+            # it would read as clean. The last whole report stands until then.
+            self._splits = self._split_report(bound, shown, canonical)
         # A new record this pass read before its transcript existed is no
         # longer fresh to the hot pass, so hand it over to the hot pass's retry.
         # Only records written within the retry window: to a cold pass every
@@ -2314,9 +2361,9 @@ class Mirror:
         folder, the second under a `local_<conversation>.json` name, with the
         same title. `live` counts the ids of which two or more conversations
         still have an unarchived copy: two rows a person can confuse. Counted
-        from this pass's inventory, before its flag sync. How a name comes to
-        hold two conversations is not this report's to say; it lists what the
-        store holds.
+        from this pass's inventory, before its flag sync, and only from a
+        whole one (`_pass`). How a name comes to hold two conversations is not
+        this report's to say; it lists what the store holds.
         """
         rows = []
         for name, holders in bound.items():
@@ -2766,7 +2813,7 @@ def run_once(root: str | Path, policy: dict[str, Any] | None = None,
 
 
 __all__ = ["ACTIVITY_FIELD", "ACTIVITY_FUTURE_S", "ACTIVITY_SESSIONS_PER_PASS",
-           "DEFAULT_ACTIVITY_LAG_S",
+           "DEFAULT_ACTIVITY_LAG_S", "SAFE_MS",
            "DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
            "activity_targets", "health", "load_gap", "options_from", "run_once", "slug",
            "splits", "store_dir"]

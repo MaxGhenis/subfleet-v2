@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import itertools
 import json
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -54,6 +55,9 @@ AFTER = datetime.fromtimestamp(EPOCH / 1000, timezone.utc) + timedelta(days=30)
 ENVIRONMENT = ("user_set_true", "user_set_false", "load_0", "load_1", "load_2",
                "focus_0", "focus_1", "focus_2", "stale_0", "stale_1", "stale_2",
                "turn_0", "turn_1", "turn_2")
+#: What the traces of this module's run reached, so that the random test can
+#: say which shapes it exercised instead of assuming it (review of #167).
+REACHED: Counter[str] = Counter()
 
 
 def rewrite(path: Path, data: dict) -> None:
@@ -146,11 +150,18 @@ class MirrorAgainstBothModels(RuleBasedStateMachine):
     def check(self) -> None:
         flags, dates = self.flags, self.dates
         if flags_model.held(flags):                      # a flag moved: nothing is written
+            if any(goal is not None for goal in dates.target):
+                REACHED["a moved flag held a date"] += 1
             self.flags, self.dates = flags_model.pass_check(flags), dates_model.cancel(dates)
             return
         skip = {a for a in flags.also if dates.act[a] >= dates.target[a]}
+        if skip:
+            REACHED["a copy the app raised itself was left out"] += 1
         self.flags, self.dates = flags_model.pass_check(flags, skip), dates_model.pass_check(dates)
         assert self.flags.pending == self.dates.pending, "one batch, in one order"
+        if any(flags.snap[a] != flags.decided and dates.target[a] is not None
+               and dates.act[a] < dates.target[a] for a in self.flags.pending):
+            REACHED["a copy got a flag and a date in one write"] += 1
 
     def publishing(self) -> bool:
         assert (self.flags.phase == flags_model.PUBLISHING) == \
@@ -158,8 +169,16 @@ class MirrorAgainstBothModels(RuleBasedStateMachine):
         return self.flags.phase == flags_model.PUBLISHING
 
     def write_one(self) -> None:
-        self.flags = flags_model.pass_write(self.flags)
-        self.dates = dates_model.pass_write(self.dates)
+        flags, dates = self.flags, self.dates
+        if flags_model.rolls_back(flags):
+            back = [a for a in flags.written if a not in flags.touched]
+            raised = [a for a in back if dates.act[a] != dates.checked[a]]
+            if raised:
+                REACHED["a raised date was put back"] += 1
+            if any(flags.snap[a] != flags.decided for a in raised):
+                REACHED["a flag and a date were put back together"] += 1
+        self.flags = flags_model.pass_write(flags)
+        self.dates = dates_model.pass_write(dates)
 
     def finish(self) -> None:
         while self.publishing():
@@ -237,6 +256,57 @@ class MirrorAgainstBothModels(RuleBasedStateMachine):
         assert bool(applied) == reached, "the code and the models reach the same write"
         self.finish()
 
+    @rule(k=st.integers(min_value=1, max_value=2), late=st.sampled_from(("focus", "turn")))
+    def an_unarchive_and_a_raise_fail_midway(self, k, late):
+        """The shape random interleavings rarely reach by themselves: two
+        copies that each need the flag and the date, the first written, and the
+        second saved by the app before its write. From wherever the trace is:
+        archive and settle, run the session in the loaded folder, unarchive
+        there, and interrupt the publish."""
+        here = self.flags.loaded
+        if self.dates.clock + dates_model.JUMP > CLOCK_MAX:
+            return
+        if not self.flags.copy[here]:
+            self.apply("user_set_true")
+        self.full_pass()
+        self.apply(f"turn_{here}")
+        last = max(a for a in range(len(FOLDERS)) if a != here)
+        action = f"focus_{last}" if late == "focus" or self.dates.mem[last] is None \
+            else f"turn_{last}"
+        self.pass_with_writes_during_publish(["user_set_false"], k, [action])
+
+    @rule()
+    def a_flag_moves_on_a_copy_being_raised(self):
+        """The other rare shape: the pass means to raise a copy's date, and that
+        copy's flag moves before the pre-check. The session is held, date and
+        all. Settle unarchived, run the session here, switch to another
+        account, and archive there between the read and the publish."""
+        here = self.flags.loaded
+        if self.dates.clock + dates_model.JUMP > CLOCK_MAX:
+            return
+        if self.flags.copy[here]:
+            self.apply("user_set_false")
+        self.full_pass()
+        self.apply(f"turn_{here}")
+        self.apply(f"load_{(here + 1) % len(FOLDERS)}")
+        self.pass_with_writes_between_read_and_publish(["user_set_true"])
+
+    @rule()
+    def a_copy_being_raised_runs_the_session(self):
+        """And the third: between the read and the publish the session runs in
+        a folder the pass means to raise, so that copy is checked and left out
+        of the writes, and no date is lowered to the pass's decision."""
+        here = self.flags.loaded
+        if self.dates.clock + 2 * dates_model.JUMP > CLOCK_MAX:
+            return
+        if self.flags.copy[here]:
+            self.apply("user_set_false")
+        self.full_pass()
+        self.apply(f"turn_{here}")
+        other = (here + 1) % len(FOLDERS)
+        self.apply(f"load_{other}")
+        self.pass_with_writes_between_read_and_publish([f"turn_{other}"])
+
     @rule()
     def pass_cancelled_before_publish(self):
         checkpoint = mirror.Mirror._checkpoint
@@ -277,16 +347,43 @@ class _Always:
         return True
 
 
-def machine(tmp_path, monkeypatch) -> MirrorAgainstBothModels:
+def machine(tmp_path, monkeypatch, archived: bool = False) -> MirrorAgainstBothModels:
     value = MirrorAgainstBothModels(tmp_path, monkeypatch)
-    value.seed(False)
+    value.seed(archived)
     return value
 
 
 def test_the_date_and_the_flag_travel_in_one_batch_and_fail_together(tmp_path, monkeypatch):
-    """C-23.28: the machine's own shape for the 2026-10-10 fix. A turn in A
-    and an archive in A are one publish; a save of C before its write puts B
-    back, flag and date; the next pass, deciding "archived", raises no date."""
+    """C-23.28: one batch, put back whole. The session is archived everywhere
+    and A runs it; then A unarchives it. B and C each need the flag and the
+    date. B is written; C's write finds C saved by the app; B gets back the
+    flag and the date it had, and the base is kept. The next pass writes both
+    to both."""
+    run = machine(tmp_path, monkeypatch, archived=True)
+    before = REACHED["a flag and a date were put back together"]
+    try:
+        run.full_pass()
+        assert run.flags.base is True
+        run.apply("turn_0")
+        run.files_and_base_match_both_models()
+        assert run.dates.act == (3, 0, 0), "an archived session's dates are left alone"
+        run.pass_with_writes_during_publish(["user_set_false"], 1, ["focus_2"])
+        assert REACHED["a flag and a date were put back together"] == before + 1
+        assert run.flags.copy == (False, True, True) and run.flags.base is True
+        assert run.dates.act == (3, 0, 0)
+        run.files_and_base_match_both_models()
+        run.full_pass()
+        assert run.flags.copy == (False,) * 3 and run.flags.base is False
+        assert run.dates.act == (3, 2, 2)
+        run.files_and_base_match_both_models()
+    finally:
+        run.teardown()
+
+
+def test_an_archive_defers_the_date_and_its_put_back_is_the_flags_alone(tmp_path, monkeypatch):
+    """C-23.28: the other direction. A runs the session and archives it in one
+    step: the flag's decision is "archived", so no date is in the batch, and
+    the interrupted publish puts back a flag only."""
     run = machine(tmp_path, monkeypatch)
     try:
         run.apply("turn_0")
@@ -328,9 +425,18 @@ def test_the_mirror_follows_both_models_on_random_interleavings(
     """C-23.28: implementation and models agree step by step, so the invariants
     each model keeps in every reachable state hold for the mirror on every
     trace tried, with flags and dates in one batch."""
+    REACHED.clear()
     run_state_machine_as_test(
         lambda: MirrorAgainstBothModels(tmp_path_factory.mktemp("trace"), monkeypatch),
         settings=settings(max_examples=150, stateful_step_count=30, deadline=None,
                           derandomize=True, database=None,
                           suppress_health_check=[HealthCheck.too_slow,
                                                  HealthCheck.function_scoped_fixture]))
+    # The traces reached every shape the two models meet in, each many times:
+    # agreement on a shape never tried would prove nothing.
+    for shape in ("a copy got a flag and a date in one write",
+                  "a copy the app raised itself was left out",
+                  "a moved flag held a date",
+                  "a raised date was put back",
+                  "a flag and a date were put back together"):
+        assert REACHED[shape] >= 5, (shape, dict(REACHED))

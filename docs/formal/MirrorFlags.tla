@@ -44,8 +44,10 @@
 (* tests/mirror_flags_model.py is the executable twin of this module; it is *)
 (* explored exhaustively by tests/unit/test_mirror_flags_model.py, and      *)
 (* tests/unit/test_mirror_flags_stateful.py holds the implementation to it. *)
-(* TLC has not been run on this module (Max, 2026-09-25: skip it for now;   *)
-(* it can join CI later).                                                   *)
+(* SANY and TLC 2.19 first checked this module on 2026-10-10, in the review  *)
+(* of PR #167; docs/reports/2026-10-10-mirror-stale-dates.md has the runs.  *)
+(* TLC is not part of CI (Max, 2026-09-25: skip it for now; it can join CI  *)
+(* later).                                                                  *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 

@@ -8,7 +8,8 @@ the invariants the 2026-10-10 report states for the date a sidebar row shows:
 * bounded lag: a pass that decides for a session decides for every copy more
   than the lag behind its newest, and one clean pass leaves every copy within
   the lag;
-* raise below newest: a raise is a raise, and never to the newest date or past it;
+* raise below newest: a raise is a raise, and never to the newest date or past
+  it, at the decision and again at the write;
 * the lead is kept: no write changes the newest date or which copies hold it;
 * never lowered: a write that goes through lowers no copy;
 * idempotence: with every copy within the lag, nothing is decided;
@@ -203,10 +204,61 @@ def test_a_date_that_is_not_a_number_is_no_voice_and_is_never_written(values, la
     mirror leaves alone, and decides the rest as if that copy were not there."""
     raises = mirror.activity_targets(values, lag)
     numbers = [(index, value) for index, value in enumerate(values)
-               if isinstance(value, int) and not isinstance(value, bool)]
+               if isinstance(value, int) and not isinstance(value, bool)
+               and -mirror.SAFE_MS < value < mirror.SAFE_MS]
     assert set(raises) <= {index for index, _value in numbers}
     only = mirror.activity_targets([value for _index, value in numbers], lag)
     assert raises == {numbers[position][0]: value for position, value in only.items()}
+
+
+ANY_NUMBER = st.one_of(
+    st.integers(min_value=0, max_value=2 * 10**12),
+    st.floats(min_value=0, max_value=2e12),
+    st.integers(min_value=-10**30, max_value=10**30),
+    st.sampled_from([10**400, -(10**400), 2**53, 2**53 - 1, -(2**53), 0, -1]),
+    st.floats(allow_nan=True, allow_infinity=True))
+
+
+@settings(max_examples=600, deadline=None)
+@given(values=st.lists(st.one_of(ANY_NUMBER, JUNK), min_size=0, max_size=8),
+       lag=st.floats(min_value=-10, max_value=1e9, allow_nan=False))
+def test_the_decision_never_fails_and_keeps_its_promise_for_any_numbers(values, lag):
+    """C-23.28 (review of #167): whatever number a record holds, the decision
+    raises nothing (an integer too large for a float once did), and every date
+    it returns is above the copy's own and below the newest voice. Beyond
+    JavaScript's safe integers a number is no voice: "one millisecond before"
+    is not a different number there."""
+    raises = mirror.activity_targets(values, lag)
+    voices = [value for value in values if mirror._instant_ms(value)]
+    assert all(isinstance(value, (int, float)) and not isinstance(value, bool)
+               and -mirror.SAFE_MS < value < mirror.SAFE_MS for value in voices)
+    if lag <= 0 or not voices:
+        assert raises == {}
+        return
+    newest = max(voices)
+    for index, goal in raises.items():
+        assert mirror._instant_ms(values[index]), "only a voice is written"
+        assert values[index] < goal < newest
+    after = applied(values, raises)
+    assert max(value for value in after if mirror._instant_ms(value)) == newest
+    assert mirror.activity_targets(after, lag) == {}, "a second decision writes nothing"
+
+
+@settings(max_examples=400, deadline=None)
+@given(dates=st.lists(st.one_of(st.integers(min_value=0, max_value=2 * 10**12),
+                                st.floats(min_value=0, max_value=2e12)),
+                      min_size=1, max_size=8), lag=LAGS)
+def test_the_decision_keeps_its_bounds_for_dates_that_parse_as_floats(dates, lag):
+    """C-23.28 (review of #167): a record's date can parse as a float. The
+    bounds are the integers' own; a copy within a millisecond of the newest
+    cannot be raised, so there the lag is "within the lag, or that close"."""
+    raises = mirror.activity_targets(dates, lag)
+    newest = max(dates)
+    assert all(dates[index] < goal < newest for index, goal in raises.items())
+    after = applied(dates, raises)
+    assert [value == newest for value in after] == [value == newest for value in dates]
+    assert all(newest - value <= lag or value >= newest - 1 for value in after)
+    assert mirror.activity_targets(after, lag) == {}
 
 
 @settings(max_examples=100, deadline=None)

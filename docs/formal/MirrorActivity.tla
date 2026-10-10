@@ -39,9 +39,10 @@
 (* tests/mirror_activity_model.py is the executable twin of this module; it *)
 (* is explored exhaustively by tests/unit/test_mirror_activity_model.py,    *)
 (* and tests/unit/test_mirror_activity_stateful.py holds the implementation *)
-(* to it and to the flag twin together. TLC has not been run on this        *)
-(* module, and it has not been parsed (no Java runtime where it was         *)
-(* written, 2026-10-10).                                                    *)
+(* to it and to the flag twin together. SANY and TLC 2.19 checked this      *)
+(* module on 2026-10-10, in the review of PR #167, as it stood before       *)
+(* WriteBelowNewest was added; docs/reports/2026-10-10-mirror-stale-dates.md *)
+(* has the runs. TLC is not part of CI.                                     *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -241,6 +242,12 @@ RaiseBelowNewest ==
     [][(PassDecide \/ PassDefer) =>
          \A a \in Accounts : target'[a] # None
              => act[a] < target'[a] /\ target'[a] < Newest(act)]_vars
+
+\* The same at the write: a later date the app saved since the read can make
+\* the newest later, but nothing the mirror writes reaches the newest it read.
+WriteBelowNewest ==
+    [][PassWrite /\ ~RollsBack =>
+         \A a \in Accounts : act'[a] # act[a] => act'[a] < Newest(snap)]_vars
 
 \* Idempotence: with every copy within the lag, nothing is decided.
 Idempotence ==

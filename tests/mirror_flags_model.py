@@ -5,8 +5,8 @@ variables, the same actions, the same properties. `test_mirror_flags_model.py`
 explores every reachable state of it exhaustively, and
 `test_mirror_flags_stateful.py` drives the real `Mirror` on real files in
 lockstep with it, so the implementation and this model are held to one
-meaning. The TLA+ module states the same thing for TLC, which has not been run
-on it (Max, 2026-09-25: skip TLC for now).
+meaning. The TLA+ module states the same thing for TLC, which first checked it
+on 2026-10-10 (the 2026-10-10 report) and is not part of CI.
 
 One session, one boolean flag (`isArchived`; `isStarred` runs through the same
 loop with its own bootstrap value), a copy of its record in each account

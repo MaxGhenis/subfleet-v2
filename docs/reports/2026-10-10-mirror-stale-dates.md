@@ -115,7 +115,12 @@ also raises `lastActivityAt`:
 - a session whose flag decision is archived keeps its dates;
 - one flag sync raises at most ten sessions, those furthest behind first, and
   counts the rest in `activity_waiting`, so the 750-session backlog drains
-  over about 75 passes and no publish is long.
+  over about 75 passes and no publish is long;
+- a session it chose and could not publish goes last in the next sync.
+
+A date is a voice only if it is a number above zero, within JavaScript's safe
+integers, and not more than five minutes past the pass's own clock. Anything
+else in the field is left as it is and decided without.
 
 One millisecond short, because `_rank` picks the record a new folder is copied
 from by this date. The copy the app last ran the session in holds the model
@@ -124,10 +129,12 @@ could be copied from the older record.
 
 **2. Split ids are reported.** A full pass records each record name whose
 copies hold more than one conversation with a transcript, and how many of them
-still show two rows. `sessions mirror --status` names each of those with both
+still show two rows. Only a pass that listed every folder and read every copy
+replaces the report, and no process puts an older report over a later one. `sessions mirror --status` names each of those with both
 conversations, the folders that open each, and each one's newest date.
-`doctor` has a row for it, `warn` while one shows. The mirror archives,
-retitles and rebinds none of them.
+`doctor` has a row for it: `warn` while one shows, and `unknown` when no pass
+has replaced the report for thirty minutes. The mirror archives, retitles and
+rebinds none of them.
 
 Not built, and Max's to rule on: archiving or retitling the older side of a
 split without asking (decision d1258).
@@ -147,9 +154,19 @@ For one session, with the date in each folder's copy:
 - **Not from the future.** A date more than five minutes past the pass's own
   clock is no voice: it is not raised, and it is never the newest. The app
   writes its clock's now, so such a date is a bad record. A raise is never
-  undone, so one spread bad date would sit in every folder and be raised
-  again from each; left alone it stays one folder's. No record in the store
-  held one.
+  undone, so a bad date raised from would sit in every folder and be raised
+  again from each. The date sync therefore never spreads one. No record in
+  the store held one.
+- **Any number.** Whatever number a record holds in the field, no pass fails
+  on it. A number not above zero, or outside JavaScript's safe integers, is
+  no voice. Within them one millisecond before a date is a different number,
+  exactly.
+- **A date is not a flag write.** A write that changed only a date changes no
+  field a flag decision reads, so it does not make the full pass read the
+  flags again. Flags, titles and bases keep the liveness they had.
+- **Fair under the bound.** A session chosen and not published yields its
+  place in the next sync, so sessions that never go through cannot keep the
+  bound from the rest.
 - **Idempotence.** With every copy within the lag, nothing is decided and
   nothing is written.
 - **No lost update.** The mirror writes only a copy nobody rewrote since its
@@ -177,6 +194,15 @@ else fails: where a stale flag reads as a user's change and spreads, a stale
 date is only behind, and a later date always wins. In the loaded folder the
 mirror writes once for each such save by the app.
 
+**A second limit, older than this change.** Which record a new folder is
+copied from is `_rank`'s rule, and it takes the latest date. A record with a
+date from the future can therefore be the one copied into a new login's
+folder, whole. The date sync does not raise any copy toward it.
+
+**Outside the models.** Each model is one session. Fairness across sessions
+under the bound, and the full pass's refresh after an embedded hot pass, are
+tested by example, not explored.
+
 ## Verification
 
 - **The date's model, every reachable state**
@@ -201,27 +227,82 @@ mirror writes once for each such save by the app.
   switches, stale saves, writes between the read and the pre-check, writes
   between two of the publish's writes, and cancelled passes. After every step
   each file's flag and date and the merge base equal the models'. 150 traces
-  of 30 steps.
-- **30 example tests and one property on real files**
-  (`tests/unit/test_sessions_mirror_activity.py`), among them the 2026-10-10
-  store, the put-back of a date with a flag, the bound of ten, the new folder
-  copied from the record that leads, a date from the future, and the status
-  and doctor output. The property takes any three dates around the pass's
-  clock and checks the bounds above on the files a pass leaves.
-- **Mutation check:** 18 deliberate faults in `mirror.py`, one at a time
+  of 30 steps. The run counts the shapes it reaches and fails if one is
+  missing: a copy got a flag and a date in one write (470 times), a raised
+  date was put back (155), a flag and a date were put back together (133), a
+  moved flag held a date (409), a copy the app raised itself was left out
+  (241).
+- **52 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`),
+  among them the 2026-10-10 store, the put-back of a date with a flag, the
+  bound of ten and its fairness, the new folder copied from the record that
+  leads, numbers of any size, a date from the future, the reviewer's schedule
+  of stale saves during a full pass, a split report from a partial
+  inventory, and the status and doctor output. One is a property: any three
+  dates around the pass's clock, and the bounds above on the files a pass
+  leaves.
+- **Mutation check:** 28 deliberate faults in `mirror.py`, one at a time
   (raise to the newest, raise at exactly the lag, write over a later date,
   raise an archived session, rewrite a copy that needs nothing, least behind
-  first, no bound, ignore the switch, take a future date for a voice, and
-  nine more). Each fails a test.
-  The first run left one real fault alive (the needless rewrite); the test
-  that should have caught it now checks that the file is not replaced.
+  first, no bound, ignore the switch, take a future date for a voice, count
+  a date as a flag write, take a partial inventory for a report, convert any
+  number to a float, and sixteen more). On the final code each fails a test.
+  Earlier runs left three alive, and each changed something. The needless
+  rewrite was real; its test now checks that the file is not replaced. A
+  guard in the decision had been made dead by the safe-integer rule; the
+  guard was removed. Taking zero for a date at the decision changed no file
+  once the write refused it, but chose the session again every pass; its
+  test now checks that a second pass chooses nothing.
 - **The existing mirror tests** pass: 12 files unchanged (293 tests), and the
   flag model's file, which gained three tests for the wider batch.
 - **Dry run on the live store** (nothing written): 94.5 s cold, 0 copies to
   add, 0 flags held, 750 sessions to raise, 12 splits and none showing two
   rows, the same 12 an independent read of the store found.
-- TLC has not been run on either TLA+ module, and neither was parsed: there is
-  no Java runtime on this machine.
+- **TLC.** The independent review parsed both modules with SANY and ran TLC
+  2.19 on every configuration at `bc452d310` (below). `WriteBelowNewest` was
+  added to `MirrorActivity.tla` after that run; the twin has checked the same
+  bound at the write since the first commit.
+
+| Configuration | TLC 2.19 at `bc452d310` |
+|---|---|
+| `MirrorActivity.cfg` | no error, 450,278 distinct states |
+| `MirrorFlags.cfg` | no error, 616,753 |
+| `MirrorActivityStale.cfg` | no error, 190,155 |
+| `MirrorFlagsStale.cfg` | no error, 1,178,106 |
+| `MirrorActivityStaleLowered.cfg` | `StaysFresh` violated, as expected |
+| `MirrorFlagsStaleUndo.cfg` | `IntentWins` violated, as expected; `NeverUndoSettled` too, with `IntentWins` left out |
+
+TLC counts more states than the twins because the modules keep a pass's
+snapshot after the pass and carry a `clean` ghost (the reviewer's reading).
+
+## Review
+
+Round 1 (GPT-6.1 Sol on a Subfleet lane, at `bc452d310`) asked for changes.
+It reproduced each finding, and each is now a test.
+
+- **A date-only write was counted as a flag write.** An app re-saving one old
+  date while a full pass took its inventory invalidated both of the pass's
+  refreshes, and the pass held every session: another session's new title
+  did not sync. A write that changed only a date no longer invalidates
+  anything.
+- **The split report could read clean when it was not.** A pass that could
+  not list a folder replaced the report without that folder's half of a
+  split; an emptied store kept the old report; a process with an older
+  report wrote it over a later one. All three are fixed.
+- **A number could fail a pass.** An integer too large for a float raised
+  `OverflowError`, and the pass stayed recorded as running. Very large floats
+  could be "raised" to the newest itself. Dates are now compared, never
+  converted, and limited to JavaScript's safe integers.
+- **The future-date guard claimed too much.** It said a bad date stays one
+  folder's; a new folder can still be copied from that record. The claim is
+  narrowed and the limit is pinned by a test.
+- **The TLA+ module checked less than its twin.** It bounded a raise at the
+  decision only. `WriteBelowNewest` bounds it at the write.
+- **Two tests claimed more than they exercised.** The lockstep example named
+  for a joint put-back archived the session, which defers the date, so it
+  put back a flag only; and no test used a date that parses as a float. The
+  example now unarchives, the run counts its shapes, and floats are covered.
+- **Ten sessions that never publish could starve an eleventh.** A session
+  chosen and not published now yields its place.
 
 ## Cost
 

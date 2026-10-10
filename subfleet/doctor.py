@@ -28,6 +28,7 @@ import sys
 import shutil
 import sqlite3
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -627,6 +628,17 @@ def check_sidebar_splits(root: Path) -> dict[str, Any]:
                    "`subfleet sessions mirror --status`")
     if splits.get("checked_at") is None:
         return row(check, UNKNOWN, "no full mirror pass has recorded its inventory",
+                   "`subfleet sessions mirror --once`")
+    # Only a pass that listed every folder and read every copy replaces the
+    # report, so an old one says nothing about the store as it is now.
+    checked = mirror_module._instant(str(splits.get("checked_at")))
+    age_min = ((datetime.now(timezone.utc) - checked).total_seconds() / 60
+               if checked is not None else None)
+    if age_min is None or age_min > mirror_module.DEFAULT_HANG_MIN:
+        return row(check, UNKNOWN,
+                   f"the last whole inventory is from {splits.get('checked_at')}; no pass "
+                   "since has listed every folder and read every copy",
+                   "`subfleet sessions mirror --status` for what holds the passes; "
                    "`subfleet sessions mirror --once`")
     live, count = int(splits.get("live") or 0), int(splits.get("count") or 0)
     if live:

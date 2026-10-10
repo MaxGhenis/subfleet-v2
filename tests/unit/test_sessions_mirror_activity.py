@@ -181,6 +181,22 @@ def test_a_later_date_saved_between_the_read_and_the_publish_is_kept(world, monk
     assert os.stat(path(world, 1)).st_ino == saved[0], "and is not rewritten to say the same"
 
 
+@pytest.mark.parametrize("now_holds", [0, None, "soon", 10 ** 400])
+def test_a_copy_that_holds_no_date_by_the_time_of_the_write_is_not_written(
+        world, monkeypatch, now_holds):
+    """C-23.28: the rule at the decision is the rule at the write. The pass
+    read a date in B and decided to raise it; before the publish B's field
+    became something that is no date. The mirror writes no date over that."""
+    place(world, ONE, (NEW, OLD, OLD))
+    running = engine(world)
+    with monkeypatch.context() as patch:
+        between_read_and_publish(patch, lambda: rewrite(path(world, 1),
+                                                        lastActivityAt=now_holds))
+        result = running.run_once(options(running))
+    assert result.state == "ok" and result.flags_held == 0
+    assert dates(world) == (NEW, now_holds, NEW - 1)
+
+
 def test_a_flag_that_moved_since_the_read_holds_the_date_too(world, monkeypatch):
     """C-23.28: all or nothing. A held session writes nothing, its date included."""
     place(world, ONE, (NEW, OLD, OLD))
@@ -358,6 +374,51 @@ def test_one_pass_keeps_the_dates_bounds_on_real_files(offsets, tmp_path_factory
             [now == newest for was, now in zip(before, after) if was <= horizon]
 
 
+def test_a_new_folder_can_still_be_copied_from_a_record_with_a_future_date(world):
+    """C-23.28, the limit the guard leaves (review of #167): which record a new
+    folder is copied from is `_rank`'s rule, older than the date sync, and it
+    takes the latest date. The sync itself spreads the bad date nowhere."""
+    home, store, _root = world
+    fx.transcript(home, ONE, fx.completed())
+    future = CLOCK_MS + DAY
+    fx.index_entry(store, *FOLDERS[0], ONE, last_activity=NEW, model="claude-opus-5-5",
+                   settings={"ultracode": True})
+    fx.index_entry(store, *FOLDERS[1], ONE, last_activity=future, model="a-bad-record",
+                   settings={"ultracode": True})
+    running = engine(world)
+    result = running.run_once(options(running))
+    assert result.added == 1 and result.activity_synced == 0
+    assert record(world, 2)["lastActivityAt"] == future, "copied whole, as before the sync"
+    assert record(world, 0)["lastActivityAt"] == NEW, "and never raised toward it"
+
+
+@pytest.mark.parametrize("bad", [10 ** 400, -(10 ** 400), 2 ** 53, -5, 0, -1e20, 1e300])
+def test_no_number_in_the_field_fails_a_pass_or_becomes_a_voice(world, bad):
+    """C-23.28 (review of #167): an integer too large for a float made the
+    first version raise OverflowError and leave the pass recorded as running.
+    A number outside the dates the app writes is no voice; the rest of the
+    session is decided without it, and the copy that holds it is not written."""
+    place(world, ONE, (NEW, OLD, bad))
+    running = engine(world)
+    result = running.run_once(options(running))
+    assert result.state == "ok" and result.error is None
+    assert dates(world) == (NEW, NEW - 1, bad)
+    assert running.sidecar()["pass"]["state"] == "ok"
+    again = running.run_once(options(running))
+    assert again.activity_synced == 0, "and it is not chosen again each pass, taking a place"
+
+
+def test_a_date_written_as_a_float_is_a_date(world):
+    """C-23.28 (review of #167): JSON has one number type, and a record whose
+    date parses as a float is raised and raised from like any other."""
+    place(world, ONE, (float(NEW), float(OLD), OLD))
+    running = engine(world)
+    assert running.run_once(options(running)).activity_synced == 1
+    after = dates(world)
+    assert after == (NEW, NEW - 1, NEW - 1)
+    assert isinstance(after[0], float), "the leader's own record is not rewritten"
+
+
 def test_a_dry_run_counts_the_raise_and_writes_nothing(world):
     """C-17.4: a preview that writes is not a preview."""
     place(world, ONE, (NEW, OLD, OLD))
@@ -387,6 +448,82 @@ def test_a_raise_is_journaled_like_any_write_into_the_store(world):
     kinds = {(row.folder, row.kind) for row in running.journal.rows()}
     assert ("acct-b/org-b", "updated") in kinds and ("acct-c/org-c", "updated") in kinds
     assert ("acct-a/org-a", "updated") not in kinds
+
+
+# --- a date is not a flag ----------------------------------------------------------------
+
+def test_a_write_that_changed_only_a_date_is_not_a_flag_write(world):
+    """C-23.28 (review of #167): the hot pass tells the full pass when it left
+    a flag write standing, so that the full pass reads the flags again. A
+    raised date changes no field a flag decision reads."""
+    place(world, ONE, (OLD, OLD, OLD))
+    running = engine(world)
+    running.run_once(options(running))
+    rewrite(path(world, 0), lastActivityAt=NEW)
+    assert running.run_hot(options(running)).activity_synced == 1
+    assert running._flags_moved is False, "a date alone invalidates nothing"
+    assert dates(world) == (NEW, NEW - 1, NEW - 1)
+    rewrite(path(world, 0), isStarred=True)
+    assert running.run_hot(options(running)).flag_synced == 1
+    assert running._flags_moved is True, "a flag write still does"
+
+
+def test_an_app_resaving_an_old_date_cannot_hold_every_sessions_flags(world, monkeypatch):
+    """C-23.28 (review of #167, the reviewer's own schedule): while a full pass
+    takes its inventory the app saves one record from memory, with its old
+    date, each time the pass reads it. The embedded hot pass raises the date
+    again each time. Counted as flag writes, those raises invalidated both of
+    the full pass's refreshes, and it held every session: another session's
+    new title never reached its copies. They are not flag writes."""
+    home, store, _root = world
+    (store / "acct-c" / "org-c").rmdir()
+    busy, renamed = "session-000", "session-001"
+    for session in (busy, renamed):
+        fx.transcript(home, session, [*fx.completed(),
+                                      {"type": "custom-title", "customTitle": "old-title"}])
+        for index, date in ((0, OLD), (1, NEW)):
+            fx.index_entry(store, *FOLDERS[index], session, last_activity=date,
+                           title="old-title", settings={"ultracode": True})
+    _home, _store, root = world
+    running = mirror.Mirror(root, fx.policy(mirror_hot_interval_s=2), now=lambda: CLOCK)
+    assert running.run_once(options(running)).state == "ok"
+    assert running.run_hot(options(running)).state == "ok"
+    title_file = home / "projects" / fx.project_slug() / f"{renamed}.jsonl"
+    with title_file.open("a") as stream:
+        stream.write(json.dumps({"type": "custom-title", "customTitle": "NEW TITLE"}) + "\n")
+
+    source = path(world, 0, busy)
+    read_entry, take_inventory = running._entry, running._flag_inventory
+    clock = mirror.time.monotonic
+    offset, phase, edited, refreshes = [0.0], [0], set(), []
+    monkeypatch.setattr(mirror.time, "monotonic", lambda: clock() + offset[0])
+    running._last_sweep = None
+
+    def inventory(current, opts):
+        refreshes.append(len(refreshes) + 1)
+        phase[0] = len(refreshes)
+        try:
+            return take_inventory(current, opts)
+        finally:
+            phase[0] = 0
+
+    def slow_entry(where, *args, **kwargs):
+        data = read_entry(where, *args, **kwargs)
+        if Path(where) == source and phase[0] not in edited:
+            rewrite(source, lastActivityAt=OLD)         # the app's memory comes back
+            edited.add(phase[0])
+            offset[0] += 3                              # and the embedded hot pass is due
+        return data
+
+    monkeypatch.setattr(running, "_entry", slow_entry)
+    monkeypatch.setattr(running, "_flag_inventory", inventory)
+    result = running.run_once(options(running))
+    assert result.state == "ok", result.error
+    assert running._hot_services >= 2, "the embedded hot pass ran, and raised the date"
+    assert running._hot_epoch == 0, "and invalidated nothing"
+    assert refreshes == [1] and result.flags_held == 0
+    assert [record(world, index, renamed)["title"] for index in (0, 1)] == ["NEW TITLE"] * 2
+    assert mirror._load(running.flags_path)[renamed]["ttitle"] == "NEW TITLE"
 
 
 # --- the bound on one pass -----------------------------------------------------------
@@ -419,6 +556,41 @@ def test_a_pass_raises_a_bounded_number_of_sessions_furthest_behind_first(world)
     assert second.activity_synced == 3 and second.activity_waiting == 0
     assert raised() == list(range(total))
     assert running.run_once(options(running)).activity_synced == 0
+
+
+def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, monkeypatch):
+    """C-23.28 (review of #167): ten sessions furthest behind whose writes
+    always fail took the whole bound every pass, and an eleventh that could be
+    written never was. A session chosen and not published goes last next time."""
+    home, store, _root = world
+    (store / "acct-c" / "org-c").rmdir()
+    stuck = [f"{index:08d}-0000-4000-8000-00000000dead" for index in
+             range(mirror.ACTIVITY_SESSIONS_PER_PASS)]
+    writable = "99999999-0000-4000-8000-00000000beef"
+    for session in (*stuck, writable):
+        fx.transcript(home, session, fx.completed())
+        fx.index_entry(store, *FOLDERS[0], session, last_activity=NEW,
+                       settings={"ultracode": True})
+        fx.index_entry(store, *FOLDERS[1], session, settings={"ultracode": True},
+                       last_activity=NEW - (2 if session == writable else 30) * DAY)
+    install = mirror._install
+
+    def refusing(temporary, destination, **kwargs):
+        if kwargs.get("expect") is not None and any(name in destination.name for name in stuck):
+            temporary.unlink()
+            return False                                # as if the app had just saved it
+        return install(temporary, destination, **kwargs)
+
+    monkeypatch.setattr(mirror, "_install", refusing)
+    running = engine(world)
+    first = running.run_once(options(running))
+    assert (first.activity_synced, first.activity_waiting, first.flags_held) == (10, 1, 10)
+    assert record(world, 1, writable)["lastActivityAt"] == NEW - 2 * DAY
+    second = running.run_once(options(running))
+    assert second.flags_held == 9, "nine of the ten were chosen again, behind the eleventh"
+    assert record(world, 1, writable)["lastActivityAt"] == NEW - 1
+    third = running.run_once(options(running))
+    assert (third.activity_synced, third.flags_held) == (10, 10), "and the ten are tried again"
 
 
 # --- the switch ------------------------------------------------------------------------
@@ -545,6 +717,93 @@ def test_the_report_outlives_the_passes_that_do_not_take_an_inventory(world):
     assert other.splits()["live"] == 1
 
 
+def test_a_pass_that_could_not_list_a_folder_keeps_the_last_whole_report(world, monkeypatch):
+    """C-23.28 (review of #167): the folder that did not list held the other
+    half of the split. A report without it read "no split", and doctor passed,
+    while the id still opened two conversations."""
+    from subfleet import doctor
+    split(world)
+    running = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0))   # doctor's clock
+    running.run_once(options(running))
+    running.run_once(options(running))
+    whole = running.splits()
+    assert (whole["count"], whole["live"]) == (1, 1)
+    scan = running._scan
+
+    def unlisted(folder, *args, **kwargs):
+        if folder == world[1] / "acct-c" / "org-c":
+            raise mirror._Unlisted(str(folder), transient=True)
+        return scan(folder, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(running, "_scan", unlisted)
+        assert running.run_once(options(running)).state == "ok"
+    assert record(world, 2, name="local_app.json")["cliSessionId"] == FORK
+    assert running.splits() == whole, "the last whole report stands"
+    row = next(item for item in doctor.checks(world[2])
+               if item["check"] == "desktop sidebar split ids")
+    assert row["status"] == doctor.WARN
+
+
+def test_a_copy_that_could_not_be_read_keeps_the_last_whole_report_too(world, monkeypatch):
+    """C-23.28: an unreadable copy may be the one that makes a name a split."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    running.run_once(options(running))
+    whole = running.splits()
+    target = path(world, 2, name="local_app.json")
+    rewrite(target, lastFocusedAt=7)                         # so the pass must read it again
+    read = mirror._read_entry
+
+    def unreadable(where):
+        if str(where) == str(target):
+            raise OSError(24, "Too many open files")
+        return read(where)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_read_entry", unreadable)
+        assert running.run_once(options(running)).state == "ok"
+    assert running.splits() == whole
+
+
+def test_an_emptied_store_has_no_split(world):
+    """C-23.28 (review of #167): an empty store is a whole inventory, and its
+    report replaces the last one."""
+    import shutil
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    assert running.splits()["count"] == 1
+    for account, _org in FOLDERS:
+        shutil.rmtree(world[1] / account)
+    result = running.run_once(options(running))
+    assert result.state == "ok" and result.sessions == 0
+    report = running.splits()
+    assert (report["count"], report["live"], report["sessions"]) == (0, 0, [])
+
+
+def test_a_process_with_an_older_report_never_puts_it_over_a_later_one(world):
+    """C-23.28 (review of #167): the daemon keeps one mirror for its life, and a
+    `sessions mirror` pass is another process. Each records the pass it ran;
+    neither may replace the other's later inventory with its own earlier one."""
+    import shutil
+    split(world)
+    earlier = engine(world)
+    earlier.run_once(options(earlier))
+    assert earlier.splits()["count"] == 1
+    for account, _org in FOLDERS:
+        shutil.rmtree(world[1] / account)
+    (world[1] / "acct-a" / "org-a").mkdir(parents=True)
+    later = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0),
+                          now=lambda: CLOCK + timedelta(minutes=5))
+    later.run_once(options(later))
+    newest = later.splits()
+    assert newest["count"] == 0 and newest["checked_at"] > earlier._splits["checked_at"]
+    earlier._record(mirror.Pass(started_at="2026-10-13T12:30:00Z"))   # a heartbeat, no inventory
+    assert earlier.splits() == newest
+
+
 def run_cli(argv) -> tuple[int, str, str]:
     from subfleet import cli
     out, err = io.StringIO(), io.StringIO()
@@ -595,14 +854,34 @@ def test_doctor_warns_while_both_rows_of_a_split_show(world):
 
     assert row()["status"] == doctor.UNKNOWN
     split(world)
-    running = engine(world)
-    running.run_once(options(running))
+    # `doctor` has no injected clock: it reports what is true now, so these
+    # passes run on the real one, an hour past the fixture's dates' future guard.
+    running = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0))
+    relaxed = mirror.Options(activity_lag_s=0)
+    running.run_once(relaxed)
     item = row()
     assert item["status"] == doctor.WARN and "Partner" in item["detail"]
     assert "1 session id opens" in item["detail"] and "--status" in item["fix"]
     assert doctor.exit_code([item]) == 0
     rewrite(path(world, 2, name="local_app.json"), isArchived=True)   # archive the fork in C
-    running.run_once(options(running))                       # the archive reaches every login
-    running.run_once(options(running))                       # the report reads the result
+    running.run_once(relaxed)                                # the archive reaches every login
+    running.run_once(relaxed)                                # the report reads the result
     item = row()
     assert item["status"] == doctor.PASS and "1 split id" in item["detail"]
+
+
+def test_doctor_does_not_vouch_for_a_report_no_recent_pass_could_replace(world):
+    """C-17.3 and C-23.28: only a whole inventory replaces the report, so one
+    that passes keep failing to take leaves an old report standing. Doctor
+    says how old it is instead of passing on it."""
+    from subfleet import doctor
+    split(world, fork_archived=True)
+    long_ago = mirror.Mirror(world[2], fx.policy(mirror_hot_interval_s=0),
+                             now=lambda: fx.NOW)             # weeks before the real clock
+    long_ago.run_once(mirror.Options(activity_lag_s=0))
+    assert long_ago.splits()["live"] == 0
+    item = next(item for item in doctor.checks(world[2])
+                if item["check"] == "desktop sidebar split ids")
+    assert item["status"] == doctor.UNKNOWN
+    assert "the last whole inventory is from 2026-09-05T11:30:00Z" in item["detail"]
+    assert "--once" in item["fix"]

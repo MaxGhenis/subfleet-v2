@@ -5,7 +5,8 @@ variables, the same actions, the same properties. `test_mirror_activity_model.py
 explores every reachable state of it, and `test_mirror_activity_stateful.py`
 drives the real `Mirror` on real files in lockstep with it and with the flag
 protocol's twin (`tests/mirror_flags_model.py`), so the implementation and both
-models are held to one meaning. TLC has not been run on the TLA+ module.
+models are held to one meaning. TLC checked the TLA+ module once, on 2026-10-10
+(the 2026-10-10 report); it is not part of CI.
 
 One session, a copy of its record in each account folder, and in each copy the
 date the sidebar shows (`lastActivityAt`, a number). The app writes that date
@@ -308,7 +309,7 @@ def check_step(before: State, label: str, after: State) -> list[str]:
             if max(after.act) != max(before.act) or leaders(after.act) != leaders(before.act):
                 broken.append("leader-kept")
             if any(after.act[a] >= max(before.snap) for a in wrote):
-                broken.append("raise-below-newest")
+                broken.append("write-below-newest")
     if label == "cancel" and wrote:
         broken.append("cancellation-safety")
     return broken
