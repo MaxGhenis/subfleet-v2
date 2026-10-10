@@ -7,6 +7,7 @@ import hashlib
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
@@ -229,3 +230,25 @@ def test_mutation_export_annotation_not_replay_safe_is_caught(worlds, monkeypatc
     monkeypatch.setattr(Daemon, "_export_error", staticmethod(append))
     with pytest.raises(AssertionError, match="replay changed notices"):
         export_invariant(worlds, "pushed", "unheld")
+
+
+# Fix round 3 (Opus review r3 P3): each part of the `.git` rule, removed, fails
+# its integration test through real submit, acceptance and push.
+
+def test_mutation_ignorables_kept_in_names_is_caught(worlds, monkeypatch):
+    monkeypatch.setattr(host_push, "_bare", lambda name: name)
+    with pytest.raises(AssertionError, match=r"pushed [0-9a-f]{40}"):
+        symlink_invariant(worlds, "into-git-ignorable")
+
+
+def test_mutation_ignorables_kept_in_link_paths_is_caught(worlds, monkeypatch):
+    monkeypatch.setattr(host_push, "_name_key", host_push.fold)
+    with pytest.raises(AssertionError, match=r"pushed [0-9a-f]{40}"):
+        symlink_invariant(worlds, "through-link-ignorable")
+
+
+def test_mutation_ntfs_spellings_dropped_is_caught(worlds, monkeypatch):
+    # Round 2's rule: `.git` and trailing dots and spaces only.
+    monkeypatch.setattr(host_push, "DOTGIT", re.compile(r"\.git[. ]*"))
+    with pytest.raises(AssertionError, match=r"pushed [0-9a-f]{40}"):
+        symlink_invariant(worlds, "into-git-ntfs")

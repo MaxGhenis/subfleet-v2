@@ -441,6 +441,11 @@ SYMLINKS = {
     # Review r2 P3: inside the tree, but into a checkout's own Git metadata.
     "into-git": ({"cfg": ".git/config"}, "'.git' component"),
     "into-git-any-case": ({"x": "sub/.GIT/hooks"}, "'.git' component"),
+    # Review r3 P3: HFS+ ignores ZWNJ in names, so `.g<ZWNJ>it` opens `.git`
+    # there; and the NTFS spellings Git itself refuses.
+    "into-git-ignorable": ({"cfg": ".g\u200cit/config"}, "'.git' component"),
+    "into-git-ntfs": ({"cfg": "GIT~1/config", "hooks": ".git::$INDEX_ALLOCATION/hooks"}, "'.git' component"),
+    "through-link-ignorable": ({"d": "sub", "e": "d\u200c/file"}, "passes through another symlink"),
 }
 
 
@@ -459,16 +464,41 @@ def test_escaping_symlinks_including_chains_are_refused(worlds, case):
         assert_failed(world, accept(world), reason)
 
 
-@pytest.mark.parametrize("target", [".git/config", "sub/.GIT/hooks", "./.Git", "a/.git", "．ｇｉｔ/config",
-                                    ".git./config", ".git /hooks"])
+#: Review r3 P3: each character HFS+ ignores in a name that the review opened
+#: `.git/config` through (ZWNJ, ZWJ, LRM, BOM), and others of the same class.
+IGNORABLE = ["\u200c", "\u200d", "\u200e", "\ufeff", "\u00ad", "\u2060", "\ufe0f", "\U000e0001"]
+
+
+@pytest.mark.parametrize("target", [
+    ".git/config", "sub/.GIT/hooks", "./.Git", "a/.git", "．ｇｉｔ/config", ".git./config", ".git /hooks",
+    # Review r3 P3: what HFS+ ignores, anywhere in the name.
+    *[spelling.format(c) for c in IGNORABLE for spelling in (".g{}it/config", "{}.git/hooks", ".git{}/config")],
+    ".g\u200ci\u200dt\u200e", "sub/.G\u200cIT/hooks", "．ｇ\u200cｉｔ/config", ".g\u0131t/config",
+    # ... and Git's NTFS spellings (`is_ntfs_dotgit`): the 8.3 short name,
+    # an alternate data stream, trailing dots and spaces.
+    "GIT~1/config", "git~1", "Git~1. /hooks", "sub/gIt~1", "ＧＩＴ～１/config",
+    ".git::$INDEX_ALLOCATION/config", ".GIT:stream", ".git. :x/hooks", "git~1::$INDEX_ALLOCATION",
+])
 def test_a_symlink_into_dot_git_is_refused_in_any_spelling(target):
     with pytest.raises(host_push.PushError, match="'.git' component"):
         host_push.check_symlinks({b"link": target.encode()})
 
 
-@pytest.mark.parametrize("target", [".gitignore", ".github/workflows", "sub/git/config", "sub/.gitx", "x.git"])
+@pytest.mark.parametrize("target", [".gitignore", ".github/workflows", "sub/git/config", "sub/.gitx", "x.git",
+                                    # Review r3 P3: near the NTFS spellings, and ignorables elsewhere.
+                                    "git~2/config", ".git~1", "git~10", "sub/agit~1", ".gitx:y",
+                                    "sub\u200c/file", "a\u200cb", ".g\u200cithub/workflows"])
 def test_a_symlink_near_dot_git_is_not_refused_for_it(target):
     host_push.check_symlinks({b"link": target.encode()})
+
+
+@pytest.mark.parametrize("links", [{b"d": b"sub", b"e": "d\u200c/file".encode()},
+                                   {b"d\xe2\x80\x8c": b"sub", b"e": b"D/file"},
+                                   {"D\ufeff".encode(): b"sub", b"e": "d\u200b/x".encode()}])
+def test_a_symlink_through_another_spelled_with_what_hfs_ignores_is_refused(links):
+    """Review r3 P3: two paths HFS+ opens as one compare as one."""
+    with pytest.raises(host_push.PushError, match="passes through another symlink"):
+        host_push.check_symlinks(links)
 
 
 def test_symlinks_with_harmless_targets_are_still_published(worlds):

@@ -26,7 +26,7 @@ import unicodedata
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 
-from . import retention_fs as rfs
+from . import folders, retention_fs as rfs
 from .adapters.base import AdapterError
 from .policy import push_settings
 
@@ -649,27 +649,49 @@ def _parent_component(part: str) -> bool:
     return re.fullmatch(r"[. ]*\.\.[. ]*", unicodedata.normalize("NFKC", part).casefold()) is not None
 
 
+#: Git's own NTFS test for `.git` (`is_ntfs_dotgit`, path.c): `.git` or its 8.3
+#: short name `git~1`, then only dots and spaces up to the name's end or an
+#: alternate data stream (`.git::$INDEX_ALLOCATION`). Matched on folded names.
+DOTGIT = re.compile(r"(?:\.git|git~1)[. ]*(?::.*)?", re.DOTALL)
+
+
+def _bare(name: str) -> str:
+    """Review r3 P3: `name` without the characters HFS+ ignores in names (the
+    Default_Ignorable_Code_Point superset `folders.identity` drops), and dotless
+    i as i, as `folders.identity` compares names. On HFS+, `.g<ZWNJ>it` opens
+    `.git`."""
+    return folders._DEFAULT_IGNORABLES.sub("", name).replace("\u0131", "i")
+
+
+def _name_key(path: str) -> str:
+    """How two paths of one tree compare: as a macOS checkout resolves them."""
+    return fold(_bare(path))
+
+
 def _dotgit_component(part: str) -> bool:
     """Review r2 P3: `.git` casefolded and NFC-normalized, as the other checks
     compare names (and NFKC, with the trailing dots and spaces Windows ignores,
-    as `_parent_component` reads `..`). A link there reaches a checkout's own
-    config and hooks."""
-    return any(re.fullmatch(r"\.git[. ]*", form) is not None
-               for form in (fold(part), unicodedata.normalize("NFKC", part).casefold()))
+    as `_parent_component` reads `..`). Review r3 P3: also without what HFS+
+    ignores (`_bare`), and in the NTFS spellings Git refuses (`DOTGIT`). A link
+    there reaches a checkout's own config and hooks."""
+    bare = _bare(part)
+    return any(DOTGIT.fullmatch(_bare(form)) is not None
+               for form in (fold(bare), unicodedata.normalize("NFKC", bare).casefold()))
 
 
 def check_symlinks(links: dict[bytes, bytes]) -> None:
     """Review P2-3: a symlink may name only a place inside its tree that no other
     symlink stands on. Refused when its target is absolute, has a `..` or a
     `.git` component, or passes through or ends at a symlink of the same tree;
-    paths compare casefolded and NFC-normalized, as a macOS checkout resolves them."""
+    paths compare casefolded and NFC-normalized, without the characters HFS+
+    ignores (`_name_key`), as a macOS checkout resolves them."""
     def text(raw: bytes) -> str:
         try:
             return raw.decode("utf-8")
         except UnicodeDecodeError:
             raise PushError("a symlink path or target is not UTF-8") from None
 
-    names = {fold(text(path)) for path in links}
+    names = {_name_key(text(path)) for path in links}
     for path, raw in links.items():
         name, target = text(path), text(raw)
         shown = repr(name[:200])
@@ -689,7 +711,7 @@ def check_symlinks(links: dict[bytes, bytes]) -> None:
             if part not in ("", "."):
                 walk = [*walk, part]
                 steps.append(walk)
-        if any(fold("/".join(step)) in names for step in steps):
+        if any(_name_key("/".join(step)) in names for step in steps):
             raise PushError(f"symlink {shown} passes through another symlink")
 
 
