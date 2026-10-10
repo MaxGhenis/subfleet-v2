@@ -189,7 +189,8 @@ class DiskAdmission:
 
     def begin_pass(self, policy: Mapping[str, Any], attempts: Iterable[Mapping[str, Any]], now: str) -> None:
         previous = self.previous_numbers or (self.settings["floor_gb"], self.settings["resume_margin_gb"])
-        had_ruling = self.previous_numbers is not None or self.floor_info["floor_source"] != "policy"
+        previous_source = self.floor_info["floor_source"]
+        had_ruling = self.previous_numbers is not None or previous_source != "policy"
         self.previous_numbers = None
         self.settings = disk_settings(policy)
         self.floor_info = {"floor_source": "policy"}
@@ -208,7 +209,8 @@ class DiskAdmission:
                 self.measured = None
                 self.error = f"{type(exc).__name__}: {exc}"
             if ((had_ruling or self.settings["lower_path"] or self.settings["raise_path"])
-                    and previous != (self.settings["floor_gb"], self.settings["resume_margin_gb"])):
+                    and (previous != (self.settings["floor_gb"], self.settings["resume_margin_gb"])
+                         or previous_source != self.floor_info["floor_source"])):
                 self.hold("background")
         self.snapshot = self._snapshot()
 

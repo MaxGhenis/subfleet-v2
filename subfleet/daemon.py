@@ -687,6 +687,7 @@ class Daemon:
             floor_info = json.loads(floor["data_json"]) if floor else {}
             self._disk_saved_source = floor_info.get("floor_source", "policy")
             if self._disk_saved_source != "policy":
+                self._disk.floor_info = floor_info
                 self._disk.previous_numbers = (floor_info["floor_gb"], floor_info["resume_margin_gb"])
         self._disk_saved_hold = self._disk.holding
         self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())

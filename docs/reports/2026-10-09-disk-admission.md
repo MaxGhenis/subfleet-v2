@@ -244,9 +244,12 @@ Status and disk holds in `why` show the floor, its source (`policy`,
 `why` text, and ignored-file reasons. A source transition writes exactly one
 `admission.disk_floor` event; the same source on later passes writes none.
 The saved source is recovered at daemon startup to avoid duplicate events.
-The saved ruling's numbers also drive the first pass's latch comparison, so a
+The saved ruling's numbers and source also drive the first pass's latch comparison, so a
 ruling that expired while the daemon was stopped cannot leave an open latch
 below the restored policy floor, even with no queued jobs.
+Source transitions also re-evaluate the latch, covering a file edited with the
+same expiry and ruling before an offline expiry: its last source event can
+contain older numbers, since number-only edits do not emit source events.
 Attended passes read neither disk nor ruling files, and probes remain exempt.
 
 ### Timed ruling invariants

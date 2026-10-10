@@ -305,16 +305,23 @@ def test_raise_lower_precedence_and_source_transitions(state_daemon, monkeypatch
 
 
 @pytest.mark.parametrize("restart_at", [1, 3600], ids=["still-live", "expired-offline"])
-def test_restart_recovers_floor_source_and_rechecks_offline_expiry(state_daemon, monkeypatch, restart_at):
+@pytest.mark.parametrize("edit_same_source", [False, True])
+def test_restart_recovers_floor_source_and_rechecks_offline_expiry(state_daemon, monkeypatch, restart_at, edit_same_source):
     from tests.disk_floor_model import Files, LOWER, RAISE, file, lowering
     daemon, harness = state_daemon
     clock = fake_clock(monkeypatch)
     enable(daemon, monkeypatch, 34)
     daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE)
-    files = Files(file(lowering()))
+    files = Files(file(lowering(40, release_margin_gb=5) if edit_same_source else lowering()))
     daemon._disk.read_ruling = files
     daemon._admit()
     assert len(rulings(daemon)) == 1
+    if edit_same_source:
+        assert daemon._disk.holding
+        files.files[LOWER] = file(lowering())
+        daemon._admit()
+        assert not daemon._disk.holding
+        assert len(rulings(daemon)) == 1
     (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
     daemon.close()
     clock[0] = restart_at
