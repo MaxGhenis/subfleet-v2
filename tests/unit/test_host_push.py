@@ -492,6 +492,24 @@ def test_a_symlink_near_dot_git_is_not_refused_for_it(target):
     host_push.check_symlinks({b"link": target.encode()})
 
 
+#: Every character `folders.identity` drops as default-ignorable.
+IGNORABLES = st.sampled_from([chr(point) for point in range(0x110000) if not 0xD800 <= point <= 0xDFFF
+                              and host_push.folders._DEFAULT_IGNORABLES.fullmatch(chr(point))])
+
+
+@settings(max_examples=300, deadline=None)
+@given(st.sampled_from([".git", ".GIT", "git~1", "GIT~1.", ".git::$INDEX_ALLOCATION", "\uff0e\uff47\uff49\uff54", ".gitx", "git~2",
+                        ".github", "x.git", "agit~1"]) | st.text(max_size=12),
+       st.lists(st.tuples(st.integers(min_value=0, max_value=30), IGNORABLES), max_size=6))
+def test_what_hfs_ignores_never_changes_whether_a_component_is_dot_git(part, inserted):
+    """Review r3 P3, as a property: inserting characters HFS+ ignores anywhere
+    in a name never changes the `.git` verdict, either way."""
+    spelled = part
+    for at, character in inserted:
+        spelled = spelled[:at] + character + spelled[at:]
+    assert host_push._dotgit_component(spelled) == host_push._dotgit_component(part)
+
+
 @pytest.mark.parametrize("links", [{b"d": b"sub", b"e": "d\u200c/file".encode()},
                                    {b"d\xe2\x80\x8c": b"sub", b"e": b"D/file"},
                                    {"D\ufeff".encode(): b"sub", b"e": "d\u200b/x".encode()}])
