@@ -23,7 +23,8 @@ REPO = Path(__file__).resolve().parents[2]
 
 @pytest.mark.parametrize("how", ["terminate", "kill"])
 def test_c15_4_a_background_wait_outlives_a_daemon_restart(e2e, how):
-    e2e.start(scenario="slow", delay_s=6)
+    # Long enough that the job is still running when the daemon stops, under load.
+    e2e.start(scenario="slow", delay_s=15)
     submitted = e2e.cli(*e2e.run_args("astra", "-d"))
     assert submitted.rc == 0, submitted.stderr
     job_id = submitted.stdout.strip()

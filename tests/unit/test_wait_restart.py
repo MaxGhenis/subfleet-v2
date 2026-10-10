@@ -475,9 +475,10 @@ def test_c15_4_the_hook_gives_up_quietly_after_the_window(fake, monkeypatch):
     assert hooks._wait_and_deliver(Client(fake.root, verify_lock=False), "s-1", JOB,
                                    time.monotonic() + 60, stderr=stderr,
                                    now=time.monotonic, sleep=time.sleep) == 0
-    assert time.monotonic() - started <= 1.0 + 1.0 + 2.0
     joined()
-    assert stderr.getvalue() == ""
+    # It asked again for the whole window (before D-WT1 it returned at the first loss).
+    assert 1.0 <= time.monotonic() - started <= 1.0 + 1.0 + 2.0
+    assert fake.polls() == 1 and stderr.getvalue() == ""
 
 
 # --- properties over every interleaving (W1 to W6) -------------------------------
