@@ -62,8 +62,9 @@ POINTER_CAP = 64 * 1024           # a gitfile, `commondir`, `HEAD`, a loose ref
 CONFIG_CAP = 256 * 1024          # `config`, `config.worktree`
 PACKED_REFS_CAP = 64 * 1024 * 1024
 #: Object intake gets two fifths of C-6.17's default 1.5 GB placement reserve:
-#: the quarantine and checkout each keep an object store, leaving the last
-#: fifth for checkout files. This is a logical-byte cap even on APFS clones;
+#: budget another two fifths for a similarly-sized Git clone object store,
+#: leaving nominal checkout headroom. Git's generated store can differ in
+#: size. This caps source-object intake, including APFS snapshots;
 #: changing disk policy does not remove this intake limit.
 OBJECT_COPY_CAP = int(DISK_DEFAULTS["placement_reserve_gb"] * 1_000_000_000 * 2 / 5)
 #: Review P2-2: names Git or a clone could read as something other than a branch.
