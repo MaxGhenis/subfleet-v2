@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .base import Adapter, AdapterError
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
+from ..usage import parse_usage
 from ..contracts import (
     Attestation, AttestationResult, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, GUESSED_CLOSURE_S, JobSpec, Lane, LaneInfo, Launch, Outcome,
@@ -556,6 +557,7 @@ class CodexAdapter(Adapter):
         session_id = launch.native_session_id
         failures = []
         answered, read = False, 0
+        usage_rows = []
         for event in _events(_stream_path(attempt_dir, launch)):
             read += 1
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
@@ -563,6 +565,9 @@ class CodexAdapter(Adapter):
             if event.get("type") in ("turn.failed", "error"):
                 failures.append(event)
             answered = answered or model_answered(event)
+            if event.get("type") == "turn.completed":
+                usage_rows.append(json.dumps(event))
+        usage = parse_usage(usage_rows, "codex", resumed="resume" in launch.argv)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
         signals.extend(({}, line) for line in stderr.splitlines() if line.strip())
@@ -575,7 +580,7 @@ class CodexAdapter(Adapter):
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
-            return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
+            return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id, usage=usage)
         for event, text in signals:
             if AUTH_RE.search(text):
                 evidence["authentication"] = event or text
