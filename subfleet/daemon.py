@@ -2527,6 +2527,16 @@ class Daemon:
             return workspace
         return self._submitted(job["job_id"]).get("write_target") or workspace
 
+    def _turn_folder(self, job: dict) -> str:
+        """C-8.4, C-24.5: the folder a turn's row is on, as its admitting transaction
+        names it (`write_target`, or a read-only turn's `folder`), without preparing
+        its workspace: a turn is in place, so the folder `_workspace` would return is
+        the one it was submitted in."""
+        workspace = job.get("worktree") or job["workdir"]
+        if job["sandbox"] == "workspace-write":
+            return self._write_target(job, workspace)
+        return self._submitted(job["job_id"]).get("folder") or workspace
+
     def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
         """C-6.5: refuse a second writer in one worktree and a second live
         instance of one session; permit one instance any number of writable jobs
@@ -4621,6 +4631,54 @@ class Daemon:
         if wait:
             self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
 
+    def _fence_hold(self, job: dict, folder: str, holds: dict[str, dict], waiters: dict, tier: str,
+                    models: frozenset[str] | None, lanes: frozenset[str] | None,
+                    run_folder: str | None = None) -> bool:
+        """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
+        folder, actual cwd or a folder above either (`folders.retiring`), found
+        before its workspace is prepared. The cwd is canonicalized off the lock.
+
+        The admitting transaction reads that fence too, and its answer is the one
+        that counts. This look spares a job that cannot start its start snapshot
+        (`_workspace`): on 9e159ec9 each look at a writable turn so held ran nine git
+        processes in the tree being retired, and a read-only one two. Git moved the
+        times of a nested repository's `.git`, which retention signs, and a git still
+        running when the tree went to quarantine would be a holder there (I7,
+        `retention_holders`). A plain read comes first, so a look with no fence costs
+        one indexed query per distinct folder here and no write lock. A look whose read came just before
+        retention took the fence still prepares the workspace, in that tree, and the
+        transaction then holds the job. A fence found is read again inside the
+        transaction that records the wait, and the hold is the one the admitting
+        transaction records for a fence: a waiter on those keys (never queued for: a
+        turn only needs them free; a job that would take one of them as its own lease
+        is queued for it by the transaction, `queue_for`, and is not here), the
+        capacity wait under the same signature, the job's `waiting` row and clock, and
+        the job's folder, which its reason names (C-6.11). A job that ended or was
+        cancelled meanwhile is not held, and not prepared either."""
+        def fences(read):
+            git_fences = folders.retiring(read, folder)
+            run_fences = folders.retiring(read, run_folder) if run_folder and run_folder != folder else []
+            return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+
+        if not fences(self.store.query)[0]:
+            return False
+        with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
+            current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
+                                 (job["job_id"],)).fetchone()
+            if current is None or current[1] or current[0] not in ("queued", "waiting"):
+                return True
+            fence, held_folder = fences(lambda sql, params: tx.execute(sql, params).fetchall())
+            if not fence:
+                return False                # let go since the read above: the job is looked at now
+            hold = {"reason": "lease-held", "leases": fence, "folder": held_folder}
+            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(fence)), hold)
+            next_check = after(scheduler.capacity_recheck_delay(rechecks))
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                       (next_check, job["job_id"]))
+        waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(fence)))
+        holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+        return True
+
     def _note_admission(self, tally: dict, holds: dict[str, dict]) -> None:
         """C-6.11: say so in `daemon.log` when jobs are pending and nothing is placed.
 
@@ -4968,6 +5026,13 @@ class Daemon:
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
+                continue
+            run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
+            if job["kind"] == "turn" and self._fence_hold(job, self._turn_folder(job), holds, waiters, tier,
+                                                          models, lanes, run_folder):
+                # C-8.4: retention is retiring the tree the turn's folder is in; no
+                # git runs there for a turn that cannot start (the transaction below
+                # still reads the fence, and decides).
                 continue
             try:
                 baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
