@@ -455,13 +455,21 @@ class ForeignOwnership:
         # can start inside its parent's tree but has its own guardian/group.
         return table.descendants(tuple(roots), excluded=blocked)
 
-    def owns(self, current: ProcessIdentity, group: int | None = None) -> bool:
-        if current in self.identities:
+    def owns(self, current: ProcessIdentity, group: int | None = None, *,
+             ambiguous: Sequence[ProcessIdentity] = ()) -> bool:
+        blocked = (*self.collisions, *ambiguous)
+        if any(identities_overlap(known, current) for known in blocked):
+            return False
+        members = tuple(known for known in self.identities
+                        if not any(identities_overlap(value, known) for value in blocked))
+        if current in members:
             return True
         # A late cwd/marker match may not have appeared in the shared table.
         # Its fresh identity brackets the group lookup at the call site. Check
         # the foreign leader afresh too, so a reused PGID is never excluded.
         for known in self.groups:
+            if any(identities_overlap(value, known.identity) for value in blocked):
+                continue
             if group != known.pgid or known.pid != known.pgid or current.boot_id != known.boot_id:
                 continue
             leader = identity(known.pid)
@@ -474,7 +482,7 @@ class ForeignOwnership:
             # An absent leader alone cannot prove foreign ownership: its old
             # group may have emptied and been reused on this same boot. A
             # still-identical recorded member must anchor a leaderless group.
-            for member in self.identities:
+            for member in members:
                 if member.boot_id != current.boot_id:
                     continue
                 if identity(member.pid) == member and process_group(member.pid) == group and identity(member.pid) == member:
@@ -958,8 +966,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 if confirmed is not None and confirmed != current:
                     retain(confirmed, 0)
                 raise InspectionError("process changed during group inspection")
-            if not local and (current == foreign_seen.get(pid) or foreign_ownership.observes(
-                    current, ambiguous=(*ambiguous_identities, *ambiguous))):
+            if not local and (current == foreign_seen.get(pid) or foreign_ownership.owns(
+                    current, group, ambiguous=(*ambiguous_identities, *ambiguous))):
                 excluded_identities.add(current)
                 source.discard(pid)
                 return
