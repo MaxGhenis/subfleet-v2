@@ -14,6 +14,13 @@ The daemon's timers never ask for a dry run (`timers.mirror_cycle`,
 `sessions mirror --dry-run` makes a Mirror of its own for its one pass. So
 this is the API's promise, kept for whoever calls it next.
 
+A dry run deletes nothing either. A full pass that sweeps removes the
+temporaries a killed pass left, once they are stale, and a dry run's sweep
+removed them too, from all three places: beside the store's records
+(`_scan`), among the mirror's own state files (`_pass`) and in the project
+directories (`transcript_stems`). That one `sessions mirror --dry-run` did
+reach.
+
 Every test names the clause it proves (C-20.5). The desktop store lives under
 `tmp_path`; nothing here reads or writes the operator's own.
 """
@@ -21,13 +28,15 @@ Every test names the clause it proves (C-20.5). The desktop store lives under
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 import threading
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from subfleet.sessions import mirror
@@ -44,6 +53,8 @@ FOLDERS = (("acct-a", "org-a"), ("acct-b", "org-b"), ("acct-c", "org-c"))
 NEW = 1_791_635_200_000
 DAY = 86_400_000
 CLOCK = datetime.fromtimestamp((NEW + 3 * DAY) / 1000, timezone.utc)
+#: Where a killed pass leaves a temporary, and what a sweep finds each from.
+PLACES = {"store": "_scan", "state": "_pass", "project": "transcript_stems"}
 
 
 # --- the fixture store ---------------------------------------------------------------
@@ -67,6 +78,7 @@ class World:
         self.patch.setenv("SUBFLEET_CLAUDE_DIR", str(self.home))
         self.patch.setenv("SUBFLEET_SESSION_STORE", str(self.store))
         self.patch.setenv("SUBFLEET_DESKTOP_LOG", str(self.base / "logs" / "main.log"))
+        self.patch.setenv("SUBFLEET_HOME", str(self.root))      # the CLI's state root
         return self
 
     def options(self, **overrides) -> mirror.Options:
@@ -101,10 +113,30 @@ class World:
         temporary.replace(target)
 
     def files(self) -> dict[str, tuple[int, bytes]]:
-        """Every file of the store and the state root: its inode and its bytes."""
+        """Every file of the store, the state root and `~/.claude`, the projects
+        directory in it: its inode and its bytes. Less the pass's lock, which
+        a dry run takes as any pass does."""
         return {str(file.relative_to(self.base)): (file.stat().st_ino, file.read_bytes())
-                for top in (self.store, self.root) for file in sorted(top.rglob("*"))
+                for top in (self.store, self.root, self.home) for file in sorted(top.rglob("*"))
                 if file.is_file() and file.name != mirror.LOCK_NAME}
+
+    def leave(self, place: str, index: int = 0) -> Path:
+        """A temporary a killed pass left in one of `PLACES`, as `_temporary` names them."""
+        account, org = FOLDERS[index]
+        path = {"store": self.store / account / org / f"local_{ONE}.json.k1ll3d{index:02d}",
+                "state": self.root / "sessions" / f"{mirror.SIDECAR_NAME}.k1ll3d{index:02d}",
+                "project": (self.home / "projects" / fx.project_slug()
+                            / f"{ONE}.jsonl.k1ll3d{index:02d}")}[place]
+        path = path.with_name(path.name + (".tmp-revive" if place == "project"
+                                           else mirror.TEMPORARY_SUFFIX))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{", encoding="utf-8")
+        return path
+
+    def left(self) -> set[str]:
+        """The temporaries that stand in the three places, by their place."""
+        return {str(file.relative_to(self.base))
+                for top in (self.store, self.root, self.home) for file in top.rglob("*.tmp-*")}
 
     def copies(self) -> dict[str, dict]:
         """Every record of the store, parsed, by its place."""
@@ -371,6 +403,214 @@ def test_a_dry_run_that_finds_the_lock_held_touches_nothing(world, monkeypatch):
     assert picture(vars(running)) == before and held(running) == objects
 
 
+# --- the sweep's leftovers ----------------------------------------------------------
+
+@pytest.fixture
+def stale(monkeypatch):
+    """Every temporary is a stale one, as one a killed pass left an hour ago is."""
+    monkeypatch.setattr(mirror, "TEMPORARY_STALE_S", -1)
+
+
+def run_cli(argv: list[str]) -> tuple[int, str]:
+    """One `subfleet` command against the world in use: its exit and its stdout."""
+    from subfleet import cli
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = cli.main(argv)
+    return code, out.getvalue()
+
+
+@pytest.mark.parametrize("kind", ["full", "hot"])
+@pytest.mark.parametrize("place", sorted(PLACES), ids=[PLACES[place] for place in sorted(PLACES)])
+def test_a_dry_runs_sweep_removes_no_stale_temporary(world, stale, place, kind):
+    """C-17.4, C-23.28: a deletion is a write. A dry run whose pass sweeps
+    reads everything again, as the real pass would, and removed the stale
+    temporary of each place on the way: beside the store's records (`_scan`),
+    among the mirror's own state files (`_pass`) and in a project directory
+    (`transcript_stems`). A new instance's first hot pass is the full pass,
+    so a dry hot pass removed them too. The real pass still removes them."""
+    world.put(0)
+    left = world.leave(place)
+    files = world.files()
+    preview = world.hot(dry_run=True) if kind == "hot" else world.full(dry_run=True)
+    assert preview.dry_run and preview.kind == "full" and preview.swept and preview.added == 2
+    assert world.files() == files, "the temporary, and every other file, is as it was"
+    assert world.left() == {str(left.relative_to(world.base))}
+    real = world.hot() if kind == "hot" else world.full()
+    assert real.kind == "full" and real.swept and real.added == 2
+    assert world.left() == set(), "a real pass's sweep removes it, as before"
+
+
+def test_a_real_pass_removes_the_stale_temporaries_exactly_when_it_sweeps(world, stale):
+    """C-23.28: what stays as it was. A full pass that does not sweep removes
+    none, in any of the three places; the next one that sweeps removes all."""
+    world.put(0)
+    assert world.full().swept
+    waiting = {str(world.leave(place).relative_to(world.base)) for place in PLACES}
+    between = world.full()
+    assert between.state == "ok" and not between.swept
+    assert world.left() == waiting
+    world.running._last_sweep = None                # the sweep interval has passed
+    assert world.full().swept
+    assert world.left() == set()
+
+
+@pytest.mark.parametrize("dry", [True, False], ids=["dry", "real"])
+def test_a_hot_pass_of_an_instance_with_an_inventory_never_sweeps(world, stale, dry):
+    """C-17.4, C-23.28: the sweep is the full pass's. A hot pass lists only
+    the folders that changed and removes no temporary, dry or real, though a
+    sweep is due: so a dry hot pass reaches a removal only as the full pass a
+    new instance's first one is."""
+    world.put(0)
+    assert world.full().swept
+    waiting = {str(world.leave(place).relative_to(world.base)) for place in PLACES}
+    world.running._last_sweep = None
+    files = world.files()
+    result = world.hot(dry_run=dry)
+    assert result.state == "ok" and result.kind == "hot" and not result.swept
+    assert world.left() == waiting
+    if dry:
+        assert world.files() == files
+
+
+def test_a_dry_run_with_an_embedded_hot_service_removes_no_stale_temporary(world, stale,
+                                                                           monkeypatch):
+    """C-17.4, C-23.28: a full pass services hot passes at its checkpoints,
+    and a dry one runs them dry. None of them removes a temporary either."""
+    world.running.policy["sessions"]["mirror_hot_interval_s"] = 1e-9
+    busy(world, monkeypatch)
+    for place in PLACES:
+        world.leave(place)
+    world.running._last_sweep = None
+    served = []
+    locked = mirror.Mirror._run_hot_locked
+
+    def counting(self, options, **kwargs):
+        served.append(options.dry_run)
+        return locked(self, options, **kwargs)
+
+    monkeypatch.setattr(mirror.Mirror, "_run_hot_locked", counting)
+    files = world.files()
+    preview = world.full(dry_run=True)
+    assert preview.state == "ok" and preview.swept and preview.added
+    assert served and all(served), "the embedded hot passes ran, each of them dry"
+    assert world.files() == files
+
+
+def test_a_dry_run_does_not_use_the_sweep_up(world, stale):
+    """C-17.4, C-23.28: only a completed full sweep advances the sweep's
+    clock, and a dry run's is not one: the next real full pass still sweeps,
+    and removes what the dry run left."""
+    world.put(0)
+    assert world.full().swept
+    running = world.running
+    running._last_sweep -= mirror.SWEEP_INTERVAL_S  # the sweep interval has passed
+    last = running._last_sweep
+    for place in PLACES:
+        world.leave(place)
+    assert world.full(dry_run=True).swept
+    assert running._last_sweep == last and len(world.left()) == 3
+    assert world.full().swept
+    assert world.left() == set() and running._last_sweep > last
+
+
+def test_listing_a_folder_removes_a_stale_temporary_only_for_a_pass_that_writes(world, stale):
+    """C-17.4, C-23.28: `_scan`'s `sweep` is a way of reading: every entry
+    again. Removing is `tidy`, which only `_pass` asks for, and never in a
+    dry run."""
+    world.put(0)
+    left = world.leave("store")
+    world.running._scan(left.parent, mirror.Pass("start"), sweep=True)
+    assert left.exists(), "a sweep's reading removed it"
+    world.running._scan(left.parent, mirror.Pass("start"), sweep=False, tidy=False)
+    assert left.exists()
+    files, _fresh = world.running._scan(left.parent, mirror.Pass("start"), sweep=True, tidy=True)
+    assert not left.exists() and set(files) == {world.path(0).name}
+
+
+def test_finding_the_transcripts_is_a_read_for_every_caller_but_a_pass_that_writes(world, stale):
+    """C-17.4, C-23.28: `transcript_stems` is also the read behind `sessions
+    mirror --list`, which removed a project directory's stale temporaries as
+    a dry run did. It removes them only when a pass that writes asks."""
+    world.put(0)
+    left = world.leave("project")
+    assert set(world.running.transcript_stems()) == {ONE}
+    assert set(world.running.transcript_stems(sweep=False)) == {ONE}
+    assert left.exists(), "a read removed it"
+    assert set(world.running.transcript_stems(tidy=True)) == {ONE}
+    assert not left.exists()
+
+
+def test_sessions_mirror_dry_run_removes_no_stale_temporary(world, stale):
+    """C-17.4, C-23.28: the command that reached it. `sessions mirror
+    --dry-run` makes a new Mirror, whose first pass sweeps."""
+    world.put(0)
+    for place in PLACES:
+        world.leave(place)
+    files = world.use().files()
+    code, out = run_cli(["sessions", "mirror", "--dry-run"])
+    assert code == 0 and out.startswith("Would mirror across 3 account folders"), out
+    assert "added 2" in out
+    assert world.files() == files
+    code, out = run_cli(["sessions", "mirror"])
+    assert code == 0 and "added 2" in out, out
+    assert world.left() == set(), "the real command's sweep removes them, as before"
+
+
+def test_sessions_mirror_list_removes_no_stale_temporary(world, stale):
+    """C-17.4, C-23.28: `sessions mirror --list` counts each folder's openable
+    and dead sessions. It is a listing, and it removed a project directory's
+    stale temporaries on the way."""
+    world.put(0)
+    for place in PLACES:
+        world.leave(place)
+    files = world.use().files()
+    code, out = run_cli(["sessions", "mirror", "--list", "--json"])
+    assert code == 0, out
+    assert [json.loads(line)["openable"] for line in out.splitlines()] == [1, 0, 0]
+    assert world.files() == files
+
+
+def test_a_dry_run_that_would_revive_a_transcript_writes_none(world):
+    """C-17.4, C-23.28: the projects directory is where a revival writes. A
+    dry run counts the transcript an archive would give back, and neither
+    places it nor leaves the temporary of a copy."""
+    archive = world.base / "archive"
+    archive.mkdir()
+    (archive / f"{ORPHAN}.jsonl").write_text(
+        "".join(json.dumps(entry) + "\n" for entry in fx.completed()), encoding="utf-8")
+    world.put(0, ORPHAN, transcript=False)
+    revived = world.home / "projects" / fx.project_slug() / f"{ORPHAN}.jsonl"
+    files = world.files()
+    preview = world.full(dry_run=True, archive=str(archive / "*.jsonl"))
+    assert preview.state == "ok" and (preview.revived, preview.added) == (1, 2)
+    assert world.files() == files and not revived.parent.exists()
+    real = world.full(archive=str(archive / "*.jsonl"))
+    assert (real.revived, real.added) == (1, 2) and revived.is_file()
+
+
+def test_a_dry_run_on_a_new_state_root_makes_the_lock_and_nothing_else(world, stale):
+    """C-17.4, C-23.28: the one thing a dry run does make. It takes the
+    pass's lock as any pass does, so on a state root that has none it leaves
+    `sessions/mirror.lock`, empty, and the directory it is in. The comparisons
+    of this file leave that one name out."""
+    world.put(0)
+    world.leave("store")
+    world.leave("project")
+
+    def tree() -> dict[str, bytes | None]:
+        return {str(path.relative_to(world.base)): path.read_bytes() if path.is_file() else None
+                for path in sorted(world.base.rglob("*"))}
+
+    before = tree()
+    assert "state/sessions" not in before
+    assert world.full(dry_run=True).swept
+    after = tree()
+    assert {name: after[name] for name in after.keys() - before.keys()} == {
+        "state/sessions": None, f"state/sessions/{mirror.LOCK_NAME}": b""}
+    assert {name: after[name] for name in before} == before
+
+
 # --- for every sequence of passes ---------------------------------------------------
 
 SESSIONS = tuple(f"{index:08d}-0000-4000-8000-00000000beef" for index in range(3))
@@ -387,11 +627,17 @@ EDITS = st.one_of(
     st.tuples(st.just("delete"), st.sampled_from(SESSIONS), FOLDER),
     st.tuples(st.just("transcript")),               # the orphan's transcript arrives
 )
-#: The app's saves, the sessions whose publishes fail, the dry runs, then a real pass.
+#: The app's saves, the sessions whose publishes fail, the dry runs, then a real
+#: pass; and before the dry runs, the temporaries a killed pass left, and
+#: whether the sweep interval has passed.
 ROUNDS = st.tuples(st.lists(EDITS, max_size=3),
                    st.sets(st.sampled_from(SESSIONS), max_size=2),
                    st.lists(st.sampled_from(["hot", "full"]), max_size=2),
-                   st.sampled_from(["hot", "hot", "full"]))
+                   st.sampled_from(["hot", "hot", "full"]),
+                   st.lists(st.tuples(st.sampled_from(sorted(PLACES)), FOLDER), max_size=2),
+                   st.booleans())
+#: The rounds that end every sequence: a full pass and a hot one, nothing new.
+LAST = [([], set(), [], "full", [], False), ([], set(), [], "hot", [], False)]
 
 
 def edit(world: World, step: tuple) -> None:
@@ -415,21 +661,28 @@ def edit(world: World, step: tuple) -> None:
 @settings(max_examples=80, deadline=None,
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(warm=st.booleans(), rounds=st.lists(ROUNDS, min_size=1, max_size=6))
+@example(warm=True, rounds=[([], set(), ["full", "hot"], "full",
+                             [(place, 0) for place in sorted(PLACES)], True)])
+@example(warm=False, rounds=[([], set(), ["hot", "full"], "hot",
+                              [(place, 1) for place in sorted(PLACES)], False)])
 def test_real_passes_do_the_same_with_dry_runs_between_them(warm, rounds, tmp_path_factory,
                                                             monkeypatch):
     """C-17.4, C-23.28: two stores given the same rounds of app saves, failed
     publishes and real passes. The second also runs each round's dry runs,
-    and each of those leaves its instance as it was. Every real pass then
-    reports the same in both (what it scanned and listed too, so a dry run
-    neither used the inventory up nor warmed it), and at the end the stores,
-    the merge base, the retries and the ledger are the same. `warm` starts
-    both from an instance that has passed; without it the first dry run meets
-    a new one."""
+    and each of those leaves its instance as it was, and every file of the
+    store, the state root and the projects directory, a killed pass's stale
+    temporaries among them. Every real pass then reports the same in both
+    (what it scanned and listed too, so a dry run neither used the inventory
+    up nor warmed it), and removes those temporaries exactly when it sweeps,
+    as it did before; at the end the stores, the merge base, the retries and
+    the ledger are the same. `warm` starts both from an instance that has
+    passed; without it the first dry run meets a new one."""
     with monkeypatch.context() as patch:
         base = tmp_path_factory.mktemp("twins")
         plain, previewed = World(base / "plain", patch), World(base / "previewed", patch)
         stuck: set[str] = set()
         refuse_publishing(patch, stuck)
+        patch.setattr(mirror, "TEMPORARY_STALE_S", -1)  # every temporary is a stale one
         for world in (plain, previewed):
             world.use()
             for session in SESSIONS:
@@ -437,10 +690,15 @@ def test_real_passes_do_the_same_with_dry_runs_between_them(warm, rounds, tmp_pa
                     world.put(index, session)
             if warm:
                 assert world.full().state == "ok"
-        for edits, failing, previews, kind in rounds + [([], set(), [], "full"), ([], set(), [], "hot")]:
+        for edits, failing, previews, kind, left, due in rounds + LAST:
             for step in edits:
                 edit(plain, step)
                 edit(previewed, step)
+            for world in (plain, previewed):
+                for place, index in left:
+                    world.leave(place, index)
+                if due:
+                    world.running._last_sweep = None
             stuck.clear()
             stuck.update(failing)
             for preview_kind in previews:
@@ -451,9 +709,12 @@ def test_real_passes_do_the_same_with_dry_runs_between_them(warm, rounds, tmp_pa
                 assert preview.state == "ok" and preview.dry_run
                 assert picture(vars(running)) == before and held(running) == objects
                 assert previewed.files() == files
+            waiting = plain.left()
+            assert previewed.left() == waiting, "a dry run removed none"
             first = plain.hot() if kind == "hot" else plain.full()
             second = previewed.hot() if kind == "hot" else previewed.full()
             assert brief(second, previewed.base) == brief(first, plain.base), (edits, kind)
+            assert plain.left() == previewed.left() == (set() if first.swept else waiting)
         assert previewed.copies() == plain.copies()
         assert previewed.base_flags() == plain.base_flags()
         for name in ("_flag_retry", "_activity_tries", "_inventoried"):

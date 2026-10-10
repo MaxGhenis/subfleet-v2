@@ -474,7 +474,8 @@ def _copy_regular(source: str | Path, out) -> os.stat_result:
 #: or `*.json.tmp`: the app lists the first and promotes the second on load.
 TEMPORARY_SUFFIX = ".tmp-subfleet"
 #: A temporary older than this is a pass's leftover (a daemon killed mid-write),
-#: which a sweep removes; a write finishes with its temporary in well under it.
+#: which the sweep of a pass that writes removes; a write finishes with its
+#: temporary in well under it.
 TEMPORARY_STALE_S = 3600
 
 
@@ -1232,7 +1233,7 @@ class Mirror:
         return kept, unknown
 
     def transcript_stems(self, current: Pass | None = None, *,
-                         sweep: bool = True) -> dict[str, Path]:
+                         sweep: bool = True, tidy: bool = False) -> dict[str, Path]:
         """`<session id> -> transcript`; a session is openable iff it is a key.
 
         A session transcript is `projects/<slug>/<id>.jsonl`, one level down;
@@ -1244,6 +1245,10 @@ class Mirror:
         something else by now, its target replaced where it lives: each such
         link is checked again on every call (reviews of 8172685), where a FIFO
         it had come to name had been spread as a transcript.
+
+        `sweep` lists every directory again. `tidy` also removes the stale
+        temporaries of revivals from each directory it lists. Only a pass that
+        writes asks for that (`_pass`); for every other caller this is a read.
         """
         stems: dict[str, Path] = {}
         base = projects_dir()
@@ -1279,7 +1284,7 @@ class Mirror:
                                 found[item.name[:-6]] = Path(item.path)
                                 if item.is_symlink():
                                     links.add(item.name[:-6])
-                            elif sweep and item.name.endswith(".tmp-revive"):
+                            elif tidy and item.name.endswith(".tmp-revive"):
                                 leftovers.append(item.path)
                 except OSError as exc:
                     if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
@@ -1338,12 +1343,14 @@ class Mirror:
         return (self._last_sweep is None
                 or time.monotonic() - self._last_sweep >= SWEEP_INTERVAL_S)
 
-    def _scan(self, path: Path, current: Pass, *,
-              sweep: bool) -> tuple[dict[str, dict] | None, list[str]]:
+    def _scan(self, path: Path, current: Pass, *, sweep: bool,
+              tidy: bool = False) -> tuple[dict[str, dict] | None, list[str]]:
         """Refresh one folder: `(its entries, or None if unchanged; fresh names)`.
 
         A fresh name is one whose content this process had not seen at that
-        path: a new file, or a file whose bytes changed.
+        path: a new file, or a file whose bytes changed. `sweep` reads every
+        entry again. `tidy` also removes the mirror's stale temporaries from a
+        folder it lists, and only a pass that writes asks for that (`_pass`).
         """
         try:
             info = os.stat(path)
@@ -1373,7 +1380,7 @@ class Mirror:
                         self._checkpoint(current)
                     if item.name.startswith("local_") and item.name.endswith(".json"):
                         found.append((sys.intern(item.name), item))
-                    elif sweep and item.name.endswith(TEMPORARY_SUFFIX):
+                    elif tidy and item.name.endswith(TEMPORARY_SUFFIX):
                         leftovers.append(item.path)
                 found.sort(key=lambda row: row[0])
         except OSError as exc:
@@ -2299,14 +2306,18 @@ class Mirror:
             return
         sweep = self._sweep_due()
         current.swept = sweep
-        if sweep:                               # the mirror's own state files' leftovers too
+        # A sweep reads everything again, and a pass that writes removes the
+        # mirror's stale temporaries on the way. A dry run reads as that pass
+        # would and removes none: a deletion is a write (C-17.4).
+        tidy = sweep and not options.dry_run
+        if tidy:                                # the mirror's own state files' leftovers too
             try:
                 with os.scandir(self.dir) as listing:
                     _remove_leftovers([item.path for item in listing if item.name.endswith(TEMPORARY_SUFFIX)])
             except OSError:
                 pass
         self._checkpoint(current, "finding transcripts")
-        stems = self.transcript_stems(current, sweep=sweep)
+        stems = self.transcript_stems(current, sweep=sweep, tidy=tidy)
 
         folder_files: dict[Path, dict[str, dict]] = {}
         folder_ids: dict[Path, set[str]] = {}
@@ -2317,7 +2328,7 @@ class Mirror:
         for _account, _org, path in folders:
             self._checkpoint(current)
             try:
-                files, fresh = self._scan(path, current, sweep=sweep)
+                files, fresh = self._scan(path, current, sweep=sweep, tidy=tidy)
             except _Unlisted as exc:
                 if exc.transient:
                     unlisted.append(path)   # neither a source nor a target of copies
