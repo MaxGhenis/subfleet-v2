@@ -289,6 +289,16 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
                 folder, row["worktree"]) for folder, holder in exclusive):
             add(row["job_id"], "worktree-lease")
     if root is not None:
+        # Retirement moves jobs/<id> too. Keep it for live or queued turns,
+        # including a cwd whose Git hold names a different folder. Read only
+        # recorded paths here: this also runs in the archive commit transaction.
+        turn_workdirs = {row["workdir"] for row in store.query(
+            "SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+            "('queued','running','waiting')")}
+        for row in jobs:
+            job_folder = str(Path(root) / "jobs" / row["job_id"])
+            if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
+                add(row["job_id"], "turn-folder")
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
     # A job registered in a repository inside another job's tree keeps that
@@ -678,6 +688,18 @@ class _Pass:
             retirement = rarch.Retirement(self.ctx, job_id, journal)
             state = journal["state"]
             try:
+                if pending := journal.get("rollback_pending"):
+                    report = retirement.rollback(**pending)
+                    reason = report.get("kept", pending["reason"])
+                    seconds = rarch.DEFER_PINNED_S if report.get("kept") or pending["defer_until"] is None \
+                        else max(0, pending["defer_until"] - time.time())
+                    self.state.defer(job_id, seconds, reason, self.clock())
+                    self.progress["deferred"][job_id] = reason
+                    if report.get("kept"):
+                        self.progress["in_flight"].append(job_id)
+                    else:
+                        self.acted += 1
+                    continue
                 if state == "idle":
                     row = self.store.get_job(job_id)
                     if row is None or now - float(journal.get("idle_since") or 0) > rarch.CACHE_KEEP_S:
@@ -806,7 +828,8 @@ class _Pass:
             # A turn may register after selection. Read its rows, on the tree
             # and on any folder inside it (P3-1), and acquire the fence
             # atomically; daemon reservation checks this same fence before
-            # inserting either a TURN or READER row on the tree itself (I5).
+            # inserting either a TURN or READER row on the tree or on any
+            # folder inside it (I5, `folders.retiring`).
             if reason is None and folder is not None and folders.turn_holds(
                     lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"
@@ -976,8 +999,10 @@ class _Pass:
         keep_cache = not reason.startswith(_IN_USE_AGAIN)
         try:
             if retirement.journal is not None:
-                retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
-                                    failures=failures, defer_until=time.time() + seconds)
+                report = retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
+                                             failures=failures, defer_until=time.time() + seconds)
+                if report.get("kept"):
+                    self.progress["in_flight"].append(job_id)
             else:
                 with self.store.transaction("retention.rolled_back", job_id=job_id, data={"reason": reason}) as conn:
                     conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{job_id}",))
