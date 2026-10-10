@@ -367,7 +367,7 @@ def test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_
 
         if read == "early":
             real = daemon._detached_folders
-            patch.setattr(daemon, "_detached_folders", lambda job: (take(), real(job))[1])
+            patch.setattr(daemon, "_detached_folders", lambda job, **options: (take(), real(job, **options))[1])
         else:
             patch.setattr(daemon, "_workspace", lambda job: (take(), workspaces(job))[1])
         hold = look(daemon, job_id)                       # the census was read before the fence was taken
@@ -412,10 +412,10 @@ def test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence(tmp_path, shape)
         newer = add("newer", tree, sandbox="workspace-write", in_place=True)
         real = daemon._detached_folders
 
-        def finishes(job):          # retention lets go after the older's look, before the newer's
+        def finishes(job, **options):  # retention lets go after the older's look, before the newer's
             if job["job_id"] == newer:
                 daemon.store.release_leases("retention:retired")
-            return real(job)
+            return real(job, **options)
 
         patch.setattr(daemon, "_detached_folders", finishes)
         daemon._admit()
