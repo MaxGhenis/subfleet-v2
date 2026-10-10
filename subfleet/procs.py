@@ -360,7 +360,7 @@ def protected_pids(table: ProcessTable, records: Sequence[ProcessIdentity]) -> s
 
 @dataclass(frozen=True)
 class ForeignOwnership:
-    """Other attempts' launch/group authority, never inferred from shared cwd."""
+    """Other attempts' recorded processes, never inferred from shared cwd."""
     identities: tuple[ProcessIdentity, ...] = ()
     groups: tuple[CensusRoot, ...] = ()
 
@@ -514,6 +514,10 @@ class Containment:
     # including group members not yet present in their owner's paced record.
     # They are deliberately absent from the persisted census representation.
     excluded_identities: tuple[ProcessIdentity, ...] = ()
+    # Proven ancestry below local launch/ownership roots survives reparenting.
+    # Unlike general census roots, these can exclude a foreign observation;
+    # like all detached descendants, they confer no authority to signal.
+    descendant_identities: tuple[ProcessIdentity, ...] = ()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -528,6 +532,7 @@ class Containment:
             "cwd_pids": sorted(self.cwd_pids),
             "lineage_roots": [asdict(value) for value in self.lineage_roots],
             "provider_identities": [asdict(value) for value in self.provider_identities],
+            "descendant_identities": [asdict(value) for value in self.descendant_identities],
             "group_pids": sorted(self.group_pids),
             "descendant_pids": sorted(self.descendant_pids),
             "marker_pids": sorted(self.marker_pids),
@@ -616,8 +621,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return pid in table and not table[pid][2].startswith("Z")
 
     local_seen: dict[int, ProcessIdentity] = {}
+    proven_roots = set()
     if seen is not None:
         protected = protected_pids(seen, owned_identities)
+        for known in owned_identities:
+            try:
+                if seen.is_process(known.pid, known.boot_id, known.proc_start, legacy=True):
+                    proven_roots.add(known.pid)
+            except InspectionError:
+                pass
         # Launch and locally recorded ownership stop foreign ancestor walks.
         # Census-only roots may themselves be contaminated and do not do so.
         for pid in (guardian_pid, child_pid):
@@ -629,6 +641,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 try:
                     if seen.is_process(pid, known.boot_id, known.proc_start, legacy=True):
                         protected.add(pid)
+                        proven_roots.add(pid)
                         break
                 except InspectionError:
                     pass
@@ -758,6 +771,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     observed_groups: dict[ProcessIdentity, set[int]] = {}
     incomplete_roots: list[CensusRoot] = []
     shapes: dict[int, dict[str, Any]] = {}
+    genuine_descendants = seen.descendants(tuple(proven_roots), excluded=excluded) if seen is not None else ()
+    proven_descendants = []
 
     def retain(current: ProcessIdentity, group: int) -> None:
         identities[current.pid] = current
@@ -770,6 +785,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             current = seen.identity(pid)
             if current is not None:
                 retain(current, row[1])
+                if pid in genuine_descendants:
+                    proven_descendants.append(current)
                 if row[1] == pgid:
                     group_identities[pid] = current
         except InspectionError:
@@ -891,7 +908,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                      for group in sorted(groups_seen)) + tuple(incomplete_roots)
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
-                       frozenset(cwds), captured, providers, group_identities, tuple(excluded_identities))
+                       frozenset(cwds), captured, providers, group_identities, tuple(excluded_identities),
+                       tuple(proven_descendants))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

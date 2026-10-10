@@ -109,10 +109,15 @@ def _identity_history(*sources: dict) -> dict[str, list[dict]]:
 
 
 def _local_process_records(evidence: dict) -> dict[int, list[procs.ProcessIdentity]]:
-    """The attempt's own group and provider observations, including history."""
+    """Local group/provider authority and proven descendants, including history.
+
+    Descendants delimit foreign lineage but confer no authority to signal.
+    Shared-cwd/marker census roots are deliberately absent.
+    """
     providers = {}
-    for value in evidence.get("provider_identities", []):
-        providers.setdefault(str(value["pid"]), []).append(value)
+    for key in ("provider_identities", "descendant_identities"):
+        for value in evidence.get(key, []):
+            providers.setdefault(str(value["pid"]), []).append(value)
     return _identity_union(evidence.get("owned_identities", {}),
                            evidence.get("owned_identity_history", {}), providers)
 
@@ -170,12 +175,14 @@ def _retain_lineage(evidence: dict, census: dict) -> dict:
         roots = roots[-LINEAGE_ROOT_LIMIT:]
     if roots:
         result["lineage_roots"] = roots
-    providers = list(result.get("provider_identities", []))
-    for ident in census.get("provider_identities", []):
-        if ident not in providers:
-            providers.append(ident)
-    if providers:
-        result["provider_identities"] = providers[-LINEAGE_ROOT_LIMIT:]
+    for key in ("provider_identities", "descendant_identities"):
+        records = list(result.get(key, []))
+        for ident in census.get(key, []):
+            if ident in records:
+                records.remove(ident)
+            records.append(ident)
+        if records:
+            result[key] = records[-LINEAGE_ROOT_LIMIT:]
     return result
 
 #: "not asked yet", distinct from "asked, and there was no answer".
@@ -6388,7 +6395,7 @@ class Daemon:
         return True
 
     def _foreign_ownership(self, a: dict) -> procs.ForeignOwnership:
-        """Launch receipts and recorded ownership delimit other live attempts.
+        """Recorded processes delimit other non-terminal attempts, held ones too.
 
         Job ancestry and caller sessions confer no process ownership. Include
         launch identities before the first paced inspection, so a parent's
@@ -6396,13 +6403,15 @@ class Daemon:
         """
         identities = set()
         groups = []
-        for other in self.store.query(LIVE_ATTEMPTS + " AND attempt_id<>?", (a["attempt_id"],)):
+        for other in self.store.query(
+                "SELECT * FROM attempts WHERE state IN "
+                "('reserved','starting','running','finalizing','quarantined') AND attempt_id<>?",
+                (a["attempt_id"],)):
             evidence = _json_object(other.get("evidence_json"))
-            providers = {}
-            for value in evidence.get("provider_identities", []):
-                providers.setdefault(str(value["pid"]), []).append(value)
-            records = _identity_union(evidence.get("owned_identities", {}),
-                                      evidence.get("owned_identity_history", {}), providers)
+            # Descendant identities were captured below verified local roots,
+            # so they remain foreign after reparenting. General census roots
+            # can be old shared-cwd adoption and cannot establish ownership.
+            records = _local_process_records(evidence)
             identities.update(ident for values in records.values() for ident in values)
             if other.get("guardian_pid") and other.get("boot_id") and other.get("proc_start"):
                 leader = procs.CensusRoot(other["guardian_pid"], other["boot_id"],
@@ -6449,6 +6458,10 @@ class Daemon:
         recorded = _identity_union(provider_records, evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
+        local_records = _local_process_records(evidence)
+        for pid, values in local_records.items():
+            observations = recorded.setdefault(pid, [])
+            observations.extend(value for value in values if value not in observations)
         legacy_lineage = _retain_lineage({}, {"identities": held.get("identities", {}),
                                                "shapes": held.get("shapes", {})})
         roots = list(evidence.get("lineage_roots", []))
@@ -6468,7 +6481,7 @@ class Daemon:
         foreign = self._foreign_ownership(a)
         census = procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
                                    a["attempt_id"], root=str(self.root), recorded=recorded,
-                                   owned_identities=tuple(ident for values in _local_process_records(evidence).values()
+                                   owned_identities=tuple(ident for values in local_records.values()
                                                           for ident in values),
                                    launch_boot_id=launch_boot, lineage_boot_ids=lineage_boots,
                                    child_unrecorded=child_unrecorded,
@@ -6599,8 +6612,8 @@ class Daemon:
         excluded = foreign.pids(table, protected=protected)
         foreign = procs.ForeignOwnership(
             foreign.identities + tuple(table.census_root(pid).identity for pid in excluded), foreign.groups)
-        observed = [dataclasses.asdict(table.census_root(pid))
-                    for pid in sorted(table.descendants(roots, excluded=excluded))]
+        descendants = table.descendants(roots, excluded=excluded)
+        observed = [dataclasses.asdict(table.census_root(pid)) for pid in sorted(descendants)]
         def verified_identity(pid):
             try:
                 return table.identity(pid)
@@ -6611,6 +6624,8 @@ class Daemon:
         providers = [dataclasses.asdict(ident) for pid, row in table.rows.items()
                      if guardian_live and row[0] == guardian and pid not in excluded
                      and (ident := verified_identity(pid)) is not None]
+        proven_descendants = [dataclasses.asdict(ident) for pid in sorted(descendants)
+                              if (ident := verified_identity(pid)) is not None]
         # Signal ownership remains confined to members of the verified leader's
         # group. Detached descendants are saved only as census roots.
         members = ({pid: verified_identity(pid) for pid in table.group(a["pgid"]) - excluded}
@@ -6625,7 +6640,8 @@ class Daemon:
                 evidence["owned_identities"] = owned
                 evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}), before, owned)
             evidence = _retain_lineage(evidence, {"identities": {}, "lineage_roots": observed,
-                                                  "provider_identities": providers})
+                                                  "provider_identities": providers,
+                                                  "descendant_identities": proven_descendants})
             if evidence != previous:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
 
