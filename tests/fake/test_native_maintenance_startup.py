@@ -214,7 +214,8 @@ def test_a_sizing_deadline_whose_bookkeeping_raises_is_retried(state_daemon, mon
     monkeypatch.setattr(service.timers, 'mark', mark)
     passes = _drive(service, monkeypatch, 7200.0, [.25, .25, .25], ['deadline'])
     assert _began(passes) == [7200.0, 7260.5]
-    assert calls[:2] == ['TimeoutError', 'OSError']
+    # C-18.5: an exception reaches `mark` whole, so its message and place are kept.
+    assert [error if isinstance(error, str) else type(error).__name__ for error in calls[:2]] == ['TimeoutError', 'OSError']
 
 
 def test_old_service_notices_go_whatever_becomes_of_the_pass(state_daemon, monkeypatch):

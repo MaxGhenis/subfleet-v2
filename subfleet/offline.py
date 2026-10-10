@@ -358,6 +358,11 @@ class Offline:
             # last fired with (no cycle runs without the daemon).
             latches = (load_latches(conn.execute(LATCH_QUERY).fetchall())
                        if "events" in tables else {})
+            # C-18.5: each timer's last run and failure record, as the daemon
+            # last wrote them (no timer runs without the daemon).
+            from . import timers as timers_module       # deferred: it loads the adapters
+            timers = (timers_module.recorded(conn.execute(timers_module.RECORDED_QUERY), at)
+                      if "events" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -380,6 +385,7 @@ class Offline:
             # C-26.12: conversations' turns, counted apart from detached work.
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
+            "timers": timers,                       # C-18.5
             "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
         }
 

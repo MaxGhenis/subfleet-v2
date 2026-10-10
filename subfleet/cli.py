@@ -334,9 +334,24 @@ def format_alerts(alerts: Any) -> list[str]:
     return lines
 
 
+def format_timers(timers: Any) -> list[str]:
+    """C-18.5: the daemon timers whose runs fail, most urgent first; nothing when none does."""
+    notes = render.timer_notes(timers)
+    if not notes:
+        return []
+    words = {"failing": "failing", "cleared": "failed in the last day", "reported": "reported an error"}
+    counts = {state: sum(1 for note in notes if note[0] == state) for state in render.TIMER_STATES}
+    lines = ["timers: " + ", ".join(f"{counts[state]} {words[state]}"
+                                    for state in render.TIMER_STATES if counts[state])]
+    width = max(len(name) for _, name, _ in notes)
+    lines += [f"  {name:<{width}}  {text}" for _, name, text in notes]
+    lines.append("")
+    return lines
+
+
 def format_status(data: dict[str, Any]) -> str:
-    """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
-    lines: list[str] = format_alerts(data.get("alerts"))
+    """Alerts in force, failing timers, lanes with their newest readings, live closures, and running jobs."""
+    lines: list[str] = format_alerts(data.get("alerts")) + format_timers(data.get("timers"))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)

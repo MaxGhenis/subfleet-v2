@@ -258,6 +258,50 @@ def disk_line(reading: Mapping[str, Any]) -> str:
             + f"; {disk_floor_detail(reading)}"
             + (f" ({reading['error']})" if reading.get("error") else ""))
 
+
+#: C-18.5: what a daemon timer's note can say, most urgent first.
+TIMER_STATES = ("failing", "cleared", "reported")
+
+
+def timer_notes(timers: Any) -> list[tuple[str, str, str]]:
+    """C-18.5: `(state, timer, words)` for each daemon timer with something to say.
+
+    `failing`: an exception ended its last run. `cleared`: one ended an earlier
+    run and the timer has run clean since, within the day the record is kept.
+    `reported`: its last run ended without an exception and named an error
+    type. Read from `daemon.status`'s `timers` or from the store's own record
+    (`timers.recorded`). A daemon older than C-18.5 keeps no failure record, so
+    for it only `reported` is said, of a raised type as of a reported one.
+    """
+    notes = []
+    for name, status in sorted(timers.items()) if isinstance(timers, Mapping) else ():
+        if not isinstance(status, Mapping):
+            continue
+        failure = status.get("failure") if isinstance(status.get("failure"), Mapping) else None
+        failing = bool(failure) and not failure.get("recovered_at")
+        if failure:
+            what = str(failure.get("error_type"))
+            if failure.get("message"):
+                what += f": {failure['message']}"
+            if failure.get("raised_at"):
+                what += f" ({failure['raised_at']})"
+            runs = failure.get("runs")
+            more = (f"; {failure.get('failed_runs')} failed runs since {failure.get('first_at')}"
+                    if failure.get("failed_runs") != runs else "")
+            if failing:
+                when = (f"failed at {failure.get('last_at')}, its last run" if runs == 1 else
+                        f"failing since {failure.get('since')}: {runs} runs in a row, "
+                        f"the latest at {failure.get('last_at')}")
+            else:
+                when = f"ran clean at {failure['recovered_at']} after " + (
+                    f"a failed run at {failure.get('last_at')}" if runs == 1 else
+                    f"{runs} failed runs in a row, {failure.get('since')} to {failure.get('last_at')}")
+            notes.append(("failing" if failing else "cleared", str(name), f"{when}{more}: {what}"))
+        if status.get("last_error_type") and not failing:
+            notes.append(("reported", str(name),
+                          f"its last run, at {status.get('last_run')}, reported {status['last_error_type']}"))
+    return sorted(notes, key=lambda note: (TIMER_STATES.index(note[0]), note[1]))
+
 #: C-11.8: each standing refusal of a pinned lane, in words (`scheduler.STANDING_REFUSALS`).
 _PIN_REFUSALS = {
     "unknown": "no lane named {lane} is enrolled",

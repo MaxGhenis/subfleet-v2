@@ -296,7 +296,7 @@ def test_probe_failure_rearms_companions_without_claiming_they_ran(rig, monkeypa
     monkeypatch.setattr(timer, "probe_cycle", fail)
     timer._run("probe")
     for companion in ("reset_credits", "alerts"):
-        expected = {"last_run": previous, "last_error_type": "EarlierError",
+        expected = {"last_run": previous, "last_error_type": "EarlierError", "failure": None,
                     "next_due": timer.status()["probe"]["next_due"]}
         assert timer.status()[companion] == expected
         durable = [row for row in events(store, "timer.run") if row["timer"] == companion][-1]
