@@ -217,7 +217,8 @@ def test_foreign_histories_with_matching_legacy_boot_cannot_exclude_a_cwd_writer
     assert 202 in census.live_pids
     assert procs.ProcessIdentity(**current) in census.ambiguous_identities
     assert procs.ProcessIdentity(**current) not in census.excluded_identities
-    assert "202" not in json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"]).get("owned_identities", {})
+    after = daemon.store.get_attempt(ours["attempt_id"])
+    assert "202" not in json.loads(after["evidence_json"]).get("owned_identities", {})
     assert {"pid": 202, "boot_id": BOOT, "proc_start": "p202"} in json.loads(after["evidence_json"])["ambiguous_identities"]
 
 
