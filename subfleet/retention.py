@@ -203,6 +203,11 @@ _PIN_QUERIES = (
     # A job not yet ended whose directory is this job's allocated worktree or
     # inside it (a job an agent submitted from its worktree, still queued):
     # the tree must still be there when it runs (design review, Opus 9).
+    # SQLite's LIKE ignores ASCII case (the store sets no case_sensitive_like),
+    # so a live job whose folder is *inside* this tree, spelled in another case,
+    # still keeps it. The exact-root comparisons (`=`) stay case-sensitive: a
+    # live job whose folder is the tree's root spelled in another case does not
+    # keep it, which is part of the C-8.4 known limit (review of #134's delta, P3).
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
                         "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
@@ -258,13 +263,31 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
+    owned = {row["job_id"] for row in jobs if row["worktree"] and row["sandbox"] == "workspace-write"
+             and not row["in_place"]}
     # I5 (C-8.4, C-13.4): turns and readers have per-turn rows rather than
-    # `worktree:` leases. Compare recorded spellings only: this function also
-    # runs inside the archive commit transaction, where filesystem work is forbidden.
+    # `worktree:` leases. A row on a job's own worktree, or on a folder inside
+    # it (a conversation in a repository nested there keys its row on that
+    # repository), keeps the job; an in-place job's folder is never removed, so
+    # a row there keeps nothing (review of 599af189, P3-1 and P3-2). Compare
+    # recorded spellings only: this function also runs inside the archive
+    # commit transaction, where filesystem work is forbidden.
     in_use = folders.turn_folders(store.query)
     for row in jobs:
-        if row["worktree"] in in_use:
+        if row["job_id"] in owned and any(folders.within(folder, row["worktree"]) for folder in in_use):
             add(row["job_id"], "turn-folder")
+    # The same for a `worktree:` lease, which `worktree-lease` above matches on
+    # the worktree itself only: a detached in-place writer in a repository
+    # nested in a job's own worktree holds `worktree:<that repository>`, and a
+    # quarantined attempt leaves its job `lost` with the lease kept (daemon
+    # `_quarantine`), so only the lease says the folder is in use (review of
+    # 31048e67, F3). Recorded spellings, as above; retention's own fence for
+    # the job keeps nothing.
+    exclusive = folders.exclusive_folders(store.query)
+    for row in jobs:
+        if row["job_id"] in owned and any(holder != f"retention:{row['job_id']}" and folders.within(
+                folder, row["worktree"]) for folder, holder in exclusive):
+            add(row["job_id"], "worktree-lease")
     if root is not None:
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
@@ -277,8 +300,6 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
             tuple(guests))] if guests else []
         if live:
             add(host, "nested-host: " + ", ".join(live))      # names the jobs it waits for
-    owned = {row["job_id"] for row in jobs if row["worktree"] and row["sandbox"] == "workspace-write"
-             and not row["in_place"]}
     for row in store.query("SELECT r.artifact_id,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                            "WHERE r.role='salvage'" + (" AND a.job_id=?" if only else ""), params):
         landed = row["job_id"] in owned if landed_salvage is None else row["artifact_id"] in landed_salvage
@@ -782,11 +803,12 @@ class _Pass:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
                                   only=job_id, hosted=self.hosted, root=self.root).get(job_id)
-            # A turn may register after selection. Read its rows and acquire
-            # the fence atomically; daemon reservation checks this same fence
-            # before inserting either a TURN or READER row (I5).
+            # A turn may register after selection. Read its rows, on the tree
+            # and on any folder inside it (P3-1), and acquire the fence
+            # atomically; daemon reservation checks this same fence before
+            # inserting either a TURN or READER row on the tree itself (I5).
             if reason is None and folder is not None and folders.turn_holds(
-                    lambda sql, params: conn.execute(sql, params).fetchall(), folder):
+                    lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"
             if reason is None:
                 for key in keys:
@@ -794,6 +816,12 @@ class _Pass:
                     if current and current["holder"] != holder:
                         reason = "resume in progress" if key.startswith("retire:") else "worktree lease"
                         break
+            # And a `worktree:` lease on a folder inside the tree (a detached
+            # writer in a repository nested there, review of 31048e67, F3).
+            if reason is None and folder is not None and any(
+                    other != holder for _, other in folders.exclusive_inside(
+                        lambda sql, params: conn.execute(sql, params).fetchall(), folder)):
+                reason = "worktree lease"
             if reason is None:
                 for key in keys:
                     conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",

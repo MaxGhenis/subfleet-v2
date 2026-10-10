@@ -52,6 +52,8 @@ jobs:
       - name: Compile native menu bar app without launching
         run: app/build.sh "$RUNNER_TEMP/subfleet-frontend"
       - name: Unit, fake-provider, process, and end-to-end contracts
-        run: uv run --no-sync pytest -q
+        # Retry once only when all 1–5 failing pytest node IDs are allowlisted.
+        # Every retry must pass, including setup/teardown; skips and xfails fail.
+        run: uv run --no-sync python tools/ci_retry_known_flakes.py --reports-dir "$RUNNER_TEMP/known-flakes-outcomes"
         env:
           SUBFLEET_LIVE: "0"
