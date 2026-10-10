@@ -40,7 +40,7 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 Row = dict[str, Any]
 
 # Canonical observations use the partial time index; offset/fractional clocks
@@ -91,8 +91,10 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     5: ("ALTER TABLE jobs ADD COLUMN unmeasured_reserve_reason TEXT",),
     # C-12.9, d714: the MCP servers a job named; an older job named none.
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
+    7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
+             ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
     # C-5.7: restart-safe census pace and a turn's release notification outbox.
-    7: ("ALTER TABLE attempts ADD COLUMN quarantine_recheck_at TEXT NOT NULL DEFAULT ''",
+    8: ("ALTER TABLE attempts ADD COLUMN quarantine_recheck_at TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE attempts ADD COLUMN quarantine_notice_pending INTEGER NOT NULL DEFAULT 0"),
 }
 

@@ -443,7 +443,9 @@ class Retirement:
                 # away, it finds none, and the tree moved back has one.
                 read = rgit.gitfile_admin(worktree)
                 reg, why = rgit.registration(worktree, read)
-                if why != "no-gitfile":
+                if standalone_checkout(job, worktree):
+                    reg, why, gitfile = None, "no-gitfile", STANDALONE
+                elif why != "no-gitfile":
                     gitfile = hashlib.sha256(read[1]).hexdigest()
                 if why == "admin-remnant":
                     # Only an index and logs/ are left of the registration:
@@ -1385,11 +1387,31 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
     return None, None, f"repository not found (workdir {workdir} is gone)"
 
 
-def gitfile_digest(tree: Path) -> str | None:
-    """The sha256 of the tree's `.git` file; None without one. One that cannot
-    be read as a small regular file (a directory, a link) answers a reason,
-    which no digest equals."""
+#: C-8.5 (review P3-8): what `.git` is in a host-push job's standalone checkout
+#: (`host_push.prepare_workspace`): a directory, the job's own data, not a
+#: gitfile naming a registration in the caller's repository.
+STANDALONE = "standalone .git directory"
+
+
+def standalone_checkout(job: dict[str, Any], worktree: Path) -> bool:
+    """A host-push job's tree whose `.git` is a real directory. It is archived
+    as bytes like a tree without a gitfile: there is no registration to lock or
+    discard, and no Git ever runs in it (its config is the job's)."""
+    if job.get("push_branch") is None:
+        return False
     try:
+        return stat.S_ISDIR(os.lstat(worktree / ".git").st_mode)
+    except OSError:
+        return False
+
+
+def gitfile_digest(tree: Path) -> str | None:
+    """The sha256 of the tree's `.git` file; None without one; STANDALONE for a
+    real `.git` directory. One that cannot be read as a small regular file (a
+    link, say) answers a reason, which no digest equals."""
+    try:
+        if stat.S_ISDIR(os.lstat(tree / ".git").st_mode):
+            return STANDALONE
         return hashlib.sha256(rfs.read_regular(tree / ".git", limit=65536)).hexdigest()
     except FileNotFoundError:
         return None

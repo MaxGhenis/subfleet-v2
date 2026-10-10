@@ -8,6 +8,15 @@ kinds of pass around it. This model keeps only what decides placement:
 - the machine guard at the door (`scheduler.machine_hold`), never for a turn;
 - C-6.9's hold-back and kept slot, only in a pool with a count cap, and with
   only a parent cap only within a family (`scheduler.hold_scope`);
+- a job waiting for a lease (`lease_wait`: keys another holder has, or ones kept
+  for an older job) is held `lease-held` and is a waiter on those keys: it holds
+  no later job back, and a job that passes it keeps the last slot for it, unless
+  the passing job holds one of those keys itself (`own_leases`). It is looked at
+  on its clock (`lease_look="clock"`) or by retention's fence look (`"fence"`),
+  both before any evaluation, or by the reserving transaction (`"transaction"`:
+  after the slot check, so a full pool holds it for the slot first). With
+  `lease_holdback=True` the pass runs the rule as it was before 2026-10-06, when
+  such a waiter held the later jobs that compete with it back like any other;
 - C-11.8: a job pinned to a lane that can never admit it is held
   `pin-unadmittable` before anything else, and a job every lane refuses for a
   reason no wait ends (`scheduler.refused_for_good`) is no waiter;
@@ -41,6 +50,7 @@ class Outcome:
     decision: Any = None                    # the evaluation, when one was made
     klass: str = "session"
     waits_for: str | None = None            # the older job it is held behind or keeps a slot for (C-6.9)
+    leases: frozenset[str] = frozenset()    # what a `lease-held` job waits for
 
 
 @dataclass
@@ -72,7 +82,7 @@ def _live(view: dict, turn: bool) -> int:
 
 
 def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Liveness | None = None,
-             machine: dict | None = None) -> Pass:
+             machine: dict | None = None, lease_holdback: bool = False) -> Pass:
     """One pass over `jobs` against `view`, which is not changed."""
     view = copy.deepcopy(view)
     view.setdefault("in_flight", {})
@@ -92,7 +102,7 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
             found.append(parent)
             parent = parents.get(parent)
         return frozenset(found)
-    waiters: dict[str, list[tuple[str, Any, Any]]] = {}
+    waiters: dict[str, list[tuple[str, Any, Any, frozenset[str]]]] = {}
     saturated: dict[str, bool] = {}
     lanes = view.get("lanes", ())
     for job in scheduler.ordered_jobs(policy, jobs, live):
@@ -116,13 +126,27 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         demand = scheduler.demand_lanes(lanes, job, policy)
         scope = scheduler.hold_scope(policy, job)
         family = ancestors(job["job_id"])
-        behind = next((older for older, theirs, their_lanes in waiters.get(tier, ())
-                       if scheduler.competes(models, theirs, demand, their_lanes)
+        own = frozenset(job.get("own_leases") or ())
+        waiting = frozenset(job.get("lease_wait") or ())
+        # A waiter on a lease this job holds moves only once this job has run: it
+        # neither holds this job back nor has a slot kept for it (review of PR #72).
+        blocking = [waiter for waiter in waiters.get(tier, ()) if not waiter[3] & own]
+        behind = next((older for older, theirs, their_lanes, keys in blocking
+                       if (lease_holdback or not keys)
+                       and scheduler.competes(models, theirs, demand, their_lanes)
                        and (scope == "pool" or family & ancestors(older))), None) if scope else None
         if saturated.get(pool) or behind:
             result.outcomes.append(Outcome(job["job_id"], None, "fleet-full" if saturated.get(pool)
                                            else "behind-older-job", klass=klass,
                                            waits_for=None if saturated.get(pool) else behind))
+            continue
+        if waiting and job.get("lease_look") in ("clock", "fence"):
+            # On its clock, or held by retention's fence before its workspace: no route
+            # is evaluated. On its clock a job no lane could ever admit waits for
+            # nothing (C-11.8); the fence look does not ask.
+            if job["lease_look"] == "fence" or not scheduler.unadmittable(policy, view, job):
+                waiters.setdefault(tier, []).append((job["job_id"], models, demand, waiting))
+            result.outcomes.append(Outcome(job["job_id"], None, "lease-held", klass=klass, leases=waiting))
             continue
         try:
             decision = scheduler.evaluate(policy, view, job)
@@ -132,16 +156,22 @@ def run_pass(policy: dict, view: dict, jobs: list[dict], *, live: scheduler.Live
         pool_cap = _pool_cap(policy, job)
         live_now = _live(view, turn)
         saturated[pool] = pool_cap is not None and live_now >= pool_cap
-        limit = None if pool_cap is None else pool_cap - 1 if waiters.get(tier) else pool_cap
+        limit = None if pool_cap is None else pool_cap - 1 if blocking else pool_cap
         at_limit = limit is not None and live_now >= limit
         if not decision.chosen_lane or at_limit:
-            kept = waiters.get(tier, [])
+            kept = blocking
             if decision.chosen_lane or not scheduler.refused_for_good(policy, decision, job, view["lanes"]):
-                waiters.setdefault(tier, []).append((job["job_id"], models, demand))
+                waiters.setdefault(tier, []).append((job["job_id"], models, demand, frozenset()))
             hold = (scheduler.dominant_rejection(decision) if not decision.chosen_lane
                     else "fleet-full" if saturated[pool] else "slot-kept")
             result.outcomes.append(Outcome(job["job_id"], None, hold, decision, klass=klass,
                                            waits_for=kept[0][0] if hold == "slot-kept" and kept else None))
+            continue
+        if waiting:
+            # The reserving transaction finds a lease it needs held (C-6.9, C-26.9).
+            waiters.setdefault(tier, []).append((job["job_id"], models, demand, waiting))
+            result.outcomes.append(Outcome(job["job_id"], None, "lease-held", decision, klass=klass,
+                                           leases=waiting))
             continue
         lane = decision.chosen_lane
         counts = view["in_flight_turns" if turn else "in_flight"]

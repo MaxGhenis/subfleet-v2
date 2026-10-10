@@ -325,7 +325,7 @@ def test_c6_11_status_reports_admission_and_counts_only_live_jobs(fleet):
     data = service.dispatch("daemon.status", {})
     assert data["admission"]["pending"] == 1 and data["admission"]["open_lanes"] == ["codex-1"]
     assert data["admission"]["reasons"] == {"no-lanes": 1} and data["admission"]["idle_for_s"] >= 3700
-    assert {row["job_id"] for row in data["jobs"]} == {done, stuck}  # the capacity view carries them all
+    assert {row["job_id"] for row in data["jobs"]} == {stuck}  # status carries current work (D-ST2)
     text = cli.format_status(data)
     assert "running jobs: 1" in text and done not in text and stuck in text
     assert "admission: 1 pending, none placed for 37" in text and "no-lanes x1" in text
