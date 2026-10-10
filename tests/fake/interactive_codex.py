@@ -1,7 +1,8 @@
 """A fake `codex app-server` for the guard preflight and conversation turns (C-14.2, C-26, C-27 tests).
 
 `tests/bin/codex app-server …` hands over to `main` here. It answers the
-guard preflight's `hooks/list` exactly as the previous fixture did, and speaks
+guard preflight's `hooks/list` exactly as the previous fixture did, an isolated
+review's `configRequirements/read` and `config/read`, and speaks
 enough of the stable 0.153.3 JSON-RPC surface for a turn: `initialize`,
 `model/list`, `thread/start`, `thread/resume`, `turn/start`,
 `turn/steer`, `turn/interrupt`, one command approval, and the notifications the Codex turn
@@ -158,6 +159,14 @@ class Server:
 
     def on_model_list(self, rid, params):
         self.send({"id": rid, "result": {"data": MODELS, "nextCursor": None}})
+
+    # C-23.3: the metadata an isolated review's launch inspects (`isolation.inspect_codex`):
+    # no managed requirements, and one empty user layer.
+    def on_configRequirements_read(self, rid, params):
+        self.send({"id": rid, "result": {"requirements": None}})
+
+    def on_config_read(self, rid, params):
+        self.send({"id": rid, "result": {"layers": [{"name": {"type": "user"}, "config": {}}]}})
 
     def _thread_result(self, thread_id: str, params: dict, active: bool = False) -> dict:
         model = params.get("model") or "gpt-6-astra"

@@ -102,10 +102,40 @@ def sigterm_exit_0(argv: list[str]) -> int:
     return 1
 
 
+def gate_approve(argv: list[str]) -> int:
+    """The `gate-approve` scenario: a gate's peer round approves what it was given.
+
+    The round's neutral cwd holds the artifact's revision (`artifact.json`); the
+    verdict names it, as C-23.9 requires. `SUBFLEET_FAKE_RELEASE_PATH`, when set,
+    holds the turn until that file exists, so a test can restart the daemon while
+    the round is running.
+    """
+    sys.stdin.buffer.read()
+    release = os.environ.get("SUBFLEET_FAKE_RELEASE_PATH")
+    while release and not Path(release).exists():
+        time.sleep(.05)
+    revision = json.loads(Path("artifact.json").read_text())
+    verdict = ("---SUBFLEET-VERDICT-BEGIN---\n" + json.dumps({
+        "schema_version": 1, "artifact_revision": revision, "verdict": "approve",
+        "summary": "The fake peer approves the copied artifact.", "findings": [], "notes": []})
+        + "\n---SUBFLEET-VERDICT-END---\n")
+    destination = output_path(argv)
+    if destination is not None:
+        destination.write_text(verdict)
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "success"
+    sys.stdout.buffer.write((fixture / "stdout").read_bytes())
+    sys.stdout.buffer.flush()
+    return 0
+
+
 def main() -> int:
     # Metadata requests made by the real guard preflight, before any exec.
     if sys.argv[1:] == ["--version"]:
         print("codex-cli 0.153.3")
+        return 0
+    if sys.argv[1:3] == ["mcp", "list"]:
+        # C-23.3: an isolated review's MCP inventory (`isolation.inspect_codex`).
+        print("[]")
         return 0
     if sys.argv[1:2] == ["app-server"]:
         # The guard preflight's hooks/list probe and conversation turns (C-26).
@@ -121,6 +151,8 @@ def main() -> int:
         os.environ.pop("SUBFLEET_FAKE_DIRTY", None)
     if scenario == "sigterm-exit-0":
         return sigterm_exit_0(sys.argv[1:])
+    if scenario == "gate-approve":
+        return gate_approve(sys.argv[1:])
     fixture_name = "success" if scenario in {"slow", "nested-setsid"} else scenario
     fixture_root = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
     fixture = fixture_root / fixture_name

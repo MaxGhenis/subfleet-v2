@@ -7,6 +7,7 @@ subfleet gate plan plan.md --peer astra --dry-run
 subfleet gate plan plan.md --peer astra --main-approve --expect-sha256 <sha256>
 subfleet gate pr 42 --peer astra --main-approve --expect-head <head> --expect-base <base> --on-agreement merge --merge-method squash
 subfleet gate continue <gate-id> --main-approve --expect-sha256 <new-sha256> --response response.md
+subfleet gate poll <gate-id>
 ```
 
 `--peer sol` maps to Astra. Fable accepts per-dispatch `--peer-account` and repeated `--exclude-account`; repeat these on continuation when needed. PR methods are `merge` and `squash`. `--dry-run` reads the artifact and prints the revision and its canonical fingerprint, without opening a writable store, changing state, or submitting a job/action.
@@ -29,6 +30,12 @@ A peer round is an ordinary `gate-review` job, pinned to the selected model with
 Schema 3 adds `isolated_review`, `review_root`, and `round_lease` to jobs. The ordinary attempt admission transaction reserves `gate:<id>:round:<n>` with holder `gate-round:<job-id>`. The distinct holder survives normal terminal export. Gate consumption checks the accepted attempt's model attestation and artifact hash, re-captures the artifact revision, then checks and releases the round lease in the same transaction that records the verdict. A missing or replaced lease discards the output. A client disconnect does not cancel its durable peer job.
 
 Unattested or mismatched rounds, and any downgrade record, are discarded and re-run. These physical rounds consume the policy budget. `caps.gate_max_rounds` defaults to 4; a CLI `--max-rounds` can reduce that limit, and the v1 spelling `0` uses the policy limit. A stopped gate names the last verdict or explains why output was not a verdict.
+
+## Restarts and resuming
+
+`subfleet gate` polls its gate until the gate answers a code, and a daemon restart (an install, `launchctl kickstart -k`, a crash under KeepAlive) does not end it (C-15.4). `gate.poll` names only the gate; the daemon takes the step the gate's journaled state calls for, and each step that acts is fenced by what it leaves (the round's request id, the round lease, the certificate, the merge's operation key), so a poll sent again never advances the gate twice. After a lost answer (dropped, too late, or cut short), a socket gone or refused, or an answer from a daemon whose startup recovery has not run, the CLI asks again for `RESTART_WINDOW_S` (300 s) per outage, and prints one line when the daemon answers again (`daemon restarted; still polling gate <id>` when `daemon.lock` names a new process). A lost `gate.start` or `gate.continue` is not sent again.
+
+`subfleet gate poll <gate-id>` is the poll loop alone, for a gate whose command has gone. It approves nothing and exits with the gate's code. Every exit 1 that leaves a gate behind names it. A gate whose start died before its first round answers 4 there and names `subfleet gate continue <id> --main-approve`. The decision record is `docs/decisions/2026-10-10-gate-survives-restart.md`.
 
 ## Merge actions
 

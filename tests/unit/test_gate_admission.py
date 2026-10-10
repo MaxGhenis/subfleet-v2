@@ -28,6 +28,14 @@ def lane(home, provider="codex"):
 @pytest.fixture
 def core(tmp_path, monkeypatch):
     """C-23.10: exercise the real admission transaction without starting processes."""
+    daemon = build_core(tmp_path, monkeypatch)
+    yield daemon
+    daemon.store.close()
+
+
+def build_core(tmp_path, monkeypatch):
+    """The `core` fixture's daemon, for a test that makes one per example (Hypothesis).
+    The caller closes its store."""
     root = tmp_path / "state"
     (root / "jobs").mkdir(parents=True)
     (root / "neutral").mkdir()
@@ -57,8 +65,7 @@ def core(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda *args: False)
     daemon.store.put_lane(lane(root / "home"))
-    yield daemon
-    daemon.store.close()
+    return daemon
 
 
 def args(core, **changes):

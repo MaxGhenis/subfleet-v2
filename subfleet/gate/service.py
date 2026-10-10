@@ -264,8 +264,15 @@ class GateService:
 
     def _submit(self, state):
         record = state["rounds"][-1]
+        # C-15.4: a daemon that died between the round's job and the entry naming it
+        # left the job under the round's own request id, which no other submit can
+        # carry. The next poll adopts it: submitted again, it would be refused as a
+        # different payload had the policy changed since (C-6.2 hashes the policy),
+        # as a kickstart after a policy edit changes it.
+        held = self.store.one("SELECT job_id FROM jobs WHERE request_id=?",
+                              (record["submit_args"]["request_id"],))
         try:
-            job = self.daemon.submit(SubmitArgs(**record["submit_args"]))
+            job = dict(held) if held else self.daemon.submit(SubmitArgs(**record["submit_args"]))
         except Exception as exc:
             # Durable prepared inputs allow safe inspection; no provider output counts.
             record.update(status="blocked", error=f"peer submission failed: {exc}", finished_at=utc_now())
@@ -327,6 +334,13 @@ class GateService:
                 return self._action_result(state, result)
             if state["status"] != "reviewing":
                 self._project(state)
+                if state["status"] == "ready":
+                    # C-15.4: a start that died before its first round left a gate no
+                    # poll can advance (a start holds the gate's lock until its round
+                    # is reserved, so no poll sees this otherwise). It answers a code,
+                    # or `subfleet gate poll` would ask for ever.
+                    return self._result(state, 4, "the gate has no peer round to poll; start one with "
+                                                  f"subfleet gate continue {state['id']} --main-approve")
                 return self._result(state)
             record = state["rounds"][-1]
             if not record.get("peer_run_id"):
@@ -473,10 +487,17 @@ class GateService:
             return self._reserve(state, expected, read_context(args.response, "main response"), account, exclusions)
 
 
+#: C-15.4: a daemon that has just started answers gate ops before its startup
+#: recovery (`MergeActions.recover` among it) has run. Nothing was done, so the
+#: CLI asks again; `recovering` says so, and the code stays 1 for older clients.
+RECOVERING = {"code": 1, "status": "error", "recovering": True,
+              "message": "daemon recovery is in progress; retry the gate command"}
+
+
 def dispatch(daemon, op: str, args: dict) -> dict:
     recovery = getattr(daemon, "_recovery_complete", None)
     if recovery is not None and not recovery.is_set():
-        return {"code": 1, "status": "error", "message": "daemon recovery is in progress; retry the gate command"}
+        return dict(RECOVERING)
     with _INIT_LOCK:
         if not hasattr(daemon, "_gate_service"):
             daemon._gate_service = GateService(daemon)
