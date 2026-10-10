@@ -228,11 +228,18 @@ ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job
 #: adding quarantine to the live predicate would stop using its partial index.
 #: Rowid breaks equal timestamp/seq ties as the old `attempts_reserved` index
 #: did, preserving renderer order without returning the internal rowid.
+#: C-5.7: a quarantined row also carries when it ended, why it is held and when
+#: it is next checked, which `render.quarantine_holds` shows; a live row carries
+#: nulls there. These are small columns of the few quarantined rows (69 rows and
+#: 41 KB on the live store on 2026-10-10), never `evidence_json`.
 STATUS_ATTEMPTS = (
-    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM ("
-    "SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,"
+    "finished_at,quarantine_reason,quarantine_recheck_at FROM ("
+    "SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,"
+    "NULL AS finished_at,NULL AS quarantine_reason,NULL AS quarantine_recheck_at FROM attempts "
     "WHERE state IN ('reserved','starting','running','finalizing') "
-    "UNION ALL SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "UNION ALL SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,"
+    "finished_at,quarantine_reason,quarantine_recheck_at FROM attempts "
     "WHERE state='quarantined') ORDER BY reserved_at,seq,rowid")
 #: All nonterminal jobs (including queued/waiting turns), plus the jobs of the
 #: attempts above: even a cancelled job can have an uncontained attempt. Keep
@@ -7116,7 +7123,11 @@ class Daemon:
                 self._quarantine_turn_notice(a)
             except Exception as exc:
                 self.log.warning("quarantine notice %s failed: %s", a["attempt_id"], type(exc).__name__)
-        due = self.store.query("SELECT * FROM attempts WHERE state='quarantined' AND quarantine_recheck_at<=? "
+        # `attempts_quarantined` (state alone, for status) also fits this predicate, and
+        # the planner took it and sorted every quarantined row; the due index is named
+        # so a pass reads only the rows that are due, in order.
+        due = self.store.query("SELECT * FROM attempts INDEXED BY attempts_quarantine_due "
+                               "WHERE state='quarantined' AND quarantine_recheck_at<=? "
                                "ORDER BY quarantine_recheck_at,attempt_id LIMIT ?", (quarantine_time(), QUARANTINE_RECHECK_BATCH))
         for a in due:
             if self.stopping.is_set():
