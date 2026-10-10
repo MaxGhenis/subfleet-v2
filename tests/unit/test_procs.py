@@ -714,25 +714,38 @@ def test_containment_keeps_the_space_a_root_ends_in(monkeypatch):
 
 
 def test_two_roots_that_print_alike_are_one_root_to_the_census(monkeypatch):
-    """C-5.5, intended: `ps` does not escape a backslash (`VIS_NOSLASH`), so its notation
-    cannot tell `é` from the text `M-CM-)`, and the census counts a marked process of
-    either root for both. That errs toward holding on, and it needs the attempt id too."""
+    """C-5.5, intended: `ps` passes `VIS_NOSLASH`, so its notation puts no backslash
+    before an `M-` form and cannot tell `é` from the text `M-CM-)`; the census counts a
+    marked process of either root for both. That errs toward holding on, and it needs
+    the attempt id too."""
     census(monkeypatch, parents="42 1 42 S\n",
            markers="   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/aM-CM-)\n")
     assert procs.containment(None, None, None, "job/a1", root="/tmp/aé").marker_pids == {99}
     assert procs.containment(None, None, None, "job/a1", root="/tmp/aM-CM-)").marker_pids == {99}
 
 
-def test_a_root_is_also_found_as_the_start_of_a_longer_one_after_a_space(monkeypatch):
-    """C-5.5, intended (and older than `ps_text`): the root's pattern ends at a space,
-    and `ps` separates variables with one, so a census for `/tmp/a` also counts a
-    marked process of `/tmp/a b`; that errs toward holding on. A longer root that
-    does not continue with a space is another root."""
-    census(monkeypatch, parents="42 1 42 S\n",
-           markers=("   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a b\n"
-                    "  100 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/ab\n"))
+@pytest.mark.parametrize("line", [
+    "python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a b",                 # the root, then more after a space
+    "python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/b SUBFLEET_ROOT=/tmp/a",  # inside a longer root
+    "python SUBFLEET_ATTEMPT=job/a1 NOTE=see SUBFLEET_ROOT=/tmp/a here SUBFLEET_ROOT=/tmp/b",  # in another variable
+    "python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/a",                   # the attempt marker as argv text
+], ids=["root then a space", "inside a longer root", "in another variable", "attempt in argv"])
+def test_a_process_counts_when_its_line_holds_both_markers_as_tokens(monkeypatch, line):
+    """C-5.5, intended (and older than `ps_text`): a process counts when its printed
+    line holds both markers as space-bounded tokens, wherever they come from (its
+    argv, another variable's value, or a longer root that holds a space), because
+    `ps` joins every string with a space. Each errs toward holding on: no caller
+    signals a pid the marker source alone found (C-5.6)."""
+    census(monkeypatch, parents="42 1 42 S\n", markers=f"   99 {line}\n")
     assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == {99}
-    assert procs.containment(None, None, None, "job/a1", root="/tmp/a b").marker_pids == {99}
+
+
+def test_a_longer_root_without_a_space_is_another_root(monkeypatch):
+    """C-5.5: the root's token ends where the printed line has a space or ends, so a
+    root that only starts like the census's root is another root."""
+    census(monkeypatch, parents="42 1 42 S\n",
+           markers="   99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/ab\n")
+    assert procs.containment(None, None, None, "job/a1", root="/tmp/a").marker_pids == frozenset()
 
 
 def test_ps_text_prints_every_byte_as_ps_printed_it():
@@ -805,3 +818,15 @@ def test_a_root_that_cannot_be_encoded_leaves_the_census_unverifiable(monkeypatc
     census(monkeypatch, parents="42 1 42 S\n", markers="   99 python SUBFLEET_ATTEMPT=job/a1\n")
     result = procs.containment(None, None, None, "job/a1", root="/tmp/\ud800")
     assert result.unverifiable and "marker enumeration unavailable" in result.errors
+
+
+@pytest.mark.parametrize("value", ["/tmp/a\x00b", "\x00"])
+def test_a_value_with_a_nul_is_one_no_environment_holds(monkeypatch, value):
+    """C-5.5: a NUL ends an environment string, so no process carries a root or an
+    attempt id that holds one. `ps_text` refuses it rather than printing `^@`, and a
+    census asked for one is unverifiable, as for a lone surrogate, never empty."""
+    with pytest.raises(ValueError):
+        procs.ps_text(value)
+    census(monkeypatch, parents="42 1 42 S\n", markers="   99 python SUBFLEET_ATTEMPT=job/a1\n")
+    assert procs.containment(None, None, None, "job/a1", root=value).unverifiable
+    assert procs.containment(None, None, None, "job/a\x001", root="/tmp/a").unverifiable

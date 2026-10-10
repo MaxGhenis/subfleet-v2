@@ -393,23 +393,31 @@ def _ps_byte(value: int) -> str:
 
 
 #: C-5.5: what `ps` prints for each byte of a command line or environment. `_read`
-#: runs it in the C locale, where it passes the line through `strvis(3)` with
-#: `VIS_TAB | VIS_NL | VIS_NOSLASH` (adv_cmds `ps/print.c`) one byte at a time:
-#: printable ASCII, the space and the backslash as themselves; tab, newline and
-#: 0xA0 in octal (`\011`); other control bytes as `^A` and `^?`; any other byte
-#: from 0x80 as `M-` or `M^` and its low seven bits, so `é` (C3 A9) is `M-CM-)`.
-#: Measured for all 255 values on macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json;
-#: tests/process/test_ps_rendering.py measures again on the machine it runs on).
+#: runs it in the C locale. There `ps` joins the argv and environment strings with
+#: spaces (`getproclline`) and passes the line through `strvis(3)` with `VIS_TAB |
+#: VIS_NL | VIS_NOSLASH` (adv_cmds-237 `ps/print.c`, unchanged since 199.0.1), one
+#: byte at a time: printable ASCII as itself, the space and the backslash too; tab,
+#: newline and 0xA0 in octal (`\011`); other control bytes as `^A` and `^?`; any
+#: other byte from 0x80 as `M-` or `M^` and its low seven bits, so `é` (C3 A9) is
+#: `M-CM-)`. Measured for all 255 values on macOS 26.6.2 (tests/fixtures/
+#: ps_vis_bytes.json; tests/process/test_ps_rendering.py measures again wherever
+#: it runs).
 PS_BYTES = tuple(_ps_byte(value) for value in range(256))
 
 
 def ps_text(value: str) -> str:
     """`value` as `ps -E` prints it in the C locale: its bytes as a child's
     environment holds them (`os.fsencode`, as `subprocess` encodes one), each in
-    `PS_BYTES`'s notation. The notation does not escape a backslash, so two values
-    can print alike (`é` and the text `M-CM-)`), and a match on the printed text
-    finds both. A value that `os.fsencode` cannot encode raises `ValueError`."""
-    return "".join(PS_BYTES[byte] for byte in os.fsencode(value))
+    `PS_BYTES`'s notation. `ps` passes `VIS_NOSLASH`, so its notation puts no
+    backslash before an `M-` or `^` form and does not escape a literal backslash:
+    two values can print alike (`é` and the text `M-CM-)`; a newline and the text
+    `\012`), and a match on the printed text finds both. A value no environment
+    can hold (one with a NUL, or one `os.fsencode` cannot encode) raises
+    `ValueError`."""
+    raw = os.fsencode(value)
+    if 0 in raw:
+        raise ValueError("an environment value cannot hold a NUL")
+    return "".join(PS_BYTES[byte] for byte in raw)
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,

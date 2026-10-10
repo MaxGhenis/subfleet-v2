@@ -4,10 +4,13 @@ Every child here is started with an environment of the test's own making (PATH a
 test variables only, never the caller's), so what `ps -E` prints about it carries
 no credential and may appear in an assertion message. The children are Python, not
 `/bin/sleep`: `ps -E` prints no environment for Apple's own executables at all. Each
-is read only once it runs Python code: read while dyld is still starting it, `ps`
-also prints the kernel's `apple[]` strings (`ptr_munge=`, `stack_guard=` and the
-like) after the environment, until dyld clears them. That costs the census nothing,
-since they carry no marker, but it would change the line compared exactly here.
+is read only once it runs Python code. Once, on 2026-09-27 at a load average near
+130, a read taken as soon as `Popen` returned also printed the kernel's `apple[]`
+strings (`ptr_munge=`, `stack_guard=` and the like) after the environment, and a
+rerun of the same example did not; the review's 801 early reads (2026-09-27, some of
+a child still suspended before its first instruction) never did. Why is not
+established. It would cost the census nothing, since those strings carry no
+marker, but it would change the line compared exactly here.
 """
 
 import json
@@ -86,8 +89,8 @@ def marker_read_of(pid):
 def test_ps_prints_every_byte_as_procs_expects():
     """C-5.5: the real `ps`, in the C locale `procs._read` gives it, prints each of the
     255 bytes an environment can hold as `procs.PS_BYTES` says, and as the recorded
-    measurement (tests/fixtures/ps_vis_bytes.json) did. A macOS whose `ps` prints
-    differently fails here before the census misses a marker on it."""
+    measurement (tests/fixtures/ps_vis_bytes.json) did. On a macOS whose `ps` prints
+    differently this test fails; nothing runs it before a daemon there starts."""
     env = [PATH, *((b"B%02X" % value, b"<" + bytes([value]) + b">") for value in range(1, 256))]
     with child(env) as process:
         line = printed(process.pid)
