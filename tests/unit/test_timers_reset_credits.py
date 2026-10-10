@@ -6,9 +6,11 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from subfleet import actions as actions_module
 from subfleet.actions import Actions, ResetCredits, fleet_credits_remaining
 from subfleet.adapters.codex import (
     CodexAdapter, RESET_CREDIT_URLS, WHAM_RESET_CREDITS_CONSUME_URL, WHAM_RESET_CREDITS_URL,
@@ -154,23 +156,39 @@ def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, t
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
 
 
-def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path):
-    """C-16.4 C-23.13: late HTTP success cannot overwrite the bounded worker's unknown result."""
+@pytest.mark.parametrize("listing_s", [0, .2], ids=["prompt", "a-loaded-runner"])
+def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path, monkeypatch, listing_s):
+    """C-16.4 C-23.13: late HTTP success cannot overwrite the bounded worker's unknown result, and the
+    worker returns at its deadline, while the redemption is still in flight, not when it answers.
+
+    The deadline is on a held clock that passes it only once the POST is in flight. On the wall
+    clock, a runner slow enough to spend the whole 0.1 s before the POST (the first review of #133
+    saw it at load 54 to 68) never made the call this test is about. `a-loaded-runner` is that
+    runner: its credit listing takes twice the deadline."""
     lane(store, tmp_path)
-    entered, release = threading.Event(), threading.Event()
+    clock = [0.]
+    monkeypatch.setattr(actions_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    deadline = clock[0] + .1
+    entered, release, answered = threading.Event(), threading.Event(), threading.Event()
     http = HTTP()
     def opener(request, timeout):
-        if request.get_method() == "POST":
-            entered.set()
-            release.wait(2)
+        if request.get_method() != "POST":
+            time.sleep(listing_s)
+            return http(request, timeout)
+        entered.set()
+        clock[0] = deadline                         # the provider is still answering at the deadline
+        release.wait(30)
+        answered.set()
         return http(request, timeout)
     resets = component(store, opener)
-    started = time.monotonic()
-    result = resets.evaluate(snapshot(store), now=NOW, deadline=started + .1)
-    assert time.monotonic() - started < .5
-    assert entered.is_set() and result["status"] == "unknown"
+    before = set(threading.enumerate())
+    result = resets.evaluate(snapshot(store), now=NOW, deadline=deadline)
+    assert entered.is_set() and not answered.is_set()      # returned at its deadline, the POST in flight
+    assert result["status"] == "unknown"
     release.set()
-    assert store.get_action(result["action_id"])["state"] == "unknown"
+    for worker in set(threading.enumerate()) - before:
+        worker.join(30)                                      # the late success has come back, and changed nothing
+    assert answered.is_set() and store.get_action(result["action_id"])["state"] == "unknown"
 
 
 def test_one_credit_per_evaluation_and_minimum_interval_including_imported_actions(store, tmp_path):

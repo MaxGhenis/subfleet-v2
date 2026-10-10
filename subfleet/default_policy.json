@@ -121,6 +121,14 @@
     "headroom_floor_pct": 15,
     "min_interval_min": 30
   },
+  "claude_cards": {
+    "enabled": true,
+    "interval_min": 360,
+    "heal": true,
+    "heal_interval_min": 60,
+    "warn_days": 5,
+    "logins_dir": "logins"
+  },
   "timers": {
     "probe_interval_s": 60,
     "keepalive_interval_s": 18300
@@ -163,6 +171,14 @@
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": null,
+    "disk": {
+      "enabled": false,
+      "floor_gb": 40,
+      "resume_margin_gb": 5,
+      "placement_reserve_gb": 1.5,
+      "reserve_ttl_s": 600,
+      "path": null
+    },
     "pin_grace_s": 1800,
     "pin_hold_far_s": 604800,
     "prove_idle_s": 900,

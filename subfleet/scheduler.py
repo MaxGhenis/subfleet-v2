@@ -16,7 +16,7 @@ from typing import Any
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
-from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, lane_slot_cap,
+from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      resolve_model, turn_cap)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
@@ -173,7 +173,7 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             tier = job.get("tier") or ("standard" if "standard" in tiers else tiers[0])
-            chain = mcp_chain(policy, policy["chains"][task][tiers.index(tier):], job)
+            chain = mcp_chain(policy, flatten_chain(policy["chains"][task], tiers.index(tier)), job)
             return policy["models"][chain[0]]["provider"] if chain else None
     except (PolicyError, ValueError, KeyError, IndexError):
         pass
@@ -181,10 +181,11 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
 
 
 #: C-6.9: who gets the next lane, first to last. `attended` is a conversation
-#: turn from the Subfleet app; `session` a detached job someone is waiting on
+#: turn from the Subfleet app; `priority` detached work chosen by the operator
+#: (C-6.16); `session` a detached job someone is waiting on
 #: now; `background` one nobody is (Max, 2026-09-27: "uncap everything and
 #: instead use prioritization").
-PRIORITY_CLASSES = ("attended", "session", "background")
+PRIORITY_CLASSES = ("attended", "priority", "session", "background")
 
 
 @dataclass(frozen=True)
@@ -199,21 +200,40 @@ class Liveness:
     jobs: frozenset[str] = frozenset()
 
 
-def priority_class(job: Any, live: Liveness | None = None) -> str:
+def priority_class(job: Any, live: Liveness | None = None, *,
+                   policy: Mapping[str, Any] | None = None,
+                   jobs: Mapping[str, Any] | None = None) -> str:
     """C-6.9: a job's class, from what it records and who is live now.
 
-    A turn is `attended`. A gate round is `session`: a gate is always waited on
+    A turn is `attended`. Detached work whose caller or any ancestor's caller
+    is in `admission.priority_callers` is `priority` (C-6.16), regardless of
+    liveness. `jobs` supplies ancestor rows, including finished jobs; missing
+    parents end the walk, and a visited set terminates cycles.
+    Otherwise a gate round is `session`: a gate is always waited on
     by the `subfleet gate` that asked for it. Any other job is `session` while its
     caller's Claude Code session is live (a validated registry row names
     `caller_session`) or its parent job is unfinished; otherwise `background`. A
     caller's pid alone is not evidence: a live pid proves a process, not the
-    caller. With no liveness to read (`live` None) every detached job is
-    `session`, which orders as before.
+    caller. With no liveness to read (`live` None) every other detached job is
+    `session`, which orders as before when priority callers are unset.
     """
     job = _row(job)
     kind = job.get("kind")
     if kind == "turn":
         return "attended"
+    callers = {item.strip().lower() for item in admission_settings(policy or {})["priority_callers"] or ()}
+    if callers:
+        current = job
+        seen: set[str] = set()
+        while current:
+            session = str(current.get("caller_session") or "").strip().lower()
+            if session and session in callers:
+                return "priority"
+            parent = current.get("parent_job_id")
+            if not parent or parent in seen:
+                break
+            seen.add(parent)
+            current = _row((jobs or {}).get(parent, {}))
     if kind == "gate-review" or live is None:
         return "session"
     session = str(job.get("caller_session") or "").strip().lower()
@@ -224,11 +244,13 @@ def priority_class(job: Any, live: Liveness | None = None) -> str:
     return "background"
 
 
-def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness | None = None) -> list[dict[str, Any]]:
+def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness | None = None, *,
+                 ancestors: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     """C-4.1, C-6.9, C-26.9; plan amendment 11: class, then tier, then FIFO.
 
-    Classes go `attended`, `session`, `background` (`priority_class`); tiers
-    follow the policy's declared order; within both, oldest first. Stable
+    Classes go `attended`, `priority`, `session`, `background` (`priority_class`);
+    priority work is FIFO regardless of tier (C-6.16). Other classes keep the
+    policy's tier order, then oldest first. Stable
     sorting preserves the store's submission order when second-precision
     timestamps are tied.
     """
@@ -236,9 +258,15 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness 
     default = "standard" if "standard" in tiers else tiers[0]
     rank = {tier: index for index, tier in enumerate(tiers)}
     classes = {name: index for index, name in enumerate(PRIORITY_CLASSES)}
-    return sorted((_row(job) for job in jobs), key=lambda job: (
-        classes[priority_class(job, live)], rank.get(job.get("tier") or default, len(tiers)),
-        job.get("created_at") or ""))
+    rows = [_row(job) for job in jobs]
+    family = {**(ancestors or {}), **{job["job_id"]: job for job in rows if job.get("job_id")}}
+
+    def key(job: dict[str, Any]) -> tuple[int, int, str]:
+        klass = priority_class(job, live, policy=policy, jobs=family)
+        tier = 0 if klass == "priority" else rank.get(job.get("tier") or default, len(tiers))
+        return classes[klass], tier, job.get("created_at") or ""
+
+    return sorted(rows, key=key)
 
 
 def pool_capped(policy: Mapping[str, Any], job: Any) -> bool:
@@ -287,12 +315,12 @@ def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, k
     A class's threshold is met while the larger of the 1- and 5-minute load
     averages per logical CPU is at or above its `load_per_cpu`, or the kernel's
     memory pressure is at or above its `memory_pressure`. The larger average
-    holds quickly and lets go slowly, so a dip does not release a burst. A turn
-    is never held, nor is any class the guard does not name, and nothing is
-    held on a reading that is missing.
+    holds quickly and lets go slowly, so a dip does not release a burst. An
+    `attended` turn or `priority` job is never held, nor is any class the guard
+    does not name, and nothing is held on a reading that is missing.
     """
     guard = admission_settings(policy).get("machine_guard")
-    limits = (guard or {}).get(klass) if klass != "attended" else None
+    limits = (guard or {}).get(klass) if klass not in ("attended", "priority") else None
     if not limits or not machine:
         return None
     hold: dict[str, Any] = {}
@@ -331,7 +359,7 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            return frozenset(policy["chains"][task][tiers.index(job.get("tier") or default):])
+            return frozenset(flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default)))
     except (PolicyError, ValueError, KeyError):
         pass
     return None
@@ -364,6 +392,70 @@ def competes(models: frozenset[str] | None, other: frozenset[str] | None,
     if models is not None and other is not None and not models & other:
         return False
     return lanes is None or other_lanes is None or bool(lanes & other_lanes)
+
+
+def probe_turn(line: Iterable[tuple[str, str, frozenset[str] | None]], lane_id: str, model: str) -> str | None:
+    """C-6.9: the job whose turn it is to carry the probe of `model` on `lane_id`,
+    or None when it is the asker's.
+
+    `line` is the jobs of this pass that wait on an admission probe (C-11.4), in
+    the pass's order and so all ahead of the asker: each with the model its probe
+    is of and the lanes it could run on (`demand_lanes`; None is any lane). A
+    probe's prompt is fixed and it runs on the lane's credential in a private
+    directory, so its answer says nothing about the job that carried it, and the
+    first job in line that could use this one carries it. A job waiting on a
+    probe of another model, or pinned to another lane, has no use for this probe
+    and holds nobody."""
+    return next((job_id for job_id, wanted, lanes in line
+                 if wanted == model and (lanes is None or lane_id in lanes)), None)
+
+
+def probe_reach(policy: Mapping[str, Any], roster: Iterable[Mapping[str, Any]], model: str,
+                lanes: frozenset[str] | None, exclusions: Iterable[str]) -> frozenset[str]:
+    """C-6.9, C-11.4: the lanes whose probe of `model` a job could use: the lanes of
+    the model's provider in `roster` (as `Daemon._pin_roster` names them), only its
+    pin's when `lanes` (`demand_lanes`) names one, and never one its exclusions name,
+    by any of the names `evaluate` excludes by (`_identities`). A job waiting on a
+    probe holds the turn at exactly these lanes' probes (`probe_turn`)."""
+    provider = ((policy.get("models") or {}).get(model) or {}).get("provider")
+    excluded = {str(name) for name in exclusions}
+    return frozenset(str(lane["lane_id"]) for lane in roster
+                     if lane.get("provider") == provider and (lanes is None or lane["lane_id"] in lanes)
+                     and not _identities(lane) & excluded)
+
+
+def left_out_only(decision: Decision | Mapping[str, Any], lanes: Iterable[str]) -> bool:
+    """C-11.4: whether some lane of `lanes`, left out of an evaluation by the job's
+    probe choice, was refused for that alone (`excluded` its only reason), so an
+    evaluation without it could have chosen that lane."""
+    left = set(lanes)
+    return any(str(row.get("lane_id")) in left and set(row.get("reasons") or [row.get("reason")]) == {"excluded"}
+               for evaluation in _row(decision).get("evaluations", ())
+               for row in evaluation.get("rejections", ()))
+
+
+def promoted_past(decision: Decision | Mapping[str, Any], model: str) -> bool:
+    """C-11.4: whether `decision` walked past `model` to a later model of its chain
+    (it judged `model` and chose another). A model earlier in the chain is no
+    promotion: the walk stopped before it reached `model`."""
+    value = _row(decision)
+    return value.get("chosen_model") != model and any(
+        row.get("model") == model for row in value.get("evaluations", ()))
+
+
+def probe_lanes_taken(line: Iterable[tuple[str, str, frozenset[str] | None]],
+                      model: str) -> frozenset[str] | None:
+    """C-6.9: the lanes whose probe of `model` is the turn of a job in `line`
+    (`probe_turn` names one for exactly these lanes), or None when it is every
+    lane's: a job ahead waits on a probe of `model` and could run on any lane."""
+    taken: set[str] = set()
+    for _, wanted, lanes in line:
+        if wanted != model:
+            continue
+        if lanes is None:
+            return None
+        taken |= lanes
+    return frozenset(taken)
 
 
 def _parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
@@ -410,9 +502,15 @@ def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
     """
     model = policy["models"][short]
     higher = set()
-    for chain in policy["chains"].values():
-        if short in chain:
-            higher.update(chain[chain.index(short) + 1:])
+    for entries in policy["chains"].values():
+        for index in range(len(entries)):
+            within = flatten_chain(entries[index:index + 1])
+            if short in within:
+                # Slice after the first occurrence before deduping. A model
+                # named both before and after `short` still strands its lane
+                # under older string policies (C-23.37).
+                higher.update(flatten_chain([within[within.index(short) + 1:], *entries[index + 1:]]))
+                break
     priority = model.get("priority")
     if priority is not None:
         higher.update(name for name, other in policy["models"].items()
@@ -487,7 +585,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = [resolve_model(policy, job["pinned_model"])]
     elif task:
         default = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
-        chain = policy["chains"][task][policy["tiers"].index(tier or default):]
+        chain = flatten_chain(policy["chains"][task], policy["tiers"].index(tier or default))
     else:
         chain = []
     if chain and job_mcp_servers(job):
@@ -519,8 +617,6 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
-    # Repeated tiers on Fable and Terra do not create another admission chance.
-    chain = list(dict.fromkeys(chain))
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
     # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy

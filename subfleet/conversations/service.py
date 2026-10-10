@@ -11,6 +11,7 @@ from its turn's outcome. `daemon.py` calls it through a handful of seams:
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -30,7 +31,7 @@ from typing import Any, Callable
 from .. import descriptors, protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
-from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS
+from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..retention_git import discard_registration
 from ..salvage import SalvageError
@@ -41,7 +42,7 @@ from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
 from . import codex_brief, waits
-from .. import folders
+from .. import folders, resource_leases
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, judge, peer_pid
@@ -65,7 +66,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1", "workspace.check.v1")
+                "handoff.v1", "workspace.check.v1", "wake.v1")
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -128,14 +129,19 @@ class ConversationService:
         self.daemon = daemon
         self.root: Path = daemon.root
         self.store = ConversationStore(self.root)
+        from .wakes import WakeEngine
+        self.wakes = WakeEngine(self)
         # C-25.4, C-16.7: a long poll holds its thread for up to MAX_WAIT_S, so there
         # is one for every connection the daemon may hold, as for `wait`: a poll
         # queued behind others could outlast the app's deadline (wait_s + 15 s).
         self.polls = concurrent.futures.ThreadPoolExecutor(descriptors.CONNECTIONS_CEILING,
                                                            thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        self.history_reads = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-history")
+        self._moot_next: dict[str, tuple[str, float]] = {}
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
+        self._replaying_final_wakes = False
         # Merges into `conversations/models.json` (`_on_catalog`), one at a time. Not
         # the service lock: a merge waits for the store's write guard, which another
         # file write can hold across two fsyncs, and every poll, dispatch claim and
@@ -186,6 +192,8 @@ class ConversationService:
         # the pool takes none after. Each is bounded (a capped file read, git under
         # its caps), as the ops the daemon's own pools wait for are.
         self.files.shutdown(wait=True, cancel_futures=True)
+        self.history_reads.shutdown(wait=True, cancel_futures=True)
+        self.wakes.close()
         # A turn runner writes into the state root too: the store, an approval's request,
         # `conversations/models.json`, `turn.json`. One still in its iteration when close()
         # returned made the removed root again. Each finishes that iteration here, within
@@ -211,6 +219,8 @@ class ConversationService:
     def pool_for(self, op: str):
         if op in POLL_OPS:
             return self.polls
+        if op in ("conversation.open", "conversation.history"):
+            return self.history_reads
         if op in FILE_OPS:
             return self.files
         return self.daemon.requests
@@ -333,8 +343,9 @@ class ConversationService:
                            "image_input": seen.get("image_input"), "observed_at": seen.get("observed_at")})
         defaults = {}
         hard = (policy.get("tiers") or []).index("hard") if "hard" in (policy.get("tiers") or []) else None
-        hard_models = [chain[hard] for chain in (policy.get("chains") or {}).values()
-                       if hard is not None and len(chain) > hard]
+        hard_models = [short for chain in (policy.get("chains") or {}).values()
+                       if hard is not None and len(chain) > hard
+                       for short in flatten_chain(chain[hard:hard + 1])]
         for name in ("claude", "codex"):
             offered = [m for m in models if m["provider"] == name and not m["retired"]]
             preferred = ["opus"] if name == "claude" else hard_models
@@ -476,7 +487,8 @@ class ConversationService:
         cursor = self.store.one("SELECT COALESCE(MAX(seq),0) s FROM events WHERE conversation_id=?", (cid,))["s"]
         return {"conversation": self._view_live(conversation), "messages": [self._receipt(m, text=True) for m in self.store.messages(cid)],
                 "events_cursor": cursor, "pending_approvals": [self._approval_view(a) for a in
-                                                               self.store.approvals(conversation_id=cid)]}
+                                                               self.store.approvals(conversation_id=cid)],
+                "history": self.op_conversation_history({"conversation_id": cid}, peer)}
 
     def _open_native(self, native: dict) -> dict:
         from .catalog import native_session
@@ -496,10 +508,41 @@ class ConversationService:
                                     code=7, fix="use a handoff")
         settings = {"model": found["model_value"], "effort": None, "fast": False,
                     "permission": found["permission"], "auto_continue": True}
-        conversation, _ = self.store.create_conversation(
-            provider=provider, workspace=found["cwd"], workspace_kind="in-place", settings=settings, origin="native",
-            native_session_id=session_id, title=found.get("title"), lane_id=found.get("lane_id"))
+        # C-26.13: serialize the binding with reservation. Catalog/filesystem
+        # work is already finished; only SQL runs while the main lock is held.
+        with self._native_open_guard(provider, session_id):
+            conversation, _ = self.store.create_conversation(
+                provider=provider, workspace=found["cwd"], workspace_kind="in-place", settings=settings, origin="native",
+                native_session_id=session_id, title=found.get("title"), lane_id=found.get("lane_id"))
         return conversation
+
+    @contextlib.contextmanager
+    def _native_open_guard(self, provider: str, session_id: str):
+        """Use the job store's read interface, under its writer guard when available."""
+        jobs = self.daemon.store
+        transaction = getattr(jobs, "transaction", None)
+        # The daemon's Store routes query/one to its writing connection while
+        # this transaction is held (C-3.7). Read-only store adapters have no
+        # reservation writer to serialize with, but still check ownership.
+        guard = transaction("conversation.native_checked") if transaction else contextlib.nullcontext()
+        with guard:
+            self._check_native_open(jobs, provider, session_id)
+            yield
+
+    @staticmethod
+    def _check_native_open(jobs, provider: str, session_id: str) -> None:
+        for _, holder in resource_leases.native_holds(jobs.query, resource_leases.native_key(provider, session_id)):
+            live = jobs.one("SELECT job_id FROM jobs WHERE job_id=? AND "
+                              "(state NOT IN ('succeeded','failed','cancelled','lost') OR EXISTS "
+                              "(SELECT 1 FROM attempts WHERE attempts.job_id=jobs.job_id AND "
+                              "state IN ('reserved','starting','running','finalizing','quarantined'))) "
+                              "UNION SELECT j.job_id FROM jobs j JOIN attempts a USING(job_id) "
+                              "WHERE a.attempt_id=? AND (j.state NOT IN ('succeeded','failed','cancelled','lost') "
+                              "OR a.state IN ('reserved','starting','running','finalizing','quarantined'))",
+                            (holder, holder))
+            if live:
+                raise ConversationError("native-held", f"native session is held by live job {live['job_id']}",
+                                        code=7, fix="wait for that job to finish")
 
     def op_conversation_create(self, args, peer) -> dict:
         provider = args.get("provider") or "claude"
@@ -707,8 +750,15 @@ class ConversationService:
     def op_conversation_history(self, args, peer) -> dict:
         from .history import page
         conversation = self.store.conversation(args["conversation_id"])
+        messages = self.store.query("SELECT message_id,turn_ref FROM messages WHERE conversation_id=?", (conversation["conversation_id"],))
+        attempt = self.daemon.store.one(
+            "SELECT a.transcript_path FROM attempts a JOIN jobs j USING(job_id) "
+            "WHERE j.kind='turn' AND j.name=? AND a.native_session_id=? AND a.transcript_path IS NOT NULL "
+            "ORDER BY a.reserved_at DESC LIMIT 1", (f"turn-{conversation['conversation_id']}", conversation["native_session_id"]))
         return page(conversation, root=self.root, before=args.get("before"), limit=int(args.get("limit") or 50),
-                    lanes=self.daemon.store.lane_rows())
+                    lanes=self.daemon.store.lane_rows(), resolved_only=True,
+                    known_path=attempt["transcript_path"] if attempt else None,
+                    owned={m["message_id"] for m in messages}, owned_turns={m["turn_ref"] for m in messages if m["turn_ref"]})
 
     # --- ops: events -----------------------------------------------------------
 
@@ -798,8 +848,42 @@ class ConversationService:
             after_message_id=args.get("after_message_id"), text=str(args.get("text") or ""),
             attachments=attachments, settings=settings)
         if created:
+            self._yield_wakes(conversation["conversation_id"])
             self.daemon._notify()
         return self._receipt(message, created=created)
+
+    def _yield_wakes(self, cid: str) -> None:
+        """A queued wake yields to newly accepted person input, even at capacity.
+        The ordinary guarded cancellation refuses once an attempt has started.
+        """
+        for m in self.store.query("SELECT * FROM messages WHERE conversation_id=? AND origin='wake' "
+                                  "AND state IN ('queued','waiting')", (cid,)):
+            job = self._turn_job(m)
+            if job and not self._cancel_job_without_attempt(job["job_id"]):
+                continue
+            self.store.set_state(m["message_id"], QUEUED, reason="person-message-priority", expect=(QUEUED, WAITING),
+                                 turn_seq=m["turn_seq"] + 1, job_id=None)
+
+    def op_conversation_wake(self, args, peer) -> dict:
+        from .wakes import normalize
+        session = args.get("session_id")
+        conversation = self.bound_session(session) if isinstance(session, str) else None
+        if conversation is None and args.get("calling_job"):
+            job = self.daemon.store.one("SELECT name FROM jobs WHERE job_id=? AND kind='turn'", (args["calling_job"],))
+            if job and job["name"].startswith("turn-"):
+                conversation = self.store.conversation(job["name"][5:])
+        if conversation is None:
+            raise ConversationError("no-conversation", "wake needs a calling session bound to a conversation")
+        request_id = canonical_uuid(args["request_id"])
+        with self._lock:
+            accepted = self.store.one("SELECT created_at FROM wake_requests WHERE conversation_id=? AND request_id=?",
+                                      (conversation["conversation_id"], request_id))
+            validation_time = datetime.fromisoformat(accepted["created_at"].replace("Z", "+00:00")).timestamp() if accepted else self.wakes.now()
+            spec = normalize(runs=args.get("runs"), prs=args.get("prs"), at=args.get("at"), note=args.get("note", ""),
+                             now=validation_time)
+            # Older completion intents must register before this newer re-arm.
+            self._replay_final_wakes()
+            return self.wakes.register(conversation["conversation_id"], request_id, spec)
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message
@@ -1063,7 +1147,7 @@ class ConversationService:
 
     def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
         out = {k: message.get(k) for k in ("message_id", "conversation_id", "seq", "origin", "continues", "state",
-                                           "state_reason", "settings", "served", "turn_ref", "updated_at")}
+                                           "state_reason", "settings", "served", "turn_ref", "created_at", "updated_at")}
         out["steered_into"] = steered_into(message.get("state_reason"))
         out["stop_requested"] = bool(message.get("stop_requested_at"))
         if created is not None:
@@ -1697,7 +1781,8 @@ class ConversationService:
         """Called on the control loop's worker pool, never on a request thread. Each
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
-        for step in (self._lift_stale_fences, self._catalog_tick, self._dispatch, self._adopt_runners,
+        for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self._replay_final_wakes,
+                     self.wakes.control_tick, self._dispatch, self._adopt_runners,
                      self._replay_unsettled, self._settle_unstarted, self._close_ended_windows, self._reap_runners,
                      self._compact):
             if self._closed:
@@ -1713,6 +1798,34 @@ class ConversationService:
                 self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
+
+    def _moot_blocks(self) -> None:
+        from .catalog import external_writers, transcript_record
+        blocked = self.store.query("SELECT * FROM conversations WHERE blocked_by IN "
+                                   "('unfinished-turn','delivery-unknown','quarantined-turn') AND native_session_id IS NOT NULL")
+        active = {c["conversation_id"] for c in blocked}
+        self._moot_next = {cid: value for cid, value in self._moot_next.items() if cid in active}
+        for c in blocked:
+            if c["provider"] != "claude" or not c["blocked_at"]:
+                continue
+            previous = self._moot_next.get(c["conversation_id"])
+            if previous and previous[0] == c["blocked_at"] and self.clock() < previous[1]:
+                continue
+            self._moot_next[c["conversation_id"]] = (c["blocked_at"], self.clock() + EXTERNAL_WRITER_RECHECK_S)
+            record = transcript_record(self.root, c["provider"], c["native_session_id"])
+            if not record or record.get("mtime", 0) <= datetime.fromisoformat(c["blocked_at"].replace("Z", "+00:00")).timestamp():
+                continue
+            # Reuse admission's fresh C-26.3 check, never a stale catalog live flag.
+            if external_writers(c["native_session_id"]):
+                continue
+            if self.daemon.store.one("SELECT 1 FROM leases WHERE lease_key IN (?,?)",
+                                     (f"conversation:{c['conversation_id']}", f"native:claude:{c['native_session_id']}")):
+                continue
+            if self.daemon.store.one("SELECT 1 FROM jobs WHERE kind='turn' AND name=? AND state NOT IN "
+                                     "('succeeded','failed','cancelled','lost')", (f"turn-{c['conversation_id']}",)):
+                continue
+            self.store.clear_moot_block(c["conversation_id"], expected_block=c["blocked_by"],
+                                       expected_at=c["blocked_at"], mtime=record["mtime"])
 
     def _catalog_tick(self) -> None:
         """Start a catalog run every `catalog_interval_s`. Never waits for one: the
@@ -1992,9 +2105,10 @@ class ConversationService:
         if key.startswith(folders.EXCLUSIVE):
             if holder.startswith(folders.RETENTION):
                 tree = key[len(folders.EXCLUSIVE):]
+                kind = "job directory" if tree == str(self.daemon.root / "jobs" / str(job_id)) else "worktree"
                 if folder and tree != folder:
-                    return f"retention is removing a finished job's worktree that this folder is in ({tree})"
-                return "retention is removing a finished job's worktree in this folder"
+                    return f"retention is removing a finished job's {kind} that this folder is in ({tree})"
+                return f"retention is removing a finished job's {kind} in this folder ({tree})"
             job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
             if job and job["kind"] == "turn":
                 # A turn a daemon before 2026-09-29 admitted still holds the folder alone.
@@ -2292,6 +2406,19 @@ class ConversationService:
             if not self._adopt(attempt):
                 return                      # close() overtook
 
+    def _replay_final_wakes(self) -> None:
+        """Apply recorded re-arms in message order before evaluating wakes."""
+        with self._lock:
+            # A nested evaluation during registration must keep the intent fence,
+            # rather than recursively replaying the same unfinished final batch.
+            if self._replaying_final_wakes:
+                return
+            self._replaying_final_wakes = True
+            try:
+                self.wakes.replay_final()
+            finally:
+                self._replaying_final_wakes = False
+
     def _replay_unsettled(self) -> None:
         """Settle a live message whose turn attempt has ended with no runner left to
         settle it (C-25.3, C-26.6). Only a runner settles a delivered message, at its
@@ -2301,6 +2428,9 @@ class ConversationService:
         good, and its conversation with it (review of 585ea41..4d3d3ea). Each such
         attempt is replayed once by a runner that takes its provider as gone; one
         never started is `_settle_unstarted`'s."""
+        # Completion and this intent commit together. A completed message needs
+        # no runner replay, but its final-text requests may still need registering.
+        self._replay_final_wakes()
         live = (WAITING, STARTING, RUNNING, APPROVAL_NEEDED)
         rows = self.store.query(f"SELECT message_id, job_id FROM messages WHERE state IN ({','.join('?' * len(live))}) "
                                 "AND job_id IS NOT NULL", live)
@@ -2571,8 +2701,14 @@ class ConversationService:
             fields: dict[str, Any] = {"served": served}
             if settlement.state == COMPLETE:
                 fields["turn_ref"] = turn.get("turn_id") or message.get("turn_ref")
+                if turn.get("final_text"):
+                    fields["final_wake"] = (turn["final_text"], self.wakes.now())
             self.store.set_state(message["message_id"], settlement.state, reason=settlement.reason, expect=live,
                                  **fields)
+        if settlement.state == COMPLETE and turn.get("final_text"):
+            # Drain in message order: a pending older final cannot later replace
+            # the requests from this turn. The service lock serializes re-arms.
+            self._replay_final_wakes()
         self.daemon._notify()
 
     def _settle_steers(self, runner: TurnRunner, turn: dict, served: dict, *, host_block: str | None = None) -> bool:

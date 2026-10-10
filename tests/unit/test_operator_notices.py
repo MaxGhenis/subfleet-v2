@@ -493,6 +493,9 @@ def test_c15_8_a_notice_a_hook_printed_is_not_withdrawn(core, monkeypatch, capsy
     """C-15.3, C-15.8 the real UserPromptSubmit hook surfaces a service notice and
     marks it `surfaced`; a withdrawal from a listing made before that keeps it."""
     from subfleet import hooks
+    # This models a person's hook, including when pytest itself runs in a turn.
+    for marker in hooks.LAUNCH_MARKERS:
+        monkeypatch.delenv(marker, raising=False)
     seed(core.store, [("service", "s-hook", "pending", "codex: no dispatchable lanes\nRun: subfleet status")])
     (listed,) = core.dispatch("notice.list", {"session_id": "s-hook"})["notices"]
 

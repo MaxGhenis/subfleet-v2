@@ -103,6 +103,108 @@ def _require_file_bytes(entry: dict[str, Any], label: str) -> None:
         raise Defer("unarchived path", DEFER_ERROR_S, f"{label}/{entry['p']}")
 
 
+def _copy_sig(files_fd: int, name: str) -> str | None:
+    """The stat identity of one stored copy (any write or replacement changes it)."""
+    try:
+        st = os.stat(name, dir_fd=files_fd, follow_symlinks=False)
+        return rfs.sig_key(st) if stat.S_ISREG(st.st_mode) else None
+    except OSError:
+        return None
+
+
+def _read_back(files_fd: int, name: str, entry: dict[str, Any], check: rfs.Check | None) -> tuple[str | None, str | None]:
+    """A stored copy's sha256 (None if it is gone, the wrong size or unreadable) and its identity."""
+    try:
+        handle = os.open(name, rfs.O_FILE, dir_fd=files_fd)
+    except OSError:
+        return None, None
+    try:
+        st = os.fstat(handle)
+        digest = None
+        if stat.S_ISREG(st.st_mode) and st.st_size == entry["size"]:
+            digest, _ = rfs.read_hashes(handle, st.st_size, None, check)
+            if not rfs.same_content_signature(st, os.fstat(handle)):
+                digest = None
+    except (rfs.TreeError, OSError):
+        return None, None
+    finally:
+        os.close(handle)
+    return digest, rfs.sig_key(st)
+
+
+class _Copies:
+    """Revalidate named copies, durably recording every successful new readback.
+
+    The identity shortcut is used only for the current pathname, including
+    each source hard link. No result is memoized across source unlinks.
+    """
+
+    def __init__(self, files: Path, progress: Path, check: rfs.Check):
+        self.files, self.progress, self.check = files, progress, check
+        self.verified: dict[str, dict[str, Any]] = {}
+        try:
+            text = rfs.read_regular(progress, limit=4 << 30).decode()
+        except FileNotFoundError:
+            text = ""
+        for line in text.splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(record, dict) and str(record.get("k", "")).startswith("v:"):
+                self.verified.setdefault(record["k"][2:], {}).update(record)
+
+    def __enter__(self) -> _Copies:
+        try:
+            self.fd = rfs.open_dir(self.files)
+        except OSError:
+            self.fd = None
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+
+    def _current_directory(self) -> bool:
+        if self.fd is None:
+            return False
+        try:
+            named = os.stat(self.files, follow_symlinks=False)
+        except OSError:
+            return False
+        opened = os.fstat(self.fd)
+        return (named.st_dev, named.st_ino) == (opened.st_dev, opened.st_ino)
+
+    def holds(self, entry: dict[str, Any]) -> bool:
+        self.check()
+        name = entry.get("store")
+        if not name:
+            return entry["sig"]["t"] != "f" or bool(entry.get("blob") or entry.get("regen"))
+        if not self._current_directory():
+            return False
+        seen = self.verified.get(name, {})
+        if seen.get("sig") is not None and seen.get("sha256") == entry["sha256"] \
+                and seen["sig"] == _copy_sig(self.fd, name):
+            return True
+        digest, sig = _read_back(self.fd, name, entry, self.check)
+        if digest != entry["sha256"] or sig is None:
+            return False
+        record = {"k": "v:" + name, "sha256": digest, "sig": sig}
+        # A leading newline isolates a torn last record. Finish and sync this
+        # record before the next cancellation check, so a resume advances.
+        fd = os.open(self.progress, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            data = memoryview(b"\n" + _canonical(record) + b"\n")
+            while data:
+                data = data[os.write(fd, data):]
+            rfs.fullsync(fd)
+        finally:
+            os.close(fd)
+        self.verified[name] = record
+        # Persistence can take time; make the pathname check the last action.
+        return self._current_directory() and sig == _copy_sig(self.fd, name)
+
+
 @dataclass
 class Context:
     root: Path
@@ -511,10 +613,35 @@ class Retirement:
 
     # --- step 3: move into quarantine ------------------------------------------------------
 
+    def _fence_job_folder(self) -> None:
+        """Keep a turn's cwd, or fence the job directory before either rename.
+
+        Selection fences the allocated tree; its job directory also needs a
+        fence. Check and acquire it atomically, including on crash recovery.
+        The cwd can differ from the Git hold, so also read queued/live turn jobs.
+        """
+        assert self.journal is not None
+        folder = folders.canonical(self.journal["job_dir"])
+        key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
+        with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
+            self.ctx.check()
+            read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
+            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+                                 "('queued','running','waiting')").fetchall()
+            if folders.turn_holds(read, folder, inside=True) or any(
+                    folders.within(row["workdir"], folder) for row in turns):
+                raise Defer("turn-folder", DEFER_PINNED_S, folder)
+            current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if current and current[0] != holder:
+                raise Defer("job folder lease", DEFER_CHANGED_S, folder)
+            conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                         (key, holder, _now()))
+
     def quarantine(self) -> None:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        self._fence_job_folder()
         present = j.get("worktree_present")
         if j["worktree"] is not None and not j["moved"]["worktree"] and present is not None \
                 and os.path.lexists(j["worktree"]) != present:
@@ -720,12 +847,29 @@ class Retirement:
         for label in manifest["trees"]:
             if label not in dict(self.trees()):
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label} vanished")
+        self._check_copies(manifest)
         # Last: the archive holds the tree as it is, which a `.git` rewritten
         # before the archive read it passes; the tree and its registration
         # must also still be the ones `begin` read.
         changed = self._identity_changed()
         if changed is not None:
             raise Defer("changed after archive", DEFER_CHANGED_S, changed)
+
+    def _check_copies(self, manifest: dict[str, Any]) -> None:
+        """C-8.4: every stored copy is still the one that read back. A resumed
+        retirement skips the builder, so a copy lost or rewritten since its
+        readback is caught here, before the rows go: one whose identity moved
+        is read again, and one that does not read back keeps the job."""
+        with _Copies(self.building / "files", self.building / PROGRESS, self.ctx.check) as copies:
+            checked: set[str] = set()
+            for label, tree in manifest["trees"].items():
+                for entry in tree["entries"]:
+                    name = entry.get("store")
+                    if not name or name in checked:
+                        continue
+                    checked.add(name)
+                    if not copies.holds(entry):
+                        raise Defer("archive did not read back", DEFER_ERROR_S, f"{label}/{entry['p']}")
 
     # --- step 6: commit ------------------------------------------------------------------
 
@@ -766,6 +910,13 @@ class Retirement:
                     if not reason and j["worktree"] and folders.turn_holds(
                             lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
                         reason = "turn-folder"
+                    # And a `worktree:` lease on a folder inside it, held by a
+                    # detached writer in a repository nested there (review of
+                    # 31048e67, F3); the tree's own key is checked below.
+                    if not reason and j["worktree"] and any(
+                            holder != f"retention:{self.job_id}" for _, holder in folders.exclusive_inside(
+                                lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"])):
+                        reason = "worktree-lease"
                     held = {row["lease_key"]: row["holder"] for row in conn.execute(
                         "SELECT lease_key,holder FROM leases WHERE lease_key IN (?,?)",
                         (f"retire:{self.job_id}", f"worktree:{j['worktree']}")).fetchall()}
@@ -806,9 +957,8 @@ class Retirement:
     # --- step 7: publish ---------------------------------------------------------------
 
     def publish(self) -> None:
-        """Move the verified archive into place. Its progress log goes: a
-        published archive never resumes, and the manifest says everything the
-        log did (final review of e50716e8, N6: about 357 bytes per stored file)."""
+        """Publish the archive; keep verification progress beside the journal
+        until reclamation finishes, never in a completed published archive."""
         j = self.journal
         assert j is not None and j.get("archive")
         target = self.root / "archive" / j["archive"]
@@ -818,13 +968,39 @@ class Retirement:
             rfs.sync_path(self.root / "archive")
             rfs.sync_path(self.work)
         try:
-            (target / PROGRESS).unlink()
+            os.replace(target / PROGRESS, self.work / PROGRESS)
+            rfs.sync_path(self.work)
             rfs.sync_path(target)
         except FileNotFoundError:
             pass
         self.save(state="published")
 
     # --- step 8: verified deletion ---------------------------------------------------------
+
+    def _fence_quarantine(self) -> str | None:
+        """Keep live turns in quarantine, or atomically fence it before cleanup.
+
+        A turn may start at the quarantine path after the original tree moved.
+        Rows also protect quarantined attempts; recorded live cwd paths cover
+        a Git hold elsewhere. Queued turns wait on this fence without keeping
+        cleanup waiting for their admission. Spell the path outside the writer.
+        """
+        folder = folders.canonical(self.work)
+        key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
+        with self.ctx.store.transaction("retention.quarantine_folder", job_id=self.job_id) as conn:
+            self.ctx.check()
+            read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
+            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+                                 "('running')").fetchall()
+            if folders.turn_holds(read, folder, inside=True) or any(
+                    folders.within(row["workdir"], folder) for row in turns):
+                return f"turn-folder: {folder}"
+            current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if current and current[0] != holder:
+                return f"quarantine folder lease: {folder}"
+            conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                         (key, holder, _now()))
+        return None
 
     def reclaim(self) -> dict[str, Any]:
         """Verified deletion of the quarantined trees, then of the admin directory.
@@ -848,6 +1024,9 @@ class Retirement:
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
                                   "admin_kept": False, "done": False, "totals": manifest["totals"],
                                   "added_bytes": added_bytes(self.published_dir(), manifest["totals"])}
+        if reason := self._fence_quarantine():
+            report["errors"].append({"path": str(self.work), "error": reason})
+            return report
         if not isinstance(j.get("identity"), dict) and os.path.lexists(self.q_worktree):
             # An older pass may already have committed the lookup race. Its
             # rows cannot be rolled back, but its remaining tree and private
@@ -863,8 +1042,9 @@ class Retirement:
 
         def delete(label: str, path: Path) -> None:
             entries = {e["p"]: e for e in trees[label]["entries"]}
-            deleter = rfs.Reclaim(entries, self.conflicts, label, check=self.ctx.check)
-            deleter.run(path)
+            with _Copies(self.published_dir() / "files", self.work / PROGRESS, self.ctx.check) as copies:
+                deleter = rfs.Reclaim(entries, self.conflicts, label, check=self.ctx.check, preserved=copies.holds)
+                deleter.run(path)
             report["deleted"] += deleter.deleted
             report["bytes"] += deleter.bytes
             report["kept"].extend({**k, "tree": label} for k in deleter.kept)
@@ -900,11 +1080,16 @@ class Retirement:
             return report
         for extra in ("verify.git", "archive"):
             rfs.remove_own_tree(self.work / extra)
+        try:
+            (self.work / PROGRESS).unlink()
+        except FileNotFoundError:
+            pass
         self._drop_journal()
         try:
             os.rmdir(self.work)
         except OSError:
             pass
+        self.ctx.store.release_leases(f"retention:{self.job_id}")
         report["done"] = True
         return report
 
@@ -1001,6 +1186,13 @@ class Retirement:
             raise RuntimeError("a committed retirement cannot be rolled back")
         if j["state"] == "quarantining":
             self._reconcile_moves()
+        # Preserve the intended rollback across a restart while a turn keeps
+        # the quarantine in place; recovery must not commit this archive.
+        self.save(rollback_pending={"reason": reason, "keep_cache": keep_cache, "failures": failures,
+                                    "defer_until": defer_until})
+        if kept := self._fence_quarantine():
+            report["kept"] = kept
+            return report
         keep_lock = False
         for name, original, target in (("worktree", j["worktree"], self.q_worktree), ("job", j["job_dir"], self.q_job)):
             if original is None or not os.path.lexists(target):
@@ -1029,7 +1221,7 @@ class Retirement:
             conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{self.job_id}",))
         if keep_cache and os.path.isdir(self.building):
             self.save(state="idle", lock=None, check1=False, reason=reason, idle_since=time.time(),
-                      failures=failures, defer_until=defer_until)
+                      failures=failures, defer_until=defer_until, rollback_pending=None)
         else:
             self._drop_journal()
             try:
@@ -1613,10 +1805,7 @@ class _Builder:
 
     def _store(self, entry: dict[str, Any], fd: int, before: os.stat_result, key: str, files_fd: int,
                links: dict[tuple[int, int], str], totals: dict[str, int]) -> None:
-        try:
-            os.unlink(key, dir_fd=files_fd)       # a clone of a crashed attempt, unrecorded
-        except FileNotFoundError:
-            pass
+        self._discard_store(files_fd, key)       # a clone of a crashed attempt, unrecorded
         method = rfs.clone_or_copy(fd, files_fd, key, self.ctx.check)
         digest, _ = rfs.read_hashes(fd, before.st_size, None, self.ctx.check)
         after = os.fstat(fd)
@@ -1641,9 +1830,19 @@ class _Builder:
     def _stored_ok(self, files_fd: int, name: str, size: int) -> bool:
         try:
             st = os.stat(name, dir_fd=files_fd, follow_symlinks=False)
-        except FileNotFoundError:
+        except OSError:
             return False
         return stat.S_ISREG(st.st_mode) and st.st_size == size
+
+    def _discard_store(self, files_fd: int, name: str) -> None:
+        try:
+            st = os.stat(name, dir_fd=files_fd, follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                rfs.remove_own_tree(self.files / name)
+            else:
+                os.unlink(name, dir_fd=files_fd)
+        except FileNotFoundError:
+            pass
 
     def _verify_omissions(self, trees: dict[str, dict[str, Any]], common: Path | None, fmt: str | None,
                           files_fd: int, totals: dict[str, int]) -> None:
@@ -1796,24 +1995,17 @@ class _Builder:
                     if not name or name in checked:
                         continue
                     checked.add(name)
-                    if self.progress.get("v:" + name, {}).get("sha256") == entry["sha256"]:
+                    seen = self.progress.get("v:" + name, {})
+                    if seen.get("sha256") == entry["sha256"] and seen.get("sig") is not None \
+                            and seen["sig"] == _copy_sig(fd, name):
                         continue
                     self._tick()
-                    handle = os.open(name, rfs.O_FILE, dir_fd=fd)
-                    try:
-                        st = os.fstat(handle)
-                        digest = None
-                        if st.st_size == entry["size"]:
-                            digest, _ = rfs.read_hashes(handle, st.st_size, None, self.ctx.check)
-                    except rfs.TreeError:
-                        digest = None
-                    finally:
-                        os.close(handle)
+                    digest, sig = _read_back(fd, name, entry, self.ctx.check)
                     if digest != entry["sha256"]:
-                        os.unlink(name, dir_fd=fd)
+                        self._discard_store(fd, name)
                         bad.append(entry["p"])
                         continue
-                    self._note({"k": "v:" + name, "sha256": digest})
+                    self._note({"k": "v:" + name, "sha256": digest, "sig": sig})
         finally:
             os.close(fd)
         if bad:

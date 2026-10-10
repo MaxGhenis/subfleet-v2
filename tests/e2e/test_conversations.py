@@ -143,6 +143,32 @@ def conv(e2e):
     return Conversations(e2e)
 
 
+def assert_claude_reply_events(events: list[dict], message_id: str, expected_text: str) -> None:
+    """Check the canned reply's stream without ordering independent settings replies."""
+    events = [event for event in events if event["message_id"] == message_id]
+    sequences = [event["seq"] for event in events]
+    assert sequences == sorted(set(sequences)), events  # C-25.4: the cursor's order, once each
+    kinds = [event["kind"] for event in events]
+    assert kinds.count("accepted") == 1 and kinds.count("turn.completed") == 1, kinds
+    assert "text" in kinds, kinds
+    # C-24.4, C-26.6: preserve the fake reply's acknowledgement, text and result
+    # order. C-26.5 permits output after result; C-26.8 records served settings
+    # when reported. A get_settings response can therefore follow turn.completed.
+    assert kinds.index("accepted") < kinds.index("text") < kinds.index("turn.completed"), kinds
+    accepted = events[kinds.index("accepted")]
+    text = events[kinds.index("text")]
+    completed = events[kinds.index("turn.completed")]
+    assert accepted["data"]["message_id"] == message_id, accepted
+    assert text["data"]["text"] == expected_text, text
+    assert completed["data"]["state"] == "complete", completed
+    # Only the late settings answer may follow completion (C-26.8): a served
+    # event carrying effort, nothing else. A duplicated reply, text or status
+    # after turn.completed still fails.
+    after = events[kinds.index("turn.completed") + 1:]
+    assert all(event["kind"] == "served" for event in after), kinds
+    assert all(set(event["data"]) <= {"effort"} for event in after), after
+
+
 def test_a_claude_conversation_streams_completes_and_continues_in_the_same_session(conv):
     """C-24.1, C-24.4, C-25.5, C-26.1, C-26.5: a message becomes one turn job whose
     provider sees it once, with its id as the uuid; events stream; a follow-up
@@ -151,10 +177,7 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     first = conv.submit(cid, "hello there")
     done = conv.until_state(first, "complete", "failed", "delivery-unknown")
     assert done["state"] == "complete", done
-    kinds = [e["kind"] for e in conv.events(cid)]
-    assert "accepted" in kinds and "text" in kinds and kinds[-1] == "turn.completed"
-    text = [e for e in conv.events(cid) if e["kind"] == "text"][-1]["data"]["text"]
-    assert text == "Fake Claude read 11 characters."
+    assert_claude_reply_events(conv.events(cid), first, "Fake Claude read 11 characters.")
 
     conversation = conv.call("conversation.open", conversation_id=cid)["conversation"]
     session = conversation["native_session_id"]
@@ -164,6 +187,7 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
 
     second = conv.submit(cid, "and again", after_message_id=first)
     assert conv.until_state(second, "complete", "failed", "delivery-unknown")["state"] == "complete"
+    assert_claude_reply_events(conv.events(cid), second, "Fake Claude read 9 characters.")
     launches = [row["argv"] for row in conv.turn_log() if "argv" in row]
     assert launches[0][launches[0].index("--session-id") + 1] == session
     assert launches[1][launches[1].index("--resume") + 1] == session
@@ -259,10 +283,13 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
     job = e2e.job(job_id)
     assert (job["kind"], job["caller_session"]) == ("dispatch", session)
     e2e.until(lambda: e2e.job(job_id)["state"] in TERMINAL_JOB_STATES, timeout=60)
-    notice = e2e.until(lambda: next(iter(e2e.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))), None),
+    notice = e2e.until(lambda: next(iter(e2e.rows("SELECT * FROM notices WHERE job_id=? AND state='surfaced'", (job_id,))), None),
                        timeout=30)
-    assert (notice["session_id"], notice["state"]) == (session, "pending")
-    assert all(row["stdout"] == "" for row in conv.turn_log() if "hook" in row)
+    assert (notice["session_id"], notice["transport"]) == (session, "conversation")
+    wake = e2e.until(lambda: next((m for m in conv.call("conversation.open", conversation_id=cid)["messages"]
+                                 if m["origin"] == "wake"), None), timeout=30)
+    assert conv.until_state(wake["message_id"], "complete", "failed", timeout=60)["state"] == "complete"
+    assert job_id in wake["text"]
     pinged = conv.call("ping", session_id=session, text="subfleet: a resume nudge for this session")
     assert pinged["notice_id"] is not None
 
@@ -271,15 +298,14 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
     hooks_ran = [row for row in conv.turn_log() if "hook" in row]
     assert [(row["hook"], row["source"]) for row in hooks_ran] == [
         ("SessionStart", "startup"), ("UserPromptSubmit", None),
+        ("SessionStart", "resume"), ("UserPromptSubmit", None),
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], hooks_ran
     started, prompted = hooks_ran[2], hooks_ran[3]
     assert started["rc"] == 0 and prompted["rc"] == 0
-    context = json.loads(started["stdout"])["hookSpecificOutput"]["additionalContext"]
-    assert "1 detached run dispatched by this session" in context and job_id in context
-    assert prompted["stdout"] == "", "surfaced once, by the first hook of the turn"
+    assert all(row["stdout"] == "" for row in hooks_ran), "the conversation message carries the job's notice once"
     assert "resume nudge" not in started["stdout"] + prompted["stdout"]
     assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
-        {"state": "surfaced", "transport": "hook:SessionStart"}]
+        {"state": "surfaced", "transport": "conversation"}]
     assert [row["state"] for row in e2e.rows(
         "SELECT state FROM service_notices WHERE session_id=?", (session,))] == ["pending"]
 

@@ -47,6 +47,10 @@ def last_message(fixture: Path, stdout: bytes) -> bytes | None:
             and isinstance(item.get("text"), str)
         ):
             last = item["text"].encode()
+        if event.get("type") == "turn.failed":
+            # A failed turn leaves no --output-last-message file, even after an
+            # agent message (20261009-092734-pr158-review-sol, gpt-6.1-sol).
+            return None
     return last
 
 
