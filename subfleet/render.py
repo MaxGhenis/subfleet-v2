@@ -251,8 +251,10 @@ def disk_line(reading: Mapping[str, Any]) -> str:
     free = reading.get("free_gb")
     free_text = "unknown" if free is None else f"{free:.2f} GB"
     mode = "disabled" if not reading.get("enabled") else "holding" if reading.get("holding") else "open"
+    floor = reading["floor_gb"]
+    floor_text = floor if isinstance(floor, str) else f"{floor:g}"
     return (f"disk: free {free_text}, reserved {reading['reserved_gb']:.2f} GB, "
-            f"floor {reading['floor_gb']:g} GB; {mode}"
+            f"floor {floor_text} GB; {mode}"
             + f"; {disk_floor_detail(reading)}"
             + (f" ({reading['error']})" if reading.get("error") else ""))
 

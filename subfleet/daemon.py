@@ -2977,11 +2977,12 @@ class Daemon:
         return hold
 
     def _save_disk_floor(self) -> None:
-        source = self._disk.floor_info["floor_source"]
+        floor_info = disk.reported_evidence(self._disk.floor_info)
+        source = floor_info["floor_source"]
         if self._disk.settings["enabled"] and source != self._disk_saved_source:
             with self.store.transaction("admission.disk_floor.recorded") as tx:
                 tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
-                           (utcnow(), "admission.disk_floor", json.dumps(self._disk.floor_info)))
+                           (utcnow(), "admission.disk_floor", json.dumps(floor_info, allow_nan=False)))
             self._disk_saved_source = source
 
     def _why_job(self, job: dict) -> dict:

@@ -338,3 +338,73 @@ def test_restart_recovers_floor_source_and_rechecks_offline_expiry(state_daemon,
             assert restarted._disk.snapshot["resume_margin_gb"] == 5 and restarted._disk.holding
     finally:
         restarted.close()
+
+
+@pytest.mark.parametrize("fields", [
+    {"floor_gb": "Infinity"},
+    {"release_margin_gb": "Infinity"},
+    {"why": float("nan")},
+    {"why": {"value": float("inf")}},
+    {"ruling": "\ud800"},
+    {"why": "\ud800"},
+], ids=["infinite-floor", "infinite-margin", "nan-why", "nested-infinite-why",
+        "surrogate-ruling", "surrogate-why"])
+def test_review_live_ruling_status_is_valid_wire_json(state_daemon, monkeypatch, fields):
+    from subfleet import protocol
+    from tests.disk_floor_model import Files, LOWER, file, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    reading = enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=None)
+    daemon._disk.read_ruling = Files(file(lowering(**fields)))
+    daemon._admit()
+    result = daemon.dispatch("daemon.status", {})
+
+    def forbidden(token):
+        raise ValueError("wire contains non-JSON constant: " + token)
+
+    wire = protocol.encode({"v": 1, "id": "review", "ok": True, "result": result})
+    json.loads(wire, parse_constant=forbidden)
+    assert result["disk"]["holding"] == ("floor_gb" in fields)
+    for key in ("floor_gb", "resume_margin_gb"):
+        if result["disk"][key] == "inf":
+            assert result["disk"][key + "_raw"] == "Infinity"
+
+    job = submit(daemon, harness)
+    reading["gb"] = 0
+    daemon._admit()
+    assert daemon._holds[job]["reason"] == "disk"
+    for op, args in (("daemon.status", {}), ("why", {"job_id": job})):
+        result = daemon.dispatch(op, args)
+        wire = protocol.encode({"v": 1, "id": "review", "ok": True, "result": result})
+        json.loads(wire, parse_constant=forbidden)
+    rows = daemon.store.query("SELECT data_json FROM events WHERE kind='admission.disk_floor'")
+    assert len(rows) == 1
+    for row in rows:
+        event = json.loads(row["data_json"], parse_constant=forbidden)
+        protocol.encode(event)
+    # Notices sign the same reported holds; they must also encode strictly.
+    daemon.conversations.note_holds(daemon._holds)
+    for signature, _ in daemon.conversations._noted.values():
+        json.loads(signature, parse_constant=forbidden)
+
+
+@pytest.mark.parametrize("fields", [
+    {"floor_gb": "Infinity"},
+    {"why": {"\ud800": [float("nan"), float("-inf"), "\udfff"]}},
+])
+def test_raise_ruling_evidence_is_safe(state_daemon, monkeypatch, fields):
+    from subfleet import protocol
+    from tests.disk_floor_model import Files, RAISE, file
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=None, raise_path=RAISE)
+    daemon._disk.read_ruling = Files(raised=file({"floor_gb": 80, "until": stamp(100), **fields}))
+    job = submit(daemon, harness)
+    daemon._admit()
+    assert daemon._disk.holding
+    for result in (daemon.dispatch("daemon.status", {}), daemon.dispatch("why", {"job_id": job}),
+                   *rulings(daemon)):
+        json.dumps(result, allow_nan=False, ensure_ascii=False).encode("utf-8")
+        protocol.encode(result)

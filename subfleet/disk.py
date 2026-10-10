@@ -72,9 +72,13 @@ def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) ->
             until = _until(ov["until"])
             floor = float(ov["floor_gb"])
             parsed = {"floor_gb": floor, "until": str(ov["until"]), "why": ov.get("why")}
+            if not math.isfinite(floor):
+                parsed["floor_gb_raw"] = str(ov["floor_gb"])
             if name == "lower":
                 parsed.update(ruling=str(ov.get("ruling") or "").strip(),
                               release_margin_gb=max(0.0, float(ov.get("release_margin_gb", 0.0))))
+                if not math.isfinite(parsed["release_margin_gb"]):
+                    parsed["resume_margin_gb_raw"] = str(ov["release_margin_gb"])
                 if ov.get("drop_gb") is not None:
                     float(ov["drop_gb"])
                 float(ov.get("drop_window_min", 10.0))
@@ -103,13 +107,34 @@ def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) ->
     if lower is not None and (raised is None or raised["floor_gb"] <= lower["floor_gb"]):
         info.update(floor_gb=lower["floor_gb"], resume_margin_gb=lower["release_margin_gb"],
                     floor_source=f"lowered until {lower['until']} by {lower['ruling']}", floor_why=lower["why"])
+        info.update({key: lower[key] for key in ("floor_gb_raw", "resume_margin_gb_raw") if key in lower})
     elif raised is not None:
         # pass_once uses the raw raise when it beats a live lowering, even
         # below the policy floor. With no lowering, floor_gb only ever raises.
         info.update(floor_gb=raised["floor_gb"] if lower is not None else max(settings["floor_gb"], raised["floor_gb"]))
         if lower is not None or raised["floor_gb"] > settings["floor_gb"]:
             info.update(floor_source=f"raised until {raised['until']}", floor_why=raised["why"])
+            if "floor_gb_raw" in raised:
+                info["floor_gb_raw"] = raised["floor_gb_raw"]
     return info
+
+
+def reported_evidence(value: Any) -> Any:
+    """Copy ruling evidence into strict JSON values without changing admission.
+
+    Keep non-finite numbers as text and replace lone surrogates in strings,
+    including nested why metadata and object keys, for UTF-8 wire readers.
+    The original floor/margin and source remain available to the latch.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, str):
+        return "".join("\ufffd" if 0xD800 <= ord(char) <= 0xDFFF else char for char in value)
+    if isinstance(value, dict):
+        return {reported_evidence(key): reported_evidence(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [reported_evidence(item) for item in value]
+    return value
 
 
 def free_bytes(path: str | Path) -> int:
@@ -239,7 +264,7 @@ class DiskAdmission:
         return {"reason": "disk", **self.snapshot} if self.holding else None
 
     def _snapshot(self) -> dict[str, Any]:
-        return {"enabled": self.settings["enabled"],
+        return reported_evidence({"enabled": self.settings["enabled"],
                 "free_gb": None if self.measured is None else self.measured / GB,
                 "reserved_gb": self.reserved_bytes / GB,
                 "floor_gb": self.settings["floor_gb"],
@@ -247,4 +272,4 @@ class DiskAdmission:
                 "placement_reserve_gb": self.settings["placement_reserve_gb"],
                 "holding": self.holding, "path": str(self.settings["path"] or self.state_root),
                 **self.floor_info,
-                **({"error": self.error} if self.error else {})}
+                **({"error": self.error} if self.error else {})})

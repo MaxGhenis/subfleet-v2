@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 
 import pytest
@@ -40,10 +41,42 @@ def test_F1_agent_differential(lower, raised, now, base, margin, minimum, hours,
     gate = DiskAdmission("/fake/state", read_free=lambda path: free * GB, read_ruling=files)
     gate.begin_pass(cfg, [], stamp(now))
     gate.hold("background")  # Including the agent's infinities, never overflow.
-    assert gate.snapshot["floor_gb"] == expected_floor
-    assert gate.snapshot["resume_margin_gb"] == expected_margin
+    # Admission retains the oracle's numbers; only published evidence is text.
+    assert gate.settings["floor_gb"] == expected_floor
+    assert gate.settings["resume_margin_gb"] == expected_margin
+    assert gate.snapshot["floor_gb"] == (expected_floor if math.isfinite(expected_floor) else str(expected_floor))
+    assert gate.snapshot["resume_margin_gb"] == (expected_margin if math.isfinite(expected_margin) else str(expected_margin))
     assert gate.snapshot["floor_source"].startswith({"lower": "lowered", "override": "raised", "policy": "policy"}[source])
     assert {key for key in gate.snapshot if key.endswith(("_error", "_expired", "_refused"))} == reasons
+
+
+def test_snapshot_sanitizes_nested_metadata_without_mutating_ruling():
+    why = {"\ud800": [float("nan"), float("inf"), float("-inf"), "\udfff", "é 😀"]}
+    gate = DiskAdmission("/fake/state", read_free=lambda path: 34 * GB,
+                         read_ruling=Files(file(lowering(why=why))))
+    gate.begin_pass(policy(), [], stamp(0))
+    assert not gate.holding
+    assert gate.snapshot["floor_why"] == {"\ufffd": ["nan", "inf", "-inf", "\ufffd", "é 😀"]}
+    json.dumps(gate.snapshot, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    original = gate.floor_info["floor_why"]["\ud800"]
+    assert math.isnan(original[0]) and original[1:3] == [float("inf"), float("-inf")]
+    assert original[3:] == ["\udfff", "é 😀"]
+
+
+@pytest.mark.parametrize("fields,prior_hold,holding,key", [
+    ({"floor_gb": "1e999"}, False, True, "floor_gb"),
+    ({"release_margin_gb": "Infinity"}, True, True, "resume_margin_gb"),
+])
+def test_nonfinite_floor_and_margin_keep_admission_arithmetic(fields, prior_hold, holding, key):
+    gate = DiskAdmission("/fake/state", holding=prior_hold, read_free=lambda path: 100 * GB,
+                         read_ruling=Files(file(lowering(**fields))))
+    gate.begin_pass(policy(), [], stamp(0))
+    assert math.isinf(gate.settings[key])
+    assert math.isinf(gate.floor_info[key])
+    assert gate.snapshot[key] == "inf"
+    assert gate.snapshot[key + "_raw"] == next(iter(fields.values()))
+    assert gate.holding is holding and gate.hold("background") is not None
+    assert gate.hold("attended") is None and gate.hold("probe") is None
 
 
 @PROPERTIES
@@ -244,3 +277,56 @@ def test_F5_null_paths_match_161_decisions(tmp_path, sequence, floor, margin, re
                 gate.reserve(aid, stamp(now))
                 budgets[aid] = now + 600
         assert gate.reserved_bytes == reserve * GB * len(budgets)
+
+
+# Review expectations calculated independently from the external agent.
+FIDELITY_CASES = [
+ ('naive-local-live', {'floor_gb':30,'until':'2026-10-09T13:00:00','ruling':'Max'},None,0,30,0,None),
+ ('naive-local-expired', {'floor_gb':30,'until':'2026-10-09T12:00:00','ruling':'Max'},None,0,40,5,'lower_expired'),
+ ('until-exact-now-lower',lowering(until=0),None,0,40,5,'lower_expired'),
+ ('until-exact-now-raise',None,{'floor_gb':80,'until':stamp(0)},0,40,5,'override_expired'),
+ ('future-mtime-capped',lowering(until=17*3600),None,5*3600,40,5,'lower_refused'),
+ ('future-mtime-within-cap',lowering(until=16*3600),None,5*3600,30,0,None),
+ ('numeric-strings',lowering('30',release_margin_gb='2.5'),None,0,30,2.5,None),
+ ('numeric-string-raise',None,{'floor_gb':'80.5','until':stamp(100)},0,80.5,5,None),
+ ('lower-nan',lowering('NaN'),None,0,40,5,'lower_refused'),
+ ('raise-nan',None,{'floor_gb':'NaN','until':stamp(100)},0,40,5,'override_expired'),
+ ('lower-positive-infinity',lowering('Infinity'),None,0,math.inf,0,None),
+ ('raise-positive-infinity',None,{'floor_gb':'Infinity','until':stamp(100)},0,math.inf,5,None),
+ ('lower-negative-infinity',lowering('-Infinity'),None,0,40,5,'lower_refused'),
+ ('raise-negative-infinity',None,{'floor_gb':'-Infinity','until':stamp(100)},0,40,5,None),
+ ('numeric-ruling',lowering(ruling=17),None,0,30,0,None),
+ ('object-ruling',lowering(ruling={'name':'Max'}),None,0,30,0,None),
+ ('false-ruling',lowering(ruling=False),None,0,40,5,'lower_refused'),
+ ('equal-raise',lowering(release_margin_gb=1),{'floor_gb':30,'until':stamp(100)},0,30,1,None),
+ ('raise-below-policy',lowering(),{'floor_gb':35,'until':stamp(100)},0,35,5,None),
+ ('bad-drop-gb',lowering(drop_gb='bad'),None,0,40,5,'lower_error'),
+ ('bad-drop-window',lowering(drop_window_min=[]),None,0,40,5,'lower_error'),
+ ('null-drop-window',lowering(drop_window_min=None),None,0,40,5,'lower_error'),
+ ('null-drop-gb',lowering(drop_gb=None),None,0,30,0,None),
+ ('nan-release-margin',lowering(release_margin_gb='NaN'),None,0,30,0,None),
+ ('negative-release-margin',lowering(release_margin_gb=-4),None,0,30,0,None),
+ ('infinite-release-margin',lowering(release_margin_gb='Infinity'),None,0,30,math.inf,None),
+]
+
+@pytest.mark.parametrize("name,lower,raised,written,floor,margin,reason", FIDELITY_CASES,
+                         ids=[case[0] for case in FIDELITY_CASES])
+def test_review_adversarial_fidelity(monkeypatch, name, lower, raised, written, floor, margin, reason):
+    import time
+    with monkeypatch.context() as zone:
+        zone.setenv("TZ", "America/New_York")
+        time.tzset()
+        try:
+            files = Files(file(lower, written) if lower is not None else None,
+                          file(raised) if raised is not None else None)
+            gate = DiskAdmission("/fake/state", read_free=lambda path: 100 * GB, read_ruling=files)
+            gate.begin_pass(policy(), [], stamp(0))
+            assert (gate.settings["floor_gb"], gate.settings["resume_margin_gb"]) == (floor, margin)
+            assert gate.snapshot["floor_gb"] == (floor if math.isfinite(floor) else str(floor))
+            assert gate.snapshot["resume_margin_gb"] == (margin if math.isfinite(margin) else str(margin))
+            if reason:
+                assert reason in gate.snapshot
+            assert (gate.hold("background") is not None) == (100 - 1.5 < floor)
+        finally:
+            zone.undo()
+            time.tzset()
