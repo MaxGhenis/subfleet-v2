@@ -96,7 +96,8 @@ def test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fen
         assert seen["fence"] == "retention:retired", seen
         assert not seen["live"] and seen["own"] is None, seen
         assert seen["hold"]["reason"] == "lease-held" and seen["hold"]["leases"] == [fence], seen
-        assert f"held by another job: {fence}" in seen["why"], seen["why"]
+        assert (f"Held: retention is removing a finished job's worktree that its folder {nested} is in ({tree})"
+                in seen["why"]), seen["why"]
         assert daemon._job(writer)["state"] == "waiting"
         assert daemon.store.one("SELECT 1 FROM leases WHERE holder='retention:retired'") is None
         daemon._admit()
@@ -291,9 +292,12 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
     those folders and on the folders above them up to `/`, held by retentions, a gate
     round or a job: the writer is held exactly when a lease is on its own folder (any
     holder, contested as before) or retention holds one on a folder it is inside
-    (`folders.within`, whole names); its hold names exactly those keys, once each; and
-    otherwise it is placed on its own lease (C-8.4, C-6.5)."""
-    from hypothesis import HealthCheck, given, settings, strategies as st
+    (`folders.within`, whole names). While retention's fence covers its folder, its hold
+    names exactly the fences, once each, all `retiring`: the look before its workspace
+    is prepared holds it there whatever else it would also wait for (C-8.4). Otherwise
+    its hold names exactly its own key, not `retiring`; and with neither it is placed on
+    its own lease (C-8.4, C-6.5)."""
+    from hypothesis import HealthCheck, example, given, settings, strategies as st
 
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
@@ -312,6 +316,9 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
 
         @settings(max_examples=60, deadline=None, derandomize=True,
                   suppress_health_check=[HealthCheck.too_slow])
+        @example(where="outer-nested", held=[("/", "retention:a"), (writers["outer-nested"], "gate-round:g")])
+        @example(where="nested", held=[(nested, "gate-round:g")])
+        @example(where="nested", held=[(nested, "retention:b"), (tree, "retention:a")])
         @given(where=st.sampled_from(sorted(writers)),
                held=st.lists(st.tuples(st.sampled_from(places), st.sampled_from(holders)),
                              max_size=4, unique_by=lambda pair: pair[0]))
@@ -326,13 +333,16 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
                     for place, holder in held:
                         tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
                                    (folders.exclusive_key(place), holder, "now"))
-                expected = {folders.exclusive_key(place) for place, holder in held
-                            if place == folder or (holder.startswith("retention:") and folders.within(folder, place))}
+                fenced = {folders.exclusive_key(place) for place, holder in held
+                          if holder.startswith("retention:") and folders.within(folder, place)}
+                expected = fenced or {folders.exclusive_key(place) for place, holder in held if place == folder}
                 hold = look(daemon, writer)
                 if expected:
                     assert not _live(daemon, writer), (where, held, hold)
                     assert hold["reason"] == "lease-held", (where, held, hold)
                     assert sorted(hold["leases"]) == sorted(expected), (where, held, hold)
+                    assert len(hold["leases"]) == len(set(hold["leases"])), (where, held, hold)
+                    assert sorted(hold.get("retiring") or ()) == sorted(fenced), (where, held, hold)
                 else:
                     assert _live(daemon, writer), (where, held, hold)
                     assert lease(daemon, folders.exclusive_key(folder)) == writer
@@ -464,12 +474,15 @@ def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
         daemon.store.update_job(older, next_check_at=after(3600))
         newer = add("newer", tree)
 
-        def finishes(job):          # retention lets go after this pass read its leases
+        real = daemon._detached_folders
+
+        def finishes(job):          # retention lets go after the older's look, before the newer's
             if job["job_id"] == newer:
                 daemon.store.release_leases("retention:retired")
-            return job["workdir"], None, None, []
+            return real(job)
 
-        patch.setattr(daemon, "_workspace", finishes)
+        # The newer's first look at the fence is the one before its workspace (C-8.4).
+        patch.setattr(daemon, "_detached_folders", finishes)
         daemon._admit()
         assert lease(daemon, fence) == newer, daemon._holds.get(newer)
         assert not _live(daemon, older) and daemon._holds[older]["leases"] == [fence]
