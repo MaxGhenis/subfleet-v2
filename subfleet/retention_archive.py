@@ -626,8 +626,8 @@ class Retirement:
         with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
             self.ctx.check()
             read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
-            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state NOT IN "
-                                 "('succeeded','failed','cancelled','lost')").fetchall()
+            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+                                 "('queued','running','waiting')").fetchall()
             if folders.turn_holds(read, folder, inside=True) or any(
                     folders.within(row["workdir"], folder) for row in turns):
                 raise Defer("turn-folder", DEFER_PINNED_S, folder)

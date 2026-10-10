@@ -293,8 +293,8 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
         # including a cwd whose Git hold names a different folder. Read only
         # recorded paths here: this also runs in the archive commit transaction.
         turn_workdirs = {row["workdir"] for row in store.query(
-            "SELECT workdir FROM jobs WHERE kind='turn' AND state NOT IN "
-            "('succeeded','failed','cancelled','lost')")}
+            "SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+            "('queued','running','waiting')")}
         for row in jobs:
             job_folder = str(Path(root) / "jobs" / row["job_id"])
             if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
