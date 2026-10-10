@@ -149,13 +149,14 @@ def epoch(stamp: str) -> float:
 
 class DiskAdmission:
     def __init__(self, state_root: Path, *, read_free: Callable[[str | Path], int] | None = None,
-                 holding: bool = False, read_ruling: RulingReader | None = None):
+                 holding: bool = False, read_ruling: RulingReader | None = None,
+                 recheck_latch: bool = False):
         self.state_root = state_root
         self.read_free = read_free
         self.read_ruling = read_ruling
         self.settings = disk_settings({})
         self.floor_info: dict[str, Any] = {"floor_source": "policy"}
-        self.previous_numbers: tuple[float, float] | None = None
+        self._recheck_latch = recheck_latch
         self.reservations: dict[str, tuple[float, int]] = {}
         self.measured: int | None = None
         self.holding = holding
@@ -213,10 +214,10 @@ class DiskAdmission:
         return {**snapshot, "reserved_gb": sum(amount for _, amount in current.values()) / GB}
 
     def begin_pass(self, policy: Mapping[str, Any], attempts: Iterable[Mapping[str, Any]], now: str) -> None:
-        previous = self.previous_numbers or (self.settings["floor_gb"], self.settings["resume_margin_gb"])
+        previous = (self.settings["floor_gb"], self.settings["resume_margin_gb"])
         previous_source = self.floor_info["floor_source"]
-        had_ruling = self.previous_numbers is not None or previous_source != "policy"
-        self.previous_numbers = None
+        had_ruling = previous_source != "policy"
+        recheck_latch, self._recheck_latch = self._recheck_latch, False
         self.settings = disk_settings(policy)
         self.floor_info = {"floor_source": "policy"}
         if not self.settings["enabled"]:
@@ -233,9 +234,11 @@ class DiskAdmission:
             except OSError as exc:
                 self.measured = None
                 self.error = f"{type(exc).__name__}: {exc}"
-            if ((had_ruling or self.settings["lower_path"] or self.settings["raise_path"])
+            # Recovery rechecks the saved latch using this pass's effective
+            # numbers. A source event need not contain the last same-source edit.
+            if (recheck_latch or ((had_ruling or self.settings["lower_path"] or self.settings["raise_path"])
                     and (previous != (self.settings["floor_gb"], self.settings["resume_margin_gb"])
-                         or previous_source != self.floor_info["floor_source"])):
+                         or previous_source != self.floor_info["floor_source"]))):
                 self.hold("background")
         self.snapshot = self._snapshot()
 

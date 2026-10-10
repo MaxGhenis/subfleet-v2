@@ -13,6 +13,28 @@ POLICY = {"admission": {"disk": {"enabled": True}}}
 CLASSES = ("background", "session", "priority", "attended", "probe")
 
 
+@pytest.mark.parametrize("free,prior_hold,holding", [
+    (39, False, True), (41, False, True), (44, True, True), (45, True, False), (46, False, False),
+])
+def test_recovery_rechecks_current_policy_latch_without_candidates(tmp_path, free, prior_hold, holding):
+    gate = DiskAdmission(tmp_path, read_free=lambda path: free * GB,
+                         holding=prior_hold, recheck_latch=True)
+    gate.begin_pass(POLICY, [], stamp(0))
+    assert gate.holding is holding
+    assert gate.snapshot["holding"] is holding
+
+
+def test_recovery_recheck_is_consumed_by_first_pass(tmp_path):
+    reading = [39]
+    gate = DiskAdmission(tmp_path, read_free=lambda path: reading[0] * GB, recheck_latch=True)
+    gate.begin_pass(POLICY, [], stamp(0))
+    assert gate.holding
+    reading[0] = 46
+    gate.begin_pass(POLICY, [], stamp(1))
+    assert gate.holding  # Later unchanged policy passes retain candidate-driven hysteresis.
+    assert gate.hold("background") is None
+
+
 actions = st.lists(st.one_of(
     st.tuples(st.just("free"), st.integers(0, 160)),  # half-GB readings, including every boundary
     st.tuples(st.just("submit"), st.sampled_from(CLASSES)),

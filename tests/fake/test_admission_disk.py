@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pytest
 
 from subfleet import daemon as daemon_module
@@ -408,3 +409,59 @@ def test_raise_ruling_evidence_is_safe(state_daemon, monkeypatch, fields):
                    *rulings(daemon)):
         json.dumps(result, allow_nan=False, ensure_ascii=False).encode("utf-8")
         protocol.encode(result)
+
+
+def test_review_restart_after_same_source_offline_edit(state_daemon, monkeypatch, tmp_path):
+    from tests.disk_floor_model import BASE, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    path = tmp_path / "lower.json"
+    daemon.policy["admission"]["disk"].update(lower_path=str(path), raise_path=None)
+
+    def write(value):
+        path.write_text(json.dumps(value))
+        os.utime(path, (BASE.timestamp(), BASE.timestamp()))
+
+    write(lowering())
+    daemon._admit()
+    assert not daemon._disk.holding and len(rulings(daemon)) == 1
+    write(lowering(40, release_margin_gb=5))
+    daemon._admit()
+    assert daemon._disk.holding and len(rulings(daemon)) == 1
+    (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
+    daemon.close()
+    write(lowering())
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        restarted._admit()
+        assert restarted._disk.snapshot["floor_gb"] == 30
+        assert restarted._disk.snapshot["resume_margin_gb"] == 0
+        assert restarted._disk.holding is False, "free34 at floor30/margin0 retained stale held latch"
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize("fields", [
+    {"floor_gb": "Infinity"}, {"release_margin_gb": "Infinity"}, {"ruling": "\ud800"},
+], ids=["infinite-floor", "infinite-margin", "surrogate-source"])
+def test_restart_rechecks_raw_ruling_and_keeps_safe_source_event(state_daemon, monkeypatch, tmp_path, fields):
+    from tests.disk_floor_model import BASE, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 0)
+    path = tmp_path / "lower.json"
+    path.write_text(json.dumps(lowering(**fields)))
+    os.utime(path, (BASE.timestamp(), BASE.timestamp()))
+    daemon.policy["admission"]["disk"].update(lower_path=str(path), raise_path=None)
+    daemon._admit()
+    assert daemon._disk.holding and len(rulings(daemon)) == 1
+    (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
+    daemon.close()
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        restarted._admit()
+        assert restarted._disk.holding and len(rulings(restarted)) == 1
+        json.dumps(restarted.dispatch("daemon.status", {}), allow_nan=False, ensure_ascii=False).encode("utf-8")
+    finally:
+        restarted.close()

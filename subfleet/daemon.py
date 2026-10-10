@@ -720,7 +720,7 @@ class Daemon:
         self.policy_digest = policy_hash(policy_path)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
-        self._disk = disk.DiskAdmission(self.root)
+        self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
             latch = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_latch' ORDER BY event_id DESC LIMIT 1")
@@ -730,7 +730,6 @@ class Daemon:
             self._disk_saved_source = floor_info.get("floor_source", "policy")
             if self._disk_saved_source != "policy":
                 self._disk.floor_info = floor_info
-                self._disk.previous_numbers = (floor_info["floor_gb"], floor_info["resume_margin_gb"])
         self._disk_saved_hold = self._disk.holding
         self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
