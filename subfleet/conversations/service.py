@@ -2058,7 +2058,8 @@ class ConversationService:
             notes = [(job_id, "placed", lambda: waits.PLACED) for job_id in placed]
             notes += [(job_id, json.dumps({key: value for key, value in hold.items() if key != "next_check_at"},
                                           sort_keys=True, default=str),
-                       lambda hold=hold: waits.hold_reason(hold, describe=self._describe_lease, who=self._who))
+                       lambda hold=hold: waits.hold_reason(
+                           hold, describe=lambda key: self._describe_lease(key, hold.get("folder")), who=self._who))
                       for job_id, hold in holds.items()]
             for job_id, signature, reason_of in notes:
                 try:
@@ -2099,8 +2100,10 @@ class ConversationService:
         title = (row or {}).get("title")
         return f"conversation \u201c{title}\u201d" if title else f"conversation {conversation_id}"
 
-    def _describe_lease(self, key: str) -> str:
-        """Who holds one lease a turn waits for, and what that means for it."""
+    def _describe_lease(self, key: str, folder: str | None = None) -> str:
+        """Who holds one lease a turn waits for, and what that means for it. `folder`
+        is the turn's (its hold names it): a fence on a tree above it is retention
+        retiring the tree that folder is nested in (C-8.4)."""
         row = self.daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))
         holder = str(row["holder"]) if row else None
         owner = holder.split(":", 1)[1] if holder and holder.startswith(("retention:", "gate-round:")) else holder
@@ -2111,8 +2114,12 @@ class ConversationService:
         if holder is None:
             return "what it waited for was just released; it starts at the next look"
         if key.startswith(folders.EXCLUSIVE):
-            if holder.startswith("retention:"):
-                return "retention is removing a finished job's worktree in this folder"
+            if holder.startswith(folders.RETENTION):
+                tree = key[len(folders.EXCLUSIVE):]
+                kind = "job directory" if tree == str(self.daemon.root / "jobs" / str(job_id)) else "worktree"
+                if folder and tree != folder:
+                    return f"retention is removing a finished job's {kind} that this folder is in ({tree})"
+                return f"retention is removing a finished job's {kind} in this folder ({tree})"
             job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
             if job and job["kind"] == "turn":
                 # A turn a daemon before 2026-09-29 admitted still holds the folder alone.
