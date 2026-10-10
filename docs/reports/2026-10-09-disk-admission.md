@@ -276,3 +276,77 @@ malformed fields reject the lowering while valid drop values never trigger a
 native hold. The oracle totalizes the agent's non-object
 crash into an error so invalid inputs are safe while valid-input rules remain
 independent of production code.
+
+### Timed ruling changes and validation
+
+These results apply to the timed-ruling extension; the earlier report records
+the original #161 implementation. The tested implementation head is
+`206a7450f7d88efe160bdfdeb3a1e3378ae86039`, stacked on
+`e884a773ac933c87ca7caf2a67f4e853831b9a83`. The final delivery adds this
+validation report in a separate commit on `feat/disk-admission-overrides` in
+the workspace's `.git-local`; shared Git metadata is outside the writable
+workspace. The final response names that delivery head.
+
+| File:line | Change |
+| --- | --- |
+| `subfleet/policy.py:206`, `:419`, `:429` | Four defaults, finite range checks, optional absolute ruling paths, exact-key errors |
+| `subfleet/default_policy.json:181` | Null paths, 20 GB minimum and 16-hour lowering cap |
+| `subfleet/disk.py:28`, `:56`, `:190` | Bounded descriptor reader, agent-equivalent floor selection, per-pass refresh and latch evaluation |
+| `subfleet/daemon.py:686`, `:2922`, `:2981`, `:4608` | Restore source and numbers, transition-only floor events, `why` visibility, detached-pass integration outside the store lock |
+| `subfleet/render.py:239`, `:249`, `:389` | Source, optional explanation and ignored reasons in status and disk holds |
+| `tests/disk_floor_model.py:40` | Independent agent oracle and fake files/clock helpers |
+| `tests/unit/test_disk_floor.py:36`, `:53`, `:71`, `:85`, `:207` | F1, live-pair F1, F2, F3 and frozen-#161 F5 properties; unsafe readers and mutation witnesses |
+| `tests/unit/test_disk_admission.py:33`, `:176` | Original and timed-floor I1–I5 sequence variants and I6 disabled comparison |
+| `tests/unit/test_policy_disk.py:12`, `:36` | New defaults and path/range loader validation |
+| `tests/fake/test_admission_disk.py:229`, `:275`, `:309` | Expiry, lock assertion, `why`/status, events, precedence and restart cases, including edits with unchanged source |
+| `docs/acceptance-contract.md:219` | Extended C-6.17 |
+| `docs/reports/2026-10-09-disk-admission.md:177`, `:255` | Built semantics, agent differences and invariant mapping |
+
+All four mutations were applied to the actual production source, one at a
+time, and restored after each run. Controls passed before and after them.
+
+| Mutation | Witness | Observed result |
+| --- | --- | --- |
+| Drop the ruling requirement | `test_mutation_floor_witnesses[ruling]` | **Caught**, 1 expected failure |
+| Drop the mtime cap, using now alone | `test_mutation_floor_witnesses[mtime]` | **Caught**, 1 expected failure |
+| Allow a lone raise to lower the policy floor | `test_mutation_floor_witnesses[raise]` | **Caught**, 1 expected failure |
+| Omit latch evaluation on changed floor/source | `test_latch_recomputed_at_start_and_expiry_even_without_jobs` | **Caught**, 1 expected failure |
+
+| Run | Result |
+| --- | --- |
+| Final feature suite: `test_disk_floor.py`, `test_disk_admission.py`, `test_policy_disk.py`, fake `test_admission_disk.py` | **102 passed** (26 + 21 + 40 + 15), 10.74 s |
+| Final mutation controls before / after source restoration | **4 passed / 4 passed** |
+| Final actual mutations | **4/4 caught**, one expected failure each |
+| Full targeted run including `tests/unit/test_policy.py` and all four requested gate/legacy files | **366 passed, 17 failed, 1 skipped**, 1,644.14 s; ten test-helper wiring failures subsequently fixed and all feature cases rerun successfully |
+| First corrected feature suite plus fixture-child retry | **100 passed, 1 failed**, 172.28 s; final restart cases subsequently expanded from two to four |
+| Python syntax, default-policy JSON and `git diff --check` | Passed |
+
+The full targeted run included `tests/unit/test_gate_admission.py`,
+`tests/unit/test_gate_service.py`, `tests/unit/test_legacy_hold.py`, and
+`tests/fake/test_gate_end_to_end.py`, including their Daemon-without-`__init__`
+paths. Seven unrelated regression cases remain unresolved in this environment:
+
+- Six legacy tests fail before their assertions because the sandbox refuses
+  `/bin/ps` with `PermissionError: Operation not permitted`: the two
+  `test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait` variants
+  and four
+  `test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait`
+  variants.
+- `test_gate_fixture_child_publishes_only_its_explicit_synthetic_attestation`
+  hits its unchanged three-second child-process timeout, both in the full run
+  and on retry with inherited `PYTHONPATH` cleared. The fixture reaches and
+  completes daemon admission before timing out in the external fixture child.
+  This is not a passing regression result.
+
+The initial ten feature failures came from importing a decorated test module
+inside a Hypothesis example. Moving the oracle into the plain support module
+fixed that harness error without suppressing Hypothesis's nested-given check.
+All final F1–F5 and I1–I6 cases pass.
+
+Every pytest process ran serially under
+`/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`. Each run used
+a task-specific `TMPDIR` under `$(getconf DARWIN_USER_TEMP_DIR)` and removed
+it afterward. Final runs used Python 3.13.15, pytest 9.1.1 and Hypothesis
+6.168.5, with inherited `PYTHONPATH` cleared. No live policy, external agent
+or caller checkout was modified. No logs, JSON evidence or bundles were
+committed; no agents were delegated and nothing was pushed.
