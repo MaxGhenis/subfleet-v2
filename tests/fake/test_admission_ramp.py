@@ -16,7 +16,7 @@ import threading
 import time
 from types import MethodType
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module, scheduler
@@ -468,9 +468,14 @@ def snapshot(service, jobs):
 
     def normalize(value):
         text = json.dumps(value, sort_keys=True)
-        for job, alias in aliases.items():
+        # Generated ids can be prefixes of each other (astra, astra-1, astra-10).
+        # Replace the longest first so naming one job cannot alter another's id.
+        for job, alias in sorted(aliases.items(), key=lambda item: len(item[0]), reverse=True):
             text = text.replace(job, alias)
-        return text.replace(str(service.root), "<state>")
+        text = text.replace(str(service.root), "<state>")
+        # Canonicalize again after naming jobs: the original ids sorted the
+        # hold-map keys, and that order can differ across the two daemon runs.
+        return json.dumps(json.loads(text), sort_keys=True)
 
     return normalize({
         "holds": service._holds,
@@ -484,7 +489,40 @@ def snapshot(service, jobs):
     })
 
 
+def first_difference(actual, previous, path="passes"):
+    """Name the first differing field; inspect nested JSON only for diagnostics."""
+    if actual == previous:
+        return None
+    if isinstance(actual, dict) and isinstance(previous, dict):
+        for key in sorted(actual.keys() | previous.keys()):
+            if key not in actual or key not in previous:
+                return f"{path}.{key}: present only in {'current' if key in actual else 'previous'}"
+            difference = first_difference(actual[key], previous[key], f"{path}.{key}")
+            if difference:
+                return difference
+    if isinstance(actual, list) and isinstance(previous, list):
+        if len(actual) != len(previous):
+            return f"{path}: current length {len(actual)} != previous length {len(previous)}"
+        for index, (now, before) in enumerate(zip(actual, previous)):
+            difference = first_difference(now, before, f"{path}[{index}]")
+            if difference:
+                return difference
+    if isinstance(actual, str) and isinstance(previous, str):
+        try:
+            now, before = json.loads(actual), json.loads(previous)
+        except (ValueError, TypeError):
+            pass
+        else:
+            if isinstance(now, (dict, list)) and isinstance(before, type(now)):
+                difference = first_difference(now, before, f"{path} (JSON)")
+                if difference:
+                    return difference
+    return f"{path}: current {repr(actual)[:240]} != previous {repr(previous)[:240]}"
+
+
 @DIFFERENTIAL
+@example(queue=[("ordinary", "trivial", None)] * 3, enabled=False, cap=None,
+         initial=36, advance=0, gate="disk", restart=True)
 @given(queue=QUEUES, enabled=st.sampled_from([False, None]), cap=st.sampled_from([None, 1, 3]),
        initial=st.integers(0, 3600), advance=st.integers(0, 120),
        gate=st.sampled_from([None, "disk", "machine"]), restart=st.booleans())
@@ -557,7 +595,8 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
             finally:
                 if restart:
                     active.close()
-    assert outcomes[0] == outcomes[1]
+    assert outcomes[0] == outcomes[1], first_difference(
+        [json.loads(value) for value in outcomes[0]], [json.loads(value) for value in outcomes[1]])
 
 
 @pytest.mark.parametrize("enabled", [None, False], ids=["absent", "disabled"])
