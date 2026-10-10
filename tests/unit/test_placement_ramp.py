@@ -163,6 +163,31 @@ def test_disabled_and_absent_never_read_count_or_parse_clock(cfg):
     assert gate.reservations == {}
 
 
+@pytest.mark.parametrize("cfg", [{}, policy(enabled=False)], ids=["absent", "disabled"])
+def test_daemon_disabled_pass_resets_enabled_gate_without_reading_rows_or_clock(monkeypatch, cfg):
+    from subfleet import daemon as daemon_module
+
+    bare = object.__new__(daemon_module.Daemon)
+    bare.policy = cfg
+    bare._ramp = PlacementRamp()
+    bare._ramp.begin_pass(policy(1), [attempt("previous-start")], stamp())
+    assert bare._ramp.snapshot["enabled"] and bare._ramp.snapshot["holding"]
+    active_gate = bare._ramp
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("disabled daemon ramp must not read attempts or UTC clock")
+
+    monkeypatch.setattr(daemon_module, "utcnow", forbidden)
+    monkeypatch.setattr(bare, "_ramp_rows", forbidden)
+
+    assert bare._begin_ramp_pass() == {"enabled": False, "per_minute": 12, "window_s": 60}
+    assert bare._ramp is active_gate
+    assert bare._ramp.snapshot["enabled"] is False
+    assert bare._ramp.snapshot["used"] == 0
+    assert bare._ramp.snapshot["holding"] is False
+    assert bare._ramp.reservations == {}
+
+
 # Integral quotas isolate the stated rolling-window invariant from the literal
 # policy comparison's fractional-quota rounding. Include subminute and longer
 # windows to exercise the formula, rather than assuming every window is 60 s.

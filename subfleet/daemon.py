@@ -3071,7 +3071,7 @@ class Daemon:
                 since = ""                         # valid integers can exceed datetime's range
             self._ramp.begin_pass(self.policy, self._ramp_rows(since), now)
         elif "_ramp_state" in self.__dict__:
-            self._ramp.begin_pass(self.policy, (), utcnow())
+            self._ramp.begin_pass(self.policy, (), "")  # disabled gates never read even the clock
         return cfg
 
     def _save_disk_latch(self) -> None:
