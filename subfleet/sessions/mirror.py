@@ -754,6 +754,28 @@ def _clock(value: datetime) -> str:
     return value.astimezone().strftime("%H:%M:%S")
 
 
+def _raised_at(exc: BaseException) -> str:
+    """` (mirror.py:1535 in _spread)`: the innermost frame of this module that
+    `exc` came through, or the innermost of all when it came through none.
+
+    The daemon's timer keeps an exception's type and nothing else, so the
+    pass's record is the one place that can say where. Read from the
+    traceback's frames: no source file is opened.
+    """
+    here = last = None
+    step = exc.__traceback__
+    while step is not None:
+        last = step
+        if step.tb_frame.f_code.co_filename == __file__:
+            here = step
+        step = step.tb_next
+    found = here or last
+    if found is None:
+        return ""
+    code = found.tb_frame.f_code
+    return f" ({os.path.basename(code.co_filename)}:{found.tb_lineno} in {code.co_name})"
+
+
 def _short(account: str, org: str) -> str:
     return f"{account[:8]}…/{org[:8]}…"
 
@@ -1076,8 +1098,12 @@ class Mirror:
         if worker is None or options is None:
             return
         worker.now, worker.cancel = self.now, self.cancel
-        worker._run_hot_locked(options, spread=False)
-        self._hot_recorded = worker._hot_recorded
+        try:
+            worker._run_hot_locked(options, spread=False)
+        finally:
+            # Also when the helper raised: its record of that stands in the
+            # sidecar, and the next hot pass's sampling must know it does.
+            self._hot_recorded = worker._hot_recorded
         self._hot_services += 1
         if worker._flags_moved:
             # A no-op or held candidate does not invalidate a refresh. A base
@@ -2119,42 +2145,56 @@ class Mirror:
         that hangs is then visible as in flight rather than as silence, and
         `health` tolerates it for thirty minutes instead of guessing from a
         process listing.
+
+        A pass that took the lock ends its record however it ends, so that
+        only a pass in flight reads as one. Cancellation and OSError are
+        recorded here and returned. Any other exception is recorded by
+        `_record_raised` and raised again.
         """
         options = options or Options()
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run)
         lock = None
         kept = None
         try:
-            lock = self._lock()
-            if lock is None:
+            try:
+                lock = self._lock()
+                if lock is None:
+                    current.state = "ok"
+                    current.finished_at = current.started_at
+                    current.error = "another pass holds the lock"
+                    return current           # deliberately without touching the sidecar
+                if options.dry_run:
+                    kept = self._borrow()
+                # Before anything that can raise: the record of how this pass
+                # ended must not carry an earlier pass's report.
+                self._splits = None                 # a pass's that never recorded
+                self.journal.refresh()
+                self._record(current)
+                self._pass_payloads = {}
+                self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
+                interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
+                self._hot_services = 0
+                self._hot_epoch = 0
+                if self._inventoried and interval > 0 and options.flag_sync:
+                    self._hot_worker = self._fork_hot()
+                    self._hot_options = options
+                    self._hot_due = time.monotonic() + interval
+                self._pass(current, options)
+                self._checkpoint(current, "complete")
                 current.state = "ok"
-                current.finished_at = current.started_at
-                current.error = "another pass holds the lock"
-                return current           # deliberately without touching the sidecar
-            if options.dry_run:
-                kept = self._borrow()
-            self.journal.refresh()
-            self._splits = None                 # a pass's that never recorded
-            self._record(current)
-            self._pass_payloads = {}
-            self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
-            interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
-            self._hot_services = 0
-            self._hot_epoch = 0
-            if self._inventoried and interval > 0 and options.flag_sync:
-                self._hot_worker = self._fork_hot()
-                self._hot_options = options
-                self._hot_due = time.monotonic() + interval
-            self._pass(current, options)
-            self._checkpoint(current, "complete")
-            current.state = "ok"
-            current.finished_at = _iso(self.now())
-            self._record(current, last_ok=current.finished_at, load_gap=self._settle(options))
-        except (_Cancelled, OSError) as exc:
-            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
-            current.error = f"{type(exc).__name__}: {exc}"
-            current.finished_at = _iso(self.now())
-            self._record(current, load_gap=self._settle(options))
+                current.finished_at = _iso(self.now())
+                self._record(current, last_ok=current.finished_at, load_gap=self._settle(options))
+            except (_Cancelled, OSError) as exc:
+                current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
+                current.error = f"{type(exc).__name__}: {exc}"
+                current.finished_at = _iso(self.now())
+                self._record(current, load_gap=self._settle(options))
+        except BaseException as exc:
+            # Whatever else ends a pass ends its record too, and is raised
+            # again (`_record_raised`). Only a pass that holds the lock writes.
+            if lock is not None:
+                self._record_raised(current, exc, options)
+            raise
         finally:
             if lock is not None:
                 # Only the pass that holds the lock owns the per-pass payloads.
@@ -2217,25 +2257,67 @@ class Mirror:
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run, kind="hot")
         self._flags_moved = False
         try:
-            self.journal.refresh()
-            self._pass_payloads = {}
-            # Sample starts so a slow hot read can be visible without rewriting
-            # the sidecar twice per idle tick. A recorded start always finishes.
-            self._record_hot(current, None)
-            self._hot(current, options, spread=spread)
-            current.stage = "complete"
-            current.state = "ok"
-        except (_Cancelled, OSError) as exc:
-            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
-            current.error = f"{type(exc).__name__}: {exc}"
-        finally:
-            self._pass_payloads = {}
+            try:
+                self.journal.refresh()
+                self._pass_payloads = {}
+                # Sample starts so a slow hot read can be visible without rewriting
+                # the sidecar twice per idle tick. A recorded start always finishes.
+                self._record_hot(current, None)
+                self._hot(current, options, spread=spread)
+                current.stage = "complete"
+                current.state = "ok"
+            except (_Cancelled, OSError) as exc:
+                current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
+                current.error = f"{type(exc).__name__}: {exc}"
+            finally:
+                self._pass_payloads = {}
             current.finished_at = _iso(self.now())
             try:
                 self._record_hot(current, self._settle(options))
             except OSError:
                 pass
+        except BaseException as exc:
+            # As in `run_once`. Raised inside a full pass's checkpoint, it
+            # ends that pass too, which records its own end the same way.
+            self._record_raised(current, exc, options)
+            raise
         return current
+
+    def _record_raised(self, current: Pass, exc: BaseException, options: Options) -> None:
+        """Finish the record of a pass that an exception no pass expects is ending.
+
+        A pass expects cancellation and OSError, records either as its end
+        and returns. Anything else used to leave the record at `running`:
+        the daemon's timer ran the pass again on its interval, each run
+        wrote a new start before it failed the same way, and so health read
+        `running` after every pass and never reached the thirty-minute
+        `stalled` reading (46 passes a minute apart on a fixture store,
+        2026-10-10). The record now ends as `error`, or as `cancelled` for
+        an interrupt, with the exception's type, its message and where it
+        was raised.
+
+        The caller raises the exception again. The timer keeps only its
+        type, in a `timer.error` event and in `timers.<name>.last_error_type`
+        of `daemon.status`, and that is all the daemon's store learns of a
+        failed pass: a pass that returned would read there as a clean run.
+        No exception of this method's own takes its place. A report that
+        fails is left out of the record, and a record that cannot be
+        written is a note on the exception.
+        """
+        try:
+            current.state = "error" if isinstance(exc, Exception) else "cancelled"
+            current.error = f"{type(exc).__name__}: {exc}".rstrip() + _raised_at(exc)
+            current.finished_at = _iso(self.now())
+            try:
+                gap = self._settle(options)
+            except Exception:                   # noqa: BLE001 - `exc` is the one to raise
+                gap = None
+            if current.kind == "hot":
+                self._record_hot(current, gap)
+            else:
+                self._record(current, load_gap=gap)
+        except Exception as failed:             # noqa: BLE001 - as above
+            exc.add_note(f"the mirror's sidecar does not record this: {type(failed).__name__}")
 
     def _borrow(self) -> dict[str, Any]:
         """Before a dry run: put copies in place of everything a pass changes
