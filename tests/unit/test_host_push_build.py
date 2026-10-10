@@ -9,7 +9,7 @@ import pytest
 
 from subfleet import host_push
 from test_host_push import worlds, submit  # noqa: F401
-from test_host_push_admission import ordinary, pin_routing, placed
+from test_host_push_admission import notices, ordinary, pin_routing, placed
 
 
 def admit_ready(core):
@@ -155,7 +155,7 @@ def test_restart_reuses_the_whole_ready_checkout_without_another_build(worlds):
 @pytest.mark.skipif(os.environ.get("SF_HOST_PUSH_BENCHMARK") != "1", reason="explicit local-repo benchmark")
 def test_real_repo_admission_pass_measurement(worlds):
     """Uses the committed checkout's real objects, with no remote operation."""
-    source = Path(__file__).resolve().parents[2]
+    source = Path(os.environ.get("SF_HOST_PUSH_BENCHMARK_SOURCE", Path(__file__).resolve().parents[2]))
     _, head, _, _ = host_push.checkout_metadata(source)
     with worlds() as world:
         pin_routing(world, world.patch)
@@ -168,9 +168,10 @@ def test_real_repo_admission_pass_measurement(worlds):
 
         def timed(repo, *args, **kwargs):
             started = time.perf_counter()
-            result = actual(repo, *args, **kwargs)
-            timings.append((args[0], time.perf_counter() - started))
-            return result
+            try:
+                return actual(repo, *args, **kwargs)
+            finally:
+                timings.append((args[0], time.perf_counter() - started))
 
         world.patch.setattr(host_push, "git", timed)
         started = time.perf_counter()
@@ -178,5 +179,5 @@ def test_real_repo_admission_pass_measurement(worlds):
         pass_s = time.perf_counter() - started
         assert placed(world.core, behind)
         admit_ready(world.core)
-        assert placed(world.core, job), dict(world.core._job(job))
         print(f"REAL_REPO admission_pass_s={pass_s:.6f} git_calls={timings}")
+        assert placed(world.core, job), (dict(world.core._job(job)), notices(world.core, job))
