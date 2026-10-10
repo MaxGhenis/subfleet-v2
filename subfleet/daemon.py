@@ -576,6 +576,7 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 class Daemon:
     #: C-6.17: the last latch written to the store (`_save_disk_latch`).
     _disk_saved_hold = False
+    _disk_saved_source = "policy"
 
     @property
     def _disk(self) -> disk.DiskAdmission:
@@ -739,11 +740,16 @@ class Daemon:
         self.policy_digest = policy_hash(policy_path)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
-        self._disk = disk.DiskAdmission(self.root)
+        self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
             latch = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_latch' ORDER BY event_id DESC LIMIT 1")
             self._disk.holding = bool(latch and json.loads(latch["data_json"]).get("holding"))
+            floor = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_floor' ORDER BY event_id DESC LIMIT 1")
+            floor_info = json.loads(floor["data_json"]) if floor else {}
+            self._disk_saved_source = floor_info.get("floor_source", "policy")
+            if self._disk_saved_source != "policy":
+                self._disk.floor_info = floor_info
         self._disk_saved_hold = self._disk.holding
         self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
@@ -2990,6 +2996,15 @@ class Daemon:
         self._save_disk_latch()
         return hold
 
+    def _save_disk_floor(self) -> None:
+        floor_info = disk.reported_evidence(self._disk.floor_info)
+        source = floor_info["floor_source"]
+        if self._disk.settings["enabled"] and source != self._disk_saved_source:
+            with self.store.transaction("admission.disk_floor.recorded") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), "admission.disk_floor", json.dumps(floor_info, allow_nan=False)))
+            self._disk_saved_source = source
+
     def _why_job(self, job: dict) -> dict:
         """C-6.11: `why <job>` always says where the job stands, decision or not.
 
@@ -3041,8 +3056,12 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
+        if disk_reading is not None and (hold or {}).get("reason") != "disk":
+            lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "text": "\n".join(lines)}
+                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:
         """C-6.11: what admission is holding and for how long, for `status`."""
@@ -4666,6 +4685,7 @@ class Daemon:
         probe_line: list[tuple[str, str, frozenset[str] | None]] = []
         if kind == "detached":
             self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
+            self._save_disk_floor()
             self._save_disk_latch()
             self._recover_probes()
             self._probe_line = probe_line
