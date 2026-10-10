@@ -353,3 +353,17 @@ def test_deeply_nested_why_is_reported_bounded_and_admission_is_unchanged():
         level, depth = level[0], depth + 1
     assert level == EVIDENCE_TRUNCATED and depth == EVIDENCE_MAX_DEPTH - 1
     assert isinstance(render.disk_line(gate.snapshot) if hasattr(render, "disk_line") else str(gate.snapshot), str)
+
+
+@pytest.mark.parametrize("number", [10 ** 309, -(10 ** 309), 2 ** 53 + 1, 2 ** 64])
+def test_integers_past_exact_json_range_are_reported_as_text(number):
+    """Review of #164 r3 (P2): a ruling's `why` holding 10**309 admitted normally but
+    broke the app's Swift decoder. Integers past 2**53 are reported as their digits in
+    text; admission still applies the lowering, and 2**53 itself stays a number."""
+    raw = json.dumps(lowering(why={"n": number, "edge": 2 ** 53})).encode()
+    gate = DiskAdmission("/fake/state", read_free=lambda path: 34 * GB,
+                         read_ruling=Files((raw, epoch(stamp(0)))))
+    gate.begin_pass(policy(), [], stamp(0))
+    assert gate.snapshot["floor_gb"] == 30 and not gate.holding
+    assert gate.snapshot["floor_why"] == {"n": str(number), "edge": 2 ** 53}
+    json.dumps(gate.snapshot, allow_nan=False)

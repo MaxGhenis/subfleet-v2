@@ -29,7 +29,9 @@ def disk_ruling_probe(tmp_path_factory):
     {"floor_gb": "Infinity"}, {"release_margin_gb": "Infinity"}, {"why": float("nan")},
     {"why": {"\ud800": [float("inf"), float("-inf"), "\udfff"]}},
     {"ruling": "\ud800"}, {"why": "\ud800"},
-], ids=["infinite-floor", "infinite-margin", "nan-why", "nested-why", "surrogate-ruling", "surrogate-why"])
+    {"why": {"n": 10 ** 309}}, {"why": [-(2 ** 64), 2 ** 53 + 1]},
+], ids=["infinite-floor", "infinite-margin", "nan-why", "nested-why", "surrogate-ruling", "surrogate-why",
+        "huge-int-why", "past-exact-int-why"])
 def test_app_decodes_live_ruling_status_and_why(disk_ruling_probe, state_daemon, monkeypatch, tmp_path, fields):
     daemon, harness = state_daemon
     fake_clock(monkeypatch)

@@ -125,6 +125,8 @@ def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) ->
 #: reported as a placeholder; admission never reads them.
 EVIDENCE_MAX_DEPTH = 16
 EVIDENCE_TRUNCATED = "<nested deeper than 16 levels; not shown>"
+#: The largest integer every JSON reader decodes exactly (2**53).
+EVIDENCE_MAX_EXACT_INT = 2 ** 53
 
 
 def reported_evidence(value: Any, _depth: int = 0) -> Any:
@@ -137,6 +139,11 @@ def reported_evidence(value: Any, _depth: int = 0) -> Any:
     The original floor/margin and source remain available to the latch.
     """
     if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > EVIDENCE_MAX_EXACT_INT:
+        # Swift's JSONDecoder (the app) and JavaScript read numbers as doubles or
+        # 64-bit ints; past 2**53 they lose digits or refuse the whole reply (review
+        # of #164 r3, P2: `10**309` in `why`). Report the digits as text.
         return str(value)
     if isinstance(value, str):
         return "".join("\ufffd" if 0xD800 <= ord(char) <= 0xDFFF else char for char in value)
