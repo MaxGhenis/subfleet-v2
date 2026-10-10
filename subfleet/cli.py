@@ -48,11 +48,11 @@ from .client import (
     Client,
     DaemonError,
     DaemonUnavailable,
-    REFUSED_UNVERIFIED_MAX_S,
     busy_pause,
     refused_while_busy,
     OutcomeUnknown,
     ResponseLost,
+    RestartWindow,
     same_process,
     state_root,
 )
@@ -916,7 +916,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         if args.json and args.no_wait_queue and result.get("state") == JobState.QUEUED.value:
             return int(Exit.QUEUED)
         return int(Exit.OK)
-    return wait_jobs(args, [job_id], timeout=None, quiet=args.json)
+    # The submit was answered, so a daemon missing at the first poll restarted (C-15.4).
+    return wait_jobs(args, [job_id], timeout=None, quiet=args.json, reached=True)
 
 
 # --- run --batch (C-17.7) ------------------------------------------------------
@@ -1181,7 +1182,7 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         return _daemon_down(gone)
     mode, _reason = launch_mode(args)
     if submitted and not stopped and (bool(args.attach) or mode == "sync"):
-        waited = wait_jobs(args, submitted, timeout=None, quiet=args.json)
+        waited = wait_jobs(args, submitted, timeout=None, quiet=args.json, reached=True)
         return worst or waited
     return worst
 
@@ -1268,10 +1269,47 @@ def _wait_summary(job: dict[str, Any]) -> str:
             + (f" · {detail}" if state == "FAILED" and detail else ""))
 
 
+def _daemon_identity(client: Any) -> tuple[Any, Any] | None:
+    """`daemon.lock`'s pid and start time (C-5.3), or None when it cannot be read.
+
+    A file read and no `ps`: it tells one daemon process from the next, not
+    whether either is alive, and only the line C-15.4 prints rests on it."""
+    read = getattr(client, "lock_info", None)
+    try:
+        info = read() if callable(read) else None
+    except Exception:                                   # noqa: BLE001 - a label, not a verdict
+        return None
+    if not isinstance(info, dict) or not info.get("pid"):
+        return None
+    return info.get("pid"), info.get("proc_start")
+
+
+def _answered(window: RestartWindow, client: Any,
+              identity: tuple[Any, Any] | None) -> tuple[Any, Any] | None:
+    """C-15.4: the daemon answered a poll, busy or not. After an outage, say so once
+    on stderr, naming a restart only when `daemon.lock` names another process than
+    it did before. Returns the identity the next outage's end is compared with."""
+    if not window.answered():
+        return identity if identity is not None else _daemon_identity(client)
+    now = _daemon_identity(client)
+    restarted = identity is not None and now is not None and now != identity
+    note(f"{PROG} wait: daemon {'restarted' if restarted else 'answered again'}; still waiting")
+    return now
+
+
 def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
               timeout: float | None, mine: str | None = None,
-              last: bool = False, quiet: bool = False) -> int:
-    """Loop the daemon's long poll until terminal or `--timeout` (C-15.4)."""
+              last: bool = False, quiet: bool = False, reached: bool = False) -> int:
+    """Loop the daemon's long poll until terminal or `--timeout` (C-15.4).
+
+    A `wait` only reads, so it rides out a daemon restart (C-15.4): once it has
+    reached a daemon, a poll whose answer was lost, or whose connect found the
+    socket gone or refused, is asked again for `RESTART_WINDOW_S`, and always
+    within `--timeout`; past the window it ends as it always did. `reached` is for
+    a caller that has just had the daemon's answer (`run --wait`, `kill --wait`),
+    so a daemon missing at the first poll is one that went away. A wait that has
+    never reached a daemon reports it absent at once (C-17.5).
+    """
     started = time.monotonic()
     requested = {str(job_id) for job_id in ids}
     pending = set(requested)
@@ -1283,10 +1321,12 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     adopting = bool(mine) or bool(last) or not requested
     idle_polls = 0
     busy: DaemonError | None = None
-    busy_streak = 0
-    unverified_since: float | None = None     # refused after busy, with a lock that cannot say
+    streak = 0                                 # polls in a row with no result, for the pause
+    window = RestartWindow()                   # C-15.4: an outage, and since when
+    lost: Exception | None = None              # the latest failure of the outage
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
+        identity = _daemon_identity(client)    # what an outage's end is compared with
         while True:
             remaining = None if timeout is None else timeout - (time.monotonic() - started)
             if remaining is not None and remaining <= 0:
@@ -1308,45 +1348,55 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 # transport budget, and a lost answer would end even an unbounded
                 # `wait` (review of 3c8fe55, P1; #55 on main).
                 result = client.call("wait", _asdict(poll), timeout=budget, retry_busy=False)
+            except (DaemonError, DaemonUnavailable, ResponseLost) as exc:
+                if isinstance(exc, DaemonError):
+                    # C-16.7: a daemon at its connection cap answers "try again
+                    # shortly" before it reads the poll. The loop does, backing off,
+                    # inside `--timeout` (review of the descriptor hotfix, F8).
+                    if not exc.busy:
+                        raise
+                    busy, reached = exc, True
+                    identity = _answered(window, client, identity)
+                elif isinstance(exc, DaemonUnavailable) and not reached:
+                    raise                   # C-17.5: no daemon has answered this wait
+                elif busy is not None and isinstance(exc, DaemonUnavailable) and (
+                        (verdict := refused_while_busy(client, exc)) is True
+                        or (verdict is None and timeout is not None)):
+                    # C-16.7: a connect refused after a busy answer is the same busy
+                    # daemon behind a full listen backlog, never an absent one (review
+                    # r2, P1), and so is one the lock cannot vouch for while
+                    # `--timeout` bounds the loop (review of 1efa0ef, P3).
+                    pass
+                else:
+                    # C-15.4: the daemon dropped the poll, or its socket is gone or
+                    # refusing with no busy daemon behind it, as a restart leaves it
+                    # (an install, `launchctl kickstart -k`, a crash under KeepAlive).
+                    # A wait only reads, so it asks again for RESTART_WINDOW_S. A busy
+                    # answer from before says nothing about the daemon that comes back.
+                    lost, busy, reached = exc, None, True
+                    if not window.lost(time.monotonic()) and (
+                            timeout is None or timeout - (time.monotonic() - started) > 0):
+                        note(f"{PROG} wait: the daemon has not answered for "
+                             f"{time.monotonic() - (window.since or 0):.0f}s, past the "
+                             f"{window.seconds:g}s restart window")
+                        raise
+                streak += 1
+                pause = busy_pause(streak)
+                if timeout is not None:
+                    left = timeout - (time.monotonic() - started)
+                    if left <= 0:
+                        timed_out = True    # `--timeout` is a wall-clock bound (C-17.3)
+                        break
+                    pause = min(pause, left)
+                time.sleep(pause)
+                continue
             except ProtocolError:
                 if timeout is not None and timeout - (time.monotonic() - started) <= 0:
                     timed_out = True
                     break
                 raise
-            except (DaemonError, DaemonUnavailable) as exc:
-                # C-16.7: a daemon at its connection cap answers "try again
-                # shortly" before it reads the poll. The loop does, backing off,
-                # inside `--timeout` (review of the descriptor hotfix, F8). A
-                # connect refused after a busy answer is the same busy daemon
-                # behind a full listen backlog, never an absent one (review r2, P1).
-                if isinstance(exc, DaemonUnavailable):
-                    verdict = None if busy is None else refused_while_busy(client, exc)
-                    if busy is None or verdict is False:
-                        raise
-                    if verdict is None and timeout is None:
-                        # The lock cannot say whether the daemon lives: busy for a
-                        # bounded time only, since this loop has no deadline of its
-                        # own; with `--timeout`, that bounds it (review of 1efa0ef, P3).
-                        unverified_since = unverified_since or time.monotonic()
-                        if time.monotonic() - unverified_since > REFUSED_UNVERIFIED_MAX_S:
-                            raise
-                    else:
-                        unverified_since = None
-                elif not exc.busy:
-                    raise
-                else:
-                    busy, unverified_since = exc, None
-                busy_streak += 1
-                pause = busy_pause(busy_streak)
-                if timeout is not None:
-                    left = timeout - (time.monotonic() - started)
-                    if left <= 0:
-                        timed_out = True
-                        break
-                    pause = min(pause, left)
-                time.sleep(pause)
-                continue
-            busy, busy_streak, unverified_since = None, 0, None
+            busy, streak, reached = None, 0, True
+            identity = _answered(window, client, identity)
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False
@@ -1383,6 +1433,9 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     as_json = quiet or bool(getattr(args, "json", False))
     if timed_out and busy is not None:
         note(f"{PROG} wait: the daemon was still busy ({busy}); the jobs are unaffected")
+    if timed_out and window.since is not None:
+        note(f"{PROG} wait: the daemon has not answered for "
+             f"{time.monotonic() - window.since:.0f}s ({lost})")
     for job_id, job in sorted(finished.items()):
         if as_json:
             emit(job)
@@ -1917,7 +1970,8 @@ def cmd_kill(args: argparse.Namespace) -> int:
         except ProtocolError as exc:
             worst = max(worst, fail(exc.code, str(exc)))
     if args.wait and killed:
-        return max(worst, wait_jobs(args, killed, timeout=args.timeout))
+        # Only a kill the daemon answered is waited on, so it was reached (C-15.4).
+        return max(worst, wait_jobs(args, killed, timeout=args.timeout, reached=True))
     return worst
 
 

@@ -79,7 +79,8 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, busy_pause, refused_while_busy, state_root
+from .client import (Client, DaemonError, DaemonUnavailable, ResponseLost, RestartWindow,
+                     busy_pause, refused_while_busy, state_root)
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError, service_notice_on_wire
 
@@ -587,7 +588,9 @@ _RETRY_FLOOR_S = 0.25
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
-    busy = 0
+    busy = False                    # the daemon's last answer was busy (C-16.7)
+    streak = 0                      # polls in a row with no result, for the pause
+    window = RestartWindow()        # C-15.4: an outage, and since when
     while True:
         remaining = deadline - now()
         if remaining <= 0:
@@ -597,21 +600,33 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
                                  timeout=poll + 10, retry_busy=False)
-        except (DaemonError, DaemonUnavailable) as exc:
-            # C-16.7: busy is an empty poll; ask again within the budget, and the
-            # next poll has its whole deadline (as #55 on main). A connect refused
-            # after a busy answer is that busy daemon's full backlog, not an
-            # absent daemon (review r2, P1).
-            # An unverifiable lock counts as busy here: the hook's own deadline bounds it.
-            if not ((busy and refused_while_busy(client, exc) is not False)
-                    if isinstance(exc, DaemonUnavailable) else exc.busy):
-                return int(Exit.OK)
-            busy += 1
-            sleep(min(busy_pause(busy), max(0.0, deadline - now())))
+        except (DaemonError, DaemonUnavailable, ResponseLost) as exc:
+            if isinstance(exc, DaemonError):
+                # C-16.7: busy is an empty poll; ask again within the budget, and
+                # the next poll has its whole deadline (as #55 on main).
+                if not exc.busy:
+                    return int(Exit.OK)
+                busy = True
+                window.answered()
+            elif not (busy and isinstance(exc, DaemonUnavailable)
+                      and refused_while_busy(client, exc) is not False):
+                # C-15.4: the daemon dropped the poll, or its socket is gone or
+                # refusing with no busy daemon behind it, as a restart leaves it.
+                # `_candidates` was answered, so this hook has reached a daemon,
+                # and a wait only reads: ask again for RESTART_WINDOW_S, silently,
+                # within the hook's own deadline. A connect refused after a busy
+                # answer is that busy daemon's full backlog instead (review r2, P1);
+                # an unverifiable lock counts as busy here, which the deadline bounds.
+                if not window.lost(now()):
+                    return int(Exit.OK)
+                busy = False
+            streak += 1
+            sleep(min(busy_pause(streak), max(0.0, deadline - now())))
             continue
         except (ProtocolError, OSError):
             return int(Exit.OK)
-        busy = 0
+        busy, streak = False, 0
+        window.answered()
         # A `wait` that returns early — a shorter server-side cap, a job the
         # daemon no longer has — must not turn this loop into a busy wait on
         # the socket. C-15.4 makes the deadline a server-side maximum, not a

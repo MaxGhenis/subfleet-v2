@@ -408,7 +408,8 @@ def test_c16_7_the_cli_wait_takes_a_connect_refused_after_busy_as_busy(monkeypat
         if isinstance(step, BaseException):
             raise step
         return step
-    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call))
+    # The lock names a living daemon, so the refusal is its backlog, not an outage (C-15.4).
+    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call, lock_holder_alive=lambda: True))
     monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
     args = cli.build_parser().parse_args(["wait", "20261004-000005-done"])
     assert cli.wait_jobs(args, ["20261004-000005-done"], timeout=None, quiet=True) == 0
@@ -417,23 +418,28 @@ def test_c16_7_the_cli_wait_takes_a_connect_refused_after_busy_as_busy(monkeypat
 
 def test_c16_7_the_cli_wait_ends_when_the_busy_daemon_stops(monkeypatch, capsys):
     """Review r3, P2: after a busy answer, the daemon stopped and unlinked its socket.
-    Every poll then failed and an unbounded `wait` asked for ever; it now reports the
-    daemon absent at once."""
+    Every poll then failed and an unbounded `wait` asked for ever. Since D-WT1
+    (2026-10-10) a daemon that stops may be restarting, so the wait asks again for
+    C-15.4's restart window, and then reports the daemon absent; it still never asks
+    for ever."""
     from types import SimpleNamespace
     from subfleet import cli
-    steps = [busy(), socket_gone(), {"jobs": [], "timeout": True}]
+    clock = [0.0]
+    monkeypatch.setattr(cli, "time", SimpleNamespace(monotonic=lambda: clock[0],
+                                                     sleep=lambda s: clock.__setitem__(0, clock[0] + s)))
+    monkeypatch.setattr(client_module, "RESTART_WINDOW_S", 5.0)
+    polls = [0]
 
     def call(op, args, **kwargs):
-        step = steps.pop(0)
-        if isinstance(step, BaseException):
-            raise step
-        return step
+        polls[0] += 1
+        if polls[0] == 1:
+            raise busy()
+        raise socket_gone()                                 # stopped for good
     monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call))
-    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
     args = cli.build_parser().parse_args(["wait", "20261004-000007-any"])
-    assert cli.wait_jobs(args, ["20261004-000007-any"], timeout=None, quiet=True) != 0
-    assert len(steps) == 1                                  # it stopped at the unlinked socket
-    capsys.readouterr()
+    assert cli.wait_jobs(args, ["20261004-000007-any"], timeout=None, quiet=True) == 69
+    assert 5.0 < clock[0] <= 5.0 + 1.0 and polls[0] > 2      # the window, then one pause at most
+    assert "past the 5s restart window" in capsys.readouterr().err
 
 
 def test_c16_7_the_cli_wait_still_reports_a_daemon_absent_from_the_start(monkeypatch, capsys):
@@ -464,23 +470,22 @@ def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypa
     assert hooks._wait_and_deliver(Hooked(), "s", "j", 100.0, stderr=None, now=lambda: clock[0],
                                    sleep=lambda s: clock.__setitem__(0, clock[0] + s)) == 0
     assert delivered and steps == []
-    # Refused with no busy answer first, or a socket gone after one: the daemon is
-    # absent, and the hook gives up quietly.
-    for script in ([refused()], [busy(), socket_gone()]):
-        pending = list(script)
+    # Refused with no busy answer first, or a socket gone after one: the daemon went
+    # away, as a restart leaves it (D-WT1). The hook asks again for C-15.4's restart
+    # window, then gives up quietly, well inside its own deadline.
+    for first, then in (([], refused), ([busy()], socket_gone)):
+        script = list(first)
+        tries = [0]
+        clock = [0.0]
 
         class Gone:
             def call(self, op, args, **kwargs):
-                raise pending.pop(0)
-        assert hooks._wait_and_deliver(Gone(), "s", "j", 100.0, stderr=None, now=lambda: 0.0,
-                                       sleep=lambda s: None) == 0 and not pending
-    absent = [refused()]
-
-    class Absent:
-        def call(self, op, args, **kwargs):
-            raise absent.pop(0)
-    assert hooks._wait_and_deliver(Absent(), "s", "j", 100.0, stderr=None, now=lambda: 0.0,
-                                   sleep=lambda s: None) == 0 and not absent
+                tries[0] += 1
+                raise script.pop(0) if script else then()
+        assert hooks._wait_and_deliver(Gone(), "s", "j", 1000.0, stderr=None, now=lambda: clock[0],
+                                       sleep=lambda s: clock.__setitem__(0, clock[0] + s)) == 0
+        window = client_module.RESTART_WINDOW_S
+        assert window < clock[0] <= window + 1.0 and tries[0] > 2
 
 
 def test_c3_6_a_lock_that_cannot_be_cleared_keeps_the_handler_and_its_stream(monkeypatch, isolated_dumps):
@@ -735,16 +740,17 @@ def test_c16_7_refused_while_busy_says_busy_absent_or_unverifiable(tmp_path):
 def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeypatch, alive, timeout, expected):
     """Review of 4fc5b49, P2: a refused connect after busy, with a lock that cannot say
     whether its holder lives, kept an unbounded `wait` asking for ever (a replacement
-    daemon had truncated the lock and gone). It is busy for at most
-    REFUSED_UNVERIFIED_MAX_S, then absent; a lock naming a living holder waits on.
-    Review of 1efa0ef, P3: a `wait --timeout` is bounded by that, not cut off at the
-    60 s meant for a wait with no deadline."""
+    daemon had truncated the lock and gone). With no `--timeout` it is the daemon
+    gone, asked again for C-15.4's restart window (which replaced the 60 s
+    REFUSED_UNVERIFIED_MAX_S, D-WT1), then absent; a lock naming a living holder
+    waits on. Review of 1efa0ef, P3: a `wait --timeout` is bounded by that, not cut
+    off at the bound meant for a wait with no deadline."""
     from types import SimpleNamespace
     from subfleet import cli
     clock = [0.0]
     monkeypatch.setattr(cli, "time", SimpleNamespace(monotonic=lambda: clock[0],
                                                      sleep=lambda s: clock.__setitem__(0, clock[0] + s)))
-    monkeypatch.setattr(cli, "REFUSED_UNVERIFIED_MAX_S", 5.0)
+    monkeypatch.setattr(client_module, "RESTART_WINDOW_S", 5.0)
     polls = [0]
 
     def call(op, args, **kwargs):
