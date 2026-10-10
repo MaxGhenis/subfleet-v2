@@ -168,12 +168,16 @@ def test_probe_cannot_signal_an_identity_with_an_attempt_claim(state_daemon, mon
     assert record["owned_identities"]["202"] == known
 
 
+@pytest.mark.parametrize("legacy_boot", [False, True])
 @pytest.mark.parametrize("table_outage", [False, True])
 def test_foreign_group_proof_blocks_reuse_before_foreign_paced_record(
-        state_daemon, monkeypatch, table_outage):
+        state_daemon, monkeypatch, table_outage, legacy_boot):
     daemon, harness = state_daemon
     ours, _ = running(daemon, harness, 200, 201)
-    running(daemon, harness, 300, 301)
+    foreign, _ = running(daemon, harness, 300, 301)
+    if legacy_boot:
+        daemon.store.update_attempt(foreign["attempt_id"], boot_id="1700000000")
+        monkeypatch.setattr(procs.boot_identity, "boot_seconds", lambda read: "1700000000")
     rows = {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201"),
             202: (201, 200, "S", "p202")}
     script_table(monkeypatch, rows)
@@ -192,6 +196,28 @@ def test_foreign_group_proof_blocks_reuse_before_foreign_paced_record(
     daemon._kill_attempt(ours)
     after = daemon.store.get_attempt(ours["attempt_id"])
     assert after["state"] == "quarantined"
+
+
+def test_foreign_histories_with_matching_legacy_boot_cannot_exclude_a_cwd_writer(
+        state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    ours, _ = running(daemon, harness, 200, 201)
+    modern, _ = running(daemon, harness, 300, 301)
+    legacy, _ = running(daemon, harness, 400, 401)
+    current = {"pid": 202, "boot_id": BOOT, "proc_start": "p202"}
+    for attempt, boot in ((modern, BOOT), (legacy, "1700000000")):
+        record = {**current, "boot_id": boot}
+        daemon.store.update_attempt(attempt["attempt_id"], evidence_json=json.dumps({
+            "owned_identity_history": {"202": [record]},
+        }))
+    monkeypatch.setattr(procs.boot_identity, "boot_seconds", lambda read: "1700000000")
+    script_table(monkeypatch, {202: (1, 202, "S", "p202")}, markers="")
+    monkeypatch.setattr(procs, "cwd_pids", lambda path: frozenset({202}))
+    census = daemon._contain(ours)
+    assert 202 in census.live_pids
+    assert procs.ProcessIdentity(**current) in census.ambiguous_identities
+    assert procs.ProcessIdentity(**current) not in census.excluded_identities
+    assert "202" not in json.loads(daemon.store.get_attempt(ours["attempt_id"])["evidence_json"]).get("owned_identities", {})
     assert {"pid": 202, "boot_id": BOOT, "proc_start": "p202"} in json.loads(after["evidence_json"])["ambiguous_identities"]
 
 

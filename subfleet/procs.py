@@ -377,6 +377,14 @@ def identities_overlap(left: ProcessIdentity, right: ProcessIdentity) -> bool:
         return True
 
 
+def _qualified_identity_matches(known: ProcessIdentity, current: ProcessIdentity) -> bool:
+    """Full start qualification with the existing legacy boot compatibility."""
+    return (known.pid == current.pid and bool(known.proc_start) and bool(current.proc_start)
+            and known.proc_start == current.proc_start and bool(known.boot_id) and bool(current.boot_id)
+            and boot_identity.matches(known.boot_id, current.boot_id,
+                                      lambda: boot_identity.boot_seconds(_read)) is True)
+
+
 @dataclass(frozen=True)
 class ForeignOwnership:
     """Other attempts' recorded processes, never inferred from shared cwd."""
@@ -462,7 +470,7 @@ class ForeignOwnership:
             return False
         members = tuple(known for known in self.identities
                         if not any(identities_overlap(value, known) for value in blocked))
-        if current in members:
+        if any(_qualified_identity_matches(known, current) for known in members):
             return True
         # A late cwd/marker match may not have appeared in the shared table.
         # Its fresh identity brackets the group lookup at the call site. Check
@@ -470,10 +478,12 @@ class ForeignOwnership:
         for known in self.groups:
             if any(identities_overlap(value, known.identity) for value in blocked):
                 continue
-            if group != known.pgid or known.pid != known.pgid or current.boot_id != known.boot_id:
+            if (group != known.pgid or known.pid != known.pgid
+                    or boot_identity.matches(known.boot_id, current.boot_id,
+                                             lambda: boot_identity.boot_seconds(_read)) is not True):
                 continue
             leader = identity(known.pid)
-            if leader == known.identity:
+            if leader is not None and _qualified_identity_matches(known.identity, leader):
                 if process_group(known.pid) == known.pgid and identity(known.pid) == leader:
                     return True
                 continue  # A guardian cannot leave its original session group.
@@ -483,9 +493,9 @@ class ForeignOwnership:
             # group may have emptied and been reused on this same boot. A
             # still-identical recorded member must anchor a leaderless group.
             for member in members:
-                if member.boot_id != current.boot_id:
-                    continue
-                if identity(member.pid) == member and process_group(member.pid) == group and identity(member.pid) == member:
+                observed = identity(member.pid)
+                if (observed is not None and _qualified_identity_matches(member, observed)
+                        and process_group(member.pid) == group and identity(member.pid) == observed):
                     return True
         return False
 

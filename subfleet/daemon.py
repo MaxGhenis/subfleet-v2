@@ -6434,6 +6434,7 @@ class Daemon:
         groups = []
         launches = []
         claims = set()
+        claims_by_pid = {}
         collisions = set()
         for other in self.store.query(
                 "SELECT * FROM attempts WHERE attempt_id<>?",
@@ -6467,7 +6468,13 @@ class Daemon:
                     identities.add(leader.identity)
                 if start.get("child_identity"):
                     identities.add(child)
-            collisions.update(claims & history)
+            # A legacy seconds receipt and a modern UUID can name the same
+            # boot. Compare claims by PID across attempts, rather than relying
+            # on dataclass equality, which would miss that ambiguity.
+            collisions.update(ident for ident in history if any(
+                procs.identities_overlap(known, ident) for known in claims_by_pid.get(ident.pid, ())))
+            for ident in history:
+                claims_by_pid.setdefault(ident.pid, []).append(ident)
             claims.update(history)
         return procs.ForeignOwnership(tuple(identities), tuple(groups), tuple(launches),
                                       tuple(claims), tuple(collisions))
