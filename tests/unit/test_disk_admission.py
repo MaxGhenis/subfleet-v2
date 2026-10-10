@@ -24,26 +24,34 @@ actions = st.lists(st.one_of(
     st.tuples(st.just("end"), st.integers(0, 20)),
     st.tuples(st.just("clock"), st.integers(0, 1200)),
     st.tuples(st.just("restart"), st.just(0)),
+    st.tuples(st.just("lower"), st.integers(20, 60)),
+    st.tuples(st.just("raise"), st.integers(0, 80)),
 ), min_size=1, max_size=65)
 SEQUENCES = settings(max_examples=120, deadline=None, derandomize=True,
                      suppress_health_check=[HealthCheck.function_scoped_fixture])
 
 
 @pytest.mark.parametrize("invariant", ["I1-floor", "I2-progress", "I3-pacing", "I4-attended", "I5-reservations"])
+@pytest.mark.parametrize("with_rulings", [False, True], ids=["policy", "timed-floor"])
 @SEQUENCES
 @given(actions)
-def test_invariants_over_generated_sequences(tmp_path, invariant, sequence):
+def test_invariants_over_generated_sequences(tmp_path, invariant, with_rulings, sequence):
     # The model uses GB and explicit expiry times, independently of the
     # implementation's byte budgets, timestamp parsing and store evidence.
     now, free, latch, serial = 0, 39.0, False, 0
     waiting, attempts, budgets = [], [], {}
     reads = []
+    from tests.unit.test_disk_floor import Files, LOWER, RAISE, agent_rule, file, lowering, policy
+    from subfleet.policy import disk_settings
+    files = Files()
+    cfg = policy() if with_rulings else POLICY
+    old_numbers = (40, 5)
 
     def read(path):
         reads.append(path)
         return int(free * GB)
 
-    gate = DiskAdmission(tmp_path, read_free=read)
+    gate = DiskAdmission(tmp_path, read_free=read, read_ruling=files)
     for action, value in [("submit", "background"), *sequence]:
         if action == "free":
             free = value / 2
@@ -52,22 +60,32 @@ def test_invariants_over_generated_sequences(tmp_path, invariant, sequence):
             serial += 1
         elif action == "clock":
             now += value
+        elif action == "lower" and with_rulings:
+            files.files[LOWER] = file(lowering(value, now + 900), now)
+        elif action == "raise" and with_rulings:
+            files.files[RAISE] = file({"floor_gb": value, "until": stamp(now + 600)}, now)
         elif action == "end" and attempts:
             row = attempts[value % len(attempts)]
             row.update(state="finalizing", finished_at=stamp(now))
             budgets.pop(row["attempt_id"], None)
         elif action == "restart":
             old = dict(gate.reservations)
-            gate = DiskAdmission(tmp_path, read_free=read, holding=gate.holding)
-            gate.begin_pass(POLICY, attempts, stamp(now))
+            gate = DiskAdmission(tmp_path, read_free=read, holding=gate.holding, read_ruling=files)
+            gate.begin_pass(cfg, attempts, stamp(now))
+            if with_rulings:
+                old_numbers = (40, 5)  # A fresh gate begins with the policy defaults.
             if invariant == "I5-reservations":
                 assert gate.reservations == old
         budgets = {aid: expiry for aid, expiry in budgets.items() if expiry > now}
         count_reads = len(reads)
-        gate.begin_pass(POLICY, attempts, stamp(now))
+        gate.begin_pass(cfg, attempts, stamp(now))
         assert len(reads) == count_reads + 1
+        floor, margin, _, _ = agent_rule(disk_settings(cfg), files, now)
         effective = free - 1.5 * len(budgets)
-        limit = max(0, int((effective - 40) // 1.5))
+        if old_numbers != (floor, margin):
+            latch = (latch and effective < floor + margin) or effective - 1.5 < floor
+        old_numbers = floor, margin
+        limit = max(0, int((effective - floor) // 1.5))
         ready = any(klass not in ("attended", "probe") for _, klass in waiting)
         placed = 0
         remaining = []
@@ -77,7 +95,7 @@ def test_invariants_over_generated_sequences(tmp_path, invariant, sequence):
                 refused = False
             else:
                 effective_now = free - 1.5 * len(budgets)
-                refused = (latch and effective_now < 45) or effective_now - 1.5 < 40
+                refused = (latch and effective_now < floor + margin) or effective_now - 1.5 < floor
                 latch = refused
             hold = gate.hold(klass)
             # This independent oracle also kills priority-exemption and
@@ -96,16 +114,16 @@ def test_invariants_over_generated_sequences(tmp_path, invariant, sequence):
                 budgets[aid] = now + 600
                 placed += 1
                 if invariant == "I1-floor":
-                    assert free * GB - gate.reserved_bytes >= 40 * GB
+                    assert free * GB - gate.reserved_bytes >= floor * GB
         waiting = remaining
-        if invariant == "I2-progress" and ready and effective >= 46.5:
+        if invariant == "I2-progress" and ready and effective >= floor + margin + 1.5:
             assert placed >= 1
         if invariant == "I3-pacing":
             assert placed <= limit
         if invariant == "I5-reservations":
             assert gate.reserved_bytes == 1.5 * GB * len(budgets) >= 0
-            restarted = DiskAdmission(tmp_path, read_free=read)
-            restarted.begin_pass(POLICY, attempts, stamp(now))
+            restarted = DiskAdmission(tmp_path, read_free=read, read_ruling=files)
+            restarted.begin_pass(cfg, attempts, stamp(now))
             assert restarted.reservations == gate.reservations
 
 

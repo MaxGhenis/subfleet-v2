@@ -173,3 +173,88 @@ packaging record and final handoff. Every commit ends with the requested
 Claude Opus 5.5 co-author trailer. No logs or JSON run evidence are committed.
 
 Implementation head: `2ddf1ebb392c224ff448fbda43fce348b4bb0813`.
+
+## Timed floor rulings (stacked on #161)
+
+The native gate now follows the two external ruling files on every enabled
+**detached** admission pass, without restarting or reloading policy. Configure
+`admission.disk.lower_path` and `raise_path` with absolute paths to
+`state/subfleet-disk-hold-lower.json` and `state/subfleet-disk-hold-override.json`.
+Both default to null. `min_floor_gb` defaults to **20** (finite nonnegative);
+`max_lower_h` defaults to **16** (finite positive). Unknown settings and invalid
+values report the exact dotted policy key. No live configuration is changed.
+
+A valid lowering has a future `until`, a floor at least `min_floor_gb`, a ruling
+that stringifies and trims to a nonempty value, and an expiry at most
+`max_lower_h` after **min(now, file mtime)**. The writing-time cap means an
+initially overlong file cannot become valid just because time passed. A future
+mtime cannot extend the cap. Its floor replaces the policy floor and its
+`release_margin_gb` defaults to zero, with negative values clamped to zero.
+
+A raise without a lowering uses `max(policy floor, raise)` with the policy
+margin. When both are live, a raw raise strictly above the lowered floor wins
+with the policy margin; at equality or below, the lowering wins. Expired,
+refused and unreadable files retain their stable reason codes:
+`lower_error`, `lower_expired`, `lower_refused`, `override_error`,
+`override_expired`. A missing file is an absent ruling. Each ignored file has
+no effect; a valid other file can still supply the floor.
+
+The implementation was compared directly with the read-only external
+`bin/subfleet-disk-hold` methods `floor_gb`, `lower_override` and `pass_once`.
+The source wins over these differences in the brief:
+
+- Numeric values use `float` coercion, including numeric strings and booleans.
+  NaN raises are labelled expired; NaN lowerings are refused. Positive infinity
+  is accepted by the agent and safely holds native admission without integer
+  overflow. Policy settings themselves remain finite.
+- `ruling` need not originally be a string: the agent stringifies a truthy
+  value and trims it. Negative release margins clamp to zero.
+- When both are live, a raise above a lowered floor can still be below the
+  policy floor (policy 60, lower 30, raise 35 gives **35 with policy margin**).
+  Without a live lowering, that same raise leaves the floor at 60.
+- Naive ISO timestamps use the machine's local timezone, as in the agent.
+
+Deliberate differences required for native admission:
+
+- The reader rejects FIFOs, symlinks, directories, files over **16 KiB**, and
+  files changed during the read. It opens nonblocking and no-follow, obtains
+  the bytes and mtime from one descriptor, and does no filesystem work under
+  the store lock. The agent uses unbounded text reads and a separate stat.
+  A failed mtime read is an error here, rather than the agent's fallback to now.
+- Non-object JSON and deeply nested malformed JSON are ignored as errors;
+  the agent can raise on some non-object values. This satisfies F2.
+- `drop_gb` and `drop_window_min` are wholly ignored, including malformed
+  values. The agent parses them and can reject malformed values or trigger
+  a drop hold; native placement reservations already pace launches.
+
+Floor and margin changes re-evaluate the hysteresis latch against the current
+measurement and outstanding reservations, including passes with no queued
+jobs. A held 34 GB reading therefore opens at a 30 GB floor with zero margin;
+at expiry it returns to 40 GB with the policy margin and holds again. With
+both paths null the original #161 decision and reservation behavior is
+preserved, including when a gate is reconstructed after restart.
+
+Status and disk holds in `why` show the floor, its source (`policy`,
+`lowered until <t> by <ruling>`, `raised until <t>`), the ruling's optional
+`why` text, and ignored-file reasons. A source transition writes exactly one
+`admission.disk_floor` event; the same source on later passes writes none.
+The saved source is recovered at daemon startup to avoid duplicate events.
+Attended passes read neither disk nor ruling files, and probes remain exempt.
+
+### Timed ruling invariants
+
+| Invariant | Test |
+| --- | --- |
+| **F1 agent parity** | `test_F1_agent_differential`: independent small oracle translated from the three agent methods; generated files, mtimes, clock, policy floor, margin, lower limits and fake disk; 400 examples |
+| **F2 invalid files** | `test_F2_invalid_and_unreadable_never_change_policy`: generated bad bytes, bad shapes and read failures; 400 examples; real FIFO/symlink/directory/oversize rejection also runs through a pass |
+| **F3 lower limit/lifetime** | `test_F3_lower_bound_and_lifetime`: generated floor, minimum, duration, mtime and clock; 400 examples |
+| **F4 pacing I1–I5** | `test_invariants_over_generated_sequences[timed-floor-*]`: independent agent floor substituted into all five original generated sequence invariants, with timed lower/raise actions, expiry, restarts, reservations, ends and disk changes; 120 examples per invariant; original policy-only variants rerun too |
+| **F4 I6 off means off** | `test_I6_disabled_matches_absent_over_generated_sequences` rerun; `test_disabled_rule_reads_no_ruling_files` forbids both readers even with configured paths |
+| **F5 null paths** | `test_F5_null_paths_match_161_decisions`: independent frozen #161 decision/expiry oracle over generated sequences, floors, margins and reserves; 120 examples, ruling reads forbidden |
+| **Expiry/latch regression** | `test_latch_recomputed_at_start_and_expiry_even_without_jobs` and real-daemon `test_timed_floor_expiry_visibility_events_and_no_store_lock` check starts and exact expiry without restart, with source events and visibility |
+
+The F1 oracle retains the agent's drop-field parsing, and its generated drop
+fields are valid numeric inputs. A separate explicit test checks the required
+malformed-drop-field difference. The oracle totalizes the agent's non-object
+crash into an error so invalid inputs are safe while valid-input rules remain
+independent of production code.

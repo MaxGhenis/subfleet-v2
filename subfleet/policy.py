@@ -210,6 +210,10 @@ DISK_DEFAULTS: dict[str, Any] = {
     "placement_reserve_gb": 1.5,
     "reserve_ttl_s": 600,
     "path": None,
+    "lower_path": None,
+    "raise_path": None,
+    "min_floor_gb": 20,
+    "max_lower_h": 16,
 }
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
@@ -412,15 +416,19 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     disk = {**DISK_DEFAULTS, **disk}
     if not isinstance(disk["enabled"], bool):
         fail("admission.disk.enabled", "must be a boolean")
-    for key in ("floor_gb", "resume_margin_gb", "placement_reserve_gb", "reserve_ttl_s"):
+    for key in ("floor_gb", "resume_margin_gb", "placement_reserve_gb", "reserve_ttl_s",
+                "min_floor_gb", "max_lower_h"):
         item = disk[key]
-        positive = key in ("placement_reserve_gb", "reserve_ttl_s")
+        positive = key in ("placement_reserve_gb", "reserve_ttl_s", "max_lower_h")
         if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
                 or item < 0 or (positive and item == 0)):
             fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
                  + " finite number")
     if disk["path"] is not None and not _name(disk["path"]):
         fail("admission.disk.path", "must be a nonempty path string, or null for the state root's volume")
+    for key in ("lower_path", "raise_path"):
+        if disk[key] is not None and (not _name(disk[key]) or not Path(disk[key]).is_absolute()):
+            fail(f"admission.disk.{key}", "must be a nonempty absolute path string, or null")
     settings["disk"] = disk
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):

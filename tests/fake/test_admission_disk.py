@@ -219,3 +219,108 @@ def test_disabled_or_absent_is_the_existing_daemon_path(state_daemon, monkeypatc
     assert [row["job_id"] for row in placed(daemon)] == jobs
     assert daemon._disk.reserved_bytes == 0
     assert all("disk_reservation" not in json.loads(row["evidence_json"]) for row in placed(daemon))
+
+
+def rulings(daemon):
+    return [json.loads(row["data_json"]) for row in daemon.store.query(
+        "SELECT data_json FROM events WHERE kind='admission.disk_floor' ORDER BY event_id")]
+
+
+def test_timed_floor_expiry_visibility_events_and_no_store_lock(state_daemon, monkeypatch):
+    from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
+    daemon, harness = state_daemon
+    clock = fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 34)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE)
+    files = Files()
+
+    def read(path):
+        import threading
+        held = daemon.store._lock.held
+        assert held is None or held[0] != threading.get_ident()
+        return files(path)
+
+    daemon._disk.read_ruling = read
+    waiting = submit(daemon, harness)
+    daemon._admit()
+    assert daemon._disk.holding and not placed(daemon)
+    assert not rulings(daemon)
+    files.files[LOWER] = file(lowering(until=100, why="overnight ruling"))
+    clock[0] = 1
+    daemon._admit()
+    assert len(placed(daemon)) == 1
+    status = daemon.dispatch("daemon.status", {})
+    assert status["disk"]["floor_gb"] == 30 and status["disk"]["resume_margin_gb"] == 0
+    assert "lowered until" in status["status"] and "overnight ruling" in status["status"]
+    why = daemon.dispatch("why", {"job_id": waiting})
+    assert why["disk"]["floor_gb"] == 30 and "lowered until" in why["text"]
+    daemon._admit()
+    assert len(rulings(daemon)) == 1
+    # No queued jobs: the next pass must still restore and latch the policy.
+    clock[0] = 100
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 40
+    assert daemon._disk.snapshot["resume_margin_gb"] == 5 and daemon._disk.holding
+    waiting = submit(daemon, harness)
+    daemon._admit()
+    why = daemon.dispatch("why", {"job_id": waiting})
+    assert "floor 40 GB" in why["text"] and "policy; lower_expired:" in why["text"]
+    status = daemon.dispatch("daemon.status", {})
+    assert "policy; lower_expired:" in status["status"]
+    assert [event["floor_source"] for event in rulings(daemon)] == [
+        f"lowered until {stamp(100)} by Max", "policy"]
+    assert files.reads == [LOWER, RAISE] * 5
+
+
+def test_raise_lower_precedence_and_source_transitions(state_daemon, monkeypatch):
+    from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 0)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE,
+                                             floor_gb=60, resume_margin_gb=7)
+    files = Files(file(lowering()), file({"floor_gb": 35, "until": stamp(100)}))
+    daemon._disk.read_ruling = files
+    job = submit(daemon, harness)
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 35  # Agent's pass_once beats lower, even below policy.
+    assert daemon._disk.snapshot["resume_margin_gb"] == 7
+    assert "raised until" in daemon.dispatch("why", {"job_id": job})["text"]
+    daemon._admit()
+    assert len(rulings(daemon)) == 1
+    files.files[RAISE] = file({"floor_gb": 25, "until": stamp(100)})
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 30 and daemon._disk.snapshot["resume_margin_gb"] == 0
+    assert "lowered until" in daemon.dispatch("why", {"job_id": job})["text"]
+    files.files[LOWER] = None
+    daemon._admit()
+    assert daemon._disk.snapshot["floor_gb"] == 60 and daemon._disk.snapshot["floor_source"] == "policy"
+    assert len(rulings(daemon)) == 3
+    files.files[LOWER] = OSError("cannot read")
+    files.files[RAISE] = (b"broken JSON", epoch(stamp(0)))
+    daemon._admit()
+    why = daemon.dispatch("why", {"job_id": job})["text"]
+    assert "lower_error:" in why and "override_error:" in why
+    assert len(rulings(daemon)) == 3
+
+
+def test_restart_does_not_repeat_floor_source_event(state_daemon, monkeypatch):
+    from tests.unit.test_disk_floor import Files, LOWER, RAISE, file, lowering
+    daemon, harness = state_daemon
+    fake_clock(monkeypatch)
+    enable(daemon, monkeypatch, 0)
+    daemon.policy["admission"]["disk"].update(lower_path=LOWER, raise_path=RAISE)
+    files = Files(file(lowering()))
+    daemon._disk.read_ruling = files
+    daemon._admit()
+    assert len(rulings(daemon)) == 1
+    (daemon.root / "policy.json").write_text(json.dumps(daemon.policy))
+    daemon.close()
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        restarted._disk.read_ruling = files
+        restarted._admit()
+        assert len(rulings(restarted)) == 1
+        assert restarted._disk.snapshot["floor_gb"] == 30
+    finally:
+        restarted.close()

@@ -6,7 +6,9 @@ import pytest
 from subfleet.policy import DEFAULT_POLICY_PATH, DISK_DEFAULTS, PolicyError, disk_settings, load_policy
 
 
-@pytest.mark.parametrize("section", [None, {}, {"enabled": True}, {"path": "/Volumes/work"}])
+@pytest.mark.parametrize("section", [None, {}, {"enabled": True}, {"path": "/Volumes/work"},
+                                    {"lower_path": "/rulings/lower", "raise_path": "/rulings/raise"},
+                                    {"min_floor_gb": 0, "max_lower_h": 0.5}])
 def test_disk_defaults_and_partial_config(tmp_path, section):
     raw = json.loads(DEFAULT_POLICY_PATH.read_bytes())
     if section is None:
@@ -26,6 +28,10 @@ def test_disk_defaults_and_partial_config(tmp_path, section):
     ("placement_reserve_gb", 0), ("placement_reserve_gb", -1), ("placement_reserve_gb", "1.5"),
     ("reserve_ttl_s", 0), ("reserve_ttl_s", False), ("reserve_ttl_s", float("inf")),
     ("path", ""), ("path", "  "), ("path", 1), ("typo", 1),
+    ("lower_path", "lower.json"), ("lower_path", ""), ("lower_path", 1),
+    ("raise_path", "../raise.json"), ("raise_path", "  "), ("raise_path", False),
+    ("min_floor_gb", -1), ("min_floor_gb", True), ("min_floor_gb", float("nan")),
+    ("max_lower_h", 0), ("max_lower_h", False), ("max_lower_h", float("inf")),
 ])
 def test_invalid_disk_setting_names_exact_key(tmp_path, key, value):
     raw = json.loads(DEFAULT_POLICY_PATH.read_bytes())
