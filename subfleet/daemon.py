@@ -4670,7 +4670,10 @@ class Daemon:
         git_fences = folders.retiring(read, folder, folded=absent is not None)
         run_fences = []
         if run_folder:
-            run_fences = (git_fences if run_folder == folder else
+            # A move between the two spellings can change the comparison even
+            # when their strings match. Reuse only an identical fence query.
+            same = run_folder == folder and (run_absent is None) == (absent is None)
+            run_fences = (git_fences if same else
                           folders.retiring(read, run_folder, folded=run_absent is not None))
         return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
 
