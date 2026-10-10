@@ -213,6 +213,8 @@ The source wins over these differences in the brief:
   policy floor (policy 60, lower 30, raise 35 gives **35 with policy margin**).
   Without a live lowering, that same raise leaves the floor at 60.
 - Naive ISO timestamps use the machine's local timezone, as in the agent.
+- JSON is decoded as UTF-8 text before parsing, matching the agent: UTF-16,
+  UTF-32 and UTF-8 BOM files are ignored rather than silently accepted.
 
 Deliberate differences required for native admission:
 

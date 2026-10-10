@@ -51,7 +51,7 @@ def agent_rule(cfg, files, seconds):
             continue
         try:
             data, mtime = files(path)
-            ov = json.loads(data)
+            ov = json.loads(data.decode("utf-8"))
             until = datetime.fromisoformat(str(ov["until"]).replace("Z", "+00:00"))
             if until.tzinfo is None:
                 until = until.astimezone()
@@ -200,6 +200,14 @@ def test_deep_json_and_unreadable_mtime_are_errors():
                              read_ruling=Files(lower))
         gate.begin_pass(policy(), [], stamp(0))
         assert gate.snapshot["floor_gb"] == 40 and "lower_error" in gate.snapshot
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32", "utf-8-sig"])
+def test_agent_text_encoding_rejects_non_utf8_and_bom(encoding):
+    gate = DiskAdmission("/fake/state", read_free=lambda path: 100 * GB,
+                         read_ruling=Files((json.dumps(lowering()).encode(encoding), epoch(stamp(0)))))
+    gate.begin_pass(policy(), [], stamp(0))
+    assert gate.snapshot["floor_gb"] == 40 and "lower_error" in gate.snapshot
 
 
 @pytest.mark.parametrize("change", ["ruling", "mtime", "raise"])

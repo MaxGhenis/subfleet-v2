@@ -2978,7 +2978,8 @@ class Daemon:
         if disk_reading is not None and (hold or {}).get("reason") != "disk":
             lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "disk": disk_reading, "text": "\n".join(lines)}
+                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:
         """C-6.11: what admission is holding and for how long, for `status`."""

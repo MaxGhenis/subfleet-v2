@@ -68,7 +68,7 @@ def floor_ruling(settings: Mapping[str, Any], now: str, reader: RulingReader) ->
             continue
         try:
             data, mtime = reader(settings[key])
-            ov = json.loads(data)
+            ov = json.loads(data.decode("utf-8"))
             until = _until(ov["until"])
             floor = float(ov["floor_gb"])
             parsed = {"floor_gb": floor, "until": str(ov["until"]), "why": ov.get("why")}
