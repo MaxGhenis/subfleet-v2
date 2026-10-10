@@ -42,8 +42,8 @@ Every matching count-based readiness check found in `tests/e2e` was changed:
   Its timeout remains 20 seconds.
 
 The other reserve tests already wait for named lane/scope pairs or a verdict
-status. Text searches and an AST scan found no remaining count-based `until`
-waiters elsewhere in `tests/e2e`.
+status. Text searches and an AST scan found no additional waits that use a
+reading count to precede a verdict assertion elsewhere in `tests/e2e`.
 
 Python 3.12.14 deterministic controls invoked the original and fixed C-9.9 test
 bodies against the real Claude adapter, fake HTTP transport, timer probe cycle,
