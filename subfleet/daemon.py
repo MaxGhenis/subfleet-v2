@@ -104,6 +104,26 @@ ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,re
 ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job_id > '' OR job_id IN "
               "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')) "
               "ORDER BY +created_at,rowid")
+#: C-17.4, D-ST2: operator views need live attempts, not the retained ledger or
+#: its evidence. Keep quarantine visible without counting it as in flight.
+#: Separate branches let SQLite use `attempts_live` and `attempts_quarantined`;
+#: adding quarantine to the live predicate would stop using its partial index.
+#: Rowid breaks equal timestamp/seq ties as the old `attempts_reserved` index
+#: did, preserving renderer order without returning the internal rowid.
+STATUS_ATTEMPTS = (
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM ("
+    "SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "WHERE state IN ('reserved','starting','running','finalizing') "
+    "UNION ALL SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "WHERE state='quarantined') ORDER BY reserved_at,seq,rowid")
+#: All nonterminal jobs (including queued/waiting turns), plus the jobs of the
+#: attempts above: even a cancelled job can have an uncontained attempt. Keep
+#: their existing columns for CLI/MCP JSON callers. `+created_at` prevents an
+#: ordering scan of every retained job, as it does for `ROUTE_JOBS`.
+STATUS_JOBS = (
+    "SELECT * FROM jobs WHERE state IN ('queued','waiting','running') OR job_id IN "
+    "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
+    "UNION ALL SELECT job_id FROM attempts WHERE state='quarantined') ORDER BY +created_at,rowid")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -1204,7 +1224,8 @@ class Daemon:
         and jobs a route can depend on (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`, C-11.2),
         and `scheduler.evaluate` reaches the same decision over them as over
         every row (a differential property test). Status and the operator's
-        views read every row.
+        views read live/quarantined attempts without evidence and their jobs,
+        plus every nonterminal job (`STATUS_ATTEMPTS`, `STATUS_JOBS`, C-17.4).
 
         Only the reads: the view is built after the snapshot ends, so building
         it holds no read connection. Six views building at once used to hold
@@ -1213,8 +1234,8 @@ class Daemon:
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
                     "closures": self.store.list_closures(),
-                    "attempts": self.store.query(ROUTE_ATTEMPTS) if route else self.store.list_attempts(),
-                    "jobs": self.store.query(ROUTE_JOBS if route else "SELECT * FROM jobs ORDER BY created_at,rowid")}
+                    "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
+                    "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
             if not route:
                 rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt

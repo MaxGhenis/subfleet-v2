@@ -1,4 +1,4 @@
-"""C-3.7: the capacity snapshot's full-table reads sort through an index, not a temp file.
+"""C-3.7, D-ST2: full-ledger reads sort by index; operator snapshots search live rows.
 
 On 2026-10-06 the 2.1.10 daemon wrote about 30 MB/s to the disk (2 TB in 2 d 8 h,
 measured by proc_pid_rusage). Each capacity snapshot sorted every attempt (39 MB
@@ -7,8 +7,6 @@ neither `ORDER BY` had an index and the page cache is 2 MB. On a copy of the liv
 tables, five snapshots wrote 220 MB in 5.0 s without the indexes and 0 MB in
 1.1 s with them.
 """
-import inspect
-
 import pytest
 
 from subfleet import daemon
@@ -36,13 +34,21 @@ def test_list_attempts_reads_through_the_reserved_index(store, monkeypatch):
     assert any("attempts_reserved" in step for step in steps), steps
 
 
-def test_the_snapshot_reads_every_job_through_the_created_index(store):
-    source = inspect.getsource(daemon.Daemon._capacity_rows)
-    sql = "SELECT * FROM jobs ORDER BY created_at,rowid"
-    assert sql in source, "the snapshot's job read changed; check its plan here"
-    steps = plan(store, sql)
-    assert not any("TEMP B-TREE" in step for step in steps), steps
-    assert steps == ["SCAN jobs USING INDEX jobs_created"], steps
+def test_the_operator_snapshot_searches_live_jobs_and_attempts_by_index(store):
+    steps = " / ".join(plan(store, daemon.STATUS_JOBS))
+    assert "jobs_state" in steps and "sqlite_autoindex_jobs_1" in steps, steps
+    assert "attempts_live" in steps and "attempts_quarantined" in steps, steps
+    assert "SCAN jobs" not in steps and "SCAN attempts" not in steps, steps
+
+
+def test_reopening_an_existing_store_adds_the_quarantine_index(store):
+    path = store.path
+    store.connection.execute("DROP INDEX attempts_quarantined")
+    store.close()
+    with Store(path) as reopened:
+        steps = " / ".join(plan(reopened, daemon.STATUS_ATTEMPTS))
+        assert "attempts_live" in steps and "attempts_quarantined" in steps, steps
+        assert "SCAN attempts" not in steps, steps
 
 
 def test_the_route_reads_search_by_index_and_never_scan_a_table(store):
