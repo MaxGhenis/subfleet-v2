@@ -231,8 +231,8 @@ def test_hold_merged_into_a_provider_limit_still_holds(rig, tmp_path):
     assert not store.query("SELECT 1 FROM closures WHERE reason='operator-hold'")      # merged away
     [lane] = timer._card_lanes()
     assert lane["held"] is True
-    # Releasing it changes no row, so no `lane.released` event is written: the hold
-    # is kept until its own end, which errs toward spending nothing.
+    # Nobody releases it here, so the hold is kept until its own end, which errs
+    # toward spending nothing (`lanes release` would end it: C-9.6, C-18.7).
     clock.advance(2 * 3600)
     [lane] = timer._card_lanes()
     assert lane["held"] is False

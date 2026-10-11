@@ -57,7 +57,7 @@ from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
-                     policy_hash, resolve_model, turn_cap)
+                     policy_hash, resolve_model, touch_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
@@ -793,7 +793,7 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, log=self.log)
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
         self.timers.probe_record = self._probe_record            # C-18.1: the probe holding a lane, by name
         self._recovery_complete = threading.Event()
@@ -1143,8 +1143,9 @@ class Daemon:
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
         scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
-        every open operator hold. A held lane is never a candidate (C-11.2) but is
-        still probed, so a held account keeps being measured."""
+        every open operator hold, including one only its `lane.held` event shows. A
+        held lane is never a candidate (C-11.2) nor touched (C-18.7) but is still
+        probed, so a held account keeps being measured."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list")
@@ -1165,6 +1166,10 @@ class Daemon:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
                            "AND released_at IS NULL", (utcnow(), a.lane_id))
+                # C-9.6, C-18.7: a hold `put_closure` folded into a longer limit has no
+                # row to release, only its `lane.held` event; this event ends it too
+                # (`Timers.operator_holds`), so a release always lifts every hold.
+                self.store.add_event("lane.released", lane_id=a.lane_id, data={"at": utcnow()})
         self._notify()
         view = self._capacity_view(self._desktop_identity())
         return {"held": a.lane_id if a.action == "hold" else None,
@@ -1307,7 +1312,7 @@ class Daemon:
         """C-6.14: a model answered on `lane_id`, so the lane is proven now, and an
         attempt that answered is no pilot. Remembered first, then recorded as a
         `lane.answered` event (`source`: the attempt's `stream`, its `finalization`,
-        an admission `probe`, a timer's `keepalive` or `heal`); an attempt's answer
+        an admission `probe`, a timer's `keepalive`, `heal` or `touch`); an attempt's answer
         is recorded once. A store error is logged, never raised: the memory is
         what admission reads."""
         now = datetime.now(timezone.utc).timestamp()           # the clock views are built on
@@ -2903,6 +2908,12 @@ class Daemon:
                         "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
             if a.action == "enroll":
                 return self._enroll_lane(a)
+            if a.action == "touch":
+                return self._touch_lanes(a)
+            if a.action == "touch-status":
+                if not a.request_id:
+                    raise protocol.ProtocolError("touch-status: request_id is required")
+                return {"touch": self.timers.touch_status(a.request_id, wait_s=a.wait_s or 0)}
             if a.action in ("hold", "release"):
                 return self._hold_lane(a)
             return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
@@ -3060,6 +3071,63 @@ class Daemon:
                 tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                            (utcnow(), "admission.disk_floor", json.dumps(floor_info, allow_nan=False)))
             self._disk_saved_source = source
+
+    #: C-18.7: what an operator is told when the lane they named cannot be touched.
+    TOUCH_REFUSALS = {
+        "owner-v1": ("is owned by v1", "subfleet lanes transfer {lane} --to v2"),
+        "disabled": ("is disabled", "re-enroll it: {login}"),
+        "superseded": ("is a superseded binding", "touch the lane that replaced it: subfleet lanes list"),
+        "desktop": ("is the desktop login, which subfleet never uses", "touch another lane"),
+        "operator-hold": ("is held by an operator until {until}",
+                          "release the hold first: subfleet lanes release {lane}"),
+        "auth-dead": ("has a dead credential (auth-dead, C-23.44)", "re-enroll it: {login}"),
+        "identity-mismatch": ("holds another account's credential (C-10.6)",
+                              "re-enroll it: {login}"),
+        "credential-latched": ("has a credential that cannot run a turn",
+                               "re-authenticate it: {login}"),
+        "limited": ("is at its usage limit, so its weekly window has already started",
+                    "nothing to touch; subfleet status shows its reset"),
+        "busy": ("is running an attempt, which is the first request that starts its clock",
+                 "nothing to touch; subfleet runs --running"),
+    }
+
+    def _touch_lanes(self, a: protocol.LanesArgs) -> dict:
+        """C-18.7: `lanes touch [<lane>|--all] [--dry-run]`.
+
+        A named lane is touched whatever its readings and spacing say, unless it
+        is a lane no touch may use (exit 7, naming why and the fix). Without a
+        lane, every lane whose weekly clock has not started and whose spacing
+        has passed is touched. The plan is read from the capacity view with the
+        cached desktop identity, so a dry run calls no provider and writes
+        nothing. The touch itself runs on the timer workers (C-16.4) and
+        `touch-status` collects it.
+        """
+        target = named = None
+        if a.lane_id:
+            from .operations import _target
+            named = _target(self, a.lane_id)
+            target = named["lane_id"]
+        view = self._capacity_view(self._cached_desktop_identity())
+        plan = self.timers.touch_plan(view, target=target)
+        if target:
+            entry = next((row for row in plan if row["lane_id"] == target), None)
+            if entry is None or entry["action"] != "touch":
+                reason = entry["reason"] if entry else "not-codex"
+                kind, _, until = reason.partition(":")
+                text, fix = self.TOUCH_REFUSALS.get(kind, (
+                    f"is closed ({reason})", "wait for the closure to end: subfleet status"))
+                # C-23.52: the same re-authentication command a credential alert names.
+                from .alerts import _login
+                raise protocol.ProtocolError(f"lanes touch: {target} {text.format(until=until or 'unknown')}; "
+                                             "not touched", Exit.REFUSED, fix.format(lane=target, login=_login(named)))
+        touching = [row["lane_id"] for row in plan if row["action"] == "touch"]
+        result = {"dry_run": bool(a.dry_run), "target": target, "plan": plan, "touching": touching,
+                  "model": touch_model(self.policy)["id"]}
+        if a.dry_run or not touching:
+            return {"touch": {**result, "status": "dry-run" if a.dry_run else "nothing-to-touch"}}
+        request_id = a.request_id or str(uuid4())
+        scheduled = self.timers.request("touch", target=target, request_id=request_id)
+        return {"touch": {**result, **scheduled, "request_id": request_id}}
 
     def _why_job(self, job: dict) -> dict:
         """C-6.11: `why <job>` always says where the job stands, decision or not.
@@ -3924,7 +3992,10 @@ class Daemon:
         token = holder.rsplit(":", 1)[-1]
         directory = self.root / "lanes" / lane.lane_id / "probes" / token
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        model = self.policy["models"]["haiku" if lane.provider == "claude" else "terra"]
+        # C-18.7: a touch must be metered on the weekly window it starts, so it
+        # runs the touch model (Luna), never Spark; heal and keepalive keep theirs.
+        model = (touch_model(self.policy) if purpose == "touch"
+                 else self.policy["models"]["haiku" if lane.provider == "claude" else "terra"])
         record = {"holder": holder, "job_id": None, "lane_id": lane.lane_id,
                   "timer_kind": purpose, "model_id": model["id"], "directory": str(directory),
                   "state": "reserved", "created_at": utcnow(), "owned_identities": {},
@@ -3938,11 +4009,19 @@ class Daemon:
                "name": None, "out_path": None}
         try:
             outcome = self._execute_probe(job, lane, model, holder)
-        except Exception:
+        except Exception as exc:
             current = self._probe_record(holder)
             safe = self._contain_probe(current)
             if not safe:
                 return Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True})
+            # Contained and never to be recovered: settle the record and drop the
+            # directory, or a turn refused hourly (a guard drift, an API-key
+            # home) leaves one behind each time. The preflight verdict is in
+            # daemon.log (`_guard_recorder`).
+            current = self._probe_record(holder)
+            current.update(state="completed", error_type=type(exc).__name__)
+            self._save_probe(current)
+            shutil.rmtree(directory, ignore_errors=True)
             raise
         requested = (self._read_json(directory / "request.json") or {}).get("requested_at")
         if requested:
@@ -4331,6 +4410,22 @@ class Daemon:
             if record["timer_kind"] == "keepalive" and sent and outcome.cls == OutcomeClass.OK:
                 self.store.add_reading(Reading(record["lane_id"], record["model_id"], "admission", None, None,
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
+            touch = self.timers.touches.get(record["lane_id"])
+            if record["timer_kind"] == "touch" and touch and touch.get("status") == "touching":
+                # C-18.7: a touch whose daemon died mid-turn keeps its spacing,
+                # records how the turn ended, and acts on it as the live path
+                # does: auth-dead disables the lane (C-23.44), limited closes it
+                # (C-9.4).
+                with self.store.transaction("timer.touched", lane_id=record["lane_id"]):
+                    if outcome.cls == OutcomeClass.AUTH_DEAD:
+                        self.store.update_lane(record["lane_id"], enabled=0)
+                        self.timers.record_auth_dead(record["lane_id"])
+                    elif (outcome.cls == OutcomeClass.LIMITED and outcome.closure
+                          and not self.timers.actions.confirmed_override(record["lane_id"])):
+                        self.store.add_closure(outcome.closure)
+                self.timers._record_touch(record["lane_id"], {
+                    **touch, "status": outcome.cls.value, "requested_at": sent, "recovered": True,
+                    "detail": str(outcome.detail or "")[:300], "rc": outcome.evidence.get("rc")})
             record.update(state="completed")
             self._save_probe(record)
             self.store.release_leases(record["holder"])
@@ -4371,6 +4466,11 @@ class Daemon:
             record = self._probe_record(lease["holder"])
             if not record:
                 continue  # No recorded identity grants no authority to release or kill.
+            if record.get("state") == "completed":
+                # Settled before the daemon stopped (a timer turn refused before
+                # launch, C-18.7); only its lease outlived it.
+                self.store.release_leases(lease["holder"])
+                continue
             safe, receipt = self._await_probe(record)
             if not safe:
                 continue
@@ -7528,9 +7628,11 @@ class Daemon:
             self._respond(conn, write_lock, req, arrived)
             return None
         # Submission filesystem work and long polls have separate pools;
-        # ordinary read/cancel operations stay responsive.
+        # ordinary read/cancel operations stay responsive. C-15.4, C-18.7: a
+        # touch's long poll waits on the waiter pool, never the one `status` uses.
+        polls = req.op == "wait" or req.op == "lanes" and req.args.get("action") == "touch-status"
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
-                self.waiters if req.op == "wait" else
+                self.waiters if polls else
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
         return pool.submit(self._respond, conn, write_lock, req, arrived)
 
