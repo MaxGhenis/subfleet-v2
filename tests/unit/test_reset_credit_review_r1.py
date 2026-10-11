@@ -32,7 +32,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import actions as actions_module
-from subfleet.actions import NOT_SPENT, ResetCredits, demand_verdict
+from subfleet.actions import ResetCredits, demand_verdict
 from subfleet.adapters.codex import CodexAdapter, WHAM_RESET_CREDITS_CONSUME_URL, WHAM_RESET_CREDITS_URL
 from subfleet.capacity import from_store
 from subfleet.scheduler import evaluate
@@ -164,7 +164,7 @@ def test_p2_1_an_unrecognised_2xx_is_settled_by_the_lane_reading_open(store, tmp
 def test_p2_1_only_answers_that_show_nothing_was_spent_are_failed():
     """C-23.16 (d): the four answers that are `failed`: a refusal, no credential, the marker, and a
     call never started. Every other non-confirmed answer is `unknown`."""
-    assert NOT_SPENT == frozenset({"http-error", "no-auth", "inhibited", "aborted-before-submission"})
+    assert actions_module.NOT_SPENT == frozenset({"http-error", "no-auth", "inhibited", "aborted-before-submission"})
 
 
 # --- the property behind P2-1: no second consume while an earlier one may have spent ---
@@ -341,7 +341,9 @@ def test_p3_2_a_clock_that_goes_back_after_a_spend_is_inside_the_interval(store,
 def test_consumes_are_never_closer_than_the_interval_on_the_daemon_s_clock(tmp_path_factory, steps):
     """C-23.16 (d) as a property: on the daemon's clock, however long each pass's listing takes,
     no two POSTs are less than `min_interval_min` apart. Four limited lanes, one gift each, one
-    waiting job; between passes the last lane reset may be used up again."""
+    waiting job; between passes the last lane reset may be used up again. Each pass is
+    `evaluate` with the daemon's clock, as `Timers.evaluate_resets` calls it (the case above
+    runs that path)."""
     root = tmp_path_factory.mktemp("interval")
     with Store(root / "state.db") as store:
         for number, days in ((1, 6), (2, 5), (3, 4), (4, 3)):
@@ -356,23 +358,17 @@ def test_consumes_are_never_closer_than_the_interval_on_the_daemon_s_clock(tmp_p
                 consumed_at.append(clock())
             return http(request, timeout)
 
-        timers = _timers(store, root, clock, opener, 30)
-        try:
-            reset = []
-            for minutes, listing, change in steps:
-                if change == "used-up" and reset:
-                    limit_again(store, reset[-1])
-                delay[0], start = listing, clock()
-                for number in range(1, 5):
-                    timers.metadata[f"codex-{number}"] = _limited_probe(start)
-                result = timers.evaluate_resets(timers.snapshot())
-                if result["status"] == "confirmed":
-                    reset.append(result["lane_id"])
-                # The next pass starts `minutes` after this one started, as a timer's cycles do,
-                # or as soon as this one is done if it ran longer.
-                clock.value = max(clock(), start + timedelta(minutes=minutes))
-        finally:
-            timers.stop()
+        resets, reset = _resets(store, opener), []
+        for minutes, listing, change in steps:
+            if change == "used-up" and reset:
+                limit_again(store, reset[-1])
+            delay[0], start = listing, clock()
+            result = resets.evaluate(view_at(store, start), now=start, demand=lambda: wants(store), clock=clock)
+            if result["status"] == "confirmed":
+                reset.append(result["lane_id"])
+            # The next pass starts `minutes` after this one started, as a timer's cycles do,
+            # or as soon as this one is done if it ran longer.
+            clock.value = max(clock(), start + timedelta(minutes=minutes))
         gaps = [later - earlier for earlier, later in zip(consumed_at, consumed_at[1:])]
         assert all(gap >= timedelta(minutes=30) for gap in gaps), (consumed_at, steps)
 
