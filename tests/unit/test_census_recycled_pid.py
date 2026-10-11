@@ -149,7 +149,11 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
             yield self
 
         def execute(self, sql, args):
-            saved.update(json.loads(args[1])["owned_identities"])
+            value = args[0] if sql.startswith("UPDATE attempts SET evidence_json") else args[1]
+            saved.update(json.loads(value)["owned_identities"])
+
+        def get_attempt(self, aid):
+            return a
 
     core = SimpleNamespace(root=Path("/fixture"), store=Store(), term_grace_s=0, kill_settle_s=0,
                            stopping=SimpleNamespace(wait=lambda _: False),

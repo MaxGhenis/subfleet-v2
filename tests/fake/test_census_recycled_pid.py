@@ -69,6 +69,10 @@ def test_exit_zero_recycled_child_finalizes_succeeded(state_daemon, monkeypatch)
     assert job["accepted_attempt_id"] == attempt["attempt_id"]
     assert out.read_bytes() == b"fixture result\n"
     assert not daemon.store.list_leases(attempt["attempt_id"])
+    shown = daemon.dispatch("show", {"job_id": job_id})
+    assert "different start identity" in json.dumps(shown)
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence["recycled"]["4203"]["recorded"]["proc_start"] == CASES[0][3]
 
 
 def test_confirm_dead_recycled_child_releases_with_salvage(state_daemon, monkeypatch):
@@ -104,6 +108,8 @@ def test_confirm_dead_recycled_child_releases_with_salvage(state_daemon, monkeyp
     assert evidence["containment"]["live_pids"] == []
     assert "4203" in evidence["containment"]["recycled"]
     assert evidence["override"] is False
+    shown = daemon.dispatch("show", {"job_id": job_id})
+    assert "different start identity" in json.dumps(shown)
 
 
 def test_probe_census_uses_the_same_identity_path(state_daemon, monkeypatch):

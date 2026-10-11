@@ -6461,13 +6461,28 @@ class Daemon:
         began = a.get("proc_start") or start.get("proc_start")
         if guardian and boot and began:
             recorded[guardian] = procs.ProcessIdentity(guardian, boot, began)
-        return procs.containment(a.get("pgid") or start.get("pgid"), guardian,
-                                 a.get("child_pid") or receipt.get("child_pid"),
-                                 a.get("attempt_id") or a["holder"], root=str(self.root),
-                                 recorded_identities=recorded,
-                                 started_at=a.get("started_at") or start.get("started_at")
-                                 or a.get("reserved_at") or a.get("created_at"),
-                                 finished_at=receipt.get("finished_at"))
+        census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
+                                   a.get("child_pid") or receipt.get("child_pid"),
+                                   a.get("attempt_id") or a["holder"], root=str(self.root),
+                                   recorded_identities=recorded,
+                                   started_at=a.get("started_at") or start.get("started_at")
+                                   or a.get("reserved_at") or a.get("created_at"),
+                                   finished_at=receipt.get("finished_at"))
+        if census.recycled and a.get("attempt_id"):
+            excluded = census.to_dict()["recycled"]
+            if any(evidence.get("recycled", {}).get(pid) != value for pid, value in excluded.items()):
+                # A verified-empty census is otherwise discarded at success.
+                # Preserve its explanation for runs show, and in the caller's
+                # row too: kill/finalization later write evidence from that row.
+                with self.store.transaction("attempt.processes_recycled", job_id=a["job_id"],
+                                            attempt_id=a["attempt_id"], data={"recycled": excluded}) as tx:
+                    actual = self.store.get_attempt(a["attempt_id"]) or a
+                    current = json.loads(actual.get("evidence_json") or "{}")
+                    current["recycled"] = {**current.get("recycled", {}), **excluded}
+                    a["evidence_json"] = json.dumps(current)
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (a["evidence_json"], a["attempt_id"]))
+        return census
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:

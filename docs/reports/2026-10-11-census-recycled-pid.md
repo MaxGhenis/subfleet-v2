@@ -29,9 +29,12 @@ and make it unverifiable. A cached UUID mismatch needs a fresh boot read.
 When a root has no complete recorded identity, readable bounds exclude starts
 before the attempt began or after the exit receipt. The lower bound is rounded
 down to a whole second because `ps lstart` drops fractional seconds. Missing or
-unparseable bounds retain the root. Matching identities take precedence over
+unparseable bounds supply no evidence for exclusion. Matching identities take precedence over
 time bounds. Commands and environments stay transient; `recycled` evidence has
-only recorded/current identity or bounds and a reason. Marker enumeration and
+only recorded/current identity or bounds and a reason. `_contain` also persists
+excluded identities in the attempt's evidence, retaining them through later kill
+and finalization writes, so `runs show` explains a verified-empty success as well
+as a quarantine release. Marker enumeration and
 signal authorization are unchanged. Production edits are limited to `procs.py`,
 `_contain`, and `_probe_census`'s delegation, to keep the merge with PR #131 small.
 
