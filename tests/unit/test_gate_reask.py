@@ -565,6 +565,14 @@ def string_wrapped(text):
     (then(members(verdict="blocked"), string_wrapped), "named verdict 'blocked'"),
     (members(verdict=None, findings=[FINDING]), "listed findings or notes"),
     (members(verdict="approve | changes_requested | blocked", findings=[FINDING]), "listed findings or notes"),
+    # A non-approval under a key the template does not have is not read, so the member itself locks.
+    (lambda text: members(verdict=None, findings=None)(text).replace(
+        '"summary"', '"Verdict": "changes_requested", "Findings": [{"severity": "high"}], "summary"'),
+     "carried members outside the verdict template (Findings, Verdict)"),
+    (lambda text: members(verdict=None)(text).replace(
+        '"summary"', '"review": {"verdict": "changes_requested"}, "summary"'),
+     "carried members outside the verdict template (review)"),
+    (members(summary={"verdict": "changes_requested"}), "gave a summary that is not text"),
 ])
 def test_unreadable_non_approval_still_locks_the_reask_outcome(core, tmp_path, first, lock):
     """C-23.9 (amended): a non-approval anywhere in the rejected output's JSON keeps the re-ask from approving."""
@@ -603,9 +611,10 @@ def test_lone_surrogate_in_a_valid_verdict_never_wedges_the_gate(core, tmp_path,
         finish(core, result, transform=surrogate)
         blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
         assert blocked["code"] == 4 and "not valid Unicode" in blocked["message"]
+        assert state_of(core, started)["status"] == "blocked"
     else:
         assert "not valid Unicode" in state_of(core, started)["rounds"][-1]["format_reask"]["reason"]
-    assert state_of(core, started)["status"] in {"reviewing", "blocked"}
+        assert state_of(core, started)["status"] == "reviewing"
 
 
 @pytest.mark.parametrize("depth", [20_000, 60_000])

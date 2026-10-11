@@ -107,7 +107,7 @@ def prepare_reask(record: dict, *, lane_id: str, error: str, previous: str) -> d
                          "pinned_lane": lane_id,
                          # Job ids keep 40 name characters; "reask-" fits where a suffix is cut.
                          "name": "reask-" + first["name"].removeprefix("gate-")})
-    argv = _peer_argv(record["peer"], record["review_root"], record["neutral_dir"], str(prompt),
+    argv = _peer_argv(first["pinned_model"], record["review_root"], record["neutral_dir"], str(prompt),
                       str(output), lane_id, record.get("exclude_accounts") or ())
     return {"submit_args": dataclasses.asdict(spec), "peer_argv": argv,
             "peer_prompt": str(prompt), "peer_output": str(output)}

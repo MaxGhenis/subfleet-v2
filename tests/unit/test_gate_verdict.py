@@ -153,6 +153,19 @@ OTHER = {**REVISION, "sha256": "b" * 64}
     (envelope(payload(verdict=None, findings=[FINDING])), None, [], ["listed findings or notes"]),
     (envelope(payload(verdict=["approve"])) + "x", None, ['["approve"]'], ["named verdict '[\"approve\"]'"]),
     (envelope(payload(verdict="\ud800")) + "x", None, ["\\ud800"], ["named verdict '\\\\ud800'"]),
+    # Only the template's own shape leaves the re-ask free to approve.
+    (envelope({**{k: v for k, v in payload().items() if k not in ("verdict", "findings")},
+               "Verdict": "changes_requested", "Findings": [FINDING]}), None, [],
+     ["carried members outside the verdict template (Findings, Verdict)"]),
+    (envelope({**{k: v for k, v in payload().items() if k != "verdict"},
+               "review": {"verdict": "changes_requested", "findings": [FINDING]}}), None, [],
+     ["carried members outside the verdict template (review)"]),
+    (envelope(payload(confidence="high")) + "x", None, ["approve"],
+     ["carried members outside the verdict template (confidence)"]),
+    (envelope(payload(summary={"real_verdict": "changes_requested"})), None, ["approve"],
+     ["gave a summary that is not text"]),
+    (envelope(payload(schema_version=[{"verdict": "blocked"}])), None, ["approve"],
+     ["gave a schema_version that is not a number"]),
     # Blocks that read only after repair (fence, escape, trailing comma, JSON string) are held to the same rules.
     (envelope(payload()).replace('"notes": []', '"notes": [],'), None, ["approve"], []),
     (envelope(payload(verdict="changes_requested", findings=[FINDING])).replace('"notes": []', '"notes": [],'),
@@ -174,6 +187,9 @@ OTHER = {**REVISION, "sha256": "b" * 64}
     # Verdict fields outside the blocks must read as one object, bound to the reviewed revision.
     ("Verdict: blocked, see below.\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
     ("**Findings:** none\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
+    ('{"verdict"    : "changes_requested", "findings"\n\n\t  : [1]}\n' + envelope(payload()),
+     "different artifact revision", ["approve", "changes_requested"],
+     ["named verdict 'changes_requested'", "listed findings or notes"]),
     ('"previous_verdict": {"verdict": "approve"}', "outside the verdict blocks", [], []),
     (json.dumps(payload(artifact_revision=OTHER)), "different artifact revision", ["approve"], []),
     (json.dumps({k: v for k, v in payload().items() if k != "artifact_revision"}),
@@ -214,6 +230,8 @@ def test_c23_9_rejected_output_diagnosis_only_forbids_or_constrains_a_reask(text
     VERDICT_BEGIN * 40_000 + VERDICT_END,
     *(character * 200_000 for character in ('"', "'", "`", "\\", " ", ",")),
     "verdict:" + " " * 200_000,
+    "verdict" + "!" * 200_000,
+    ("findings" + " " * 1000) * 200,
     VERDICT_BEGIN + ("," + " " * 1000) * 200,
     VERDICT_BEGIN + ("\n" + " " * 1000) * 200,
 ])

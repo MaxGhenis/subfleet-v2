@@ -110,7 +110,9 @@ _EMPTY = (None, [], {}, "")
 _CLIP = 200
 # Diagnosis only (rejected_output_evidence): these can refuse or lock a re-ask, never accept.
 # Every pattern is bounded, so a scan stays linear in the output's length.
-_SCHEMA_KEY = re.compile(r"(?<![A-Za-z])(?:verdict|findings|notes|artifact_revision)\W{0,3}:", re.IGNORECASE)
+# A key, then any run of non-word characters (which cannot hold another key), then its colon.
+_SCHEMA_KEY = re.compile(r"(?<![A-Za-z])(?:verdict|findings|notes|artifact_revision)\W*:", re.IGNORECASE)
+_TEMPLATE_KEYS = frozenset({"schema_version", "artifact_revision", "verdict", "summary", "findings", "notes"})
 _UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
 _FENCE_OPEN = re.compile(r"\A\s*```[\w-]*[ \t]*\n")
 _FENCE_CLOSE = re.compile(r"\n[ \t]*```\s*\Z")
@@ -184,9 +186,10 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
     object must be read. Every object read must name exactly the reviewed
     revision in each artifact_revision member, with no key repeated inside it,
     and must not approve with findings or notes or request changes without a
-    finding. An approval from the re-ask counts only when every object read
-    named approve or no verdict (empty, null, or the template's placeholder)
-    and listed no findings or notes. Prose is never read.
+    finding. An approval from the re-ask counts only when every object read has
+    the shape of an approval (see _object_lock): nothing but the template's
+    members, a verdict of approve or none, no findings or notes, and a summary
+    that is text. Prose is never read, inside a summary or outside the blocks.
     """
     refusals, verdicts, lock, outside, read_any = [], [], [], [], False
 
@@ -201,8 +204,7 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
             refusals.extend(_segment_refusals(members, expected_revision))
             verdicts.extend(item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
                             for item in _values(members, "verdict") if item is not None)
-            if any(item not in _EMPTY for item in _values(members, "findings") + _values(members, "notes")):
-                lock.append("listed findings or notes")
+            lock.extend(_object_lock(members))
         except RecursionError:
             refusals.append("a verdict block in the output is too deeply nested to diagnose")
 
@@ -228,6 +230,27 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
     lock = [f"named verdict {item!r}" for item in verdicts if item != "approve"] + lock
     return {"refusal": refusals[0] if refusals else None, "verdicts": verdicts,
             "outcome_lock": list(dict.fromkeys(lock))}
+
+
+def _object_lock(members: _Members) -> list[str]:
+    """Why this object keeps the re-ask from approving, beyond the verdict it names.
+
+    Empty only for the template's own shape. A verdict or findings written under
+    another key (a different case, a nested object) is not read as such, so any
+    member the template does not have, and any container where the template has
+    text or a number, locks the outcome instead.
+    """
+    reasons = []
+    extra = sorted({clip(key, 40) for key, _ in members if key not in _TEMPLATE_KEYS})
+    if extra:
+        reasons.append(f"carried members outside the verdict template ({', '.join(extra[:5])})")
+    if any(item not in _EMPTY for item in _values(members, "findings") + _values(members, "notes")):
+        reasons.append("listed findings or notes")
+    if any(not (item is None or isinstance(item, str)) for item in _values(members, "summary")):
+        reasons.append("gave a summary that is not text")
+    if any(isinstance(item, list) for item in _values(members, "schema_version")):
+        reasons.append("gave a schema_version that is not a number")
+    return reasons
 
 
 def _segment_refusals(members: _Members, expected_revision: dict[str, Any]) -> list[str]:
