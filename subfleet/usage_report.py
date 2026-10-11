@@ -126,19 +126,20 @@ class _OutOfTime(Exception):
     """C-18.6: the backfill budget ran out part way through a stream."""
 
 
-def _until(lines, deadline: float, clock_s, every: int = 256):
-    """The stream's lines until `deadline` (on `clock_s`), looked at every `every`
-    lines: a single stream of hundreds of megabytes cannot outlast the budget."""
-    for count, line in enumerate(lines):
-        if count % every == 0 and clock_s() >= deadline:
-            raise _OutOfTime
-        yield line
+def _out_of_time(deadline: float, clock_s) -> None:
+    """C-18.6: raise once `deadline` (on `clock_s`) has passed. The parser calls it
+    every 256 steps of reading a stream and of building its record, so neither a
+    stream of hundreds of megabytes nor one of a hundred thousand requests can
+    outlast the budget."""
+    if clock_s() >= deadline:
+        raise _OutOfTime
 
 
 def _backfill(attempt: dict, root: Path, artifacts: list[dict], *, deadline: float = float("inf"),
               clock_s=time.monotonic) -> dict | None:
     """C-18.6: parse one retained provider stream with C-18.5's same parser, raising
-    `_OutOfTime` once `deadline` passes, between lines as well as between files."""
+    `_OutOfTime` once `deadline` passes, while reading, while building the record,
+    and between files."""
     from .usage import parse_usage
     adir = root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
     paths = [Path(row["path"]) for role in ("raw-stream", "stdout") for row in artifacts
@@ -156,8 +157,8 @@ def _backfill(attempt: dict, root: Path, artifacts: list[dict], *, deadline: flo
         seen.add(path)
         try:
             with open_state(path, "r", encoding="utf-8", errors="replace") as stream:
-                usage = parse_usage(_until(stream, deadline, clock_s), attempt["provider"], resumed=resumed,
-                                    turn_id=turn.get("turn_id"))
+                usage = parse_usage(stream, attempt["provider"], resumed=resumed, turn_id=turn.get("turn_id"),
+                                    check=lambda: _out_of_time(deadline, clock_s))
         except OSError:
             continue
         if usage is not None:

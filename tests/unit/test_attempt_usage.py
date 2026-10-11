@@ -159,7 +159,7 @@ def test_c18_5_missing_fields_stay_null_and_request_totals_are_not_estimated():
         record = parse_usage(lines(event), "claude")
         assert record is not None
         assert record["normalized"]["prompt"] is record["normalized"]["output"] is None
-        assert "request" in record["raw"]["requests"]
+        assert record["raw"]["request_count"] == 1 and "requests" not in record["raw"]
         assert record["first_request"] == {"input": None, "cache_read": None, "cache_write": None}
     incomplete_segment = parse_usage(lines({"type": "result"}, claude()), "claude")
     assert incomplete_segment["normalized"]["prompt"] is None

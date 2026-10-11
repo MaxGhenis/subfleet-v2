@@ -7,7 +7,10 @@ disjoint steer segments, while modelUsage is cumulative and is never summed.
 Codex exec resumes expose thread totals and are labelled cumulative_thread.
 Duplicate Claude message ids are one request: compatible partial counters merge
 independently of duplicate order, and conflicting counters refuse the record.
-No provider-reported usage means no record. Everything here is pure and stable.
+Only the first and last request and the count of requests are kept, not every
+request's counters: a long run's would add tens of kilobytes to its evidence.
+No provider-reported usage means no record. Everything here is pure and stable;
+an optional `check` is called as the parse goes and may raise to stop it.
 """
 
 from __future__ import annotations
@@ -72,12 +75,26 @@ def _ttl(usage: dict[str, Any]) -> str | None:
     return "mixed" if hour and minute else "1h" if hour else "5m" if minute else None
 
 
-def _claude(rows: Iterable[dict]) -> dict | None:
+def _ticks(check, every: int = 256):
+    """A callable that calls `check` once every `every` calls (never when None)."""
+    if check is None:
+        return lambda: None
+    count = [0]
+
+    def tick() -> None:
+        count[0] += 1
+        if count[0] % every == 0:
+            check()
+    return tick
+
+
+def _claude(rows: Iterable[dict], tick=lambda: None) -> dict | None:
     results: list[dict] = []
     requests: dict[str, dict[str, int | None]] = {}
     request_usage: dict[str, dict[str, Any]] = {}
     result_ids: dict[str, dict] = {}
     for row in rows:
+        tick()
         if row.get("type") == "result":
             usage = _claude_usage(row.get("usage"))
             models = row.get("modelUsage")
@@ -135,11 +152,12 @@ def _claude(rows: Iterable[dict]) -> dict | None:
     # Final modelUsage may include preceding conversation history: keep it raw.
     raw = {"usage": aggregate, "modelUsage": results[-1]["modelUsage"] if results else None}
     if request_usage:
-        raw["requests"] = dict(sorted(request_usage.items()))
+        raw["request_count"] = len(request_usage)
     if len(results) > 1:
         raw["results"] = results
     values = list(requests.values())
     for request in values:
+        tick()
         _normalized(_sum(request.values()), request["cache_read"], request["cache_write"], None)
     return {"provider": "claude", "raw": raw,
             "normalized": _normalized(_sum(aggregate[key] for key in CLAUDE_FIELDS[:3]),
@@ -149,7 +167,7 @@ def _claude(rows: Iterable[dict]) -> dict | None:
             "cumulative_thread": False}
 
 
-def _codex(rows: list[dict], resumed: bool, turn_id: str | None) -> dict | None:
+def _codex(rows: list[dict], resumed: bool, turn_id: str | None, tick=lambda: None) -> dict | None:
     notifications = [row for row in rows if row.get("method") == "thread/tokenUsage/updated"]
     if notifications:
         if turn_id is None:
@@ -176,6 +194,7 @@ def _codex(rows: list[dict], resumed: bool, turn_id: str | None) -> dict | None:
         historical = False
         own_first = None
         for row in notifications:
+            tick()
             params = row.get("params")
             if not isinstance(params, dict) or not isinstance(params.get("tokenUsage"), dict):
                 continue
@@ -215,6 +234,7 @@ def _codex(rows: list[dict], resumed: bool, turn_id: str | None) -> dict | None:
                 "cumulative_thread": cumulative}
     usage = None
     for row in rows:
+        tick()
         if row.get("type") != "turn.completed":
             continue
         candidate = _counters(row.get("usage"), CODEX_FIELDS)
@@ -231,8 +251,13 @@ def _codex(rows: list[dict], resumed: bool, turn_id: str | None) -> dict | None:
 
 
 def parse_usage(lines: Iterable[str], provider: str, *, resumed: bool = False,
-                turn_id: str | None = None) -> dict | None:
+                turn_id: str | None = None, check=None) -> dict | None:
     """C-18.5: parse fixture/artifact lines without I/O, raising or estimates.
+
+    `check`, when given, is called every 256 steps of reading and of building
+    the record, and whatever it raises stops the parse with no record: a caller
+    with a deadline (C-18.6's backfill) is bounded however many requests a
+    stream holds.
 
     Share is null for unknown/zero prompt or unknown cache reads, otherwise in
     [0, 1]. Invalid counters or contradictory duplicates refuse the whole record.
@@ -241,8 +266,10 @@ def parse_usage(lines: Iterable[str], provider: str, *, resumed: bool = False,
     """
     if turn_id is not None and not isinstance(turn_id, str):
         return None
+    tick = _ticks(check)
     rows = []
     for line in lines:
+        tick()
         try:
             row = json.loads(line)
         except (ValueError, TypeError):
@@ -261,9 +288,9 @@ def parse_usage(lines: Iterable[str], provider: str, *, resumed: bool = False,
             rows.append({"method": row["method"], "params": row.get("params")})
     try:
         if provider == "claude":
-            return _claude(rows)
+            return _claude(rows, tick)
         if provider == "codex":
-            return _codex(rows, resumed, turn_id)
+            return _codex(rows, resumed, turn_id, tick)
     except _Refused:
         return None
     return None

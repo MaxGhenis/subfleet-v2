@@ -313,10 +313,10 @@ def _ticking():
 def test_c18_6_backfill_stops_at_its_budget_and_says_how_many_it_left(usage_store, tmp_path):
     """C-18.6: the report runs on a request thread, so its stream reads stop at the
     budget; an attempt left unread counts as missing and the answer counts it. The
-    clock is read at entry, before each attempt and every 256 lines of a stream."""
+    clock is read at entry, before each attempt and every 256 steps of a parse."""
     for name in ("legacy-a", "legacy-b", "legacy-c"):
         _legacy(usage_store, tmp_path, name)
-    report = build_report(usage_store, tmp_path, backfill=True, now=NOW, budget_s=4.5, clock_s=_ticking())
+    report = build_report(usage_store, tmp_path, backfill=True, now=NOW, budget_s=2.5, clock_s=_ticking())
     assert report["backfill_unread"] == 1
     assert report["totals"]["backfilled_attempts"] == 2 and report["totals"]["attempts_without_usage"] == 1
     assert build_report(usage_store, tmp_path, now=NOW)["backfill_unread"] == 0
@@ -360,3 +360,34 @@ def test_c18_6_an_older_daemon_is_told_to_restart(daemon, capsys):
     server = daemon({"capabilities": lambda request: {"capabilities": []}})
     assert cli.main(["usage"]) == 69
     assert "usage" not in server.ops() and "older than this CLI" in capsys.readouterr().err
+
+
+def test_c18_6_building_the_record_cannot_outlast_the_budget(usage_store, tmp_path):
+    """C-18.6, review r2 of #174: the deadline is looked at while the record is
+    built as well as while the stream is read; 100,000 requests had taken 37 s of
+    a 20 s budget after reading ended. Out of time, no record is made."""
+    from subfleet.usage import parse_usage
+
+    class Stop(Exception):
+        pass
+
+    def assistant(n):
+        return json.dumps({"type": "assistant", "parent_tool_use_id": None, "message": {
+            "id": f"msg-{n}", "model": "claude-opus-5-5", "usage": {
+                "input_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+                "output_tokens": 1}}})
+
+    read = [False]
+
+    def stream():
+        yield from (assistant(n) for n in range(3_000))
+        read[0] = True
+
+    def check():
+        if read[0]:
+            raise Stop
+    with pytest.raises(Stop):
+        parse_usage(stream(), "claude", check=check)
+    whole = parse_usage((assistant(n) for n in range(3_000)), "claude", check=lambda: None)
+    assert whole["raw"]["request_count"] == 3_000 and "requests" not in whole["raw"]
+    assert whole["first_request"] == whole["last_request"] == {"input": 1, "cache_read": 0, "cache_write": 0}
