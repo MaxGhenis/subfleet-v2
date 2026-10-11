@@ -171,6 +171,41 @@ Each sentence was compared with the code read this session.
   (two places, Starting…/why/Start again/Started/Dismissed/Withdrawn, permissions
   behind confirmation, list read on connect and with the conversation list) holds.
 
+Re-checked at `9787fe323`, after the finishing round, against the code read this
+session (`suggestions.py` whole; in `service.py` the suggestion ops, `_suggestion_caller`,
+`_check_request_id`, `_cut_worktree`'s stderr handling, `_finish_start`, `_resume_start`;
+`peers.judge`; `Suggestions.swift` and the `UIModel` calls). No sentence was found false.
+
+- C-25.6: unchanged since `a2460a011`, as is `peers.py`.
+- The finishing round's C-25.7 sentences:
+  - "A folder path, caller session or calling job the C-25.5 scrubber would change
+    is refused ... (exit 2 `bad-workspace`, `bad-session-id`, `bad-calling-job`)":
+    `_suggestion_workspace` checks the canonical folder (`holds_secret`), and
+    `op_suggestion_create` checks the canonical session and the job as stated.
+    `ConversationError`'s default code is 2.
+  - "a cut ... (a title's, a summary's, an error's, a Start's recorded verdict's or a
+    listed brief's) moves back a word until it leaves none": `bounded`. It is used by
+    `normalize` (title, tldr), by `scrubbed_line` (each `start_error` through
+    `scrub_error`; `decided_by` in `claim`) and by `view` (a listing's preview).
+  - "so no string in a suggestion's row, view, feed row or event is one the scrubber
+    recognizes": the other strings are generated ids and timestamps, validated
+    provider, model and settings values, and the three refused fields. One more is
+    a dismissal's or withdrawal's `decided_by`, which is not scrubbed but is always
+    a fixed text: `peers.judge`'s "the Subfleet app" or "a terminal (<tty>)", or
+    "creator". `repository` is git's top level of the checked folder, a prefix of
+    it, and is not checked on its own.
+- C-25.7's "every write of a message ... checks in its own transaction": the
+  writers are `submit_message` and `insert_legacy_history` (both call
+  `admit_message`) and `create_handoff`. A handoff inserts messages only into the
+  new conversation it creates in the same transaction, which no claim can name.
+- C-29.14's merge rule: the app reads a whole listing (`apply(suggestions:)`) only
+  in `refreshSuggestions`, which is unfiltered, so a missing open suggestion there
+  has closed. A by-id read goes through `apply(suggestionRows:readAt:)`.
+- An observation, not a contract matter: a git failure inside a Start returns
+  `_cut_worktree`'s fix text, "repeat conversation.create with the same
+  request_id", which does not apply to a suggestion's conversation (it has no
+  request id). Production code is left unchanged; no test shows a defect.
+
 ## Adopted probes
 
 The review's probe code is kept under unique basenames, each asserting the fixed
