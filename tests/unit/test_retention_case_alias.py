@@ -209,6 +209,174 @@ def test_a_folder_spelled_while_it_was_away_is_spelled_again_at_reservation(tmp_
             == "turn-folder"
 
 
+def renamed_after_submit(daemon, harness, where: str, writable: bool | None) -> tuple[str, str, str]:
+    """A turn (`writable` True or False) or a detached writer in place (`writable`
+    None) in the tree `Job` or in a repository nested in it, submitted while the
+    folder is there, so submit spells it in full; then the tree is renamed `JOB`, a
+    change of case only, before admission looks. Returns `(job id, the folder as
+    submit recorded it, its one spelling now)`."""
+    from tests.fake.test_admission_latency import submit
+    from tests.fake.test_turn_wait_reasons import SETTINGS, message_in
+
+    wt, folder, _, _ = tree_and_alias(daemon, harness, where)
+    if writable is None:
+        job = submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=folder)
+    else:
+        _, _, job = message_in(daemon, harness, "Renamed", workspace=folder,
+                               settings={**SETTINGS, "permission": "accept-edits" if writable else "read-only"})
+    recorded = daemon._submitted(job)
+    assert (recorded.get("write_target") or recorded.get("folder")) == folder and "unspelled" not in recorded
+    wt.rename(wt.with_name("JOB"))
+    now = folders.canonical(folder)
+    assert now != folder and now.lower() == folder.lower() and "/worktrees/JOB" in now, now
+    return job, folder, now
+
+
+@pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
+def test_a_folder_renamed_before_reservation_is_spelled_again_there(tmp_path, writable):
+    """Review of #141 at 7b9e7ca4, P3: a folder submit spelled in full, the tree `Job`,
+    is renamed `JOB` before admission. Its row is keyed on `JOB`, the name the volume
+    stores when the row is taken, not on `Job`, which no check on the tree spelled
+    `JOB` matches. Kills the mutation that takes the row on submit's spelling without
+    spelling it again at reservation."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        turn, _, now = renamed_after_submit(daemon, harness, "tree", writable)
+        daemon._admit_turns()
+        assert _live(daemon, turn), daemon._holds.get(turn)
+        assert turn_rows(daemon, turn) == [folders.turn_key(now, turn, writable=writable)]
+
+
+@pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
+def test_a_folder_below_a_renamed_name_is_spelled_again_in_full(tmp_path, writable):
+    """The same for a repository nested in the tree: only a name above the folder
+    changed (`Job/vendor/lib` is now `JOB/vendor/lib`). The row is keyed on the whole
+    path as the volume stores it. Kills the mutations that skip the spelling and that
+    spell again only the folder's own last name."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        turn, _, now = renamed_after_submit(daemon, harness, "nested", writable)
+        daemon._admit_turns()
+        assert _live(daemon, turn), daemon._holds.get(turn)
+        assert turn_rows(daemon, turn) == [folders.turn_key(now, turn, writable=writable)]
+
+
+def test_an_in_place_writers_lease_is_keyed_on_its_folders_spelling_at_reservation(tmp_path):
+    """C-6.5: a detached writer in place in a repository nested in `Job`, submitted
+    while it was there (spelled in full), takes `worktree:` on its checkout as the
+    volume spells it once `Job` is `JOB`. Kills the mutation that keys the lease on
+    the spelling submit recorded."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        writer, recorded, now = renamed_after_submit(daemon, harness, "nested", None)
+        daemon._admit()
+        held = [row["lease_key"] for row in daemon.store.list_leases()
+                if row["holder"] == writer and row["lease_key"].startswith(folders.EXCLUSIVE)]
+        assert _live(daemon, writer) and held == [folders.exclusive_key(now)], (held, daemon._holds.get(writer))
+        assert folders.exclusive_key(recorded) not in held
+
+
+@pytest.mark.parametrize("typed", ["Job", "jOB"])
+def test_an_absent_nested_writer_under_a_parent_fence_waits_on_it(tmp_path, typed):
+    """C-8.4: a detached writer in place in `Job/vendor/lib` while retention retires
+    `Job` (its fence held, the tree in quarantine). Its folder is not there, so it
+    takes no lease, and it waits `lease-held` on the fence on the tree above it, found
+    folded, rather than waiting for its workspace (C-6.8) or being placed. `Job`:
+    submitted while the tree was there, its row spelled in full; `jOB`: typed so and
+    submitted while the tree was away, its row `unspelled` and spelled as typed, so
+    only the folded comparison finds the fence. Kills the mutations that drop that
+    fence check and that compare it as spelled."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        wt, folder, alias, recorded = tree_and_alias(daemon, harness, "nested")
+        tree, aside = folders.canonical(wt), wt.with_name(".Job.quarantined")
+        if typed == "Job":
+            writer = submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=folder)
+            assert daemon._submitted(writer)["write_target"] == folder
+            wt.rename(aside)
+        else:
+            real_top, target, moved = daemon_module.git_toplevel, os.path.realpath(alias), []
+
+            def top_after_validation(workdir, *args, **kwargs):
+                if not moved and str(workdir) == target:
+                    wt.rename(aside)
+                    moved.append(True)
+                return real_top(workdir, *args, **kwargs)
+
+            with pytest.MonkeyPatch.context() as inner:
+                inner.setattr(daemon_module, "git_toplevel", top_after_validation)
+                writer = submit(daemon, harness, sandbox="workspace-write", in_place=True, workdir=str(alias))
+            submitted = daemon._submitted(writer)
+            assert moved and submitted["write_target"] == recorded and submitted.get("unspelled") is True, submitted
+        with daemon.store.transaction() as tx:      # retention's fence on the tree above the writer
+            tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                       (folders.exclusive_key(tree), "retention:Job", "2026-10-05T00:00:00Z"))
+        daemon._admit()
+        job, hold = daemon.store.get_job(writer), daemon._holds.get(writer) or {}
+        assert not _live(daemon, writer), hold
+        assert hold.get("reason") == "lease-held" and hold["leases"] == [folders.exclusive_key(tree)], hold
+        assert (job["state"], job["wait_reason"]) == ("waiting", "capacity"), job
+        assert [row["lease_key"] for row in daemon.store.list_leases() if row["holder"] == writer] == []
+
+
+def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree(tmp_path):
+    """C-8.4's known limit for the folders above a tree (review of #141 at 7b9e7ca4,
+    P3; its `Ünï`/`ünï` probe). The state root is `…/Ünï/state`, and a conversation's
+    cwd typed `…/ünï/state/worktrees/jOB/vendor/lib` is submitted while retention has
+    `Job` in quarantine. Admission spells the folder again, the state root as the
+    volume stores it, and compares the names it could not look up folded, so the turn
+    waits on the fence and takes no row. `worktree-in-use` compares the cwd as submit
+    recorded it with SQLite's NOCASE and LIKE, which fold ASCII letters only, so the
+    queued job keeps no tree: an intended limit the contract states. With the state
+    root typed as stored (`Ünï`), only ASCII case differs and the job keeps the tree."""
+    from tests.fake.test_admission_latency import fleet_daemon, measure
+    from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+    from tests.fake.test_turn_wait_reasons import SETTINGS
+
+    with fleet_daemon(tmp_path / "Ünï" / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        wt, folder, alias, _ = tree_and_alias(daemon, harness, "nested")
+        tree, aside = folders.canonical(wt), wt.with_name(".Job.quarantined")
+        assert "/Ünï/state/worktrees/Job" in tree
+        typed = {"ascii-case": alias, "beyond-ascii": Path(str(alias).replace("/Ünï/", "/ünï/"))}
+        assert typed["beyond-ascii"].is_dir() and typed["beyond-ascii"].samefile(folder)
+        assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:Job")
+        kept, turns = {}, {}
+        for how, cwd in typed.items():
+            _, turns[how] = submit_while_moved(daemon, harness, cwd, lambda: wt.rename(aside),
+                                               {**SETTINGS, "permission": "read-only"})
+            daemon._admit_turns()
+            hold = daemon._holds.get(turns[how]) or {}
+            assert not _live(daemon, turns[how]) and turn_rows(daemon, turns[how]) == [], hold
+            assert hold.get("reason") == "lease-held" and hold["leases"] == [folders.exclusive_key(tree)], hold
+            kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
+            daemon.store.update_job(turns[how], state="cancelled", cancel_requested_at="2026-10-10T00:00:00Z")
+            aside.rename(wt)
+        assert kept == {"ascii-case": "worktree-in-use", "beyond-ascii": None}, kept
+
+
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
 @pytest.mark.parametrize("outcome", ["back", "gone"])
 def test_a_folder_that_is_not_there_without_a_retirement_waits_for_its_workspace(tmp_path, writable, outcome):
