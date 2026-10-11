@@ -26,6 +26,8 @@ CONVERSATION_OPS = (
     "conversation.handoff",
     "workspace.check",
     "conversation.wake",
+    # C-25.7: suggested conversations; `suggestion.start` and `suggestion.dismiss` are a person's.
+    "suggestion.create", "suggestion.list", "suggestion.start", "suggestion.dismiss", "suggestion.withdraw",
 )
 
 #: What `decode_request` answers for an op this daemon does not serve. A client

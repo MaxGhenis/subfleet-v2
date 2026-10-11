@@ -24,6 +24,7 @@ import subprocess
 import threading
 import time
 import uuid
+import zlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
@@ -41,7 +42,7 @@ from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
-from . import codex_brief, waits
+from . import codex_brief, suggestions, waits
 from .. import folders, resource_leases
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
@@ -66,19 +67,22 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY)
+                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY, suggestions.CAPABILITY)
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
-          "diff_bytes": turn_diff.DIFF_BYTES, "diff_files": turn_diff.DIFF_FILES}
+          "diff_bytes": turn_diff.DIFF_BYTES, "diff_files": turn_diff.DIFF_FILES, **suggestions.LIMITS}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
+# A suggestion's create and start check its folder as `conversation.create` does, and a
+# start cuts a worktree conversation's worktree (C-25.7).
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff", "workspace.check"})
+                      "conversation.create", "conversation.handoff", "workspace.check",
+                      "suggestion.create", "suggestion.start"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
-                         "message.steer"})
+                         "message.steer", "suggestion.start", "suggestion.dismiss"})
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
@@ -122,6 +126,11 @@ HANDOFF_KEEPS = ("unblock-note",)
 # The source's `blocked_by` from just before a handoff cancels a waiting message's
 # job until its commit: `handoff:<request id>` (C-30.3, D-18).
 HANDOFF_FENCE = "handoff:"
+# C-25.7: a start a person claimed that has not finished (a crash, git failing) is
+# finished by the daemon once its claim is this old, then after 2, 4, ... s, at most
+# every 5 minutes, on the file pool.
+SUGGESTION_RESUME_AFTER_S = 30.0
+SUGGESTION_STRIPES = 16
 
 
 class ConversationService:
@@ -175,6 +184,12 @@ class ConversationService:
         self._noted: dict[str, tuple[str, float]] = {}    # job id -> (hold signature, look again after)
         self._note_seq = 0                                  # the newest turn pass whose notes were written
         self._note_lock = threading.Lock()
+        self.suggestions = suggestions.Suggestions(self.store)
+        # C-25.7: one start of a suggestion at a time (a person's, or the daemon's
+        # finishing of one cut short), striped by id; and the starts the daemon has
+        # submitted to the file pool, with when it may try each again.
+        self._suggestion_stripes = tuple(threading.Lock() for _ in range(SUGGESTION_STRIPES))
+        self._resuming: dict[str, tuple[int, float]] = {}
         self._closed = False
 
     def close(self) -> None:
@@ -884,6 +899,267 @@ class ConversationService:
             # Older completion intents must register before this newer re-arm.
             self._replay_final_wakes()
             return self.wakes.register(conversation["conversation_id"], request_id, spec)
+
+    # --- ops: suggested conversations (C-25.7) ---------------------------------
+
+    def _suggestion_caller(self, args: dict) -> tuple[dict | None, str | None, str | None, str | None]:
+        """Who is suggesting: (the origin conversation, the turn's message, the caller's
+        session, the calling job). Inside a turn (C-26.13's markers; the CLI sends
+        `SUBFLEET_TURN_JOB`) the origin is that turn's conversation and message; else a
+        session bound to a conversation (C-26.3) is that conversation's; else there is
+        no origin, and the caller's session, if it has one, is recorded."""
+        job_id = args.get("calling_job")
+        job_id = job_id if isinstance(job_id, str) and 0 < len(job_id) <= 200 else None
+        session = args.get("session_id")
+        session = canonical_native(session.strip()) if isinstance(session, str) and 0 < len(session.strip()) <= 200 else None
+        origin = message = None
+        if job_id:
+            job = self.daemon.store.one("SELECT name, request_id FROM jobs WHERE job_id=? AND kind='turn'", (job_id,))
+            name = str(job["name"] or "") if job else ""
+            if name.startswith("turn-"):
+                origin = self.store.one("SELECT conversation_id, provider FROM conversations WHERE conversation_id=?",
+                                        (name[len("turn-"):],))
+                parts = str(job["request_id"] or "").split(":")
+                if origin and len(parts) == 3 and parts[0] == "turn" and self.store.one(
+                        "SELECT 1 FROM messages WHERE message_id=? AND conversation_id=?",
+                        (parts[1], origin["conversation_id"])):
+                    message = parts[1]
+        if origin is None and session:
+            origin = self.bound_session(session)
+        return origin, message, session, job_id
+
+    @staticmethod
+    def _suggestion_id(args: dict) -> str:
+        sid = args.get("suggestion_id")
+        if not isinstance(sid, str) or not sid or len(sid) > 64:
+            raise ConversationError("bad-suggestion-id", "suggestion_id must name a suggestion")
+        return sid
+
+    @contextlib.contextmanager
+    def _suggestion_lock(self, suggestion_id: str):
+        """One start of a suggestion at a time: a person's, a second click's, or the
+        daemon's finishing of one cut short (`_resume_suggestions`)."""
+        stripe = self._suggestion_stripes[zlib.crc32(suggestion_id.encode()) % len(self._suggestion_stripes)]
+        with stripe:
+            yield
+
+    def _start_permission(self, provider: str) -> str:
+        """What a start runs at unless the person names another: Ask, or read-only for
+        Codex while Codex conversations are (C-26.11)."""
+        return "read-only" if provider == "codex" and not self._codex_writable() else "ask"
+
+    def _suggestion_model(self, provider: str, value: Any) -> str | None:
+        """A model hint checked as a turn's model is (C-26.1, C-26.8): one this fleet
+        routes for the provider and has not retired. A catalog value or model id is
+        kept as given; a policy short name becomes the value `models.list` names."""
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str) or len(value) > 80:
+            raise ConversationError("bad-model", "model must name a model in at most 80 characters")
+        short = policy_model(self.daemon.policy, provider, value)
+        entry = next((m for m in self.op_models_list({"provider": provider}, None)["models"] if m["short"] == short),
+                     None)
+        if entry is None or entry["retired"]:
+            raise ConversationError("unknown-model", f"{value!r} is retired in this fleet",
+                                    fix="pick a model from models.list")
+        return entry["value"] if value == short and value != entry["id"] else value
+
+    def _default_model(self, provider: str) -> str:
+        listed = self.op_models_list({"provider": provider}, None)
+        model_id = listed["default_models"].get(provider)
+        entry = next((m for m in listed["models"] if m["id"] == model_id), None)
+        if entry is None:
+            raise ConversationError("no-model", f"this fleet routes no {provider} model", code=7)
+        return entry["value"]
+
+    def _suggestion_workspace(self, provider: str, workspace: Any, worktree: bool) -> str | None:
+        """The folder a suggestion would start in, checked now as `conversation.create`
+        checks one (C-26.10) for the start it would make (`_start_permission`); None
+        is a new scratch folder, made when it starts."""
+        if workspace is None or workspace == "":
+            return None
+        if not isinstance(workspace, str) or not os.path.isdir(folders.canonical(workspace)):
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="name a folder, or leave it out for a new scratch folder")
+        folder = folders.canonical(workspace)
+        kind = "worktree" if worktree and self._git_toplevel(folder) is not None else "in-place"
+        settings = validate_settings(provider, {"model": "suggestion", "permission": self._start_permission(provider)})
+        return self._validate_workspace(provider, folder, settings, kind=kind, allow_main=False)
+
+    def op_suggestion_create(self, args, peer) -> dict:
+        """An agent proposes a conversation (C-25.7). Any caller may: what it makes is a
+        card for a person; nothing starts until a person's `suggestion.start`."""
+        try:
+            request_id = canonical_uuid(args.get("request_id"))
+        except ConversationError:
+            raise ConversationError("bad-request-id", "request_id must be a canonical lowercase UUID") from None
+        origin, message, session, job = self._suggestion_caller(args)
+        provider = args.get("provider") or (origin["provider"] if origin else "claude")
+        if provider not in PROVIDERS:
+            raise ConversationError("bad-provider", "provider is claude or codex")
+        words, scrubbed = suggestions.normalize(args.get("title"), args.get("tldr"), args.get("brief"))
+        model = self._suggestion_model(provider, args.get("model"))
+        worktree = args.get("worktree", False)
+        if not isinstance(worktree, bool):
+            raise ConversationError("bad-worktree", "worktree must be true or false")
+        workspace = self._suggestion_workspace(provider, args.get("workspace"), worktree)
+        row, created = self.suggestions.add(
+            request_id=request_id, words=words, origin=origin["conversation_id"] if origin else None,
+            origin_message=message, creator_session=session, creator_job=job, workspace=workspace,
+            worktree=worktree, provider=provider, model=model)
+        return {"suggestion": suggestions.view(row, full_brief=True), "created": created, "scrubbed": scrubbed}
+
+    def op_suggestion_list(self, args, peer) -> dict:
+        """Open suggestions newest first, then the most recently closed (C-25.7); with
+        `suggestion_ids`, those, each with its whole brief."""
+        ids = args.get("suggestion_ids")
+        cid = args.get("conversation_id") or None
+        if ids is not None:
+            if not isinstance(ids, list) or len(ids) > 50 or not all(isinstance(i, str) for i in ids):
+                raise ConversationError("bad-args", "suggestion_ids is a list of at most 50 ids")
+            views = [suggestions.view(row, full_brief=True) for row in self.suggestions.by_ids(ids)]
+            _, total = self.suggestions.listing(conversation_id=cid, limit=0, closed_limit=0)
+        else:
+            limit = max(0, min(int(args.get("limit") if args.get("limit") is not None else suggestions.OPEN_MAX),
+                               suggestions.OPEN_MAX))
+            closed = args.get("closed_limit")
+            closed = max(0, min(int(closed if closed is not None else suggestions.CLOSED_LISTED), 200))
+            rows, total = self.suggestions.listing(conversation_id=cid, limit=limit, closed_limit=closed)
+            views = [suggestions.view(row) for row in rows]
+        return {"suggestions": views, "open": total, "limits": suggestions.LIMITS}
+
+    def op_suggestion_start(self, args, peer) -> dict:
+        """A person starts a suggestion (C-25.6, C-25.7): a conversation made as
+        `conversation.create` makes one, a worktree conversation when the suggestion
+        asks for one and its folder is a git checkout, with the brief as its first
+        message. Idempotent: the same suggestion has one conversation and one message."""
+        verdict = self._person(peer, "starting a suggested conversation")
+        sid = self._suggestion_id(args)
+        with self._suggestion_lock(sid):
+            row = self.suggestions.get(sid)
+            if row["state"] == suggestions.OPEN:
+                conversation = self._start_fields(row, args)
+                row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
+            elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
+                raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start", code=7)
+            return self._finish_start(row)
+
+    def _start_fields(self, row: dict, args: dict) -> dict:
+        """The conversation a start makes, checked as `conversation.create` checks one."""
+        provider = row["provider"]
+        settings = validate_settings(provider, {
+            "model": row["model"] or self._default_model(provider), "effort": None, "fast": False,
+            "permission": args.get("permission") or self._start_permission(provider), "auto_continue": True})
+        if settings["permission"] in ("accept-edits", "bypass") and args.get("confirm_widen") is not True:
+            raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
+        self._check_codex_policy(provider, settings)
+        if row["workspace"] is None:
+            # No folder: a private scratch folder, the same one on every retry (as create's).
+            key = hashlib.sha256(suggestions.start_request_id(row["suggestion_id"]).encode()).hexdigest()
+            with self.store.writing():
+                workspace = str(self.store.subdirectory(Path("conversations/workspaces") / key))
+            kind = "in-place"
+        else:
+            workspace = row["workspace"]
+            if not os.path.isdir(workspace):
+                raise ConversationError("bad-workspace", f"the suggestion's folder {workspace} is gone",
+                                        fix="dismiss it")
+            kind = "worktree" if row["worktree"] and self._git_toplevel(workspace) is not None else "in-place"
+        workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=False)
+        return {"provider": provider, "workspace": workspace, "workspace_kind": kind, "settings": settings,
+                "origin": "new", "title": row["title"]}
+
+    def _finish_start(self, row: dict) -> dict:
+        """A claimed start, finished: the worktree a worktree conversation needs, then
+        the brief as its first message, accepted with `message.submit`'s rules (C-24.2,
+        C-24.3) in the transaction that records `started`. Each step is idempotent, so
+        a retry, or the daemon after a restart, finishes the same start."""
+        sid = row["suggestion_id"]
+        if row["state"] == suggestions.STARTED:
+            return self._start_result(row, created=False)
+        conversation = self.store.conversation(row["started_conversation_id"])
+        mid = suggestions.start_message_id(sid)
+        try:
+            if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+                conversation = self._cut_worktree(conversation)
+            _, created = self.store.submit_message(
+                conversation_id=conversation["conversation_id"], message_id=mid, after_message_id=None,
+                text=row["brief"], attachments=[], settings=row["start_settings"] or conversation["settings"],
+                on_accept=lambda tx: self.suggestions.finish_in(tx, sid, mid))
+        except Exception as exc:
+            if not self._closed:
+                reason = exc.reason if isinstance(exc, ConversationError) else type(exc).__name__
+                with contextlib.suppress(Exception):
+                    self.suggestions.note_error(sid, f"{reason}: {exc}")
+            raise
+        if not created:
+            self.suggestions.finish(sid, mid)       # accepted by a start cut short after it
+        self.daemon._notify()
+        return self._start_result(self.suggestions.get(sid), created=created)
+
+    def _start_result(self, row: dict, *, created: bool) -> dict:
+        conversation = self.store.conversation(row["started_conversation_id"])
+        message = self.store.find_message(row["started_message_id"]) if row["started_message_id"] else None
+        return {"suggestion": suggestions.view(row, full_brief=True), "conversation": self._view(conversation),
+                "message": self._receipt(message, text=True) if message else None, "created": created}
+
+    def op_suggestion_dismiss(self, args, peer) -> dict:
+        """A person dismisses a suggestion (C-25.6, C-25.7), only while it is open."""
+        verdict = self._person(peer, "dismissing a suggestion")
+        row, changed = self.suggestions.close(self._suggestion_id(args), suggestions.DISMISSED, by=verdict.reason)
+        return {"suggestion": suggestions.view(row, full_brief=True), "changed": changed}
+
+    def op_suggestion_withdraw(self, args, peer) -> dict:
+        """Whoever suggested it withdraws it while it is open (C-25.7): a turn of the
+        conversation it came from, or the session that made it."""
+        sid = self._suggestion_id(args)
+        origin, _, session, _ = self._suggestion_caller(args)
+        row = self.suggestions.get(sid)
+        mine = (row["origin_conversation_id"] is not None and origin is not None
+                and origin["conversation_id"] == row["origin_conversation_id"]) or (
+                row["creator_session"] is not None and session == row["creator_session"])
+        if not mine:
+            raise ConversationError("not-creator", "only the conversation or session that suggested it may withdraw it",
+                                    code=7, fix="dismiss it in the Subfleet app")
+        row, changed = self.suggestions.close(sid, suggestions.WITHDRAWN, by="creator")
+        return {"suggestion": suggestions.view(row, full_brief=True), "changed": changed}
+
+    def _resume_suggestions(self) -> None:
+        """C-25.7: finish starts a person claimed that did not finish (the daemon stopped
+        mid-start, git failed), each on the file pool, never on the control loop."""
+        if self._closed:
+            return
+        rows = self.suggestions.resumable(older_than=_iso_ago(SUGGESTION_RESUME_AFTER_S))
+        live = {row["suggestion_id"] for row in rows}
+        now = self.clock()
+        with self._lock:
+            self._resuming = {sid: value for sid, value in self._resuming.items() if sid in live}
+        for row in rows:
+            sid = row["suggestion_id"]
+            with self._lock:
+                tries, after = self._resuming.get(sid, (0, 0.0))
+                if after is None or now < after:
+                    continue                    # running now (None), or backing off
+                self._resuming[sid] = (tries + 1, None)
+            try:
+                self.files.submit(self._resume_start, sid, tries + 1, now)
+            except RuntimeError:                # close() shut the pool meanwhile
+                return
+
+    def _resume_start(self, sid: str, tries: int, began: float) -> None:
+        try:
+            with self._suggestion_lock(sid):
+                row = self.suggestions.get(sid)
+                if row["state"] == suggestions.STARTING:
+                    self._finish_start(row)
+                    self.log.info("finished the start of suggestion %s a person claimed earlier", sid)
+        except Exception as exc:
+            if not self._closed:
+                self.log.warning("finishing the start of suggestion %s failed (try %d): %s: %s", sid, tries,
+                                 type(exc).__name__, exc)
+        finally:
+            with self._lock:
+                self._resuming[sid] = (tries, began + min(DEFER_MAX_S, DEFER_BASE_S * 2 ** tries))
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message
@@ -1782,7 +2058,7 @@ class ConversationService:
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
         for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self._replay_final_wakes,
-                     self.wakes.control_tick, self._dispatch, self._adopt_runners,
+                     self.wakes.control_tick, self._resume_suggestions, self._dispatch, self._adopt_runners,
                      self._replay_unsettled, self._settle_unstarted, self._close_ended_windows, self._reap_runners,
                      self._compact):
             if self._closed:
