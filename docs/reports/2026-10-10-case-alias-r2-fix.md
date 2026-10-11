@@ -77,8 +77,15 @@ release/217 too.
   `_fence_hold`). The test asserts the look prepares no workspace exactly when
   fences exist. It also checks the hold's fence keys and folder against the
   reserving transaction and an independent model of the folder each row names.
-- Its run uses 200 generated examples plus 12 explicit ones, 6 of them
-  `unspelled`.
+- Its run uses 400 generated examples plus 12 explicit ones, 6 of them
+  `unspelled`, with `unspelled` drawn first. That gave 412 examples (824
+  admission observations, each example run with the trees there and moved
+  aside): 285 `unspelled` and 127 `spelled`. Of the `unspelled` examples, 66 (62
+  generated) have the cwd back and a separate repository whose `core.worktree`
+  names the Git tree, the reviewed branch. The run took 107 s.
+- An earlier run, at 200 examples with `spelled` drawn first, gave 212 examples:
+  63 `unspelled`, of which only 10 generated ones reached that branch. It is
+  superseded by a569cbb93.
 
 ## Tests
 
@@ -134,6 +141,7 @@ and `pythonpath = ["."]` imported each copy's own `subfleet`.
 | The same on 2cbf6fca | 20 failed, 14 passed |
 | `test_host_push_validated_top.py` on release/217 (4c6a8a9c9) | 8 passed |
 | The requested suites and the new modules, 12 files | 366 passed, 0 failed, 0 skipped, 370 s |
+| The property again at 400 examples (a569cbb93) | 1 passed, 107 s; the four property mutants re-run, all still killed |
 
 The requested suites are `test_retention_shared_folders.py`,
 `test_retention_case_alias.py`, `test_folders.py`,
