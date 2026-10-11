@@ -50,7 +50,7 @@ This lookup is the only git the look runs, measured twice:
 - `subfleet/daemon.py:2593`: with a validated `top`, `_row_folder` returns
   `(folders.present(top)[0], False)`. `present(top)[0]` is the string
   `canonical(top)` gave on release/217, so only the absence flag changed.
-- `_rediscovered` (`:2622`) returns None for any job with a `push_branch`, as
+- `_rediscovered` (`:2624`) returns None for any job with a `push_branch`, as
   defence in depth for rows 2cbf6fca wrote.
 
 A push job whose checkout is not there at admission behaves as on release/217.
@@ -119,5 +119,65 @@ C-8.5 gains the push write target rule. There is also a changelog entry.
 
 ## Results
 
-Pending: one serial lock session runs the new tests, mutants, before/after runs
-and the requested suites. See the next commit.
+All checks ran in one serial session under `/usr/bin/lockf -k
+/private/tmp/claude-501/subfleet-suites.lock`, one pytest process at a time, from
+23:26:31 to 23:36:38 on 2026-10-10. `TMPDIR` was
+`$(getconf DARWIN_USER_TEMP_DIR)sf-141r2-<pid>/`, removed afterwards. Mutations
+replaced one method object per pytest process, the review's technique, and never
+edited source. Before-runs used `git archive` copies of 2cbf6fca1 and 4c6a8a9c9
+with this round's test files copied in. They ran with this checkout's virtualenv,
+and `pythonpath = ["."]` imported each copy's own `subfleet`.
+
+| Run | Result |
+| --- | --- |
+| This round's tests (both new modules, the five new case-alias tests, the property) | 34 passed, 66 s |
+| The same on 2cbf6fca | 20 failed, 14 passed |
+| `test_host_push_validated_top.py` on release/217 (4c6a8a9c9) | 8 passed |
+| The requested suites and the new modules, 12 files | 366 passed, 0 failed, 0 skipped, 370 s |
+
+The requested suites are `test_retention_shared_folders.py`,
+`test_retention_case_alias.py`, `test_folders.py`,
+`tests/fake/test_turn_retention_cwd.py`, `test_host_push.py`,
+`test_host_push_admission.py` and `test_host_push_metadata.py`. The run also
+included `test_retention_rediscovery.py`, `test_host_push_validated_top.py`,
+`test_test_module_names.py`, `test_retention_turn_contract.py` and
+`test_invariants_index.py`.
+
+On 2cbf6fca the failures were the defects:
+
+- The external-top probes: `early_held` was False, and `_workspace` ran under the
+  fence.
+- The measurement's external cases prepared the workspace.
+- When git could not finish and no fence held the turn, the workspace was
+  prepared first.
+- Every push test failed because the row was `unspelled`. The other push failures
+  match the review's.
+- The property failed on its `unspelled` explicit examples.
+
+In the measurement's tree and nested cases on 2cbf6fca, the turn was held with
+no git at all, so the test's "one or two `rev-parse`" assertion failed. This is
+the one thing that head did with less git: it looked at the folder submit
+recorded. Its reservation would have run the same lookup after preparing the
+workspace.
+
+Mutants, every one killed:
+
+| Mutation | Killed by | Result |
+| --- | --- | --- |
+| `no_early_fold` (review) | the property | 1 failed |
+| `no_early_present` (review) | the property | 1 failed |
+| `ignore_run_folder` (review) | the property | 1 failed |
+| `reuse_identical_paths` (review) | `test_identical_paths_with_different_absence_flags_use_both_queries[False]` | 1 failed, 2 passed; the property alone survives it, as the review found |
+| `skip_rediscovery_in_look` (look reads the recorded folder) | external-top probe ×2, measurement external ×2, the property (its `unspelled` explicit examples) | 5 failed, 4 passed |
+| `turn_folder_without_rediscovery` | external-top look probe ×2 | 2 failed |
+| `push_unspelled` (a push row marked `unspelled` again) | every push test whose top was away at submit | 7 failed, 1 passed (the top was there at submit) |
+| `push_rediscovered` (admission rediscovers push jobs) | the three `legacy` push probes | 3 failed, 5 passed |
+| `no_respell` (round 1, a) | renamed tree ×2, renamed parent ×2, writer lease | 5 failed |
+| `respell_last_only` (round 1, b) | renamed parent ×2, writer lease | 3 failed, 2 passed (only the folder's own name changed) |
+| `lease_on_submitted_spelling` (round 1, c) | renamed tree ×2, renamed parent ×2, writer lease | 5 failed |
+| `no_folded_fence` (round 1, d) | absent nested writer `Job` and `jOB` | 2 failed |
+| `unfolded_fence` (d, compared as spelled) | absent nested writer `jOB` | 1 failed, 1 passed |
+
+Every failure was read in the logs. Each is at the test's intended assertion
+(a row or lease key, `prepared`, the hold's reason, or the property's look or
+transaction comparison), not at setup.
