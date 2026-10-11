@@ -4,10 +4,11 @@ Hypothesis properties. A secret is a value the C-25.5 scrubber recognizes (C-23.
 families: provider and forge tokens, cloud keys, JWTs, bearer tokens, URL passwords,
 sensitive assignments), set between separators in text a failing start says (a git
 hook's stderr, an OS error, a folder check's refusal) or in what an agent sends
-(the folder, its session). For every one, nothing a suggestion keeps or shows holds
-it: the row, `suggestion.list` (listing and by id), the watch feed, the origin's
-events, the error Start returns and the daemon's log line; every string there is
-one the scrubber leaves unchanged, and every error is one line within ERROR_MAX.
+(the folder, its session, its job). For every one, nothing a suggestion keeps or
+shows holds it: the row, `suggestion.list` (listing and by id), the watch feed,
+the origin's events, the error Start returns and the daemon's log line; every
+string there is one the scrubber leaves unchanged, and every error is one line
+within ERROR_MAX.
 """
 
 from __future__ import annotations
@@ -252,10 +253,16 @@ def test_c25_5_any_start_failure_is_scrubbed_wherever_it_happens(before, left, s
         assert len(error) <= suggestions.ERROR_MAX
 
 
+#: What each field a caller names is refused as when the scrubber would change it.
+REFUSED_AS = {"workspace": "bad-workspace", "session_id": "bad-session-id", "calling_job": "bad-calling-job"}
+
+
 @given(secret=secrets.filter(lambda s: "/" not in s and "\n" not in s and "\x00" not in s),
-       which=st.sampled_from(["workspace", "session_id"]))
+       which=st.sampled_from(sorted(REFUSED_AS)))
 @settings(max_examples=100, deadline=None)
-def test_c25_5_a_folder_or_session_shaped_like_a_secret_is_refused_and_makes_nothing(secret, which):
+def test_c25_5_a_folder_session_or_job_shaped_like_a_secret_is_refused_and_makes_nothing(secret, which):
+    """The row keeps the folder, the caller's session and its job as stated: one the
+    scrubber would change is refused, so no row holds it."""
     with fixture() as service:
         args = {"request_id": str(uuid.uuid4()), "title": "Fixture", "tldr": "Fixture", "brief": "Fixture brief"}
         if which == "workspace":
@@ -263,11 +270,11 @@ def test_c25_5_a_folder_or_session_shaped_like_a_secret_is_refused_and_makes_not
             folder.mkdir()
             args["workspace"] = str(folder)
         else:
-            args["session_id"] = "session " + secret
+            args[which] = which.split("_")[0] + " " + secret
         try:
             service.handle("suggestion.create", args, AGENT)
         except ConversationError as exc:
-            assert exc.reason == ("bad-workspace" if which == "workspace" else "bad-session-id"), exc
+            assert exc.reason == REFUSED_AS[which], exc
             assert secret not in str(exc)
         else:
             raise AssertionError("a secret-shaped " + which + " was accepted")

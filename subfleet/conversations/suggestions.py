@@ -34,9 +34,10 @@ the store, and one that predates the table ignores it.
 
 Title, summary and brief are scrubbed once, when the suggestion is created
 (C-25.5, the handoff scrubber C-23.14): what the card shows is what Start sends.
-A folder path or caller session the scrubber would change is refused, and every
-error a start records, logs or returns is scrubbed whole, then cut to ERROR_MAX
-characters (`scrub_error`): no suggestion field or event holds a value the
+A folder path, caller session or calling job the scrubber would change is refused,
+every error a start records, logs or returns is scrubbed whole, then cut to
+ERROR_MAX characters (`scrub_error`), and a Start's `decided_by` is scrubbed the
+same way (`scrubbed_line`): no suggestion field or event holds a value the
 scrubber recognizes.
 """
 

@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from subfleet.conversations import suggestions
+from subfleet.conversations.peers import Verdict
 from subfleet.conversations.store import ConversationError
 from tests.unit.test_conversation_service import SETTINGS, conversation, git, repo, svc  # noqa: F401
 from tests.unit.test_suggestions import AGENT, PERSON, BRIEF, people, refused, suggest, turn_of  # noqa: F401
@@ -267,6 +268,42 @@ def test_r1b_a_start_error_is_one_bounded_line_with_the_secret_scrubbed_before_t
     for said in (stored, str(caught.value)):
         assert len(said) <= suggestions.ERROR_MAX and "\n" not in said
         assert "sk-ant" not in said and "AAAAAAAA" not in said
+
+
+def test_r1b_a_calling_job_shaped_like_a_secret_is_refused_and_kept_nowhere(people):
+    """Found re-checking C-25.7 at d0dd86b01: the row kept a caller-stated
+    `calling_job` as `creator_job` unchecked. No view, feed row or event carries it,
+    but the clause says no string in a row is one the scrubber recognizes. It is
+    refused as a secret-shaped session is; a real turn's job is still kept."""
+    svc = people
+    before = svc.store.changes_after(0)["next"]
+    error = refused("bad-calling-job", 2, suggest, svc, calling_job="job " + FIXTURE_SECRET)
+    assert FIXTURE_SECRET not in str(error)
+    assert svc.store.query("SELECT * FROM suggestions") == [] and svc.store.changes_after(before)["changes"] == []
+    origin = conversation(svc)
+    job, _ = turn_of(svc, origin)
+    sid = suggest(svc, calling_job=job)["suggestion"]["suggestion_id"]
+    assert svc.store.one("SELECT creator_job FROM suggestions WHERE suggestion_id=?", (sid,))["creator_job"] == job
+
+
+def test_r1b_decided_by_is_the_verdict_scrubbed_never_the_start_errors_fallback(people, monkeypatch):
+    """d0dd86b01: a Start's `decided_by` is the person's verdict as `scrubbed_line`
+    leaves it (scrubbed whole, one line, at most ERROR_MAX characters), never
+    `scrub_error`'s "the start failed", which only a start's error falls back to.
+    An empty verdict is kept empty, and the start still finishes."""
+    svc = people
+    long = "word " * 200
+    cases = {"": "", "  \n ": "", "a terminal\n(ttys003)": "a terminal (ttys003)",
+             "the Subfleet app " + FIXTURE_SECRET: "the Subfleet app [REDACTED]",
+             long: " ".join(long.split())[:suggestions.ERROR_MAX - 1] + "…"}
+    for said, kept in cases.items():
+        monkeypatch.setattr(svc, "_person", lambda peer, what, said=said: Verdict(True, said, os.getpid()))
+        sid = suggest(svc, workspace=svc.test_workspace)["suggestion"]["suggestion_id"]
+        out = svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
+        assert out["suggestion"]["state"] == "started" and len(svc.store.messages(
+            out["conversation"]["conversation_id"])) == 1, repr(said)
+        assert out["suggestion"]["decided_by"] == kept, (said[:40], out["suggestion"]["decided_by"][:40])
+        assert len(kept) <= suggestions.ERROR_MAX and "the start failed" not in kept
 
 
 # --- what the review found holding: races, rollbacks, bounds, visibility ------------

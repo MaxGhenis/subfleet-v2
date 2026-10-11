@@ -1018,6 +1018,9 @@ class ConversationService:
         if session is not None and suggestions.holds_secret(session):
             raise ConversationError("bad-session-id", "session_id holds a value shaped like a secret, which a "
                                     "suggestion never shows (C-25.5)")
+        if job is not None and suggestions.holds_secret(job):
+            raise ConversationError("bad-calling-job", "calling_job holds a value shaped like a secret, which a "
+                                    "suggestion never keeps (C-25.5)")
         provider = args.get("provider") or (origin["provider"] if origin else "claude")
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider is claude or codex")
