@@ -30,7 +30,7 @@ import uuid
 from pathlib import Path
 
 import hypothesis.strategies as st
-from hypothesis import HealthCheck, settings
+from hypothesis import HealthCheck, event, settings
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 
 from subfleet.conversations import service as service_module
@@ -143,8 +143,10 @@ class Suggestions(RuleBasedStateMachine):
             assert expected is None or full or crowded, error
             if expected is not None:
                 assert error.reason == "too-many-suggestions" and error.code == 7
+            event(f"create refused: {error.reason}")
             return
         assert expected is not None and not full and not crowded
+        event("create: scrubbed" if out["scrubbed"] else "create")
         row = out["suggestion"]
         assert row["brief"] == expected["brief"] and row["title"] == expected["title"]
         self.model[row["suggestion_id"]] = {"state": "open", "origin": origin, "brief": expected["brief"],
@@ -168,8 +170,10 @@ class Suggestions(RuleBasedStateMachine):
                 assert error.reason == "person-only"
             else:
                 assert before in CLOSED and error.reason == "not-open", (before, error)
+            event(f"start refused: {error.reason}")
             return
         except OSError:
+            event(f"start cut short from {before}")
             assert cut_short and by == PERSON and before in ("open", "starting")
             self.model[sid]["state"] = "starting"
             self.model[sid]["conversation"] = self.service.suggestions.get(sid)["started_conversation_id"]
@@ -177,6 +181,7 @@ class Suggestions(RuleBasedStateMachine):
         finally:
             self.service.store.submit_message = real
         assert by == PERSON and before in ("open", "starting", "started")
+        event(f"start from {before}")
         assert out["created"] is (before != "started") or (before == "starting" and out["created"] is False)
         assert out["message"]["text"] == self.model[sid]["brief"]
         if self.model[sid]["conversation"] is not None:
@@ -196,8 +201,10 @@ class Suggestions(RuleBasedStateMachine):
                 assert error.reason == "person-only"
             else:
                 assert before in ("starting", "started") and error.reason == "too-late", (before, error)
+            event(f"dismiss refused: {error.reason}")
             return
         assert by == PERSON and before in ("open", *CLOSED)
+        event(f"dismiss from {before}")
         assert out["changed"] is (before == "open")
         if before == "open":
             self.model[sid]["state"] = "dismissed"
@@ -221,8 +228,10 @@ class Suggestions(RuleBasedStateMachine):
                 assert error.reason == "not-creator", error
             else:
                 assert before in ("starting", "started") and error.reason == "too-late", (before, error)
+            event(f"withdraw refused: {error.reason}")
             return
         assert creator and before in ("open", *CLOSED)
+        event(f"withdraw from {before}")
         if before == "open":
             self.model[sid]["state"] = "withdrawn"
         assert out["changed"] is (before == "open")
@@ -232,6 +241,7 @@ class Suggestions(RuleBasedStateMachine):
         """The daemon stops and starts: a new service over the same stores."""
         self.service.close()
         self.service = self._service()
+        event("restart")
 
     @precondition(lambda self: any(m["state"] == "starting" for m in self.model.values()))
     @rule()
@@ -249,6 +259,7 @@ class Suggestions(RuleBasedStateMachine):
         for sid, entry in self.model.items():
             if entry["state"] == "starting":
                 entry["state"] = "started"
+                event("the daemon finished a claimed start")
 
     # --- invariants -------------------------------------------------------------------
 
@@ -293,6 +304,6 @@ class Suggestions(RuleBasedStateMachine):
         assert sum(1 for row in rows.values() if row["state"] in ("open", "starting")) <= OPEN_MAX
 
 
-Suggestions.TestCase.settings = settings(max_examples=60, stateful_step_count=30, deadline=None,
+Suggestions.TestCase.settings = settings(max_examples=300, stateful_step_count=40, deadline=None,
                                          suppress_health_check=[HealthCheck.too_slow])
 TestSuggestionMachine = Suggestions.TestCase

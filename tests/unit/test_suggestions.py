@@ -186,7 +186,8 @@ def test_c25_7_create_is_idempotent_by_request_id(svc):
     assert again["created"] is False and again["suggestion"]["suggestion_id"] == first["suggestion"]["suggestion_id"]
     refused("suggestion-id-conflict", 2, suggest, svc, request_id=request, title="Something else")
     refused("bad-request-id", 2, suggest, svc, request_id="not-a-uuid")
-    refused("bad-request-id", 2, suggest, svc, request_id=request.upper())
+    # Another spelling of the same UUID is the same request (`canonical_uuid`, as for messages).
+    assert suggest(svc, request_id=request.upper())["suggestion"]["suggestion_id"] == first["suggestion"]["suggestion_id"]
     assert len(svc.store.query("SELECT * FROM suggestions")) == 1
 
 
