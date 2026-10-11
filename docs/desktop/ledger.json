@@ -587,6 +587,32 @@
         "tests/unit/test_conversation_history.py; tests/frontend/test_core_timeline.py"
       ],
       "notes": "Exact known transcript paths bridge the first catalog pass without scanning trees."
+    },
+    {
+      "id": "R-14",
+      "requirement": "An agent can suggest a separate conversation that only a person starts, in one click, with the agent's brief as its first message",
+      "source": "suggested conversations, 2026-10-11",
+      "clauses": [
+        "C-25.7"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_suggestions.py; tests/unit/test_suggestion_properties.py; tests/unit/test_suggest_cli.py; tests/unit/test_suggest_hint.py; tests/fake/test_suggestions_fake.py; tests/e2e/test_suggestions_e2e.py"
+      ],
+      "notes": "The e2e test's person half needs a terminal (C-25.6) and skips inside a Subfleet lane; docs/reports/2026-10-11-suggestions/REPORT.md records what ran."
+    },
+    {
+      "id": "R-15",
+      "requirement": "Suggestions show as a card in the conversation that made them and in the sidebar's Suggested section, live from the feed",
+      "source": "suggested conversations, 2026-10-11",
+      "clauses": [
+        "C-29.14"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_suggestions.py; tests/frontend/test_core_protocol.py; tests/frontend/test_visual_suggestions.py"
+      ],
+      "notes": "Screenshots: docs/reports/2026-10-11-suggestions/."
     }
   ]
 }
