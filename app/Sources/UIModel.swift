@@ -20,7 +20,10 @@ struct ApprovalReveal: Equatable {
 
 @MainActor
 final class UIModel: ObservableObject {
-    @Published private(set) var state = ConversationStoreState()
+    @Published private(set) var state = ConversationStoreState() {
+        // The sidebar's marks (unread, pinned, unread first) are saved as they change.
+        didSet { if state.marks != oldValue.marks { saveMarks() } }
+    }
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
     @Published private(set) var accountSnapshot: Snapshot?
@@ -74,6 +77,8 @@ final class UIModel: ObservableObject {
     let paths: AppPaths
     let drafts: DraftStore
     private let defaults: UserDefaults
+    /// The Worktree toggle's last choice per repository (`WorktreeMemory`).
+    private var worktreeMemory: WorktreeMemory
     private(set) var engine: ConversationEngine?
     private let outboxQueue = DispatchQueue(label: "org.maxghenis.subfleet.outbox")
     /// Reads that run git on the daemon (the diffs) wait here, never behind a send.
@@ -97,6 +102,10 @@ final class UIModel: ObservableObject {
         self.defaults = defaults
         drafts = DraftStore(directory: paths.draftsDirectory)
         self.state = initialState
+        worktreeMemory = WorktreeMemory(defaults: defaults)
+        if FileManager.default.fileExists(atPath: paths.sidebarMarksURL.path) {
+            state.marks = SidebarMarks.load(from: paths.sidebarMarksURL)
+        }
         defaults.removeObject(forKey: "lastWorkspace")
         let draftURL = paths.support.appendingPathComponent("new-conversation-draft.json")
         if let data = try? Data(contentsOf: draftURL),
@@ -182,14 +191,57 @@ final class UIModel: ObservableObject {
     func refreshList() async {
         refreshAccountUsage()
         guard let engine, state.availability.isReady else { return }
+        // The Archived view reads archived conversations too (`archive.v1`), all of them.
+        let archived = state.showArchived && canArchive
         do {
-            let list = try await onOutbox { try engine.list(query: nil, provider: nil) }
+            let list = try await onOutbox {
+                try engine.list(query: nil, provider: nil, limit: archived ? 1000 : 200, includeArchived: archived)
+            }
             state.apply(list: list)
             updateBadge()
         } catch {
             report(error)
         }
         await refreshSuggestions()
+    }
+
+    // MARK: Sidebar triage: archive, pin, unread
+
+    /// Whether the daemon archives conversations (C-25.1, `archive.v1`).
+    var canArchive: Bool { state.availability.capabilities?.has(archiveCapability) == true }
+
+    /// A person's Archive or Unarchive (C-25.6). The daemon refuses while a message
+    /// of the conversation is open (`conversation-active`); the status line says so.
+    /// An open conversation stays open, saying it is archived.
+    func archive(_ conversationID: String, archived: Bool = true) {
+        guard let engine, canArchive else { return }
+        Task {
+            do {
+                let conversation = try await onReads { try engine.archive(conversationID: conversationID, archived: archived) }
+                state.upsert(conversation)
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    func setPinned(_ conversationID: String, _ pin: Bool) { state.marks.setPinned(conversationID, pin) }
+
+    func markRead(_ conversationID: String) {
+        state.marks.markRead(conversationID, through: state.messageSeqs[conversationID])
+    }
+
+    func setUnreadFirst(_ on: Bool) { state.marks.unreadFirst = on }
+
+    /// The Archived filter: the sidebar lists archived conversations only, read anew.
+    func setShowArchived(_ on: Bool) {
+        guard state.showArchived != on else { return }
+        state.showArchived = on
+        Task { await refreshList() }
+    }
+
+    private func saveMarks() {
+        do { try state.marks.save(to: paths.sidebarMarksURL) } catch { problem = "Could not save the sidebar's marks: \(error)" }
     }
 
     // MARK: Suggested conversations (C-25.7, C-29.14)
@@ -439,7 +491,7 @@ final class UIModel: ObservableObject {
             // (its directory is gone, it became a lane run): the same page.
             if case .native = target, let refusal = (error as? DaemonClientError)?.daemonError,
                ["not-continuable", "unknown-session"].contains(refusal.reason ?? ""),
-               var entry = state.sidebarEntries().first(where: { $0.target == target }) {
+               var entry = state.unarchivedEntries().first(where: { $0.target == target }) {
                 entry.continuable = false
                 entry.continueBlocker = refusal.detail
                 showLocked(entry)
@@ -479,7 +531,7 @@ final class UIModel: ObservableObject {
     func recentWorkspaces(limit: Int = 12) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
-        for entry in state.sidebarEntries() {
+        for entry in state.unarchivedEntries() {
             guard let path = entry.workspace, !path.isEmpty, entry.continuable, seen.insert(path).inserted else { continue }
             out.append(path)
             if out.count == limit { break }
@@ -610,6 +662,29 @@ final class UIModel: ObservableObject {
         validateNewDraftWorkspace()
     }
 
+    /// The new draft's Worktree toggle; the folder is checked again for that kind.
+    func setNewDraftWorktree(_ on: Bool) {
+        newDraft.pickWorktree(on)
+        validateNewDraftWorkspace()
+    }
+
+    /// Look for the git checkout holding the draft's folder (the filesystem only), so
+    /// the toggle shows and takes the repository's remembered choice.
+    private func noteNewDraftRepository() {
+        let folder = newDraft.workspace
+        let repository = folder.flatMap { gitCheckout(containing: $0)?.key }
+        newDraft.noteRepository(repository, for: folder, remembered: worktreeMemory.choice(for: repository))
+    }
+
+    /// The kind Start would ask for with `folder` chosen, before choosing it.
+    private func draftKind(choosing folder: String) -> String {
+        var draft = newDraft
+        draft.workspace = folder
+        let repository = gitCheckout(containing: folder)?.key
+        draft.noteRepository(repository, for: folder, remembered: worktreeMemory.choice(for: repository))
+        return draft.workspaceKind
+    }
+
     func useNewScratchFolder() {
         draftNeedsWorkspaceDefault = false
         newDraft.workspace = nil
@@ -622,6 +697,7 @@ final class UIModel: ObservableObject {
     func validateNewDraftWorkspace(selectDefault: Bool = false) {
         guard let engine else { return }
         newDraft.invalidateWorkspaceCheck()
+        noteNewDraftRepository()
         draftWorkspaceChecks += 1
         let generation = draftWorkspaceChecks
         let provider = newDraft.provider
@@ -637,7 +713,8 @@ final class UIModel: ObservableObject {
                 let reason = state.availability.banner?.detail ?? "Waiting for the daemon to become ready."
                 newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(reason)",
                                                                  fix: "Try again when the daemon is available."),
-                                             workspace: selected, provider: provider, permission: permission, transient: true)
+                                             workspace: selected, provider: provider, permission: permission,
+                                             kind: newDraft.workspaceKind, transient: true)
             }
             draftCheckInFlight = false
             return
@@ -645,11 +722,15 @@ final class UIModel: ObservableObject {
         // C-25.1: older daemons decide admission at create. Do not call an op
         // they have not advertised, either here or at Start.
         if !capabilities.has("workspace.check.v1") {
-            if selectingDefault { newDraft.workspace = candidates.first; draftNeedsWorkspaceDefault = false }
+            if selectingDefault {
+                newDraft.workspace = candidates.first
+                draftNeedsWorkspaceDefault = false
+                noteNewDraftRepository()
+            }
             if newDraft.resolvedWorkspace == nil { newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path }
             if let selected = newDraft.resolvedWorkspace {
                 newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: true), workspace: selected,
-                                             provider: provider, permission: permission)
+                                             provider: provider, permission: permission, kind: newDraft.workspaceKind)
             }
             draftCheckInFlight = false
             return
@@ -659,20 +740,28 @@ final class UIModel: ObservableObject {
             defer { if generation == draftWorkspaceChecks { draftCheckInFlight = false } }
             do {
                 if selectingDefault {
-                    var accepted: (String, WorkspaceCheckResult)?
+                    var accepted: (String, WorkspaceCheckResult, String)?
                     for path in candidates {
-                        let result = try await onReads { try engine.checkWorkspace(path, provider: provider, permission: permission) }
+                        // Checked as Start would use it: a worktree where its repository's
+                        // remembered choice says so.
+                        let kind = draftKind(choosing: path)
+                        let result = try await onReads {
+                            try engine.checkWorkspace(path, provider: provider, permission: permission, kind: kind)
+                        }
                         guard generation == draftWorkspaceChecks else { return }
-                        if result.ok { accepted = (path, result); break }
+                        if result.ok { accepted = (path, result, kind); break }
                     }
                     guard generation == draftWorkspaceChecks else { return }
                     draftNeedsWorkspaceDefault = false
-                    if let (path, result) = accepted {
+                    if let (path, result, kind) = accepted {
                         newDraft.workspace = path
-                        newDraft.applyWorkspaceCheck(result, workspace: path, provider: provider, permission: permission)
+                        noteNewDraftRepository()
+                        newDraft.applyWorkspaceCheck(result, workspace: path, provider: provider, permission: permission,
+                                                     kind: kind)
                         return
                     }
                     newDraft.workspace = nil
+                    noteNewDraftRepository()
                 }
                 if newDraft.workspace == nil, newDraft.scratchWorkspace == nil {
                     newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path
@@ -682,12 +771,14 @@ final class UIModel: ObservableObject {
                 // existing parent applies the daemon's folder policy now; Start
                 // checks the new directory itself before journaling anything.
                 let checkPath = newDraft.workspace ?? paths.support.path
+                let kind = newDraft.workspaceKind
                 let result = try await onReads {
                     try engine.checkWorkspace(checkPath, provider: provider, permission: permission,
-                                              kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
+                                              kind: kind, allowMain: recovery?.allow_main)
                 }
                 guard generation == draftWorkspaceChecks else { return }
-                newDraft.applyWorkspaceCheck(result, workspace: selected, provider: provider, permission: permission)
+                newDraft.applyWorkspaceCheck(result, workspace: selected, provider: provider, permission: permission,
+                                             kind: kind)
                 if !result.ok, defaults.string(forKey: "lastWorkspace") == newDraft.workspace {
                     defaults.removeObject(forKey: "lastWorkspace")
                 }
@@ -695,7 +786,8 @@ final class UIModel: ObservableObject {
                 guard generation == draftWorkspaceChecks, let selected = newDraft.resolvedWorkspace else { return }
                 newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(error)",
                                                                    fix: "Try again when the daemon is available."),
-                                             workspace: selected, provider: provider, permission: permission, transient: true)
+                                             workspace: selected, provider: provider, permission: permission,
+                                             kind: newDraft.workspaceKind, transient: true)
             }
         }
     }
@@ -736,7 +828,7 @@ final class UIModel: ObservableObject {
                     if draft.workspace == nil { try ensurePrivateDirectory(URL(fileURLWithPath: workspace, isDirectory: true)) }
                     if checkSupported {
                         let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission,
-                                                         kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
+                                                         kind: draft.workspaceKind, allowMain: recovery?.allow_main)
                         guard check.ok else {
                             throw DaemonClientError.daemon(DaemonError(code: 7, message: check.reason ?? "Folder refused", fix: check.fix))
                         }
@@ -747,11 +839,13 @@ final class UIModel: ObservableObject {
                         args.provider = draft.provider
                         args.workspace = workspace
                         args.settings = draft.settings
+                        args.workspace_kind = draft.workspaceKind
                         args.confirm_widen = draft.confirmWiden
                         try engine.outbox.retryFailedCreate(recovering, args: args, text: draft.text, staged: draft.attachments)
                     } else {
                         let key = try engine.createConversation(provider: draft.provider, workspace: workspace,
-                                                                settings: draft.settings, confirmWiden: draft.confirmWiden,
+                                                                settings: draft.settings, workspaceKind: draft.workspaceKind,
+                                                                confirmWiden: draft.confirmWiden,
                                                                 requestID: draft.requestID!)
                         _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
                                             settings: draft.settings, messageID: messageID)
@@ -770,6 +864,8 @@ final class UIModel: ObservableObject {
                 defaults.set(draft.providerChoice ?? draft.provider, forKey: "providerChoice")
                 defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
                 defaults.set(draft.settings.permission, forKey: "lastPermission")
+                worktreeMemory.remember(draft)
+                worktreeMemory.save(to: defaults)
                 pump()
             } catch {
                 draftDestinations.removeValue(forKey: messageID)
@@ -952,6 +1048,8 @@ final class UIModel: ObservableObject {
         newDraft.text = draft.firstMessage?.text ?? ""
         newDraft.attachments = draft.firstMessage?.staged ?? []
         newDraft.settings = draft.create.settings
+        // The refused create's kind, for whichever repository the folder is in now.
+        newDraft.worktree = draft.create.workspace_kind == "worktree"
         newDraft.confirmWiden = draft.create.confirm_widen ?? false
         newDraft.workspaceCheck = nil
         if let data = savedRetry,

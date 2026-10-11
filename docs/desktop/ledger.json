@@ -613,6 +613,46 @@
         "tests/frontend/test_core_suggestions.py; tests/frontend/test_core_suggestions_r1b.py; tests/frontend/test_core_protocol.py; tests/frontend/test_visual_suggestions.py"
       ],
       "notes": "Screenshots: docs/reports/2026-10-11-suggestions/."
+    },
+    {
+      "id": "R-16",
+      "requirement": "A person archives a conversation to get it out of the sidebar, and unarchives it; never while a message of it is open",
+      "source": "Max, 2026-10-11 (the app as his single place; inventory item 1)",
+      "clauses": [
+        "C-24.13",
+        "C-25.6"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_archive.py; tests/unit/test_descriptors_desktop.py; tests/frontend/test_core_triage.py; tests/frontend/test_core_protocol.py"
+      ],
+      "notes": "Person-only, as C-25.6 says why. docs/reports/2026-10-11-app-worktree-and-triage.md records what ran."
+    },
+    {
+      "id": "R-17",
+      "requirement": "The sidebar marks unread conversations, pins conversations above the date groups, lists unread first on request, and filters to archived ones",
+      "source": "Max, 2026-10-11 (inventory item 1)",
+      "clauses": [
+        "C-29.15"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_triage.py"
+      ],
+      "notes": "Unread and pinned are the app's own (sidebar.json); archive is the daemon's."
+    },
+    {
+      "id": "R-18",
+      "requirement": "New conversation can start in its own worktree of the chosen checkout, remembered per repository, and the header shows its branch",
+      "source": "Max, 2026-10-11 (inventory item 7)",
+      "clauses": [
+        "C-29.16"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_triage.py; tests/unit/test_conversation_service.py"
+      ],
+      "notes": "No sync to base and no cleanup yet (later, conversation.sync)."
     }
   ]
 }

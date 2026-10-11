@@ -32,6 +32,17 @@ struct SidebarEntry: Identifiable, Equatable {
     var liveElsewhere: Bool
     var continuable: Bool
     var continueBlocker: String?
+    /// A message of it changed since the person last had it open (`SidebarMarks`).
+    var unread = false
+    var pinned = false
+    /// Listed only in the Archived view (`conversation.archive`).
+    var archived = false
+
+    /// The conversation's id; native sessions have none until they are opened.
+    var conversationID: String? {
+        if case .conversation(let id) = target { return id }
+        return nil
+    }
 
     /// A stopped turn or uncertain delivery needs the person's decision even
     /// when no approval card is waiting.
@@ -467,6 +478,14 @@ struct ConversationStoreState: Equatable {
     var providerFilter: String?
     var grouping: SidebarGrouping = .recency
     var laneLabels: [String: String] = [:]
+    /// The sidebar lists archived conversations only (`archive.v1`); the list is then
+    /// read with `include_archived`.
+    var showArchived = false
+    /// What the person has seen and pinned, and whether unread lead (the app's own).
+    var marks = SidebarMarks()
+    /// Per conversation, the newest watch-feed sequence of a change to one of its
+    /// messages: what `marks` compares to say unread.
+    var messageSeqs: [String: Int] = [:]
     /// Suggested conversations by id (C-25.7, C-29.14): from `suggestion.list`, then
     /// the watch feed, which carries each one as it changes.
     var suggestions: [String: Suggestion] = [:]
@@ -486,7 +505,13 @@ struct ConversationStoreState: Equatable {
     // MARK: Folding daemon answers
 
     mutating func apply(list: ConversationListResult) {
-        conversations = list.conversations.map(withWatchActivity).sorted(by: conversationIsMoreRecent)
+        var listed = list.conversations
+        // The open conversation stays while it is open, whatever the list left out (one
+        // just archived, one past the list's limit): the daemon never deletes one.
+        if let focused = focusedConversation, !listed.contains(where: { $0.conversation_id == focused.conversation_id }) {
+            listed.append(focused)
+        }
+        conversations = listed.map(withWatchActivity).sorted(by: conversationIsMoreRecent)
         catalog = list.catalog ?? catalog
         for conversation in list.conversations {
             pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
@@ -544,6 +569,7 @@ struct ConversationStoreState: Equatable {
 
     mutating func focus(_ conversationID: String?) {
         focusedConversationID = conversationID
+        if let conversationID { marks.markRead(conversationID, through: messageSeqs[conversationID]) }
         if let conversationID, timelines[conversationID] == nil {
             timelines[conversationID] = Timeline(conversationID: conversationID)
         }
@@ -669,6 +695,11 @@ struct ConversationStoreState: Equatable {
                 if MessageState.live.contains(state) { liveMessages[cid, default: []].insert(mid) }
                 else { liveMessages[cid]?.remove(mid) }
             }
+            if change.message_id != nil {
+                // Unread (`SidebarMarks`): a message changed; seen at once when focused.
+                messageSeqs[cid] = max(messageSeqs[cid] ?? 0, change.seq)
+                if cid == focusedConversationID { marks.markRead(cid, through: change.seq) }
+            }
             if let index = conversations.firstIndex(where: { $0.conversation_id == cid }) {
                 conversations[index].pending_approvals = change.pending_approvals
                 if let title = change.title {
@@ -699,7 +730,10 @@ struct ConversationStoreState: Equatable {
             watchCursor = max(watchCursor, change.seq)
         }
         watchCursor = max(watchCursor, page.next)
-        if page.changes.isEmpty { watchBaselined = true }
+        if page.changes.isEmpty {
+            watchBaselined = true
+            marks.caughtUp(at: watchCursor)
+        }
         return .applied(applied)
     }
 
@@ -755,20 +789,26 @@ struct ConversationStoreState: Equatable {
         }
         var entries: [SidebarEntry] = []
         for conversation in conversations where providerFilter == nil || conversation.provider == providerFilter {
+            // The Archived view lists archived conversations only; the others, none.
+            guard conversation.isArchived == showArchived else { continue }
             let title = conversationTitle(conversation)
             guard matches([title, conversation.workspace, conversation.title]) else { continue }
+            let id = conversation.conversation_id
             entries.append(SidebarEntry(
-                id: "cv:" + conversation.conversation_id, target: .conversation(conversation.conversation_id),
+                id: "cv:" + id, target: .conversation(id),
                 provider: conversation.provider, title: title, subtitle: abbreviatedPath(conversation.workspace),
                 workspace: conversation.workspace, date: conversation.lastActivityDate,
-                pendingApprovals: pendingApprovals[conversation.conversation_id] ?? conversation.pending_approvals,
+                pendingApprovals: pendingApprovals[id] ?? conversation.pending_approvals,
                 active: conversation.active, blockedBy: conversation.blocked_by,
                 liveElsewhere: conversation.live_elsewhere ?? false,
-                continuable: true, continueBlocker: nil))
+                continuable: true, continueBlocker: nil,
+                unread: isUnread(id), pinned: marks.isPinned(id), archived: conversation.isArchived))
         }
+        // Native sessions are not archived here; Codex's own archived threads stay out.
+        guard !showArchived else { return entries.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) } }
         let bound = Set(conversations.compactMap { c in c.native_session_id.map { "\(c.provider):\($0)" } })
         for item in catalog?.items ?? [] where providerFilter == nil || item.provider == providerFilter {
-            guard !bound.contains("\(item.provider):\(item.native_session_id)") else { continue }
+            guard !bound.contains("\(item.provider):\(item.native_session_id)"), item.archived != true else { continue }
             let prompt = item.first_prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = [item.title, prompt].compactMap { $0 }.first { !$0.isEmpty } ?? String(item.native_session_id.prefix(8))
             guard matches([title, item.cwd, item.first_prompt]) else { continue }
@@ -783,8 +823,27 @@ struct ConversationStoreState: Equatable {
         return entries.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
+    /// The sidebar's entries outside the Archived view, whatever it shows now: the
+    /// folders to offer a new conversation, the session an open answers for.
+    func unarchivedEntries() -> [SidebarEntry] {
+        var shown = self
+        shown.showArchived = false
+        return shown.sidebarEntries()
+    }
+
+    /// Whether a conversation is unread: a message of it changed since the person last
+    /// had it open, and it is not open now.
+    func isUnread(_ conversationID: String) -> Bool {
+        conversationID != focusedConversationID && marks.isUnread(conversationID, newest: messageSeqs[conversationID])
+    }
+
     func sidebar(now: Date = Date(), calendar: Calendar = .current) -> [SidebarSection] {
-        let entries = sidebarEntries()
+        sidebarSections(sidebarEntries(), marks: marks, archivedView: showArchived) {
+            grouped($0, now: now, calendar: calendar)
+        }
+    }
+
+    private func grouped(_ entries: [SidebarEntry], now: Date, calendar: Calendar) -> [SidebarSection] {
         switch grouping {
         case .recency:
             let buckets = ["Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older", "Undated"]
@@ -888,10 +947,21 @@ final class ConversationEngine {
 
     func checkAvailability() -> DaemonAvailability { DaemonAvailability.check(client) }
 
-    func list(query: String? = nil, provider: String? = nil, limit: Int = 200) throws -> ConversationListResult {
+    /// `includeArchived` (`archive.v1`) lists archived conversations too, each with
+    /// its `archived_at`; send it only to a daemon that advertises the capability.
+    func list(query: String? = nil, provider: String? = nil, limit: Int = 200,
+              includeArchived: Bool = false) throws -> ConversationListResult {
         let query = query?.trimmingCharacters(in: .whitespacesAndNewlines)
         return try client.call(Ops.conversationList, ConversationListArgs(
-            provider: provider, query: query?.isEmpty == false ? query : nil, limit: limit, include_catalog: true))
+            provider: provider, query: query?.isEmpty == false ? query : nil, limit: limit, include_catalog: true,
+            include_archived: includeArchived ? true : nil))
+    }
+
+    /// Archive a conversation, or show it again (`archive.v1`, a person's: C-25.6).
+    /// Refused (exit 7 `conversation-active`) while one of its messages is open.
+    func archive(conversationID: String, archived: Bool) throws -> Conversation {
+        try client.call(Ops.conversationArchive, ConversationArchiveArgs(conversation_id: conversationID,
+                                                                         archived: archived)).conversation
     }
 
     func models(provider: String) throws -> ModelsListResult {

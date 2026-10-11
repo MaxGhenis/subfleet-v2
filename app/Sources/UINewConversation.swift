@@ -30,6 +30,16 @@ struct NewConversationDraftView: View {
                     Label(model.newDraft.workspace.map { abbreviatedPath($0) } ?? "New scratch folder", systemImage: "folder")
                         .lineLimit(1)
                 }.help("Folder for the new conversation")
+                if model.newDraft.showsWorktreeToggle {
+                    // Its own worktree on its own branch: no wait for this checkout's folder
+                    // lease while another conversation works in it. Remembered per repository.
+                    Toggle(isOn: Binding(get: { model.newDraft.worktree == true }, set: model.setNewDraftWorktree)) {
+                        Label("Worktree", systemImage: "arrow.triangle.branch")
+                    }
+                    .toggleStyle(.button)
+                    .help("Start in a new worktree of this repository, on its own branch")
+                    .accessibilityLabel("Start in a new worktree")
+                }
                 Spacer()
                 Picker("Provider", selection: Binding(get: { model.newDraft.providerChoice ?? model.newDraft.provider },
                                                        set: model.selectNewDraftProvider)) {
@@ -50,6 +60,9 @@ struct NewConversationDraftView: View {
                 Text("Checking folder…").font(.caption).foregroundStyle(Theme.text.secondary.color)
             } else if model.newDraft.workspace == nil, let scratch = model.newDraft.scratchWorkspace {
                 Text("Created when you start: \(abbreviatedPath(scratch))")
+                    .font(.caption).foregroundStyle(Theme.text.secondary.color)
+            } else if model.newDraft.workspaceKind == "worktree" {
+                Text("A new worktree of this repository, on a branch of its own, is made when you start.")
                     .font(.caption).foregroundStyle(Theme.text.secondary.color)
             }
             if !model.newDraft.attachments.isEmpty {

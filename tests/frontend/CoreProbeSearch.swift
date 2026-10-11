@@ -230,6 +230,6 @@ func searchProbeCommand(_ arguments: [String]) throws -> Any? {
                 "expanded": pairs.map {
                     MarkdownBounds.expandedCodeLines(from: $0.array?.first?.int ?? 0, total: $0.array?.last?.int ?? 0)
                 }]
-    default: return nil
+    default: return try triageProbeCommand(arguments)
     }
 }
