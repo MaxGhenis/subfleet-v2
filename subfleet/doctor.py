@@ -416,7 +416,9 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
                     "no readable store yet (the daemon has not run here)",
                     "start the daemon, then rerun subfleet doctor --live")]
     try:
-        policy = load_policy(root / "policy.json")
+        policy_path = root / "policy.json"
+        # As a new daemon does: before policy.json exists, use shipped defaults.
+        policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
     except PolicyError as exc:
         return [row("codex guard preflight (live)", FAIL, str(exc), "correct policy.json, then rerun doctor --live")]
     environment = ProviderEnvironment(policy)
