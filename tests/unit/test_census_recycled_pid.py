@@ -256,7 +256,26 @@ def test_cached_boot_mismatch_needs_fresh_confirmation(monkeypatch):
     rows = {42: (1, 42, "S", start())}
     install(monkeypatch, rows)
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, BOOT_B))
+    reads = []
+    read = procs._read
+    def counting(argv, **kwargs):
+        reads.append(argv)
+        return read(argv, **kwargs)
+    monkeypatch.setattr(procs, "_read", counting)
     result = procs.containment(42, 42, None, "job/a1",
                                recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, start())})
     assert result.group_pids == result.descendant_pids == {42}
     assert not result.unverifiable and not result.recycled
+    assert sum("kern.bootsessionuuid" in argv for argv in reads) == 1
+
+
+@pytest.mark.parametrize("boot", ["99", BOOT_A])
+def test_zombie_root_with_empty_group_needs_no_boot_read(monkeypatch, boot):
+    """C-5.3, C-5.12: a zombie alone proves empty even when boot inspection fails."""
+    install(monkeypatch, {42: (1, 42, "Z", start()), 7: (1, 7, "S", start())})
+    def unavailable():
+        raise procs.InspectionError("boot unavailable")
+    monkeypatch.setattr(procs, "boot_id", unavailable)
+    result = procs.containment(42, 42, None, "job/a1",
+                               recorded_identities={42: procs.ProcessIdentity(42, boot, start())})
+    assert result.verified_empty and not result.errors and not result.recycled

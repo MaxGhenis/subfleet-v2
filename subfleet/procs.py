@@ -409,6 +409,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     markers: set[int] = set()
     errors: list[str] = []
     recycled: dict[int, dict[str, Any]] = {}
+    checked: set[int] = set()
     recorded_identities = recorded_identities or {}
     try:
         seen: ProcessTable | None = snapshot()
@@ -438,10 +439,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
 
     def is_recycled(pid: int) -> bool:
         """Only positive identity/time evidence can prune a root or its group."""
-        if pid in recycled:
-            return True
+        if pid in checked:
+            return pid in recycled
         if pid not in table or seen is None:
             return False
+        checked.add(pid)
         began = table[pid][3]
         known = recorded_identities.get(pid)
         reason = None
@@ -492,7 +494,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L895-L949
         # Thus a different process at pid == pgid proves the old group is gone.
         # An absent leader does NOT: retain its surviving group members.
-        groups = set(seen.group(pgid)) if not pgid or not is_recycled(pgid) else set()
+        groups = set(seen.group(pgid))
+        if pgid and groups and is_recycled(pgid):
+            groups.clear()
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
         roots = {pid for pid in (guardian_pid, child_pid)
