@@ -899,6 +899,11 @@ class Daemon:
         # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        # C-23.16 (a): what the pass of each kind now running has held so far
+        # (the dict it fills, None between passes). `_reset_demand` reads a
+        # job's hold here first, so a job this pass held at the door is no
+        # demand from that moment, not only once the pass ends.
+        self._pass_holds: dict[str, dict[str, dict] | None] = {"turn": None, "detached": None}
         self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
         self._pass_seq = {"turn": 0, "detached": 0}   # passes begun, per kind, under their pass lock
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
@@ -1772,22 +1777,30 @@ class Daemon:
         identity, not a profile request). A job counts only while it is
         `waiting` on `capacity`, is not being cancelled, its latest admission
         look evaluated its route and found no lane would take it
-        (`_capacity_waits`, `lane_wait`), and the last pass held it for that same
-        reason. So a job submitted a moment ago, one a restart has not looked at
-        yet, and one held at the door (`disk`, `machine-busy`), behind an older
-        job, for a full fleet, a lease, a probe or a person is never the reason
-        a credit is spent. Its lanes are the ones admission would try: the lanes
-        its own earlier attempts exclude stay excluded, and a transient retry
-        waiting for a slot on its own lane is waiting, not demand. Returned in
-        admission order, each entry `actions.demand_verdict` of the job's
-        decision now, plus its id and tier.
+        (`_capacity_waits`, `lane_wait`), and admission's latest hold of it is
+        for that same reason: the hold the pass now running gave it, if it has
+        reached the job, else the last whole pass's. So a job submitted a moment
+        ago, one a restart has not looked at yet, and one held at the door
+        (`disk`, `machine-busy`), behind an older job, for a full fleet, a
+        lease, a probe or a person is never the reason a credit is spent, from
+        the moment that hold is made. Its lanes are the ones admission would
+        try: the lanes its own earlier attempts exclude stay excluded, and a
+        transient retry waiting for a slot on its own lane is waiting, not
+        demand. Returned in admission order, each entry `actions.demand_verdict`
+        of the job's decision now, plus its id and tier.
         """
-        waits = self._capacity_waits.copy()         # one C call; admission replaces entries meanwhile
+        # The running passes' holds before the last whole pass's: a pass that ends
+        # between the two reads is then seen whole, never as neither.
+        running = [found.copy() for found in list(self._pass_holds.values()) if found is not None]
         holds = self._holds
+        waits = self._capacity_waits.copy()         # one C call; admission replaces entries meanwhile
+
+        def latest(job_id: str) -> dict:
+            return next((found[job_id] for found in running if job_id in found), None) or holds.get(job_id) or {}
         rows = self.store.query("SELECT * FROM jobs WHERE state='waiting' AND wait_reason='capacity' "
                                 "AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
         rows = [job for job in rows if (wait := waits.get(job["job_id"])) and wait.get("lane_wait")
-                and (holds.get(job["job_id"]) or {}).get("reason") == wait.get("label")]
+                and latest(job["job_id"]).get("reason") == wait.get("label")]
         if not rows:
             return []
         desktop = self._cached_desktop_identity()
@@ -4668,6 +4681,7 @@ class Daemon:
             seq = self._pass_seq[kind]
             holds: dict[str, dict] = {}
             tally = {"placed": 0}
+            self._pass_holds[kind] = holds
             # A pass that raises leaves both as the last whole pass left them: half
             # a hold set would read as "nothing left pending" and end the idle
             # stretch with the queue untouched. C-5.10 logs and paces the failure.
@@ -4676,6 +4690,7 @@ class Daemon:
                 self._holds_by_kind = {**self._holds_by_kind, kind: holds}
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
+            self._pass_holds[kind] = None
             lock.release()
         if kind == "turn":
             # C-24.4 (I3): every message a turn pass left waiting says why, and one it

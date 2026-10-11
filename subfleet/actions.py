@@ -21,6 +21,12 @@ from .contracts import HEADROOM_FLOOR, READING_TTL_S
 #: `headroom_floor_pct` is no longer read: no supply-side sum triggers a spend.
 DEFAULTS = {"enabled": False, "min_interval_min": 30.0}
 TERMINAL = frozenset({"confirmed", "failed", "unknown"})
+#: C-23.16 (d): the consume answers that show no credit was spent, and so are
+#: `failed`: the provider refused it (a 4xx), or nothing was sent (no
+#: credential, the marker, or the call never started). Any other answer that
+#: is not a confirmed reset, a 2xx of another shape included, is `unknown`:
+#: it blocks every spend until a usage read settles it (C-19.1).
+NOT_SPENT = frozenset({"http-error", "no-auth", "inhibited", "aborted-before-submission"})
 #: C-23.16 (f): a file of this name in the state root refuses every list and
 #: consume, automatic or an operator's, for as long as it exists.
 INHIBIT_MARKER = "no-reset"
@@ -256,7 +262,10 @@ def demand_verdict(decision: Any) -> dict[str, Any]:
 
     `placeable`: the decision chose a lane. `lane-has-capacity`: some lane of
     its route, of either provider, is capacity by `route_lane_state`, so the
-    job waits for it. `codex-demand`: every lane it could use is limited,
+    job waits for it. `capped`: the fleet or the job's parent is at its cap
+    (the decision's `capacity_blocks`), so no lane could take the job now
+    whatever its quota, and a reset would buy it no slot; it is named in
+    `capacity_blocks`. `codex-demand`: every lane it could use is limited,
     closed or unusable, and at least one is a Codex lane `limited` in a way a
     credit clears (the lanes a credit could reopen for it). `no-codex-demand`:
     nothing a credit can fix.
@@ -280,8 +289,12 @@ def demand_verdict(decision: Any) -> dict[str, Any]:
     capacity = sorted(lane for lane, (_, state) in states.items() if state == CAPACITY)
     limited = sorted(lane for lane, (provider, state) in states.items()
                      if provider == "codex" and state == LIMITED)
-    verdict = "lane-has-capacity" if capacity else "codex-demand" if limited else "no-codex-demand"
-    return {"verdict": verdict, "capacity_lanes": capacity, "limited_lanes": limited}
+    blocks = sorted({str(block) for evaluation in value.get("evaluations") or ()
+                     for block in evaluation.get("capacity_blocks") or ()})
+    verdict = ("lane-has-capacity" if capacity else "capped" if blocks
+               else "codex-demand" if limited else "no-codex-demand")
+    return {"verdict": verdict, "capacity_lanes": capacity, "limited_lanes": limited,
+            **({"capacity_blocks": blocks} if blocks else {})}
 
 
 def lane_condition(row: Mapping[str, Any], *, now: str | datetime, override: bool = False,
@@ -315,11 +328,16 @@ def lane_condition(row: Mapping[str, Any], *, now: str | datetime, override: boo
 
 def _bounded(fn: Callable[[], dict], cancel: threading.Event | None,
              deadline: float, guard: threading.Lock | None = None) -> dict:
-    """C-16.4: providers ignoring their timeout cannot hold a timer worker."""
+    """C-16.4: providers ignoring their timeout cannot hold a timer worker.
+
+    `aborted-before-submission`: `fn` never ran, so nothing was sent: the
+    deadline or the cancel came first, or a request still running on the lane
+    holds its slot (C-23.16 (d): such a consume spent nothing).
+    """
     if time.monotonic() >= deadline or (cancel is not None and cancel.is_set()):
-        return {"status": "timeout", "error_type": "CancelledError"}
+        return {"status": "aborted-before-submission", "error_type": "CancelledError"}
     if guard is not None and not guard.acquire(blocking=False):
-        return {"status": "network-error", "error_type": "PreviousRequestRunning"}
+        return {"status": "aborted-before-submission", "error_type": "PreviousRequestRunning"}
     done = threading.Event()
     result: list[dict] = []
     def run():
@@ -580,19 +598,22 @@ class ResetCredits:
         Listing takes seconds per lane, so what the pass opened with is judged
         again just before the spend and once more in the transaction that
         writes the action, on the lanes as the store then has them and the
-        time `clock` then reads (by default `now` plus the time elapsed): (d),
-        and the chosen lane's own eligibility and holds (`lane-changed`). The
-        minimum interval stays measured from `now`, the stricter of the two.
+        time `clock` then reads: (d), and the chosen lane's own eligibility and
+        holds (`lane-changed`). The minimum interval is measured from the pass's
+        `now`, the stricter end, back to the time the last spend was published,
+        which is `clock`'s reading once its consume returned (the action is
+        written and claimed at the readings of then too), so it runs between
+        consumes, not pass starts. Without a `clock` (a test, a preview) time
+        stands at `now`; the daemon always passes its own.
         """
         instant = _time(now or snapshot.get("now") or datetime.now(timezone.utc))
-        stamp, settings = _iso(instant), self._settings()
+        settings = self._settings()
         started = time.monotonic()
         deadline = deadline if deadline is not None else started + 60
 
         def current() -> datetime:
             """C-23.16 (d): the time now, never before the pass's own `now`."""
-            read = clock() if clock is not None else instant + timedelta(seconds=time.monotonic() - started)
-            return max(instant, _time(read))
+            return max(instant, _time(clock())) if clock is not None else instant
         if not self._lock.acquire(blocking=False):
             return {"status": "evaluation-running"}
         try:
@@ -659,7 +680,7 @@ class ResetCredits:
             for job, candidates in plan:
                 if not candidates:
                     continue
-                choice, status = self._select(candidates, rows, listed, cancel, deadline, result)
+                choice, status = self._select(candidates, rows, listed, cancel, deadline, result, instant)
                 if status == "cancelled":
                     return {**result, "status": "cancelled"}
                 if choice is not None:
@@ -710,7 +731,8 @@ class ResetCredits:
                 # C-23.16 (c)-(e): once more where the action is written, so a lane
                 # that opened, or a hold that landed, after the last look still
                 # stops it and fences nothing.
-                refused = self._refused(all_rows, current(), lane.lane_id, manual=manual)
+                moment = current()
+                refused = self._refused(all_rows, moment, lane.lane_id, manual=manual)
                 if refused:
                     return {**result, **refused, "job_id": job_id}
                 waiting_row = conn.execute("SELECT state,wait_reason,cancel_requested_at FROM jobs WHERE job_id=?",
@@ -721,8 +743,9 @@ class ResetCredits:
                                 reset_credit_op_keys(lane.account_key, credit["id"])).fetchone():
                     return {**result, "status": "already-attempted"}
                 self.store.add_action(action_id=action_id, kind="reset-credit", op_key=lane.account_key + ":" + credit["id"],
-                                      subject=lane.lane_id, request_json=_json(request), created_at=stamp, updated_at=stamp)
-            if not self.actions.claim(action_id, holder, now=stamp):
+                                      subject=lane.lane_id, request_json=_json(request), created_at=_iso(moment),
+                                      updated_at=_iso(moment))
+            if not self.actions.claim(action_id, holder, now=_iso(current())):
                 return {**result, "status": "claim-lost"}
             timeout = max(.001, min(15., deadline - time.monotonic()))
 
@@ -735,24 +758,31 @@ class ResetCredits:
 
             consumed = _bounded(consume, cancel, min(deadline, time.monotonic() + timeout),
                                 self._http_slots[lane.lane_id])
+            # C-23.16 (d): the interval runs from this publication, read once the
+            # consume has returned, so the next spend is `min_interval_min` after
+            # this consume (to the store's whole second), however long the
+            # listing before it took; not from the pass's start.
+            settled_at = _iso(current())
             if consumed.get("error_type"):
                 result["error_type"] = consumed["error_type"]
             windows = consumed.get("windows_reset")
             confirmed = consumed.get("status") == "ok" and consumed.get("code") == "reset" and (
                 isinstance(windows, int) and not isinstance(windows, bool) and windows > 0)
-            state = "confirmed" if confirmed else "unknown" if consumed.get("status") in (
-                "timeout", "network-error", "invalid-response") else "failed"
+            # C-23.16 (d): `failed` only where no credit was spent (NOT_SPENT);
+            # any other answer, a 2xx of another shape included, is `unknown`.
+            state = "confirmed" if confirmed else "failed" if consumed.get("status") in NOT_SPENT else "unknown"
             with self.store.transaction("reset-credit.result", lane_id=lane.lane_id, data={"action_id": action_id}) as conn:
-                if not self.actions.publish(action_id, holder, state, consumed, now=stamp):
+                if not self.actions.publish(action_id, holder, state, consumed, now=settled_at):
                     return {**result, "status": "result-discarded", "action_id": action_id}
                 if confirmed:
-                    self._release(lane.lane_id, stamp, action_id=action_id)
-                    override = {"action_id": action_id, "confirmed_at": stamp,
-                                "weekly_reset_at": _iso(instant + timedelta(days=7)), "clock_source": "guessed"}
+                    self._release(lane.lane_id, settled_at, action_id=action_id)
+                    override = {"action_id": action_id, "confirmed_at": settled_at,
+                                "weekly_reset_at": _iso(_time(settled_at) + timedelta(days=7)),
+                                "clock_source": "guessed"}
                     self.store.add_event("reset-credit.confirmed", lane_id=lane.lane_id, data=override)
                     result.update(override=override, fleet_credits_remaining=fleet_credits_remaining(all_rows, spent_lane=lane.lane_id))
                     # C-23.16 (c): the reset is for this job; it is looked at again at once.
-                    self._job_due(conn, action_id, job_id, lane.lane_id, stamp)
+                    self._job_due(conn, action_id, job_id, lane.lane_id, settled_at)
             return {**result, "status": state, "action_id": action_id, "lane_id": lane.lane_id, "job_id": job_id}
         finally:
             self._lock.release()
@@ -809,22 +839,26 @@ class ResetCredits:
         return None
 
     def _select(self, candidates: list[dict], rows: list[dict], listed: dict,
-                cancel: threading.Event | None, deadline: float, result: dict):
+                cancel: threading.Event | None, deadline: float, result: dict, instant: datetime):
         """C-23.38, C-23.46: the first concrete gift on one job's ordered candidate lanes.
 
         Returns ((row, lane, adapter, credit), "selected") or (None, status).
         Unshadowed candidates come first, furthest weekly reset first. A
-        shadowed candidate is tried only after every unshadowed lane, candidate
-        or not, has been listed without a gift: a gift on any unshadowed lane
-        excludes it. `listed` caches each lane's entitlements for the pass, so
-        no lane is asked twice however many waiting jobs name it. The marker
-        refuses listing too (C-23.16 (f)).
+        shadowed candidate is tried only after every unshadowed lane a credit
+        may go on, candidate or not, has been listed without a gift: a gift on
+        any such lane excludes it. A held lane (C-23.16 (e)) can take no credit,
+        so it is no such lane and is never listed; holds are read again before
+        each listing, so one that lands during the pass counts too. `listed`
+        caches each lane's entitlements for the pass, so no lane is asked twice
+        however many waiting jobs name it. The marker refuses listing too
+        (C-23.16 (f)).
         """
+        holds = store_holds(self.store, now=instant)
         candidates = sorted(candidates, key=_shadowed)
         candidate_ids = {row["lane_id"] for row in candidates}
         if any(_shadowed(row) for row in candidates):
-            blockers = sorted([row for row in rows if not _shadowed(row)
-                               and row["lane_id"] not in candidate_ids], key=_order)
+            blockers = sorted([row for row in rows if not _shadowed(row) and row["lane_id"] not in candidate_ids
+                               and lane_hold(row, now=instant, held=holds) is None], key=_order)
             candidates = ([row for row in candidates if not _shadowed(row)] + blockers
                           + [row for row in candidates if _shadowed(row)])
         unshadowed_has_gifts = False
@@ -839,6 +873,8 @@ class ResetCredits:
             if lane is None or lane.owner != 'v2' or not lane.enabled:
                 continue
             if lane.lane_id not in listed:
+                if lane_hold(row, now=instant, held=store_holds(self.store, now=instant)) is not None:
+                    continue
                 adapter = self.adapter_factory(lane)
                 timeout = max(.001, min(15., deadline - time.monotonic()))
                 guard = self._http_slots.setdefault(lane.lane_id, threading.Lock())
