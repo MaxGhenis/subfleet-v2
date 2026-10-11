@@ -37,8 +37,12 @@ def success(text):
 
 
 def classify(directory, rows, rc=0, stderr=""):
+    return classify_stream(directory, "".join(json.dumps(row) + "\n" for row in rows), rc, stderr)
+
+
+def classify_stream(directory, stream, rc=0, stderr=""):
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "stream.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    (directory / "stream.jsonl").write_text(stream)
     (directory / "stderr").write_text(stderr)
     projects = directory / "projects"
     adapter = ClaudeAdapter(now=lambda: NOW, projects_dir=projects)
@@ -56,8 +60,8 @@ def test_live_success_report_never_limits(tmp_path, report):
 
 
 # Generate from every text-classifier pattern, including clock signatures, plus
-# arbitrary Unicode. This follows future regex additions instead of maintaining
-# a hand-picked subset of limit vocabulary.
+# arbitrary Unicode. Regex generation covers each pattern's alternatives and
+# case variants instead of maintaining a hand-picked subset of limit vocabulary.
 PATTERNS = tuple(value for module in (claude_module, codex_module)
                  for name, value in vars(module).items()
                  if name in {"CLI_TOO_OLD_RE", "ORG_BLOCK_RE", "AUTH_SIGNATURE_RE", "CREDITS_RE",
@@ -83,6 +87,8 @@ LIMIT_CASES = tuple(case for case in case_names()
 def replace_model_text(rows, text):
     rows = deepcopy(rows)
     for row in rows:
+        if not isinstance(row, dict):
+            continue
         if row.get("type") == "assistant" and not cli_placeholder(row):
             content = row["message"].get("content")
             if isinstance(content, str):
@@ -94,6 +100,25 @@ def replace_model_text(rows, text):
         if row.get("type") == "result" and row.get("is_error") is not True:
             row["result"] = text
     return rows
+
+
+def erase_model_text(stream):
+    """Preserve invalid rows/tails, including the captured disconnect fixture."""
+    try:
+        whole = json.loads(stream)
+    except ValueError:
+        whole = None
+    if isinstance(whole, dict):
+        return json.dumps(replace_model_text([whole], "")[0])
+    out = []
+    for line in stream.splitlines(keepends=True):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            out.append(line)
+            continue
+        out.append(json.dumps(replace_model_text([row], "")[0]) + ("\n" if line.endswith("\n") else ""))
+    return "".join(out)
 
 
 def verdict(outcome):
@@ -130,22 +155,24 @@ def test_fixture_limit_keeps_its_scope_and_clock_with_surrounding_model_text(cas
 
 
 @INVARIANTS
-@given(rows=STREAMS, rc=st.sampled_from((0, 1, 5, -15)), stderr=MODEL_TEXT)
-def test_classifier_equals_stream_with_all_model_text_erased(rows, rc, stderr):
+@given(rows=STREAMS, rc=st.sampled_from((0, 1, 5, -15)), stderr=MODEL_TEXT,
+       tail=st.sampled_from(("", "not json\n", '{"type":')))
+def test_classifier_equals_stream_with_all_model_text_erased(rows, rc, stderr, tail):
     """Differential: all assistant/success prose can be erased without changing the verdict."""
     with TemporaryDirectory() as tmp:
         directory = Path(tmp)
-        assert verdict(classify(directory, rows, rc, stderr)) == verdict(
-            classify(directory, replace_model_text(rows, ""), rc, stderr))
+        stream = "".join(json.dumps(row) + "\n" for row in rows) + tail
+        assert verdict(classify_stream(directory, stream, rc, stderr)) == verdict(
+            classify_stream(directory, erase_model_text(stream), rc, stderr))
 
 
 @pytest.mark.parametrize("case", case_names())
 def test_fixture_differential_with_model_text_erased(tmp_path, case):
-    rows = fixture_rows(case)
+    stream = (FIXTURES / case / "stdout").read_text()
     rc = int((FIXTURES / case / "rc").read_text())
     stderr = (FIXTURES / case / "stderr").read_text()
-    assert verdict(classify(tmp_path, rows, rc, stderr)) == verdict(
-        classify(tmp_path, replace_model_text(rows, ""), rc, stderr))
+    assert verdict(classify_stream(tmp_path, stream, rc, stderr)) == verdict(
+        classify_stream(tmp_path, erase_model_text(stream), rc, stderr))
 
 
 @pytest.mark.parametrize("text,until", [
