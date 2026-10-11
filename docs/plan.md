@@ -133,3 +133,25 @@ C-24 to C-30 in `acceptance-contract.md`; the specification is
 sub-steps. Amendment 11 still grants no interactive capacity; C-26.9 orders
 attended turns ahead of detached jobs without reserving capacity, and that
 choice is recorded for Max.
+
+## Weekly clocks start on first use, 2026-09-25
+
+Max's standing rule (2026-09-14): "If you know the reset starts when using it,
+we should touch it immediately." A Codex weekly window starts at its first
+request after a reset, and C-11.3 ranks a lane whose window has not started
+last, because its reset always reads a week out; so v2 never started one on its
+own. On 2026-09-22 codex-4 redeemed its banked reset at 20:09 ET and sat
+unstarted until a manual touch at 15:52 ET the next day. C-18.7 makes the touch
+the daemon's: detection is derived from the lane's own readings (0% with a
+reset sliding a week ahead of each read, within 600 s), and the touch is a
+timer turn like heal and keepalive rather than a job (C-8.4), so it takes the
+probe reservation, the guard preflight, the API-key refusal, and containment
+without entering the job ledger or any caller's writable hold. Each probe
+cycle touches such lanes at most once an hour each, with Luna (Spark does not
+start the clock), re-probes them, and says so; `subfleet lanes touch` does the
+same on request. Building it showed that `codex exec` (codex-cli 0.153.3)
+exits in an untrusted directory that is not a repository, which every probe
+directory is, unless it is given `--skip-git-repo-check`; on the release line
+every read-only launch, and so every probe and timer turn, already carries the
+flag, and C-12.3 says so. On the release line the clause is C-18.7 (C-18.3 there
+is the busy-lane read), ported from MaxGhenis/subfleet-v2#42.

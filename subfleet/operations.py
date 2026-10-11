@@ -67,6 +67,8 @@ def brief(view: dict) -> str:
                 conditions.append('owner ' + str(lane.get('owner', 'unknown')))
             if lane.get('identity_status') in ('mismatch', 'unverified'):
                 conditions.append('identity ' + lane['identity_status'])
+            if lane.get('weekly_clock') == 'not-started':
+                conditions.append('weekly clock not started')     # C-18.3
             closures = lane.get('closures', [row for row in view.get('closures', ()) if row['lane_id'] == lane['lane_id']])
             conditions.extend(render.closure_text(row) for row in closures)
             lines.append(f"  - {lane['lane_id']}: {text}" + ('; ' + '; '.join(conditions) if conditions else ''))
@@ -80,7 +82,9 @@ def _target(service, target: str | None, provider='codex'):
     if not isinstance(target, str) or not target.strip():
         raise protocol.ProtocolError('name a lane or all')
     value = f'{provider}-{target}' if target.isdigit() else target
-    row = resolve_lane(service.store.query('SELECT * FROM lanes'), value)
+    # C-11.2: a name shared by a Claude and a Codex lane (an email) names the
+    # Codex one here, since only a Codex lane is ever meant.
+    row = resolve_lane(service.store.query('SELECT * FROM lanes'), value, provider)
     if row is None or row['provider'] != provider:
         raise protocol.ProtocolError(f'unknown {provider} lane {target!r}', fix='subfleet lanes list')
     return row
