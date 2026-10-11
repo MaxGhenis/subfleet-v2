@@ -168,9 +168,11 @@ Fable capacity, account closures, exclusions, and ownership still control eligib
 A Codex weekly window starts at its first request after a reset, not at the
 reset, and an idle lane's next reset slides a day for each idle day. Each probe
 cycle therefore touches every v2 Codex lane whose weekly clock has not started:
-one read-only Luna turn through the same guarded launch path as any probe, at
-most once an hour per lane, followed by a re-probe and one service notice
-(C-18.7). `subfleet status` and `subfleet lanes list` mark such lanes `clock not
+one read-only GPT-6 Luna turn through the same guarded launch path as any probe,
+at most once an hour per lane, followed by a re-probe and, when
+`alerts.operator_session` is set, one notice naming the clocks it started
+(C-18.7). A lane an operator holds (`subfleet lanes hold`) is never touched.
+`subfleet status` and `subfleet lanes list` mark such lanes `clock not
 started`. To inspect or act now:
 
 ```sh
