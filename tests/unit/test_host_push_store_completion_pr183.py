@@ -13,6 +13,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import host_push
 from subfleet.daemon import Daemon
+from subfleet.retention_archive import owned_worktree
 from test_host_push import submit, worlds  # noqa: F401
 from test_host_push_admission import ordinary, pin_routing, placed
 
@@ -45,7 +46,12 @@ def test_one_transient_ownership_write_error_does_not_freeze_all_detached_admiss
             except sqlite3.OperationalError as exc:
                 assert str(exc) == "database is locked"
             else:
-                raise AssertionError("the ownership write did not hit its actual SQLite timeout")
+                # Ownership now belongs to admission completion. Keep the
+                # same real lock through that write's timeout instead.
+                assert future.result() is True
+                assert push in core._reap_push_workspaces({})
+                assert core._push_workspaces[push] is future
+                assert future.exception() is None
         finally:
             release.set()
             blocker.rollback()
@@ -127,6 +133,7 @@ def run_interleavings(root, count, steps, patch):
     core = object.__new__(Daemon)
     core.root, core.store, core.pushes = root, Rows(count), ManualExecutor()
     core._push_workspaces, core._push_unused_workspaces = {}, set()
+    core._push_workspace_store_errors = {}
     core._push_preparation_offered = False
     core._capacity_waits = {}
     core._notify = lambda: None
@@ -190,12 +197,14 @@ def run_interleavings(root, count, steps, patch):
             # work. This step models the completed-checkout restart boundary.
             core.pushes.drain()
             core._push_workspaces, core._push_unused_workspaces = {}, set()
+            core._push_workspace_store_errors = {}
             core._push_preparation_offered = False
         elif action == "crash":
             # An offered but not yet started build disappears on process loss;
             # complete checkouts, if any, remain recorded for reuse or retention.
             core.pushes.pending.clear()
             core._push_workspaces, core._push_unused_workspaces = {}, set()
+            core._push_workspace_store_errors = {}
             core._push_preparation_offered = False
         elif action == "turn":
             before = dict(core._push_workspaces)
@@ -209,7 +218,8 @@ def run_interleavings(root, count, steps, patch):
             if core.store.list_attempts(str(index)):
                 assert (destination / "complete").is_file()
             elif destination.exists():
-                assert str(index) in core._push_workspaces or job["worktree"] == str(destination), (
+                assert (str(index) in core._push_workspaces
+                        or owned_worktree(job, root) == destination), (
                     "completed unused checkout is neither outstanding nor persistently tracked")
 
     # Release all unrelated holds and finish each finite preparation. Every live
@@ -226,7 +236,7 @@ def run_interleavings(root, count, steps, patch):
         if job["state"] == "cancelled" and (root / "worktrees" / str(index)).exists():
             # A restart loses the in-memory cleanup tracker; persistent ownership
             # remains the retention fallback explicitly promised by the contract.
-            assert job["worktree"] == str(root / "worktrees" / str(index))
+            assert owned_worktree(job, root) == root / "worktrees" / str(index)
     assert all(built.count(str(index)) <= 1 for index in range(count))
     core.store.connection.close()
 

@@ -849,6 +849,7 @@ class Daemon:
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
         self._push_workspaces: dict[str, Future] = {}
+        self._push_workspace_store_errors: dict[str, sqlite3.Error] = {}
         self._push_unused_workspaces: set[str] = set()
         self._push_preparation_offered = False
         # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
@@ -3970,19 +3971,22 @@ class Daemon:
         return dataclasses.replace(outcome, evidence=evidence)
 
     def _prepare_push_workspace(self, job: dict, destination: Path) -> bool:
-        """Build off admission; return whether a whole, owned checkout remains."""
+        """Build off admission; leave ownership recording to completion processing."""
         try:
-            current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
+            try:
+                current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
+            except sqlite3.Error:
+                # The admission snapshot is enough to build. A store fault
+                # must not become the checkout's permanent Future result.
+                current = job
             if not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
                 return False
             host_push.prepare_workspace(self.root, Path(job["workdir"]), job["workdir_head"], destination)
-            # Record the whole checkout before exposing readiness. Even if a
-            # cancellation and restart lose this future, retention can find it.
-            with self.store.transaction("job.workspace_built", job_id=job["job_id"]) as tx:
-                kept = tx.execute("UPDATE jobs SET worktree=? WHERE job_id=? "
-                                  "AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                                  (str(destination), job["job_id"])).rowcount
-            if not kept:
+            try:
+                current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
+            except sqlite3.Error:
+                return True  # Completion will recheck cancellation atomically.
+            if not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
                 # Nothing was launched from this new checkout. A cancellation
                 # during the build must not leave an unrecorded worktree behind.
                 shutil.rmtree(destination)
@@ -3998,47 +4002,92 @@ class Daemon:
                 and not self.store.list_attempts(job_id)):
             shutil.rmtree(self.root / "worktrees" / job_id, ignore_errors=True)
 
+    @staticmethod
+    def _push_workspace_store_busy(exc: sqlite3.Error) -> bool:
+        code = getattr(exc, "sqlite_errorcode", None)
+        if code is not None:
+            return (code & 0xff) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+        # Synthetic errors and older wrappers may omit SQLite's result code.
+        return isinstance(exc, sqlite3.OperationalError) and str(exc) in (
+            "database is locked", "database table is locked", "database schema is locked")
+
+    def _finish_push_workspace(self, job: dict, future: Future | None) -> bool | None:
+        """Apply completion: True is owned, False settled, None needs a later pass.
+
+        Busy writes retain the construction result. Permanent store failures
+        retain their cause until this job's failure and notice commit together.
+        """
+        job_id = job["job_id"]
+        try:
+            if exc := self._push_workspace_store_errors.get(job_id):
+                raise exc
+            assert future is not None
+            try:
+                ready = not future.cancelled() and future.result()
+            except AdapterError as exc:
+                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                ready = False
+            except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                self._workspace_failed(job, exc)
+                self._capacity_waits.pop(job_id, None)
+                ready = False
+            if ready:
+                destination = str(self.root / "worktrees" / job_id)
+                with self.store.transaction("job.workspace_built", job_id=job_id) as tx:
+                    current = tx.execute("SELECT state,cancel_requested_at,worktree FROM jobs WHERE job_id=?",
+                                         (job_id,)).fetchone()
+                    ready = bool(current and current["state"] in ("queued", "waiting")
+                                 and not current["cancel_requested_at"])
+                    if ready and current["worktree"] != destination:
+                        tx.execute("UPDATE jobs SET worktree=? WHERE job_id=?", (destination, job_id))
+        except sqlite3.Error as exc:
+            if self._push_workspace_store_busy(exc):
+                return None
+            self._push_workspace_store_errors[job_id] = exc
+            try:
+                self._fail_queued(job, f"workspace completion could not be recorded: {type(exc).__name__}: {exc}",
+                                  kind="job.workspace_failed")
+            except sqlite3.Error:
+                return None
+            ready = False
+        self._push_workspace_store_errors.pop(job_id, None)
+        if not ready:
+            self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+        return ready
+
     def _reap_push_workspaces(self, holds: dict[str, dict]) -> set[str]:
         """Consume finished builds before a job's pin or other hold can hide them.
 
-        A successful worker has already recorded checkout ownership, so its
-        slot can be released without placing the job. Failures retain the
-        existing workspace refusal or retry treatment.
+        Record ownership before readiness, retrying busy writes without losing
+        the result or stopping other placements. Only then release the slot.
         """
         skipped: set[str] = set()
-        for job_id, future in list(self._push_workspaces.items()):
-            if not future.done():
+        for job_id in dict.fromkeys((*self._push_workspaces, *self._push_workspace_store_errors)):
+            future = self._push_workspaces.get(job_id)
+            if future is not None and not future.done() and job_id not in self._push_workspace_store_errors:
                 continue
             job = self.store.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
             if not job or job["state"] in TERMINAL or job["cancel_requested_at"]:
                 self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
-                del self._push_workspaces[job_id]
+                self._push_workspaces.pop(job_id, None)
+                self._push_workspace_store_errors.pop(job_id, None)
                 continue
-            try:
-                ready = future.result()
-            except AdapterError as exc:
-                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+            ready = self._finish_push_workspace(job, future)
+            if ready is None:
+                holds[job_id] = {"reason": "workspace", "preparing": True}
                 skipped.add(job_id)
-            except (OSError, subprocess.SubprocessError, SalvageError) as exc:
-                self._workspace_failed(job, exc)
-                self._capacity_waits.pop(job_id, None)
-                holds[job_id] = {"reason": "workspace", "error_type": type(exc).__name__,
-                                 "error": str(exc)[:200]}
+                continue
+            if not ready:
+                error = (future.exception() if future is not None and future.done()
+                         and not future.cancelled() else None)
+                holds[job_id] = ({"reason": "workspace", "error_type": type(error).__name__,
+                                  "error": str(error)[:200]} if error
+                                 else {"reason": "workspace", "preparing": True})
                 skipped.add(job_id)
             else:
-                if not ready:
-                    # A discarded build never opens the gate, even if a row
-                    # stayed live while the worker completed. Retry only on a
-                    # fresh look, after that look's disk and admission checks.
-                    holds[job_id] = {"reason": "workspace", "preparing": True}
-                    skipped.add(job_id)
-                else:
-                    self._push_unused_workspaces.add(job_id)
-            # A store failure while applying the result belongs to the pass.
-            # Keep the future until that application succeeds, so retrying the
-            # pass does not silently lose a refusal or workspace error.
-            del self._push_workspaces[job_id]
+                self._push_unused_workspaces.add(job_id)
+            self._push_workspaces.pop(job_id, None)
         # A completed checkout can remain queued behind an unrelated hold.
         # Keep watching it after its future releases the preparation slot,
         # until an attempt makes retention responsible for its lifetime.
@@ -4056,12 +4105,19 @@ class Daemon:
 
         Futures are owned by the serialized detached admission pass. A restart
         forgets incomplete builds after quarantine cleanup and reuses whole
-        checkouts whose ownership the worker recorded before completing.
+        checkouts at their conventional path, recording any pending ownership.
         """
         if (job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
             return True
         job_id = job["job_id"]
+        destination = self.root / "worktrees" / job_id
         future = self._push_workspaces.get(job_id)
+        if future is None and not job.get("worktree") and destination.exists():
+            # A restart may lose a completed Future before ownership commits.
+            # Retention also recognizes this conventional allocation path.
+            future = Future()
+            future.set_result(True)
+            self._push_workspaces[job_id] = future
         if future is not None and future.done():
             try:
                 ready = future.result()
@@ -4073,13 +4129,17 @@ class Daemon:
             # This may be a previous pass's build that finished after this
             # pass sampled disk. Another build needs the next fresh reading.
             self._push_preparation_offered = True
-            del self._push_workspaces[job_id]
+            if ready:
+                ready = self._finish_push_workspace(job, future)
+                if ready is None:
+                    return False
+            self._push_workspaces.pop(job_id, None)
             if ready:
                 self._push_unused_workspaces.add(job_id)
             return ready
-        destination = self.root / "worktrees" / job_id
         if future is None:
-            if job.get("worktree") or destination.exists():
+            if job.get("worktree"):
+                self._push_unused_workspaces.add(job_id)
                 return True
             # Completed results count until consumed. Each new offer also
             # needs a fresh pass: a fast completion must not let another build
@@ -4088,9 +4148,14 @@ class Daemon:
                 self._push_preparation_offered = True
                 self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
         if job["wait_reason"] != "workspace":
-            with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
-                           "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL", (job_id,))
+            try:
+                with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
+                               "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL", (job_id,))
+            except sqlite3.Error as exc:
+                if not self._push_workspace_store_busy(exc):
+                    self._push_workspace_store_errors[job_id] = exc
+                    self._finish_push_workspace(job, None)
         return False
 
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None, list[str]]:
@@ -4956,6 +5021,7 @@ class Daemon:
             for job_id, future in list(self._push_workspaces.items()):
                 if job_id not in pending and (future.done() or future.cancel()):
                     self._push_workspaces.pop(job_id, None)
+                    self._push_workspace_store_errors.pop(job_id, None)
                     self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
@@ -6228,7 +6294,6 @@ class Daemon:
         limit = self.policy["caps"]["workspace_retry_max"]
         detail = f"{record['error_type']}: {record['error']}"
         if transient and count <= limit:
-            self._workspace_deferrals[job["job_id"]] = count
             delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (count - 1))
             next_check = after(delay)
             record.update(deferrals=count, retry_max=limit, next_check_at=next_check)
@@ -6236,16 +6301,17 @@ class Daemon:
                 tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
                            "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
                            (next_check, job["job_id"]))
+            self._workspace_deferrals[job["job_id"]] = count
             self.log.warning("job %s workspace preparation deferred %d/%d, next check in %d s: %s",
                              job["job_id"], count, limit, delay, detail)
             self._notify()
             return
-        self._workspace_deferrals.pop(job["job_id"], None)
         record.update(transient=transient, deferrals=count - 1)
         self.log.error("job %s workspace preparation failed: %s", job["job_id"], detail)
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
+        self._workspace_deferrals.pop(job["job_id"], None)
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
                      data: dict | None = None) -> None:

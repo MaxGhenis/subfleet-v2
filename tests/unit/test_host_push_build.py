@@ -254,7 +254,7 @@ def test_cancellation_after_build_finishes_discards_unused_checkout(worlds):
         core._admit_kind("detached")
         core._push_workspaces[job].result(timeout=180)
         assert (core.root / "worktrees" / job).exists()
-        assert core._job(job)["worktree"] == str(core.root / "worktrees" / job)
+        assert core._job(job)["worktree"] is None
         from subfleet.protocol import KillArgs
         core.kill(KillArgs(job))
         core._admit_kind("detached")
@@ -272,8 +272,9 @@ def test_restart_reuses_the_whole_ready_checkout_without_another_build(worlds):
         job = submit(world)
         core._admit_kind("detached")
         core._push_workspaces[job].result(timeout=180)
-        built = core._job(job)["worktree"]
-        assert built and Path(built).is_dir()
+        built = core.root / "worktrees" / job
+        assert built.is_dir()
+        assert core._job(job)["worktree"] is None
         core = restart(world)
         pin_routing(world, world.patch)
 

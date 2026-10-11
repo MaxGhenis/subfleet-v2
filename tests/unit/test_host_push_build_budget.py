@@ -184,7 +184,11 @@ class Store:
         yield self
 
     def execute(self, sql, parameters):
-        # The production gate's only write marks a job waiting/preparing.
+        if sql.startswith("SELECT"):
+            return SimpleNamespace(fetchone=lambda: self.jobs[parameters[0]])
+        if sql.startswith("UPDATE jobs SET worktree="):
+            self.jobs[parameters[1]]["worktree"] = parameters[0]
+            return
         job = self.jobs[parameters[0]]
         job.update(state="waiting", wait_reason="workspace")
 
@@ -192,11 +196,16 @@ class Store:
 def gate_harness(root: Path, count: int):
     jobs = {str(index): {"job_id": str(index), "push_branch": f"jobs/{index}",
                         "sandbox": "workspace-write", "in_place": False,
-                        "state": "queued", "wait_reason": None, "worktree": None}
+                        "state": "queued", "wait_reason": None, "worktree": None,
+                        "cancel_requested_at": None}
             for index in range(count)}
-    return SimpleNamespace(root=root, store=Store(jobs), pushes=Queue(), _push_preparation_offered=False,
-                           _push_workspaces={}, _push_unused_workspaces=set(),
-                           _prepare_push_workspace=lambda *args: True)
+    core = object.__new__(Daemon)
+    core.root, core.store, core.pushes = root, Store(jobs), Queue()
+    core._push_preparation_offered = False
+    core._push_workspaces, core._push_unused_workspaces = {}, set()
+    core._push_workspace_store_errors = {}
+    core._prepare_push_workspace = lambda *args: True
+    return core
 
 
 def assert_one_outstanding(gate, root, count, steps):
