@@ -407,9 +407,14 @@ def test_live_answer_sync_keeps_the_response_on_the_command_queue(
     """A live person's answer still waits for command draining, including the
     first runner's initial stdout read. Only reconstruction applies it inline."""
     cid, mid, runner = asked(store, tmp_path, provider)
-    runner.replay_caught_up, runner.replayed_message = caught_up, replayed
     [approval] = store.approvals(conversation_id=cid)
     assert store.answer_approval(approval["approval_id"], {"decision": "deny", "message": "no"})
+    if replayed:
+        # This runner has an old answer to restore, but its initial replay has
+        # already caught up: a re-announcement is now live stdout.
+        runner = runner_for(store, tmp_path, provider, cid, mid)
+        runner._apply(runner.driver.feed(request_line(provider), 0))
+    runner.replay_caught_up, runner.replayed_message = caught_up, replayed
     monkeypatch.setattr(runner, "_send_outbox", lambda: None)
     runner._sync_answers()
     assert rid(provider) in runner.driver.pending and runner.outbox == []
