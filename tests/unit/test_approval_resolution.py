@@ -22,6 +22,7 @@ import hypothesis
 from hypothesis import strategies as st
 import pytest
 
+from subfleet import relay
 from subfleet.conversations.runner import Clocks, TurnRunner
 from subfleet.conversations.store import ConversationStore
 from subfleet.conversations.turn import TERMINAL_STATES, TurnSpec
@@ -345,6 +346,79 @@ def test_a_replay_through_eof_writes_nothing_new(store, tmp_path, monkeypatch, p
     commits.check()
 
 
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("decision", ["allow", "deny", "cancel-turn"])
+@pytest.mark.parametrize("written", [False, True], ids=["answer-not-written", "answer-written"])
+def test_replay_applies_an_answer_before_a_later_provider_cancel(
+        store, tmp_path, monkeypatch, provider, decision, written):
+    """C-26.6, C-27.3: replay must answer the request before feeding the next
+    stdout line, even when that line cancels it. A written reply is not rebuilt."""
+    cid, mid, first = asked(store, tmp_path, provider)
+    [approval] = store.approvals(conversation_id=cid)
+    assert store.answer_approval(approval["approval_id"], {"decision": decision})
+    step = first.driver.respond(rid(provider), decision)
+    first._apply(step, send=False)
+    if written:
+        [frame] = step.frames
+        intent = relay._intent({"seq": 1, "op": frame.op, "line": frame.line,
+                                "tag": frame.tag, "sha256": relay.line_sha256(frame.line)})
+        (first.adir / "stdin.jsonl").write_text(
+            json.dumps(intent) + "\n" + json.dumps({"kind": "written", "seq": 1}) + "\n")
+    first._apply(first.driver.feed(cancel_line(provider), 1000), send=False)
+    events, changes = store.events_after(cid, 0)["events"], store.changes_after(0)["next"]
+    commits = Commits(store, monkeypatch)
+    again = runner_for(store, tmp_path, provider, cid, mid)
+    again.replayed_message = True       # this attempt's message was delivered before the restart
+    again.handshaken = True
+    transmitted = []
+
+    def transmit(frame):
+        transmitted.append(frame.tag)
+        again.sent[frame.tag] = "written"
+        again.outbox.pop(0)
+        return True
+
+    monkeypatch.setattr(again, "_transmit", transmit)
+    if written:
+        def forbid_rebuild(*args, **kwargs):
+            pytest.fail("a written answer must be restored without rebuilding its reply")
+        monkeypatch.setattr(again.driver, "respond", forbid_rebuild)
+    (again.adir / "stdout").write_text(request_line(provider) + "\n" + cancel_line(provider) + "\n")
+    assert again._read_stdout()
+    again._flush()
+    assert store.one("SELECT state FROM approvals WHERE approval_id=?", (approval["approval_id"],))["state"] == "answered"
+    assert resolved_events(store, cid) == [(rid(provider), decision)]
+    assert store.events_after(cid, 0)["events"] == events
+    assert store.changes_after(changes)["changes"] == []
+    assert not again.driver.pending and again.commands.empty()
+    assert again.driver.interrupt_requested == (decision == "cancel-turn")
+    assert transmitted == ([] if written else [f"approval:{rid(provider)}"])
+    assert [row["tag"] for row in relay.read_log(again.adir / "stdin.jsonl")] == (
+        [f"approval:{rid(provider)}"] if written else [])
+    commits.check()
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("caught_up,replayed", [(False, False), (True, False), (True, True)],
+                         ids=["first-runner-catching-up", "live-first-runner", "live-adopted-runner"])
+def test_live_answer_sync_keeps_the_response_on_the_command_queue(
+        store, tmp_path, monkeypatch, provider, caught_up, replayed):
+    """A live person's answer still waits for command draining, including the
+    first runner's initial stdout read. Only reconstruction applies it inline."""
+    cid, mid, runner = asked(store, tmp_path, provider)
+    runner.replay_caught_up, runner.replayed_message = caught_up, replayed
+    [approval] = store.approvals(conversation_id=cid)
+    assert store.answer_approval(approval["approval_id"], {"decision": "deny", "message": "no"})
+    monkeypatch.setattr(runner, "_send_outbox", lambda: None)
+    runner._sync_answers()
+    assert rid(provider) in runner.driver.pending and runner.outbox == []
+    assert list(runner.commands.queue) == [("respond", rid(provider), "deny", "no", None)]
+    assert runner._drain_commands()
+    assert not runner.driver.pending and runner.commands.empty()
+    assert [frame.tag for frame in runner.outbox] == [f"approval:{rid(provider)}"]
+    assert resolved_events(store, cid) == [(rid(provider), "deny")]
+
+
 # --- any interleaving --------------------------------------------------------------------------
 
 @st.composite
@@ -376,8 +450,10 @@ def claude_row(op: tuple) -> str:
                        "session_id": "s", "num_turns": 1, "duration_ms": 1, "total_cost_usd": 0, "usage": {}})
 
 
-@hypothesis.settings(max_examples=80, deadline=None,
+@hypothesis.settings(max_examples=500, deadline=None,
                      suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
+@hypothesis.example(history=([("ask", "r1"), ("answer", "r1", "allow"),
+                              ("cancel", "r1"), ("end", "eof")], True))
 @hypothesis.given(histories())
 def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory, history):
     """C-27.1, C-27.3, C-29.9: for any interleaving of requests, answers, provider
@@ -425,6 +501,7 @@ def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory
             changes = store.changes_after(0)["next"]
             if replay:
                 again = runner_for(store, tmp, "claude", cid, mid)
+                again.replayed_message = True
                 at = 0
                 for line in stdout:
                     again._apply(again.driver.feed(line, at))
@@ -432,17 +509,7 @@ def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory
                     at += len(line) + 1
                 again._apply(again.driver.eof(at))
                 again._flush()
-                # Known, and older than C-27.3's events: a provider that cancels a
-                # request after the person's answer reached the driver. The replay
-                # reads the cancel before it re-applies the answer (`_sync_answers`
-                # queues it), so the provider's own `withdrawn` is written then; the
-                # approval stays answered and nothing else changes.
-                late = {op[1] for i, op in enumerate(ops) if op[0] == "cancel"
-                        and any(o[0] == "answer" and o[1] == op[1] for o in ops[:i])}
-                added = store.events_after(cid, 0)["events"][len(events):]
-                assert store.events_after(cid, 0)["events"][:len(events)] == events
-                assert all(e["kind"] == "approval.resolved" and e["data"]["decision"] == "withdrawn"
-                           and e["data"]["request_id"] in late for e in added), added
+                assert store.events_after(cid, 0)["events"] == events
                 assert store.changes_after(changes)["changes"] == []
             commits.check()
         assert store.approvals(conversation_id=cid) == []
