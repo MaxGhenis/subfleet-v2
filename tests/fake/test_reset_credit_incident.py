@@ -280,8 +280,9 @@ def test_incident_2026_09_22_the_reset_makes_the_job_it_was_spent_for_due_at_onc
     service._admit()
     result = service.timers.reset_credits_cycle()
     assert result["status"] == "confirmed" and result["lane_id"] == "codex-6", result
-    due_events = [row for row in service.store.list_events() if row["kind"] == "reset-credit.job-due"]
-    assert [json.loads(row["data_json"])["job_id"] for row in due_events] == [first]
+    due_events = [data for row in service.store.list_events() if row["kind"] == "reset-credit.job-due"
+                  and "job_id" in (data := json.loads(row["data_json"] or "{}"))]      # not the bare audit row
+    assert [data["job_id"] for data in due_events] == [first]
     assert service.store.get_job(first)["next_check_at"] <= utcnow()
     service._admit()
     assert lanes_of(service, first) == ["codex-6"]
@@ -389,13 +390,15 @@ def test_a_job_held_at_the_door_is_no_demand_from_that_moment(fleet, monkeypatch
     """C-23.16 (a), review of #179 (P3-1): `_reset_demand` paired the live capacity waits with
     the last whole pass's holds, so a job the running pass had just held at the door still read
     as demand until that pass ended. Each door look here asks for demand: at the second job's
-    door, the first is already held there, and is no demand though the pass has not ended."""
+    door, the first is already held there, and is no demand though the pass has not ended. (The
+    second job, held behind the first in this capped pool, C-6.9, is never demand.)"""
     service, http = fleet
     for number in range(1, 7):
         limit(service, number)
     first, second = submit(service, "first"), submit(service, "second")
     service._admit()
-    assert [row["job_id"] for row in service._reset_demand()] == [first, second]
+    assert service._holds[second]["reason"] == "behind-older-job"
+    assert [row["job_id"] for row in service._reset_demand()] == [first]
     seen = []
 
     def look(klass):
@@ -406,7 +409,7 @@ def test_a_job_held_at_the_door_is_no_demand_from_that_moment(fleet, monkeypatch
         monkeypatch.setattr(daemon_module.scheduler, "machine_hold",
                             lambda policy, reading, klass: {"reason": "machine-busy", "class": klass})
     service._admit()
-    assert seen == [[first, second], [second]]
+    assert seen == [[first], []]
     assert service._reset_demand() == []
     assert service.timers.reset_credits_cycle()["status"] == "no-demand"
     assert http.consumed() == [] and http.listed() == []
