@@ -44,8 +44,9 @@ def origin(harness) -> tuple[str, str]:
 
 
 def suggest(harness, title: str, **extra) -> dict:
-    return harness.call("suggestion.create", request_id=str(uuid.uuid4()), title=title, tldr="Out of scope here",
-                        brief=BRIEF, workspace=str(harness.workspace), **extra)["suggestion"]
+    args = {"request_id": str(uuid.uuid4()), "title": title, "tldr": "Out of scope here", "brief": BRIEF,
+            "workspace": str(harness.workspace), **extra}
+    return harness.call("suggestion.create", **args)["suggestion"]
 
 
 def suggestions(core_probe, tmp_path, steps, **extra):
@@ -101,10 +102,16 @@ def test_c29_14_the_suggested_section_lists_every_open_one_newest_first_with_a_c
     anonymous = suggest(harness, "From a script")
     codex = suggest(harness, "A Codex review", provider="codex")
     listed = harness.call("conversation.list", include_catalog=False)
-    out = suggestions(core_probe, tmp_path, [{"list": listed}, {"suggestions": harness.call("suggestion.list")}],
+    daemon = harness.call("suggestion.list")
+    out = suggestions(core_probe, tmp_path, [{"list": listed}, {"suggestions": daemon}],
                       capabilities=harness.call("capabilities"))
-    assert [c["id"] for c in out["open"]] == [codex["suggestion_id"], anonymous["suggestion_id"],
-                                              elsewhere["suggestion_id"], from_turn["suggestion_id"]]
+    # Newest first, as the daemon lists them (creations in one millisecond fall back to the id, on both sides).
+    shown = [c["id"] for c in out["open"]]
+    assert shown == [s["suggestion_id"] for s in daemon["suggestions"]]
+    stamps = {s["suggestion_id"]: (s["created_at"], s["suggestion_id"]) for s in daemon["suggestions"]}
+    assert [stamps[i] for i in shown] == sorted(stamps.values(), reverse=True)
+    assert set(shown) == {from_turn["suggestion_id"], elsewhere["suggestion_id"], anonymous["suggestion_id"],
+                          codex["suggestion_id"]}
     assert out["count"] == 4
     by_id = {c["id"]: c for c in out["open"]}
     assert by_id[from_turn["suggestion_id"]]["origin"] == "Importer work"
