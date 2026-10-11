@@ -15,6 +15,7 @@ from tests.unit.test_procs import census
 
 # Save the real census before state_daemon replaces the process seam.
 CONTAINMENT = procs.containment
+SNAPSHOT = procs.snapshot
 CASES = [
     ("qyp16-r1c", 4000, 4203, "Sun Oct 11 01:04:12 2026",
      "Sun Oct 11 07:52:43 2026", "2026-10-11T01:04:12Z", "2026-10-11T03:45:13Z"),
@@ -40,6 +41,7 @@ def recycled_attempt(daemon, harness, monkeypatch, case, **options):
     census(monkeypatch, parents=f"{pid} 1 {pid} S {now}\n"
                                 f"55000 {pid} {pid} S {now}\n")
     monkeypatch.setattr(procs, "containment", CONTAINMENT)
+    monkeypatch.setattr(procs, "snapshot", SNAPSHOT)
     (adir / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "child_pid": child,
                                                "finished_at": finished_at, "wall_s": 60}))
     return job_id, daemon.store.get_attempt(attempt["attempt_id"]), adir

@@ -37,6 +37,12 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    # C-5.12 running inspection uses the shared table and liveness directly.
+    # State-only defaults must stay absent without asking about host processes.
+    monkeypatch.setattr(daemon_module.procs, "snapshot",
+                        lambda: daemon_module.procs.ProcessTable({}, "unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    monkeypatch.setattr(daemon_module.procs, "group_members", lambda *args: {})
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
