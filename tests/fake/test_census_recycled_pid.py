@@ -7,6 +7,8 @@ import subprocess
 import pytest
 
 from subfleet import procs, protocol
+from subfleet.contracts import Reading, ReadingLabel
+from subfleet.daemon import after, utcnow
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.unit.test_procs import census
 
@@ -28,10 +30,12 @@ def recycled_attempt(daemon, harness, monkeypatch, case, **options):
     job_id, attempt, adir = reserve(daemon, harness, **options)
     pid = child or guardian
     owned = {str(pid): asdict(procs.ProcessIdentity(pid, "unit-test-boot", recorded))}
+    evidence = json.loads(attempt["evidence_json"] or "{}")
+    evidence["owned_identities"] = owned
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=guardian,
                                 pgid=guardian, child_pid=child, boot_id="unit-test-boot",
                                 proc_start=recorded, started_at=started_at,
-                                evidence_json=json.dumps({"owned_identities": owned}))
+                                evidence_json=json.dumps(evidence))
     # The stranger also has a child: excluding the root must prune its walk.
     census(monkeypatch, parents=f"{pid} 1 {pid} S {now}\n"
                                 f"55000 {pid} {pid} S {now}\n")
@@ -86,6 +90,10 @@ def test_confirm_dead_recycled_child_releases_with_salvage(state_daemon, monkeyp
     tracked.write_text("baseline\n")
     git("add", "tracked.txt")
     git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "baseline")
+    # As in test_workspace_contract.repository: writable admission needs a
+    # measured lane, so this fixture never tries to launch a probe guardian.
+    daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(3600),
+                                    ReadingLabel.PROVIDER, "fixture", utcnow()))
     job_id, attempt, _ = recycled_attempt(daemon, harness, monkeypatch, CASES[0],
                                          sandbox="workspace-write", in_place=True,
                                          no_preamble=True, max_attempts=1)
