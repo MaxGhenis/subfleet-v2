@@ -27,6 +27,8 @@ class BusyRows(Rows):
     """Roll back a one-shot busy error at any write in a push transaction."""
     def __init__(self, count):
         super().__init__(count)
+        self.connection.execute("CREATE TABLE events (kind TEXT, job_id TEXT)")
+        self.connection.commit()
         self.fail_at = None
         self.writes = 0
         self.faults = 0
@@ -41,7 +43,7 @@ class BusyRows(Rows):
             raise error
 
     @contextmanager
-    def transaction(self, *args, **kwargs):
+    def transaction(self, kind="state.changed", *, job_id=None):
         owner = self
 
         class Connection:
@@ -50,11 +52,15 @@ class BusyRows(Rows):
                     owner.write()
                 return owner.connection.execute(sql, parameters)
 
-        # Check BEGIN, each mutation and COMMIT independently; an error after
-        # UPDATE must roll back ownership just as the production Store does.
+        # Check BEGIN, each mutation, the audit and COMMIT independently; an
+        # error after UPDATE rolls back ownership and its audit together.
         with self.connection:
             self.write()
+            before = self.connection.total_changes
             yield Connection()
+            if self.connection.total_changes != before:
+                self.write()
+                self.connection.execute("INSERT INTO events VALUES (?, ?)", (kind, job_id))
             self.write()
 
 
@@ -72,15 +78,23 @@ def busy_interleavings(root, count, steps, patch):
     plain_placements = 0
     passes = 0
 
+    def cancel(job_id):
+        if core.store.list_attempts(job_id):
+            return
+        try:
+            with core.store.transaction("job.cancelled", job_id=job_id) as tx:
+                tx.execute("UPDATE jobs SET state='cancelled',cancel_requested_at='now' WHERE job_id=?", (job_id,))
+        except sqlite3.OperationalError as exc:
+            # A cancellation caller may retry a busy transaction. Its rollback
+            # must leave the build result and later admission passes intact.
+            assert core._push_workspace_store_busy(exc)
+
     def prepare(state_root, source, baseline, destination):
         destination.mkdir(parents=True)
         (destination / "complete").write_text("whole checkout")
         built.append(destination.name)
         if cancel_in_build[0]:
-            core.store.connection.execute(
-                "UPDATE jobs SET state='cancelled',cancel_requested_at='now' WHERE job_id=?",
-                (destination.name,))
-            core.store.connection.commit()
+            cancel(destination.name)
 
     patch.setattr(host_push, "prepare_workspace", prepare)
 
@@ -122,7 +136,7 @@ def busy_interleavings(root, count, steps, patch):
             if action == "pass":
                 detached_pass()
             elif action == "busy":
-                core.store.fail_at = core.store.writes + 1 + choice % 3
+                core.store.fail_at = core.store.writes + 1 + choice % 4
             elif action == "recover":
                 core.store.fail_at = None
             elif action in {"complete", "complete_cancel"}:
@@ -132,10 +146,7 @@ def busy_interleavings(root, count, steps, patch):
                 finally:
                     cancel_in_build[0] = False
             elif action == "cancel":
-                if not core.store.list_attempts(job_id):
-                    core.store.connection.execute(
-                        "UPDATE jobs SET state='cancelled',cancel_requested_at='now' WHERE job_id=?", (job_id,))
-                    core.store.connection.commit()
+                cancel(job_id)
             elif action == "pin":
                 pinned.add(job_id)
             elif action == "unpin":
@@ -174,6 +185,9 @@ def busy_interleavings(root, count, steps, patch):
             destination = root / "worktrees" / job_id
             if destination.exists():
                 assert owned_worktree(job, root) == destination, "checkout lost ownership"
+            ownership_events = core.store.connection.execute(
+                "SELECT COUNT(*) FROM events WHERE kind='job.workspace_built' AND job_id=?", (job_id,)).fetchone()[0]
+            assert ownership_events <= 1, "ownership recorded twice"
         assert all(built.count(str(index)) <= 1 for index in range(count)), "checkout built twice"
         assert core._push_workspaces == {}
         assert core._push_workspace_store_errors == {}
