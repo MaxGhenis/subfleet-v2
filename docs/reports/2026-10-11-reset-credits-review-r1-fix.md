@@ -1,7 +1,7 @@
 # Reset credits, demand only: fix round 1 for #179 (2026-10-11)
 
 Review: `~/reviews/subfleet-2110/reset-demand-only/review-r1.md` (round 1 at e46cc4815,
-REQUEST CHANGES). This round answers each finding. Line numbers are at d418540d3. Raw run
+REQUEST CHANGES). This round answers each finding. Line numbers are at 0572dfb91. Raw run
 output is in `~/reviews/subfleet-2110/reset-demand-only/fix1-runs/`.
 
 ## Commits (on e46cc4815)
@@ -12,6 +12,8 @@ output is in `~/reviews/subfleet-2110/reset-demand-only/fix1-runs/`.
 | 506dfabe3 | Tests: the review's probes as regressions (`tests/unit/test_reset_credit_review_r1.py`), two new properties, the checker fix, a deterministic interval-from-memory mutant, the cascade replay made deterministic, the door-hold window |
 | d3aad6ee7 | Tests: the interval property calls `evaluate` with the daemon's clock directly (cheaper) |
 | d418540d3 | Contract: C-23.16 (a), (d), (e), C-23.46, C-18.1 |
+| fcdc81d82 | This report (results pending) |
+| 0572dfb91 | Tests: the door-hold window case under the incident fixture's capped pool; the job-due event matched on its data |
 
 ## Each finding
 
@@ -181,7 +183,54 @@ work). Left for its own change.
 
 ## Runs
 
-Pending at the time of this commit; filled in by the next.
+Every run is one pytest process at a time under the shared suite lock, with its own TMPDIR,
+removed after. The machine ran at load 35 to 230 all day, so durations are long.
+
+### At the head
+
+| Run | Head | Result |
+|---|---|---|
+| `test_reset_credit_review_r1.py`, `test_timers_reset_credits.py`, `test_reset_credit_demand.py`, `test_reset_credit_properties.py` (defaults: 100 examples, mutant searches 300) | 506dfabe3 | 148 passed (555 s, load 80 to 95) |
+| `test_reset_credit_review_r1.py` (the lighter interval property) | fcdc81d82 | 22 passed |
+| `tests/fake/test_reset_credit_incident.py` | 0572dfb91 | 19 passed |
+
+The code and the three older unit files have not changed since 506dfabe3. Only the
+regression module (d3aad6ee7) and the incident file (0572dfb91) changed, and each was rerun
+after.
+
+### Before: the same tests on the code they fix
+
+A `git archive` of e46cc4815 (the reviewed head) with this round's test files copied in:
+
+| Run | Result |
+|---|---|
+| `test_reset_credit_review_r1.py` | 17 failed, 5 passed |
+| `test_timers_reset_credits.py` | 4 failed (`test_only_exact_provider_success_confirms`, all four bodies `failed`), 43 passed |
+| `test_reset_credit_incident.py -k "door or makes_the_job or one_reset_at_a_time"` | 2 failed (both door-window cases), 4 passed |
+
+- **The 17 that fail:** every P2-1, P3-1 (both cap cases), P3-2, P3-3 and P3-5 case, and both
+  new properties.
+- **The 5 that pass are controls:** the 5xx case, the clock going back, a started consume
+  timing out, `capped` demand never spent for (the old plan already spent only for
+  `codex-demand`), and the P2-2 world (its fix is in the checker).
+- **The P2-1 property's first counterexample there:** an `empty-2xx` answer recorded `failed`.
+- **The P3-2 regression there:** the action is stamped 12:00:00, the pass's start.
+
+A `git archive` of release/217 (4c6a8a9c9) with this round's incident file:
+- **The cascade replay** (`test_incident_2026_09_22_replay_one_reset_at_a_time_for_waiting_work`):
+  three runs, all failed at line 247, the cascade assertion. The first sweep after the job
+  was placed on codex-6 spent again: `{'status': 'confirmed', 'trigger_reason':
+  'no-dispatchable-lanes', ...}`.
+- **The whole file:** 18 failed, 1 passed. The one that passes is
+  `test_a_restart_grants_no_extra_redemption`.
+
+### Properties at the reviewer's counts
+
+Pending.
+
+### Mutation checks
+
+Pending.
 
 ## Not run
 
