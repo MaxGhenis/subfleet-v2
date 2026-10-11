@@ -12,7 +12,15 @@ the real service ops that call it, through the process-inspection fakes
 from __future__ import annotations
 
 import functools
+import json
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
 import uuid
+from pathlib import Path
 
 import hypothesis
 import pytest
@@ -290,6 +298,52 @@ def test_property_a_veto_anywhere_in_the_chain_refuses(procs, caller, root, at, 
     marked[at] = Proc(procs[at].pid, procs[at].ppid, procs[at].tty, f"{procs[at].command} {mark}")
     assert not judge(marked[0].pid, chain=chain_of(*marked), root=root, executable=exe(caller),
                      app_executables=(APP, DEV)).person
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID and proc_pidpath are macOS")
+def test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check(tmp_path):
+    """The e2e person (`tests/e2e/dev_app.py`, D-21) is recognised by the kernel's path for
+    its image, read through the socket's real `LOCAL_PEERPID`; a Python client on the
+    same socket is not the app. The ancestry is faked marker-free, because inside a
+    Subfleet lane the real one carries the lane's markers (and the e2e person tests
+    skip there), so this is the part of the e2e path a lane can check."""
+    from tests.e2e import dev_app
+    app = dev_app.build(tmp_path / "dev")
+    if app is None:
+        pytest.skip("no C compiler")
+    sock_dir = Path(tempfile.mkdtemp(prefix="sf-pb1-", dir="/tmp"))
+    path = sock_dir / "s"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    verdicts = []
+
+    def serve(count):
+        for _ in range(count):
+            conn, _ = server.accept()
+            with conn, conn.makefile("rb") as stream:
+                stream.readline()
+                pid = peers.peer_pid(conn)
+                verdict = judge(pid, chain=lambda p: [Proc(p, 1, "??", "caller HOME=/Users/m")],
+                                app_executables=(str(app),))
+                verdicts.append((verdict, peers.executable_path(pid) if pid else None))
+                conn.sendall((json.dumps({"ok": verdict.person, "reason": verdict.reason}) + "\n").encode())
+
+    try:
+        server.bind(str(path))
+        server.listen(2)
+        thread = threading.Thread(target=serve, args=(2,), daemon=True)
+        thread.start()
+        as_app = dev_app.request(app, path, {"op": "approval.get"}, timeout=30)
+        python = subprocess.run([sys.executable, "-c", (
+            "import socket,sys; c=socket.socket(socket.AF_UNIX); c.connect(sys.argv[1]); c.sendall(b'{}\\n');"
+            "sys.stdout.write(c.makefile('rb').readline().decode())"), str(path)],
+            capture_output=True, text=True, timeout=30, start_new_session=True, stdin=subprocess.DEVNULL)
+        thread.join(30)
+    finally:
+        server.close()
+        shutil.rmtree(sock_dir, ignore_errors=True)
+    assert as_app == {"ok": True, "reason": "the Subfleet app"}, (as_app, verdicts)
+    assert json.loads(python.stdout) == {"ok": False, "reason": "this needs the Subfleet app"}, python
+    assert verdicts[0][1] == str(app) and " " in verdicts[0][1]      # the kernel's path, spaces kept
 
 
 def test_the_module_says_a_terminal_is_not_a_person():
