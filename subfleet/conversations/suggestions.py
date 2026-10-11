@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS suggestions (
   worktree                INTEGER NOT NULL DEFAULT 0,
   workspace_kind          TEXT,
   repository              TEXT,
-  provider               TEXT NOT NULL CHECK (provider IN ('claude','codex')),
+  provider                TEXT NOT NULL CHECK (provider IN ('claude','codex')),
   model                   TEXT,
   state                   TEXT NOT NULL CHECK (state IN ('open','starting','started','dismissed','withdrawn')),
   revision                INTEGER NOT NULL DEFAULT 0,
@@ -141,13 +141,17 @@ def holds_secret(text: str) -> bool:
     return count > 0 or clean != text
 
 
+def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
+    """`text` scrubbed whole (C-25.5) first, so no secret is cut into a fragment the
+    rules no longer know, then one line of at most `limit` characters."""
+    clean, _ = scrub_secrets(text, strip_reminders=True)
+    clean = " ".join(clean.split())
+    return clean if len(clean) <= limit else clean[:limit - 1] + "…"
+
+
 def scrub_error(error: Any) -> str:
-    """A start's error as a suggestion keeps, shows and returns it (C-25.5): scrubbed
-    whole first, so no secret is cut into a fragment the rules no longer know, then
-    one line of at most ERROR_MAX characters."""
-    clean, _ = scrub_secrets(str(error), strip_reminders=True)
-    clean = " ".join(clean.split()) or "the start failed"
-    return clean if len(clean) <= ERROR_MAX else clean[:ERROR_MAX - 1] + "…"
+    """A start's error as a suggestion keeps, shows and returns it: `scrubbed_line`."""
+    return scrubbed_line(str(error)) or "the start failed"
 
 
 def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | None) -> None:
@@ -418,7 +422,7 @@ class Suggestions:
             if row["state"] != OPEN:
                 raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start", code=7)
             cid = self.store.insert_conversation(tx, request_id=None, **conversation)
-            return _move(tx, row, STARTING, decided_by=scrub_error(by), decided_at=utcnow(),
+            return _move(tx, row, STARTING, decided_by=scrubbed_line(by), decided_at=utcnow(),
                          started_conversation_id=cid, start_message_id=str(uuid.uuid4()),
                          start_settings_json=json.dumps(conversation["settings"]), start_error=None), True
 

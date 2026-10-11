@@ -197,7 +197,8 @@ def test_c25_5_what_a_failing_checkout_hook_says_never_reaches_a_suggestion_fiel
         shown = everything_shown(service, sid, cid, error)
         assert service.captured.lines and secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
         assert len(error) <= suggestions.ERROR_MAX
-        assert all(len(r["start_error"]) <= suggestions.ERROR_MAX for r in shown["row"])
+        # Unless the daemon's retry adopted the worktree the failed add left and finished.
+        assert all(len(r["start_error"] or "") <= suggestions.ERROR_MAX for r in shown["row"])
 
 
 @given(before=padding, left=separators, secret=secrets, right=separators, after=padding,
