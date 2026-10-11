@@ -4085,6 +4085,11 @@ class Daemon:
                                   "error": str(error)[:200]} if error
                                  else {"reason": "workspace", "preparing": True})
                 skipped.add(job_id)
+                if future is not None and not future.done():
+                    # Failure recording can finish while construction is still
+                    # running. Keep its slot until it stops; the pending-row
+                    # sweep may cancel a build that has not started yet.
+                    continue
             else:
                 self._push_unused_workspaces.add(job_id)
             self._push_workspaces.pop(job_id, None)

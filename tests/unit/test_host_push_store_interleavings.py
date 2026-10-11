@@ -4,6 +4,7 @@ import errno
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
@@ -457,7 +458,7 @@ def test_generated_busy_completions_leave_real_detached_admission_live(worlds, s
                 destination = core.root / "worktrees" / job
                 if destination.exists():
                     assert owned_worktree(core._job(job), core.root) == destination
-            # Each armed one-shot write fault must be consumed before recovery.
+            # Give the finite fault schedule enough passes to recover.
             for _ in range(len(steps) + 3):
                 core._admit_kind("detached")
                 manual.drain()
@@ -474,3 +475,55 @@ def test_generated_busy_completions_leave_real_detached_admission_live(worlds, s
         finally:
             manual.drain()
             core.pushes = executor
+
+
+def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds):
+    with worlds() as world:
+        core = world.core
+        pin_routing(world, world.patch)
+        job = submit(world)
+        entered, release = threading.Event(), threading.Event()
+        built = []
+
+        def prepare(root, source, baseline, destination):
+            built.append(destination.name)
+            if destination.name == job:
+                entered.set()
+                assert release.wait(60)
+            destination.mkdir(parents=True)
+
+        world.patch.setattr(host_push, "prepare_workspace", prepare)
+        fault_transaction(world, "job.workspace_preparing", "update", sqlite3.IntegrityError("preparing constraint"))
+        fault_transaction(world, "job.workspace_failed", "notice", sqlite3.OperationalError("database is locked"))
+        actual = core.store.transaction
+
+        @contextmanager
+        def after_worker_starts(kind="state.changed", **kwargs):
+            if kind == "job.workspace_preparing":
+                assert entered.wait(30)
+            with actual(kind, **kwargs) as tx:
+                yield tx
+
+        world.patch.setattr(core.store, "transaction", after_worker_starts)
+        try:
+            core._admit_kind("detached")
+            future = core._push_workspaces[job]
+            assert entered.is_set() and not future.done()
+            healthy = submit(world, "jobs/after-permanent-preparing-error")
+            plain = ordinary(world)
+            core._admit_kind("detached")
+            assert core._job(job)["state"] == "failed"
+            assert len(notices(core, job)) == 1
+            assert placed(core, plain)
+            assert core._push_workspaces[job] is future
+            assert healthy not in core._push_workspaces, "unfinished construction released its slot"
+            assert built == [job]
+        finally:
+            release.set()
+            core.pushes.submit(lambda: None).result(timeout=180)
+        assert not (core.root / "worktrees" / job).exists()
+        core._admit_kind("detached")
+        core._push_workspaces[healthy].result(timeout=180)
+        core._admit_kind("detached")
+        assert placed(core, healthy)
+        assert core._push_workspace_store_errors == {}
