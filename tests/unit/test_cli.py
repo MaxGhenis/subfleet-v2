@@ -154,14 +154,14 @@ def test_release_limits_requires_a_nonblank_note(argv, message, capsys):
 
 @pytest.mark.parametrize("json_flag", ([], ["--json"]))
 def test_release_limits_refuses_an_older_daemon(daemon, capsys, json_flag):
-    server = daemon({"lanes": {"lanes": []}})
+    server = daemon({"lanes": lambda request: {"lanes": []}})
     assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason", *json_flag]) == 69
     assert server.args("lanes")["action"] == "release-limits"
     assert "older than this CLI" in capsys.readouterr().err
 
 
 def test_release_limits_reports_clocks_kept(daemon, capsys):
-    daemon({"lanes": {"released": "codex-1", "limits_released": [1, 2], "limits_reported": [3]}})
+    daemon({"lanes": lambda request: {"released": "codex-1", "limits_released": [1, 2], "limits_reported": [3]}})
     assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason"]) == 0
     output = capsys.readouterr().out
     assert "guessed limits released: 2" in output
