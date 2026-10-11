@@ -139,7 +139,8 @@ def running_message(store: ConversationStore, provider: str) -> tuple[str, str]:
     return cid, mid
 
 
-def runner_for(store: ConversationStore, tmp_path, provider: str, cid: str, mid: str) -> TurnRunner:
+def runner_for(store: ConversationStore, tmp_path, provider: str, cid: str, mid: str,
+               *, control_socket: str | None = None) -> TurnRunner:
     """A runner for the message's attempt: the first, or one a later daemon adopts (same
     attempt id and directory). Nothing here reaches the relay."""
     spec = TurnSpec(provider=provider, message_id=mid, text="hi", model_id="opus[1m]" if provider == "claude"
@@ -148,7 +149,8 @@ def runner_for(store: ConversationStore, tmp_path, provider: str, cid: str, mid:
     adir = tmp_path / f"a-{provider}"
     adir.mkdir(parents=True, exist_ok=True)
     runner = TurnRunner(store=store, attempt={"attempt_id": f"job-{provider}/a1", "lane_id": f"{provider}-1"},
-                        spec=spec, conversation_id=cid, attempt_dir=adir, control_socket=str(tmp_path / "none.sock"),
+                        spec=spec, conversation_id=cid, attempt_dir=adir,
+                        control_socket=control_socket or str(tmp_path / "none.sock"),
                         on_outcome=lambda r: None, on_contain=lambda a: None, clocks=Clocks(), clock=Clock())
     if provider == "codex":
         runner.driver.thread_id = "th-1"            # past the handshake, as a live turn is
