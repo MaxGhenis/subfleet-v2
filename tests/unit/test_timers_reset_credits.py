@@ -61,8 +61,8 @@ def snapshot(store, **overrides):
 
 
 class HTTP:
-    def __init__(self, *, store=None, response=None, credits=None):
-        self.store, self.calls = store, []
+    def __init__(self, *, store=None, response=None, credits=None, status=200):
+        self.store, self.calls, self.status = store, [], status
         self.response = {"code": "reset", "windows_reset": 2} if response is None else response
         self.credits = [GIFT] if credits is None else credits
 
@@ -85,7 +85,7 @@ class HTTP:
             assert events.index("action.pending") < events.index("action.executing")
         if isinstance(self.response, Exception):
             raise self.response
-        return 200, json.dumps(self.response).encode()
+        return self.status, json.dumps(self.response).encode()
 
 
 def component(store, opener, **policy):
@@ -155,11 +155,36 @@ def test_confirmed_action_and_closure_release_commit_atomically(store, tmp_path,
 @pytest.mark.parametrize("response", [{"code": "reset", "windows_reset": 0}, {"code": "success", "windows_reset": 2},
                                      {"code": "reset", "windows_reset": True}, {"code": "reset", "windows_reset": "2"}])
 def test_only_exact_provider_success_confirms(store, tmp_path, response):
-    """C-23.16: only reset with a positive integer windows_reset confirms consumption."""
+    """C-23.16: only reset with a positive integer windows_reset confirms consumption. Any other
+    2xx is `unknown`, not `failed` (C-23.16 (d)): the credit may be spent, so nothing more is
+    until a usage read settles it."""
     lane(store, tmp_path)
-    result = component(store, HTTP(response=response)).evaluate(snapshot(store), now=NOW, demand=wants(store))
-    assert result["status"] == "failed"
+    http = HTTP(response=response, credits=[GIFT, {**GIFT, "id": "gift-2"}])
+    resets = component(store, http)
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
+    assert result["status"] == "unknown"
     assert store.list_closures(active_at=STAMP)
+    assert resets.confirmed_override("codex-1", now=NOW) is None
+    later = resets.evaluate(snapshot(store), now=NOW + timedelta(minutes=1), demand=wants(store))
+    assert later["status"] == "unsettled-action"
+    assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
+
+
+@pytest.mark.parametrize("status,body,outcome", [
+    (409, {"error": {"code": "already_redeemed"}}, "http-error"),
+    (403, {}, "http-error")])
+def test_a_refused_consume_is_failed_and_holds_nothing_back(store, tmp_path, status, body, outcome):
+    """C-23.16 (d): a 4xx is the provider refusing the consume: nothing was spent, so the action is
+    `failed`, starts no interval and blocks nothing."""
+    lane(store, tmp_path)
+    http = HTTP(response=body, status=status, credits=[GIFT, {**GIFT, "id": "gift-2"}])
+    resets = component(store, http)
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
+    assert result["status"] == "failed"
+    assert json.loads(store.get_action(result["action_id"])["result_json"])["status"] == outcome
+    again = resets.evaluate(snapshot(store), now=NOW + timedelta(minutes=1), demand=wants(store))
+    assert again["status"] == "failed"
+    assert json.loads(store.get_action(again["action_id"])["request_json"])["credit_id"] == "gift-2"
 
 
 def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, tmp_path):
@@ -340,7 +365,7 @@ def test_no_supply_side_trigger_spends_a_credit(store, tmp_path):
 def test_op_key_is_unique_across_components_and_attempted_credits_never_retry(store, tmp_path):
     """C-19.1 C-23.13: account-plus-credit uniqueness survives evaluator recreation and failed calls."""
     target = lane(store, tmp_path)
-    http = HTTP(response={"code": "already_consumed", "windows_reset": 0})
+    http = HTTP(response={"error": {"code": "already_consumed"}}, status=409)
     view = snapshot(store)
     assert component(store, http).evaluate(view, now=NOW, demand=wants(store))["status"] == "failed"
     assert component(store, http).evaluate(view, now=NOW, demand=wants(store))["status"] == "no-concrete-credit"

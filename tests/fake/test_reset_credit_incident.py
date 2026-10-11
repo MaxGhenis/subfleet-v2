@@ -233,6 +233,10 @@ def test_incident_2026_09_22_replay_one_reset_at_a_time_for_waiting_work(fleet):
     result = service.timers.reset_credits_cycle()
     assert result["status"] == "confirmed" and result["lane_id"] == "codex-6", result
     assert http.consumed() == ["fake-6"]
+    # Due by fixture, not by `_job_due` (the next case): on release/217 the job's own backed-off
+    # clock decided whether this pass placed it, so the replay stopped here or reached the
+    # cascade below depending on the machine's load (review of #179, P3-6). Now it always does.
+    due(service, first)
     service._admit()
     assert lanes_of(service, first) == ["codex-6"]         # the reset reached the job that caused it
 
@@ -264,6 +268,23 @@ def test_incident_2026_09_22_replay_one_reset_at_a_time_for_waiting_work(fleet):
         if sweep % 3 == 0:
             service.timers.probe_cycle()
     assert http.consumed() == ["fake-6", "fake-5"]
+
+
+def test_incident_2026_09_22_the_reset_makes_the_job_it_was_spent_for_due_at_once(fleet):
+    """C-23.16 (c): the job a reset was spent for is looked at again at once, not when its
+    backed-off clock next falls due, and the next admission pass places it on the reset lane."""
+    service, http = fleet
+    for number in range(1, 7):
+        limit(service, number)
+    first = submit(service, "first")
+    service._admit()
+    result = service.timers.reset_credits_cycle()
+    assert result["status"] == "confirmed" and result["lane_id"] == "codex-6", result
+    due_events = [row for row in service.store.list_events() if row["kind"] == "reset-credit.job-due"]
+    assert [json.loads(row["data_json"])["job_id"] for row in due_events] == [first]
+    assert service.store.get_job(first)["next_check_at"] <= utcnow()
+    service._admit()
+    assert lanes_of(service, first) == ["codex-6"]
 
 
 @pytest.mark.parametrize("ends", ["before-the-limit", "after-the-limit"])
@@ -360,6 +381,34 @@ def test_a_job_held_at_the_door_is_not_codex_demand(fleet, monkeypatch, door):
     assert service._reset_demand() == []
     for _ in range(3):
         assert service.timers.reset_credits_cycle()["status"] == "no-demand"
+    assert http.consumed() == [] and http.listed() == []
+
+
+@pytest.mark.parametrize("door", ["machine-busy", "disk"])
+def test_a_job_held_at_the_door_is_no_demand_from_that_moment(fleet, monkeypatch, door):
+    """C-23.16 (a), review of #179 (P3-1): `_reset_demand` paired the live capacity waits with
+    the last whole pass's holds, so a job the running pass had just held at the door still read
+    as demand until that pass ended. Each door look here asks for demand: at the second job's
+    door, the first is already held there, and is no demand though the pass has not ended."""
+    service, http = fleet
+    for number in range(1, 7):
+        limit(service, number)
+    first, second = submit(service, "first"), submit(service, "second")
+    service._admit()
+    assert [row["job_id"] for row in service._reset_demand()] == [first, second]
+    seen = []
+
+    def look(klass):
+        seen.append([row["job_id"] for row in service._reset_demand()])
+        return {"reason": "disk", "class": klass} if door == "disk" else None
+    monkeypatch.setattr(service, "_disk_hold", look)
+    if door == "machine-busy":
+        monkeypatch.setattr(daemon_module.scheduler, "machine_hold",
+                            lambda policy, reading, klass: {"reason": "machine-busy", "class": klass})
+    service._admit()
+    assert seen == [[first, second], [second]]
+    assert service._reset_demand() == []
+    assert service.timers.reset_credits_cycle()["status"] == "no-demand"
     assert http.consumed() == [] and http.listed() == []
 
 

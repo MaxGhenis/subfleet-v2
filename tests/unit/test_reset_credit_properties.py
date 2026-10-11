@@ -37,7 +37,7 @@ import json
 import os
 import tempfile
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -304,8 +304,12 @@ def play(world: World, *, restart_every_step: bool = False) -> tuple[list[str], 
                 for action in new:
                     request = json.loads(action["request_json"])
                     number = int(request["lane_id"].rsplit("-", 1)[1])
-                    named = {item["job_id"]: item for item in demand if item.get("verdict") == "codex-demand"}
-                    job = named.get(request.get("job_id"))
+                    # Lying demand can name one job twice with different lanes (the real
+                    # `_reset_demand` never does): the spend must match one of its entries.
+                    entries = [item for item in demand if item.get("verdict") == "codex-demand"
+                               and item["job_id"] == request.get("job_id")]
+                    job = next((item for item in entries if request["lane_id"] in item.get("limited_lanes", ())),
+                               entries[0] if entries else None)
                     if job is None or request["lane_id"] not in job.get("limited_lanes", ()):
                         violations.append(f"{where}: spent on {request['lane_id']} for no job naming it")
                     if world.adversarial is None and job is not None:
@@ -444,8 +448,10 @@ def test_with_the_switch_off_every_decision_is_release_217s(world, history):
 
 # --- mutation checks: rules 2, 4 and 5 ------------------------------------------
 
+#: Derandomized: each search walks the same examples every run, so a mutant is caught (or
+#: not) the same way each time, never by a lucky draw.
 SEARCH = settings(max_examples=int(os.environ.get("SUBFLEET_RESET_MUTANT_EXAMPLES", "300")), deadline=None,
-                  database=None, phases=[Phase.generate],
+                  database=None, phases=[Phase.generate], derandomize=True,
                   suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
 
 
@@ -497,9 +503,26 @@ def test_mutant_rule_5_interval_dropped_is_caught(monkeypatch):
     assert world.interval == 30
 
 
+#: Rule 5 across a restart: a spend, the reset lane used up ten minutes later, and a new
+#: daemon a minute after that, inside `min_interval_min` of the spend, with a second lane
+#: limited, gifted and on the waiting job's route.
+RESTARTED = World(lanes=(("limited", True, 6, False), ("limited", True, 2, False)), jobs=(frozenset(),),
+                  steps=(Step(0, "none", None), Step(10, "used-up", None), Step(1, "restart", None)),
+                  enabled=True, interval=30, adversarial=None)
+
+
+def test_the_interval_survives_a_restart_in_a_fixed_world():
+    """C-23.16 (d): the world the memory mutant below is caught in, played on the code as it is."""
+    violations, decisions = play(RESTARTED)
+    assert not violations
+    assert decisions == [("confirmed", "codex-1", "job-0"), ("interval-blocked", None, None),
+                         ("interval-blocked", None, None)]
+
+
 def test_mutant_rule_5_interval_from_memory_is_caught(monkeypatch):
     """Rule 5 mutant: the interval is measured from what this component spent, not from the
-    store's action rows, so a restart forgets it."""
+    store's action rows, so a restart forgets it. Caught in a fixed world with a restart, at the
+    step after it, every run (a search could return a world with no restart at all)."""
     gate, evaluate = ResetCredits._gate, ResetCredits.evaluate
 
     def remembered(self, history, reconciled, instant, settings):
@@ -516,6 +539,11 @@ def test_mutant_rule_5_interval_from_memory_is_caught(monkeypatch):
         return result
     monkeypatch.setattr(ResetCredits, "_gate", remembered)
     monkeypatch.setattr(ResetCredits, "evaluate", recording)
-    world = _caught(worlds(lane_states=st.just("limited"), enabled=True,
-                           changes=st.sampled_from(("used-up", "restart", "used-up"))))
-    assert any(step.change == "restart" for step in world.steps)
+    violations, decisions = play(RESTARTED)
+    assert decisions[:2] == [("confirmed", "codex-1", "job-0"), ("interval-blocked", None, None)]
+    assert decisions[2] == ("confirmed", "codex-2", "job-0")            # the restarted daemon forgot
+    assert violations == ["step 2 at +11 min: confirmed: spent 0:11:00 after the last"]
+    # Without a restart the mutant decides as the code does: memory and the store agree.
+    steady = replace(RESTARTED, steps=RESTARTED.steps[:2] + (Step(1, "none", None),))
+    assert play(steady) == ([], [("confirmed", "codex-1", "job-0"), ("interval-blocked", None, None),
+                                 ("interval-blocked", None, None)])
