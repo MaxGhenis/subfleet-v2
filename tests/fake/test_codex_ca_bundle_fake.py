@@ -1,4 +1,4 @@
-"""A real daemon and guardian pass C-10.7's CA environment to tools too."""
+"""A real daemon and guardian pass C-10.8's CA environment to tools too."""
 
 import json
 from pathlib import Path

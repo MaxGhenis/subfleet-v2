@@ -24,7 +24,7 @@ CODEX_CA_BUNDLE = "/etc/ssl/cert.pem"
 
 
 def codex_ca_bundle(policy: Mapping[str, Any]) -> str | None:
-    """C-10.7: an omitted setting uses the system PEM bundle; null opts out."""
+    """C-10.8: an omitted setting uses the system PEM bundle; null opts out."""
     return policy.get("providers", {}).get("codex", {}).get("ca_bundle", CODEX_CA_BUNDLE)
 
 # C-8.5: host credential use is opt-in both in policy and on each job.
@@ -610,7 +610,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
              f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
 
-    # C-10.7: validate the setting's shape here, availability at launch. An
+    # C-10.8: validate the setting's shape here, availability at launch. An
     # unavailable bundle must leave native trust usable, rather than refuse work.
     providers = value.get("providers", {})
     if not isinstance(providers, dict):

@@ -17,7 +17,7 @@ CA_SOURCES = ("SSL_CERT_FILE", "SSL_CERT_DIR")
 
 
 class ProviderEnvironment:
-    """C-10.7: Codex uses a PEM bundle unless the operator chose its CA source.
+    """C-10.8: Codex uses a PEM bundle unless the operator chose its CA source.
 
     A shared instance logs an unusable path once, including concurrent launches.
     Presence, even an empty value, is an operator choice. If the operator set

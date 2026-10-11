@@ -8,7 +8,8 @@ and session stores are never copied or modified.
 
 A verified verdict is cached the way v1 cached it (C-23.5, invariant 52): the
 marker is keyed on the installed Codex version, the lane home, the override
-string, and a fingerprint of the seeded ``config.toml`` and ``hooks.json``, it
+string, a fingerprint of the seeded ``config.toml`` and ``hooks.json``, and
+the selected CA environment (C-10.8), it
 is discarded after 30 days, and only the app-server probe is skipped on a hit —
 the hook bytes, the TRUST pins, ``jq`` and the Codex version are checked on
 every call. A refusal is never cached.
@@ -23,8 +24,6 @@ diagnosed from the attempt directory alone (2026-09-20 incident).
 from __future__ import annotations
 
 from collections.abc import Mapping
-
-from ..provider_env import CA_SOURCES, ProviderEnvironment
 
 import collections
 from dataclasses import dataclass, field
@@ -42,6 +41,9 @@ import subprocess
 import tempfile
 import time
 from typing import Any
+
+from ..policy import PolicyError, load_policy
+from ..provider_env import CA_SOURCES, ProviderEnvironment
 
 from ..sessions.transcripts import NotRegularFile, read_regular
 
@@ -549,8 +551,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     ``state_root`` (the daemon's root) places the scratch home and the markers;
     it defaults to ``$SUBFLEET_HOME``. Every refusal has code 7, a ``kind`` and an
     actionable fix. No provider work is run.
-    ``env`` is the daemon's provider launch environment (C-10.7); an omitted
-    environment uses the same default CA policy and keeps operator overrides.
+    ``env`` is the daemon's provider launch environment (C-10.8); an omitted
+    environment reads the selected state root's policy (or uses defaults when
+    there is no policy yet) and keeps operator overrides.
     """
     version = None
     hooks_hash = None
@@ -576,7 +579,15 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         if found is None:
             raise _Refusal(ENVIRONMENT, "Codex binary was not found or is not executable", _ENVIRONMENT_FIX)
         executable = str(Path(found).resolve())
-        source_env = ProviderEnvironment({}).build("codex") if env is None else env
+        source_env = env
+        if source_env is None:
+            root = Path(state_root).expanduser() if state_root is not None else Path(_state_root())
+            policy_path = root / "policy.json"
+            try:
+                policy = load_policy(policy_path) if policy_path.exists() else {}
+            except PolicyError as exc:
+                raise _Refusal(CONFIG, str(exc), "Correct policy.json, then rerun subfleet doctor.") from None
+            source_env = ProviderEnvironment(policy).build("codex")
         env = {key_name: value for key_name, value in source_env.items() if key_name not in _SECRET_ENV}
         status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline)
         if status is None:

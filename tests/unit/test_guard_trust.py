@@ -971,3 +971,22 @@ def test_c14_2_ca_selection_change_invalidates_cached_preflight(fake_codex, tmp_
     changed['SSL_CERT_DIR'] = str(tmp_path / 'operator-dir')
     second = guard.preflight(fake, home=home, workdir=tmp_path, env=changed)
     assert second.ok and not second.cached and second.cache_key != first.cache_key
+
+
+@pytest.mark.parametrize('configured', [None, 'custom'])
+def test_c14_2_standalone_preflight_reads_state_root_ca_policy(fake_codex, tmp_path, monkeypatch, configured):
+    from subfleet.policy import DEFAULT_POLICY_PATH
+    for key in ('SSL_CERT_FILE', 'SSL_CERT_DIR'):
+        monkeypatch.delenv(key, raising=False)
+    fake, report = fake_codex
+    home = tmp_path / 'lane'
+    home.mkdir()
+    bundle = tmp_path / 'ca.pem'
+    bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
+    policy = json.loads(DEFAULT_POLICY_PATH.read_text())
+    policy['providers'] = {'codex': {'ca_bundle': str(bundle) if configured == 'custom' else None}}
+    root = Path(os.environ['SUBFLEET_HOME'])
+    (root / 'policy.json').write_text(json.dumps(policy))
+    result = guard.preflight(fake, home=home, workdir=tmp_path, state_root=root)
+    assert result.ok
+    assert json.loads(report.read_text())['ca'] == ({'SSL_CERT_FILE': str(bundle)} if configured == 'custom' else {})

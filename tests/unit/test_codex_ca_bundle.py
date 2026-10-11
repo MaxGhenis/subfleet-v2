@@ -186,3 +186,31 @@ def test_property_ca_selection_never_overrides_or_adds_a_second_source(bundle, t
     assert environ == before
     if not operator:
         assert ca_values(result) == ({"SSL_CERT_FILE": bundle} if configured == bundle else {})
+
+
+@pytest.mark.parametrize('configured', [None, 'custom'])
+@pytest.mark.parametrize('operator', [None, 'SSL_CERT_FILE', 'SSL_CERT_DIR'])
+def test_doctor_preflight_uses_selected_policy_and_operator_environment(tmp_path, bundle, monkeypatch, configured, operator):
+    from subfleet import doctor
+    from subfleet.guard import preflight as guard
+    for key in CA_SOURCES:
+        monkeypatch.delenv(key, raising=False)
+    if operator:
+        monkeypatch.setenv(operator, '/operator/choice')
+    root = tmp_path / 'state'
+    root.mkdir()
+    data = json.loads(DEFAULT_POLICY_PATH.read_text())
+    data['providers'] = selected(bundle if configured == 'custom' else None)['providers']
+    (root / 'policy.json').write_text(json.dumps(data))
+    monkeypatch.setattr('subfleet.offline.Offline', lambda _: SimpleNamespace(lanes=lambda: [
+        {'lane_id': 'codex-1', 'provider': 'codex', 'enabled': 1, 'home': str(tmp_path)}]))
+    seen = []
+    def check(binary, **kwargs):
+        seen.append(ca_values(kwargs['env']))
+        return SimpleNamespace(timeout_s=60, kind='verified', elapsed_s=0, cached=False,
+                               probe_pid=None, message='ok', ok=True, fix=None)
+    monkeypatch.setattr(guard, 'preflight', check)
+    rows = doctor.check_guard_preflight_live(root)
+    assert rows[0]['status'] == doctor.PASS
+    assert seen == [{operator: '/operator/choice'} if operator else
+                    {'SSL_CERT_FILE': bundle} if configured == 'custom' else {}]
