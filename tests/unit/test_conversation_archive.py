@@ -266,6 +266,12 @@ def test_an_archived_conversations_session_is_not_listed_as_a_session_of_its_own
     archive(svc, cid)
     assert natives() == ([], [other])
     assert natives(include_archived=True) == ([cid], [other])
+    # Only archiving hides a session: one past `limit` still shows as its session, as
+    # before, and opening it opens its conversation.
+    archive(svc, cid, False)
+    newer = conversation(svc, origin="native", native_session_id=other)
+    (shown,), sessions = natives(limit=1)
+    assert sessions == [session if shown == newer else other]
 
 
 # --- the invariants, for any interleaving -------------------------------------------

@@ -448,9 +448,10 @@ class ConversationService:
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
             from .catalog import read_catalog, refresh_running
-            # Every bound session, not only the listed conversations': one archived or
-            # past `limit` is still a conversation, never a session of its own (C-30.1).
-            bound = self.store.bound_natives()
+            # An archived conversation's session too, listed or not: it is still a
+            # conversation, never a session of its own (C-24.13).
+            bound = {(c["provider"], c["native_session_id"]) for c in conversations if c["native_session_id"]}
+            bound |= self.store.archived_natives()
             # D-23: the catalog is read as it is; a missing or old one is reported,
             # and the control loop's next run replaces it. Nothing here scans.
             catalog = read_catalog(self.root, query=args.get("query"), exclude=bound,

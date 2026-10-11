@@ -1026,12 +1026,13 @@ class ConversationStore:
                 self._change(tx, conversation_id, None, None)
         return self.conversation(conversation_id)
 
-    def bound_natives(self) -> set[tuple[str, str]]:
-        """(provider, native session id) of every conversation, archived or not: the
-        catalog never lists one of these as a session of its own (C-30.1)."""
+    def archived_natives(self) -> set[tuple[str, str]]:
+        """(provider, native session id) of every archived conversation: the catalog
+        never lists one as a session of its own (C-24.13, C-30.1), which opening would
+        bring back as the archived conversation."""
         return {(row["provider"], row["native_session_id"]) for row in self.query(
-            "SELECT provider, native_session_id FROM conversations WHERE native_session_id IS NOT NULL")
-                if row["native_session_id"]}
+            "SELECT provider, native_session_id FROM conversations "
+            "WHERE archived_at IS NOT NULL AND native_session_id IS NOT NULL") if row["native_session_id"]}
 
     def list_conversations(self, *, provider: str | None = None, limit: int | None = 200,
                            include_archived: bool = False) -> list[dict]:
