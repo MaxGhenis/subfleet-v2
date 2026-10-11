@@ -28,7 +28,14 @@ struct Suggestion: Codable, Equatable, Identifiable {
     var origin_message_id: String?
     var creator_session: String?
     var workspace: String?
+    /// The worktree the agent asked for; `workspace_kind` says what Start does.
     var worktree: Bool
+    /// Where Start runs it, decided by the daemon when it was made: `worktree` (a new
+    /// worktree of `repository`, on its own branch) or `in-place` (its folder itself,
+    /// or a new scratch folder when `workspace` is nil). Nil only from a daemon that
+    /// predates the field.
+    var workspace_kind: String? = nil
+    var repository: String? = nil
     var provider: String
     var model: String?
     var decided_by: String?
@@ -99,6 +106,9 @@ struct SuggestionListResult: Codable, Equatable {
     /// Open suggestions in all (or in the conversation the request named).
     var open: Int
     var limits: SuggestionLimits
+    /// The watch feed's sequence the rows were read at: every feed row up to it is in
+    /// them, so a suggestion the feed delivered later is newer than this answer.
+    var watch_seq: Int? = nil
 }
 
 /// `suggestion.start` (person-only, C-25.6). Above Ask needs `confirm_widen: true`.
@@ -162,35 +172,73 @@ func suggestionStateWords(_ suggestion: Suggestion) -> String? {
     }
 }
 
-/// Where a suggestion would start, in words: its folder (or a new scratch
-/// folder), a worktree of its own, and who answers.
+/// Whether Start makes a worktree, as the daemon decided (C-25.7).
+func suggestionStartsInWorktree(_ suggestion: Suggestion) -> Bool { suggestion.workspace_kind == "worktree" }
+
+/// Where Start will run a suggestion, in words, exactly as the daemon decided it
+/// (`workspace_kind`): a new worktree of its folder's checkout, the folder itself,
+/// or a new scratch folder; then who answers. A worktree the agent asked for in a
+/// folder that is no checkout says it runs in place.
 func suggestionWhereWords(_ suggestion: Suggestion, home: String = NSHomeDirectory()) -> String {
-    var parts = [suggestion.workspace.map { abbreviatedPath($0, home: home) } ?? "A new scratch folder"]
-    if suggestion.worktree { parts.append("its own worktree") }
+    var parts: [String] = []
+    if let folder = suggestion.workspace.map({ abbreviatedPath($0, home: home) }) {
+        parts.append(folder)
+        switch suggestion.workspace_kind {
+        case "worktree":
+            let repository = suggestion.repository.map { abbreviatedPath($0, home: home) }
+            parts.append(repository == nil || repository == folder ? "a new worktree on its own branch"
+                         : "a new worktree of \(repository!) on its own branch")
+        case "in-place":
+            parts.append(suggestion.worktree ? "in place: not a git checkout, so no worktree" : "in place")
+        default:
+            parts.append(suggestion.worktree ? "a new worktree if it is a git checkout, else in place" : "in place")
+        }
+    } else {
+        parts.append("A new scratch folder")
+    }
     let provider = suggestion.provider == "codex" ? "Codex" : "Claude"
     parts.append(suggestion.model.map { "\(provider) · \($0)" } ?? provider)
     return parts.joined(separator: " · ")
 }
 
 extension ConversationStoreState {
-    /// Fold a `suggestion.list` answer: every listed suggestion as it is now.
-    /// A suggestion that was open and is no longer listed has closed and aged
-    /// out of the listing; it leaves the Suggested section.
+    /// Fold a whole `suggestion.list` answer: every listed suggestion as it is now.
+    /// A suggestion that was open and is no longer listed has closed and aged out
+    /// of the listing, and leaves the Suggested section; but only if the answer is
+    /// as new as what the app knows of it. The answer was read at feed sequence
+    /// `watch_seq`: a suggestion the feed delivered after that (made, or changed,
+    /// after the read) is newer than the answer, which neither drops nor rewinds it.
     mutating func apply(suggestions list: SuggestionListResult) {
+        let read = list.watch_seq ?? 0
         let listed = Set(list.suggestions.map(\.suggestion_id))
-        for (id, known) in suggestions where known.awaitsPerson && !listed.contains(id) {
+        for (id, known) in suggestions where known.awaitsPerson && !listed.contains(id)
+            && (suggestionSeqs[id] ?? 0) <= read {
             suggestions[id] = nil
+            suggestionSeqs[id] = nil
         }
-        for suggestion in list.suggestions { upsert(suggestion) }
+        apply(suggestionRows: list.suggestions, readAt: read)
     }
 
-    mutating func upsert(_ suggestion: Suggestion) {
-        if let known = suggestions[suggestion.suggestion_id] {
-            // Feed rows arrive in order, but a list read may race one: never go back.
+    /// Fold suggestions an answer carried (a listing, or the ones it named), read
+    /// at feed sequence `readAt`: each one the app knows from a later feed row is
+    /// kept as the feed left it.
+    mutating func apply(suggestionRows rows: [Suggestion], readAt read: Int) {
+        for suggestion in rows where (suggestionSeqs[suggestion.suggestion_id] ?? 0) <= read {
+            upsert(suggestion, seq: read)
+        }
+    }
+
+    /// One suggestion as of feed sequence `seq` (a feed row's, or the read's of an
+    /// answer); nil for an op's own answer, which is as new as its op.
+    mutating func upsert(_ suggestion: Suggestion, seq: Int? = nil) {
+        let id = suggestion.suggestion_id
+        if let seq { suggestionSeqs[id] = max(suggestionSeqs[id] ?? 0, seq) }
+        if let known = suggestions[id] {
+            // Feed rows arrive in order, but an answer may race one: never go back.
             if suggestionRank(suggestion.state) < suggestionRank(known.state) { return }
-            suggestions[suggestion.suggestion_id] = known.merged(with: suggestion)
+            suggestions[id] = known.merged(with: suggestion)
         } else {
-            suggestions[suggestion.suggestion_id] = suggestion
+            suggestions[id] = suggestion
         }
     }
 

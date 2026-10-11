@@ -225,7 +225,7 @@ final class UIModel: ObservableObject {
         guard let engine, state.suggestions[id]?.brief_truncated == true else { return }
         Task {
             if let found = try? await onReads({ try engine.suggestions(ids: [id]) }) {
-                for suggestion in found.suggestions { state.upsert(suggestion) }
+                state.apply(suggestionRows: found.suggestions, readAt: found.watch_seq ?? 0)
             }
         }
     }

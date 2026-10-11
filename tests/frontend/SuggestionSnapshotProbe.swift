@@ -34,11 +34,11 @@ Leave the exporter alone; this conversation is fixing it.
 
 func suggestionFixture(_ id: String, title: String, tldr: String, origin: String?, message: String?, state: String,
                        created: String, workspace: String?, worktree: Bool, provider: String = "claude",
-                       started: String? = nil) -> Suggestion {
+                       started: String? = nil, kind: String = "in-place", repository: String? = nil) -> Suggestion {
     Suggestion(suggestion_id: id, state: state, title: title, tldr: tldr, brief: suggestionBrief, brief_truncated: false,
                brief_chars: suggestionBrief.count, origin_conversation_id: origin, origin_message_id: message,
                creator_session: origin == nil ? "desktop-session" : nil, workspace: workspace, worktree: worktree,
-               provider: provider, model: provider == "codex" ? "gpt-6-astra" : nil,
+               workspace_kind: kind, repository: repository, provider: provider, model: provider == "codex" ? "gpt-6-astra" : nil,
                decided_by: state == "open" ? nil : "the Subfleet app", decided_at: state == "open" ? nil : created,
                start_error: nil, started_conversation_id: started, started_message_id: started == nil ? nil : "m-started",
                created_at: created, updated_at: created)
@@ -70,7 +70,8 @@ func suggestionModel(_ root: URL, scene: String) throws -> UIModel {
     let card = suggestionFixture("sg-1", title: "Port the importer to manifest v3",
         tldr: "The exporter fix depends on it, but it is a separate piece of work worth its own session.",
         origin: "c0", message: "m1", state: started ? "started" : "open", created: ago(2),
-        workspace: NSHomeDirectory() + "/subfleet", worktree: true, started: started ? "c9" : nil)
+        workspace: NSHomeDirectory() + "/subfleet", worktree: true, started: started ? "c9" : nil, kind: "worktree",
+        repository: NSHomeDirectory() + "/subfleet")
     let others = [
         suggestionFixture("sg-2", title: "Add a regression test for DST", tldr: "Found while fixing the exporter.",
                           origin: "c1", message: nil, state: "open", created: ago(30),

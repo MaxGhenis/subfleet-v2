@@ -3,8 +3,9 @@
 // card, driven by JSON the daemon's own code produced. Foundation only.
 import Foundation
 
-/// suggestions <input.json>: steps of `list`, `suggestions`, `watch`, `events`
-/// (with `conversation_id`), `upsert`, `search` and `provider_filter`; then what the
+/// suggestions <input.json>: steps of `list`, `suggestions`, `rows` (with `read_at`:
+/// suggestions an answer named, read at that feed sequence), `watch`, `events` (with
+/// `conversation_id`), `upsert`, `search` and `provider_filter`; then what the
 /// sidebar's Suggested section and each timeline's cards show.
 func runSuggestions(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
@@ -15,6 +16,10 @@ func runSuggestions(_ data: Data) throws -> [String: Any] {
         if let list = step["suggestions"] {
             state.apply(suggestions: try list.decode(SuggestionListResult.self))
             log.append("suggestions")
+        }
+        if let rows = step["rows"] {
+            state.apply(suggestionRows: try rows.decode([Suggestion].self), readAt: step["read_at"]?.int ?? 0)
+            log.append("rows")
         }
         if let one = step["upsert"] { state.upsert(try one.decode(Suggestion.self)); log.append("upsert") }
         if let page = step["watch"] {
@@ -37,6 +42,8 @@ func runSuggestions(_ data: Data) throws -> [String: Any] {
          "brief": suggestion.brief,
          "state_words": suggestionStateWords(suggestion) as Any? ?? NSNull(),
          "where": suggestionWhereWords(suggestion, home: "/Users/test"),
+         "worktree_icon": suggestionStartsInWorktree(suggestion),
+         "start_error": suggestion.start_error as Any? ?? NSNull(),
          "origin": state.suggestionOrigin(suggestion) as Any? ?? NSNull(),
          "start_permissions": suggestionStartPermissions(provider: suggestion.provider, capabilities: capabilities)
             .map(\.rawValue)]
@@ -51,5 +58,6 @@ func runSuggestions(_ data: Data) throws -> [String: Any] {
     return ["log": log, "open": state.openSuggestions.map(card), "count": state.openSuggestionCount,
             "known": state.suggestions.keys.sorted(), "timelines": timelines,
             "sidebar_entries": state.sidebarEntries().map(\.id), "watch_cursor": state.watchCursor,
+            "suggestion_seqs": state.suggestionSeqs,
             "pending": state.pendingApprovals.keys.sorted()]
 }

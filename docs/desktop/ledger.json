@@ -597,7 +597,7 @@
       ],
       "status": "implemented",
       "evidence": [
-        "tests/unit/test_suggestions.py; tests/unit/test_suggestion_properties.py; tests/unit/test_suggest_cli.py; tests/unit/test_suggest_hint.py; tests/fake/test_suggestions_fake.py; tests/e2e/test_suggestions_e2e.py"
+        "tests/unit/test_suggestions.py; tests/unit/test_suggestion_properties.py; tests/unit/test_suggestion_secret_properties.py; tests/unit/test_suggestions_r1b_adversarial.py; tests/unit/test_suggest_cli.py; tests/unit/test_suggest_hint.py; tests/fake/test_suggestions_fake.py; tests/e2e/test_suggestions_e2e.py; tests/e2e/test_suggestions_r1b_peer_e2e.py"
       ],
       "notes": "The e2e test's person half needs a terminal (C-25.6) and skips inside a Subfleet lane; docs/reports/2026-10-11-suggestions/REPORT.md records what ran."
     },
@@ -610,7 +610,7 @@
       ],
       "status": "implemented",
       "evidence": [
-        "tests/frontend/test_core_suggestions.py; tests/frontend/test_core_protocol.py; tests/frontend/test_visual_suggestions.py"
+        "tests/frontend/test_core_suggestions.py; tests/frontend/test_core_suggestions_r1b.py; tests/frontend/test_core_protocol.py; tests/frontend/test_visual_suggestions.py"
       ],
       "notes": "Screenshots: docs/reports/2026-10-11-suggestions/."
     }

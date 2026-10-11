@@ -142,7 +142,7 @@ def test_r1b_no_writer_puts_a_message_before_the_brief(people, monkeypatch):
                 settings=SETTINGS, origin=origin)
     refused("conversation-starting", 7, svc._tombstone, str(uuid.uuid4()), cid)
     refused("conversation-starting", 7, svc.store.insert_legacy_history, conversation_id=cid,
-            message_id=str(uuid.uuid4()), text="history", state="succeeded", state_reason=None, settings=SETTINGS,
+            message_id=str(uuid.uuid4()), text="history", state="complete", state_reason=None, settings=SETTINGS,
             created_at="2026-10-11T00:00:00.000Z", updated_at="2026-10-11T00:00:00.000Z")
     # Another suggestion's start cannot name this conversation either.
     other = suggest(svc)["suggestion"]["suggestion_id"]
@@ -548,3 +548,18 @@ def test_r1b_the_base_build_opens_a_store_this_build_wrote(people, tmp_path):
     opened = json.loads(result.stdout)
     assert opened["schema"] == 2 and opened["messages"] == 1 and opened["suggestions"] == 2
     assert opened["conversations"] == 2 and opened["changes"] > 0
+
+
+# --- C-25.7 re-checked against the code ---------------------------------------------
+
+
+def test_r1b_the_daemon_retries_a_claimed_start_after_2_4_8_seconds_at_most_every_5_minutes(people, monkeypatch):
+    svc = people
+    row = interrupted_claim(svc, monkeypatch, workspace=people.test_workspace)
+
+    def fail(**kwargs):
+        raise OSError(5, "still failing")
+    monkeypatch.setattr(svc.store, "submit_message", fail)
+    for tries, wait in ((1, 2.0), (2, 4.0), (3, 8.0), (8, 256.0), (9, 300.0)):
+        svc._resume_start(row["suggestion_id"], tries, 1000.0)
+        assert svc._resuming[row["suggestion_id"]] == (tries, 1000.0 + wait)

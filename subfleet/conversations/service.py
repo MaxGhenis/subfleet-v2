@@ -1208,7 +1208,8 @@ class ConversationService:
                                  suggestions.scrub_error(f"{type(exc).__name__}: {exc}"))
         finally:
             with self._lock:
-                self._resuming[sid] = (tries, began + min(DEFER_MAX_S, DEFER_BASE_S * 2 ** tries))
+                # The n-th try failing waits 2, 4, 8, ... s, at most DEFER_MAX_S (C-25.7).
+                self._resuming[sid] = (tries, began + min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (tries - 1)))
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message

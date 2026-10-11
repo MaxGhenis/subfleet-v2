@@ -40,7 +40,7 @@ struct SuggestionCardView: View {
             Text(current.title).readingFont(.subheading).textSelection(.enabled)
             Text(current.tldr).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
                 .textSelection(.enabled)
-            Label(suggestionWhereWords(current), systemImage: current.worktree ? "arrow.triangle.branch" : "folder")
+            Label(suggestionWhereWords(current), systemImage: suggestionStartsInWorktree(current) ? "arrow.triangle.branch" : "folder")
                 .readingFont(.caption).foregroundStyle(Theme.text.tertiary.color).lineLimit(1)
             if showsOrigin, let origin = current.origin_conversation_id {
                 Button {
