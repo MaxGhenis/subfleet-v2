@@ -525,10 +525,13 @@ QUEUES = st.lists(st.tuples(st.sampled_from(["ordinary", "chosen", "live"]),
     st.tuples(st.integers(-180, 180), st.integers(-180, 180), st.booleans()),
     min_size=1, max_size=12))
 def test_generated_R1_arbitrary_clocks_at_check_and_commit(tmp_path_factory, per_minute, steps):
-    """R1 in commit order, with real elapsed time independent of backwards UTC.
+    """R1 at reservation instants, with real elapsed time independent of backwards UTC.
 
     Positive clock advances consume real elapsed time; negative corrections do
     not. Exercise both pass-entry and workspace clocks, plus actual restarts.
+    The clock never advances inside a reserving transaction here, so each
+    commit's elapsed time is its reservation's: C-6.18 bounds reservation
+    instants, not commit instants (review of #180 r2).
     """
     with fleet_daemon(tmp_path_factory.mktemp("ramp-clock") / "state") as (service, harness, patch):
         clock = fake_clock(patch, 100)
