@@ -1,4 +1,9 @@
 {
+  "providers": {
+    "codex": {
+      "ca_bundle": "/etc/ssl/cert.pem"
+    }
+  },
   "tiers": [
     "trivial",
     "easy",

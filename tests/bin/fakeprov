@@ -79,6 +79,15 @@ def main() -> int:
     if scenario == "qos":
         print(json.dumps(qos_report()), flush=True)
         return 0
+    if scenario == "ca-environment":
+        keys = ("SSL_CERT_FILE", "SSL_CERT_DIR")
+        child = subprocess.run(
+            [sys.executable, "-c", "import json, os; print(json.dumps({k: os.environ[k] "
+             "for k in ('SSL_CERT_FILE', 'SSL_CERT_DIR') if k in os.environ}))"],
+            text=True, capture_output=True, check=True)
+        print(json.dumps({"provider": {k: os.environ[k] for k in keys if k in os.environ},
+                          "tool": json.loads(child.stdout)}), flush=True)
+        return 0
     print(f"fake provider ready: {scenario}", flush=True)
     if scenario in {"ignore-sigterm", "nested-setsid"}:
         time.sleep(delay or 30)

@@ -408,12 +408,18 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
     """C-14.2 (``--live``): run the trust preflight for every enabled Codex lane home."""
     from .guard import preflight as guard
     from .offline import Offline, OfflineUnavailable, SchemaTooNew
+    from .provider_env import ProviderEnvironment
     try:
         lanes = Offline(root).lanes()
     except (OfflineUnavailable, SchemaTooNew, OSError, ValueError):
         return [row("codex guard preflight (live)", UNKNOWN,
                     "no readable store yet (the daemon has not run here)",
                     "start the daemon, then rerun subfleet doctor --live")]
+    try:
+        policy = load_policy(root / "policy.json")
+    except PolicyError as exc:
+        return [row("codex guard preflight (live)", FAIL, str(exc), "correct policy.json, then rerun doctor --live")]
+    environment = ProviderEnvironment(policy)
     rows = []
     for lane in lanes:
         if lane.get("provider") != "codex" or not lane.get("enabled", 1):
@@ -425,7 +431,8 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
             continue
         # The same `codex` the adapter resolves on PATH; a pass here writes the
         # marker the daemon reuses (same key: version, home, override, seed files).
-        result = guard.preflight("codex", home=home, workdir=root, state_root=root)
+        result = guard.preflight("codex", home=home, workdir=root, state_root=root,
+                                 env=environment.build("codex"))
         deadline = f"{result.timeout_s:g}s" if result.timeout_s is not None else "unset"
         detail = (f"{result.kind or 'refused'} in {result.elapsed_s}s (deadline {deadline}"
                   f"{', cached' if result.cached else ''}"
