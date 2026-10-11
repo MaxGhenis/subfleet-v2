@@ -4135,8 +4135,7 @@ class Daemon:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
     def _probe_census(self, record: dict):
-        return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"], root=str(self.root))
+        return self._contain(record)
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
@@ -6449,7 +6448,26 @@ class Daemon:
         return True
 
     def _contain(self, a: dict):
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
+        """C-5.5: one identity/bounds path for every deciding census, probes too."""
+        directory = (Path(a["directory"]) if a.get("directory") else
+                     attempt_dir(self.root, a["job_id"], a["seq"]))
+        start = self._read_json(directory / "start.json") or {}
+        receipt = self._read_json(directory / "exit.json") or {}
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        owned = a.get("owned_identities", evidence.get("owned_identities", {}))
+        recorded = {int(pid): procs.ProcessIdentity(**value) for pid, value in owned.items()}
+        guardian = a.get("guardian_pid") or start.get("guardian_pid")
+        boot = a.get("boot_id") or start.get("boot_id")
+        began = a.get("proc_start") or start.get("proc_start")
+        if guardian and boot and began:
+            recorded[guardian] = procs.ProcessIdentity(guardian, boot, began)
+        return procs.containment(a.get("pgid") or start.get("pgid"), guardian,
+                                 a.get("child_pid") or receipt.get("child_pid"),
+                                 a.get("attempt_id") or a["holder"], root=str(self.root),
+                                 recorded_identities=recorded,
+                                 started_at=a.get("started_at") or start.get("started_at")
+                                 or a.get("reserved_at") or a.get("created_at"),
+                                 finished_at=receipt.get("finished_at"))
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:

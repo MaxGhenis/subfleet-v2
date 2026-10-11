@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from . import boot_identity
@@ -330,6 +331,9 @@ class Containment:
     # pid -> {"ppid", "pgid", "stat"} for every live pid: the shape of what the
     # census saw, without commands or environments (C-5.5 evidence).
     shapes: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # Proven recycled roots/leaders, including identities excluded from the
+    # live sets. No command or environment may enter this evidence (C-5.5).
+    recycled: dict[int, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -349,6 +353,7 @@ class Containment:
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
+            "recycled": {str(pid): dict(value) for pid, value in sorted(self.recycled.items())},
         }
 
 
@@ -382,7 +387,9 @@ def group_members(pgid: int) -> dict[int, str]:
 
 
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
-                attempt_id: str, root: str | None = None) -> Containment:
+                attempt_id: str, root: str | None = None, *,
+                recorded_identities: dict[int, ProcessIdentity] | None = None,
+                started_at: str | None = None, finished_at: str | None = None) -> Containment:
     """Collect all three C-5.5 sources; any failed inspection prevents release.
 
     Identities describe the census, not authority to signal. In particular a
@@ -401,6 +408,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     descendants: set[int] = set()
     markers: set[int] = set()
     errors: list[str] = []
+    recycled: dict[int, dict[str, Any]] = {}
+    recorded_identities = recorded_identities or {}
     try:
         seen: ProcessTable | None = snapshot()
         table = seen.rows
@@ -412,11 +421,82 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
+    def timestamp(value: str | None, *, process: bool = False) -> datetime | None:
+        try:
+            if process:
+                return datetime.strptime(value or "", "%a %b %d %H:%M:%S %Y").replace(tzinfo=timezone.utc)
+            parsed = datetime.fromisoformat(value or "")
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+        except (ValueError, TypeError):
+            return None
+
+    lower, upper = timestamp(started_at), timestamp(finished_at)
+    # ps lstart has only whole seconds. A guardian born in the same second as
+    # started_at must not be excluded by the receipt's fractional precision.
+    if lower is not None:
+        lower = lower.replace(microsecond=0)
+
+    def is_recycled(pid: int) -> bool:
+        """Only positive identity/time evidence can prune a root or its group."""
+        if pid in recycled:
+            return True
+        if pid not in table or seen is None:
+            return False
+        began = table[pid][3]
+        known = recorded_identities.get(pid)
+        reason = None
+        if known and known.boot_id and known.proc_start:
+            if not began:
+                errors.append(f"start identity unavailable for root pid {pid}")
+                return False
+            if began != known.proc_start:
+                reason = "different start identity"
+            else:
+                try:
+                    current_boot = seen.boot()
+                    match = boot_identity.matches(known.boot_id, current_boot, seen.legacy_seconds)
+                    if match is False:
+                        # C-5.12: a cached UUID mismatch needs a fresh read before
+                        # it can establish death, just as in liveness().
+                        forget_boot_id()
+                        match = boot_identity.matches(known.boot_id, boot_id(), seen.legacy_seconds)
+                    if match is None:
+                        errors.append(f"boot identity unknown for root pid {pid}")
+                    elif match is False:
+                        reason = "different boot identity"
+                except InspectionError:
+                    errors.append(f"boot identity unavailable for root pid {pid}")
+        else:
+            current_start = timestamp(began, process=True)
+            if current_start is not None:
+                if lower is not None and current_start < lower:
+                    reason = "started before attempt"
+                elif upper is not None and current_start > upper:
+                    reason = "started after exit receipt"
+        if reason is None:
+            return False
+        try:
+            now_boot = seen.boot()
+        except InspectionError:
+            now_boot = None                 # start mismatch alone already proves reuse
+        recycled[pid] = {
+            "recorded": asdict(known) if known else {"pid": pid, "started_at": started_at,
+                                                     "finished_at": finished_at},
+            "now": {"pid": pid, "boot_id": now_boot, "proc_start": began},
+            "reason": reason,
+        }
+        return True
+
     if seen is not None:
-        groups = set(seen.group(pgid))
+        # XNU forkproc rejects PIDs reserved by a process group or session:
+        # https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L895-L949
+        # Thus a different process at pid == pgid proves the old group is gone.
+        # An absent leader does NOT: retain its surviving group members.
+        groups = set(seen.group(pgid)) if not pgid or not is_recycled(pgid) else set()
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid) if pid and pid > 0}
+        roots = {pid for pid in (guardian_pid, child_pid)
+                 if pid and pid > 0 and live(pid) and not is_recycled(pid)}
         found = set(roots)
         frontier = roots
         while frontier:
@@ -460,7 +540,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
               for pid in groups | descendants | markers if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes)
+                       bool(errors), identities, tuple(errors), shapes, recycled)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

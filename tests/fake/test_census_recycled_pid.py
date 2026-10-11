@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 import json
+import subprocess
 
 import pytest
 
@@ -69,3 +70,48 @@ def test_exit_zero_recycled_child_finalizes_succeeded(state_daemon, monkeypatch)
     assert out.read_bytes() == b"fixture result\n"
     assert not daemon.store.list_leases(attempt["attempt_id"])
 
+
+def test_confirm_dead_recycled_child_releases_with_salvage(state_daemon, monkeypatch):
+    """C-5.7, C-13.1: qyp16's shape confirms empty, releases leases and salvages."""
+    daemon, harness = state_daemon
+    def git(*args):
+        return subprocess.run(["git", "-c", "core.fsmonitor=false", *args], cwd=harness.workdir,
+                              capture_output=True, text=True, check=True, timeout=30).stdout.strip()
+    git("init", "-b", "feature/recycled-fixture")
+    tracked = harness.workdir / "tracked.txt"
+    tracked.write_text("baseline\n")
+    git("add", "tracked.txt")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "baseline")
+    job_id, attempt, _ = recycled_attempt(daemon, harness, monkeypatch, CASES[0],
+                                         sandbox="workspace-write", in_place=True,
+                                         no_preamble=True, max_attempts=1)
+    tracked.write_text("completed deliverable\n")
+    # Recreate the old census verdict without inspecting or signalling anything.
+    daemon._quarantine(attempt, procs.Containment(descendant_pids=frozenset({4203})),
+                       "writers remain after exit receipt")
+    assert daemon.store.list_leases(attempt["attempt_id"]) or daemon.store.list_leases(job_id)
+    daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                               protocol.KillArgs(job_id, confirm_dead=True))
+    assert not daemon.store.list_leases(attempt["attempt_id"])
+    assert not daemon.store.list_leases(job_id)
+    salvage = [item for item in daemon.store.list_artifacts(attempt["attempt_id"])
+               if item["role"] == "salvage"]
+    assert len(salvage) == 1
+    ref = salvage[0]["path"]
+    assert git("show", f"{ref}:tracked.txt") == "completed deliverable"
+    event = daemon.store.one("SELECT data_json FROM events WHERE kind='quarantine.confirmed_dead'")
+    evidence = json.loads(event["data_json"])
+    assert evidence["containment"]["live_pids"] == []
+    assert "4203" in evidence["containment"]["recycled"]
+    assert evidence["override"] is False
+
+
+def test_probe_census_uses_the_same_identity_path(state_daemon, monkeypatch):
+    """C-5.5: probes also exclude a recycled child through the common _contain."""
+    daemon, harness = state_daemon
+    _, attempt, adir = recycled_attempt(daemon, harness, monkeypatch, CASES[0])
+    record = {**attempt, "holder": attempt["attempt_id"], "directory": str(adir),
+              "owned_identities": json.loads(attempt["evidence_json"])["owned_identities"]}
+    record.pop("attempt_id")
+    record.pop("evidence_json")
+    assert daemon._probe_census(record).verified_empty
