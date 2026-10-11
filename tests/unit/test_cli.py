@@ -116,6 +116,8 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         elif action in ("hold", "release"):
             result["held" if action == "hold" else "released"] = request.args.get("lane_id")
             result["closures"] = []
+        elif action == "release-limits":
+            result.update(released=request.args.get("lane_id"), limits_released=[1], limits_reported=[2])
         return result
     server = daemon({"lanes": answer})
     cases = [
@@ -127,6 +129,8 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         (["lanes", "hold", "codex-1", "--until", "2026-09-05T18:00:00Z"],
          {"action": "hold", "lane_id": "codex-1", "until": "2026-09-05T18:00:00Z"}),
         (["lanes", "release", "codex-1"], {"action": "release", "lane_id": "codex-1"}),
+        (["lanes", "release", "codex-1", "--limits", "--note", "false positive"],
+         {"action": "release-limits", "lane_id": "codex-1", "note": "false positive"}),
         (["lanes", "transfer", "codex-1", "--to", "v1"],
          {"action": "transfer", "lane_id": "codex-1", "owner": "v1"}),
     ]
@@ -136,6 +140,41 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         for key, value in expected.items():
             assert sent[key] == value, argv
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("argv,message", [
+    (["lanes", "release", "codex-1", "--limits"], "--note is required"),
+    (["lanes", "release", "codex-1", "--limits", "--note", "   "], "--note is required"),
+    (["lanes", "release", "codex-1", "--note", "reason"], "--note requires --limits"),
+])
+def test_release_limits_requires_a_nonblank_note(argv, message, capsys):
+    assert run_cli(argv) == 2
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("json_flag", ([], ["--json"]))
+def test_release_limits_refuses_an_older_daemon(daemon, capsys, json_flag):
+    server = daemon({"lanes": {"lanes": []}})
+    assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason", *json_flag]) == 69
+    assert server.args("lanes")["action"] == "release-limits"
+    assert "older than this CLI" in capsys.readouterr().err
+
+
+def test_release_limits_reports_clocks_kept(daemon, capsys):
+    daemon({"lanes": {"released": "codex-1", "limits_released": [1, 2], "limits_reported": [3]}})
+    assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason"]) == 0
+    output = capsys.readouterr().out
+    assert "guessed limits released: 2" in output
+    assert "reported clocks kept: 1; cannot release by hand" in output
+
+
+def test_release_limits_help_names_reported_clock_rule(capsys):
+    with pytest.raises(SystemExit) as done:
+        cli.build_parser().parse_args(["lanes", "release", "--help"])
+    assert done.value.code == 0
+    output = capsys.readouterr().out
+    assert "--limits" in output and "--note" in output
+    assert "Provider-reported clocks cannot be released by hand" in output
 
 
 @pytest.mark.parametrize("answer,expected", [

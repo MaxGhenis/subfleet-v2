@@ -1529,8 +1529,12 @@ class ClaudeAdapter(Adapter):
         transcript = self._find_transcript(notes, session_id)
         served_model = _single_served_model(summary)
 
-        corpus = "\n".join([stderr, *summary.texts()])
-        scrubbed = _scrub_non_limit(corpus)
+        # Every text signature and reset clock is provider/CLI evidence. Reports
+        # routinely quote these signatures; model prose cannot classify a lane.
+        cli_corpus = "\n".join([stderr, *summary.cli_texts()])
+        scrubbed = _scrub_non_limit(cli_corpus)
+        successful = (exit_info.rc == 0 and summary.result is not None
+                      and not summary.result.is_error)
 
         evidence: dict[str, Any] = {
             "rc": exit_info.rc,
@@ -1582,19 +1586,18 @@ class ClaudeAdapter(Adapter):
 
         # 0. The host CLI, not the lane. Cooling a healthy lane for this would be a
         #    lie about capacity, and rotating lanes cannot help (C-9.2 keeps the rc).
-        match = CLI_TOO_OLD_RE.search(corpus)
+        match = None if successful else CLI_TOO_OLD_RE.search(cli_corpus)
         if match:
             return finish(
                 OutcomeClass.CLI_TOO_OLD,
-                f"cli-too-old: {_first_line_containing(corpus, match)}",
+                f"cli-too-old: {_first_line_containing(cli_corpus, match)}",
                 answered={"cli": "version gate in the provider's own output"},
             )
 
         # 1. Authentication (C-9.3), from what the CLI and the provider wrote only
         #    (`cli_texts`): a model quoting these phrases is not the lane refusing,
         #    and an `auth-dead` job moves on to the next lane, disabling this one (C-4.5).
-        cli_corpus = "\n".join([stderr, *summary.cli_texts()])
-        match = ORG_BLOCK_RE.search(cli_corpus)
+        match = None if successful else ORG_BLOCK_RE.search(cli_corpus)
         if match:
             return finish(
                 OutcomeClass.AUTH_DEAD,
@@ -1604,20 +1607,19 @@ class ClaudeAdapter(Adapter):
         auth_kind = next(
             (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
         )
-        if auth_kind is not None:
+        if auth_kind is not None and not successful:
             return finish(
                 OutcomeClass.AUTH_DEAD,
                 f"auth-dead: the provider reported error {auth_kind}",
                 answered={"auth": f"provider error kind {auth_kind}"},
             )
-        auth_signature = AUTH_SIGNATURE_RE.search(corpus)
+        auth_signature = None if successful else AUTH_SIGNATURE_RE.search(cli_corpus)
         auth_false_positive: str | None = None
         if auth_signature is not None:
-            cli_signature = AUTH_SIGNATURE_RE.search(cli_corpus)
-            if not summary.has_init and cli_signature is not None:
+            if not summary.has_init:
                 return finish(
                     OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(cli_corpus, cli_signature)}",
+                    f"auth-dead: {_first_line_containing(cli_corpus, auth_signature)}",
                     answered={"auth": "no system/init and a credential failure signature"},
                 )
             # C-9.3: the credential authenticated. Something else answered 401.
@@ -1653,9 +1655,10 @@ class ClaudeAdapter(Adapter):
                 },
             )
 
-        # 3. Quota in words. The event may have been emitted before the refusal, or
-        #    never: the text is then the only clock we have.
-        match = CREDITS_RE.search(scrubbed)
+        # 3. Quota in the CLI/provider's words only, including their reset clock.
+        # A successful result supersedes text errors; C-9.8's structured rejection
+        # above is the sole limit verdict that can override that success.
+        match = None if successful else CREDITS_RE.search(scrubbed)
         if match:
             line = _first_line_containing(scrubbed, match)
             until, clock_source = _closure_clock(
@@ -1679,7 +1682,7 @@ class ClaudeAdapter(Adapter):
                     "quota": "model-scoped credit exhaustion in the provider's text",
                 },
             )
-        match = LIMIT_RE.search(scrubbed)
+        match = None if successful else LIMIT_RE.search(scrubbed)
         if match:
             line = _first_line_containing(scrubbed, match)
             until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
@@ -1709,29 +1712,18 @@ class ClaudeAdapter(Adapter):
                 answered={"content": "stop_reason=refusal"},
             )
 
-        # 5. Success, and the one shape that looks like success and is not (C-12.6).
-        text = self._final_text(summary, transcript, notes, session_id)
-        if exit_info.rc == 0 and summary.result is not None and not summary.result.is_error:
-            if text.strip():
-                sensed = (
-                    ", ".join(sorted(info.windows)) if info and info.windows else "none"
-                )
-                return finish(
-                    OutcomeClass.OK,
-                    f"ok: {len(text.encode('utf-8'))} bytes delivered; "
-                    f"rate_limit_event windows: {sensed}",
-                    answered={
-                        "auth": "system/init",
-                        "admission": (
-                            f"rate_limit_event.status={info.status}" if info else
-                            "no rate_limit_event"
-                        ),
-                    },
-                )
+        # 5. Structural success. Deliverable validation belongs to finalization
+        # (C-12.6); erasing a model's words must not change the provider verdict.
+        if successful:
+            sensed = ", ".join(sorted(info.windows)) if info and info.windows else "none"
             return finish(
-                OutcomeClass.UNKNOWN,
-                "unknown: empty deliverable with rc 0",
-                answered={"deliverable": "empty with rc 0 (C-12.6)"},
+                OutcomeClass.OK,
+                f"ok: rc 0 with a non-error result; rate_limit_event windows: {sensed}",
+                answered={
+                    "auth": "system/init" if summary.has_init else "non-error result with rc 0",
+                    "admission": (f"rate_limit_event.status={info.status}" if info else
+                                  "no rate_limit_event"),
+                },
             )
 
         # 6. Retryable (C-9.5). Never writes a closure.
@@ -1745,7 +1737,7 @@ class ClaudeAdapter(Adapter):
                 f"present — the credential authenticated (C-9.3)",
                 answered={"auth": "system/init present; the 401 was not the lane's"},
             )
-        match = TRANSIENT_RE.search(corpus)
+        match = TRANSIENT_RE.search(cli_corpus)
         if transient_kind is not None or match is not None:
             # Name both the provider's own error kind and the text it came with: one
             # says what class of failure it was, the other says what actually happened.
@@ -1753,7 +1745,7 @@ class ClaudeAdapter(Adapter):
             if transient_kind is not None:
                 parts.append(f"provider error kind {transient_kind}")
             if match is not None:
-                parts.append(_first_line_containing(corpus, match))
+                parts.append(_first_line_containing(cli_corpus, match))
             reason = "; ".join(parts)
             return finish(
                 OutcomeClass.TRANSIENT, f"transient: {reason}",

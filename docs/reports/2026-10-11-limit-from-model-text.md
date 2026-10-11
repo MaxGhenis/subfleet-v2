@@ -4,12 +4,14 @@ Draft, committed before the shared test-lock wait. Work is confined to the assig
 
 Incident: between 12:30Z and 13:23Z, seven rc-0 Claude Opus 5.5 attempts quoted usage-limit language in their reports. Three jobs failed and five accounts acquired one-hour guessed closures. Claude's quota checks read `stderr + StreamSummary.texts()` before success, so the reports became provider evidence.
 
-Planned correction: every Claude text classifier and closure clock reads only stderr and `cli_texts()`. Successful rc-0 non-error results precede text failures. C-9.8's structured `rate_limit_event status=rejected` remains authoritative, including over success; `overageStatus` remains diagnostic only. Model text erasure must preserve the adapter's class and closure, so Claude success is determined structurally; the daemon retains C-12.6's existing empty-deliverable validation.
+Implemented correction: every Claude text classifier and closure clock reads only stderr and `cli_texts()`. Successful rc-0 non-error results precede text failures. C-9.8's structured `rate_limit_event status=rejected` remains authoritative, including over success; `overageStatus` remains diagnostic only. Model text erasure must preserve the adapter's class and closure, so Claude success is determined structurally; the daemon retains C-12.6's existing empty-deliverable validation.
 
 Codex audit: agent messages and `last.md` do not enter its failure patterns; only `turn.failed`, `error`, and stderr do. Its auth check must follow verified success to prevent recovered CLI errors from disabling a successful lane.
 
-Operator relief: `lanes release <lane> --limits --note <text>` will release active guessed provider-limit/credits closures transactionally, preserve provider-reported clocks, and record the note and affected closure ids. Existing operator-hold release stays available.
+Operator relief: `lanes release <lane> --limits --note <text>` releases active guessed provider-limit/credits closures transactionally, preserve provider-reported clocks, and record the note and affected closure ids. Existing operator-hold release stays available.
 
 Validation pending: three reconstructed incident regressions before/after; Hypothesis mutation, real-limit-surrounding-text and erasure invariants; fixture replays; release CLI/protocol/daemon tests. Exact counts and final changes will be recorded after execution.
 
 Git: commits use a workspace-local `.git-local` on `fix/limit-from-model-text`, preserving the detached shared checkout and existing shared branch.
+
+Implementation checkpoint: all text signatures and clocks are bounded to CLI/provider evidence; structured rejection still overrides success. Codex additionally uses completion/agent-message structure before recovered auth diagnostics. Empty deliverables remain rejected by daemon finalization. Release has mixed-clock selection, refusals, note/event tests and an older-daemon guard. Dependencies installed in `.venv` with workspace-local `.uv-cache`; no shared cache writes. The unchanged base source and initial three regressions are preserved in `.baseline` for the before run. Test lock waiting; no results claimed yet.

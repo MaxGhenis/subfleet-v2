@@ -556,12 +556,19 @@ class CodexAdapter(Adapter):
         session_id = launch.native_session_id
         failures = []
         answered, read = False, 0
+        completed = False
+        agent_message = False
         for event in _events(_stream_path(attempt_dir, launch)):
             read += 1
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
                 session_id = event["thread_id"]
             if event.get("type") in ("turn.failed", "error"):
                 failures.append(event)
+            completed = completed or event.get("type") == "turn.completed"
+            item = event.get("item")
+            agent_message = agent_message or (event.get("type") == "item.completed"
+                and isinstance(item, dict) and item.get("type") == "agent_message"
+                and isinstance(item.get("text"), str))
             answered = answered or model_answered(event)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
@@ -576,17 +583,19 @@ class CodexAdapter(Adapter):
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
-        for event, text in signals:
-            if AUTH_RE.search(text):
-                evidence["authentication"] = event or text
-                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
         if exit_info.rc == 0 and not terminal and not exit_info.spawn_error:
-            if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
-                evidence["admission"] = "deliverable with exit 0"
-                return result(OutcomeClass.OK, "Codex completed with a deliverable")
+            if completed or agent_message or self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
+                evidence["admission"] = "completed turn with exit 0" if completed else "agent message/deliverable with exit 0"
+                return result(OutcomeClass.OK, "Codex completed with exit 0")
+        # Agent messages and last.md never enter these patterns. A verified
+        # success also supersedes recovered CLI authentication diagnostics.
+        for event, text in signals:
+            if AUTH_RE.search(text):
+                evidence["authentication"] = event or text
+                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
                                    (CONTENT_RE, OutcomeClass.CONTENT_FILTER,
                                     "The provider's content filter refused the prompt; reword it and resubmit (not retried)")):

@@ -1171,6 +1171,37 @@ class Daemon:
                 "released": a.lane_id if a.action == "release" else None,
                 "lanes": view["lanes"], "closures": view["closures"]}
 
+    def _release_lane_limits(self, a: protocol.LanesArgs) -> dict:
+        """C-9.6: lift guessed clocks only, recording the operator's grounds."""
+        if not a.lane_id or not self.store.get_lane(a.lane_id):
+            raise protocol.ProtocolError(f"lanes release --limits: unknown lane {a.lane_id!r}",
+                                         Exit.INVALID_INPUT, "subfleet lanes list")
+        note = (a.note or "").strip()
+        if not note:
+            raise protocol.ProtocolError("lanes release --limits: --note is required", Exit.INVALID_INPUT)
+        data = {"note": note, "closure_ids": [], "reported_closure_ids": []}
+        with self.store.transaction("lane.limits_released", lane_id=a.lane_id, data=data) as tx:
+            now = utcnow()
+            rows = tx.execute("SELECT closure_id, clock_source FROM closures WHERE lane_id=? "
+                              "AND reason IN ('provider-limit','credits') AND released_at IS NULL "
+                              "AND until_at>? ORDER BY closure_id", (a.lane_id, now)).fetchall()
+            if not rows:
+                raise protocol.ProtocolError("lanes release --limits: no open provider-limit or credits closures",
+                                             Exit.INVALID_INPUT)
+            data["closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "guessed"]
+            data["reported_closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "reported"]
+            if not data["closure_ids"]:
+                raise protocol.ProtocolError("lanes release --limits: reported clock; provider clocks cannot "
+                                             "be released by hand", Exit.INVALID_INPUT)
+            tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? "
+                       "AND reason IN ('provider-limit','credits') AND clock_source='guessed' "
+                       "AND released_at IS NULL AND until_at>?", (now, a.lane_id, now))
+        self._notify()
+        view = self._capacity_view(self._desktop_identity())
+        return {"released": a.lane_id, "limits_released": data["closure_ids"],
+                "limits_reported": data["reported_closure_ids"],
+                "lanes": view["lanes"], "closures": view["closures"]}
+
     def _seed_lanes(self) -> None:
         path = self.root / "lanes.json"
         if not path.exists():
@@ -2905,6 +2936,8 @@ class Daemon:
                 return self._enroll_lane(a)
             if a.action in ("hold", "release"):
                 return self._hold_lane(a)
+            if a.action == "release-limits":
+                return self._release_lane_limits(a)
             return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
