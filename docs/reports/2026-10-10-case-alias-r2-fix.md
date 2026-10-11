@@ -177,6 +177,7 @@ Mutants, every one killed:
 | `ignore_run_folder` (review) | the property | 1 failed |
 | `reuse_identical_paths` (review) | `test_identical_paths_with_different_absence_flags_use_both_queries[False]` | 1 failed, 2 passed; the property alone survives it, as the review found |
 | `skip_rediscovery_in_look` (look reads the recorded folder) | external-top probe ×2, measurement external ×2, the property (its `unspelled` explicit examples) | 5 failed, 4 passed |
+| `skip_rediscovery_in_look`, generated examples only (explicit phase off, at a569cbb93) | the property | 1 failed; falsified by a generated `unspelled` turn submitted from a subdirectory (`ﬁ/Ünï`, NFD, case swapped). The unmutated control passed in 58 s |
 | `turn_folder_without_rediscovery` | external-top look probe ×2 | 2 failed |
 | `push_unspelled` (a push row marked `unspelled` again) | every push test whose top was away at submit | 7 failed, 1 passed (the top was there at submit) |
 | `push_rediscovered` (admission rediscovers push jobs) | the three `legacy` push probes | 3 failed, 5 passed |
