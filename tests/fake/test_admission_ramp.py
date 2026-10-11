@@ -20,7 +20,7 @@ from types import MethodType
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
-from subfleet import daemon as daemon_module, scheduler
+from subfleet import capacity as capacity_module, daemon as daemon_module, scheduler, store as store_module
 from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.disk import GB, epoch
 from subfleet.policy import MACHINE_GUARD_PROPOSAL
@@ -47,6 +47,11 @@ def fake_clock(patch, initial=0):
     # Routing builds and rechecks its view with datetime.now directly. Keep
     # that clock aligned with the placement ledger and generated readings.
     patch.setattr(daemon_module, "datetime", ClockDatetime)
+    # So do a capacity wait's next look (`scheduler.waiting_metadata` without
+    # `now`) and the store's own stamps (`Store.add_decision`'s `evaluated_at`,
+    # `created_at`). On the wall clock, two runs that straddle a second differ.
+    for module in (scheduler, store_module, capacity_module):
+        patch.setattr(module, "datetime", ClockDatetime)
     patch.setattr(daemon_module, "utcnow", lambda: stamp(clock[0]))
     patch.setattr(daemon_module, "after", lambda seconds: stamp(clock[0] + seconds))
     patch.setattr(daemon_module, "age", lambda timestamp:
@@ -593,8 +598,12 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
                 # exact bytes, the loader's own definition before and after C-6.18.
                 digest = hashlib.sha256((target.root / "policy.json").read_bytes()).hexdigest()
                 assert target.policy_digest == target.policy["_policy_hash"] == digest
-                rows = target.store.query("SELECT policy_hash FROM decisions ORDER BY decision_id")
+                rows = target.store.query("SELECT policy_hash,evaluated_at FROM decisions ORDER BY decision_id")
                 assert {row["policy_hash"] for row in rows[checked[0]:]} <= {digest}
+                # Every decision this pass recorded, the store's included, reads
+                # the fake clock: a wall-clock stamp fails here, not only when
+                # the two runs happen to straddle a second.
+                assert {row["evaluated_at"] for row in rows[checked[0]:]} <= {stamp(clock[0])}
                 checked[0] = len(rows)
 
             install(service)
