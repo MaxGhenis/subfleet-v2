@@ -215,6 +215,8 @@ A `git archive` of e46cc4815 (the reviewed head) with this round's test files co
   `codex-demand`), and the P2-2 world (its fix is in the checker).
 - **The P2-1 property's first counterexample there:** an `empty-2xx` answer recorded `failed`.
 - **The P3-2 regression there:** the action is stamped 12:00:00, the pass's start.
+- **The interval property's counterexample there:** two POSTs 29 min 59 s apart (a 1 s
+  listing, the next pass 30 minutes after the first started).
 
 A `git archive` of release/217 (4c6a8a9c9) with this round's incident file:
 - **The cascade replay** (`test_incident_2026_09_22_replay_one_reset_at_a_time_for_waiting_work`):
@@ -226,7 +228,32 @@ A `git archive` of release/217 (4c6a8a9c9) with this round's incident file:
 
 ### Properties at the reviewer's counts
 
-Pending.
+**Why the runs are split.** A single run at the reviewer's counts did not fit the brief's
+20-minute lock hold on this machine today:
+- every-rule ×5,000 was stopped after 17.5 minutes held, at load 45 to 120;
+- a seeded 1,000-example chunk was stopped after 20 minutes.
+
+Two causes, both measured (`fix1-runs/status`, `fix1-runs/sample-fast-every.txt`):
+- **The disk.** fsync took 20 ms (median) and a `synchronous=FULL` sqlite commit 45 ms. Every
+  generated world opens its own store and commits dozens of times.
+- **The CPU.** At load 160 to 380 a test process got 1 to 2% of a core.
+
+**How they are run instead.**
+- **Seeded chunks.** Each count is run as 1,000-example chunks with fixed
+  `--hypothesis-seed` values (reproducible, and different worlds from chunk to chunk), one
+  lock hold each, each capped at 15 to 20 minutes.
+- **`fix1-runs/fastsync_plugin.py`.** A run-only plugin, never committed, that opens the test
+  stores with `PRAGMA synchronous=OFF` instead of `FULL`. That pragma only decides what a
+  commit survives on a crash or power loss: within one process every read sees every commit
+  either way, so no decision the properties check can change.
+- **Where they ran without the plugin.** The default-count runs above used `FULL`, as CI does.
+
+| Property | Reviewer's count | Run at the head (0572dfb91 code) |
+|---|---|---|
+| `test_every_rule_holds_over_generated_worlds` | 5,000 | seed 1: 1,000 passing, 0 failing (62 invalid), 376 s; seed 2: 1,000 passing, 0 failing (70 invalid), 83 s; seeds 3 to 5: pending |
+| `test_a_restart_before_every_step_changes_no_decision` | 2,000 | pending |
+| `test_real_demand_spends_only_when_no_route_lane_has_room` | 2,000 | pending |
+| `test_with_the_switch_off_every_decision_is_release_217s` | 1,000 | pending |
 
 ### Mutation checks
 
