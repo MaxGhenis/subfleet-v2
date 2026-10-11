@@ -1,33 +1,30 @@
-# PR #180 rollback fix, review R1
+# PR #180 placement-ramp rollback fix (R1)
 
-Base: `cacdb35aad7c`. Early implementation head: `8c659e2c4`. Implementation and this provisional report committed before waiting for the shared suites lock. Shared Git metadata lies outside the writable workspace; commits use `.git-local` on `feat/admission-ramp`, preserving the original base and history. No remote or sub-agent is used.
+Fixed both P2s from base `cacdb35aad7c`. **423 passed, zero failed or skipped**, including all four rollback regressions. All four mutations killed. Production source is byte-identical to tested head `c587a277d`; the final documentation clarifies that a rejected placement takes no new leases or disk reservation.
+
+Implementation and a provisional report were committed as `8c659e2c4` before waiting for the shared suites lock. Commits are on `feat/admission-ramp` in `.git-local`, because shared Git metadata is outside the writable workspace. All commits retain their ancestry and the requested co-author trailer. No network remote, caller checkout write, or sub-agent was used.
 
 Changes:
-- `subfleet/daemon.py`: re-read detached reservation rows with the reserving transaction’s reader and the timestamp to be inserted. Recheck before any lease is taken; a spent budget sets the `ramp` hold and holds later ordinary jobs in the pass. Disabled policy and attended work remain outside all ramp reads.
-- `subfleet/ramp.py`: count all starts later than the cutoff, future timestamps included, and retain supplied census history through the pass. Restart uses the same cutoff-only accounting.
-- `tests/fake/test_admission_ramp.py`: three actual-daemon rollback regressions (next pass, actual restart, workspace rollback between check and commit), plus an independent commit-order/elapsed-time Hypothesis property. Check no leases, disk reservation or capacity backoff for the rejected placement. Verify immediate snapshot accounting at each commit.
-- `tests/unit/test_placement_ramp.py`: the fourth review regression, expired census history restored by a backwards look; arbitrary clock sequence property and updated conservative future-row expectations.
-- `docs/acceptance-contract.md:233`: C-6.18 specifies cutoff-only counting, transaction rechecks, restart behavior and backward-clock safety. Real elapsed bounds require that positive wall advances consume elapsed time; arbitrary forward jumps cannot be bounded by a UTC-only ledger. Backwards corrections may delay liveness.
 
-The supplied `review-r1-evidence/` directory was empty; all four reproductions were reconstructed from the full report. No existing uncommitted changes were present. GitNexus tools were unavailable; source tracing confirmed the admission path.
+- `subfleet/daemon.py:3054` / `:3065`: let the reserving transaction supply the ledger reader and timestamp, retaining the same cutoff and reconstruction path used at startup. Disabled policy reads no ramp history or clock.
+- `subfleet/daemon.py:5585`: reconstruct and recheck the ramp under the reservation write lock, at the exact timestamp to be inserted, before acquiring leases. A spent budget holds the job and later ordinary jobs with `ramp`; no disk reservation or capacity backoff is added. Disabled/attended clock-call order is preserved.
+- `subfleet/ramp.py:63` / `:106`: retain every supplied census row for this pass and count every reservation later than the cutoff, future-dated rows included. Retention’s existing future-row pinning already agrees.
+- `tests/fake/test_admission_ramp.py:215`: three actual-daemon rollback regressions; `:527`: generated check/commit clocks, commit-order real elapsed windows, and actual restarts. `:181` verifies immediate accounting at each committed placement and reads once at pass entry plus at each commit.
+- `tests/unit/test_placement_ramp.py:141`: census history regression; `:225`: independent elapsed-time and commit-prefix oracle for arbitrary clock sequences and restarts. Existing future-row expectations now require conservative accounting.
+- `docs/acceptance-contract.md:233`: C-6.18 text below. `tools/check_placement_ramp_r1.py:1`: serial, locked baseline and mutation replay, source restoration and TMPDIR cleanup.
 
-Validation pending: four regressions on base and fixed source, permitted suites with Hypothesis statistics, and four mutation checks (own-pass count, attended count, reconstruction, process-memory only). Every pytest process will run under the required suites lock, with a job-specific TMPDIR removed afterwards. No background runner will be left.
+The supplied `review-r1-evidence/` directory was empty; the four reproductions were reconstructed from the full review.
 
-A serial replay tool, `tools/check_placement_ramp_r1.py`, restores production source in `finally`, records SHA-256 restoration checks and removes each TMPDIR. Baseline replay queued under the shared lock. Environment: CPython 3.14.7 free-threaded, pytest 9.1.1, Hypothesis 6.168.1, installed from `uv.lock`. New properties request 120 unit examples and 30 daemon examples, each with one explicit rollback example; actual counts pending.
+| Rollback regression | Base `cacdb35a` | Fixed |
+| --- | --- | --- |
+| Start at 100; next pass at 90 | Failed: second start committed | Passed; waits until 160 |
+| Start at 100; actual daemon restart at 90 | Failed: second start committed | Passed; future durable row counts |
+| Start at 100; check at 160; workspace preparation at 150 | Failed: second start committed | Passed; no new leases/budget/backoff; later job held |
+| Census at 160; look at 150 revives the 100 row | Failed: row lost | Passed; history retained |
 
-Baseline replay: **4 failed, 0 passed in 28.42 s**, exactly the four requested rollback regressions. Production source restored by SHA-256 comparison; TMPDIR removed. Evidence: `2026-10-11-placement-ramp-r1-baseline.json`. The lease acquisition and disabled-policy reservation timestamp calls retain their original order; only enabled detached ramp checks bind the timestamp before their durable budget check.
+Baseline: **4 failed in 28.42 s**, exactly the requested cases. Fixed suites: **423 passed in 419.37 s (6:59)**. Files: `tests/fake/test_admission_ramp.py`, `tests/unit/test_placement_ramp.py`, `tests/fake/test_admission_disk.py`, `tests/fake/test_admission_lease_waiters.py`, all five `tests/unit/test_policy*.py`, `tests/fake/test_policy_sandbox.py`, and `tests/unit/test_test_module_names.py`. One pytest process at a time under `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`, with a job-specific `sf-ramp2-<pid>/` TMPDIR removed after each. Every lock hold was below 20 minutes. No runner remains.
 
-## C-6.18 text changed
-
-A non-priority detached placement of any accepted non-turn job kind (`dispatch`, `resume`, `revive`, `gate-review`, or `handoff`), including a retry, commits only while the number of detached non-probe attempts whose `reserved_at` is later than `now - window_s` is below `K`. This includes future-dated reservations: a backwards wall-clock step can only make the ramp stricter, never grant a fresh burst, including after restart. The reserving transaction rechecks this budget against durable rows at the exact `reserved_at` it will insert, before taking leases; a spent budget holds that job and later ordinary jobs in the pass with the `ramp` reason and takes no placement resources. Each enabled detached pass reconstructs from attempt rows and adds its own committed placements immediately; reservation checks reconstruct again because a clock rollback during workspace preparation can revive rows that expired at pass entry. Completed, failed and recovered reservations count too. Judged in commit order, every real elapsed window of `window_s` seconds contains at most `K` non-priority starts, including backwards clock corrections, provided positive wall-clock advances take at least that much elapsed time (forward clock jumps are outside a wall-clock ledger’s guarantee).
-
-With free capacity, no continuing priority arrivals and a wall clock that eventually advances, every unchanged eligible finite queue eventually places in admission order. The following time bounds assume no backwards clock corrections; such corrections can delay expiry.
-
-## Fixed validation
-
-On fixed production head `c587a277d`: **423 passed, 0 failed, 0 skipped in 419.37 s (6:59)**, in one locked pytest process. All four rollback regressions passed. Run files: `tests/fake/test_admission_ramp.py`, `tests/unit/test_placement_ramp.py`, `tests/fake/test_admission_disk.py`, `tests/fake/test_admission_lease_waiters.py`, all five `tests/unit/test_policy*.py`, `tests/fake/test_policy_sandbox.py`, and `tests/unit/test_test_module_names.py`. Lock hold was below 20 minutes; TMPDIR removed. Full output and command: `2026-10-11-placement-ramp-r1-suite.json`.
-
-Hypothesis generate-phase counts (explicit examples run separately):
+Hypothesis: **1,340 passing generated examples**, 180 invalid cases, and **11 passing explicit examples** across 13 properties. The new rollback properties account for 120 unit + 30 daemon generated examples and one explicit example each. Counts:
 
 | Property | Passing generated | Invalid | Explicit |
 | --- | ---: | ---: | ---: |
@@ -40,9 +37,30 @@ Hypothesis generate-phase counts (explicit examples run separately):
 | Enabled daemon ordering/liveness/restart | 20 | 6 | 0 |
 | Disabled/absent frozen admission differential R6 | 30 | 0 | 1 |
 | Lease-waiter differential | 30 | 6 | 0 |
-| Policy whole-allowance | 150 | 0 | 0 |
+| Policy whole-allowance | 150 | 0 | 8 |
 | Policy initial-window R2 | 150 | 18 | 0 |
 | Valid tier mixes | 250 | 38 | 0 |
 | Invalid tier lists | 80 | 10 | 0 |
 
-Mutation replay pending. No suite outside the permitted file list was run; `test_admission_ramp_retention` and separate `test_disk*` modules were intentionally unrun under this round’s scope.
+Mutation results (production source restored and checked by SHA-256):
+
+| Mutation | Result |
+| --- | --- |
+| own-pass-count | Killed: 1 failed, 2 passed in 17.56s |
+| count-attended | Killed: 1 failed in 2.37s |
+| drop-reconstruction | Killed: 1 failed in 7.41s |
+| process-memory-only | Killed: 2 failed in 4.24s |
+
+The own-pass mutant is caught by immediate snapshot accounting (`used=0` after one commit); the new durable recheck independently prevents its former placement burst. Counting attended work incorrectly holds the dispatch; dropping reconstruction grants a start without the expected hold; process-only accounting reports zero usage after restart.
+
+C-6.18 text changed:
+
+A non-priority detached placement of any accepted non-turn job kind (`dispatch`, `resume`, `revive`, `gate-review`, or `handoff`), including a retry, commits only while the number of detached non-probe attempts whose `reserved_at` is later than `now - window_s` is below `K`. This includes future-dated reservations: a backwards wall-clock step can only make the ramp stricter, never grant a fresh burst, including after restart. The reserving transaction rechecks this budget against durable rows at the exact `reserved_at` it will insert, before taking leases; a spent budget holds that job and later ordinary jobs in the pass with the `ramp` reason and takes no new leases or disk reservation. Each enabled detached pass reconstructs from attempt rows and adds its own committed placements immediately; reservation checks reconstruct again because a clock rollback during workspace preparation can revive rows that expired at pass entry. Completed, failed and recovered reservations count too. Judged in commit order, every real elapsed window of `window_s` seconds contains at most `K` non-priority starts, including backwards clock corrections, provided positive wall-clock advances take at least that much elapsed time (forward clock jumps are outside a wall-clock ledger’s guarantee).
+
+With free capacity, no continuing priority arrivals and a wall clock that eventually advances, every unchanged eligible finite queue eventually places in admission order. The following time bounds assume no backwards clock corrections; such corrections can delay expiry.
+
+Evidence: [baseline](2026-10-11-placement-ramp-r1-baseline.json), [fixed suites and statistics](2026-10-11-placement-ramp-r1-suite.json), [four mutations](2026-10-11-placement-ramp-r1-mutations.json).
+
+Unrun: the full repository suite, `test_admission_ramp_retention`, and separate `test_disk*` modules, outside this round’s permitted scope. Nothing requested within the permitted list remains unrun. Forward clock jumps that exceed real elapsed time are outside a UTC-only ledger’s guarantee; arbitrary backwards corrections are covered.
+
+DONE
