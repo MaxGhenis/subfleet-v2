@@ -4,8 +4,9 @@ with git's diagnostic traces set in the daemon's environment.
 Review of #141 at 708d6557 (P3): `GIT_TRACE` or `GIT_TRACE2_EVENT`, inherited by the
 daemon and naming a file inside the tree retention is retiring, made the one
 `git rev-parse --show-toplevel` the look runs write that file there. Subfleet's git
-helpers now drop every `GIT_TRACE*` variable (`salvage._git_env`). Adapted from the
-reviewer's probe `probe_rediscovery_config.py`.
+helpers now drop every `GIT_TRACE*` variable and switch Trace2's three targets off
+(`salvage._git_env`), so a `trace2.*Target` in the global config writes nothing either
+(review at c20ee3d0, P3). Adapted from the reviewer's probe `probe_rediscovery_config.py`.
 """
 
 import os
@@ -28,8 +29,40 @@ TRACES = ["GIT_TRACE", "GIT_TRACE_SETUP", "GIT_TRACE2", "GIT_TRACE2_EVENT", "GIT
 @pytest.mark.parametrize("name", TRACES)
 def test_salvage_git_env_drops_every_trace_variable(monkeypatch, name):
     monkeypatch.setenv(name, "/tmp/should-not-be-written")
-    assert name not in salvage_module._git_env(None)
-    assert name not in salvage_module._git_env({**os.environ, "GIT_INDEX_FILE": "/t/index"})
+    for env in (salvage_module._git_env(None),
+                salvage_module._git_env({**os.environ, "GIT_INDEX_FILE": "/t/index"})):
+        # Trace2's three targets are switched off ("0"), the rest are absent.
+        assert env.get(name) == ("0" if name in salvage_module.GIT_TRACE2_TARGETS else None)
+
+
+@pytest.mark.parametrize("writable", [False, True], ids=["reader", "writer"])
+def test_configured_trace2_target_does_not_write_into_a_fenced_tree(tmp_path, writable):
+    """Review of #141 at c20ee3d0 (P3): with an inherited `GIT_TRACE2_EVENT=0` dropped,
+    a `trace2.*Target` in the global config made the lookup write inside the tree."""
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        tree, nested = retiring_tree(daemon, harness)
+        turn = overtaken(daemon, harness, nested, tree, writable)
+        fence = folders.exclusive_key(tree)
+        assert daemon.store.acquire_lease(fence, "retention:review")
+        targets = {key: Path(tree) / f"configured-{key}.trace" for key in ("normalTarget", "eventTarget", "perfTarget")}
+        config = tmp_path / "global.gitconfig"
+        config.write_text("[trace2]\n" + "".join(f"\t{key} = {path}\n" for key, path in targets.items()))
+        patch.setenv("GIT_CONFIG_GLOBAL", str(config))
+        patch.setenv("GIT_TRACE2_EVENT", "0")           # inherited, and dropped with every GIT_TRACE*
+        before = (snapshot(Path(tree)), ctimes(Path(tree)))
+        real_workspace, prepared = daemon._workspace, []
+        patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or real_workspace(job))
+        spawned = git_spawns(patch)
+        daemon._admit_turns()
+        hold = daemon._holds.get(turn) or {}
+        assert not _live(daemon, turn) and prepared == []
+        assert hold.get("reason") == "lease-held" and hold.get("leases") == [fence], hold
+        assert len(spawned) == 1 and spawned[0][0][spawned[0][0].index("-C") + 2:] == ["rev-parse", "--show-toplevel"]
+        assert not any(path.exists() for path in targets.values()), targets
+        assert (snapshot(Path(tree)), ctimes(Path(tree))) == before
 
 
 @pytest.mark.parametrize("trace_variable", TRACES)

@@ -112,6 +112,11 @@ def transient_os_error(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and exc.errno in TRANSIENT_ERRNOS
 
 
+#: Git's Trace2 targets. Each set to `0` is off, and the variable is read before the
+#: matching `trace2.*Target` config (git's api-trace2 documentation).
+GIT_TRACE2_TARGETS = ("GIT_TRACE2", "GIT_TRACE2_EVENT", "GIT_TRACE2_PERF")
+
+
 def _transient_git(stderr: str | bytes) -> bool:
     """Whether git's stderr names a failure another try may not meet (`_TRANSIENT_GIT`)."""
     return bool(_TRANSIENT_GIT.search(os.fsdecode(stderr) if isinstance(stderr, bytes) else stderr))
@@ -134,7 +139,11 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     `GIT_TRACE*`) are removed: inherited from whoever started the daemon, they
     make git write wherever they name, and a read-only lookup in a tree
     retention has fenced then wrote a file inside it (review of #141 at
-    708d6557, P3).
+    708d6557, P3). The three Trace2 targets are then set to `0`, which git reads
+    as "off" ahead of any `trace2.normalTarget`, `trace2.eventTarget` or
+    `trace2.perfTarget` in the global or system config: dropping an inherited
+    `GIT_TRACE2_EVENT=0` alone let such a config write there (review of #141 at
+    c20ee3d0, P3).
     """
     own = env is None
     env = dict(os.environ if own else env)
@@ -142,6 +151,8 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
         env.pop(name, None)
     for name in [name for name in env if name.startswith("GIT_TRACE")]:
         env.pop(name)
+    for name in GIT_TRACE2_TARGETS:
+        env[name] = "0"
     env["LC_ALL"] = "C"
     env.pop("LANGUAGE", None)
     return env
