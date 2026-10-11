@@ -3051,26 +3051,28 @@ class Daemon:
     def _disk_status(self) -> dict:
         return self._disk.status(self._disk_rows() if self._disk.snapshot["enabled"] else (), utcnow())
 
-    def _ramp_rows(self, since: str) -> list[dict]:
+    def _ramp_rows(self, since: str, *, read=None) -> list[dict]:
         # Every detached kind counts, including gate reviews and native-session
-        # continuations. One small projection per enabled detached pass; turns
-        # and probes never enter this census, including after attempts finish.
-        return self.store.query(
+        # continuations. Use the reserving transaction's reader when rechecking
+        # its budget; turns and probes never count, even after attempts finish.
+        rows = (read or self.store.query)(
             "SELECT a.attempt_id,a.job_id,a.reserved_at,j.kind FROM attempts a JOIN jobs j USING(job_id) "
             # Read the whole cutoff second; PlacementRamp applies the exact
             # boundary, including fractional timestamps before the trailing Z.
             "WHERE j.kind NOT IN ('turn','probe') AND a.reserved_at>=?", (since[:19],))
+        return [dict(row) for row in rows]
 
-    def _begin_ramp_pass(self) -> dict:
-        """One census at startup or an enabled detached pass; none when off."""
+    def _begin_ramp_pass(self, *, now: str | None = None, read=None) -> dict:
+        """Census at startup, pass entry and reservation; none when off."""
         cfg = ramp_settings(self.policy)
         if cfg["enabled"]:
-            now = utcnow()
+            now = utcnow() if now is None else now
             try:
                 since = _later(now, -cfg["window_s"])
             except OverflowError:
                 since = ""                         # valid integers can exceed datetime's range
-            self._ramp.begin_pass(self.policy, self._ramp_rows(since), now)
+            rows = self._ramp_rows(since) if read is None else self._ramp_rows(since, read=read)
+            self._ramp.begin_pass(self.policy, rows, now)
         elif "_ramp_state" in self.__dict__:
             self._ramp.begin_pass(self.policy, (), "")  # disabled gates never read even the clock
         return cfg
@@ -5580,8 +5582,20 @@ class Daemon:
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
+                        reserved_at = utcnow()
+                        if job["kind"] != "turn" and ramp_config["enabled"]:
+                            # Workspace preparation can move the clock backwards
+                            # after the pass census discarded an expired start.
+                            # Read committed rows at the timestamp we will insert,
+                            # under the same write lock, before taking any lease.
+                            self._begin_ramp_pass(now=reserved_at, read=read)
+                            hold = self._ramp.hold(klass, reserved_at)
+                            if hold:
+                                ramp_hold = holds[job["job_id"]] = hold
+                                status = "held"
+                                break
                         for key, holder in leases:
-                            tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
+                            tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, reserved_at))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
@@ -5589,7 +5603,6 @@ class Daemon:
                             # C-26.14: the turn's window opens before its start snapshot, and
                             # its folder is where another turn's window may overlap it.
                             evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
-                        reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",

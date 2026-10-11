@@ -54,14 +54,14 @@ class PlacementRamp:
             self.snapshot = self._snapshot(0)
             return
         clock = _tick(now)
-        cutoff = clock - self.settings["window_s"] * _US
         reservations = {}
         for row in attempts:
             if row.get("kind") in ("turn", "probe"):
                 continue
             when = _tick(row["reserved_at"])
-            if when > cutoff:
-                reservations[row["attempt_id"]] = when
+            # Preserve every supplied row for this pass: an expired row can
+            # become relevant again if a later look uses a backwards clock.
+            reservations[row["attempt_id"]] = when
         self.reservations = reservations
         self.snapshot = self._snapshot(clock)
 
@@ -100,10 +100,10 @@ class PlacementRamp:
             except OverflowError:
                 limit = f"{product}/60"
         cutoff = clock - settings["window_s"] * _US
-        # Keep reconstructed timestamps until the next pass. A backwards wall
-        # clock correction can put an earlier start back inside this window;
-        # permanent pruning here would grant another burst after that correction.
-        starts = sorted(when for when in self.reservations.values() if cutoff < when <= clock)
+        # Future-dated starts also consume slots: a backwards wall-clock step
+        # must make admission stricter, including after restart. Keep this pass's
+        # history; the daemon rebuilds from durable rows at reservation time too.
+        starts = sorted(when for when in self.reservations.values() if cutoff < when)
         used = len(starts) if settings["enabled"] else 0
         holding = settings["enabled"] and used * 60 >= product
         next_slot_at = None

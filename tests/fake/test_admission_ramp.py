@@ -186,19 +186,117 @@ def test_committed_placements_this_pass_fill_window_and_rows_read_once(state_dae
     original = service._ramp_rows
     reads = []
 
-    def rows(since):
-        reads.append(since)
-        return original(since)
+    def rows(since, *, read=None):
+        reads.append((since, read is not None))
+        return original(since, read=read)
 
     monkeypatch.setattr(service, "_ramp_rows", rows)
+    boundary = service._boundary
+
+    def counted_commit(stage, job_id, attempt_id):
+        if stage == "reserved":
+            # Immediate post-commit publication must include this placement,
+            # even before a later job's census could hide a missing reserve().
+            assert service._ramp.snapshot["used"] == len(placed(service))
+        return boundary(stage, job_id, attempt_id)
+
+    monkeypatch.setattr(service, "_boundary", counted_commit)
     jobs = [submit(service, harness) for _ in range(7)]
     service._admit()
-    assert len(reads) == 1
+    assert [transaction for _, transaction in reads] == [False, True, True, True]
     assert [row["job_id"] for row in placed(service)] == jobs[:3]
     assert service._ramp.snapshot["used"] == 3
     clock[0] = 59
     service._admit()
-    assert len(reads) == 2 and len(placed(service)) == 3
+    assert [transaction for _, transaction in reads] == [False, True, True, True, False]
+    assert len(placed(service)) == 3
+
+
+def test_rollback_next_pass_counts_future_completed_reservation(state_daemon, monkeypatch):
+    """Review R1 reproduction 1: t=100 then a new admission pass at t=90."""
+    service, harness = state_daemon
+    clock = fake_clock(monkeypatch, 100)
+    enable(service, monkeypatch, per_minute=1)
+    first = submit(service, harness)
+    service._admit()
+    finish(service, placed(service)[0], stamp(100))
+    clock[0] = 90
+    waiting = submit(service, harness)
+    service._admit()
+    assert [row["job_id"] for row in placed(service)] == [first]
+    assert service._holds[waiting]["reason"] == "ramp"
+    assert service._holds[waiting]["next_slot_at"] == stamp(160)
+    clock[0] = 100
+    assert service.dispatch("daemon.status", {})["ramp"]["used"] == 1
+    clock[0] = 160
+    service._admit()
+    assert [row["job_id"] for row in placed(service)] == [first, waiting]
+
+
+def test_rollback_real_restart_counts_future_durable_reservation(state_daemon, monkeypatch):
+    """Review R1 reproduction 2: the actual daemon restarts at t=90."""
+    service, harness = state_daemon
+    clock = fake_clock(monkeypatch, 100)
+    enable(service, monkeypatch, per_minute=1)
+    first = submit(service, harness)
+    service._admit()
+    finish(service, placed(service)[0], stamp(100))
+    waiting = submit(service, harness)
+    save_policy(service)
+    service.close()
+    clock[0] = 90
+    restarted = daemon_module.Daemon(harness.root)
+    try:
+        monkeypatch.setattr(restarted, "_workspace", lambda job: (job["workdir"], None, None, []))
+        restarted._admit()
+        assert [row["job_id"] for row in placed(restarted)] == [first]
+        assert restarted.dispatch("daemon.status", {})["ramp"]["used"] == 1
+        assert restarted._holds[waiting]["reason"] == "ramp"
+        assert restarted._holds[waiting]["next_slot_at"] == stamp(160)
+        clock[0] = 100
+        assert restarted.dispatch("daemon.status", {})["ramp"]["used"] == 1
+        clock[0] = 160
+        restarted._admit()
+        assert [row["job_id"] for row in placed(restarted)] == [first, waiting]
+    finally:
+        restarted.close()
+
+
+def test_rollback_during_workspace_rechecks_committed_budget_without_leases(state_daemon, monkeypatch):
+    """Review R1 reproduction 3: check at 160, prepare at 150, budget is spent."""
+    service, harness = state_daemon
+    clock = fake_clock(monkeypatch, 100)
+    enable(service, monkeypatch, per_minute=1)
+    first = submit(service, harness)
+    service._admit()
+    finish(service, placed(service)[0], stamp(100))
+    older, newer = [submit(service, harness) for _ in range(2)]
+    before_leases = service.store.query("SELECT * FROM leases ORDER BY lease_key")
+    prepared = []
+
+    def rollback(job):
+        prepared.append(job["job_id"])
+        clock[0] = 150
+        return job["workdir"], None, None, []
+
+    monkeypatch.setattr(service, "_workspace", rollback)
+    clock[0] = 160
+    service._admit()
+    assert [row["job_id"] for row in placed(service)] == [first]
+    assert prepared == [older]  # The failed commit check holds later ordinary jobs too.
+    assert service._ramp.snapshot["used"] == 1
+    for waiting in (older, newer):
+        assert service._holds[waiting]["reason"] == "ramp"
+        assert service._holds[waiting]["next_slot_at"] == stamp(160)
+        assert service.store.get_job(waiting)["state"] == "queued"
+        assert waiting not in service._capacity_waits
+        assert service.store.get_job(waiting)["next_check_at"] is None
+    assert service.store.query("SELECT * FROM leases ORDER BY lease_key") == before_leases
+    assert service._disk.reservations == {}
+    clock[0] = 160
+    enable(service, monkeypatch, per_minute=1)
+    service._admit()
+    assert [row["job_id"] for row in placed(service)] == [first, older]
 
 
 def test_priority_burst_is_exempt_from_holds_but_slows_following_jobs(state_daemon, monkeypatch):
@@ -418,6 +516,68 @@ DIFFERENTIAL = settings(max_examples=30, deadline=None, derandomize=True,
 QUEUES = st.lists(st.tuples(st.sampled_from(["ordinary", "chosen", "live"]),
                             st.sampled_from(["trivial", "standard", "hard"]),
                             st.sampled_from([None, "codex-1", "codex-2", "codex-3"])), max_size=8)
+
+
+@settings(max_examples=30, deadline=None, derandomize=True,
+          suppress_health_check=[HealthCheck.too_slow])
+@example(per_minute=1, steps=[(0, 0, False), (60, -10, False), (-60, 0, True)])
+@given(per_minute=st.integers(1, 3), steps=st.lists(
+    st.tuples(st.integers(-180, 180), st.integers(-180, 180), st.booleans()),
+    min_size=1, max_size=12))
+def test_generated_R1_arbitrary_clocks_at_check_and_commit(tmp_path_factory, per_minute, steps):
+    """R1 in commit order, with real elapsed time independent of backwards UTC.
+
+    Positive clock advances consume real elapsed time; negative corrections do
+    not. Exercise both pass-entry and workspace clocks, plus actual restarts.
+    """
+    with fleet_daemon(tmp_path_factory.mktemp("ramp-clock") / "state") as (service, harness, patch):
+        clock = fake_clock(patch, 100)
+        enable(service, patch, per_minute=per_minute)
+        service.policy["caps"]["reading_ttl_s"] = 86400
+        for lane in service.store.list_lanes():
+            measure(service, lane.lane_id)
+        active, elapsed, commits = service, [0], []
+
+        def advance(delta):
+            clock[0] += delta
+            elapsed[0] += max(0, delta)
+
+        def check_commit(stage, job_id, attempt_id=None):
+            if stage != "reserved":
+                return
+            row = active.store.one("SELECT reserved_at FROM attempts WHERE attempt_id=?", (attempt_id,))
+            wall = epoch(row["reserved_at"]) - epoch(stamp(0))
+            commits.append((wall, elapsed[0]))
+            assert sum(real > elapsed[0] - 60 for _, real in commits) <= per_minute
+            assert sum(when > wall - 60 for when, _ in commits) <= per_minute
+
+        try:
+            for index, (before_check, preparation, restart) in enumerate(steps):
+                advance(before_check)
+                if restart:
+                    save_policy(active)
+                    active.close()
+                    active = daemon_module.Daemon(harness.root)
+                rolled = [False]
+
+                def workspace(job):
+                    if not rolled[0]:
+                        advance(preparation)
+                        rolled[0] = True
+                    return job["workdir"], None, None, []
+
+                patch.setattr(active, "_workspace", workspace)
+                patch.setattr(active, "_boundary", check_commit)
+                submit(active, harness, request_id=f"clock-{index}")
+                before = len(placed(active))
+                active._admit()
+                rows = placed(active)
+                assert len(commits) == len(rows)
+                for row in rows[before:]:
+                    finish(active, row, stamp(clock[0]))
+        finally:
+            if active is not service:
+                active.close()
 
 
 @settings(max_examples=20, deadline=None, derandomize=True,

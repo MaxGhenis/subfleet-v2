@@ -5,7 +5,7 @@ import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 
 from subfleet.ramp import PlacementRamp
 
@@ -118,13 +118,13 @@ def test_status_reports_fresh_expiry_without_mutating_the_pass_snapshot():
     assert gate.snapshot == before
 
 
-def test_repeated_reserve_counts_one_attempt_and_future_rows_wait_for_their_clock():
+def test_repeated_reserve_counts_one_attempt_and_future_rows_consume_slots():
     gate = PlacementRamp()
     gate.begin_pass(policy(3), [attempt("future", 10)], stamp())
-    assert gate.snapshot["used"] == 0
+    assert gate.snapshot["used"] == 1
     place(gate, "same")
     gate.reserve("same", stamp())
-    assert gate.snapshot["used"] == 1
+    assert gate.snapshot["used"] == 2
     assert gate.status(stamp(10))["used"] == 2
 
 
@@ -134,8 +134,19 @@ def test_clock_rollback_restores_starts_reconstructed_in_this_pass():
     assert gate.hold("background", stamp(60)) is None
     place(gate, "future", 60)
     assert gate.hold("background", stamp(20))
-    assert gate.snapshot["used"] == 1
-    assert gate.snapshot["next_slot_at"] == stamp(60)
+    assert gate.snapshot["used"] == 2
+    assert gate.snapshot["next_slot_at"] == stamp(120)
+
+
+def test_rollback_census_keeps_history_that_expired_at_pass_entry():
+    """Review R1 reproduction 4: a later backwards look revives the old row."""
+    gate = PlacementRamp()
+    gate.begin_pass(policy(1), [attempt("first", 100)], stamp(160))
+    assert gate.snapshot["used"] == 0
+    hold = gate.hold("background", stamp(150))
+    assert hold is not None
+    assert hold["used"] == 1
+    assert hold["next_slot_at"] == stamp(160)
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -205,6 +216,42 @@ ACTIONS = st.lists(st.one_of(
     st.tuples(st.just("machine"), st.booleans()),
     st.tuples(st.just("disk"), st.booleans()),
 ), min_size=1, max_size=65)
+
+
+@GENERATED
+@example(quota=(1, 60), clocks=[100, 90, 100, 160, 150], restarts=[True])
+@given(quota=QUOTAS, clocks=st.lists(st.integers(-300, 600), min_size=1, max_size=65),
+       restarts=st.lists(st.booleans(), min_size=1, max_size=12))
+def test_R1_arbitrary_clocks_in_commit_order_and_real_elapsed_windows(quota, clocks, restarts):
+    """Clock corrections can run backwards; positive advances consume elapsed time.
+
+    Keep an independent monotonic elapsed clock, with every wall-clock increase
+    taking at least that much real time. Forward clock jumps cannot be bounded
+    by a wall-clock ledger. Count commit prefixes, never sort commits by UTC.
+    """
+    per_minute, window_s = quota
+    allowance = per_minute * window_s // 60
+    gate, ledger, commits = PlacementRamp(), [], []
+    elapsed, previous = 0, clocks[0]
+    for index, now in enumerate(clocks):
+        elapsed += max(0, now - previous)
+        previous = now
+        if restarts[index % len(restarts)]:
+            gate = PlacementRamp()
+        gate.begin_pass(policy(per_minute, window_s), ledger, stamp(now))
+        expected = sum(row_time > now - window_s for row_time, _ in commits)
+        assert gate.snapshot["used"] == expected
+        for slot in range(allowance + 1):
+            if gate.hold("background", stamp(now)):
+                break
+            serial = f"{index}-{slot}"
+            gate.reserve(serial, stamp(now))
+            ledger.append(attempt(serial, now, state="done"))
+            commits.append((now, elapsed))
+            # Each real window reaches its maximum just after a commit. Future
+            # UTC rows in this prefix remain reservations after a backwards step.
+            assert sum(real > elapsed - window_s for _, real in commits) <= allowance
+            assert sum(wall > now - window_s for wall, _ in commits) <= allowance
 
 
 @GENERATED
