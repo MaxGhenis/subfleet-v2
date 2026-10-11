@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import uuid
 
@@ -33,6 +34,7 @@ def harness():
     harness = ServiceHarness(root)
     yield harness
     harness.close()
+    shutil.rmtree(root, ignore_errors=True)
 
 
 def origin(harness) -> tuple[str, str]:

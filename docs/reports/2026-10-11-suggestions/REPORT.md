@@ -6,7 +6,8 @@ job's detached HEAD; Subfleet keeps them as a salvage ref.
 
 ## Status of this report
 
-Test results: see "Tests" below. That section says exactly what ran and what did not.
+Final. "Tests" lists every run and its result, and "Not run" lists what stayed unrun. The head is in the
+commit that carries this report.
 
 ## What an agent and a person can now do
 
@@ -194,10 +195,25 @@ Regression runs (counts are what each run reported):
 | `tests/e2e/test_conversations.py`, `test_conversation_wakes_e2e.py`, `test_suggestions_e2e.py` | 29 passed, 16 skipped (15 pre-existing person-only skips, plus this job's one) |
 | whole suite `--collect-only` | 10,828 collected, no errors |
 | `tests/unit` up to `test_stop_watchdog.py` (capped at 20 failures) | 7,981 passed, 3 skipped, 20 failed, all 20 in `test_stop_watchdog.py` |
+| the 29 `tests/unit` files after `test_stop_watchdog.py` | 850 passed |
 
 The `test_stop_watchdog.py` failures: the test's child process cannot resolve a home directory at import
 (`lanes_transfer.py`'s `Path("~/…").expanduser()`). The same file on a `git archive` of the base 4c6a8a9c fails
 21 of 26 in this lane, so it is the lane's environment, not this change.
+
+## Not run
+
+- **The person half of `tests/e2e/test_suggestions_e2e.py::test_c25_7_an_agent_turn_suggests_and_a_person_starts_a_worktree_conversation`.**
+  Inside a lane the daemon refuses every request from this process tree as a person's. This is by design: it
+  reads every ancestor's environment. The agent half ran and passed. The person half is covered in-lane by
+  `tests/fake/test_suggestions_fake.py`, using the real service and the Claude driver, with only the peer
+  verdict stood in for. Run the e2e file from a terminal or in CI for the real peer check.
+- **`tests/frontend/test_core_live.py`.** It cannot pass inside a lane for the same reason; it was not run.
+- **Not run in full here:** `tests/fake`, `tests/process` and the rest of `tests/e2e`. Their conversation, hook,
+  notice, pool and descriptor files ran (above). The full suite on CI is the authoritative check.
+- **No live app run against a real daemon.** Building and launching the dev app (`app/build.sh --dev`) against a
+  dev daemon was not done. The app was type-checked in every build flavor, its core and views were compiled and
+  run by the frontend suite, and its views were rendered offscreen for the screenshots.
 
 ## Known limits
 
