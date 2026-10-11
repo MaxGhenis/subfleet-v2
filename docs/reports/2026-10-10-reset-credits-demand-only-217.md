@@ -94,6 +94,34 @@ Line numbers are at 476055ddb.
    dry-run preview the same demand without writing. The switch refuses the operator
    too (`actions.py:610-612`), as release/217 already did.
 
+## Where the port departs from #33's text
+
+- **The operator obeys the rule.** In #33, `reset codex <lane>` spent on the named
+  lane with no waiting job, with the switch off, and while a lane reset this week had
+  room (#33's `test_operator_names_one_lane_without_demand_or_the_automatic_switch`,
+  `test_an_operator_lane_is_not_held_back_by_a_lane_reset_this_week`). Rule 9 (the
+  owner, 2026-09-30) says a manual reset obeys the same rule, and release/217 already
+  refused it with the switch off, so here it needs a job whose limited lanes include
+  the named lane, the switch, one at a time and the interval, and never tries another
+  lane (`test_an_operator_reset_obeys_the_same_rule`,
+  `test_an_operator_reset_never_substitutes_another_lane`,
+  `test_an_operator_lane_is_held_back_by_a_lane_reset_this_week`). Only the timer
+  applies the weekly-headroom test of (c).
+- **No admission reservation.** #33 kept a reset lane for the job it was spent for
+  until that job was placed, gone or expired, and let it pass older jobs for that lane
+  (seven #33 cases in `tests/fake/test_reset_credit_incident.py`). release/217's
+  admission has moved on (every concurrency cap null by default since 2026-09-27,
+  C-6.4; C-6.9's FIFO holds only in a capped pool), so the port makes the job due at once instead (`actions.py:760-771`
+  `_job_due`, after a confirmed consume and after an `unknown` one a usage read
+  reconciles open, `actions.py:898-905`). Whichever job takes the reset lane, rule 5
+  holds: the lane has room, so nothing more is spent until it is used up again.
+- **Holds from events too.** #33 read holds from closures only. `Store.put_closure`
+  keeps one open closure per lane and scope, so an operator hold ending before an
+  open account limit leaves no `operator-hold` row; `store_holds` also reads the
+  hold's `lane.held` and `lane.released` events (the 9/30 replay runs both shapes).
+- **`headroom_floor_pct` is optional.** A policy that still names it is validated
+  and ignored, so today's `~/.subfleet/policy.json` loads unchanged.
+
 Kept from release/217: the probe leases in the status snapshot (C-18.1) are laid after
 the reset policy judged it, and admission's view (which `_reset_demand` uses) honours
 them, so a probe-held lane is room; lane identity (`identity_blocked` in `lane_hold`);
