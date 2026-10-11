@@ -477,7 +477,8 @@ def test_generated_busy_completions_leave_real_detached_admission_live(worlds, s
             core.pushes = executor
 
 
-def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds):
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds, cancelled):
     with worlds() as world:
         core = world.core
         pin_routing(world, world.patch)
@@ -511,8 +512,10 @@ def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds
             assert entered.is_set() and not future.done()
             healthy = submit(world, "jobs/after-permanent-preparing-error")
             plain = ordinary(world)
+            if cancelled:
+                core.kill(KillArgs(job))
             core._admit_kind("detached")
-            assert core._job(job)["state"] == "failed"
+            assert core._job(job)["state"] == ("cancelled" if cancelled else "failed")
             assert len(notices(core, job)) == 1
             assert placed(core, plain)
             assert core._push_workspaces[job] is future

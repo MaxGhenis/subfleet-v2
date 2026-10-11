@@ -4068,6 +4068,9 @@ class Daemon:
                 continue
             job = self.store.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
             if not job or job["state"] in TERMINAL or job["cancel_requested_at"]:
+                if future is not None and not future.done() and not future.cancel():
+                    self._push_workspace_store_errors.pop(job_id, None)
+                    continue  # The running worker still owns the build slot.
                 self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
                 self._push_workspaces.pop(job_id, None)
