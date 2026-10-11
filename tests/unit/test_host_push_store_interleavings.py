@@ -2,9 +2,11 @@
 from contextlib import contextmanager
 import errno
 from pathlib import Path
+import shutil
 import sqlite3
 import tempfile
 import threading
+from types import SimpleNamespace
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
@@ -13,6 +15,8 @@ from subfleet import host_push
 from subfleet.daemon import Daemon
 from subfleet.retention_archive import owned_worktree
 from subfleet.adapters.base import AdapterError
+from subfleet.contracts import Launch, attempt_dir
+from subfleet.procs import Containment
 from subfleet.protocol import KillArgs
 from test_host_push import submit, worlds  # noqa: F401
 from test_host_push_admission import notices, ordinary, pin_routing, placed
@@ -416,14 +420,45 @@ def test_busy_preparing_write_does_not_prevent_an_ordinary_job_placing(worlds):
         assert placed(core, job)
 
 
+@pytest.fixture
+def queued_admission_template(worlds):
+    """Validate the Git input once; each example gets isolated rows and files."""
+    with worlds() as world:
+        yield world, submit(world)
+
+
+@contextmanager
+def admission_example(template, root, patch):
+    root.mkdir()
+    shutil.copyfile(template.core.root / "policy.json", root / "policy.json")
+    connection = sqlite3.connect(root / "state.sqlite3")
+    try:
+        template.core.store.connection.backup(connection)
+    finally:
+        connection.close()
+    shutil.copytree(template.core.root / "jobs", root / "jobs")
+    core = Daemon(root, desktop_prober=lambda: None)
+    core._contain = lambda attempt: Containment()
+    core._saved_launch = lambda attempt: Launch((), {}, (), str(template.repo), str(root / "prompt"),
+        str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stdout"),
+        str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stderr"), None, None)
+    try:
+        yield SimpleNamespace(core=core, repo=template.repo, prompt=template.prompt, patch=patch)
+    finally:
+        core.close()
+
+
 @settings(max_examples=20, deadline=None,
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(steps=st.lists(st.tuples(st.sampled_from(["pass", "complete", "cancel", "busy"]),
                                st.sampled_from(["begin", "update", "event", "commit"])),
                      min_size=1, max_size=20))
-def test_generated_busy_completions_leave_real_detached_admission_live(worlds, steps):
+def test_generated_busy_completions_leave_real_detached_admission_live(queued_admission_template, tmp_path,
+                                                                    monkeypatch, steps):
     """The generated pass/cancel model also runs the complete admission loop."""
-    with worlds() as world:
+    template, job = queued_admission_template
+    with tempfile.TemporaryDirectory(dir=tmp_path) as directory, monkeypatch.context() as patch, \
+            admission_example(template, Path(directory) / "state", patch) as world:
         core = world.core
         pin_routing(world, world.patch)
         # Manual scheduling makes completion deterministic; keep the actual
@@ -433,7 +468,6 @@ def test_generated_busy_completions_leave_real_detached_admission_live(worlds, s
         core.pushes = manual
         world.patch.setattr(host_push, "prepare_workspace", lambda root, source, base, dest: dest.mkdir(parents=True))
         try:
-            job = submit(world)
             core._admit_kind("detached")
             manual.complete()
             fault_transaction(world, "job.workspace_built", "commit", sqlite3.OperationalError("database is locked"))
