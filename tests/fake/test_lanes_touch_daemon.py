@@ -191,6 +191,28 @@ def test_an_auth_dead_named_lane_is_refused_with_the_login_command(daemon):
     assert refused.value.fix == f"re-enroll it: CODEX_HOME={lane.home} codex login; subfleet lanes enroll {lane.home}"
 
 
+def test_a_clock_a_short_job_just_started_reads_touched_in_the_daemons_views(daemon):
+    """C-18.7, C-3.7: the daemon's views read only live attempts, without `started_at`. A
+    clock a short job started a minute ago, which the usage endpoint still shows sliding,
+    reads `touched` there as in the timers' snapshot, so `lanes touch` spends no turn on it."""
+    lane = codex(daemon, 1)
+    now = datetime.now(timezone.utc)
+    daemon.store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
+                         state="succeeded", workdir=str(daemon.root), prompt_path="/prompt", sandbox="read-only")
+    daemon.store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id=lane.lane_id, rc=0,
+                             model_requested="gpt-6-astra", state="succeeded",
+                             started_at=iso(now - timedelta(minutes=1)), native_session_id="thread")
+    measure(daemon, lane)                      # 0% and sliding: the endpoint lags a new window
+    touch = daemon.dispatch("lanes", {"action": "touch", "dry_run": True})["touch"]
+    [entry] = touch["plan"]
+    assert (entry["action"], entry["reason"], entry["weekly_clock"]) == ("skip", "touched", "touched")
+    assert touch["touching"] == []
+    [row] = [row for row in daemon.dispatch("lanes", {})["lanes"] if row["lane_id"] == lane.lane_id]
+    assert row["weekly_clock"] == "touched" and row["clock_request"]["source"] == "attempt"
+    quiet = daemon.dispatch("lanes", {"action": "touch"})["touch"]
+    assert quiet["status"] == "nothing-to-touch"
+
+
 def test_limited_and_busy_named_lanes_are_refused(daemon):
     """C-18.7: a limited window has started; a live attempt is the first request itself."""
     limited, busy = codex(daemon, 1), codex(daemon, 2)

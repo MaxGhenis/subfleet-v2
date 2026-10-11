@@ -941,7 +941,25 @@ class Timers:
         overrides = self.actions.override_context()      # read once for every lane (C-3.7)
         overrides['lanes'].update({row['lane_id']: Store.lane_from_row(row) for row in lanes})
         return {'enabled': self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'),
-                'overrides': overrides}
+                'overrides': overrides, 'last_work': self._recent_work()}
+
+    def _recent_work(self):
+        """C-18.7: each lane's latest attempt start that can still say a weekly clock
+        a reading shows sliding was started by work (`_clock_state`): one no older
+        than the reading TTL plus the tolerance, as `_last_work` judges it.
+
+        The daemon's own views read only live attempts, without `started_at`
+        (`STATUS_ATTEMPTS`, `ROUTE_ATTEMPTS`), so a short job that just finished
+        would be invisible to them, and the operator's `lanes touch` would touch
+        the clock it started. An older start can never make a lane `touched`,
+        and never displaces a later touch, so leaving it out changes nothing.
+        `reserved_at` (indexed) bounds the read; an attempt starts within
+        seconds of its reservation, and a day is the margin."""
+        now = self.now()
+        ttl = self.policy.get('caps', {}).get('reading_ttl_s', 120)
+        return self._last_work(self.store.query(
+            "SELECT lane_id,started_at,rc,native_session_id FROM attempts WHERE reserved_at>=? AND started_at>=?",
+            (iso(now - timedelta(days=1)), iso(now - timedelta(seconds=ttl + CLOCK_UNSTARTED_TOLERANCE_S)))))
 
     def merge_lane(self, row):
         """What the last probe found of a lane (`metadata`), laid over its row, as a view has it.
@@ -957,6 +975,9 @@ class Timers:
         # Re-enrolment creates a new lane id. The previous binding stays in the
         # ledger but no longer supplies the home's active credential condition.
         last_work = self._last_work(view.get('attempts'))              # C-18.7
+        for lane_id, started in (rows.get('last_work') or {}).items():
+            if started > last_work.get(lane_id, ''):
+                last_work[lane_id] = started
         bindings = {}
         for lane in rows['enabled']:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
