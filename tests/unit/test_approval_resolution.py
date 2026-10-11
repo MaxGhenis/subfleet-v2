@@ -370,7 +370,6 @@ def test_replay_applies_an_answer_before_a_later_provider_cancel(
     events, changes = store.events_after(cid, 0)["events"], store.changes_after(0)["next"]
     commits = Commits(store, monkeypatch)
     again = runner_for(store, tmp_path, provider, cid, mid)
-    again.replayed_message = True       # this attempt's message was delivered before the restart
     again.handshaken = True
     transmitted = []
 
@@ -503,7 +502,6 @@ def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory
             changes = store.changes_after(0)["next"]
             if replay:
                 again = runner_for(store, tmp, "claude", cid, mid)
-                again.replayed_message = True
                 at = 0
                 for line in stdout:
                     again._apply(again.driver.feed(line, at))

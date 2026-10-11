@@ -166,7 +166,6 @@ def test_a_written_answer_survives_cancel_and_restart_without_a_second_reply(tmp
             store.close()
             store = ConversationStore(tmp_path / "state")
             again = runner_for(store, tmp_path, provider, cid, mid, control_socket=socket)
-            again.replayed_message = True      # the helper starts past the provider's message handover
             assert again._handshake()
             assert again._read_stdout()
             again._drain_commands()

@@ -155,6 +155,11 @@ class TurnRunner:
         self.batch_bytes = 0
         self.last_flush = clock()
         self.served: dict[str, Any] = {}
+        # Answers already durable when this runner was built belong to replay.
+        # Answers recorded later are live commands, even during the first read.
+        self._replay_answers = {row["provider_request_id"] for row in self.store.query(
+            "SELECT provider_request_id FROM approvals WHERE attempt_id=? AND state='answered'",
+            (self.attempt_id,))}
         self.stop_at: float | None = None
         self.ended_at: float | None = None
         self.escalated: set[str] = set()
@@ -568,7 +573,7 @@ class TurnRunner:
                                  "AND state='answered'", (self.attempt_id, request_id))
             if row and row["decision_json"]:
                 decision = json.loads(row["decision_json"])
-                if not self.replay_caught_up and self.replayed_message:
+                if not self.replay_caught_up and request_id in self._replay_answers:
                     if self.sent.get(f"approval:{request_id}") == "written":
                         self._apply(self.driver.restore_answer(request_id, decision.get("decision")), send=False)
                     else:
