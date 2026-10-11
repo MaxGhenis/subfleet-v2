@@ -167,12 +167,26 @@ def test_synthetic_cli_limit_placeholder_supplies_reported_clock(tmp_path, text,
 
 
 @pytest.mark.parametrize("case", ("limit-session-with-clock", "limit-no-clock"))
-def test_error_result_fixture_text_is_cli_evidence(tmp_path, case):
+@pytest.mark.parametrize("rc", (0, 1))
+def test_error_result_fixture_text_is_cli_evidence(tmp_path, case, rc):
     rows = fixture_rows(case)
     result = next(row for row in rows if row["type"] == "result")
     assert result["is_error"] is True
     assert result["result"] in parse_stream(json.dumps(result)).cli_texts()
-    assert classify(tmp_path, [result], rc=1).cls is OutcomeClass.LIMITED
+    assert classify(tmp_path, [result], rc=rc).cls is OutcomeClass.LIMITED
+
+
+@pytest.mark.parametrize("text", ("usage limit", "session limit", "weekly limit", "limit reached",
+    "out of usage credits", "monthly spend limit", "organization has disabled", "401",
+    "Update Claude Code to use this model", "internal server error"))
+@pytest.mark.parametrize("source", ("assistant", "success-result", "failed-model-only"))
+def test_classifier_phrases_in_each_model_source_never_classify(tmp_path, text, source):
+    rows = [assistant(text), success("Finished")] if source == "assistant" else [success(text)]
+    if source == "failed-model-only":
+        rows = [assistant(text)]
+    outcome = classify(tmp_path, rows, rc=1 if source == "failed-model-only" else 0)
+    assert outcome.cls is (OutcomeClass.UNKNOWN if source == "failed-model-only" else OutcomeClass.OK)
+    assert outcome.closure is None
 
 
 @pytest.mark.parametrize("text", ("usage limit", "out of usage credits", "401",

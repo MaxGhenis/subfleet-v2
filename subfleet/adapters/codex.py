@@ -566,9 +566,9 @@ class CodexAdapter(Adapter):
                 failures.append(event)
             completed = completed or event.get("type") == "turn.completed"
             item = event.get("item")
-            agent_message = agent_message or (event.get("type") == "item.completed"
-                and isinstance(item, dict) and item.get("type") == "agent_message"
-                and isinstance(item.get("text"), str))
+            agent_message = agent_message or (
+                event.get("type") == "item.completed" and isinstance(item, dict)
+                and item.get("type") == "agent_message" and isinstance(item.get("text"), str))
             answered = answered or model_answered(event)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
@@ -587,8 +587,10 @@ class CodexAdapter(Adapter):
         # turn.failed always wins over a leftover last.md or earlier assistant text.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
         if exit_info.rc == 0 and not terminal and not exit_info.spawn_error:
-            if completed or agent_message or self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
-                evidence["admission"] = "completed turn with exit 0" if completed else "agent message/deliverable with exit 0"
+            if (completed or agent_message
+                    or self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, ""))):
+                evidence["admission"] = ("completed turn with exit 0" if completed
+                                         else "agent message/deliverable with exit 0")
                 return result(OutcomeClass.OK, "Codex completed with exit 0")
         # Agent messages and last.md never enter these patterns. A verified
         # success also supersedes recovered CLI authentication diagnostics.

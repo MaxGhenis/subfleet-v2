@@ -172,7 +172,7 @@ def test_release_limits_help_names_reported_clock_rule(capsys):
     with pytest.raises(SystemExit) as done:
         cli.build_parser().parse_args(["lanes", "release", "--help"])
     assert done.value.code == 0
-    output = capsys.readouterr().out
+    output = " ".join(capsys.readouterr().out.split())
     assert "--limits" in output and "--note" in output
     assert "Provider-reported clocks cannot be released by hand" in output
 

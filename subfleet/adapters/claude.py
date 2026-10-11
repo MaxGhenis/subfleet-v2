@@ -1490,8 +1490,9 @@ class ClaudeAdapter(Adapter):
     # --- classification (C-9.2 to C-9.5, C-9.8) ------------------------------
 
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
-        """Authentication, then admission, then quota — with the host CLI's version
-        gate ahead of all three (C-9.2).
+        """CLI/provider evidence only (C-9.2). On a failed run: the host CLI's
+        version gate, authentication, admission, then quota. Structural success
+        supersedes text failures; structured admission rejection still wins.
 
         The raw rc and signal ride along with every class (C-9.2), and the readings the
         `rate_limit_event` yielded are attached whatever the class: a limited lane's
