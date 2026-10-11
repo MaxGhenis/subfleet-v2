@@ -70,7 +70,25 @@ Interpreter: the worktree's `uv sync --locked` environment, CPython 3.14.7, free
 | Hold 2, uncapped, `-x` | `35b8207f3` | the same files, less the enabled generated property | 325 passed, 1 deselected, 0 skipped, 20.8 s (lock held 25 s) |
 | Hold 3, uncapped, `-x`, `--hypothesis-show-statistics` | `35b8207f3` | the enabled generated property, R6, `tests/fake/test_admission_disk.py`, `tests/fake/test_admission_lease_waiters.py` | 45 passed, 0 skipped, 31.5 s. Enabled property: 20 passing examples (6 filtered as invalid). R6: 30 passing generated examples plus the explicit one. Lease-waiter property: 30 passing |
 
-FINAL_RUN_PENDING
+Final run, uncapped, `-x`, one pytest process, on `e8230d579` (the code of `35b8207f3`; that commit changed only reports). The lock was held from 04:51:09Z to 04:51:34Z: 369 passed, 0 failed, 0 skipped, 23.5 s.
+
+| File | Passed |
+| --- | --- |
+| `tests/fake/test_admission_ramp.py` | 15 |
+| `tests/fake/test_admission_disk.py` | 27 |
+| `tests/fake/test_admission_lease_waiters.py` | 16 |
+| `tests/unit/test_policy.py` | 178 |
+| `tests/unit/test_policy_disk.py` | 57 |
+| `tests/unit/test_policy_ramp.py` | 46 |
+| `tests/unit/test_policy_support.py` | 14 |
+| `tests/unit/test_policy_tier_preferences.py` | 15 |
+| `tests/unit/test_test_module_names.py` | 1 |
+
+Not run this round:
+- `tests/unit/test_placement_ramp.py`, outside the run list. Its only change this round is to comments. Its tests use raw settings, never the loader, so the new loader rule cannot reach them.
+- `tests/fake/test_admission_ramp_retention.py`, also outside the run list and unchanged. It sets only in-memory 12/60 settings and has its own clock.
+- The rest of the repository's suite.
+- CI's GIL 3.12 and 3.14 jobs.
 
 ### Mutation checks
 
