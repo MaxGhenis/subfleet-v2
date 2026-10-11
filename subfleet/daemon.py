@@ -1307,7 +1307,7 @@ class Daemon:
         """C-6.14: a model answered on `lane_id`, so the lane is proven now, and an
         attempt that answered is no pilot. Remembered first, then recorded as a
         `lane.answered` event (`source`: the attempt's `stream`, its `finalization`,
-        an admission `probe`, a timer's `keepalive` or `heal`); an attempt's answer
+        an admission `probe`, a timer's `keepalive`, `heal` or `touch`); an attempt's answer
         is recorded once. A store error is logged, never raised: the memory is
         what admission reads."""
         now = datetime.now(timezone.utc).timestamp()           # the clock views are built on
