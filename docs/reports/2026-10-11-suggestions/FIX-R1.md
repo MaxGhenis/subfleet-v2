@@ -202,5 +202,24 @@ answers (frontend tests).
 
 ## Test results
 
-Pending: written before the long runs (the shared suite lock was held by another
-session's review run for over 40 minutes when this was written).
+Head `9787fe323`. Its code is `d59808686`'s: `9787fe323` changed only the
+contract. Python 3.14.7, free-threaded build (the worktree's `uv` environment),
+on a host at load average 150 to 550 shared with a dozen other lanes. Each run
+held the shared suite lock (`/private/tmp/claude-501/subfleet-suites.lock`)
+for at most 19 minutes. The runner (`fix-r1-runs/hold_queue.py`) stops a run at
+that limit, along with any daemon it left behind. Logs are in `fix-r1-runs/`
+beside this report, untracked like the earlier lanes'.
+
+### Suites at the head
+
+| Suite | Files | Result |
+| --- | --- | --- |
+| Unit, CLI, hook, fake, ledger | `tests/unit/test_suggestions.py`, `test_suggest_cli.py`, `test_suggest_hint.py`, `test_suggestions_r1b_adversarial.py`, `tests/fake/test_suggestions_fake.py`, `tests/unit/test_desktop_ledger.py` | 81 passed, 386 s (see the note below) |
+
+The first row was run by the previous finishing lane (job
+`20261011-132418-pr181-fix1-finish`, lock held from 15:54:03). Its worktree's
+`subfleet/`, `tests/` and `app/Sources` were compared file by file with this
+head's and are identical, so that run covers this head. Its log is
+`head-unit-suggestions.log` in that job's `fix-r1-runs/`. The same hold then ran
+the secret properties: two of five passed before the hold's 1,140 s limit
+stopped it. They are re-run here, one property per hold.
