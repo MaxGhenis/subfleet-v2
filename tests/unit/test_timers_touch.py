@@ -500,3 +500,183 @@ def test_an_unstarted_lane_ranks_last_and_only_the_touch_starts_its_clock(rig):
     timer.probe_cycle()
     _, fixed = decide()
     assert fixed == iso(touched_at + WEEK)                             # the clock runs; the reset holds
+
+
+# --- review regressions (C-18.3) ------------------------------------------------
+
+def test_a_clock_a_job_just_started_is_not_touched_again(rig):
+    """C-18.3: a short job's request fixes the reset minutes before the probe reads 0%; that is
+    `touched` (by the job), so no second turn is spent and no "started" notice is sent."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    wham.lag_s = 600
+    store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
+                  state="succeeded", workdir=str(timer.root), prompt_path="/prompt", sandbox="read-only")
+    store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id=lane.lane_id, rc=0,
+                      model_requested="gpt-5.6-luna", state="succeeded", started_at=iso(clock() - timedelta(minutes=4)),
+                      native_session_id="thread")
+    wham.started[lane.lane_id] = clock() - timedelta(minutes=4)
+    snapshot = timer.probe_cycle()
+    row = next(row for row in snapshot["lanes"] if row["lane_id"] == lane.lane_id)
+    assert row["weekly_clock"] == "touched" and row["clock_request"]["source"] == "attempt"
+    assert turns == [] and not [n for n in notices if n.get("key", "").startswith("codex-clock")]
+
+
+@pytest.mark.parametrize("status", ["revoked", "expired-token", "limited", "no-auth"])
+def test_a_cycle_whose_probe_is_not_ok_touches_nothing(rig, status):
+    """C-18.3, C-23.47: only a lane whose probe this cycle answered `ok` is touched automatically."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    sliding = wham.probe_status(lane, {})
+    wham.overrides[lane.lane_id] = {**sliding, "status": status, "limit_reached": status == "limited"}
+    timer.probe_cycle()
+    # An expired token gets its one heal turn (C-23.47); no touch follows it.
+    assert [purpose for _, purpose in turns if purpose == "touch"] == [] and touches(store) == []
+
+
+def test_an_automatic_pass_takes_one_round_and_releases_each_lane_as_it_finishes(rig):
+    """C-18.3, C-6.4: at most `lane_workers` touches per cycle; a finished lane is not held for the rest."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lanes = [enroll(f"codex-{n}") for n in range(1, 7)]
+    held = []
+
+    def turn(lane, purpose, holder, *, cancel, deadline):
+        held.append(len(store.query("SELECT 1 FROM leases WHERE holder LIKE 'probe:timer:%'")))
+        turns.append((lane.lane_id, purpose))
+        wham.start(lane.lane_id)
+        return Outcome(OutcomeClass.OK, "OK", evidence={"requested_at": iso(clock()), "rc": 0})
+
+    timer.turn = turn
+    timer.probe_cycle()
+    assert len(turns) == timer.lane_workers == 4 and max(held) <= 4
+    assert store.list_leases() == []
+    assert sum(int(n["subject"].split()[-2]) for n in notices if n.get("key") == "codex-clock-started") == 4
+    clock.advance(60)
+    timer.probe_cycle()
+    assert sorted(lane_id for lane_id, _ in turns) == [lane.lane_id for lane in lanes]
+
+
+def test_a_failure_while_publishing_one_touch_releases_every_lease_and_the_cycle_still_publishes(rig, monkeypatch):
+    """C-18.3, C-23.27: a store error persisting one re-probe is that lane's; no lease is left behind."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    enroll("codex-1"), enroll("codex-2")
+    persist, calls = timer._persist, []
+
+    def failing(lane, probe):
+        calls.append(lane.lane_id)
+        if len(calls) == 3:                        # the first touch re-probe (after two cycle probes)
+            import sqlite3
+            raise sqlite3.OperationalError("database is locked")
+        return persist(lane, probe)
+
+    monkeypatch.setattr(timer, "_persist", failing)
+    (timer.root / "status.json").unlink(missing_ok=True)
+    timer.probe_cycle()
+    assert store.list_leases() == [] and not timer.active_holders
+    results = {t["lane_id"]: t for t in touches(store) if t["status"] != "touching"}
+    assert sorted(results) == ["codex-1", "codex-2"]
+    assert [t.get("error_type") for t in results.values()].count("OperationalError") == 1
+    assert (timer.root / "status.json").exists()
+
+
+def test_a_failure_right_after_the_reservation_releases_it(rig, monkeypatch):
+    """C-18.3: everything after `_reserve` is inside `try`; the lease is always released."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    record, calls = timer._record_touch, []
+
+    def flaky(lane_id, value):
+        calls.append(value["status"])
+        if len(calls) == 1:
+            raise RuntimeError("store unavailable")
+        return record(lane_id, value)
+
+    monkeypatch.setattr(timer, "_record_touch", flaky)
+    timer.probe_cycle()
+    assert turns == [] and store.list_leases() == [] and not timer.active_holders
+    assert touches(store, lane.lane_id)[-1]["status"] == "failed"
+    assert touches(store, lane.lane_id)[-1]["error_type"] == "RuntimeError"
+
+
+def test_a_touch_cut_short_by_shutdown_or_a_crash_neither_spaces_nor_warns(rig):
+    """C-18.3: stopping the daemon mid-turn is no verdict on the lane; neither is a crash."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+
+    def stopping(lane, purpose, holder, *, cancel, deadline):
+        turns.append((lane.lane_id, purpose))
+        timer.cancel.set()
+        return Outcome(OutcomeClass.UNKNOWN, "timer cancelled", evidence={"timed_out": True})
+
+    timer.turn = stopping
+    timer.probe_cycle()
+    assert touches(store, lane.lane_id)[-1]["status"] == "cancelled"
+    restarted = Timers(store, timer.root, timer.policy, adapter_factory=lambda _: wham, now=clock,
+                       turn=rig[0].turn, deliver=lambda notice: notices.append(notice) or True)
+    try:
+        [entry] = restarted.touch_plan(restarted.snapshot())
+        assert entry["next_touch_at"] is None
+        row = next(row for row in restarted.snapshot()["lanes"] if row["lane_id"] == lane.lane_id)
+        assert row["clock_alert"] is None
+        # A crash leaves `touching`; once it can no longer be running it is interrupted, not failed.
+        restarted._record_touch(lane.lane_id, {"lane_id": lane.lane_id, "at": iso(clock()), "mode": "auto",
+                                               "status": "touching"})
+        [entry] = restarted.touch_plan(restarted.snapshot())
+        assert entry["reason"] == "spaced"                # still possibly running: keep out
+        clock.advance(120 + 301)
+        view = restarted.snapshot()
+        [entry] = restarted.touch_plan(view)
+        row = next(row for row in view["lanes"] if row["lane_id"] == lane.lane_id)
+        assert row["clock_touch"]["status"] == "interrupted" and row["clock_alert"] is None
+        assert entry["next_touch_at"] is None
+    finally:
+        restarted.stop()
+
+
+def test_a_touch_that_waited_behind_another_rechecks_spacing_after_reserving(rig):
+    """C-18.3: an automatic touch queued behind an operator's touch of the same lane does not run."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer.probe_cycle()
+    assert len(turns) == 1
+    stale_entry = {"lane_id": lane.lane_id, "reason": "not-started", "weekly_clock": "not-started"}
+    item = timer._touch_lane(lane, stale_entry, mode="auto", request_id=None, wait_s=0)
+    assert item["record"]["status"] == "skipped-spaced" and item["holder"]
+    timer._publish_touch(item, "auto")
+    assert len(turns) == 1 and store.list_leases() == []
+    forced = timer._touch_lane(lane, {**stale_entry, "reason": "forced"}, mode="operator", request_id="r", wait_s=0)
+    timer._publish_touch(forced, "operator")
+    assert len(turns) == 2 and forced["record"]["status"] == "ok"
+
+
+def test_an_automatic_pass_skips_a_lane_a_probe_reservation_holds_and_an_operator_waits(rig):
+    """C-18.3: a quarantined probe keeps its lease; the automatic pass says `held` instead of churning."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer.probe_cycle()
+    clock.advance(3601)
+    wham.started.clear()
+    timer._persist(lane, {**wham.probe_status(lane, {}), "probed_at": iso(clock())})
+    store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:timer:stuck")
+    [auto] = timer.touch_plan(timer.snapshot(held=True), auto=True)
+    assert (auto["action"], auto["reason"]) == ("skip", "held")
+    [operator] = timer.touch_plan(timer.snapshot(held=True))
+    assert operator["action"] == "touch"
+
+
+def test_a_superseded_lane_is_refused_as_superseded(rig):
+    """C-18.3, C-10.2: a re-enrolled lane's old binding names its successor, not a login."""
+    timer, store, clock, *_ = rig
+    [entry] = timer.touch_plan({"lanes": [view_row(clock(), enabled=False, superseded_by="codex-9")]},
+                               target="codex-4")
+    assert entry["reason"] == "superseded"
+
+
+def test_a_retired_alias_is_not_a_touch_model(tmp_path):
+    """C-18.3: `sol` resolves to Astra at ultra effort; the touch names the model it means."""
+    raw = json.loads(DEFAULT_POLICY_PATH.read_text())
+    raw["timers"]["touch_model"] = "sol"
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(raw))
+    with pytest.raises(PolicyError, match="retired alias"):
+        load_policy(path)
