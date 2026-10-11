@@ -120,6 +120,9 @@ def normalize(title: Any, tldr: Any, brief: Any) -> tuple[dict, int]:
     title, tldr = _line(title, "title", TITLE_MAX), _line(tldr, "tldr", TLDR_MAX)
     if not isinstance(brief, str) or not brief.strip():
         raise ConversationError("bad-brief", "the brief must say what the new conversation should do")
+    # As a message's text is read back (C-24.3, `message_text`): the brief kept, shown
+    # and sent is the same text, so the first message is exactly the brief.
+    brief = brief.replace("\r\n", "\n").replace("\r", "\n")
     if len(brief.encode("utf-8")) > BRIEF_MAX_BYTES:
         raise ConversationError("bad-brief", f"the brief must be at most {BRIEF_MAX_BYTES} bytes of UTF-8 "
                                 f"(it is {len(brief.encode('utf-8'))})", fix="shorten it, or point it at a file")
