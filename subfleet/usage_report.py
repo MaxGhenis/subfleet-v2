@@ -63,8 +63,11 @@ def _object(value: Any) -> dict:
     return {}
 
 
-def usage_of(attempt: dict) -> dict | None:
-    """C-18.6: stored evidence and already materialized report rows share one read."""
+def usage_of(attempt: Any) -> dict | None:
+    """C-18.6: stored evidence and already materialized report rows share one read.
+    A row that is not an object (a drifted answer, C-17.4) has no usage."""
+    if not isinstance(attempt, dict):
+        return None
     usage = attempt.get("usage")
     if not isinstance(usage, dict):
         usage = _object(attempt.get("evidence_json")).get("usage")
@@ -75,9 +78,10 @@ def _number(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
-def attempt_values(attempt: dict) -> dict:
-    """C-18.6: cumulative thread totals cannot masquerade as attempt numbers."""
-    usage = usage_of(attempt)
+def attempt_values(attempt: dict, usage: dict | None = ...) -> dict:
+    """C-18.6: cumulative thread totals cannot masquerade as attempt numbers.
+    `usage` is the row's record when the caller has already read it."""
+    usage = usage_of(attempt) if usage is ... else usage
     normalized = _object(usage.get("normalized")) if usage and not usage.get("cumulative_thread") else {}
     return {field: _number(normalized.get(field)) for field in FIELDS}
 
@@ -94,7 +98,7 @@ def aggregate_usage(attempts: Iterable[dict]) -> dict:
     """
     rows = list(attempts)
     usages = [usage_of(row) for row in rows]
-    values = [attempt_values(row) for row in rows]
+    values = [attempt_values(row, usage) for row, usage in zip(rows, usages)]
     coverage = {field: sum(value[field] is not None for value in values) for field in FIELDS}
     totals = {field: sum(value[field] for value in values if value[field] is not None)
               if coverage[field] else None for field in FIELDS}
@@ -118,8 +122,23 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
-def _backfill(attempt: dict, root: Path, artifacts: list[dict]) -> dict | None:
-    """C-18.6: parse one retained provider stream with C-18.5's same parser."""
+class _OutOfTime(Exception):
+    """C-18.6: the backfill budget ran out part way through a stream."""
+
+
+def _until(lines, deadline: float, clock_s, every: int = 256):
+    """The stream's lines until `deadline` (on `clock_s`), looked at every `every`
+    lines: a single stream of hundreds of megabytes cannot outlast the budget."""
+    for count, line in enumerate(lines):
+        if count % every == 0 and clock_s() >= deadline:
+            raise _OutOfTime
+        yield line
+
+
+def _backfill(attempt: dict, root: Path, artifacts: list[dict], *, deadline: float = float("inf"),
+              clock_s=time.monotonic) -> dict | None:
+    """C-18.6: parse one retained provider stream with C-18.5's same parser, raising
+    `_OutOfTime` once `deadline` passes, between lines as well as between files."""
     from .usage import parse_usage
     adir = root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
     paths = [Path(row["path"]) for role in ("raw-stream", "stdout") for row in artifacts
@@ -137,7 +156,7 @@ def _backfill(attempt: dict, root: Path, artifacts: list[dict]) -> dict | None:
         seen.add(path)
         try:
             with open_state(path, "r", encoding="utf-8", errors="replace") as stream:
-                usage = parse_usage(stream, attempt["provider"], resumed=resumed,
+                usage = parse_usage(_until(stream, deadline, clock_s), attempt["provider"], resumed=resumed,
                                     turn_id=turn.get("turn_id"))
         except OSError:
             continue
@@ -159,6 +178,8 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
         raise ProtocolError("usage: by must be lane, conversation or session")
     if not isinstance(backfill, bool):
         raise ProtocolError("usage: backfill must be true or false")
+    # The budget covers the whole answer from here, its queries included (C-16.4).
+    stop_reading = clock_s() + budget_s
     now = (now or datetime.now(UTC)).astimezone(UTC)
     since_at = parse_since(since, now=now)
     clock = lambda value: value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -167,13 +188,8 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
         "WHERE julianday(COALESCE(a.finished_at,a.started_at,a.reserved_at))>=julianday(?) "
         "AND julianday(COALESCE(a.finished_at,a.started_at,a.reserved_at))<=julianday(?) "
         "ORDER BY a.reserved_at,a.attempt_id", (clock(since_at), clock(now)))
-    artifacts: dict[str, list[dict]] = {}
-    if backfill:
-        for artifact in store.query("SELECT attempt_id,role,path FROM artifacts WHERE role IN ('raw-stream','stdout')"):
-            artifacts.setdefault(artifact["attempt_id"], []).append(artifact)
     manifests: dict[str, dict] = {}
     attempts, grouped = [], {}
-    stop_reading = clock_s() + budget_s
     unread = 0
     for source in rows:
         row = dict(source)
@@ -188,11 +204,17 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
         usage = usage_of(row)
         recovered = False
         if usage is None and backfill:
-            if clock_s() < stop_reading:
-                usage = _backfill(row, root, artifacts.get(row["attempt_id"], []))
+            try:
+                if clock_s() >= stop_reading:
+                    raise _OutOfTime
+                # One indexed look per attempt (`artifacts_attempt`), never a scan of all history.
+                artifacts = [dict(item) for item in store.query(
+                    "SELECT attempt_id,role,path FROM artifacts WHERE attempt_id=? AND role IN ('raw-stream','stdout')",
+                    (row["attempt_id"],))]
+                usage = _backfill(row, root, artifacts, deadline=stop_reading, clock_s=clock_s)
                 recovered = usage is not None
-            else:
-                unread += 1
+            except _OutOfTime:
+                usage, unread = None, unread + 1
         group_id = (row["lane_id"] if by == "lane" else
                     str(conversation or f"unknown:{row['job_id']}") if by == "conversation" else
                     f"{row['provider']}:{row['native_session_id']}" if row.get("native_session_id") else
@@ -201,7 +223,7 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
                    "provider": row["provider"], "native_session_id": row.get("native_session_id"),
                    "conversation_id": conversation, "group": group_id, "usage": usage, "backfilled": recovered,
                    "source": "backfilled" if recovered else "stored" if usage else "missing"}
-        attempt.update(attempt_values(attempt))
+        attempt.update(attempt_values(attempt, usage))
         prompt, read = attempt["prompt"], attempt["cache_read"]
         attempt["cache_hit_share"] = (read / prompt if prompt is not None and prompt > 0
                                       and read is not None and read <= prompt else None)

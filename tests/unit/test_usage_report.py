@@ -291,22 +291,59 @@ def test_c18_6_backfill_preserves_stored_measurements(usage_store, tmp_path):
     assert report["totals"]["prompt"] == 100 and report["totals"]["backfilled"] is False
 
 
+def _legacy(usage_store, tmp_path, name, *, filler=0):
+    """A finished attempt with no stored usage whose retained stream ends in a
+    reported `turn.completed`, after `filler` ordinary events."""
+    aid = _seed(usage_store, tmp_path, name)
+    path = tmp_path / f"{name}-stream"
+    event = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "x"}}).encode() + b"\n"
+    path.write_bytes(event * filler + json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10}}).encode() + b"\n")
+    usage_store.add_artifact(aid, "raw-stream", str(path), hashlib.sha256(path.read_bytes()).hexdigest(),
+                             path.stat().st_size)
+
+
+def _ticking():
+    """A clock that moves one second each time it is read."""
+    from itertools import count
+    ticks = count()
+    return lambda: float(next(ticks))
+
+
 def test_c18_6_backfill_stops_at_its_budget_and_says_how_many_it_left(usage_store, tmp_path):
     """C-18.6: the report runs on a request thread, so its stream reads stop at the
-    budget; an attempt left unread counts as missing and the answer counts it."""
+    budget; an attempt left unread counts as missing and the answer counts it. The
+    clock is read at entry, before each attempt and every 256 lines of a stream."""
     for name in ("legacy-a", "legacy-b", "legacy-c"):
-        aid = _seed(usage_store, tmp_path, name)
-        path = tmp_path / f"{name}-stream"
-        path.write_bytes(json.dumps({"type": "turn.completed", "usage": {
-            "input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10}}).encode() + b"\n")
-        usage_store.add_artifact(aid, "raw-stream", str(path), hashlib.sha256(path.read_bytes()).hexdigest(),
-                                 path.stat().st_size)
-    ticks = iter([0.0, 0.0, 5.0, 25.0, 25.0, 25.0])     # the third look is past a 20 s budget
-    report = build_report(usage_store, tmp_path, backfill=True, now=NOW, budget_s=20.0,
-                          clock_s=lambda: next(ticks))
+        _legacy(usage_store, tmp_path, name)
+    report = build_report(usage_store, tmp_path, backfill=True, now=NOW, budget_s=4.5, clock_s=_ticking())
     assert report["backfill_unread"] == 1
     assert report["totals"]["backfilled_attempts"] == 2 and report["totals"]["attempts_without_usage"] == 1
     assert build_report(usage_store, tmp_path, now=NOW)["backfill_unread"] == 0
+
+
+def test_c18_6_one_long_stream_cannot_outlast_the_budget(usage_store, tmp_path):
+    """C-18.6, review r1 of #174: the deadline is looked at while a stream is read,
+    not only between attempts; a 231 MB stream had taken 146 s of a 20 s budget.
+    One cut short is unread and missing, never partly parsed into a record."""
+    _legacy(usage_store, tmp_path, "long", filler=2_000)
+    report = build_report(usage_store, tmp_path, backfill=True, now=NOW, budget_s=3.5, clock_s=_ticking())
+    assert report["backfill_unread"] == 1 and report["totals"]["backfilled_attempts"] == 0
+    assert report["totals"]["prompt"] is None and report["attempt_rows"][0]["source"] == "missing"
+    whole = build_report(usage_store, tmp_path, backfill=True, now=NOW)
+    assert whole["backfill_unread"] == 0 and whole["totals"]["prompt"] == 100
+
+
+def test_c18_6_backfill_reads_artifacts_only_of_attempts_in_the_window(usage_store, tmp_path, monkeypatch):
+    """C-18.6, review r1 of #174: artifact rows are looked up per attempt in the
+    window (an indexed read), never by scanning every retained artifact."""
+    _legacy(usage_store, tmp_path, "inside")
+    seen = []
+    real = usage_store.query
+    monkeypatch.setattr(usage_store, "query", lambda sql, params=(): seen.append(sql) or real(sql, params))
+    build_report(usage_store, tmp_path, backfill=True, now=NOW)
+    looks = [sql for sql in seen if "FROM artifacts" in sql]
+    assert looks and all("attempt_id=?" in sql for sql in looks)
 
 
 def test_c18_6_cli_says_when_backfill_left_attempts_unread(daemon, capsys):

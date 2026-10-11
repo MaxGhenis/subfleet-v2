@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import replace
 from typing import Any, Callable
 
 from ..adapters.claude import model_matches_requested
@@ -211,6 +210,14 @@ class ClaudeTurn(SteerTracking):
         self._last_result: dict | None = None
         self._last_result_offset = 0
         self._queued_turn_count = 0
+
+    @property
+    def usage(self) -> dict | None:
+        """C-18.5: what the stream has reported so far, including any usage-bearing
+        row after the terminal one. The outcome keeps what was known when it was
+        made and is never replaced, since it is shared by identity until stdout
+        drains (C-26.5)."""
+        return parse_usage(self._usage_lines, "claude")
 
     # --- lifecycle -------------------------------------------------------------
 
@@ -406,8 +413,6 @@ class ClaudeTurn(SteerTracking):
             message = row["message"]
             self._usage_lines.append(json.dumps({"type": "assistant", "parent_tool_use_id": row.get("parent_tool_use_id"),
                                                  "message": {key: message.get(key) for key in ("id", "model", "usage")}}))
-        if self.outcome is not None:
-            self.outcome = replace(self.outcome, usage=parse_usage(self._usage_lines, "claude"))
         source = _Sources(offset)
         kind = row.get("type")
         if kind == "command_lifecycle":

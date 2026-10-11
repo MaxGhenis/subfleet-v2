@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
 from typing import Any, Callable
 
 from ..guard.preflight import HOOK_KEY
@@ -171,6 +170,12 @@ class CodexTurn(SteerTracking):
 
     # --- lifecycle -------------------------------------------------------------
 
+    @property
+    def usage(self) -> dict | None:
+        """C-18.5: what the stream has reported for this turn so far. The outcome
+        keeps what was known when it was made and is never replaced (C-26.5)."""
+        return parse_usage(self._usage_lines, "codex", turn_id=self.turn_id)
+
     def start(self) -> Step:
         self.phase = "initializing"
         init = _request(ID_INIT, "initialize", {"clientInfo": {"name": "subfleet", "title": "Subfleet", "version": "2"}})
@@ -298,8 +303,6 @@ class CodexTurn(SteerTracking):
             return Step()
         if msg.get("method") in ("thread/tokenUsage/updated", "turn/started"):
             self._usage_lines.append(text)
-            if self.outcome is not None:
-                self.outcome = replace(self.outcome, usage=parse_usage(self._usage_lines, "codex", turn_id=self.turn_id))
         source = _Sources(offset)
         if str(msg.get("id", "")).startswith("steer:") and "method" not in msg:
             return self._steer_response(msg, source)

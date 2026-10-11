@@ -1010,6 +1010,14 @@ def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mappin
 CACHE_TTL_S = {"1h": 3600, "5m": 300, "mixed": 300}
 
 
+def _iso_exact(value: datetime) -> str:
+    """C-6.19: an instant as ISO 8601 UTC with its fraction of a second kept (none
+    printed when it has none), so a clock the decision returns is never earlier
+    than the instant it compared (`_iso` truncates to the second)."""
+    text = value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return text.replace(".000000Z", "Z")
+
+
 def warm_reopen(reasons: Iterable[str], lane_readings: Iterable[Mapping[str, Any]],
                 closures: Iterable[Mapping[str, Any]], *, now: datetime, floor: float,
                 reading_ttl_s: int) -> str | None:
@@ -1042,7 +1050,7 @@ def warm_reopen(reasons: Iterable[str], lane_readings: Iterable[Mapping[str, Any
             ends.extend(_time(row["resets_at"]) for row in over)
         else:
             return None
-    return _iso(max(ends))
+    return _iso_exact(max(ends))
 
 
 def warm_verdict(*, reopens_at: str | datetime | None, now: str | datetime,
@@ -1062,7 +1070,8 @@ def warm_verdict(*, reopens_at: str | datetime | None, now: str | datetime,
     so the job is looked at again before the bound passes); `move` with `why`
     (`no-known-reopen`, `cache-expires-first`, `past-bound`). Invariants (tests):
     a `wait` has `now < deadline <= wait_since + warm_wait_s` (no job waits past
-    the bound); `next_check_at <= deadline`; the same inputs give the same verdict."""
+    the bound); `now <= next_check_at <= deadline`; the same inputs give the same
+    verdict. Returned clocks keep their fraction of a second (`_iso_exact`)."""
     if warm_wait_s is None:
         return {"action": "off"}
     instant = _time(now)
@@ -1073,10 +1082,10 @@ def warm_verdict(*, reopens_at: str | datetime | None, now: str | datetime,
     bound = since + timedelta(seconds=warm_wait_s)
     cache = _time(cache_until) if cache_until is not None else None
     deadline = min(bound, cache) if cache is not None else bound
-    record = {"reopens_at": _iso(reopen), "deadline": _iso(deadline), "wait_since": _iso(since),
-              "cache_until": _iso(cache) if cache is not None else None}
+    record = {"reopens_at": _iso_exact(reopen), "deadline": _iso_exact(deadline), "wait_since": _iso_exact(since),
+              "cache_until": _iso_exact(cache) if cache is not None else None}
     if reopen <= deadline and instant < deadline:
-        return {"action": "wait", "next_check_at": _iso(max(instant, min(reopen, deadline))), **record}
+        return {"action": "wait", "next_check_at": _iso_exact(max(instant, min(reopen, deadline))), **record}
     why = "cache-expires-first" if cache is not None and reopen > cache and cache <= bound else "past-bound"
     return {"action": "move", "why": why, **record}
 
@@ -1086,7 +1095,7 @@ def cache_until(last_use: str | datetime | None, cache_ttl: str | None) -> str |
     the lifetime the stream reported (`CACHE_TTL_S`); None when either is unknown."""
     if last_use is None or cache_ttl not in CACHE_TTL_S:
         return None
-    return _iso(_time(last_use) + timedelta(seconds=CACHE_TTL_S[cache_ttl]))
+    return _iso_exact(_time(last_use) + timedelta(seconds=CACHE_TTL_S[cache_ttl]))
 
 
 def turn_route(decision: Decision | Mapping[str, Any], affinity_lane: str | None, *, floor: float,

@@ -43,7 +43,7 @@ def assistant(mid, **usage):
     return {"type": "assistant", "parent_tool_use_id": None, "message": {"id": mid, "usage": usage}}
 
 
-def test_c_12_10_claude_live_results_are_disjoint_model_usage_is_cumulative():
+def test_c18_5_claude_live_results_are_disjoint_model_usage_is_cumulative():
     """C-18.5: claude live results are disjoint model usage is cumulative."""
     usage = fixture("claude-multi-result.jsonl", "claude")
     normalized = usage["normalized"]
@@ -60,7 +60,7 @@ def test_c_12_10_claude_live_results_are_disjoint_model_usage_is_cumulative():
     assert parse_stream(text).usage == usage == parse_lines(iter(text.splitlines())).usage
 
 
-def test_c_12_10_codex_live_resume_preserves_thread_scope_and_subset_input():
+def test_c18_5_codex_live_resume_preserves_thread_scope_and_subset_input():
     """C-18.5: codex live resume preserves thread scope and subset input."""
     original = fixture("codex-original.jsonl", "codex")
     resumed = fixture("codex-resumed.jsonl", "codex", resumed=True)
@@ -72,7 +72,7 @@ def test_c_12_10_codex_live_resume_preserves_thread_scope_and_subset_input():
     assert original["cumulative_thread"] is False
 
 
-def test_c_12_10_app_server_live_total_and_last_own_turn_only():
+def test_c18_5_app_server_live_total_and_last_own_turn_only():
     """C-18.5: app server live total and last own turn only."""
     usage = fixture("codex-app-turn.jsonl", "codex", turn_id="turn")
     assert usage["normalized"]["prompt"] == 14734
@@ -82,7 +82,7 @@ def test_c_12_10_app_server_live_total_and_last_own_turn_only():
     assert fixture("codex-app-turn.jsonl", "codex", turn_id="other") is None
 
 
-def test_c_12_10_app_snapshots_replace_and_restored_thread_totals_are_labelled():
+def test_c18_5_app_snapshots_replace_and_restored_thread_totals_are_labelled():
     """C-18.5: app snapshots replace and restored thread totals are labelled."""
     events = lines(app(input=20, output=5), app(input=45, output=9, last={"inputTokens": 25, "outputTokens": 4}),
                    app(input=999, turn="other"))
@@ -98,14 +98,14 @@ def test_c_12_10_app_snapshots_replace_and_restored_thread_totals_are_labelled()
     assert baseline["cumulative_thread"] is True
 
 
-def test_c_12_10_app_turn_id_inferred_only_from_own_acknowledgement():
+def test_c18_5_app_turn_id_inferred_only_from_own_acknowledgement():
     """C-18.5: app turn id inferred only from own acknowledgement."""
     started = {"method": "turn/started", "params": {"turn": {"id": "turn"}}}
     assert parse_usage(lines(started, app()), "codex") == parse_usage(lines(app()), "codex", turn_id="turn")
     assert parse_usage(lines(app()), "codex") is None
 
 
-def test_c_12_10_app_historical_baseline_is_scoped_to_the_own_thread():
+def test_c18_5_app_historical_baseline_is_scoped_to_the_own_thread():
     """C-18.5: foreign thread notifications cannot turn own usage into historical totals."""
     foreign = app(input=100, turn="foreign-turn")
     foreign["params"]["threadId"] = "foreign-thread"
@@ -120,7 +120,7 @@ def test_c_12_10_app_historical_baseline_is_scoped_to_the_own_thread():
     assert parse_usage(lines(foreign, own), "codex", turn_id="turn")["cumulative_thread"] is True
 
 
-def test_c_12_10_first_last_main_requests_deduplicate_and_ignore_children():
+def test_c18_5_first_last_main_requests_deduplicate_and_ignore_children():
     """C-18.5: first last main requests deduplicate and ignore children."""
     first = assistant("first", input_tokens=2, cache_creation_input_tokens=3, cache_read_input_tokens=10)
     last = assistant("last", input_tokens=4, cache_creation_input_tokens=0, cache_read_input_tokens=15)
@@ -136,13 +136,13 @@ def test_c_12_10_first_last_main_requests_deduplicate_and_ignore_children():
 
 
 @pytest.mark.parametrize("split,ttl", [((5, 0), "1h"), ((0, 5), "5m"), ((2, 3), "mixed"), ((0, 0), None), ((5, None), None)])
-def test_c_12_10_ttl_is_reported_split_only(split, ttl):
+def test_c18_5_ttl_is_reported_split_only(split, ttl):
     """C-18.5: ttl is reported split only."""
     creation = dict(zip(("ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"), split))
     assert parse_usage(lines(claude(cache_creation=creation)), "claude")["normalized"]["cache_ttl"] == ttl
 
 
-def test_c_12_10_missing_fields_stay_null_and_request_totals_are_not_estimated():
+def test_c18_5_missing_fields_stay_null_and_request_totals_are_not_estimated():
     """C-18.5: missing fields stay null and request totals are not estimated."""
     usage = parse_usage(lines({"type": "result", "usage": {"output_tokens": 5}}), "claude")
     assert usage["normalized"] == {"prompt": None, "cache_read": None, "cache_write": None,
@@ -170,7 +170,7 @@ def test_c_12_10_missing_fields_stay_null_and_request_totals_are_not_estimated()
 
 @pytest.mark.parametrize("models", [{}, {"model": {}}, {"model": None}, {"model": {"outputTokens": None}},
                                      {"model": {"costUSD": 1, "contextWindow": 1000000}}])
-def test_c_12_10_model_maps_without_token_counters_do_not_claim_usage(models):
+def test_c18_5_model_maps_without_token_counters_do_not_claim_usage(models):
     """C-18.5: empty, null-only and cost/capacity-only model maps report no measured tokens."""
     assert parse_usage(lines({"type": "result", "modelUsage": models}), "claude") is None
     observed = {**claude(), "modelUsage": models}
@@ -180,12 +180,12 @@ def test_c_12_10_model_maps_without_token_counters_do_not_claim_usage(models):
 @pytest.mark.parametrize("provider,event", [("codex", codex(input=5, read=6)), ("codex", codex(input=5, write=6)),
                                             ("codex", app(input=5, read=6)), ("claude", claude(input=-1)),
                                             ("claude", claude(cache_creation=[])), ("codex", codex(input=True))])
-def test_c_12_10_invalid_usage_is_refused_never_clamped(provider, event):
+def test_c18_5_invalid_usage_is_refused_never_clamped(provider, event):
     """C-18.5: invalid usage is refused never clamped."""
     assert parse_usage(lines(event), provider, turn_id="turn") is None
 
 
-def test_c_12_10_duplicate_conflicts_and_invalid_earlier_snapshots_refuse_record():
+def test_c18_5_duplicate_conflicts_and_invalid_earlier_snapshots_refuse_record():
     """C-18.5: duplicate conflicts and invalid earlier snapshots refuse record."""
     assert parse_usage(lines(assistant("same", input_tokens=4), assistant("same", input_tokens=5), claude()), "claude") is None
     assert parse_usage(lines(app(input=5, read=6), app()), "codex", turn_id="turn") is None
@@ -193,7 +193,7 @@ def test_c_12_10_duplicate_conflicts_and_invalid_earlier_snapshots_refuse_record
     assert parse_usage(lines(repeated, repeated), "claude")["normalized"]["output"] == 5
 
 
-def test_c_12_10_provider_adapters_attach_usage_to_outcome(adapter, tmp_path):
+def test_c18_5_provider_adapters_attach_usage_to_outcome(adapter, tmp_path):
     """C-18.5: provider adapters attach usage to outcome."""
     from subfleet.adapters.codex import CodexAdapter
     from tests.conftest import exit_info, make_launch
@@ -207,8 +207,10 @@ def test_c_12_10_provider_adapters_attach_usage_to_outcome(adapter, tmp_path):
     assert CodexAdapter().classify(directory, launch, exit_info(1)).usage == parse_usage(lines(codex()), "codex")
 
 
-def test_c_12_10_turn_drivers_keep_usage_after_completion_and_replay():
-    """C-18.5: turn drivers keep usage after completion and replay."""
+def test_c18_5_turn_drivers_keep_usage_after_completion_and_replay():
+    """C-18.5, C-26.5: the outcome carries the usage known when it was made and is
+    never replaced (it is shared by identity until stdout drains); a usage row
+    after it reaches the driver's `usage`, which the runner records."""
     from subfleet.conversations.claude_turn import ClaudeTurn
     from subfleet.conversations.codex_turn import CodexTurn
     from subfleet.conversations.turn import TurnSpec
@@ -218,9 +220,11 @@ def test_c_12_10_turn_drivers_keep_usage_after_completion_and_replay():
     claude_driver.feed(json.dumps(claude()), 0)
     claude_driver.eof(1)
     assert claude_driver.outcome.usage == parse_usage(lines(claude()), "claude")
+    ended = claude_driver.outcome
     trailing = claude(output=8)
     claude_driver.feed(json.dumps(trailing), 2)
-    assert claude_driver.outcome.usage["normalized"]["output"] == 13
+    assert claude_driver.outcome is ended and ended.usage["normalized"]["output"] == 5
+    assert claude_driver.usage["normalized"]["output"] == 13
 
     codex_spec = TurnSpec(provider="codex", message_id="message", text="hello", model_id="gpt-6-astra", permission="ask", native_session_id=None)
     codex_driver = CodexTurn(codex_spec)
@@ -228,11 +232,13 @@ def test_c_12_10_turn_drivers_keep_usage_after_completion_and_replay():
     codex_driver.feed(json.dumps(app()), 0)
     codex_driver.eof(1)
     assert codex_driver.outcome.usage == parse_usage(lines(app()), "codex", turn_id="turn")
+    ended = codex_driver.outcome
     codex_driver.feed(json.dumps(app(input=30)), 2)
-    assert codex_driver.outcome.usage["normalized"]["prompt"] == 30
+    assert codex_driver.outcome is ended
+    assert codex_driver.usage["normalized"]["prompt"] == 30
 
 
-def test_c_12_10_turn_classifier_reparses_trailing_stream_instead_of_stale_record(tmp_path):
+def test_c18_5_turn_classifier_reparses_trailing_stream_instead_of_stale_record(tmp_path):
     """C-18.5: turn classifier reparses trailing stream instead of stale record."""
     from subfleet.conversations.classify import TurnAdapter
     from tests.conftest import exit_info, make_launch
@@ -243,8 +249,9 @@ def test_c_12_10_turn_classifier_reparses_trailing_stream_instead_of_stale_recor
     assert TurnAdapter("codex").classify(tmp_path, launch, exit_info(0)).usage["normalized"]["prompt"] == 30
 
 
-def test_c_12_10_runner_omits_unreported_usage_and_adds_measurement_on_replay(tmp_path):
-    """C-18.5: replay adds observed counters while preserving the recorded turn fate."""
+def test_c18_5_runner_omits_unreported_usage_and_adds_measurement_on_replay(tmp_path):
+    """C-18.5: replay adds observed counters (the driver's `usage`) while preserving
+    the recorded turn fate."""
     from contextlib import nullcontext
     from dataclasses import replace
     from types import SimpleNamespace
@@ -252,7 +259,7 @@ def test_c_12_10_runner_omits_unreported_usage_and_adds_measurement_on_replay(tm
     from subfleet.conversations.turn import Outcome, TurnSpec
 
     spec = TurnSpec(provider="claude", message_id="message", text="hello", model_id="opus", permission="ask", native_session_id=None)
-    runner = SimpleNamespace(recorded=None, driver=SimpleNamespace(outcome=Outcome("complete")), spec=spec,
+    runner = SimpleNamespace(recorded=None, driver=SimpleNamespace(outcome=Outcome("complete"), usage=None), spec=spec,
                              adir=tmp_path, store=SimpleNamespace(writing=nullcontext), served={}, stop_reason=None,
                              final_text="hello", relay_failed=False, sent={}, frame_refused=False, relay_version=1,
                              steer_facts=lambda: {})
@@ -260,11 +267,12 @@ def test_c_12_10_runner_omits_unreported_usage_and_adds_measurement_on_replay(tm
     recorded = json.loads((tmp_path / "turn.json").read_text())
     assert "usage" not in recorded
     runner.recorded = recorded
-    runner.driver.outcome = replace(runner.driver.outcome, state="failed", usage=parse_usage(lines(claude()), "claude"))
+    runner.driver.outcome = replace(runner.driver.outcome, state="failed")
+    runner.driver.usage = parse_usage(lines(claude()), "claude")
     TurnRunner._write_outcome(runner)
     updated = json.loads((tmp_path / "turn.json").read_text())
     assert updated["state"] == "complete"
-    assert updated["usage"] == runner.driver.outcome.usage
+    assert updated["usage"] == runner.driver.usage
 
 
 @given(st.recursive(st.one_of(st.none(), st.booleans(), st.integers(), st.text()),
@@ -272,7 +280,7 @@ def test_c_12_10_runner_omits_unreported_usage_and_adds_measurement_on_replay(tm
                                                st.dictionaries(st.sampled_from(("id", "turn", "total", "last", "usage", "input_tokens")), children, max_size=3)),
                     max_leaves=10))
 @settings(deadline=None)
-def test_c_12_10_unfamiliar_container_shapes_do_not_raise(value):
+def test_c18_5_unfamiliar_container_shapes_do_not_raise(value):
     """C-18.5: unfamiliar provider field types give null or refused records, never a crash."""
     parse_usage(lines({"method": "turn/started", "params": value},
                       {"method": "thread/tokenUsage/updated", "params": value}), "codex")
@@ -283,7 +291,7 @@ def test_c_12_10_unfamiliar_container_shapes_do_not_raise(value):
 @given(st.integers(min_value=0, max_value=10**12), st.integers(min_value=0, max_value=10**12),
        st.integers(min_value=0, max_value=10**12), st.integers(min_value=0, max_value=10**12))
 @settings(deadline=None)
-def test_c_12_10_claude_nonnegative_components_bound_cache_and_share(input, read, write, output):
+def test_c18_5_claude_nonnegative_components_bound_cache_and_share(input, read, write, output):
     """C-18.5: claude nonnegative components bound cache and share."""
     record = parse_usage(lines(claude(input, read, write, output)), "claude")
     values = record["normalized"]
@@ -297,7 +305,7 @@ def test_c_12_10_claude_nonnegative_components_bound_cache_and_share(input, read
 @given(st.integers(min_value=0, max_value=10**12), st.integers(min_value=0, max_value=10**12),
        st.integers(min_value=0, max_value=10**12))
 @settings(deadline=None)
-def test_c_12_10_codex_cache_subset_invariant_or_whole_record_refused(prompt, read, write):
+def test_c18_5_codex_cache_subset_invariant_or_whole_record_refused(prompt, read, write):
     """C-18.5: codex cache subset invariant or whole record refused."""
     record = parse_usage(lines(codex(prompt, read, write)), "codex")
     if read > prompt or write > prompt:
@@ -312,7 +320,7 @@ def test_c_12_10_codex_cache_subset_invariant_or_whole_record_refused(prompt, re
 @given(st.integers(min_value=0), st.integers(min_value=0), st.integers(min_value=0),
        st.permutations(("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")))
 @settings(deadline=None)
-def test_c_12_10_duplicate_message_usage_is_order_independent(input, read, write, order):
+def test_c18_5_duplicate_message_usage_is_order_independent(input, read, write, order):
     """C-18.5: duplicate message usage is order independent."""
     counters = dict(input_tokens=input, cache_read_input_tokens=read, cache_creation_input_tokens=write)
     duplicate_frames = [assistant("same", **{key: counters[key]}) for key in order]
@@ -322,7 +330,7 @@ def test_c_12_10_duplicate_message_usage_is_order_independent(input, read, write
 
 @given(st.lists(st.text().filter(lambda text: '"usage"' not in text and '"modelUsage"' not in text)))
 @settings(deadline=None)
-def test_c_12_10_no_usage_never_produces_a_record(noise):
+def test_c18_5_no_usage_never_produces_a_record(noise):
     """C-18.5: no usage never produces a record."""
     assert parse_usage(noise, "claude") is None
     assert parse_usage(noise, "codex") is None

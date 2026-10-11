@@ -64,7 +64,7 @@ CLIENT_POLL_S = .25
 #: observation in passing (the desktop identity, a diff's tree objects), nothing
 #: a caller relies on. One whose client has hung up is not run.
 READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
-                           "daemon.status", "notice.pending"})
+                           "daemon.status", "notice.pending", "usage"})
 #: C-16.7 with C-25.2: the conversation ops that only read. The two long polls
 #: are here (C-25.4), and the diffs, whose git work is the costliest read the
 #: daemon does (C-26.14). `conversation.open` only reads when it names a
