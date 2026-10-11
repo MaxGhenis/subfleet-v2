@@ -2,7 +2,8 @@
 
 Base: `4c6a8a9c989e`. Branch: `fix/census-recycled-pid` in `.git-local`
 (shared Git metadata is read-only). No history rewrite, remote Git operation,
-or live-state change. Each coherent step was committed before queued test runs.
+or live-state change. Implementation and a draft report were committed before
+long test waits; each coherent step has its own commit.
 
 The census counted whichever process currently occupied the guardian or child
 PID, even after the attempt's recorded start identity had died. A reused leader
@@ -50,8 +51,8 @@ The same citation appears in the code comment and C-5.5.
 Unknown legacy boot matches or failed reads needed to decide identity retain
 containment and make it unverifiable. A different start alone proves reuse even
 when the optional boot read for evidence fails. Without a complete recorded
-identity, readable birth times
-before attempt start or after the exit receipt exclude a root. The lower bound
+identity, readable birth times before attempt start or after the exit receipt
+exclude a root. The lower bound
 is rounded down to whole seconds to match `ps lstart` precision; missing or
 unparseable bounds retain it. Matching recorded identities override bounds.
 Marker enumeration is unchanged. Evidence records only identity/bounds and a
@@ -81,14 +82,16 @@ salvage ref. It does not modify the live qyp16 job.
 
 ## Invariants and validation
 
-Five Hypothesis properties use 200 valid generated cases each. The first
-implementation run completed all **1,000 valid cases**, with **0 failures** and
-108 rejected generation attempts (not failing cases):
+The final run completed **1,000 valid Hypothesis cases**, **200 per property**,
+with **0 failures** and 104 rejected generation attempts (not failing cases).
+Property (b) also varies whether the other root is recycled, preserving a
+matching child even under a recycled guardian. The earlier property run passed
+1,000 valid cases too, with 108 rejected generation attempts.
 
 | Invariant | Valid passing cases |
 |---|---:|
 | (a) Recycled roots/groups cannot contribute the stranger or its walk | 200 |
-| (b) Matching roots and live group members remain included | 200 |
+| (b) Matching roots remain; a matching leader retains live group members | 200 |
 | (c) Marker source is unaffected | 200 |
 | (d) All matching identities preserve all source sets and captured identities | 200 |
 | (e) Kill ownership retains the old identity and never adds/signals the stranger | 200 |
@@ -105,7 +108,19 @@ Dependencies were installed from the unchanged lockfile.
   regressions, state contract, notice headers, probe recovery, probe cancellation
   and daemon launch. Salvage and all incident checks passed. The old missing-exit
   state test exposed incomplete process stubs; corrected the fixture as above.
-- Final validation of the latest code and both fixture corrections: pending.
+- Final validation at `4085e06dcd77b365994243736de82cfb500de6cb`:
+  **115 passed, 0 failed in 455.72 s (7 min 35 s)**. Files:
+  `tests/unit/test_census_recycled_pid.py`,
+  `tests/fake/test_census_recycled_pid.py`, `tests/unit/test_procs.py`,
+  `tests/fake/test_state_contract.py`, with `--hypothesis-show-statistics`.
+  Both previously failing fixtures passed, as did all three incident cases,
+  rc-0 success/export, verified-empty salvage and the strengthened properties.
+
+Across the fixed-code runs, **220 distinct selected pytest items passed**,
+including **31 new items** (23 unit, 8 fake). The final runner waited about two
+hours for the shared lock; its actual test duration remained below 20 minutes.
+The runner exited 0 and its TMPDIR cleanup completed. The frozen before copy
+and local Hypothesis artifacts were removed; no background runner remains.
 
 Unrun: the full repository suite, real-process/live-provider suites, a live hub
 replay, and integration with unmerged PR #131's timed quarantine rechecks.
