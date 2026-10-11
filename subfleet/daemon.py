@@ -2612,10 +2612,11 @@ class Daemon:
 
         This is `git rev-parse --show-toplevel` in the job's folder, twice when git
         finds no checkout under a `.git`, run off the store lock. It reads the
-        repository and writes nothing: no time of the folder's tree, its `.git`, its
-        index or a linked worktree's admin directory moves (measured by
-        `test_retention_rediscovery.py`). A turn's folder is in place, so this is
-        the folder `_workspace` would return.
+        repository and writes nothing: no content, mode, mtime or ctime of the
+        folder's tree, its `.git` and index, a linked worktree's admin directory or
+        an external top moves (measured by `test_retention_rediscovery.py`); a read
+        may move an atime, which retention does not sign. A turn's folder is in
+        place, so this is the folder `_workspace` would return.
 
         Never for a push job (C-8.5): its write target is the top
         `host_push.validate_submit` validated, as submit spelled it, and git run on
