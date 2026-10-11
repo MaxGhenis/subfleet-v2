@@ -39,11 +39,15 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None, cards_sensor=None):
-        from .actions import ResetCredits
+                 deliver=None, now=None, cards_sensor=None, demand=None):
+        from .actions import ResetCredits, inhibit_path
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # C-23.16 (a): the daemon's admission view of the jobs waiting on capacity
+        # (`Daemon._reset_demand`). Without one no credit is ever spent, by the
+        # timer or for an operator's `reset codex <lane>`.
+        self.demand = demand
         # C-10.3: whether Claude Code is using the desktop login now, a callable the
         # daemon supplies (`Daemon._desktop_in_use`); None judges the desktop lane
         # in use, as a view without the signal does.
@@ -81,7 +85,8 @@ class Timers:
         self._usage_lock = threading.Lock()
         self._usage_next = 0.0
         self.started = False
-        self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider))
+        self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider),
+                                    inhibit=inhibit_path(self.root))
         self.alerts = Alerts(store, policy, deliver or (lambda notice: False))
         settings = policy.get('timers', {})
         self.intervals = {'probe': settings.get('probe_interval_s', 60),
@@ -272,10 +277,48 @@ class Timers:
             self._session_mirror = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
         return self._session_mirror
 
+    def current_demand(self, *, record=True, errors=None):
+        """C-23.16 (a): the waiting jobs, as admission judges them, or None if unknown.
+
+        A reader that raises is no demand: an unreadable queue never spends a
+        credit. The failure is an event unless `record` is false (a preview
+        writes nothing, C-19.1), and its type is appended to `errors` if given.
+        """
+        if self.demand is None:
+            return None
+        try:
+            return list(self.demand())
+        except Exception as exc:
+            if errors is not None:
+                errors.append(type(exc).__name__)
+            if record:
+                self.store.add_event('timer.error', data={'timer': 'reset_credits', 'stage': 'demand',
+                                                          'error_type': type(exc).__name__})
+            return None
+
+    def evaluate_resets(self, snapshot, *, target=None):
+        """C-23.16: one reset-credit evaluation, demand read only if it is needed.
+
+        The timer and an operator's `reset codex <lane>` (`target`) both judge
+        the same waiting demand; the operator's names the one lane a credit may
+        go on. A demand reader that raised spends nothing, and says so: the
+        result is `demand-error` with its `error_type`, so the timer's status
+        shows it rather than a quiet `no-demand`. The error travels with this
+        call, not on the component, so a preview on another thread cannot
+        relabel it. The daemon's clock goes with it: the lanes are judged again
+        at the spend, at the time it then reads (C-23.16 (c), (d)).
+        """
+        errors = []
+        result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
+                                       deadline=time.monotonic() + 60, target_lane_id=target,
+                                       demand=lambda: self.current_demand(errors=errors), clock=self.now)
+        if errors and result.get('status') in ('no-demand', 'demand-changed'):
+            result = {**result, 'status': 'demand-error', 'error_type': errors[-1]}
+        return result
+
     def reset_credits_cycle(self, *, target=None):
         snapshot = self.snapshot()
-        result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
-                                       deadline=time.monotonic() + 60, target_lane_id=target)
+        result = self.evaluate_resets(snapshot, target=target)
         if result.get('status') == 'confirmed':
             lane_id = result['lane_id']
             row = next(row for row in snapshot['lanes'] if row['lane_id'] == lane_id)
@@ -1017,8 +1060,7 @@ class Timers:
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
         snapshot = self.snapshot()
         if not offline:
-            result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
-                                           deadline=time.monotonic() + 60)
+            result = self.evaluate_resets(snapshot)
             self.mark('reset_credits', error=result.get('error_type'), next_due=self.status()['probe']['next_due'])
             if result.get('status') == 'confirmed':
                 row = next(row for row in snapshot['lanes'] if row['lane_id'] == result['lane_id'])
