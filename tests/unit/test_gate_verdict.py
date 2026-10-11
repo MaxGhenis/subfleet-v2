@@ -6,7 +6,7 @@ import pytest
 
 from subfleet.contracts import Attestation, AttestationResult
 from subfleet.gate.errors import GateError
-from subfleet.gate.verdict import (TEMPLATE_VERDICT, VERDICT_BEGIN, VERDICT_END, VerdictFormatError,
+from subfleet.gate.verdict import (MAX_DEPTH, TEMPLATE_VERDICT, VERDICT_BEGIN, VERDICT_END, VerdictFormatError,
                                    decode_output, parse_verdict, rejected_output_evidence,
                                    validate_attestation)
 
@@ -21,6 +21,14 @@ def payload(**changes):
 
 def envelope(value):
     return f"{VERDICT_BEGIN}\n{json.dumps(value)}\n{VERDICT_END}\n"
+
+
+def nested(levels):
+    """A list nested `levels` deep; as a member of the payload it sits one level lower."""
+    value = []
+    for _ in range(levels - 1):
+        value = [value]
+    return value
 
 
 @pytest.mark.parametrize("verdict,findings", [("approve", []), ("changes_requested", [FINDING]), ("blocked", [])])
@@ -87,6 +95,7 @@ FORMAT_FAILURES = [
     # Built as text: parsing nesting this deep at import overflows a test worker's stack.
     pytest.param(envelope(payload()).replace('"Reviewed the exact plan."', "[" * 30_000 + "]" * 30_000),
                  id="summary-nested-too-deep"),
+    envelope(payload(extra=nested(MAX_DEPTH))),
 ]
 NEVER_FORMAT_FAILURES = [
     (envelope(payload(artifact_revision={**REVISION, "sha256": "b" * 64})), "different"),
@@ -115,20 +124,15 @@ def test_c23_9_binding_and_contradiction_failures_are_never_format_failures(text
     assert not isinstance(error.value, VerdictFormatError) and error.value.code == 4
 
 
-def test_c23_9_verdict_the_journal_cannot_serialize_is_a_format_failure(monkeypatch):
-    """C-3.2, C-23.9 (amended): nesting json.loads accepts but json.dumps cannot store never escapes."""
-    import subfleet.gate.verdict as verdict_module
-    dumps = verdict_module.json.dumps
-
-    def shallow_dumps(value, *args, **kwargs):
-        if kwargs.get("ensure_ascii") is False:
-            raise RecursionError("maximum recursion depth exceeded")
-        return dumps(value, *args, **kwargs)
-
-    text = envelope(payload())
-    monkeypatch.setattr(verdict_module.json, "dumps", shallow_dumps)
-    with pytest.raises(VerdictFormatError, match="nested too deeply"):
-        parse_verdict(text, REVISION)
+def test_c23_9_nesting_is_bounded_by_a_fixed_depth_not_by_the_interpreter():
+    """C-3.2, C-23.9 (amended): what parses, journals and pretty-prints differs by Python version, so the bound is fixed."""
+    at_bound = payload(extra=nested(MAX_DEPTH - 1))
+    assert parse_verdict(envelope(at_bound), REVISION) == at_bound
+    json.dumps(at_bound, indent=2, sort_keys=True)  # gate.json's encoding, recursive on Python 3.12
+    with pytest.raises(VerdictFormatError, match=f"nested more than {MAX_DEPTH} levels"):
+        parse_verdict(envelope(payload(extra=nested(MAX_DEPTH))), REVISION)
+    with pytest.raises(VerdictFormatError, match=f"nested more than {MAX_DEPTH} levels"):
+        parse_verdict(envelope(payload(findings=nested(MAX_DEPTH))), REVISION)
 
 
 def test_c23_9_non_utf8_output_is_a_format_failure():
@@ -185,8 +189,11 @@ OTHER = {**REVISION, "sha256": "b" * 64}
     (f"{VERDICT_BEGIN}{{not json{VERDICT_END} and more", "cannot be read as a JSON object", [], []),
     (f"{VERDICT_BEGIN}{{verdict: 'changes_requested'}}{VERDICT_END}", "cannot be read as a JSON object", [], []),
     (envelope([payload()]), "cannot be read as a JSON object", [], []),
-    pytest.param(VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "too deeply nested", [], [],
+    # Too deep to parse on one interpreter, a non-object on another: unreadable on both.
+    pytest.param(VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "cannot be read as a JSON object", [], [],
                  id="nesting-too-deep-to-diagnose"),
+    (envelope(payload(extra=nested(MAX_DEPTH))), "cannot be read as a JSON object", [], []),
+    (envelope(payload(artifact_revision={**REVISION, "x": nested(MAX_DEPTH)})), "cannot be read as a JSON object", [], []),
     # Verdict fields outside the blocks must read as one object, bound to the reviewed revision.
     ("Verdict: blocked, see below.\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
     ("**Findings:** none\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),

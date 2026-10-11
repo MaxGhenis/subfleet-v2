@@ -12,6 +12,10 @@ SCHEMA_VERSION = 1
 VERDICT_BEGIN = "---SUBFLEET-VERDICT-BEGIN---"
 VERDICT_END = "---SUBFLEET-VERDICT-END---"
 VERDICTS = frozenset({"approve", "changes_requested", "blocked"})
+# A verdict nests four levels (object, findings, finding, text). Deeper than this is
+# refused by a fixed bound, because what the interpreter can parse, journal, and
+# pretty-print differs by version and by thread (Python 3.12 cannot indent 1,000 levels).
+MAX_DEPTH = 32
 # The prompt template's placeholder: a block that still carries it chose no verdict.
 TEMPLATE_VERDICT = "approve | changes_requested | blocked"
 
@@ -41,6 +45,20 @@ def _invalid_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant {value}")
 
 
+def _too_deep(value: Any) -> bool:
+    """Whether containers nest beyond MAX_DEPTH, walked without recursion."""
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if isinstance(item, (dict, list)):
+            if depth > MAX_DEPTH:
+                return True
+            children = (item.values() if isinstance(item, dict)
+                        else (pair[1] for pair in item) if isinstance(item, _Members) else item)
+            pending.extend((child, depth + 1) for child in children)
+    return False
+
+
 def decode_output(body: bytes) -> str:
     """Peer output is UTF-8 text; anything else is a malformed envelope."""
     try:
@@ -56,8 +74,8 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
     payload is a JSON object, its revision binding is checked before text outside
     the sentinels is reported, so that payload's binding failure (another revision,
     or none) is a plain GateError, as is a contradictory verdict. A failure found
-    earlier (duplicate sentinels, invalid JSON) is reported first; see
-    rejected_output_evidence for what else then forbids a re-ask.
+    earlier (duplicate sentinels, invalid JSON, nesting beyond MAX_DEPTH) is
+    reported first; see rejected_output_evidence for what else then forbids a re-ask.
     """
     if text.count(VERDICT_BEGIN) != 1 or text.count(VERDICT_END) != 1:
         raise VerdictFormatError("peer output is missing or duplicates the verdict sentinel")
@@ -72,14 +90,14 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
         raise VerdictFormatError(f"peer verdict is invalid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise VerdictFormatError("peer verdict must be a JSON object")
+    if _too_deep(value):
+        raise VerdictFormatError(f"peer verdict is nested more than {MAX_DEPTH} levels deep")
     if value.get("artifact_revision") != expected_revision:
         raise GateError("peer verdict is bound to a different artifact revision", 4)
     try:  # the journal must be able to store what counts
         json.dumps(value, ensure_ascii=False).encode("utf-8")
     except UnicodeEncodeError as exc:  # a lone surrogate escape
         raise VerdictFormatError("peer verdict contains text that is not valid Unicode") from exc
-    except RecursionError as exc:
-        raise VerdictFormatError("peer verdict is nested too deeply") from exc
     if before.strip() or after.strip():
         raise VerdictFormatError("peer output contains text outside the verdict sentinel")
     if type(value.get("schema_version")) is not int or value["schema_version"] != SCHEMA_VERSION:
@@ -154,7 +172,9 @@ def _read(fragment: str) -> _Members | None:
 
     Strict JSON first; then with a surrounding code fence, invalid backslash
     escapes, and trailing commas repaired. A JSON string that holds an object
-    is read once more. Nothing read here is ever accepted as a verdict.
+    is read once more. Nesting beyond MAX_DEPTH, or too deep for the
+    interpreter to parse, cannot be read. Nothing read here is ever accepted
+    as a verdict.
     """
     repaired = _FENCE_CLOSE.sub("", _FENCE_OPEN.sub("", fragment))
     repaired = _ESCAPE.sub(lambda match: match.group(0) if match.group(1) in '"\\/bfnrtu'
@@ -165,9 +185,9 @@ def _read(fragment: str) -> _Members | None:
             value = json.loads(candidate, object_pairs_hook=_Members)
             if isinstance(value, str):
                 value = json.loads(value, object_pairs_hook=_Members)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
-        return value if isinstance(value, _Members) else None
+        return value if isinstance(value, _Members) and not _too_deep(value) else None
     return None
 
 
@@ -206,8 +226,8 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
             verdicts.extend(item if isinstance(item, str) else json.dumps(_plain(item), sort_keys=True)
                             for item in _values(members, "verdict") if item is not None)
             lock.extend(_object_lock(members))
-        except RecursionError:
-            refusals.append("a verdict block in the output is too deeply nested to diagnose")
+        except RecursionError:  # unreachable within MAX_DEPTH; refuse rather than raise
+            refusals.append(unreadable)
 
     cursor, begin, end = 0, text.find(VERDICT_BEGIN), None
     while begin != -1:

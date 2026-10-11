@@ -617,15 +617,21 @@ def test_lone_surrogate_in_a_valid_verdict_never_wedges_the_gate(core, tmp_path,
         assert state_of(core, started)["status"] == "reviewing"
 
 
-@pytest.mark.parametrize("depth", [20_000, 60_000])
-def test_deeply_nested_verdict_never_escapes_the_gate_op(core, tmp_path, depth):
-    """C-3.2, C-17.1: nesting too deep to parse or store blocks or re-asks; it never raises."""
-    deep = lambda text: text.replace('"summary":', '"summary": ' + "[" * depth + "]" * depth + ', "s":')  # noqa: E731
+@pytest.mark.parametrize("depth", [40, 1_000, 60_000])
+def test_deeply_nested_verdict_blocks_without_a_reask_on_every_interpreter(core, tmp_path, depth):
+    """C-3.2, C-17.1, C-23.9 (amended): nesting past the bound blocks with 4; it never raises or wedges.
+
+    At 1,000 levels Python 3.12 parses and journals the verdict and then cannot indent gate.json.
+    """
+    deep = lambda text: text.replace('"summary":', '"extra": ' + "[" * depth + "]" * depth + ', "summary":')  # noqa: E731
     _, started = start(core, tmp_path)
     finish(core, started, transform=deep)
-    result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
-    assert result["code"] in (None, 4)
-    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] in (None, 4)
+    blocked = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    assert blocked["code"] == 4 and "not re-asked" in blocked["message"]
+    assert "cannot be read as a JSON object" in blocked["message"]
+    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})["code"] == 4
+    assert state_of(core, started)["status"] == "blocked" and len(core.store.list_jobs()) == 1
+    json.loads((core.root / "gates" / started["gate_id"] / "gate.json").read_text())
 
 
 def test_recursion_while_consuming_blocks_the_round_instead_of_raising(core, tmp_path, monkeypatch):
