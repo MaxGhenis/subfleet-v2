@@ -11,12 +11,43 @@ Caller audit: `_read_stdout` is the sole production caller of `_sync_answers`; i
 Regression coverage:
 
 - `tests/unit/test_approval_resolution.py:354`: 12 cases, both providers × three decisions × written/unsent replies. A request and later cancel share one stdout read. The card remains answered, with exactly one decision event, no withdrawn event or new change-feed row, and no reconstruction of a written reply.
-- `tests/unit/test_approval_resolution.py:406`: six live queue cases, covering startup, a live first runner and a caught-up adopted runner.
+- `tests/unit/test_approval_resolution.py:405`: six live queue cases, covering startup, a live first runner and a caught-up adopted runner.
 - `tests/unit/test_turn_replay.py:135`: both providers with a real relay, actual pipe output and a reopened durable store. Restart leaves the relay log unchanged and writes no second reply.
 - The approval history property removes the known-case exemption, requires exact event equality after replay, pins the formerly exempt history as an explicit example and increases generated examples from 80 to 500.
 - The Claude queued-steer cancellation test covers live and restored answers.
 
-Validation is pending: the baseline is queued behind another workspace holding the required shared pytest lock. No pytest result or generated property count is claimed yet. Syntax compilation and `git diff --check` passed. Required suites: `test_approval_resolution.py`, `test_approval_commit.py`, `test_turn_runner.py`, `test_turn_replay.py`, `test_claude_turn.py` and `test_codex_turn.py`, all under `tests/unit`. The baseline selects the 12 cancellation regressions, six live queue cases and the strict history property; the fixed run will exercise all six suites with `--hypothesis-seed=20261011 --hypothesis-show-statistics`.
+Validation is blocked by the required shared pytest lock. The baseline waited for over 60 minutes without starting pytest; its output log remained empty, and a nonblocking lock probe returned exit 75 (`already locked`). Only this job's waiting command was interrupted (exit 130), leaving the other workspace's lock holder alone. No suite lock was held by this job. Six touched Python files passed syntax compilation, `git diff --check` passed, and the working tree was clean before this report update.
+
+| Check | Executed | Result |
+| --- | ---: | --- |
+| Baseline: 12 cancellation cases, six live queue cases, strict history property | 0 | blocked before pytest started |
+| `test_approval_resolution.py` | 0 | blocked |
+| `test_approval_commit.py` | 0 | blocked |
+| `test_turn_runner.py` | 0 | blocked |
+| `test_turn_replay.py` | 0 | blocked |
+| `test_claude_turn.py` | 0 | blocked |
+| `test_codex_turn.py` | 0 | blocked |
+
+Property counts: the old setting was 80 generated examples; the new setting is 500 generated examples plus one explicit formerly exempt history. Executed generated examples: 0. Executed explicit examples: 0. Before/after failure and pass counts are unavailable because the baseline never started; no failing or passing pytest result is claimed.
+
+Before, answer synchronization queued a response and left the driver pending when a later cancel arrived. The changed code applies startup-recorded answers before that cancel and preserves the person's sole decision event. This behavior is asserted by the new regressions but remains unverified at runtime until the lock becomes available.
+
+Rerun all required suites from the workspace once the shared lock is available:
+
+```sh
+export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)sf-replay-$$/"
+mkdir -p "$TMPDIR"
+trap 'python3 -c '\''import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)'\'' "$TMPDIR"' EXIT
+export UV_CACHE_DIR="$PWD/.uv-cache" UV_NO_SYNC=1 UV_OFFLINE=1
+export HYPOTHESIS_STORAGE_DIRECTORY="$PWD/.uv-cache/hypothesis"
+/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock uv run pytest -q \
+  tests/unit/test_approval_resolution.py tests/unit/test_approval_commit.py \
+  tests/unit/test_turn_runner.py tests/unit/test_turn_replay.py \
+  tests/unit/test_claude_turn.py tests/unit/test_codex_turn.py \
+  --hypothesis-seed=20261011 --hypothesis-show-statistics
+```
+
+Commits before this validation report: `c04c90feb` (strict regressions), `5189b6b07` (restore paths and contract), `84e8e00d7` (durable startup answer detection), `52f88ff7a` (caught-up live coverage and initial report). The final head is on `refs/heads/fix/replay-answer-order` in `.git-local`. A local delivery bundle at `docs/reports/2026-10-11-replay-answer-order.bundle` contains this job's commits and requires the base commit above.
 
 Tests use one pytest process at a time under `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`, with `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-replay-$$/`. Temporary roots are cleaned with the requested `python3`/`shutil.rmtree` command. Dependencies and Hypothesis storage are local to `.venv` and `.uv-cache`; pytest uses `UV_NO_SYNC=1` and `UV_OFFLINE=1` after installing the locked dependencies.
 
