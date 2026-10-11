@@ -82,10 +82,11 @@ FORMAT_FAILURES = [
     envelope(payload(summary=" ")),
     envelope(payload()).replace('"approve"', '"approve", "verdict": "blocked"'),
     envelope(payload()).replace('"findings": []', '"findings": NaN'),
-    VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END,
+    pytest.param(VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, id="nesting-too-deep-to-parse"),
     envelope(payload(summary="\ud800")),
     # Built as text: parsing nesting this deep at import overflows a test worker's stack.
-    envelope(payload()).replace('"Reviewed the exact plan."', "[" * 30_000 + "]" * 30_000),
+    pytest.param(envelope(payload()).replace('"Reviewed the exact plan."', "[" * 30_000 + "]" * 30_000),
+                 id="summary-nested-too-deep"),
 ]
 NEVER_FORMAT_FAILURES = [
     (envelope(payload(artifact_revision={**REVISION, "sha256": "b" * 64})), "different"),
@@ -184,7 +185,8 @@ OTHER = {**REVISION, "sha256": "b" * 64}
     (f"{VERDICT_BEGIN}{{not json{VERDICT_END} and more", "cannot be read as a JSON object", [], []),
     (f"{VERDICT_BEGIN}{{verdict: 'changes_requested'}}{VERDICT_END}", "cannot be read as a JSON object", [], []),
     (envelope([payload()]), "cannot be read as a JSON object", [], []),
-    (VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "too deeply nested", [], []),
+    pytest.param(VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END, "too deeply nested", [], [],
+                 id="nesting-too-deep-to-diagnose"),
     # Verdict fields outside the blocks must read as one object, bound to the reviewed revision.
     ("Verdict: blocked, see below.\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
     ("**Findings:** none\n" + envelope(payload()), "outside the verdict blocks", ["approve"], []),
@@ -227,21 +229,32 @@ def test_c23_9_rejected_output_diagnosis_only_forbids_or_constrains_a_reask(text
         assert refusal in evidence["refusal"]
 
 
-@pytest.mark.parametrize("text", [
-    VERDICT_BEGIN * 40_000 + VERDICT_END,
-    *(character * 200_000 for character in ('"', "'", "`", "\\", " ", ",")),
-    "verdict:" + " " * 200_000,
-    "verdict" + "!" * 200_000,
-    ("findings" + " " * 1000) * 200,
-    VERDICT_BEGIN + ("," + " " * 1000) * 200,
-    VERDICT_BEGIN + ("\n" + " " * 1000) * 200,
-])
+# Short ids: a failure must not print a megabyte parameter into the log.
+LINEAR_INPUTS = {
+    "begin-sentinels": VERDICT_BEGIN * 40_000 + VERDICT_END,
+    **{f"run-of-{name}": character * 200_000 for name, character in (
+        ("double-quotes", '"'), ("single-quotes", "'"), ("backticks", "`"), ("backslashes", "\\"),
+        ("spaces", " "), ("commas", ","))},
+    "key-then-spaces": "verdict:" + " " * 200_000,
+    "key-then-nonword-run": "verdict" + "!" * 200_000,
+    "keys-with-space-runs": ("findings" + " " * 1000) * 200,
+    "commas-with-space-runs": VERDICT_BEGIN + ("," + " " * 1000) * 200,
+    "newlines-with-space-runs": VERDICT_BEGIN + ("\n" + " " * 1000) * 200,
+}
+
+
+@pytest.mark.parametrize("text", LINEAR_INPUTS.values(), ids=LINEAR_INPUTS.keys())
 def test_c23_9_rejected_output_diagnosis_is_linear(text):
-    """C-23.9 (amended): no peer output can make the diagnosis stall the daemon."""
+    """C-23.9 (amended): no peer output can make the diagnosis stall the daemon.
+
+    Each input is linear at a few hundred milliseconds or less. The quadratic scans
+    these replaced took from ten seconds to minutes on the same inputs, so the
+    bound has room for a slow, loaded test runner and still tells the two apart.
+    """
     import time
     started = time.perf_counter()
     rejected_output_evidence(text, REVISION)
-    assert time.perf_counter() - started < 0.5
+    assert time.perf_counter() - started < 5
 
 
 @pytest.mark.parametrize("status", ["mismatch", "unattested", None])
