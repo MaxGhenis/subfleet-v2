@@ -60,10 +60,11 @@ def test_executable_path_reads_the_running_process():
     assert executable_path(2 ** 22 + 12345) is None
 
 
-def test_a_terminal_is_a_person_and_a_headless_agent_is_not():
-    """C-25.6 a process with a controlling terminal may; one without may not."""
-    assert judge(10, chain=chain_of(Proc(10, 9, "ttys003", "/bin/zsh"), Proc(9, 1, "ttys003", "login")),
-                 executable=lambda pid: "/bin/zsh").person
+def test_neither_a_terminal_nor_a_headless_agent_is_a_person():
+    """C-25.6 after D-PB1: a process with a controlling terminal may not, any more than
+    one without (tests/unit/test_person_boundary.py has the cases)."""
+    assert not judge(10, chain=chain_of(Proc(10, 9, "ttys003", "/bin/zsh"), Proc(9, 1, "ttys003", "login")),
+                     executable=lambda pid: "/bin/zsh").person
     assert not judge(10, chain=chain_of(Proc(10, 9, "??", "/usr/bin/python3 x.py"), Proc(9, 1, "??", "node")),
                      executable=lambda pid: "/usr/bin/python3").person
 

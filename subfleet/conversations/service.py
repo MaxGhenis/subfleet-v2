@@ -277,7 +277,8 @@ class ConversationService:
         return APP_EXECUTABLES
 
     def _person(self, peer: int | None, what: str):
-        """C-25.6: refuse agents Subfleet launched; accept the app or a terminal."""
+        """C-25.6: refuse agents Subfleet launched; accept only the app (D-PB1: a
+        terminal is not enough)."""
         verdict = judge(peer, root=str(self.root), app_executables=self._app_executables())
         if not verdict.person:
             raise ConversationError("person-only", f"{what} is a person's decision: {verdict.reason}", code=7,

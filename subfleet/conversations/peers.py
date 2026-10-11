@@ -5,10 +5,20 @@ policy, setting `allow_main` and unblocking an unfinished turn are a person's
 decisions. The daemon reads the caller's pid from the socket
 (`LOCAL_PEERPID`) and refuses when the caller, or any ancestor, is a process
 Subfleet launched (a guardian's descendant, or one carrying the C-5.1
-markers), and accepts only the installed app's executable or a process with a
-controlling terminal. Any other process of the same user is outside this
-check, as it is outside `daemon.sock`'s: it is a boundary against the agents
-Subfleet runs and headless agents, not against the user.
+markers), and accepts only the installed app's executable (or, on a
+development state root, the development build the daemon was started with,
+D-21). Any other process of the same user is outside this check, as it is
+outside `daemon.sock`'s: it is a boundary against the agents Subfleet runs and
+headless agents, not against the user.
+
+A controlling terminal is not a person (D-PB1, 2026-10-11). The vetoes read
+only the caller's ancestry as it is now: a process an agent started can drop
+its markers, hold or open a pseudo-terminal, and outlive its parent, and once
+launchd adopts it nothing above it is Subfleet's. Refusing only a caller whose
+parent is launchd would not close that, because the orphan can fork a child
+with a terminal of its own. An SSH login has a terminal and no markers too.
+So the positive test is what the caller's image is, and a terminal is never
+enough.
 """
 
 from __future__ import annotations
@@ -22,13 +32,15 @@ from typing import Callable
 
 MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
 APP_EXECUTABLES = ("/Applications/Subfleet.app/Contents/MacOS/Subfleet",)
+#: `ps -o tty` for a process with no controlling terminal.
+NO_TERMINAL = ("??", "-", "")
 
 
 @dataclass(frozen=True)
 class Proc:
     pid: int
     ppid: int
-    tty: str
+    tty: str              # read for the refusal's wording only; it never admits (D-PB1)
     command: str          # full command line, with `ps -E` environment appended when read
 
 
@@ -105,6 +117,7 @@ def judge(pid: int | None, *, chain: Callable[[int], list[Proc]] = process_chain
     allowed = {os.path.realpath(p) for p in app_executables}
     if path and (path in app_executables or os.path.realpath(path) in allowed):
         return Verdict(True, "the Subfleet app", pid)
-    if caller.tty not in ("??", "-", ""):
-        return Verdict(True, f"a terminal ({caller.tty})", pid)
-    return Verdict(False, "only the Subfleet app or a terminal may do this", pid)
+    if caller.tty not in NO_TERMINAL:
+        return Verdict(False, f"this needs the Subfleet app; a terminal ({caller.tty}) is not enough, "
+                              "because a process an agent started can hold one", pid)
+    return Verdict(False, "this needs the Subfleet app", pid)
