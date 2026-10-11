@@ -1038,7 +1038,10 @@ def test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers(tmp_path):
         # it the last slot, so with one slot the newer job still waits.
         assert daemon._holds[newer]["reason"] == "slot-kept", daemon._holds
         assert daemon._holds[newer]["kept_for"] == priority
-        assert workspaces.calls == []
+        # C-8.4: no git runs in the fenced tree for the priority job. The newer job's
+        # folder is outside the fence, and C-6.11 decides `slot-kept` in the reserving
+        # transaction, after the workspace is prepared, as on release/217.
+        assert workspaces.calls == [newer]
         daemon.store.release_leases("retention:retired")
         daemon._admit()
         assert _live(daemon, priority) and not _live(daemon, newer), daemon._holds
