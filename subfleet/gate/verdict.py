@@ -189,7 +189,8 @@ def rejected_output_evidence(text: str, expected_revision: dict[str, Any]) -> di
     finding. An approval from the re-ask counts only when every object read has
     the shape of an approval (see _object_lock): nothing but the template's
     members, a verdict of approve or none, no findings or notes, and a summary
-    that is text. Prose is never read, inside a summary or outside the blocks.
+    that is text when one is given. Prose is never read, inside a summary or
+    outside the blocks.
     """
     refusals, verdicts, lock, outside, read_any = [], [], [], [], False
 
