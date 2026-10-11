@@ -682,7 +682,7 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
 
         patch.setattr(folders, "present", spell)
 
-        @settings(max_examples=200, deadline=None, derandomize=True)
+        @settings(max_examples=400, deadline=None, derandomize=True)
         @example(parts=["Job"], alias="swap", missing="none", separate=False, writable=True,
                  fenced={"git-tree"}, row="spelled")
         @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
@@ -711,7 +711,7 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
                  fenced=set(), row="unspelled")
         @given(parts=names, alias=st.sampled_from(["nfc", "nfd", "swap", "nfd-swap"]),
                missing=st.sampled_from(["none", "git", "cwd", "both"]), separate=st.booleans(), writable=st.booleans(),
-               fenced=st.sets(st.sampled_from(places)), row=st.sampled_from(["spelled", "unspelled"]))
+               fenced=st.sets(st.sampled_from(places)), row=st.sampled_from(["unspelled", "spelled"]))
         def check(parts, alias, missing, separate, writable, fenced, row):
             base = tmp_path / "folders"
             shutil.rmtree(base, ignore_errors=True)
