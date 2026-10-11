@@ -18,14 +18,15 @@ operator value.
 | Change | Location |
 | --- | --- |
 | Shared CA selection, certificate validation, once-only warning, environment assembly | `subfleet/provider_env.py:19` |
-| Default and validated nullable policy | `subfleet/policy.py:23`, `subfleet/default_policy.json:2` |
-| Credentials, guardian environments for attempts and probes, restart reconstruction | `subfleet/daemon.py:742`, `subfleet/daemon.py:2759` |
-| Version and app-server preflight environments; CA selection in cache key; standalone policy loading | `subfleet/guard/preflight.py:278`, `subfleet/guard/preflight.py:533` |
+| Default and validated nullable policy | `subfleet/policy.py:23`, `subfleet/policy.py:613`, `subfleet/default_policy.json:4` |
+| Credentials, guardian environments for attempts and probes, restart reconstruction | `subfleet/daemon.py:742`, `subfleet/daemon.py:2759`, `subfleet/daemon.py:6729` |
+| Version and app-server preflight environments; CA selection in cache key; standalone policy loading | `subfleet/guard/preflight.py:280`, `subfleet/guard/preflight.py:535` |
 | Doctor preflight uses the selected state-root policy | `subfleet/doctor.py:407` |
-| Launch clause C-10.8, guard clause C-14.2, cache clause C-23.5 | `docs/acceptance-contract.md:277` |
+| Launch clause C-10.8, guard clause C-14.2, cache clause C-23.5 | `docs/acceptance-contract.md:276`, `docs/acceptance-contract.md:314`, `docs/acceptance-contract.md:389` |
 | Unit and 200-example property coverage, including doctor and recovery | `tests/unit/test_codex_ca_bundle.py:1` |
-| Preflight subprocess environment recording and cache/policy regressions | `tests/unit/test_guard_trust.py:1` |
-| Real fake daemon → guardian → provider → tool inheritance | `tests/fake/test_codex_ca_bundle_fake.py:1`, `tests/bin/fakeprov:85` |
+| Preflight subprocess environment recording and cache/policy regressions | `tests/unit/test_guard_trust.py:925`, `tests/unit/test_guard_trust.py:956`, `tests/unit/test_guard_trust.py:977` |
+| Real fake daemon → guardian → provider → tool inheritance | `tests/fake/test_codex_ca_bundle_fake.py:12`, `tests/bin/fakeprov:82` |
+| Real launch builders → recording fake provider → tool, without requiring boot-identity inspection | `tests/unit/test_codex_ca_bundle_provider.py:23` |
 | Public root certificate fixture; no private key | `tests/fixtures/codex-ca.pem:1` |
 
 The D-NF1 contract entry records restart R = 19:00:31Z, 2026-10-11: by 19:40Z,
@@ -56,11 +57,42 @@ for existing policy files too.
 
 ## Validation
 
-Results pending the shared suite lock. Python syntax and Git whitespace checks
-have passed. Pytest uses one process at a time under
+The first locked batch completed: **224 passed, 4 failed in 612.23s**. It covered
+`test_codex_ca_bundle.py`, `test_policy.py`, `test_daemon_integration.py`, and
+`test_test_module_names.py`. All 42 new CA selection cases passed, including the
+200-example property. Four existing daemon integration tests failed before CA
+environment initialization because `procs.boot_id()` could not inspect the host:
+the sandbox rejects both `kern.bootsessionuuid` and `kern.boottime` with
+`Operation not permitted`. These are
+`test_c10_3_no_desktop_login_means_no_credential_is_read`,
+`test_c10_3_a_verified_desktop_identity_is_recorded_and_flags_its_lane`,
+`test_c10_6_a_mismatch_is_recorded_on_the_lane_and_never_cleared`, and
+`test_c1_4_a_label_only_lane_learns_the_identity_its_credential_reports`.
+
+The second locked batch completed: **165 passed, 2 failed, 6 skipped in
+714.98s**. It covered `test_doctor.py`, `test_guard_overlay.py`,
+`test_codex_adapter.py`, `test_codex_ca_bundle_fake.py`, and the selected guard
+trust tests for provider/preflight environment equality, CA cache invalidation,
+standalone policy loading, secret stripping, and the existing cache-key inputs.
+All nine new guard environment cases passed. The two existing doctor failures
+were `test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone` and
+`test_daemon_lock_row_passes_against_a_live_daemon`: denied process-identity
+inspection produced `unknown` instead of a stale/live verdict.
+
+The six recording-provider process cases remain queued for the shared suite
+lock. The six guarded fake-daemon cases skipped because their fixture requires
+real boot identity; its existing skip protects ownership checks.
+The narrower provider process tests exercise the real credential and launch
+builders and child-tool inheritance without fabricating guardian ownership.
+
+Python syntax and Git whitespace checks have passed. Pytest uses one process at a time under
 `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`, with a fresh
 `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-cab-$$/` and Python `shutil.rmtree`
 cleanup. Dependencies were installed with `uv sync --frozen` in this workspace.
+
+The full repository suite and live Codex/Claude TLS probes were not run. The
+guarded daemon/guardian/provider/tool tests need rerunning on a host where
+macOS process-identity inspection is permitted.
 
 ## Commit delivery
 
