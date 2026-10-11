@@ -631,12 +631,29 @@ def test_fence_hold_against_a_model_of_the_fence(tmp_path):
 
 
 def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
-    """Differential C-8.4: real spelling, lease reads and reservation, with the
-    workspace snapshot stubbed so absent folders reach the reservation guard.
-    Generate present/absent folders, case and NFC/NFD aliases, nested folders,
-    separate Git/cwd trees and arbitrary fence sets. Each example runs before
-    and after moving both trees aside. An independent caseless path model checks
-    the fences too, so a shared helper bug cannot make both paths pass together.
+    """Differential C-8.4: real spelling, lease reads and reservation. Generate
+    present/absent folders, case and NFC/NFD aliases, nested folders, separate
+    Git/cwd trees and arbitrary fence sets, on two kinds of submitted row:
+
+    - `spelled`, a folder submit spelled in full, stubbed (`_submitted`) with the
+      workspace snapshot stubbed too, so absent folders reach the reservation guard;
+    - `unspelled`, the row submit wrote while retention had both trees in
+      quarantine, by the real `_row_folder`; the trees are then put back (the
+      retirement rolled back) before admission looks. Its trees are real
+      repositories, `separate` gives the cwd a repository of its own whose
+      persisted `core.worktree` names the Git tree (an external top), and
+      admission's rediscovery (`_rediscovered`) and workspace snapshot
+      (`_workspace`) run for real.
+
+    Each example runs once with its trees there and once with both moved aside
+    again. The look is the admission pass's own (`_admit_turns` with the real
+    `_fence_hold`), compared with the reserving transaction when that look is left
+    out: the same fences and the same folder named, and the look holds exactly the
+    turns the fences hold, before any workspace is prepared. An independent caseless
+    path model of the folder each row names and of the fences checks both, so a
+    shared helper bug cannot make both paths pass together. Failed on 2cbf6fca for
+    `unspelled` rows with a separate cwd fenced on the Git tree: the look read the
+    folder submit recorded, and the workspace was prepared (review of #141, P2-A).
     """
     from tests.fake.test_admission_latency import fleet_daemon, measure, submit_turn
     from tests.fake.test_admission_liveness import CODEX, _checkout
@@ -653,11 +670,11 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
             measure(daemon, lane)
         turn = submit_turn(daemon, harness, "fence-differential")
         daemon.policy["caps"]["reading_ttl_s"] = 3600   # Keep routing stable throughout the generated cases.
-        fence_hold, present = daemon._fence_hold, folders.present
+        fence_hold, present, workspace = daemon._fence_hold, folders.present, daemon._workspace
         prepared, submitted = [], {}
         patch.setattr(daemon, "_submitted", lambda job_id: submitted)
-        patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or
-                      (job["workdir"], None, None, []))
+        workspaces = {"spelled": lambda job: prepared.append(job["job_id"]) or (job["workdir"], None, None, []),
+                      "unspelled": lambda job: prepared.append(job["job_id"]) or workspace(job)}
 
         def spell(path):
             assert not daemon.store._holds_writer(), "filesystem spelling under the store lock"
@@ -665,23 +682,37 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
 
         patch.setattr(folders, "present", spell)
 
-        @settings(max_examples=150, deadline=None, derandomize=True)
+        @settings(max_examples=200, deadline=None, derandomize=True)
         @example(parts=["Job"], alias="swap", missing="none", separate=False, writable=True,
-                 fenced={"git-tree"})
+                 fenced={"git-tree"}, row="spelled")
         @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
-                 fenced={"git-tree"})
+                 fenced={"git-tree"}, row="spelled")
         @example(parts=["Café", "Ünï"], alias="nfd-swap", missing="none", separate=True, writable=False,
-                 fenced={"cwd-tree"})
+                 fenced={"cwd-tree"}, row="spelled")
         @example(parts=["Café"], alias="nfc", missing="git", separate=True, writable=True,
-                 fenced={"git-parent", "cwd-tree"})
+                 fenced={"git-parent", "cwd-tree"}, row="spelled")
         @example(parts=["Job", "A:B"], alias="swap", missing="both", separate=False, writable=False,
-                 fenced={"child", "sibling", "prefix"})
+                 fenced={"child", "sibling", "prefix"}, row="spelled")
         @example(parts=["Ünï"], alias="nfd", missing="cwd", separate=True, writable=True,
-                 fenced={"git-tree", "cwd-tree", "git-parent", "cwd-parent"})
+                 fenced={"git-tree", "cwd-tree", "git-parent", "cwd-parent"}, row="spelled")
+        # The review's case: a cwd whose core.worktree names a fenced top elsewhere.
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Job"], alias="nfc", missing="none", separate=True, writable=False,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Café", "Space here"], alias="nfd-swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree", "cwd-tree"}, row="unspelled")
+        # Submitted from a subdirectory: its row is on the checkout's top, found again.
+        @example(parts=["Job", "Space here"], alias="swap", missing="none", separate=False, writable=False,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Σ", "A:B"], alias="nfd", missing="cwd", separate=False, writable=True,
+                 fenced={"cwd-parent", "child"}, row="unspelled")
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced=set(), row="unspelled")
         @given(parts=names, alias=st.sampled_from(["nfc", "nfd", "swap", "nfd-swap"]),
                missing=st.sampled_from(["none", "git", "cwd", "both"]), separate=st.booleans(), writable=st.booleans(),
-               fenced=st.sets(st.sampled_from(places)))
-        def check(parts, alias, missing, separate, writable, fenced):
+               fenced=st.sets(st.sampled_from(places)), row=st.sampled_from(["spelled", "unspelled"]))
+        def check(parts, alias, missing, separate, writable, fenced, row):
             base = tmp_path / "folders"
             shutil.rmtree(base, ignore_errors=True)
             git_tree = base / "Git" / parts[0]
@@ -690,6 +721,12 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
             cwd_path = cwd_tree.joinpath(*parts[1:])
             for path in {git_path, cwd_path}:
                 path.mkdir(parents=True, exist_ok=True)
+            if row == "unspelled":
+                # The cwd's checkout, on a task branch (C-13.2) with a commit to snapshot.
+                git(cwd_tree, "init", "--quiet", "-b", "task/fence")
+                if separate:
+                    git(cwd_tree, "config", "core.worktree", str(git_tree))
+                git(cwd_tree, "commit", "--quiet", "--allow-empty", "-m", "baseline")
             if missing in ("git", "both"):
                 git_path /= "Absent"
             if missing in ("cwd", "both"):
@@ -703,6 +740,12 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
                     tail = tail.swapcase()
                 return head + "/folders/" + unicodedata.normalize("NFD" if "nfd" in alias else "NFC", tail)
 
+            def quarantine(away):
+                for path in {git_tree, cwd_tree}:
+                    aside = path.with_name(path.name + ".quarantine")
+                    source, target = (path, aside) if away else (aside, path)
+                    source.rename(target)
+
             git_folder, run_folder = typed(actual_git), typed(actual_cwd)
             spots = {"git": actual_git, "git-tree": tree, "git-parent": str(Path(tree).parent),
                      "cwd": actual_cwd, "cwd-tree": cwd_root, "cwd-parent": str(Path(cwd_root).parent),
@@ -710,21 +753,36 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
                      "prefix": actual_git + "x", "unrelated": str(base / "Elsewhere")}
             keys = list(dict.fromkeys(folders.exclusive_key(spots[place]) for place in sorted(fenced)))
             submitted.clear()
-            submitted["write_target" if writable else "folder"] = git_folder
+            if row == "unspelled":
+                # Submit spells the cwd's folder while retention has the trees in quarantine.
+                quarantine(True)
+                recorded, unspelled = daemon._row_folder(run_folder)
+                quarantine(False)
+                assert unspelled, (recorded, run_folder)
+                submitted.update({"write_target" if writable else "folder": recorded, "unspelled": True})
+            else:
+                submitted["write_target" if writable else "folder"] = git_folder
+            patch.setattr(daemon, "_workspace", workspaces[row])
 
             for moved in (False, True):
                 if moved:
-                    for path in {git_tree, cwd_tree}:
-                        path.rename(path.with_name(path.name + ".quarantine"))
-                spelled = [present(path) for path in (git_folder, run_folder)]
-                expected = []
-                for path, absent in spelled:
+                    quarantine(True)
+                # The model's Git folder: submit's for a spelled row. For an unspelled one,
+                # the checkout's top while the cwd is there (git finds it, through
+                # core.worktree when separate), else the cwd itself (git finds no checkout).
+                git_named = (git_folder if row == "spelled" else
+                             tree if not moved and missing in ("none", "git") else run_folder)
+                spelled = [present(path) for path in (git_named, run_folder)]
+                expected, named = [], spelled[0][0]
+                for index, (path, absent) in enumerate(spelled):
                     comparable = fold(path) if absent is not None else path
                     found = [key for key in keys
                              if comparable == (parent := fold(key[len(folders.EXCLUSIVE):])
                                                if absent is not None else key[len(folders.EXCLUSIVE):])
                              or comparable.startswith(parent.rstrip("/") + "/")]
                     expected.extend(sorted(found, key=lambda key: (-key.count("/"), key)))
+                    if index and found:
+                        named = path                 # the cwd names the hold when it is fenced
                 expected = list(dict.fromkeys(expected))
                 seen = {}
                 for path in ("look", "transaction"):
@@ -739,21 +797,17 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
                     daemon._capacity_waits.pop(turn, None)
                     daemon._workspace_deferrals.pop(turn, None)
                     prepared.clear()
-                    if path == "look":
-                        holds, waiters = {}, {}
-                        held = fence_hold(daemon._job(turn), daemon._turn_folder(daemon._job(turn)),
-                                          holds, waiters, "standard", None, None,
-                                          folders.canonical(run_folder))
-                        hold = holds.get(turn, {})
-                        assert held == bool(expected)
-                    else:
-                        patch.setattr(daemon, "_fence_hold", lambda *args: False)
-                        daemon._admit_turns()
-                        hold = daemon._holds.get(turn, {})
-                        assert prepared == [turn]
-                    seen[path] = hold.get("leases", []) if hold.get("reason") == "lease-held" else []
-                assert seen["look"] == seen["transaction"] == expected, (parts, alias, missing, moved, seen)
-                event(f"missing={missing}, moved={moved}, {'separate' if separate else 'shared'}, {alias}")
+                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+                    daemon._admit_turns()
+                    hold = daemon._holds.get(turn, {})
+                    # The look holds a fenced turn before its workspace; otherwise it is prepared.
+                    assert prepared == ([] if path == "look" and expected else [turn]), (path, hold, expected)
+                    seen[path] = ((hold.get("leases", []), hold.get("folder")) if hold.get("reason") == "lease-held"
+                                  else ([], None))
+                assert seen["look"] == seen["transaction"] == (expected, named if expected else None), \
+                    (parts, alias, missing, row, moved, seen)
+                event(f"row={row}, missing={missing}, moved={moved}, "
+                      f"{'separate' if separate else 'shared'}, {'fenced' if expected else 'free'}")
 
         check()
 

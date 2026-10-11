@@ -2044,7 +2044,8 @@ class Daemon:
                 # find the folder again (`unspelled`), and admission spells it again before it
                 # takes a row (`folders.present`). C-8.5: a push job's checkout top comes from
                 # `host_push.validate_submit`, which read it without asking git, so it is
-                # spelled as given and git is not run in that checkout here either.
+                # spelled as given and git is not run in that checkout here either; nor at
+                # admission, since such a folder is never `unspelled`.
                 named, unspelled = (self._row_folder(workdir, push_top)
                                     if (sandbox == Sandbox.WORKSPACE_WRITE and args.in_place) or turn is not None
                                     else (None, False))
@@ -2583,10 +2584,13 @@ class Daemon:
         C-8.5: `top`, when given, is a push job's checkout top as
         `host_push.validate_submit` read it from the checkout's own metadata. It is
         spelled as given and git is not asked, so no git runs on a push checkout's
-        configuration at submit."""
+        configuration at submit. It is never `unspelled`, also when a name of it was
+        not there to spell: the folder a push job writes in is the top submit
+        validated, and admission never finds it again (`_rediscovered`), which would
+        run git there and let the checkout's own `core.worktree` name another folder
+        as the job's write target (review of #141 at 2cbf6fca, P2-B)."""
         if top is not None:
-            folder, missing = folders.present(top)
-            return folder, missing is not None
+            return folders.present(top)[0], False
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         top = git_toplevel(workdir, timeout_s=cap)
         folder, missing = folders.present(top or workdir)
@@ -2595,6 +2599,32 @@ class Daemon:
             if top is not None:
                 folder, missing = folders.present(top)
         return folder, missing is not None
+
+    def _rediscovered(self, job: dict) -> str | None:
+        """C-6.5, C-8.4: for a job submit could not spell in full (`unspelled`), the
+        folder its row names now, found again from its folder as submit finds it
+        (`_row_folder`); None for any other job. Admission asks once per look, before
+        the look for retention's fence (`_fence_hold`), and the reserving transaction
+        uses that same answer, so the two read one folder: one found after the
+        workspace was prepared had been read by the transaction alone, and a turn
+        whose persisted `core.worktree` named a fenced top elsewhere prepared its
+        workspace (review of #141 at 2cbf6fca, P2-A).
+
+        This is `git rev-parse --show-toplevel` in the job's folder, twice when git
+        finds no checkout under a `.git`, run off the store lock. It reads the
+        repository and writes nothing: no time of the folder's tree, its `.git`, its
+        index or a linked worktree's admin directory moves (measured by
+        `test_retention_rediscovery.py`). A turn's folder is in place, so this is
+        the folder `_workspace` would return.
+
+        Never for a push job (C-8.5): its write target is the top
+        `host_push.validate_submit` validated, as submit spelled it, and git run on
+        that checkout here would read its configuration, which the job controls."""
+        if job.get("push_branch") is not None or not (job["kind"] == "turn" or job["in_place"]):
+            return None
+        if not self._submitted(job["job_id"]).get("unspelled"):
+            return None
+        return self._row_folder(job.get("worktree") or job["workdir"])[0]
 
     def _write_target(self, job: dict, workspace: str) -> str:
         """The worktree lease's subject: the checkout for an in-place job, the
@@ -2605,9 +2635,17 @@ class Daemon:
 
     def _turn_folder(self, job: dict) -> str:
         """C-8.4, C-24.5: the folder a turn's row is on, as its admitting transaction
-        names it (`write_target`, or a read-only turn's `folder`), without preparing
-        its workspace: a turn is in place, so the folder `_workspace` would return is
-        the one it was submitted in."""
+        names it, without preparing its workspace: for a turn submit could not spell
+        in full (`unspelled`), the folder `_rediscovered` finds now; for any other,
+        the one submit recorded (`_recorded_folder`). The admission pass asks
+        `_rediscovered` once and hands that one answer to its look before the
+        workspace and to its reserving transaction."""
+        return self._rediscovered(job) or self._recorded_folder(job)
+
+    def _recorded_folder(self, job: dict) -> str:
+        """The folder submit recorded for a turn's row (`write_target`, or a read-only
+        turn's `folder`), with no git: a turn is in place, so the folder `_workspace`
+        would return is the one it was submitted in."""
         workspace = job.get("worktree") or job["workdir"]
         if job["sandbox"] == "workspace-write":
             return self._write_target(job, workspace)
@@ -4754,6 +4792,8 @@ class Daemon:
         folder, actual cwd or a folder above either (`folders.retiring`), found
         before its workspace is prepared. Both folders are spelled off the lock,
         with absent names compared folded, just as in the reserving transaction.
+        `folder` is the one that transaction will name: for a job submit could not
+        spell (`unspelled`), the one `_rediscovered` found for this look.
 
         The admitting transaction reads that fence too, and its answer is the one
         that counts. This look spares a job that cannot start its start snapshot
@@ -5157,22 +5197,33 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
-            if job["kind"] == "turn" and self._fence_hold(job, self._turn_folder(job), holds, waiters, tier,
-                                                          models, lanes, run_folder):
-                # C-8.4: retention is retiring the tree the turn's folder is in; no
-                # git runs there for a turn that cannot start (the transaction below
-                # still reads the fence, and decides).
-                continue
             try:
+                try:
+                    # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
+                    # so what it recorded may be below its checkout's top, or not the top its
+                    # `core.worktree` names: found again as submit finds it, once, for the look
+                    # below and for the reserving transaction alike (`_rediscovered`), then
+                    # spelled below like any other.
+                    derived = self._rediscovered(job)
+                except (OSError, subprocess.SubprocessError, SalvageError):
+                    # C-6.8's, as a workspace that cannot be prepared is. A turn whose folder
+                    # submit recorded is in a tree retention is retiring still waits on that
+                    # fence, as it did before git was asked.
+                    if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
+                                                                  tier, models, lanes, run_folder):
+                        continue
+                    raise
+                # `_turn_folder`, from the one answer above.
+                if job["kind"] == "turn" and self._fence_hold(job, derived or self._recorded_folder(job), holds,
+                                                              waiters, tier, models, lanes, run_folder):
+                    # C-8.4: retention is retiring the tree the turn's folder is in; no
+                    # workspace is prepared for a turn that cannot start, and no git runs
+                    # there but `_rediscovered`'s read (the transaction below still reads
+                    # the fence, and decides).
+                    continue
                 baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
-                # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
-                # so what it recorded may be below its checkout's top: found again as submit
-                # finds it, then spelled below like any other.
-                derived = (self._row_folder(workspace)[0]
-                           if (job["kind"] == "turn" or job["in_place"]) and self._submitted(job["job_id"]).get("unspelled")
-                           else None)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
