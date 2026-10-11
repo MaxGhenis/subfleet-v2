@@ -408,21 +408,22 @@ class Timers:
         except Exception as exc:                        # noqa: BLE001 - see docstring
             return {'read_at': None, 'accounts': [], 'warnings': [], 'error_type': type(exc).__name__}
 
-    def _card_lanes(self):
-        """C-9.10: the Claude lanes, each marked `held` when an operator hold is in force.
+    def operator_holds(self):
+        """C-9.6, C-9.10, C-18.7: each lane an operator hold is in force on, with when it ends.
 
         A hold is read from the closures and from its own `lane.held` and
         `lane.released` events: `Store.put_closure` keeps one open closure per
         lane and scope, so a hold that ends before an open provider limit on the
-        account scope leaves no `operator-hold` row, though it is in force.
-        Releasing such a hold changes no row and so writes no `lane.released`
-        event; the hold then lasts until its own end, which errs toward spending
-        nothing.
+        account scope leaves no `operator-hold` row, though it is in force (and
+        a later limit that ends after it, or that limit's release, takes the
+        row away). Releasing such a hold changes no row and so writes no
+        `lane.released` event; the hold then lasts until its own end, which
+        errs toward spending nothing.
         """
         now = iso(self.now())
-        held = {row['lane_id'] for row in self.store.query(
-            "SELECT DISTINCT lane_id FROM closures WHERE reason='operator-hold' AND released_at IS NULL AND until_at>?",
-            (now,))}
+        held = {row['lane_id']: row['until_at'] for row in self.store.query(
+            "SELECT lane_id,MAX(until_at) AS until_at FROM closures WHERE reason='operator-hold' "
+            "AND released_at IS NULL AND until_at>? GROUP BY lane_id", (now,))}
         until = {}
         for row in self.store.query("SELECT lane_id,kind,data_json FROM events WHERE kind IN ('lane.held','lane.released') "
                                     "ORDER BY event_id"):
@@ -435,7 +436,15 @@ class Timers:
                 continue
             if isinstance(value, str) and value > until.get(row['lane_id'], ''):
                 until[row['lane_id']] = value
-        held |= {lane_id for lane_id, value in until.items() if value > now}
+        for lane_id, value in until.items():
+            if value > now and value > held.get(lane_id, ''):
+                held[lane_id] = value
+        return held
+
+    def _card_lanes(self):
+        """C-9.10: the Claude lanes, each marked `held` when an operator hold is in force
+        (`operator_holds`)."""
+        held = self.operator_holds()
         return [{'lane_id': row['lane_id'], 'identity': row['identity'], 'label': row['label'],
                  'account_key': row['account_key'], 'enabled': bool(row['enabled']),
                  'held': row['lane_id'] in held}
@@ -1123,7 +1132,10 @@ class Timers:
         superseded or disabled binding, the desktop login, a credential that
         proved to hold another account or cannot run a turn, and a lane closed
         or limited for the account or the touch model. A lane with a live
-        attempt needs no touch: that attempt is the first request.
+        attempt needs no touch: that attempt is the first request. An
+        operator's hold and an `auth-dead` closure are named as such (a probe
+        cycle does not read such a lane at all, C-18.1); `touch_plan` also
+        finds a hold the closures no longer show (`operator_holds`).
         """
         if row.get('provider') != 'codex':
             return 'not-codex'
@@ -1135,6 +1147,11 @@ class Timers:
             return 'disabled'
         if row.get('desktop'):
             return 'desktop'
+        for closure in row.get('closures', ()):
+            if closure.get('reason') == 'operator-hold':
+                return f"operator-hold:{closure.get('until_at')}"
+            if closure.get('reason') == 'auth-dead':
+                return 'auth-dead'
         if capacity.identity_blocked(row):
             return 'identity-mismatch'
         if row.get('revoked_epoch') is not None or row.get('probe_status') in LATCHED_STATUSES:
@@ -1149,7 +1166,7 @@ class Timers:
             return 'busy'
         return None
 
-    def touch_plan(self, view, *, target=None, only=None, auto=False):
+    def touch_plan(self, view, *, target=None, only=None, auto=False, holds=None):
         """C-18.7: what a touch pass would do with each Codex lane, and why.
 
         Reads the view only: no probe, turn, event, or lease. `target` names one
@@ -1161,8 +1178,11 @@ class Timers:
         its cycle measured, and skips a lane a probe reservation holds
         (`unavailable_lanes`: a quarantined probe keeps its lease) as `held`
         rather than wait; an operator's pass waits for such a lane instead.
+        `holds` is `operator_holds()` (read here when not given): a lane held
+        by an operator is never touched, forced or not.
         """
         enabled, _, _ = self._touch_settings()
+        holds = self.operator_holds() if holds is None else holds
         now = self.now()
         ttl = self.policy.get('caps', {}).get('reading_ttl_s', 120)
         held = {lane_id for lane_id, holder in (view.get('unavailable_lanes') or {}).items()
@@ -1184,6 +1204,8 @@ class Timers:
                      'last_touch': {key: touch.get(key) for key in ('at', 'status', 'mode', 'requested_at')} if touch else None,
                      'next_touch_at': iso(spaced) if spaced else None}
             block = self.touch_block(row)
+            if not block and row['lane_id'] in holds:
+                block = f"operator-hold:{holds[row['lane_id']]}"
             if block:
                 entry.update(action='skip', reason=block)
             elif target:
@@ -1209,6 +1231,25 @@ class Timers:
         with self._lock:
             self.touches[lane_id] = dict(record)
 
+    def _touch_refusal(self, lane):
+        """C-18.7: why a lane this touch now holds must not be touched after all, or None.
+
+        Read from the store once the reservation is held, so no hold or closure
+        recorded between the plan and the reservation slips through: an
+        operator's hold (`operator_holds`, which also finds one the closures
+        hide) or an unexpired closure on the account or the touch model.
+        """
+        holds = self.operator_holds()
+        if lane.lane_id in holds:
+            return f"operator-hold:{holds[lane.lane_id]}"
+        closure = self.store.one(
+            "SELECT reason,scope,until_at FROM closures WHERE lane_id=? AND released_at IS NULL AND until_at>? "
+            "AND scope IN ('account',?) ORDER BY until_at DESC LIMIT 1",
+            (lane.lane_id, iso(self.now()), touch_model(self.policy)['id']))
+        if closure:
+            return 'auth-dead' if closure['reason'] == 'auth-dead' else f"closed:{closure['scope']}:{closure['until_at']}"
+        return None
+
     def _touch_lane(self, lane, entry, *, mode, request_id, wait_s):
         """C-18.7: one supervised touch: reserve, one tiny turn, re-probe.
 
@@ -1226,15 +1267,27 @@ class Timers:
         if self.cancel.is_set():
             return skipped('skipped-cancelled')
         deadline = time.monotonic() + wait_s
-        holder = self._reserve(lane, 'touch')
-        while not holder and time.monotonic() < deadline and not self.cancel.is_set():
+        # `_claim` judges the lane in the reserving transaction: None for a lane
+        # no timer may use (disabled, not v2's, the desktop's, held, or closed
+        # `auth-dead` since the plan; no wait would change that), BUSY for one
+        # an attempt or any lane lease holds, which an operator's pass waits for.
+        holder = self._claim(lane, 'touch')
+        while holder is BUSY and time.monotonic() < deadline and not self.cancel.is_set():
             self.cancel.wait(.25)
-            holder = self._reserve(lane, 'touch')
-        if not holder:
+            holder = self._claim(lane, 'touch')
+        if holder is None:
+            return skipped('skipped-unavailable')
+        if holder is BUSY:
             return skipped('skipped-busy')
         item = {'lane': lane, 'holder': holder, 'quarantined': False, 'probe': None,
                 'record': {'lane_id': lane.lane_id, 'status': 'skipped-failed', 'mode': mode}}
         try:
+            refusal = self._touch_refusal(lane)
+            if refusal:
+                # Held or closed since the plan, in a way `_claim` does not read: a
+                # hold the closures hide, a limit on the account or the touch model.
+                item['record'].update(status='skipped-' + refusal.split(':', 1)[0], detail=refusal)
+                return item
             _, spacing, timeout = self._touch_settings()
             previous = self.touches.get(lane.lane_id) or {}
             if entry.get('reason') != 'forced' and self._spaced_until(previous):

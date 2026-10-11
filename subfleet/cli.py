@@ -387,7 +387,7 @@ def format_status(data: dict[str, Any]) -> str:
             # C-10.6: no percentage for this lane, and the reason beside it.
             if lane.get("identity_status") in ("mismatch", "unverified"):
                 flags.append(f"identity-{lane['identity_status']}")
-            clock = clock_flag(lane, by_lane.get(str(lane.get("lane_id"))))     # C-18.7
+            clock = clock_flag(lane, by_lane.get(str(lane.get("lane_id"))), now=at)     # C-18.7
             if clock:
                 flags.append(clock)
                 if clock == "clock not started":
@@ -2075,12 +2075,14 @@ def _format_lanes(result: dict[str, Any]) -> str:
 _UNSET_CLOCK = object()
 
 
-def clock_flag(lane: dict[str, Any], readings: list[dict[str, Any]] | None = None) -> str | None:
+def clock_flag(lane: dict[str, Any], readings: list[dict[str, Any]] | None = None, *,
+               now: datetime | None = None) -> str | None:
     """C-18.7: how a Codex lane's weekly clock reads, for the tables.
 
     The daemon derives `weekly_clock` from the lane's readings and its last
     touch. Offline, only the readings are known, so the same evidence rule is
-    applied to them and a recent touch cannot be seen.
+    applied to them, at the snapshot's clock (`now`) when it has one, and a
+    recent touch cannot be seen.
     """
     if lane.get("provider") != "codex":
         return None
@@ -2088,7 +2090,7 @@ def clock_flag(lane: dict[str, Any], readings: list[dict[str, Any]] | None = Non
     if state is _UNSET_CLOCK:
         try:
             state = "not-started" if capacity.clock_unstarted(
-                readings or lane.get("readings") or (), now=datetime.now(timezone.utc)) else None
+                readings or lane.get("readings") or (), now=now or datetime.now(timezone.utc)) else None
         except (KeyError, TypeError, ValueError, AttributeError):
             state = None
     if state == "not-started":

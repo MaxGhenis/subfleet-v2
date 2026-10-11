@@ -13,8 +13,8 @@ import tempfile
 import pytest
 
 from subfleet import capacity, protocol, scheduler
-from subfleet.contracts import (Credential, Exit, Lane, LaneOwner, Outcome, OutcomeClass, Reading,
-                                ReadingLabel)
+from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Exit, Lane, LaneOwner, Outcome,
+                                OutcomeClass, Reading, ReadingLabel)
 from subfleet.daemon import Daemon
 from subfleet.timers import iso
 
@@ -91,7 +91,7 @@ def test_a_touch_holds_its_lane_and_counts_toward_the_fleet_cap(daemon, monkeypa
                                           {"pinned_model": "luna", "pinned_lane": pin, "exclusions": "[]"})
             seen[key] = decision.chosen_lane, decision.evaluations[0]["rejections"][0]["reasons"]
         record = daemon._probe_record(holder)
-        assert record["timer_kind"] == "touch" and record["model_id"] == "gpt-5.6-luna"
+        assert record["timer_kind"] == "touch" and record["model_id"] == "gpt-6-luna"
         (Path(record["directory"]) / "request.json").write_text(json.dumps({"requested_at": iso(datetime.now(timezone.utc))}))
         daemon.wham.started[lane.lane_id] = datetime.now(timezone.utc)
         return Outcome(OutcomeClass.OK, "OK", evidence={"rc": 0})
@@ -99,7 +99,7 @@ def test_a_touch_holds_its_lane_and_counts_toward_the_fleet_cap(daemon, monkeypa
     monkeypatch.setattr(daemon, "_execute_probe", execute)
     result = daemon.timers.touch(target=touched.lane_id, mode="operator", request_id="req-1")
     assert [row["status"] for row in result["results"]] == ["ok"]
-    assert seen["model"] == "gpt-5.6-luna" and seen["kind"] == "probe" and seen["sandbox"] == "read-only"
+    assert seen["model"] == "gpt-6-luna" and seen["kind"] == "probe" and seen["sandbox"] == "read-only"
     assert seen["lease"] == seen["holder"] and seen["holder"].startswith("probe:timer:")
     assert seen["reserved"] == 1 and seen["unavailable"] == {touched.lane_id: seen["holder"]}
     assert touched.lane_id not in seen["open"]
@@ -119,7 +119,7 @@ def test_a_touch_recovered_after_a_restart_records_how_it_ended(daemon):
     """C-18.7, C-5.3: a daemon that died mid-touch finishes the record, and the spacing holds."""
     lane = codex(daemon, 1)
     started = {"lane_id": lane.lane_id, "at": iso(datetime.now(timezone.utc)), "mode": "auto",
-               "model": "gpt-5.6-luna", "status": "touching"}
+               "model": "gpt-6-luna", "status": "touching"}
     daemon.timers._record_touch(lane.lane_id, started)
     directory = daemon.root / "lanes" / lane.lane_id / "probes" / "token"
     directory.mkdir(parents=True)
@@ -127,7 +127,7 @@ def test_a_touch_recovered_after_a_restart_records_how_it_ended(daemon):
     (directory / "request.json").write_text(json.dumps({"requested_at": sent}))
     daemon.store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:timer:token")
     record = {"holder": "probe:timer:token", "job_id": None, "lane_id": lane.lane_id, "timer_kind": "touch",
-              "model_id": "gpt-5.6-luna", "directory": str(directory), "state": "running"}
+              "model_id": "gpt-6-luna", "directory": str(directory), "state": "running"}
     daemon._finish_probe(record, Outcome(OutcomeClass.OK, "OK", evidence={"rc": 0}))
     touch = daemon.timers.touches[lane.lane_id]
     assert touch["status"] == "ok" and touch["recovered"] is True and touch["requested_at"] == sent
@@ -137,7 +137,7 @@ def test_a_touch_recovered_after_a_restart_records_how_it_ended(daemon):
 
 @pytest.mark.parametrize("changes,words,fix", [
     ({"owner": LaneOwner.V1}, "is owned by v1", "subfleet lanes transfer codex-1 --to v2"),
-    ({"enabled": False}, "is disabled", "subfleet login codex codex-1"),
+    ({"enabled": False}, "is disabled", "codex login; subfleet lanes enroll "),
 ])
 def test_a_named_lane_no_touch_may_use_is_refused_with_the_fix(daemon, changes, words, fix):
     """C-18.7, C-6.5, C-17.3: `lanes touch <lane>` refuses (exit 7) a lane no touch may use."""
@@ -146,6 +146,49 @@ def test_a_named_lane_no_touch_may_use_is_refused_with_the_fix(daemon, changes, 
         daemon.dispatch("lanes", {"action": "touch", "lane_id": "codex-1"})
     assert refused.value.code == Exit.REFUSED and words in str(refused.value)
     assert fix in refused.value.fix
+
+
+def test_a_held_lane_is_refused_by_name_skipped_by_the_plan_and_never_turned(daemon, monkeypatch):
+    """C-18.7, C-9.6, C-6.5: `lanes hold` keeps every touch away. A named touch is refused
+    (exit 7) with the release as its fix, the plan says why, and no turn starts; once the
+    hold is released the lane is touched."""
+    lane = codex(daemon, 1)
+    measure(daemon, lane)
+    turns = []
+
+    def execute(job, lane, model, holder):
+        turns.append(lane.lane_id)
+        daemon.wham.started[lane.lane_id] = datetime.now(timezone.utc)
+        return Outcome(OutcomeClass.OK, "OK", evidence={"rc": 0})
+
+    monkeypatch.setattr(daemon, "_execute_probe", execute)
+    until = (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    daemon.dispatch("lanes", {"action": "hold", "lane_id": lane.lane_id, "until": until})
+    with pytest.raises(protocol.ProtocolError) as refused:
+        daemon.dispatch("lanes", {"action": "touch", "lane_id": lane.lane_id})
+    assert refused.value.code == Exit.REFUSED
+    assert f"is held by an operator until {until}" in str(refused.value)
+    assert refused.value.fix == f"release the hold first: subfleet lanes release {lane.lane_id}"
+    plan = daemon.dispatch("lanes", {"action": "touch", "dry_run": True})["touch"]["plan"]
+    assert [(row["action"], row["reason"]) for row in plan] == [("skip", "operator-hold:" + until)]
+    result = daemon.timers.touch(target=lane.lane_id, mode="operator", request_id="req-h")
+    automatic = daemon.timers.touch(only={lane.lane_id}, mode="auto")
+    assert result["results"] == automatic["results"] == [] and turns == []
+    assert daemon.store.list_leases() == []
+    daemon.dispatch("lanes", {"action": "release", "lane_id": lane.lane_id})
+    result = daemon.timers.touch(target=lane.lane_id, mode="operator", request_id="req-r")
+    assert [row["status"] for row in result["results"]] == ["ok"] and turns == [lane.lane_id]
+
+
+def test_an_auth_dead_named_lane_is_refused_with_the_login_command(daemon):
+    """C-18.7, C-23.44, C-23.52: the fix is the command a credential alert names."""
+    lane = codex(daemon, 1)
+    daemon.store.add_closure(Closure(lane.lane_id, "account", iso(datetime.now(timezone.utc) + timedelta(days=30)),
+                                     ClosureReason.AUTH_DEAD, ClockSource.REPORTED, "probe"))
+    with pytest.raises(protocol.ProtocolError) as refused:
+        daemon.dispatch("lanes", {"action": "touch", "lane_id": lane.lane_id})
+    assert refused.value.code == Exit.REFUSED and "auth-dead" in str(refused.value)
+    assert refused.value.fix == f"re-enroll it: CODEX_HOME={lane.home} codex login; subfleet lanes enroll {lane.home}"
 
 
 def test_limited_and_busy_named_lanes_are_refused(daemon):
@@ -169,7 +212,7 @@ def test_dry_run_and_a_quiet_fleet_write_nothing_and_unknown_lanes_are_invalid(d
     measure(daemon, lane)
     before = daemon.store.one("SELECT count(*) n FROM events")["n"]
     touch = daemon.dispatch("lanes", {"action": "touch", "dry_run": True})["touch"]
-    assert touch["status"] == "dry-run" and touch["touching"] == ["codex-1"] and touch["model"] == "gpt-5.6-luna"
+    assert touch["status"] == "dry-run" and touch["touching"] == ["codex-1"] and touch["model"] == "gpt-6-luna"
     [entry] = touch["plan"]
     assert (entry["action"], entry["reason"], entry["weekly_clock"]) == ("touch", "not-started", "not-started")
     assert daemon.store.one("SELECT count(*) n FROM events")["n"] == before and daemon.store.list_leases() == []
@@ -229,7 +272,7 @@ def test_a_recovered_touch_that_found_the_credential_dead_disables_the_lane(daem
     directory = daemon.root / "lanes" / lane.lane_id / "probes" / "token"
     directory.mkdir(parents=True)
     record = {"holder": "probe:timer:token", "job_id": None, "lane_id": lane.lane_id, "timer_kind": "touch",
-              "model_id": "gpt-5.6-luna", "directory": str(directory), "state": "running"}
+              "model_id": "gpt-6-luna", "directory": str(directory), "state": "running"}
     daemon._finish_probe(record, Outcome(OutcomeClass.AUTH_DEAD, "refresh token was revoked", evidence={"rc": 1}))
     assert not daemon.store.get_lane(lane.lane_id).enabled
     assert daemon.timers.touches[lane.lane_id]["status"] == "auth-dead"
@@ -249,7 +292,7 @@ def test_recovery_releases_the_lease_of_a_turn_that_settled_before_the_stop(daem
     lane = codex(daemon, 1)
     daemon.store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:timer:done")
     daemon._save_probe({"holder": "probe:timer:done", "job_id": None, "lane_id": lane.lane_id,
-                        "timer_kind": "touch", "model_id": "gpt-5.6-luna", "state": "completed",
+                        "timer_kind": "touch", "model_id": "gpt-6-luna", "state": "completed",
                         "directory": str(daemon.root / "lanes" / lane.lane_id / "probes" / "done"),
                         "deadline_at": iso(datetime.now(timezone.utc) + timedelta(minutes=2))})
     daemon._recover_probes()

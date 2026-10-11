@@ -31,6 +31,8 @@ def test_daemon_starts_idle_weekly_clocks_through_the_supervised_path(e2e):
     clocks = e2e.root / "clocks"
     clocks.mkdir()
     e2e.policy_update(lambda policy: policy.setdefault("timers", {}).update(probe_interval_s=.5))
+    # C-15.8: a service notice goes to `alerts.operator_session`; with none, nothing is parked.
+    e2e.policy_update(lambda policy: policy.setdefault("alerts", {}).update(operator_session="test-operator"))
     e2e.start(env={"SUBFLEET_FAKE_WHAM_CLOCKS": str(clocks)})
 
     for account in ("fake-1", "fake-2"):
@@ -42,7 +44,7 @@ def test_daemon_starts_idle_weekly_clocks_through_the_supervised_path(e2e):
         [touch] = calls(e2e.root, account)
         argv = touch["argv"]
         assert argv[:2] == ["exec", "--json"]
-        assert argv[argv.index("-m") + 1] == "gpt-5.6-luna"                 # never Spark
+        assert argv[argv.index("-m") + 1] == "gpt-6-luna"                 # never Spark
         assert argv[argv.index("--sandbox") + 1] == "read-only"
         assert "--skip-git-repo-check" in argv                               # private probe dir
         hooks = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "-c" and argv[i + 1].startswith("hooks=")]
@@ -54,14 +56,15 @@ def test_daemon_starts_idle_weekly_clocks_through_the_supervised_path(e2e):
 
     for lane_id in ("codex-1", "codex-2"):
         done = [event for event in touch_events(e2e, lane_id) if event["status"] == "ok"][-1]
-        assert done["mode"] == "auto" and done["model"] == "gpt-5.6-luna"
+        assert done["mode"] == "auto" and done["model"] == "gpt-6-luna"
         assert done["before"]["weekly_clock"] == "not-started" and done["requested_at"]
     log = (e2e.root / "daemon.log").read_text()
     assert re.search(r"guard preflight \S+ lane=codex-1 attempt=probes/\S+ .* ok=True", log)
-    assert re.search(r"lane touch \S+ lane=codex-1 mode=auto model=gpt-5.6-luna status=ok", log)
+    assert re.search(r"lane touch \S+ lane=codex-1 mode=auto model=gpt-6-luna status=ok", log)
     assert e2e.rows("SELECT * FROM jobs") == []                               # C-8.4: not a job
     e2e.until(lambda: not e2e.rows("SELECT * FROM leases WHERE lease_key LIKE 'lane:codex-%'"))
-    notices = [row["text"] for row in e2e.rows("SELECT text FROM service_notices")]
+    notices = [row["text"] for row in e2e.rows("SELECT text FROM service_notices WHERE session_id=?",
+                                               ("test-operator",))]
     started = [int(match.group(1)) for text in notices
                if (match := re.match(r"codex: weekly clock started on (\d+) lane\(s\)", text))]
     assert sum(started) == 2, notices
@@ -97,6 +100,12 @@ def test_daemon_starts_idle_weekly_clocks_through_the_supervised_path(e2e):
     assert e2e.cli("lanes", "touch", "codex-1", "--all").rc == 2
     unknown = e2e.cli("lanes", "touch", "claude-1")
     assert unknown.rc == 2 and "unknown codex lane" in unknown.stderr
+    # A held lane is never touched: refused by name, with the release as the fix.
+    assert e2e.cli("lanes", "hold", "codex-2", "--until", "2099-01-01T00:00:00Z").rc == 0
+    held = e2e.cli("lanes", "touch", "codex-2")
+    assert held.rc == 7, held
+    assert "held by an operator" in held.stderr and "subfleet lanes release codex-2" in held.stderr
+    assert len(calls(e2e.root, "fake-2")) == 2
     assert e2e.rows("SELECT * FROM jobs") == []
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import logging
+import time
 from pathlib import Path
 
 import pytest
@@ -89,7 +90,7 @@ def rig(tmp_path, monkeypatch):
     clock = Clock()
     wham = Wham(clock)
     policy = {"models": {"haiku": {"provider": "claude", "id": "claude-haiku-4-5-20251001"},
-                         "luna": {"provider": "codex", "id": "gpt-5.6-luna"}},
+                         "luna": {"provider": "codex", "id": "gpt-6-luna"}},
               "timers": {"probe_interval_s": 60, "keepalive_interval_s": 18300},
               "reset_credits": {"enabled": False}, "alerts": {}, "caps": {}}
     turns, notices = [], []
@@ -166,7 +167,7 @@ def test_detection_reads_dataclass_readings_and_any_long_window_key():
     {"label": "admission-observed"},
     {"age_s": 121},                               # older than the reading TTL
     {"resets": False},
-    {"scope": "gpt-5.6-luna"},                    # a model-scoped window is not the account's clock
+    {"scope": "gpt-6-luna"},                    # a model-scoped window is not the account's clock
     {"window": "five_hour"},                      # a five-hour window is not the weekly clock
 ])
 def test_started_stale_or_unread_windows_are_not_unstarted(change):
@@ -203,7 +204,7 @@ def test_probe_cycle_touches_an_unstarted_lane_once_and_reprobes(rig):
     assert "codex-4 (weekly reset now " + iso(clock() + WEEK) + ")" in notice["body"]
     assert not [n for n in notices if n.get("key", "").startswith("codex-clock:")]
     assert len([line for line in recorder.lines if line.startswith("lane touch ")]) == 1
-    assert "lane=codex-4 mode=auto model=gpt-5.6-luna status=ok" in recorder.lines[0]
+    assert "lane=codex-4 mode=auto model=gpt-6-luna status=ok" in recorder.lines[0]
     assert store.list_jobs() == [] and store.list_leases() == []
     status = json.loads((timer.root / "status.json").read_bytes())
     assert status["codex"]["homes"][0]["window_unstarted"] is False
@@ -441,12 +442,12 @@ def test_operator_request_runs_on_a_timer_worker_and_is_collected(rig):
 def test_the_touch_model_is_luna_and_spark_is_refused(tmp_path):
     """C-18.7: only a Codex turn metered on the weekly window starts it; Spark meters elsewhere."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    assert touch_model(policy) == {"short": "luna", "provider": "codex", "id": "gpt-5.6-luna"}
+    assert touch_model(policy) == {"short": "luna", "provider": "codex", "id": "gpt-6-luna"}
     assert policy["timers"]["touch_spacing_s"] == 3600 and policy["timers"]["touch_unstarted"] is True
     # A policy without `luna` (the installed one predates it) still touches with Luna's id.
-    assert touch_model({"models": {"terra": {"provider": "codex", "id": "gpt-5.6-terra"}}})["id"] == "gpt-5.6-luna"
+    assert touch_model({"models": {"terra": {"provider": "codex", "id": "gpt-5.6-terra"}}})["id"] == "gpt-6-luna"
     assert touch_model({"models": {"spark": {"provider": "codex", "id": "gpt-5.6-spark"}},
-                        "timers": {"touch_model": "spark"}})["id"] == "gpt-5.6-luna"
+                        "timers": {"touch_model": "spark"}})["id"] == "gpt-6-luna"
     raw = json.loads(DEFAULT_POLICY_PATH.read_text())
     for value, message in (("spark", "Spark meters on its own bucket"), ("opus", "must be a Codex model"),
                            ("nope", "unknown model"), ("", "must name a Codex model")):
@@ -513,7 +514,7 @@ def test_a_clock_a_job_just_started_is_not_touched_again(rig):
     store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
                   state="succeeded", workdir=str(timer.root), prompt_path="/prompt", sandbox="read-only")
     store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id=lane.lane_id, rc=0,
-                      model_requested="gpt-5.6-luna", state="succeeded", started_at=iso(clock() - timedelta(minutes=4)),
+                      model_requested="gpt-6-luna", state="succeeded", started_at=iso(clock() - timedelta(minutes=4)),
                       native_session_id="thread")
     wham.started[lane.lane_id] = clock() - timedelta(minutes=4)
     snapshot = timer.probe_cycle()
@@ -670,6 +671,141 @@ def test_a_superseded_lane_is_refused_as_superseded(rig):
     [entry] = timer.touch_plan({"lanes": [view_row(clock(), enabled=False, superseded_by="codex-9")]},
                                target="codex-4")
     assert entry["reason"] == "superseded"
+
+
+# --- held lanes: an operator's hold, auth-dead, a lane a probe or job holds (C-18.7) --
+
+def hold(store, lane_id, until):
+    """`lanes hold <lane> --until` as the daemon records it (`Daemon._hold_lane`)."""
+    with store.transaction("lane.held", lane_id=lane_id, data={"until": iso(until)}):
+        store.add_closure(Closure(lane_id, "account", iso(until), ClosureReason.OPERATOR_HOLD,
+                                  ClockSource.REPORTED, "operator"))
+
+
+@pytest.mark.parametrize("reason,expected", [("operator-hold", "operator-hold:"), ("auth-dead", "auth-dead")])
+def test_an_operator_hold_or_an_auth_dead_closure_is_named_and_never_forced(rig, reason, expected):
+    """C-18.7, C-9.6, C-23.44: the plan names why, for an automatic pass and a named lane alike."""
+    timer, store, clock, *_ = rig
+    until = iso(clock() + timedelta(hours=2))
+    closure = {"lane_id": "codex-4", "scope": "account", "until_at": until, "reason": reason}
+    for target in (None, "codex-4"):
+        [entry] = timer.touch_plan({"lanes": [view_row(clock(), closures=[closure])]}, target=target, holds={})
+        assert entry["action"] == "skip" and entry["reason"].startswith(expected)
+    assert timer.touch_block(view_row(clock(), closures=[closure])).startswith(expected)
+
+
+def test_a_held_lane_is_neither_read_nor_touched_by_a_cycle_nor_by_force(rig):
+    """C-18.7, C-18.1: a probe cycle never reads a held lane, so it never touches it; a named
+    touch is refused in the plan; once the hold is released the clock is started."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    until = clock() + timedelta(hours=2)
+    hold(store, lane.lane_id, until)
+    timer.probe_cycle()
+    assert wham.calls == [] and turns == [] and touches(store) == []
+    view = timer.snapshot()
+    [forced] = timer.touch_plan(view, target=lane.lane_id)
+    assert (forced["action"], forced["reason"]) == ("skip", "operator-hold:" + iso(until))
+    result = timer.touch(view, target=lane.lane_id, mode="operator", request_id="req-h")
+    assert result["results"] == [] and turns == [] and store.list_leases() == []
+    with store.transaction("lane.released", lane_id=lane.lane_id) as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
+                   "AND released_at IS NULL", (iso(clock()), lane.lane_id))
+    timer.probe_cycle()
+    assert turns == [(lane.lane_id, "touch")] and touches(store)[-1]["status"] == "ok"
+
+
+def test_a_hold_the_closures_hide_still_keeps_every_touch_away(rig):
+    """C-18.7, C-9.6: `put_closure` keeps one open closure per lane and scope, so a hold that
+    ends before an open provider limit leaves no `operator-hold` row, and releasing that limit
+    leaves no closure at all; the hold's own `lane.held` event still keeps the touch away
+    (the probe cycle reads such a lane, which C-18.1 allows, but touches nothing)."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    store.add_closure(Closure(lane.lane_id, "account", iso(clock() + timedelta(hours=3)),
+                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    until = clock() + timedelta(hours=1)
+    hold(store, lane.lane_id, until)
+    assert not store.query("SELECT 1 FROM closures WHERE reason='operator-hold'")     # swallowed
+    with store.transaction("closure.reset") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id=?", (iso(clock()), lane.lane_id))
+    assert timer.operator_holds() == {lane.lane_id: iso(until)}
+    timer.probe_cycle()
+    assert wham.calls == [lane.lane_id]                       # read, as an unheld lane would be
+    assert turns == [] and touches(store) == [] and store.list_leases() == []
+    [forced] = timer.touch_plan(timer.snapshot(), target=lane.lane_id)
+    assert (forced["action"], forced["reason"]) == ("skip", "operator-hold:" + iso(until))
+    clock.advance(3601)                                       # the hold ends on its own clock
+    assert timer.operator_holds() == {}
+    timer.probe_cycle()
+    assert turns == [(lane.lane_id, "touch")]
+
+
+def test_a_hold_recorded_after_the_plan_stops_the_touch_before_its_turn(rig):
+    """C-18.7: the plan is a view; the reservation and the recheck under it are the store. A
+    hold recorded between them (as a closure, or one the closures hide) runs no turn, waits
+    for nothing, and leaves no lease."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer._persist(lane, {**wham.probe_status(lane, {}), "probed_at": iso(clock())})
+    view = timer.snapshot()
+    hold(store, lane.lane_id, clock() + timedelta(hours=1))
+    # The pass plans on the old view, but reads the holds from the store: no reservation.
+    result = timer.touch(view, target=lane.lane_id, mode="operator", request_id="req-1")
+    assert result["results"] == [] and result["plan"][0]["reason"].startswith("operator-hold:")
+    # A pass that had already chosen the lane: `_claim` sees the hold and nothing waits for it.
+    entry = {"lane_id": lane.lane_id, "reason": "forced", "weekly_clock": "not-started"}
+    began = time.monotonic()
+    item = timer._touch_lane(lane, entry, mode="operator", request_id="req-1", wait_s=30)
+    assert item["holder"] is None and item["record"]["status"] == "skipped-unavailable"
+    assert time.monotonic() - began < 10
+    assert turns == [] and touches(store) == [] and store.list_leases() == []
+    # A hold the closures hide is not `_claim`'s to see: the recheck under the reservation finds it.
+    store.add_closure(Closure(lane.lane_id, "account", iso(clock() + timedelta(hours=3)),
+                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    with store.transaction("closure.reset") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id=?", (iso(clock()), lane.lane_id))
+    entry = {"lane_id": lane.lane_id, "reason": "forced", "weekly_clock": "not-started"}
+    item = timer._touch_lane(lane, entry, mode="operator", request_id="req-2", wait_s=0)
+    assert item["holder"] and item["record"]["status"] == "skipped-operator-hold"
+    timer._publish_touch(item, "operator")
+    assert turns == [] and touches(store) == [] and store.list_leases() == [] and not timer.active_holders
+
+
+def test_a_limit_recorded_after_the_plan_stops_the_touch_before_its_turn(rig):
+    """C-18.7: a closure on the account or the touch model, recorded after the plan, is found
+    under the reservation; a closure on another model is not the touch's."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    entry = {"lane_id": lane.lane_id, "reason": "not-started", "weekly_clock": "not-started"}
+    store.add_closure(Closure(lane.lane_id, "gpt-6-astra", iso(clock() + timedelta(hours=1)),
+                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    store.add_closure(Closure(lane.lane_id, CLOCK_TOUCH_MODEL_ID, iso(clock() + timedelta(hours=2)),
+                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    item = timer._touch_lane(lane, entry, mode="auto", request_id=None, wait_s=0)
+    assert item["record"]["status"] == "skipped-closed"
+    assert item["record"]["detail"] == f"closed:{CLOCK_TOUCH_MODEL_ID}:" + iso(clock() + timedelta(hours=2))
+    timer._publish_touch(item, "auto")
+    assert turns == [] and store.list_leases() == []
+
+
+@pytest.mark.parametrize("key,holder", [("slot:1", "job-x/a1"), ("slot:0", "probe:admission:token")])
+def test_a_lane_a_job_or_a_probe_holds_is_never_touched(rig, key, holder):
+    """C-18.7, C-18.3: any lease on the lane makes it busy. A cycle reads it beside its holder
+    with no turn, and its automatic pass touches only lanes it read idle; a touch that reaches
+    the lane waits for the lease (an operator's, up to its wait) and runs no turn."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    store.acquire_lease(f"lane:{lane.lane_id}:{key}", holder)
+    timer.probe_cycle()
+    assert wham.calls == [lane.lane_id]                        # the busy read (C-18.3)
+    assert turns == [] and touches(store) == []
+    assert [row["holder"] for row in store.list_leases()] == [holder]
+    entry = {"lane_id": lane.lane_id, "reason": "forced", "weekly_clock": "not-started"}
+    item = timer._touch_lane(lane, entry, mode="operator", request_id="r", wait_s=.6)
+    assert item["holder"] is None and item["record"]["status"] == "skipped-busy"
+    timer._publish_touch(item, "operator")
+    assert turns == [] and [row["holder"] for row in store.list_leases()] == [holder]
 
 
 def test_a_retired_alias_is_not_a_touch_model(tmp_path):

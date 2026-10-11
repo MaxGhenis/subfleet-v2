@@ -3070,13 +3070,16 @@ class Daemon:
     #: C-18.7: what an operator is told when the lane they named cannot be touched.
     TOUCH_REFUSALS = {
         "owner-v1": ("is owned by v1", "subfleet lanes transfer {lane} --to v2"),
-        "disabled": ("is disabled", "re-enroll it: subfleet login codex {lane}"),
+        "disabled": ("is disabled", "re-enroll it: {login}"),
         "superseded": ("is a superseded binding", "touch the lane that replaced it: subfleet lanes list"),
         "desktop": ("is the desktop login, which subfleet never uses", "touch another lane"),
+        "operator-hold": ("is held by an operator until {until}",
+                          "release the hold first: subfleet lanes release {lane}"),
+        "auth-dead": ("has a dead credential (auth-dead, C-23.44)", "re-enroll it: {login}"),
         "identity-mismatch": ("holds another account's credential (C-10.6)",
-                              "re-enroll it: subfleet login codex {lane}"),
+                              "re-enroll it: {login}"),
         "credential-latched": ("has a credential that cannot run a turn",
-                               "re-authenticate it: subfleet login codex {lane}"),
+                               "re-authenticate it: {login}"),
         "limited": ("is at its usage limit, so its weekly window has already started",
                     "nothing to touch; subfleet status shows its reset"),
         "busy": ("is running an attempt, which is the first request that starts its clock",
@@ -3094,20 +3097,24 @@ class Daemon:
         nothing. The touch itself runs on the timer workers (C-16.4) and
         `touch-status` collects it.
         """
-        target = None
+        target = named = None
         if a.lane_id:
             from .operations import _target
-            target = _target(self, a.lane_id)["lane_id"]
+            named = _target(self, a.lane_id)
+            target = named["lane_id"]
         view = self._capacity_view(self._cached_desktop_identity())
         plan = self.timers.touch_plan(view, target=target)
         if target:
             entry = next((row for row in plan if row["lane_id"] == target), None)
             if entry is None or entry["action"] != "touch":
                 reason = entry["reason"] if entry else "not-codex"
-                text, fix = self.TOUCH_REFUSALS.get(reason.split(":", 1)[0], (
+                kind, _, until = reason.partition(":")
+                text, fix = self.TOUCH_REFUSALS.get(kind, (
                     f"is closed ({reason})", "wait for the closure to end: subfleet status"))
-                raise protocol.ProtocolError(f"lanes touch: {target} {text}; not touched",
-                                             Exit.REFUSED, fix.format(lane=target))
+                # C-23.52: the same re-authentication command a credential alert names.
+                from .alerts import _login
+                raise protocol.ProtocolError(f"lanes touch: {target} {text.format(until=until or 'unknown')}; "
+                                             "not touched", Exit.REFUSED, fix.format(lane=target, login=_login(named)))
         touching = [row["lane_id"] for row in plan if row["action"] == "touch"]
         result = {"dry_run": bool(a.dry_run), "target": target, "plan": plan, "touching": touching,
                   "model": touch_model(self.policy)["id"]}

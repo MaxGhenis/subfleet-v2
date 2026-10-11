@@ -54,7 +54,7 @@ def test_a_lane_and_all_together_are_invalid(daemon, capsys):
 def test_dry_run_prints_the_plan_and_sends_no_touch(daemon, capsys):
     """C-18.7, C-17.4: the plan table on stdout, a dry-run note on stderr, JSON on request."""
     server = daemon({"lanes": lambda request: {"touch": {
-        "status": "dry-run", "dry_run": True, "plan": PLAN, "touching": ["codex-1"], "model": "gpt-5.6-luna"}}})
+        "status": "dry-run", "dry_run": True, "plan": PLAN, "touching": ["codex-1"], "model": "gpt-6-luna"}}})
     assert cli.main(["lanes", "touch", "--dry-run"]) == 0
     sent = server.args("lanes")
     assert sent["action"] == "touch" and sent["dry_run"] is True and sent["lane_id"] is None
@@ -78,7 +78,7 @@ def test_a_touch_waits_for_its_result_and_maps_exit_codes(daemon, capsys):
     def lanes(request):
         if request.args["action"] == "touch":
             return {"touch": {"status": "scheduled", "timer": "touch", "request_id": request.args["request_id"],
-                              "touching": ["codex-1"], "model": "gpt-5.6-luna", "plan": PLAN}}
+                              "touching": ["codex-1"], "model": "gpt-6-luna", "plan": PLAN}}
         polls.append(request.args)
         if len(polls) % 2:
             return {"touch": {"status": "running", "request_id": request.args["request_id"]}}
@@ -91,7 +91,7 @@ def test_a_touch_waits_for_its_result_and_maps_exit_codes(daemon, capsys):
     assert 1 <= polls[-1]["wait_s"] <= 25
     captured = capsys.readouterr()
     assert captured.out == "codex-1: touched · weekly reset now 2026-10-02T20:09:00Z\n"
-    assert "touching codex-1 with gpt-5.6-luna" in captured.err
+    assert "touching codex-1 with gpt-6-luna" in captured.err
     results["value"] = [{"lane_id": "codex-1", "status": "refused", "detail": "guard trust preflight failed"}]
     assert cli.main(["lanes", "touch", "codex-1"]) == Exit.REFUSED
     assert "codex-1: refused (guard trust preflight failed)" in capsys.readouterr().out
@@ -108,7 +108,7 @@ def test_a_named_lane_the_daemon_ended_up_not_touching_is_not_a_success(daemon, 
     def lanes(request):
         if request.args["action"] == "touch":
             return {"touch": {"status": "scheduled", "request_id": "r", "touching": ["codex-1"],
-                              "model": "gpt-5.6-luna", "plan": PLAN}}
+                              "model": "gpt-6-luna", "plan": PLAN}}
         return {"touch": {"status": "done", "results": [],
                           "plan": [{**PLAN[0], "action": "skip", "reason": "busy"}]}}
 
@@ -121,7 +121,7 @@ def test_no_wait_returns_once_scheduled_and_a_busy_timer_is_an_error(daemon, cap
     """C-18.7: --no-wait leaves the touch to the daemon; a touch already running is exit 1."""
     answer = {"status": "scheduled"}
     server = daemon({"lanes": lambda request: {"touch": {**answer, "request_id": "r", "touching": ["codex-1"],
-                                                         "plan": PLAN, "model": "gpt-5.6-luna"}}})
+                                                         "plan": PLAN, "model": "gpt-6-luna"}}})
     assert cli.main(["lanes", "touch", "--no-wait", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "scheduled"
     assert [request.args["action"] for request in server.requests] == ["touch"]
