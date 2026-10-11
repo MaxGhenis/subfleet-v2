@@ -32,12 +32,13 @@ CONVERSATION_READS = {"capabilities", "models.list", "conversation.list", "conve
                       "suggestion.list"}
 #: The conversation ops that write something a caller relies on: a conversation,
 #: its title, a message, a steer, a stop, an answer, an attachment, a catalog run,
-#: a handoff.
+#: a handoff, an archive.
 CONVERSATION_WRITES = {"conversation.create", "conversation.settings", "conversation.unblock",
                        "conversation.rename", "message.submit", "message.steer", "message.cancel",
                        "turn.interrupt", "message.resolve", "approval.respond", "attachment.add",
                        "catalog.refresh", "conversation.handoff", "conversation.wake",
-                       "suggestion.create", "suggestion.start", "suggestion.dismiss", "suggestion.withdraw"}
+                       "suggestion.create", "suggestion.start", "suggestion.dismiss", "suggestion.withdraw",
+                       "conversation.archive"}
 
 
 def test_c16_7_every_conversation_op_is_classified_once():

@@ -28,6 +28,8 @@ CONVERSATION_OPS = (
     "conversation.wake",
     # C-25.7: suggested conversations; `suggestion.start` and `suggestion.dismiss` are a person's.
     "suggestion.create", "suggestion.list", "suggestion.start", "suggestion.dismiss", "suggestion.withdraw",
+    # C-25.2, C-25.6: archive or unarchive a conversation; a person's.
+    "conversation.archive",
 )
 
 #: What `decode_request` answers for an op this daemon does not serve. A client
