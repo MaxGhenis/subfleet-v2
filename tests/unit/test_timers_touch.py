@@ -777,3 +777,26 @@ def test_a_touch_model_closure_warns_with_its_clock_and_points_at_status(rig):
     [condition] = [c for c in evaluate_conditions(snapshot, now=clock()) if c["key"].startswith("codex-clock:")]
     assert f"the touch model is closed on it until {until}" in condition["body"]
     assert condition["body"].endswith("Inspect: subfleet status")
+
+
+def test_a_forced_touch_of_a_running_clock_does_not_make_the_next_real_start_a_repeat(rig):
+    """C-18.3: an operator may touch a lane whose clock runs; when that window resets soon after,
+    the automatic touch that starts the new clock is announced and reads `touched`."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    wham.lag_s = 300
+    wham.started[lane.lane_id] = clock() - timedelta(days=7) + timedelta(minutes=30)
+    timer.probe_cycle()
+    assert turns == []                                           # running: nothing to do
+    timer.touch(target=lane.lane_id, mode="operator", request_id="forced")
+    assert touches(store, lane.lane_id)[-1]["before"]["weekly_clock"] is None
+    clock.advance(3601)                                          # the week ran out; unstarted again
+    wham.started.clear()
+    notices.clear()
+    snapshot = timer.probe_cycle()
+    assert len(turns) == 2 and "ineffective" not in touches(store, lane.lane_id)[-1]
+    assert touches(store, lane.lane_id)[-1]["previous"]["unstarted"] is False
+    row = next(row for row in snapshot["lanes"] if row["lane_id"] == lane.lane_id)
+    assert row["weekly_clock"] == "touched" and row["clock_alert"] is None
+    assert [n["subject"] for n in notices if n.get("key") == "codex-clock-started"] == [
+        "codex: weekly clock started on 1 lane(s)"]
