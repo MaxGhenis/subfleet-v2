@@ -157,7 +157,47 @@ Example counts: see "Tests".
 
 ## Tests
 
-Pending: filled in once the shared suite lock admits this job's runs.
+All runs used Python 3.12 (`.venv`, `uv sync --offline`) under the shared suite lock, one pytest process at a
+time, with `env -u PYTHONPATH`. They ran inside a Subfleet lane (`SUBFLEET_JOB` set), so the daemon's peer
+check (C-25.6) refuses every request from this process tree as a person's.
+
+New tests (each passed):
+
+| File | Tests | What it covers |
+|---|---|---|
+| `tests/unit/test_suggestions.py` | 29 | ops, capability and limits; origin from a turn, a bound session, none; words bounded and scrubbed; request-id idempotence; folder and model checks; per-origin and global bounds; person-only start and dismiss; one conversation whose first message is the brief; worktree, in-place fallback, scratch folder; widen confirmation; Codex read-only; closed never starts; creator-only withdraw and too-late; a start cut short finished by a retry and by the daemon after a restart; list order, preview and full brief; feed and event rows; additive table with schema 2; oversized event |
+| `tests/unit/test_suggestion_properties.py` | 1 state machine | invariants I1 to I6 (above): **300 examples x up to 40 steps**, passing in 24 s. Every path was reached, for example starts cut short (21% of examples), the daemon finishing claimed starts (16%), restarts (62%), and refusals `person-only`, `not-open`, `too-late`, `not-creator`, `too-many-suggestions` |
+| `tests/unit/test_suggest_cli.py` | 7 | what `subfleet suggest` sends and prints; exit codes; an old daemon is exit 69; permanent verb |
+| `tests/unit/test_suggest_hint.py` | 10 | the hook line on startup/clear/compact inside a turn only; never on resume or a prompt; beside a job notice (only the notice marked); with the daemon down |
+| `tests/fake/test_suggestions_fake.py` | 1 | an agent turn's real `subfleet suggest` handler, through the app-facing ops, to a person's Start: a worktree conversation, its dispatched turn, and the Claude driver's user frame equal to the brief; the origin's card ends `started` |
+| `tests/e2e/test_suggestions_e2e.py` | 2 | real daemon, guardian, relay and fake Claude. The withdraw test passed. The start test **passed its agent half, then skipped at `as_person`** (see "Not run") |
+| `tests/frontend/test_core_suggestions.py` | 7 | lossless Swift decode of every suggestion answer, watch row and event; Swift requests reach the daemon's handlers; Suggested section order, filters, count; origin-less rows touch no conversation; no state regression; preview never replaces a whole brief; start-error words |
+| `tests/frontend/test_visual_suggestions.py` | 1 | offscreen render of the card and section, 6 PNGs at 2880x1800, no visible window |
+
+Mutation check: dismissing a suggestion while a start is claimed (allowing `starting` in `Suggestions.close`)
+was caught by the state machine. It minimized to: create, start cut short, dismiss. The file was restored by
+`git checkout` afterwards; the mutant was never committed.
+
+Changed existing tests (updated):
+
+- `tests/e2e/test_conversations.py`: the two hook tests now expect the new session's SessionStart line.
+- `tests/unit/test_descriptors_desktop.py`: classifies the five ops.
+- `tests/frontend/test_core_protocol.py`: adds the five ops to the every-op lossless check.
+
+Regression runs (counts are what each run reported):
+
+| Run | Result |
+|---|---|
+| conversation service, store, titles, wakes, steer, handoff, legacy hold, hooks, hook cost, d714 argv pin, desktop ledger, wake CLI, compat, CLI | 2,298 passed |
+| `tests/frontend` without `test_core_live.py` | 606 passed (10 min 53 s) |
+| notices, notice delivery, pin re-review, wakes fake, conversation pools, daemon descriptors, descriptors, cutover, PR #127 fixes | 152 passed |
+| `tests/e2e/test_conversations.py`, `test_conversation_wakes_e2e.py`, `test_suggestions_e2e.py` | 29 passed, 16 skipped (15 pre-existing person-only skips, plus this job's one) |
+| whole suite `--collect-only` | 10,828 collected, no errors |
+| `tests/unit` up to `test_stop_watchdog.py` (capped at 20 failures) | 7,981 passed, 3 skipped, 20 failed, all 20 in `test_stop_watchdog.py` |
+
+The `test_stop_watchdog.py` failures: the test's child process cannot resolve a home directory at import
+(`lanes_transfer.py`'s `Path("~/…").expanduser()`). The same file on a `git archive` of the base 4c6a8a9c fails
+21 of 26 in this lane, so it is the lane's environment, not this change.
 
 ## Known limits
 
