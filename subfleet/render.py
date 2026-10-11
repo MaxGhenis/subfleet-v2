@@ -153,7 +153,7 @@ def status(view: Mapping[str, Any]) -> str:
             ("disabled", not lane.get("enabled", True)),
             ("identity-mismatch", lane.get("identity_status") == "mismatch"),
             ("identity-unverified", lane.get("identity_status") == "unverified"),
-            # C-18.3: an idle lane's weekly reset slides a day per idle day.
+            # C-18.7: an idle lane's weekly reset slides a day per idle day.
             ("clock-not-started", lane.get("weekly_clock") == "not-started"),
             ("clock-touched", lane.get("weekly_clock") == "touched"),
         ) if enabled]

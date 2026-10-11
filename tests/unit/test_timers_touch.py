@@ -1,4 +1,4 @@
-"""C-18.3: idle Codex weekly clocks are started by the daemon, not left to slide.
+"""C-18.7: idle Codex weekly clocks are started by the daemon, not left to slide.
 
 A ChatGPT-subscription Codex account's weekly window starts at its first real
 request after a reset. Until then the usage endpoint reports 0% with a reset
@@ -40,7 +40,7 @@ class Clock:
 
 
 class Wham:
-    """The usage endpoint as it reads a Codex weekly window (C-18.3).
+    """The usage endpoint as it reads a Codex weekly window (C-18.7).
 
     Unstarted: 0% and a reset that slides with the read. Started by a request
     at T: the reset is fixed at T + 7 days. `lag_s` keeps a just-started window
@@ -136,11 +136,11 @@ def weekly(now, *, utilization=0.0, offset_s=0.0, window="seven_day", label="pro
             "label": label, "source": "wham", "observed_at": iso(observed)}
 
 
-# --- detection (C-18.3) --------------------------------------------------------
+# --- detection (C-18.7) --------------------------------------------------------
 
 @pytest.mark.parametrize("offset_s", [0, 599, -599])
 def test_a_window_at_zero_with_a_sliding_reset_has_not_started(offset_s):
-    """C-18.3: 0% and a reset within 600 s of observed_at + 7 d reads as an unstarted clock."""
+    """C-18.7: 0% and a reset within 600 s of observed_at + 7 d reads as an unstarted clock."""
     now = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
     evidence = capacity.clock_unstarted([weekly(now, offset_s=offset_s),
                                          weekly(now, window="five_hour")], now=now)
@@ -149,7 +149,7 @@ def test_a_window_at_zero_with_a_sliding_reset_has_not_started(offset_s):
 
 
 def test_detection_reads_dataclass_readings_and_any_long_window_key():
-    """C-9.7, C-18.3: a window is classified by its length, so a 14-day minute key counts too."""
+    """C-9.7, C-18.7: a window is classified by its length, so a 14-day minute key counts too."""
     now = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
     reading = Reading("codex-4", "account", "seven_day", 0.0, iso(now + WEEK), ReadingLabel.PROVIDER, "wham", iso(now))
     assert capacity.clock_unstarted([reading], now=now)
@@ -170,22 +170,22 @@ def test_detection_reads_dataclass_readings_and_any_long_window_key():
     {"window": "five_hour"},                      # a five-hour window is not the weekly clock
 ])
 def test_started_stale_or_unread_windows_are_not_unstarted(change):
-    """C-18.3: detection reads fresh provider evidence only and never infers an unstarted clock."""
+    """C-18.7: detection reads fresh provider evidence only and never infers an unstarted clock."""
     now = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
     assert capacity.clock_unstarted([weekly(now, **change)], now=now) is None
 
 
 def test_one_started_long_window_is_enough_to_say_started():
-    """C-18.3: every long window must slide at 0%; one that does not means the clock runs."""
+    """C-18.7: every long window must slide at 0%; one that does not means the clock runs."""
     now = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
     assert capacity.clock_unstarted([weekly(now), weekly(now, window="20160", utilization=.2)], now=now) is None
     assert capacity.clock_unstarted([], now=now) is None
 
 
-# --- the automatic touch (C-18.3) ----------------------------------------------
+# --- the automatic touch (C-18.7) ----------------------------------------------
 
 def test_probe_cycle_touches_an_unstarted_lane_once_and_reprobes(rig):
-    """C-18.3, C-8.4: one supervised Luna turn starts the clock; the re-probe is what publishes."""
+    """C-18.7, C-8.4: one supervised Luna turn starts the clock; the re-probe is what publishes."""
     timer, store, clock, wham, enroll, turns, notices, recorder = rig
     lane = enroll()
     snapshot = timer.probe_cycle()
@@ -217,7 +217,7 @@ def test_probe_cycle_touches_an_unstarted_lane_once_and_reprobes(rig):
 
 
 def test_a_lane_already_started_or_busy_is_not_touched(rig):
-    """C-18.3: a running clock needs no touch; a live attempt is itself the first request."""
+    """C-18.7: a running clock needs no touch; a live attempt is itself the first request."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     started, busy = enroll("codex-1"), enroll("codex-2")
     wham.started[started.lane_id] = clock() - timedelta(days=2)
@@ -231,7 +231,7 @@ def test_a_lane_already_started_or_busy_is_not_touched(rig):
 
 
 def test_touches_are_spaced_an_hour_apart_per_lane(rig):
-    """C-18.3: at most one automatic touch per lane per `timers.touch_spacing_s` (3600 s)."""
+    """C-18.7: at most one automatic touch per lane per `timers.touch_spacing_s` (3600 s)."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     wham.starts = False                            # a turn metered elsewhere starts nothing
@@ -258,7 +258,7 @@ def test_touches_are_spaced_an_hour_apart_per_lane(rig):
 
 
 def test_a_touch_from_an_earlier_week_does_not_make_this_weeks_touch_a_repeat(rig):
-    """C-18.3: `ineffective` counts touches within one idle stretch; last week's touch started
+    """C-18.7: `ineffective` counts touches within one idle stretch; last week's touch started
     last week's clock, so this week's first touch is announced and reads `touched`."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
@@ -277,7 +277,7 @@ def test_a_touch_from_an_earlier_week_does_not_make_this_weeks_touch_a_repeat(ri
 
 
 def test_a_just_touched_window_that_still_slides_reads_touched_not_unstarted(rig):
-    """C-18.3: within the tolerance after an accepted touch the endpoint may still slide; that is `touched`."""
+    """C-18.7: within the tolerance after an accepted touch the endpoint may still slide; that is `touched`."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     wham.lag_s = 300
@@ -294,7 +294,7 @@ def test_a_just_touched_window_that_still_slides_reads_touched_not_unstarted(rig
 
 @pytest.mark.parametrize("failure", ["unknown", "limited", "refused", "timed-out"])
 def test_a_touch_that_fails_is_recorded_spaced_and_alerted(rig, failure):
-    """C-18.3, C-9.4, C-14.2: a failed touch releases its lease, keeps its spacing, and raises a warning."""
+    """C-18.7, C-9.4, C-14.2: a failed touch releases its lease, keeps its spacing, and raises a warning."""
     timer, store, clock, wham, enroll, turns, notices, recorder = rig
     lane = enroll()
 
@@ -329,7 +329,7 @@ def test_a_touch_that_fails_is_recorded_spaced_and_alerted(rig, failure):
 
 
 def test_auto_touch_can_be_switched_off_and_then_warns_instead(rig):
-    """C-18.3: `timers.touch_unstarted: false` touches nothing and says why the clock is idle."""
+    """C-18.7: `timers.touch_unstarted: false` touches nothing and says why the clock is idle."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     timer.policy["timers"]["touch_unstarted"] = False
@@ -340,7 +340,7 @@ def test_auto_touch_can_be_switched_off_and_then_warns_instead(rig):
 
 
 def test_an_offline_cycle_touches_nothing(rig):
-    """C-23.27, C-18.3: a cycle whose every Codex probe failed on the network acts on nothing."""
+    """C-23.27, C-18.7: a cycle whose every Codex probe failed on the network acts on nothing."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     wham.overrides[lane.lane_id] = {"status": "network-error", "readings": (), "error_type": "URLError"}
@@ -349,7 +349,7 @@ def test_an_offline_cycle_touches_nothing(rig):
 
 
 def test_disabled_v1_and_desktop_lanes_are_never_probed_or_touched(rig):
-    """C-18.3, C-10.3, C-10.4: only enabled v2 lanes that are not the desktop login are touched."""
+    """C-18.7, C-10.3, C-10.4: only enabled v2 lanes that are not the desktop login are touched."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     enroll("codex-1", enabled=False)
     enroll("codex-2", owner=LaneOwner.V1)
@@ -358,7 +358,7 @@ def test_disabled_v1_and_desktop_lanes_are_never_probed_or_touched(rig):
     assert turns == [] and touches(store) == []
 
 
-# --- the plan: who may be touched, and why not (C-18.3) --------------------------
+# --- the plan: who may be touched, and why not (C-18.7) --------------------------
 
 def view_row(now, lane_id="codex-4", **extra):
     row = {"lane_id": lane_id, "provider": "codex", "account_key": "codex:" + lane_id, "owner": "v2",
@@ -380,7 +380,7 @@ def view_row(now, lane_id="codex-4", **extra):
     ({"in_flight": 1}, "busy"),
 ])
 def test_blocked_lanes_are_skipped_even_when_forced(rig, extra, reason):
-    """C-18.3: no touch uses another owner's, a disabled, desktop, mismatched, latched, limited, or busy lane."""
+    """C-18.7: no touch uses another owner's, a disabled, desktop, mismatched, latched, limited, or busy lane."""
     timer, store, clock, *_ = rig
     view = {"lanes": [view_row(clock(), **extra)]}
     [entry] = timer.touch_plan(view)
@@ -391,7 +391,7 @@ def test_blocked_lanes_are_skipped_even_when_forced(rig, extra, reason):
 
 @pytest.mark.parametrize("scope,blocked", [("account", True), (CLOCK_TOUCH_MODEL_ID, True), ("gpt-6-astra", False)])
 def test_a_closure_blocks_a_touch_only_for_the_account_or_the_touch_model(rig, scope, blocked):
-    """C-18.3, C-9.6: an Astra-only closure leaves Luna, and so the touch, free."""
+    """C-18.7, C-9.6: an Astra-only closure leaves Luna, and so the touch, free."""
     timer, store, clock, *_ = rig
     closure = {"lane_id": "codex-4", "scope": scope, "until_at": iso(clock() + timedelta(hours=2)),
                "reason": "provider-limit"}
@@ -401,7 +401,7 @@ def test_a_closure_blocks_a_touch_only_for_the_account_or_the_touch_model(rig, s
 
 
 def test_the_plan_is_read_only_and_a_named_lane_ignores_detection_and_spacing(rig):
-    """C-18.3: a dry run writes nothing; an explicit lane is forced past its readings and spacing."""
+    """C-18.7: a dry run writes nothing; an explicit lane is forced past its readings and spacing."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     wham.started[lane.lane_id] = clock() - timedelta(days=1)
@@ -424,7 +424,7 @@ def test_the_plan_is_read_only_and_a_named_lane_ignores_detection_and_spacing(ri
 
 
 def test_operator_request_runs_on_a_timer_worker_and_is_collected(rig):
-    """C-18.3, C-16.4: `lanes touch` is queued, and `touch_status` long-polls its result."""
+    """C-18.7, C-16.4: `lanes touch` is queued, and `touch_status` long-polls its result."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     timer.start()
@@ -436,10 +436,10 @@ def test_operator_request_runs_on_a_timer_worker_and_is_collected(rig):
     assert timer.touch_status("never-sent") == {"status": "unknown", "request_id": "never-sent", "results": []}
 
 
-# --- the touch model (C-18.3) ----------------------------------------------------
+# --- the touch model (C-18.7) ----------------------------------------------------
 
 def test_the_touch_model_is_luna_and_spark_is_refused(tmp_path):
-    """C-18.3: only a Codex turn metered on the weekly window starts it; Spark meters elsewhere."""
+    """C-18.7: only a Codex turn metered on the weekly window starts it; Spark meters elsewhere."""
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert touch_model(policy) == {"short": "luna", "provider": "codex", "id": "gpt-5.6-luna"}
     assert policy["timers"]["touch_spacing_s"] == 3600 and policy["timers"]["touch_unstarted"] is True
@@ -464,10 +464,10 @@ def test_the_touch_model_is_luna_and_spark_is_refused(tmp_path):
         load_policy(path)
 
 
-# --- the scheduler interaction (C-11.3, C-18.3) --------------------------------
+# --- the scheduler interaction (C-11.3, C-18.7) --------------------------------
 
 def test_an_unstarted_lane_ranks_last_and_only_the_touch_starts_its_clock(rig):
-    """C-11.3, C-18.3 regression: routing orders Codex lanes by weekly reset, and an unstarted
+    """C-11.3, C-18.7 regression: routing orders Codex lanes by weekly reset, and an unstarted
     window always reads the latest possible reset, so nothing routed ever starts it; the
     daemon's touch does (2026-09-22 codex-4: 20 h of clock lost)."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
@@ -502,10 +502,10 @@ def test_an_unstarted_lane_ranks_last_and_only_the_touch_starts_its_clock(rig):
     assert fixed == iso(touched_at + WEEK)                             # the clock runs; the reset holds
 
 
-# --- review regressions (C-18.3) ------------------------------------------------
+# --- review regressions (C-18.7) ------------------------------------------------
 
 def test_a_clock_a_job_just_started_is_not_touched_again(rig):
-    """C-18.3: a short job's request fixes the reset minutes before the probe reads 0%; that is
+    """C-18.7: a short job's request fixes the reset minutes before the probe reads 0%; that is
     `touched` (by the job), so no second turn is spent and no "started" notice is sent."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
@@ -524,7 +524,7 @@ def test_a_clock_a_job_just_started_is_not_touched_again(rig):
 
 @pytest.mark.parametrize("status", ["revoked", "expired-token", "limited", "no-auth"])
 def test_a_cycle_whose_probe_is_not_ok_touches_nothing(rig, status):
-    """C-18.3, C-23.47: only a lane whose probe this cycle answered `ok` is touched automatically."""
+    """C-18.7, C-23.47: only a lane whose probe this cycle answered `ok` is touched automatically."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     sliding = wham.probe_status(lane, {})
@@ -535,7 +535,7 @@ def test_a_cycle_whose_probe_is_not_ok_touches_nothing(rig, status):
 
 
 def test_an_automatic_pass_takes_one_round_and_releases_each_lane_as_it_finishes(rig):
-    """C-18.3, C-6.4: at most `lane_workers` touches per cycle; a finished lane is not held for the rest."""
+    """C-18.7, C-6.4: at most `lane_workers` touches per cycle; a finished lane is not held for the rest."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lanes = [enroll(f"codex-{n}") for n in range(1, 7)]
     held = []
@@ -557,7 +557,7 @@ def test_an_automatic_pass_takes_one_round_and_releases_each_lane_as_it_finishes
 
 
 def test_a_failure_while_publishing_one_touch_releases_every_lease_and_the_cycle_still_publishes(rig, monkeypatch):
-    """C-18.3, C-23.27: a store error persisting one re-probe is that lane's; no lease is left behind."""
+    """C-18.7, C-23.27: a store error persisting one re-probe is that lane's; no lease is left behind."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     enroll("codex-1"), enroll("codex-2")
     persist, calls = timer._persist, []
@@ -580,7 +580,7 @@ def test_a_failure_while_publishing_one_touch_releases_every_lease_and_the_cycle
 
 
 def test_a_failure_right_after_the_reservation_releases_it(rig, monkeypatch):
-    """C-18.3: everything after `_reserve` is inside `try`; the lease is always released."""
+    """C-18.7: everything after `_reserve` is inside `try`; the lease is always released."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     record, calls = timer._record_touch, []
@@ -599,7 +599,7 @@ def test_a_failure_right_after_the_reservation_releases_it(rig, monkeypatch):
 
 
 def test_a_touch_cut_short_by_shutdown_or_a_crash_neither_spaces_nor_warns(rig):
-    """C-18.3: stopping the daemon mid-turn is no verdict on the lane; neither is a crash."""
+    """C-18.7: stopping the daemon mid-turn is no verdict on the lane; neither is a crash."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
 
@@ -634,7 +634,7 @@ def test_a_touch_cut_short_by_shutdown_or_a_crash_neither_spaces_nor_warns(rig):
 
 
 def test_a_touch_that_waited_behind_another_rechecks_spacing_after_reserving(rig):
-    """C-18.3: an automatic touch queued behind an operator's touch of the same lane does not run."""
+    """C-18.7: an automatic touch queued behind an operator's touch of the same lane does not run."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     timer.probe_cycle()
@@ -650,7 +650,7 @@ def test_a_touch_that_waited_behind_another_rechecks_spacing_after_reserving(rig
 
 
 def test_an_automatic_pass_skips_a_lane_a_probe_reservation_holds_and_an_operator_waits(rig):
-    """C-18.3: a quarantined probe keeps its lease; the automatic pass says `held` instead of churning."""
+    """C-18.7: a quarantined probe keeps its lease; the automatic pass says `held` instead of churning."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     timer.probe_cycle()
@@ -665,7 +665,7 @@ def test_an_automatic_pass_skips_a_lane_a_probe_reservation_holds_and_an_operato
 
 
 def test_a_superseded_lane_is_refused_as_superseded(rig):
-    """C-18.3, C-10.2: a re-enrolled lane's old binding names its successor, not a login."""
+    """C-18.7, C-10.2: a re-enrolled lane's old binding names its successor, not a login."""
     timer, store, clock, *_ = rig
     [entry] = timer.touch_plan({"lanes": [view_row(clock(), enabled=False, superseded_by="codex-9")]},
                                target="codex-4")
@@ -673,7 +673,7 @@ def test_a_superseded_lane_is_refused_as_superseded(rig):
 
 
 def test_a_retired_alias_is_not_a_touch_model(tmp_path):
-    """C-18.3: `sol` resolves to Astra at ultra effort; the touch names the model it means."""
+    """C-18.7: `sol` resolves to Astra at ultra effort; the touch names the model it means."""
     raw = json.loads(DEFAULT_POLICY_PATH.read_text())
     raw["timers"]["touch_model"] = "sol"
     path = tmp_path / "policy.json"
@@ -682,10 +682,10 @@ def test_a_retired_alias_is_not_a_touch_model(tmp_path):
         load_policy(path)
 
 
-# --- review round 2 (C-18.3) ------------------------------------------------------
+# --- review round 2 (C-18.7) ------------------------------------------------------
 
 def test_an_operator_touch_in_flight_does_not_clear_a_standing_warning(rig):
-    """C-18.3, C-23.52: while a touch runs the lane stands on its last settled touch, so a cycle
+    """C-18.7, C-23.52: while a touch runs the lane stands on its last settled touch, so a cycle
     in between neither sends `recovered:` nor re-raises the warning after."""
     import threading
     timer, store, clock, wham, enroll, turns, notices, _ = rig
@@ -720,7 +720,7 @@ def test_an_operator_touch_in_flight_does_not_clear_a_standing_warning(rig):
 
 
 def test_a_failed_touch_between_two_ineffective_ones_keeps_the_count(rig):
-    """C-18.3: ok, then a failure, then ok, with the clock never starting, is still ineffective:
+    """C-18.7: ok, then a failure, then ok, with the clock never starting, is still ineffective:
     no "started" notice, no `touched`, no recovery."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
@@ -752,7 +752,7 @@ def test_a_failed_touch_between_two_ineffective_ones_keeps_the_count(rig):
 
 
 def test_an_operator_result_collected_after_a_restart_is_one_record_per_lane(rig):
-    """C-18.3, C-17.3: the cold `touch-status` answer is the last record per lane, not `touching` too."""
+    """C-18.7, C-17.3: the cold `touch-status` answer is the last record per lane, not `touching` too."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     timer.touch(target=lane.lane_id, mode="operator", request_id="req-cold")
@@ -765,7 +765,7 @@ def test_an_operator_result_collected_after_a_restart_is_one_record_per_lane(rig
 
 
 def test_a_touch_model_closure_warns_with_its_clock_and_points_at_status(rig):
-    """C-18.3: with Luna closed on a lane the touch cannot start it; the warning says until when."""
+    """C-18.7: with Luna closed on a lane the touch cannot start it; the warning says until when."""
     from subfleet.alerts import evaluate_conditions
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
@@ -780,7 +780,7 @@ def test_a_touch_model_closure_warns_with_its_clock_and_points_at_status(rig):
 
 
 def test_a_forced_touch_of_a_running_clock_does_not_make_the_next_real_start_a_repeat(rig):
-    """C-18.3: an operator may touch a lane whose clock runs; when that window resets soon after,
+    """C-18.7: an operator may touch a lane whose clock runs; when that window resets soon after,
     the automatic touch that starts the new clock is announced and reads `touched`."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
@@ -803,7 +803,7 @@ def test_a_forced_touch_of_a_running_clock_does_not_make_the_next_real_start_a_r
 
 
 def test_a_lane_whose_touch_cannot_be_recorded_strands_no_other_lanes_lease(rig, monkeypatch):
-    """C-18.3, C-6.4: one lane's store error while recording its verdict is that lane's alone.
+    """C-18.7, C-6.4: one lane's store error while recording its verdict is that lane's alone.
 
     Each finished touch holds its lane's lease until its own publish releases it.
     A publish that raised used to leave `touch()`'s loop, so every lane still
@@ -835,7 +835,7 @@ def test_a_lane_whose_touch_cannot_be_recorded_strands_no_other_lanes_lease(rig,
 
 
 def test_a_reprobe_that_fails_after_a_touch_reached_the_provider_keeps_the_touch_ok(rig, monkeypatch):
-    """C-18.3: the turn's verdict is the touch's; a re-probe that raises is recorded beside it, not over it."""
+    """C-18.7: the turn's verdict is the touch's; a re-probe that raises is recorded beside it, not over it."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
     read, calls = timer._read_probe, []
@@ -854,7 +854,7 @@ def test_a_reprobe_that_fails_after_a_touch_reached_the_provider_keeps_the_touch
 
 
 def test_a_clock_seen_running_since_the_last_touch_makes_the_next_touch_no_repeat(rig):
-    """C-18.3: a reset that comes within twice the spacing of a touch that worked (an early
+    """C-18.7: a reset that comes within twice the spacing of a touch that worked (an early
     or global reset) starts a new idle stretch; that touch is not counted as ineffective."""
     timer, store, clock, wham, enroll, turns, notices, _ = rig
     lane = enroll()
@@ -877,7 +877,7 @@ def test_a_clock_seen_running_since_the_last_touch_makes_the_next_touch_no_repea
 
 @pytest.mark.parametrize("seed", range(16))
 def test_property_every_cycle_releases_every_touch_lease_whatever_fails(rig, monkeypatch, seed):
-    """C-18.3, C-6.4: for any lanes and any faults (a turn that raises, times out or is refused,
+    """C-18.7, C-6.4: for any lanes and any faults (a turn that raises, times out or is refused,
     a re-probe, persist or record that raises), after each cycle no touch holds a lease or a
     holder, and every lane touched has a verdict, not `touching`. Quarantine keeps its lease by
     design (C-5.8) and is not generated here."""

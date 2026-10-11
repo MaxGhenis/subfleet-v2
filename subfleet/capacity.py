@@ -362,7 +362,7 @@ def window_seconds(window: Any) -> int | None:
 
 
 def long_windows(readings: Iterable[Any]) -> list[dict[str, Any]]:
-    """C-18.3: the account-wide readings of windows at least a day long (the weekly clock)."""
+    """C-18.7: the account-wide readings of windows at least a day long (the weekly clock)."""
     rows = [_row(item) for item in readings]
     return [row for row in rows if row.get("scope") == "account"
             and (window_seconds(row.get("window")) or 0) >= CLOCK_WINDOW_MIN_S]
@@ -371,7 +371,7 @@ def long_windows(readings: Iterable[Any]) -> list[dict[str, Any]]:
 def clock_unstarted(readings: Iterable[Any], *, now: str | datetime,
                     reading_ttl_s: int = READING_TTL_S,
                     tolerance_s: float = CLOCK_UNSTARTED_TOLERANCE_S) -> dict[str, Any] | None:
-    """C-18.3: the evidence that a lane's weekly clock has not started, or None.
+    """C-18.7: the evidence that a lane's weekly clock has not started, or None.
 
     A Codex weekly window starts at its first real request after a reset, not at
     the reset. Until then the usage endpoint reports it at 0% with a reset that

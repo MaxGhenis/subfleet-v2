@@ -344,7 +344,7 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
                           "account_key": lane.get("account_key", lane["lane_id"]),
                           "app_shadowed": bool(lane.get("app_shadowed", False)),
                           "reset_credits_remaining": credit_count,
-                          # C-18.3: `window_unstarted` is v1's name for a clock
+                          # C-18.7: `window_unstarted` is v1's name for a clock
                           # the daemon has not yet started.
                           "weekly_clock": lane.get("weekly_clock"),
                           "window_unstarted": lane.get("weekly_clock") == "not-started"})

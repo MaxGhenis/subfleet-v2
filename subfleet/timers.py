@@ -2,7 +2,7 @@
 
 Network calls and guardian turns happen in a fixed worker pool. Transactions
 only reserve lanes or publish facts. Timer requests never create jobs (C-8.4).
-A probe cycle also starts idle Codex weekly clocks (C-18.3).
+A probe cycle also starts idle Codex weekly clocks (C-18.7).
 """
 from __future__ import annotations
 
@@ -30,16 +30,16 @@ from .store import Store
 #: lane lease (C-18.3).
 BUSY = 'busy'
 
-#: C-18.3: the probe statuses under which a lane's credential cannot run a turn.
+#: C-18.7: the probe statuses under which a lane's credential cannot run a turn.
 LATCHED_STATUSES = ('auth-dead', 'revoked', 'auth-revoked', 'expired-token', 'no-auth')
-#: C-18.3: what a touch that never reached the provider, or never answered, records.
+#: C-18.7: what a touch that never reached the provider, or never answered, records.
 TOUCH_FAILED = ('refused', 'failed', 'timed-out', 'unknown', 'transient', 'limited',
                 'auth-dead', 'cli-too-old', 'content-filter', 'quarantined')
-#: C-18.3: a touch the daemon's stop cut short, or a crash interrupted: no verdict.
+#: C-18.7: a touch the daemon's stop cut short, or a crash interrupted: no verdict.
 TOUCH_UNSETTLED = ('cancelled', 'interrupted')
-#: C-18.3: a touch with no verdict yet or ever; the lane's standing is its last settled touch.
+#: C-18.7: a touch with no verdict yet or ever; the lane's standing is its last settled touch.
 TOUCH_PENDING = ('touching',) + TOUCH_UNSETTLED
-#: C-18.3: operator touch results kept in memory for `lanes touch` to collect.
+#: C-18.7: operator touch results kept in memory for `lanes touch` to collect.
 TOUCH_RESULTS_KEPT = 32
 
 
@@ -68,7 +68,7 @@ class Timers:
         # status.json shows beside a lane that probe holds; None reads none.
         self.probe_record = None
         self.now = now or (lambda: datetime.now(timezone.utc))
-        # C-18.3: one daemon.log line per touch. The daemon passes its own log.
+        # C-18.7: one daemon.log line per touch. The daemon passes its own log.
         self.log = log or logging.getLogger('subfleet.timers')
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -134,9 +134,9 @@ class Timers:
         # place and replace it as one step (C-18.3). Only dictionary work is done
         # under it; the store's lock, when both are held, is taken first.
         self._verdicts = threading.RLock()
-        # C-18.3: each Codex lane's latest touch; its `at` starts the spacing.
+        # C-18.7: each Codex lane's latest touch; its `at` starts the spacing.
         self.touches = self._latest('timer.touch')
-        # C-18.3: when each Codex lane's weekly clock was last read running. A
+        # C-18.7: when each Codex lane's weekly clock was last read running. A
         # clock that ran after a touch was started by it (or by work): a later
         # unstarted reading is a new window, not that touch failing.
         self._clock_running = {}
@@ -236,7 +236,7 @@ class Timers:
         if name == 'reset_credits':
             callback = lambda: self.reset_credits_cycle(target=target)
         elif name == 'touch':
-            # C-18.3: an operator's touch runs on the timer workers, never in
+            # C-18.7: an operator's touch runs on the timer workers, never in
             # the request handler (C-16.4); `touch_status` collects it.
             with self._touch_cv:
                 self._touch_pending.add(request_id)
@@ -917,7 +917,7 @@ class Timers:
                                    desktop_in_use=in_use)
         view = self.enrich_view(view, extra)
         if held:
-            # C-18.3: a lane a probe reservation holds (a quarantined one keeps
+            # C-18.7: a lane a probe reservation holds (a quarantined one keeps
             # its lease) cannot be touched; `touch_plan` says so as `held`. The
             # leases are the ones read with the view's rows (C-3.7).
             capacity.mark_probe_leases(view, probes['leases'])
@@ -947,7 +947,7 @@ class Timers:
         rows = rows or self.view_rows()
         # Re-enrolment creates a new lane id. The previous binding stays in the
         # ledger but no longer supplies the home's active credential condition.
-        last_work = self._last_work(view.get('attempts'))              # C-18.3
+        last_work = self._last_work(view.get('attempts'))              # C-18.7
         bindings = {}
         for lane in rows['enabled']:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
@@ -995,7 +995,7 @@ class Timers:
                 self._clock_state(row, last_work.get(row['lane_id']))
         return view
 
-    # --- C-18.3: weekly clocks start on first use -----------------------------
+    # --- C-18.7: weekly clocks start on first use -----------------------------
 
     def _touch_settings(self):
         settings = self.policy.get('timers') or {}
@@ -1005,7 +1005,7 @@ class Timers:
 
     @staticmethod
     def _last_work(attempts):
-        """C-18.3: when work last reached each lane: the latest attempt start that
+        """C-18.7: when work last reached each lane: the latest attempt start that
         sent a request (C-23.19: rc 5 without a provider session did not, nor did
         a spawn failure)."""
         latest = {}
@@ -1028,7 +1028,7 @@ class Timers:
         return status
 
     def _settled(self, touch):
-        """C-18.3: the lane's last touch that reached a verdict.
+        """C-18.7: the lane's last touch that reached a verdict.
 
         A touch still running, cut short, or interrupted says nothing about the
         clock, so the lane keeps standing on the one before it, which each
@@ -1039,14 +1039,14 @@ class Timers:
         return touch.get('previous') if self._touch_status(touch) in TOUCH_PENDING else touch
 
     def _ran_since(self, lane_id, at):
-        """C-18.3: whether this lane's clock was read running after `at`. If so, a touch
+        """C-18.7: whether this lane's clock was read running after `at`. If so, a touch
         at `at` did not fail to start it, and an unstarted clock now is a new window
         (an early or global reset) with its own idle stretch."""
         seen = self._clock_running.get(lane_id)
         return bool(seen and at and seen > instant(at))
 
     def _spaced_until(self, touch):
-        """C-18.3: when the spacing a lane's last touch imposes ends, or None.
+        """C-18.7: when the spacing a lane's last touch imposes ends, or None.
 
         A touch the daemon's own stop cut short, or one a crash interrupted,
         reached no verdict and imposes none: the next cycle may touch again.
@@ -1058,7 +1058,7 @@ class Timers:
         return until if until > self.now() else None
 
     def _clock_state(self, row, last_work=None):
-        """C-18.3: derive a Codex lane's weekly clock from its own readings.
+        """C-18.7: derive a Codex lane's weekly clock from its own readings.
 
         `weekly_clock` is `not-started` when the readings show a window that has
         not started (`capacity.clock_unstarted`); `touched` when they still do
@@ -1116,7 +1116,7 @@ class Timers:
         row['clock_alert'] = alert
 
     def touch_block(self, row):
-        """C-18.3: why this lane may not be touched at all, or None.
+        """C-18.7: why this lane may not be touched at all, or None.
 
         Detection and spacing are not here: an operator naming one lane skips
         both. These are the lanes no touch may use: another owner's, a
@@ -1150,7 +1150,7 @@ class Timers:
         return None
 
     def touch_plan(self, view, *, target=None, only=None, auto=False):
-        """C-18.3: what a touch pass would do with each Codex lane, and why.
+        """C-18.7: what a touch pass would do with each Codex lane, and why.
 
         Reads the view only: no probe, turn, event, or lease. `target` names one
         lane to touch whatever its readings and spacing say (an operator's
@@ -1210,7 +1210,7 @@ class Timers:
             self.touches[lane_id] = dict(record)
 
     def _touch_lane(self, lane, entry, *, mode, request_id, wait_s):
-        """C-18.3: one supervised touch: reserve, one tiny turn, re-probe.
+        """C-18.7: one supervised touch: reserve, one tiny turn, re-probe.
 
         The reservation is the same lane lease a probe takes (`_reserve`), so
         admission sees the lane as held and counts it toward the fleet cap. The
@@ -1312,7 +1312,7 @@ class Timers:
         return item
 
     def _publish_touch(self, item, mode):
-        """C-18.3: persist a touch's re-probe, record it, log it, then release its lane.
+        """C-18.7: persist a touch's re-probe, record it, log it, then release its lane.
 
         Runs as each touch finishes, so a lane is held for its own turn only.
         A failure here is the lane's, recorded as its `error_type`; the lease is
@@ -1348,7 +1348,7 @@ class Timers:
         return record
 
     def touch(self, view=None, *, target=None, only=None, mode='auto', request_id=None):
-        """C-18.3: touch every lane the plan chooses, publishing each as it finishes.
+        """C-18.7: touch every lane the plan chooses, publishing each as it finishes.
 
         Turns run on the lane workers. An automatic pass touches at most as many
         lanes as there are lane workers, so a cycle waits on one round of turns
@@ -1405,7 +1405,7 @@ class Timers:
                 'plan': plan, 'results': results}
 
     def touch_request(self, *, target=None, request_id=None):
-        """C-18.3: an operator's `lanes touch`, run on a timer worker."""
+        """C-18.7: an operator's `lanes touch`, run on a timer worker."""
         result = {'mode': 'operator', 'request_id': request_id, 'target': target, 'results': [],
                   'error_type': 'Interrupted'}
         try:
@@ -1423,7 +1423,7 @@ class Timers:
         return result
 
     def touch_status(self, request_id, *, wait_s=0):
-        """C-18.3: an operator touch's result, long-polled for at most 30 s (C-16.4)."""
+        """C-18.7: an operator touch's result, long-polled for at most 30 s (C-16.4)."""
         deadline = time.monotonic() + max(0.0, min(float(wait_s or 0), 30.0))
         with self._touch_cv:
             while (request_id not in self._touch_results and request_id in self._touch_pending
@@ -1514,7 +1514,7 @@ class Timers:
             try:
                 self._auto_touch(results)
             except Exception as exc:
-                # C-18.3: every lease is released inside the pass; what remains is
+                # C-18.7: every lease is released inside the pass; what remains is
                 # a cycle to publish, so the error is kept and publishing goes on.
                 self._cycle_error = self._cycle_error or type(exc).__name__
                 self.store.add_event('timer.error', data={'timer': 'touch', 'error_type': type(exc).__name__})
@@ -1543,7 +1543,7 @@ class Timers:
         return snapshot
 
     def _auto_touch(self, results):
-        """C-18.3: touch the lanes this cycle measured with a clock that has not started.
+        """C-18.7: touch the lanes this cycle measured with a clock that has not started.
 
         Only lanes whose fresh probe in this cycle shows the evidence are
         considered, so an idle fleet costs no extra snapshot. The pass runs

@@ -103,7 +103,7 @@ def sigterm_exit_0(argv: list[str]) -> int:
 
 
 def meter_clock(directory: Path) -> None:
-    """C-18.3: a request metered on the weekly window starts that account's clock.
+    """C-18.7: a request metered on the weekly window starts that account's clock.
 
     Spark meters on a bucket of its own, so its turn starts nothing. Every call
     is recorded with its argv and the environment keys the contract scrubs.

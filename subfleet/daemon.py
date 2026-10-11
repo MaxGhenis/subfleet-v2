@@ -3067,7 +3067,7 @@ class Daemon:
                            (utcnow(), "admission.disk_floor", json.dumps(floor_info, allow_nan=False)))
             self._disk_saved_source = source
 
-    #: C-18.3: what an operator is told when the lane they named cannot be touched.
+    #: C-18.7: what an operator is told when the lane they named cannot be touched.
     TOUCH_REFUSALS = {
         "owner-v1": ("is owned by v1", "subfleet lanes transfer {lane} --to v2"),
         "disabled": ("is disabled", "re-enroll it: subfleet login codex {lane}"),
@@ -3084,7 +3084,7 @@ class Daemon:
     }
 
     def _touch_lanes(self, a: protocol.LanesArgs) -> dict:
-        """C-18.3: `lanes touch [<lane>|--all] [--dry-run]`.
+        """C-18.7: `lanes touch [<lane>|--all] [--dry-run]`.
 
         A named lane is touched whatever its readings and spacing say, unless it
         is a lane no touch may use (exit 7, naming why and the fix). Without a
@@ -3980,7 +3980,7 @@ class Daemon:
         token = holder.rsplit(":", 1)[-1]
         directory = self.root / "lanes" / lane.lane_id / "probes" / token
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        # C-18.3: a touch must be metered on the weekly window it starts, so it
+        # C-18.7: a touch must be metered on the weekly window it starts, so it
         # runs the touch model (Luna), never Spark; heal and keepalive keep theirs.
         model = (touch_model(self.policy) if purpose == "touch"
                  else self.policy["models"]["haiku" if lane.provider == "claude" else "terra"])
@@ -4400,7 +4400,7 @@ class Daemon:
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
             touch = self.timers.touches.get(record["lane_id"])
             if record["timer_kind"] == "touch" and touch and touch.get("status") == "touching":
-                # C-18.3: a touch whose daemon died mid-turn keeps its spacing,
+                # C-18.7: a touch whose daemon died mid-turn keeps its spacing,
                 # records how the turn ended, and acts on it as the live path
                 # does: auth-dead disables the lane (C-23.44), limited closes it
                 # (C-9.4).
@@ -4456,7 +4456,7 @@ class Daemon:
                 continue  # No recorded identity grants no authority to release or kill.
             if record.get("state") == "completed":
                 # Settled before the daemon stopped (a timer turn refused before
-                # launch, C-18.3); only its lease outlived it.
+                # launch, C-18.7); only its lease outlived it.
                 self.store.release_leases(lease["holder"])
                 continue
             safe, receipt = self._await_probe(record)
@@ -7616,7 +7616,7 @@ class Daemon:
             self._respond(conn, write_lock, req, arrived)
             return None
         # Submission filesystem work and long polls have separate pools;
-        # ordinary read/cancel operations stay responsive. C-15.4, C-18.3: a
+        # ordinary read/cancel operations stay responsive. C-15.4, C-18.7: a
         # touch's long poll waits on the waiter pool, never the one `status` uses.
         polls = req.op == "wait" or req.op == "lanes" and req.args.get("action") == "touch-status"
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else

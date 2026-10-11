@@ -1,4 +1,4 @@
-"""C-18.3, C-17.1, C-17.3, C-17.4: `subfleet lanes touch` and the weekly-clock flags,
+"""C-18.7, C-17.1, C-17.3, C-17.4: `subfleet lanes touch` and the weekly-clock flags,
 against a fake daemon on the real socket protocol."""
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def test_every_touch_form_parses_to_the_lanes_handler(argv):
 
 
 def test_lanes_help_lists_touch_so_the_launchd_bridge_retires():
-    """C-18.3: `~/bin/codex-window-touch` retires itself once `subfleet lanes --help` lists touch."""
+    """C-18.7: `~/bin/codex-window-touch` retires itself once `subfleet lanes --help` lists touch."""
     stdout = io.StringIO()
     with redirect_stdout(stdout):
         assert cli.main(["lanes", "--help"]) == 0
@@ -52,7 +52,7 @@ def test_a_lane_and_all_together_are_invalid(daemon, capsys):
 
 
 def test_dry_run_prints_the_plan_and_sends_no_touch(daemon, capsys):
-    """C-18.3, C-17.4: the plan table on stdout, a dry-run note on stderr, JSON on request."""
+    """C-18.7, C-17.4: the plan table on stdout, a dry-run note on stderr, JSON on request."""
     server = daemon({"lanes": lambda request: {"touch": {
         "status": "dry-run", "dry_run": True, "plan": PLAN, "touching": ["codex-1"], "model": "gpt-5.6-luna"}}})
     assert cli.main(["lanes", "touch", "--dry-run"]) == 0
@@ -70,7 +70,7 @@ def test_dry_run_prints_the_plan_and_sends_no_touch(daemon, capsys):
 
 
 def test_a_touch_waits_for_its_result_and_maps_exit_codes(daemon, capsys):
-    """C-18.3, C-16.4, C-17.3: scheduled, then collected with touch-status; 0 when every touch
+    """C-18.7, C-16.4, C-17.3: scheduled, then collected with touch-status; 0 when every touch
     succeeded, 7 when one was refused, 1 for another failure."""
     results = {"value": [{"lane_id": "codex-1", "status": "ok", "resets_at": "2026-10-02T20:09:00Z"}]}
     polls = []
@@ -104,7 +104,7 @@ def test_a_touch_waits_for_its_result_and_maps_exit_codes(daemon, capsys):
 
 
 def test_a_named_lane_the_daemon_ended_up_not_touching_is_not_a_success(daemon, capsys):
-    """C-18.3, C-17.3: between the plan and the touch a job can take the lane; say so, exit 1."""
+    """C-18.7, C-17.3: between the plan and the touch a job can take the lane; say so, exit 1."""
     def lanes(request):
         if request.args["action"] == "touch":
             return {"touch": {"status": "scheduled", "request_id": "r", "touching": ["codex-1"],
@@ -118,7 +118,7 @@ def test_a_named_lane_the_daemon_ended_up_not_touching_is_not_a_success(daemon, 
 
 
 def test_no_wait_returns_once_scheduled_and_a_busy_timer_is_an_error(daemon, capsys):
-    """C-18.3: --no-wait leaves the touch to the daemon; a touch already running is exit 1."""
+    """C-18.7: --no-wait leaves the touch to the daemon; a touch already running is exit 1."""
     answer = {"status": "scheduled"}
     server = daemon({"lanes": lambda request: {"touch": {**answer, "request_id": "r", "touching": ["codex-1"],
                                                          "plan": PLAN, "model": "gpt-5.6-luna"}}})
@@ -131,7 +131,7 @@ def test_no_wait_returns_once_scheduled_and_a_busy_timer_is_an_error(daemon, cap
 
 
 def test_a_refusal_keeps_its_code_and_fix(daemon, capsys):
-    """C-17.3, C-18.3: a lane no touch may use is exit 7 with the daemon's fix."""
+    """C-17.3, C-18.7: a lane no touch may use is exit 7 with the daemon's fix."""
     daemon({"lanes": lambda request: protocol.fail(request.id, Exit.REFUSED,
                                                   "lanes touch: codex-3 is owned by v1; not touched",
                                                   "subfleet lanes transfer codex-3 --to v2")})
@@ -156,7 +156,7 @@ def unstarted(now):
 
 
 def test_status_flags_unstarted_clocks_and_counts_them():
-    """C-18.3: `subfleet status` marks a lane whose clock has not started and says how to start it."""
+    """C-18.7: `subfleet status` marks a lane whose clock has not started and says how to start it."""
     now = datetime.now(timezone.utc)
     lanes = [{"lane_id": "codex-4", "provider": "codex", "account_key": "codex:a", "owner": "v2",
               "weekly_clock": "not-started"},
@@ -177,7 +177,7 @@ def test_status_flags_unstarted_clocks_and_counts_them():
 
 
 def test_lanes_list_and_the_daemon_status_text_flag_the_clock():
-    """C-18.3: `lanes list` and `daemon.status` text show the same flag."""
+    """C-18.7: `lanes list` and `daemon.status` text show the same flag."""
     now = datetime.now(timezone.utc)
     lane = {"lane_id": "codex-4", "provider": "codex", "account_key": "codex:a", "owner": "v2",
             "enabled": True, "weekly_clock": "not-started", "readings": [unstarted(now)], "closures": []}
@@ -187,7 +187,7 @@ def test_lanes_list_and_the_daemon_status_text_flag_the_clock():
 
 
 def test_status_json_carries_the_clock_for_the_menu_bar():
-    """C-18.1, C-18.3: codex homes carry `weekly_clock` and v1's `window_unstarted`; the fleet lists them."""
+    """C-18.1, C-18.7: codex homes carry `weekly_clock` and v1's `window_unstarted`; the fleet lists them."""
     now = datetime.now(timezone.utc)
     lanes = [{"lane_id": "codex-4", "provider": "codex", "account_key": "codex:a", "owner": "v2",
               "enabled": True, "home": "/h/4", "weekly_clock": "not-started", "readings": [unstarted(now)],

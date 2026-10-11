@@ -387,7 +387,7 @@ def format_status(data: dict[str, Any]) -> str:
             # C-10.6: no percentage for this lane, and the reason beside it.
             if lane.get("identity_status") in ("mismatch", "unverified"):
                 flags.append(f"identity-{lane['identity_status']}")
-            clock = clock_flag(lane, by_lane.get(str(lane.get("lane_id"))))     # C-18.3
+            clock = clock_flag(lane, by_lane.get(str(lane.get("lane_id"))))     # C-18.7
             if clock:
                 flags.append(clock)
                 if clock == "clock not started":
@@ -403,7 +403,7 @@ def format_status(data: dict[str, Any]) -> str:
             )
     lines.extend(render.projection_totals(lanes))
     if unstarted:
-        # C-18.3: an idle lane's next reset slides a day for every idle day.
+        # C-18.7: an idle lane's next reset slides a day for every idle day.
         lines.append(f"codex weekly clocks not started: {len(unstarted)} ({', '.join(unstarted)}) "
                      f"— {PROG} lanes touch --all")
     cards = data.get("claude_cards")
@@ -2052,7 +2052,7 @@ def _format_lanes(result: dict[str, Any]) -> str:
              f"{'desktop':<8} {'enabled':<8} {'identity':<12} plan"]
     unstarted = []
     for lane in lanes:
-        clock = clock_flag(lane)                                   # C-18.3
+        clock = clock_flag(lane)                                   # C-18.7
         if lane.get("weekly_clock") == "not-started":
             unstarted.append(str(lane.get("lane_id")))
         lines.append(
@@ -2071,12 +2071,12 @@ def _format_lanes(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-#: C-18.3: a row that carries no `weekly_clock` at all (the offline reader's).
+#: C-18.7: a row that carries no `weekly_clock` at all (the offline reader's).
 _UNSET_CLOCK = object()
 
 
 def clock_flag(lane: dict[str, Any], readings: list[dict[str, Any]] | None = None) -> str | None:
-    """C-18.3: how a Codex lane's weekly clock reads, for the tables.
+    """C-18.7: how a Codex lane's weekly clock reads, for the tables.
 
     The daemon derives `weekly_clock` from the lane's readings and its last
     touch. Offline, only the readings are known, so the same evidence rule is
@@ -2123,7 +2123,7 @@ def _format_transfer(result: dict[str, Any]) -> str:
 
 
 def _format_touch_plan(plan: list[dict[str, Any]]) -> str:
-    """C-18.3: what a touch pass would do with each Codex lane, and why."""
+    """C-18.7: what a touch pass would do with each Codex lane, and why."""
     if not plan:
         return "no Codex lanes enrolled"
     labels = {"not-started": "not started", "touched": "touched"}
@@ -2154,7 +2154,7 @@ def _touch_rc(results: list[dict[str, Any]]) -> int:
 
 
 def cmd_lanes_touch(args: argparse.Namespace) -> int:
-    """C-18.3: start idle Codex lanes' weekly clocks with one tiny supervised turn each.
+    """C-18.7: start idle Codex lanes' weekly clocks with one tiny supervised turn each.
 
     A named lane is touched whatever its readings say (a force). Without one,
     or with `--all`, every lane whose weekly clock has not started is touched,
@@ -3305,7 +3305,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(l_transfer, nested=True)
     l_touch = lanes_sub.add_parser(
         "touch", help="start idle Codex lanes' weekly clocks (a window starts on first use)",
-        description="C-18.3: a Codex weekly window starts at its first request, not at the "
+        description="C-18.7: a Codex weekly window starts at its first request, not at the "
                     "reset, so an idle lane's next reset slides a day per idle day. The daemon "
                     "touches such lanes itself each probe cycle; this does it now. A named lane is "
                     "touched whatever its readings say; --all (the default) touches every lane "

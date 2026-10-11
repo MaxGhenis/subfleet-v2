@@ -1,4 +1,4 @@
-"""C-18.3 in the daemon: a touch holds the lane like a probe, counts toward the fleet
+"""C-18.7 in the daemon: a touch holds the lane like a probe, counts toward the fleet
 cap, runs the touch model through `_timer_turn`, and `lanes touch` refuses what no
 touch may use. Provider processes are replaced at `_execute_probe`, the daemon's
 process seam; the end-to-end suite runs the real guardian (tests/e2e/test_lanes_touch.py).
@@ -72,7 +72,7 @@ def measure(daemon, lane):
 
 
 def test_a_touch_holds_its_lane_and_counts_toward_the_fleet_cap(daemon, monkeypatch):
-    """C-18.3, C-6.4, C-6.10, C-11.4: during the turn the lane is leased to a probe holder,
+    """C-18.7, C-6.4, C-6.10, C-11.4: during the turn the lane is leased to a probe holder,
     admission rejects it (`no-slot`), and the reservation fills the fleet's only slot."""
     touched, other = codex(daemon, 1), codex(daemon, 2)
     for lane in (touched, other):
@@ -116,7 +116,7 @@ def test_a_touch_holds_its_lane_and_counts_toward_the_fleet_cap(daemon, monkeypa
 
 
 def test_a_touch_recovered_after_a_restart_records_how_it_ended(daemon):
-    """C-18.3, C-5.3: a daemon that died mid-touch finishes the record, and the spacing holds."""
+    """C-18.7, C-5.3: a daemon that died mid-touch finishes the record, and the spacing holds."""
     lane = codex(daemon, 1)
     started = {"lane_id": lane.lane_id, "at": iso(datetime.now(timezone.utc)), "mode": "auto",
                "model": "gpt-5.6-luna", "status": "touching"}
@@ -140,7 +140,7 @@ def test_a_touch_recovered_after_a_restart_records_how_it_ended(daemon):
     ({"enabled": False}, "is disabled", "subfleet login codex codex-1"),
 ])
 def test_a_named_lane_no_touch_may_use_is_refused_with_the_fix(daemon, changes, words, fix):
-    """C-18.3, C-6.5, C-17.3: `lanes touch <lane>` refuses (exit 7) a lane no touch may use."""
+    """C-18.7, C-6.5, C-17.3: `lanes touch <lane>` refuses (exit 7) a lane no touch may use."""
     codex(daemon, 1, **changes)
     with pytest.raises(protocol.ProtocolError) as refused:
         daemon.dispatch("lanes", {"action": "touch", "lane_id": "codex-1"})
@@ -149,7 +149,7 @@ def test_a_named_lane_no_touch_may_use_is_refused_with_the_fix(daemon, changes, 
 
 
 def test_limited_and_busy_named_lanes_are_refused(daemon):
-    """C-18.3: a limited window has started; a live attempt is the first request itself."""
+    """C-18.7: a limited window has started; a live attempt is the first request itself."""
     limited, busy = codex(daemon, 1), codex(daemon, 2)
     daemon.timers._persist(limited, {"status": "limited", "limit_reached": True, "allowed": False,
                                      "account_key": limited.account_key, "readings": ()})
@@ -164,7 +164,7 @@ def test_limited_and_busy_named_lanes_are_refused(daemon):
 
 
 def test_dry_run_and_a_quiet_fleet_write_nothing_and_unknown_lanes_are_invalid(daemon):
-    """C-18.3, C-17.3: a dry run plans without a turn, event, or lease; a name must be a Codex lane."""
+    """C-18.7, C-17.3: a dry run plans without a turn, event, or lease; a name must be a Codex lane."""
     lane = codex(daemon, 1)
     measure(daemon, lane)
     before = daemon.store.one("SELECT count(*) n FROM events")["n"]
@@ -185,7 +185,7 @@ def test_dry_run_and_a_quiet_fleet_write_nothing_and_unknown_lanes_are_invalid(d
 
 
 def test_a_name_a_claude_and_a_codex_lane_share_names_the_codex_one(daemon):
-    """C-11.2, C-18.3: an email that is both a Claude and a Codex lane names the Codex lane here."""
+    """C-11.2, C-18.7: an email that is both a Claude and a Codex lane names the Codex lane here."""
     home = daemon.root / "codex-7"
     home.mkdir()
     (home / "auth.json").write_text(json.dumps({"tokens": {"account_id": "7", "access_token": "FAKE-ONLY"}}))
@@ -198,7 +198,7 @@ def test_a_name_a_claude_and_a_codex_lane_share_names_the_codex_one(daemon):
 
 
 def test_a_guard_preflight_refusal_stops_the_touch_before_any_launch(daemon, monkeypatch):
-    """C-18.3, C-14.1, C-14.2: the touch runs the real guard preflight; with no reviewed overlay
+    """C-18.7, C-14.1, C-14.2: the touch runs the real guard preflight; with no reviewed overlay
     in the state root it refuses (code 7) before any provider process, and leaves no probe
     directory behind."""
     from subfleet.adapters.codex import CodexAdapter
@@ -222,7 +222,7 @@ def test_a_guard_preflight_refusal_stops_the_touch_before_any_launch(daemon, mon
 
 
 def test_a_recovered_touch_that_found_the_credential_dead_disables_the_lane(daemon):
-    """C-18.3, C-23.44: recovery acts on a touch's verdict as the live path does."""
+    """C-18.7, C-23.44: recovery acts on a touch's verdict as the live path does."""
     lane = codex(daemon, 1)
     daemon.timers._record_touch(lane.lane_id, {"lane_id": lane.lane_id, "at": iso(datetime.now(timezone.utc)),
                                                "mode": "auto", "status": "touching"})
@@ -236,7 +236,7 @@ def test_a_recovered_touch_that_found_the_credential_dead_disables_the_lane(daem
 
 
 def test_naming_a_superseded_lane_touches_the_lane_that_replaced_it(daemon):
-    """C-18.3, C-11.2: a re-enrolled lane's old id resolves to its successor on the same credential."""
+    """C-18.7, C-11.2: a re-enrolled lane's old id resolves to its successor on the same credential."""
     old = codex(daemon, 1, enabled=False)
     daemon.store.put_lane(Lane("codex-2", "codex", "codex:1", Credential("codex", old.home, "home"), old.home,
                                LaneOwner.V2, False))
@@ -245,7 +245,7 @@ def test_naming_a_superseded_lane_touches_the_lane_that_replaced_it(daemon):
 
 
 def test_recovery_releases_the_lease_of_a_turn_that_settled_before_the_stop(daemon):
-    """C-18.3, C-5.7: a timer turn refused before launch is `completed`; only its lease outlived it."""
+    """C-18.7, C-5.7: a timer turn refused before launch is `completed`; only its lease outlived it."""
     lane = codex(daemon, 1)
     daemon.store.acquire_lease(f"lane:{lane.lane_id}:slot:0", "probe:timer:done")
     daemon._save_probe({"holder": "probe:timer:done", "job_id": None, "lane_id": lane.lane_id,

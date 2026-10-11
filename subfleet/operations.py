@@ -68,7 +68,7 @@ def brief(view: dict) -> str:
             if lane.get('identity_status') in ('mismatch', 'unverified'):
                 conditions.append('identity ' + lane['identity_status'])
             if lane.get('weekly_clock') == 'not-started':
-                conditions.append('weekly clock not started')     # C-18.3
+                conditions.append('weekly clock not started')     # C-18.7
             closures = lane.get('closures', [row for row in view.get('closures', ()) if row['lane_id'] == lane['lane_id']])
             conditions.extend(render.closure_text(row) for row in closures)
             lines.append(f"  - {lane['lane_id']}: {text}" + ('; ' + '; '.join(conditions) if conditions else ''))

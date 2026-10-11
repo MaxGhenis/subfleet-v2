@@ -15,7 +15,7 @@ from subfleet.adapters.codex import WHAM_USAGE_URL
 
 
 def clock_started(account: str) -> datetime | None:
-    """C-18.3: with `SUBFLEET_FAKE_WHAM_CLOCKS` set, an account's weekly window starts
+    """C-18.7: with `SUBFLEET_FAKE_WHAM_CLOCKS` set, an account's weekly window starts
     at the first request `tests/bin/codex` meters on it, as a real account's does."""
     try:
         marker = Path(os.environ["SUBFLEET_FAKE_WHAM_CLOCKS"]) / f"{account}.started"

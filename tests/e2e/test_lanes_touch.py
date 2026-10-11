@@ -1,4 +1,4 @@
-"""C-18.3 end to end: the daemon starts idle Codex weekly clocks through its own
+"""C-18.7 end to end: the daemon starts idle Codex weekly clocks through its own
 supervised launch path (the guardian, the guard preflight, the API-key scrub,
 the lane lease), and `subfleet lanes touch` does the same on request.
 
@@ -26,7 +26,7 @@ def touch_events(e2e, lane_id=None):
 
 
 def test_daemon_starts_idle_weekly_clocks_through_the_supervised_path(e2e):
-    """C-18.3, C-5.1, C-14.2, C-6.5, C-8.4, C-17.1: an unstarted lane is touched with one
+    """C-18.7, C-5.1, C-14.2, C-6.5, C-8.4, C-17.1: an unstarted lane is touched with one
     guarded Luna turn per lane, re-probed, recorded, and announced; the CLI forms work."""
     clocks = e2e.root / "clocks"
     clocks.mkdir()
@@ -101,7 +101,7 @@ def test_daemon_starts_idle_weekly_clocks_through_the_supervised_path(e2e):
 
 
 def test_an_api_key_home_is_refused_before_any_touch_reaches_the_provider(e2e):
-    """C-18.3, C-6.5, C-10.2: the touch goes through the daemon's API-key refusal; nothing launches."""
+    """C-18.7, C-6.5, C-10.2: the touch goes through the daemon's API-key refusal; nothing launches."""
     clocks = e2e.root / "clocks"
     clocks.mkdir()
     home = e2e.root / "codex-1"

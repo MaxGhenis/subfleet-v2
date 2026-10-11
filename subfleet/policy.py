@@ -531,7 +531,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             or not math.isfinite(interval) or interval <= 0):
         fail("reset_credits.min_interval_min", "must be a positive number of minutes")
 
-    # C-18.3: `touch_unstarted` switches the automatic weekly-clock touch off
+    # C-18.7: `touch_unstarted` switches the automatic weekly-clock touch off
     # without removing `lanes touch`; the spacing and the turn's deadline are
     # seconds. `touch_model` is checked below: it names a model, not a number.
     timer_defaults = {"probe_interval_s": 60, "keepalive_interval_s": 18300,
@@ -554,7 +554,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         value[section] = settings
 
     if "touch_model" in value["timers"]:
-        # C-18.3: only a Codex turn metered on the weekly window starts a Codex
+        # C-18.7: only a Codex turn metered on the weekly window starts a Codex
         # weekly clock. Spark meters on a bucket of its own: a touch with it
         # would succeed, report the clock started, and start nothing.
         name = value["timers"]["touch_model"]
@@ -729,7 +729,7 @@ def resolve_model(policy: Mapping[str, Any], name: str, *, key: str = "pinned_mo
 
 
 def touch_model(policy: Mapping[str, Any]) -> dict[str, Any]:
-    """C-18.3: the model a weekly-clock touch runs, with its short name.
+    """C-18.7: the model a weekly-clock touch runs, with its short name.
 
     `timers.touch_model` when it names a Codex model other than Spark, else
     Luna: the policy's `luna` when it has one, else Luna's id. `load_policy`
