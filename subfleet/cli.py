@@ -1427,6 +1427,56 @@ def cmd_wait(args: argparse.Namespace) -> int:
 
 # --- runs (C-17.1, C-17.5) ----------------------------------------------------
 
+def cmd_usage(args: argparse.Namespace) -> int:
+    """C-18.6: provider-reported attempt sums with explicit missing coverage."""
+    from .usage_report import BACKFILL_BUDGET_S, parse_since
+    try:
+        parse_since(args.since)
+        client = _client(args)
+        if protocol.USAGE_CAPABILITY not in _daemon_capabilities(client):
+            # C-25.1: a daemon older than the report answers "unknown op"; say
+            # what to do instead of reporting a failure that is not one.
+            return fail(Exit.DAEMON_UNAVAILABLE,
+                        f"usage: this daemon does not advertise `{protocol.USAGE_CAPABILITY}`; "
+                        "it is older than this CLI", RESTART_DAEMON)
+        # A backfill reads retained streams for up to its budget (C-18.6); the
+        # answer must not be cut short by the client's ordinary deadline.
+        result = client.call("usage", _asdict(protocol.UsageArgs(
+            since=args.since, by=args.by, backfill=bool(args.backfill))),
+            timeout=BACKFILL_BUDGET_S + 30 if args.backfill else None)
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if args.json:
+        emit(result)
+        return int(Exit.OK)
+    rows = rows_of(result.get("rows"))
+    if not rows:
+        out("No attempts in this usage window.")
+        return int(Exit.OK)
+    labels = [str(row.get("group") or "?") for row in rows]
+    width = max(len(args.by), *(len(label) for label in labels), 5)
+    out(f"{args.by:<{width}}  attempts  missing       prompt   cache_read  cache_write       output   hit share  source")
+    for row in rows + [{"group": "TOTAL", **(result.get("totals") or {})}]:
+        number = lambda field: str(row[field]) if row.get(field) is not None else "?"
+        share = row.get("cache_hit_share")
+        source = "backfilled" if row.get("backfilled") else "stored" if row.get("attempts_with_usage") else "missing"
+        if row.get("cumulative_thread_attempts"):
+            source += f"; {row['cumulative_thread_attempts']} cumulative thread total(s) excluded"
+        out(f"{str(row.get('group') or '?'):<{width}}  {number('attempts'):>8}  "
+            f"{number('attempts_without_usage'):>7}  {number('prompt'):>11}  {number('cache_read'):>11}  "
+            f"{number('cache_write'):>11}  {number('output'):>11}  "
+            f"{f'{share:.1%}' if share is not None else '?':>10}  {source}")
+    unread = result.get("backfill_unread") or 0
+    if unread:
+        out(f"Backfill stopped at its {BACKFILL_BUDGET_S:g} s budget: {unread} attempt(s) without stored usage "
+            "were not read and count as missing. Narrow --since to read them.")
+    return int(Exit.OK)
+
+
 def _daemon_capabilities(client: Client) -> frozenset[str]:
     """C-25.1: the capability names this daemon advertises.
 
@@ -1708,6 +1758,14 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         return fail(exc.code, str(exc))
     if not job:
         return fail(Exit.INVALID_INPUT, f"runs show: no job {args.id!r}")
+    # C-18.5: expose the evidence record as an additive per-attempt field of the
+    # metadata object, including offline shows of attempts the newer daemon
+    # finalized. Nothing is printed between that object and `--- out.md ---`,
+    # whose shape agents parse (C-17.1).
+    from .usage_report import usage_of
+    job = {**job, "attempts": [{**attempt, "usage": usage_of(attempt)}
+                                if usage_of(attempt) is not None else attempt
+                                for attempt in job.get("attempts", [])]}
     if args.json:
         emit(job)
         return int(Exit.OK)
@@ -3036,6 +3094,16 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("-p", dest="p", metavar="PROMPTFILE")
     source.add_argument("prompt", nargs="?")
     p_run.set_defaults(handler=cmd_run)
+
+    p_usage = sub.add_parser("usage", help="provider-reported tokens and cache shares")
+    p_usage.add_argument("--since", default="24h", metavar="WINDOW",
+                         help="duration such as 24h or 7d, or an ISO timestamp (default 24h)")
+    p_usage.add_argument("--by", choices=("lane", "conversation", "session"), default="lane",
+                         help="group by lane, conversation or native resume session (default lane)")
+    p_usage.add_argument("--backfill", action="store_true",
+                         help="read retained streams for older attempts; writes no store records")
+    _add_json(p_usage)
+    p_usage.set_defaults(handler=cmd_usage)
 
     p_runs = sub.add_parser("runs", help="the job ledger, newest first")
     p_runs.add_argument("--last", type=int, default=20, help="how many (default 20)")

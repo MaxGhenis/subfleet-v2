@@ -280,3 +280,19 @@ def test_c18_4_frontend_reads_a_snapshot_from_a_daemon_without_alerts(probe, tmp
     result = project(probe, tmp_path, payload)
     assert result["has_alerts_section"] is False and result["alerts"] == []
     assert result["codex"][0]["percentage"] == 25
+
+
+def test_c18_5_c29_6_frontend_decodes_added_lane_usage_without_new_required_fields(probe, tmp_path):
+    """C-18.5, C-29.6: today's menu decodes per-lane cache measurements and older snapshots alike."""
+    usage = {"provider": "codex", "raw": {"usage": {"input_tokens": 100, "cached_input_tokens": 80}},
+             "normalized": {"prompt": 100, "cache_read": 80, "cache_write": None,
+                            "output": 12, "cache_ttl": None, "cache_hit_share": .8}}
+    payload = build_status({"lanes": [lane("codex"), lane("claude")],
+                            "attempts": [{"job_id": "fixture-job", "lane_id": "codex-1", "finished_at": NOW.isoformat(),
+                                          "evidence_json": json.dumps({"usage": usage})}]}, now=NOW)
+    assert payload["codex"]["homes"][0]["usage_24h"]["cache_hit_share"] == .8
+    measured = project(probe, tmp_path, payload)
+    for section, key in (("codex", "homes"), ("claude", "accounts")):
+        for row in payload[section][key]:
+            row.pop("usage_24h")
+    assert project(probe, tmp_path, payload) == measured

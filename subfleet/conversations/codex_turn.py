@@ -32,6 +32,7 @@ import os
 from typing import Any, Callable
 
 from ..guard.preflight import HOOK_KEY
+from ..usage import parse_usage
 from . import redact
 from .turn import COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Image, Outcome, Step, SteerTracking, TurnSpec
 
@@ -152,6 +153,7 @@ class CodexTurn(SteerTracking):
         self.interrupt_requested = False
         self.served_model: str | None = None
         self.outcome: Outcome | None = None
+        self._usage_lines: list[str] = []                 # C-18.5: turn ids and usage snapshots only
         self.terminal_after_end = False                     # `turn/completed` after the driver ended the turn
         self.pending: dict[str, tuple[str, dict]] = {}     # request id -> (method, params)
         self.catalog: list[dict] | None = None              # model/list, for models.json
@@ -167,6 +169,12 @@ class CodexTurn(SteerTracking):
         self._interrupted_terminal = False
 
     # --- lifecycle -------------------------------------------------------------
+
+    @property
+    def usage(self) -> dict | None:
+        """C-18.5: what the stream has reported for this turn so far. The outcome
+        keeps what was known when it was made and is never replaced (C-26.5)."""
+        return parse_usage(self._usage_lines, "codex", turn_id=self.turn_id)
 
     def start(self) -> Step:
         self.phase = "initializing"
@@ -273,7 +281,8 @@ class CodexTurn(SteerTracking):
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
                                accepted=self.accepted, answered=self.answered, limited=self.limited,
-                               served_model=self.served_model, ended_by="eof", steers=self.steers)
+                               served_model=self.served_model, ended_by="eof", steers=self.steers,
+                               usage=parse_usage(self._usage_lines, "codex", turn_id=self.turn_id))
         self.phase = "ended"
         # As `_end`: a pending request went with the process (C-27.3); no
         # `turn.completed`, since delivery is reconciliation's to say (C-24.6).
@@ -292,6 +301,8 @@ class CodexTurn(SteerTracking):
             return Step()
         if not isinstance(msg, dict):
             return Step()
+        if msg.get("method") in ("thread/tokenUsage/updated", "turn/started"):
+            self._usage_lines.append(text)
         source = _Sources(offset)
         if str(msg.get("id", "")).startswith("steer:") and "method" not in msg:
             return self._steer_response(msg, source)
@@ -715,7 +726,8 @@ class CodexTurn(SteerTracking):
             ended_by == "provider" or (extra or {}).get("ended_by") == "thread-idle")
         self._cancel_accepted_steers()
         self.outcome = Outcome(state, reason, detail, accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model, ended_by=ended_by, steers=self.steers)
+                               limited=self.limited, served_model=self.served_model, ended_by=ended_by, steers=self.steers,
+                               usage=parse_usage(self._usage_lines, "codex", turn_id=self.turn_id))
         self.phase = "ended"
         withdrawn = sorted(self.pending)
         self.pending.clear()

@@ -450,6 +450,7 @@ class Outcome:  # C-9.2 .. C-9.5
     native_session_id: str | None = None                    # thread id / session uuid when learned late
     transcript_path: str | None = None
     served_model: str | None = None
+    usage: dict[str, Any] | None = None                    # C-18.5: provider counters, never estimates
 
 
 @dataclass(frozen=True)

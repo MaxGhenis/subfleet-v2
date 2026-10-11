@@ -192,3 +192,33 @@ def test_turn_cap_invariants(policy, running, detached, fleet_caps, lane_caps, a
 
     background = job(pinned_model="opus")
     assert evaluate(lower, snapshot, background).chosen_lane == evaluate(higher, snapshot, background).chosen_lane
+
+
+def test_a_turn_that_leaves_its_warm_lane_says_why_and_when_it_reopens(policy):
+    """C-11.10, C-26.2 a turn whose affinity lane is closed by a reported limit still
+    moves at once, and its route names the warm lane, the reason, when the lane
+    reopens, and whether the cache was still alive (staying would have read it)."""
+    from subfleet.scheduler import turn_route
+    lanes = [lane("claude-1"), lane("claude-2")]
+    rows = [reading("claude-1", .6), reading("claude-2", .1)]
+    until = "2026-09-05T10:51:00Z"                     # 18 minutes after NOW
+    turn = job(pinned_model="opus", kind="turn", affinity_lane="claude-1")
+    moved = evaluate(policy, view(lanes, rows, closures=[closure("claude-1", until=until)]), turn)
+    assert moved.chosen_lane == "claude-2"
+    route = turn_route(moved, "claude-1", floor=.15, reading_ttl_s=900, last_use="2026-09-05T10:31:00Z",
+                       cache_ttl="1h", context_tokens=430549)
+    assert route == {"from": "claude-1", "to": "claude-2", "reasons": [f"closed:account:{until}"],
+                     "reopens_at": until, "cache_until": "2026-09-05T11:31:00Z", "context_tokens": 430549,
+                     "cold": True, "decided_at": NOW}
+    # Past the cache's life the move cost nothing more.
+    stale = turn_route(moved, "claude-1", floor=.15, reading_ttl_s=900, last_use="2026-09-05T09:00:00Z",
+                       cache_ttl="1h")
+    assert stale["cold"] is False and stale["context_tokens"] is None
+    # An operator hold has no reopen the provider reported; an unmeasured lifetime is unknown.
+    held = evaluate(policy, view(lanes, rows, closures=[closure("claude-1", until=until, reason="operator-hold")]), turn)
+    route = turn_route(held, "claude-1", floor=.15, reading_ttl_s=900)
+    assert route["reopens_at"] is None and route["cold"] is None
+    # A turn that stays, and a turn with no affinity, report nothing.
+    kept = evaluate(policy, view(lanes, rows), turn)
+    assert kept.chosen_lane == "claude-1" and turn_route(kept, "claude-1", floor=.15, reading_ttl_s=900) is None
+    assert turn_route(moved, None, floor=.15, reading_ttl_s=900) is None

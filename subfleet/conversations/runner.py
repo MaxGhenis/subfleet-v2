@@ -1111,6 +1111,10 @@ class TurnRunner:
             data = {**recorded, "terminal_after_end": bool(recorded.get("terminal_after_end"))
                     or bool(getattr(self.driver, "terminal_after_end", False)),
                     "steers": {**recorded.get("steers", {}), **self.steer_facts()}}
+            # C-18.5: replay can read later usage without changing turn fate.
+            usage = getattr(self.driver, "usage", None)
+            if usage is not None:
+                data["usage"] = usage
             from ..guardian import atomic_publish
             with self.store.writing():
                 atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
@@ -1124,6 +1128,10 @@ class TurnRunner:
                 "frame_refused": self.frame_refused, "relay_version": self.relay_version,
                 "steers": self.steer_facts(),
                 "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False))}
+        # C-18.5: everything stdout reported, rows after the terminal one included.
+        data["usage"] = getattr(self.driver, "usage", None) or data["usage"]
+        if data["usage"] is None:
+            del data["usage"]
         from ..guardian import atomic_publish
         with self.store.writing():          # never after its service closed (C-25.3)
             atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
