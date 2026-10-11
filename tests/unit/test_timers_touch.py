@@ -680,3 +680,100 @@ def test_a_retired_alias_is_not_a_touch_model(tmp_path):
     path.write_text(json.dumps(raw))
     with pytest.raises(PolicyError, match="retired alias"):
         load_policy(path)
+
+
+# --- review round 2 (C-18.3) ------------------------------------------------------
+
+def test_an_operator_touch_in_flight_does_not_clear_a_standing_warning(rig):
+    """C-18.3, C-23.52: while a touch runs the lane stands on its last settled touch, so a cycle
+    in between neither sends `recovered:` nor re-raises the warning after."""
+    import threading
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer.turn = lambda lane, purpose, holder, **_: Outcome(OutcomeClass.UNKNOWN, "no receipt", evidence={"rc": None})
+    timer.probe_cycle()
+    assert [n["key"] for n in notices if n.get("key", "").startswith("codex-clock:")]
+    entered, gate = threading.Event(), threading.Event()
+
+    def slow(lane, purpose, holder, *, cancel, deadline):
+        entered.set()
+        gate.wait(5)
+        return Outcome(OutcomeClass.UNKNOWN, "no receipt", evidence={"rc": None})
+
+    timer.turn = slow
+    worker = threading.Thread(target=timer.touch, kwargs={"target": lane.lane_id, "mode": "operator",
+                                                          "request_id": "r"})
+    worker.start()
+    try:
+        assert entered.wait(5)
+        clock.advance(60)
+        snapshot = timer.probe_cycle()
+        row = next(row for row in snapshot["lanes"] if row["lane_id"] == lane.lane_id)
+        assert row["clock_touch"]["status"] == "touching" and row["clock_alert"] == "touch-failed"
+        assert not [n for n in notices if n.get("recovery")]
+    finally:
+        gate.set()
+        worker.join(5)
+    clock.advance(60)
+    timer.probe_cycle()
+    assert len([n for n in notices if n.get("key", "").startswith("codex-clock:")]) == 1
+
+
+def test_a_failed_touch_between_two_ineffective_ones_keeps_the_count(rig):
+    """C-18.3: ok, then a failure, then ok, with the clock never starting, is still ineffective:
+    no "started" notice, no `touched`, no recovery."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    wham.starts = False
+    outcomes = iter([Outcome(OutcomeClass.OK, "OK", evidence={"rc": 0}),
+                     Outcome(OutcomeClass.TRANSIENT, "stream disconnected", evidence={"rc": 1}),
+                     Outcome(OutcomeClass.OK, "OK", evidence={"rc": 0})])
+
+    def turn(lane, purpose, holder, *, cancel, deadline):
+        turns.append((lane.lane_id, purpose))
+        outcome = next(outcomes)
+        return Outcome(outcome.cls, outcome.detail, evidence={**outcome.evidence, "requested_at": iso(clock())})
+
+    timer.turn = turn
+    for cycle in range(3):
+        if cycle:
+            clock.advance(3601)
+        timer.probe_cycle()
+    assert [t["status"] for t in touches(store, lane.lane_id) if t["status"] != "touching"] == ["ok", "transient", "ok"]
+    assert touches(store, lane.lane_id)[-1]["ineffective"] == 1
+    assert len([n for n in notices if n.get("key") == "codex-clock-started"]) == 1
+    assert not [n for n in notices if n.get("recovery")]
+    clock.advance(700)                                  # past the tolerance, inside the spacing
+    snapshot = timer.probe_cycle()
+    assert len(turns) == 3
+    row = next(row for row in snapshot["lanes"] if row["lane_id"] == lane.lane_id)
+    assert row["weekly_clock"] == "not-started" and row["clock_alert"] == "touch-ineffective"
+    assert not [n for n in notices if n.get("recovery")]
+
+
+def test_an_operator_result_collected_after_a_restart_is_one_record_per_lane(rig):
+    """C-18.3, C-17.3: the cold `touch-status` answer is the last record per lane, not `touching` too."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer.touch(target=lane.lane_id, mode="operator", request_id="req-cold")
+    restarted = Timers(store, timer.root, timer.policy, adapter_factory=lambda _: wham, now=clock)
+    try:
+        status = restarted.touch_status("req-cold")
+        assert status["status"] == "unknown" and [r["status"] for r in status["results"]] == ["ok"]
+    finally:
+        restarted.stop()
+
+
+def test_a_touch_model_closure_warns_with_its_clock_and_points_at_status(rig):
+    """C-18.3: with Luna closed on a lane the touch cannot start it; the warning says until when."""
+    from subfleet.alerts import evaluate_conditions
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    until = iso(clock() + timedelta(hours=3))
+    store.add_closure(Closure(lane.lane_id, CLOCK_TOUCH_MODEL_ID, until, ClosureReason.PROVIDER_LIMIT,
+                              ClockSource.REPORTED, None))
+    snapshot = timer.probe_cycle()
+    assert turns == []
+    [condition] = [c for c in evaluate_conditions(snapshot, now=clock()) if c["key"].startswith("codex-clock:")]
+    assert f"the touch model is closed on it until {until}" in condition["body"]
+    assert condition["body"].endswith("Inspect: subfleet status")
