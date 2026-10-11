@@ -652,8 +652,11 @@ def test_a_tmp_workdir_is_refused_with_exit_7(daemon, capsys):
 
 # --- daemon liveness (C-5.8) --------------------------------------------------
 
-def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir):
+def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir, monkeypatch):
     """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "boot_id", lambda: "1")
+    monkeypatch.setattr(client_module, "proc_start", lambda pid: "")
     daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
@@ -1382,13 +1385,15 @@ def test_a_lane_id_that_is_not_a_string_still_renders(capsys):
     capsys.readouterr()
 
 
-def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
+def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir, monkeypatch):
     """C-5.3 a start time that differs is reported with why, not just as dead.
 
     The recorded value is rendered by whoever wrote it, so a mismatch is either
     a reused pid or two sides rendering `lstart` in different locales; the
     message has to let a reader tell those apart.
     """
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "proc_start", lambda pid: "Sun Oct 11 00:00:00 2026")
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
