@@ -84,7 +84,8 @@ FORMAT_FAILURES = [
     envelope(payload()).replace('"findings": []', '"findings": NaN'),
     VERDICT_BEGIN + "[" * 100_000 + "]" * 100_000 + VERDICT_END,
     envelope(payload(summary="\ud800")),
-    envelope(payload(summary=json.loads("[" * 30_000 + "]" * 30_000))),
+    # Built as text: parsing nesting this deep at import overflows a test worker's stack.
+    envelope(payload()).replace('"Reviewed the exact plan."', "[" * 30_000 + "]" * 30_000),
 ]
 NEVER_FORMAT_FAILURES = [
     (envelope(payload(artifact_revision={**REVISION, "sha256": "b" * 64})), "different"),
