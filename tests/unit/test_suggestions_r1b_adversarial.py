@@ -286,6 +286,36 @@ def test_r1b_a_calling_job_shaped_like_a_secret_is_refused_and_kept_nowhere(peop
     assert svc.store.one("SELECT creator_job FROM suggestions WHERE suggestion_id=?", (sid,))["creator_job"] == job
 
 
+def test_r1b_no_cut_splits_a_placeholder_into_text_the_scrubber_recognizes(people, monkeypatch):
+    """Found re-checking C-25.7 at d0dd86b01: a title, summary, start error, verdict
+    or listed brief was scrubbed, then cut, and a cut through `api_key=[REDACTED]`
+    left `api_key=[REDACTE`, which the scrubber recognizes again: no secret, but not
+    what the clause says. A cut now moves back a word until it leaves none."""
+    svc = people
+    key = "api_key=abcdefgh"                     # longer once scrubbed: `api_key=[REDACTED]`
+    row = suggest(svc, workspace=svc.test_workspace, title="a " * 22 + key, tldr="a " * 142 + key,
+                  brief="a " * 993 + key + " tail")["suggestion"]
+    sid = row["suggestion_id"]
+    listed = svc.handle("suggestion.list", {}, AGENT)["suggestions"][0]
+    assert len(listed["title"]) <= suggestions.TITLE_MAX and len(listed["tldr"]) <= suggestions.TLDR_MAX
+    assert listed["brief_truncated"] and row["brief"].startswith(listed["brief"])
+    assert len(listed["brief"]) <= suggestions.PREVIEW_CHARS
+    text = "a " * 233 + key + " tail"            # `worktree-failed: ` puts the placeholder across the cut
+
+    def fail(**kwargs):
+        raise ConversationError("worktree-failed", text, code=1)
+    monkeypatch.setattr(svc.store, "submit_message", fail)
+    monkeypatch.setattr(svc, "_person", lambda peer, what: Verdict(True, "a " * 241 + key + " tail", os.getpid()))
+    with pytest.raises(ConversationError) as caught:
+        svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
+    stored = svc.suggestions.get(sid)
+    said = {"title": listed["title"], "tldr": listed["tldr"], "preview": listed["brief"],
+            "start_error": stored["start_error"], "returned": str(caught.value), "decided_by": stored["decided_by"]}
+    assert {name: value[-24:] for name, value in said.items() if suggestions.holds_secret(value)} == {}
+    assert all(len(said[name]) <= suggestions.ERROR_MAX for name in ("start_error", "returned", "decided_by"))
+    assert stored["start_error"].startswith("worktree-failed: a a") and stored["decided_by"].startswith("a a")
+
+
 def test_r1b_decided_by_is_the_verdict_scrubbed_never_the_start_errors_fallback(people, monkeypatch):
     """d0dd86b01: a Start's `decided_by` is the person's verdict as `scrubbed_line`
     leaves it (scrubbed whole, one line, at most ERROR_MAX characters), never

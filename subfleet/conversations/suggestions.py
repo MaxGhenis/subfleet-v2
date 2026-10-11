@@ -37,8 +37,9 @@ Title, summary and brief are scrubbed once, when the suggestion is created
 A folder path, caller session or calling job the scrubber would change is refused,
 every error a start records, logs or returns is scrubbed whole, then cut to
 ERROR_MAX characters (`scrub_error`), and a Start's `decided_by` is scrubbed the
-same way (`scrubbed_line`): no suggestion field or event holds a value the
-scrubber recognizes.
+same way (`scrubbed_line`). No cut, of these or of a title, summary or listed
+brief, splits what scrubbing put in (`bounded`): no suggestion field or event
+holds a value the scrubber recognizes.
 """
 
 from __future__ import annotations
@@ -142,12 +143,25 @@ def holds_secret(text: str) -> bool:
     return count > 0 or clean != text
 
 
+def bounded(clean: str, limit: int, mark: str = "") -> str:
+    """`clean`, already scrubbed whole, within `limit` characters: its first ones,
+    then `mark` when it was cut. A cut can split what scrubbing put in (`api_key=`
+    and half of `[REDACTED]`), leaving text the scrubber recognizes again; such a
+    cut moves back a word at a time until it leaves none (C-25.5)."""
+    if len(clean) <= limit:
+        return clean
+    cut = clean[:limit - len(mark)]
+    while cut and holds_secret(cut + mark):
+        words = cut.rstrip()
+        cut = words[:len(words) - len(words.split()[-1])] if words.split() else ""
+    return cut + mark
+
+
 def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
     """`text` scrubbed whole (C-25.5) first, so no secret is cut into a fragment the
-    rules no longer know, then one line of at most `limit` characters."""
+    rules no longer know, then one line of at most `limit` characters (`bounded`)."""
     clean, _ = scrub_secrets(text, strip_reminders=True)
-    clean = " ".join(clean.split())
-    return clean if len(clean) <= limit else clean[:limit - 1] + "…"
+    return bounded(" ".join(clean.split()), limit, "…")
 
 
 def scrub_error(error: Any) -> str:
@@ -201,10 +215,10 @@ def normalize(title: Any, tldr: Any, brief: Any) -> tuple[dict, int]:
     out: dict[str, str] = {}
     for name, text, limit in (("title", title, TITLE_MAX), ("tldr", tldr, TLDR_MAX)):
         clean, count = scrub_secrets(text, strip_reminders=True)
-        clean = " ".join(clean.split())
-        if not clean:
+        clean = bounded(" ".join(clean.split()), limit)
+        if not clean.strip():
             raise ConversationError(f"bad-{name}", f"nothing of the {name} is left once secrets are removed")
-        out[name] = clean[:limit]
+        out[name] = clean
         scrubbed += count
     clean, count = scrub_secrets(brief, strip_reminders=True, whole=True)
     if not clean.strip():
@@ -235,11 +249,12 @@ def decode(row: Any) -> dict:
 def view(row: dict, *, full_brief: bool = False) -> dict:
     """What `suggestion.list`, the watch feed and the events carry (C-25.5): the
     agent's words (already scrubbed), where and how it would start, and what
-    became of it. A listing carries a brief's first PREVIEW_CHARS characters.
+    became of it. A listing carries at most a brief's first PREVIEW_CHARS
+    characters, never cut inside what scrubbing put in (`bounded`).
     `worktree` is what the agent asked for; `workspace_kind` (and `repository`
     for a worktree) is what Start does, decided when the suggestion was made."""
     brief = row["brief"]
-    shown = brief if full_brief or len(brief) <= PREVIEW_CHARS else brief[:PREVIEW_CHARS]
+    shown = brief if full_brief else bounded(brief, PREVIEW_CHARS)
     return {"suggestion_id": row["suggestion_id"], "state": row["state"], "title": row["title"],
             "tldr": row["tldr"], "brief": shown, "brief_truncated": len(shown) < len(brief),
             "brief_chars": len(brief), "origin_conversation_id": row["origin_conversation_id"],

@@ -13,6 +13,7 @@ within ERROR_MAX.
 
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import os
@@ -26,7 +27,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import hypothesis.strategies as st
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 
 from subfleet.conversations import suggestions
 from subfleet.conversations.peers import Verdict
@@ -89,6 +90,46 @@ def test_c25_5_a_starts_error_is_scrubbed_whole_then_bounded(before, left, secre
     error = suggestions.scrub_error(text)
     assert secret not in error and not recognized(error)
     assert len(error) <= suggestions.ERROR_MAX and "\n" not in error and error
+
+
+#: Each value a suggestion keeps or shows only within a bound, and the bound.
+CUTS = {"title": suggestions.TITLE_MAX, "tldr": suggestions.TLDR_MAX, "error": suggestions.ERROR_MAX,
+        "decided_by": suggestions.ERROR_MAX, "preview": suggestions.PREVIEW_CHARS}
+
+
+def kept(where: str, text: str) -> str:
+    """What a suggestion keeps or shows of `text` said as `where`."""
+    if where in ("title", "tldr"):
+        words, _ = suggestions.normalize(text if where == "title" else "Fixture",
+                                         text if where == "tldr" else "Fixture", "Fixture brief")
+        return words[where]
+    if where == "error":
+        return suggestions.scrub_error(text)
+    if where == "decided_by":
+        return suggestions.scrubbed_line(text)
+    brief = suggestions.normalize("Fixture", "Fixture", text)[0]["brief"]
+    row = {"suggestion_id": "sg-fixture", "state": "open", "title": "Fixture", "tldr": "Fixture", "brief": brief,
+           "worktree": False, "provider": "claude"}
+    shown = suggestions.view(collections.defaultdict(lambda: None, row))["brief"]
+    assert brief.startswith(shown)
+    return shown
+
+
+@given(secret=secrets, left=separators, back=st.integers(0, 48), where=st.sampled_from(sorted(CUTS)))
+@settings(max_examples=300, deadline=None)
+def test_c25_5_no_cut_leaves_text_the_scrubber_recognizes(secret, left, back, where):
+    """Every value a suggestion bounds is scrubbed whole, then cut; for every family,
+    set anywhere near the cut, what is kept is never text the scrubber would change
+    (a cut through `api_key=[REDACTED]`, leaving `api_key=[REDACTE`, would be)."""
+    limit = CUTS[where]
+    if where in ("title", "tldr"):              # refused, not cut, when longer than its bound
+        text = ("a " * limit)[:max(0, limit - back - len(left) - len(secret))] + left + secret
+        assume(len(" ".join(text.split())) <= limit)
+    else:
+        text = ("a " * limit)[:limit - back] + left + secret + " tail " * 4
+    value = kept(where, text)
+    assert secret not in value and not recognized(value), value[-40:]
+    assert len(value) <= limit and (where == "preview" or "\n" not in value)
 
 
 class Captured(logging.Handler):
