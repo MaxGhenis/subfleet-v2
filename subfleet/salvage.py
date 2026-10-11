@@ -129,11 +129,19 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     of c1f95838: under `de_DE.UTF-8` a nested repository with no commit was
     reported in German and not recognised). `LANGUAGE` is removed too, since
     gettext reads it before `LC_ALL` everywhere but under the C locale.
+
+    Git's diagnostic traces (`GIT_TRACE`, `GIT_TRACE2_EVENT` and every other
+    `GIT_TRACE*`) are removed: inherited from whoever started the daemon, they
+    make git write wherever they name, and a read-only lookup in a tree
+    retention has fenced then wrote a file inside it (review of #141 at
+    708d6557, P3).
     """
     own = env is None
     env = dict(os.environ if own else env)
     for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (("GIT_INDEX_FILE",) if own else ()):
         env.pop(name, None)
+    for name in [name for name in env if name.startswith("GIT_TRACE")]:
+        env.pop(name)
     env["LC_ALL"] = "C"
     env.pop("LANGUAGE", None)
     return env

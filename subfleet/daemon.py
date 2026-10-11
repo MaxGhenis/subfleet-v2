@@ -2615,7 +2615,9 @@ class Daemon:
         repository and writes nothing: no content, mode, mtime or ctime of the
         folder's tree, its `.git` and index, a linked worktree's admin directory or
         an external top moves (measured by `test_retention_rediscovery.py`); a read
-        may move an atime, which retention does not sign. A turn's folder is in
+        may move an atime, which retention does not sign. Git's diagnostic traces are
+        not inherited (`salvage._git_env`), so an operator's `GIT_TRACE*` cannot make
+        it write a trace file in the fenced tree (`test_rediscovery_git_trace.py`). A turn's folder is in
         place, so this is the folder `_workspace` would return.
 
         Never for a push job (C-8.5): its write target is the top
