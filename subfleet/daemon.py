@@ -5582,12 +5582,13 @@ class Daemon:
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
-                        reserved_at = utcnow()
+                        reserved_at = None
                         if job["kind"] != "turn" and ramp_config["enabled"]:
                             # Workspace preparation can move the clock backwards
                             # after the pass census discarded an expired start.
                             # Read committed rows at the timestamp we will insert,
                             # under the same write lock, before taking any lease.
+                            reserved_at = utcnow()
                             self._begin_ramp_pass(now=reserved_at, read=read)
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
@@ -5595,7 +5596,7 @@ class Daemon:
                                 status = "held"
                                 break
                         for key, holder in leases:
-                            tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, reserved_at))
+                            tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
@@ -5603,6 +5604,8 @@ class Daemon:
                             # C-26.14: the turn's window opens before its start snapshot, and
                             # its folder is where another turn's window may overlap it.
                             evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
+                        if reserved_at is None:
+                            reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",

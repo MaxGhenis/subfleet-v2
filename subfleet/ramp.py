@@ -1,7 +1,7 @@
 """Restart-safe placement pacing for detached attempts (C-6.18).
 
-The attempt ledger supplies the rolling window once per detached pass. A
-committed placement is added immediately, so neither a long pass nor a daemon
+The attempt ledger supplies the rolling window at detached pass entry and in
+the reserving transaction. A committed placement is added immediately, so neither a long pass nor a daemon
 restart can grant an extra burst. No durable bucket or lane lease is needed.
 """
 from __future__ import annotations
