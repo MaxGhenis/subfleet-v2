@@ -75,17 +75,24 @@ def test_a_recycled_root_and_group_are_excluded(monkeypatch, generated, leader, 
 
 
 @PROPERTY
-@given(tables())
-def test_b_matching_roots_and_group_members_are_included(monkeypatch, generated):
+@given(tables(), st.booleans(), st.booleans())
+def test_b_matching_roots_and_group_members_are_included(monkeypatch, generated, leader, recycle_other):
     """C-5.5 (b): a matching root and every live member of its group remain."""
     guardian, child, rows, marked = generated
+    root, other = (guardian, child) if leader else (child, guardian)
+    known = recorded(rows)
+    if recycle_other:
+        known[other] = procs.ProcessIdentity(other, BOOT_A, start(-100))
     with monkeypatch.context() as patch:
         install(patch, rows, marked)
         result = procs.containment(guardian, guardian, child, "job/a1",
-                                   recorded_identities=recorded(rows))
-    assert {guardian, child} <= result.descendant_pids
-    assert result.group_pids == {pid for pid, row in rows.items()
-                                 if row[1] == guardian and not row[2].startswith("Z")}
+                                   recorded_identities=known)
+    assert root in result.descendant_pids
+    if other == guardian and recycle_other:
+        assert not result.group_pids
+    else:
+        assert result.group_pids == {pid for pid, row in rows.items()
+                                     if row[1] == guardian and not row[2].startswith("Z")}
 
 
 @PROPERTY
