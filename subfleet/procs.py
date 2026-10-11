@@ -390,7 +390,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 attempt_id: str, root: str | None = None, *,
                 recorded_identities: dict[int, ProcessIdentity] | None = None,
                 started_at: str | None = None, finished_at: str | None = None) -> Containment:
-    """Collect all three C-5.5 sources; any failed inspection prevents release.
+    """Collect C-5.5 sources; failed sources or needed identity reads prevent release.
 
     Identities describe the census, not authority to signal. In particular a
     newly discovered escaped process must remain quarantined unless the caller

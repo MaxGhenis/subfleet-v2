@@ -47,8 +47,10 @@ The same citation appears in the code comment and C-5.5.
   process table, liveness and group-member inspection. Its old `same_process`
   stub did not cover the C-5.12 running-inspection path.
 
-Unknown legacy boot timestamps or failed identity reads retain containment and
-make it unverifiable. Without a complete recorded identity, readable birth times
+Unknown legacy boot matches or failed reads needed to decide identity retain
+containment and make it unverifiable. A different start alone proves reuse even
+when the optional boot read for evidence fails. Without a complete recorded
+identity, readable birth times
 before attempt start or after the exit receipt exclude a root. The lower bound
 is rounded down to whole seconds to match `ps lstart` precision; missing or
 unparseable bounds retain it. Matching recorded identities override bounds.
