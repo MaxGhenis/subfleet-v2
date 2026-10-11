@@ -225,6 +225,8 @@ DISK_DEFAULTS: dict[str, Any] = {
 }
 #: C-6.18: count committed detached starts in a sliding window, including
 #: retries and priority placements. The hub opts in through its live policy.
+#: The loader requires `per_minute * window_s` to be a multiple of 60, so each
+#: window allows a whole number of starts.
 RAMP_DEFAULTS: dict[str, Any] = {
     "enabled": False,
     "per_minute": 12,
@@ -483,6 +485,14 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         # isfinite's implicit float conversion; floats and booleans are refused.
         if not isinstance(item, int) or isinstance(item, bool) or item < 1:
             fail(f"admission.ramp.{key}", "must be a positive finite integer")
+    if ramp["per_minute"] * ramp["window_s"] % 60:
+        # A placement commits while starts < per_minute * window_s / 60, so a
+        # fractional allowance admits its ceiling: 1 per minute over a 1-second
+        # window would place a job every second, 60 a minute. Refused whether
+        # or not the ramp is enabled, so enabling it later cannot do that.
+        fail("admission.ramp.window_s",
+             f"per_minute * window_s must be a multiple of 60, so that each window allows a whole "
+             f"number of starts (per_minute {ramp['per_minute']}, window_s {ramp['window_s']})")
     settings["ramp"] = ramp
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):

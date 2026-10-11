@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -60,6 +61,17 @@ def enable(service, patch, per_minute=12, window_s=60):
     service.policy["admission"]["ramp"] = {
         "enabled": True, "per_minute": per_minute, "window_s": window_s}
     patch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
+
+
+def save_policy(service):
+    """Write the in-memory policy for a restart as an operator's file would hold it.
+
+    The loader adds `_policy_hash` and `_policy_path`, the state root's own path.
+    C-11.1 hashes the file's bytes, so writing that metadata back would give each
+    temporary root its own policy hash: a fixture difference, not an admission one.
+    """
+    (service.root / "policy.json").write_text(json.dumps(
+        {key: value for key, value in service.policy.items() if not key.startswith("_")}))
 
 
 def submit(service, harness, **changes):
@@ -253,7 +265,7 @@ def test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart
     assert service._holds[waiting_dispatch]["reason"] == "ramp"
     assert waiting_review not in service._capacity_waits
     assert service.store.one("SELECT 1 FROM leases WHERE lease_key='gate:ramp-second:round:1'") is None
-    (service.root / "policy.json").write_text(json.dumps(service.policy))
+    save_policy(service)
     service.close()
     clock[0] = 2
     restarted = daemon_module.Daemon(harness.root)
@@ -292,7 +304,7 @@ def test_real_restart_counts_completed_attempt_and_retry_until_each_expires(stat
     waiting = submit(service, harness)
     service._admit()
     assert service._holds[waiting]["reason"] == "ramp"
-    (service.root / "policy.json").write_text(json.dumps(service.policy))
+    save_policy(service)
     service.close()
     restarted = daemon_module.Daemon(harness.root)
     try:
@@ -437,7 +449,7 @@ def test_generated_enabled_daemon_windows_liveness_order_and_restart(tmp_path_fa
         first_count = len(placed(service))
         active = service
         if restart:
-            (service.root / "policy.json").write_text(json.dumps(service.policy))
+            save_policy(service)
             service.close()
             active = daemon_module.Daemon(harness.root)
             patch.setattr(active, "_workspace", lambda job: (job["workdir"], None, None, []))
@@ -463,7 +475,10 @@ def test_generated_enabled_daemon_windows_liveness_order_and_restart(tmp_path_fa
 
 
 def snapshot(service, jobs):
-    """Compare every hold, persisted decision, and placement after naming jobs."""
+    """Compare every hold, persisted decision, and placement after naming jobs.
+
+    Policy hashes stay raw: both runs load the same policy bytes (`save_policy`).
+    """
     aliases = {job: f"job-{n}" for n, job in enumerate(jobs)}
 
     def normalize(value):
@@ -571,12 +586,24 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
                     exec(compile(source.read_text(), str(source), "exec"), namespace)
                     patch.setattr(target, "_admit_pass", MethodType(namespace["_admit_pass"], target))
 
+            checked = [0]
+
+            def file_hashed(target):
+                # C-11.1: each new decision names the hash of the loaded file's
+                # exact bytes, the loader's own definition before and after C-6.18.
+                digest = hashlib.sha256((target.root / "policy.json").read_bytes()).hexdigest()
+                assert target.policy_digest == target.policy["_policy_hash"] == digest
+                rows = target.store.query("SELECT policy_hash FROM decisions ORDER BY decision_id")
+                assert {row["policy_hash"] for row in rows[checked[0]:]} <= {digest}
+                checked[0] = len(rows)
+
             install(service)
             observed = []
             service._admit()
+            file_hashed(service)
             observed.append(snapshot(service, jobs))
             if restart:
-                (service.root / "policy.json").write_text(json.dumps(service.policy))
+                save_policy(service)
                 service.close()
                 active = daemon_module.Daemon(harness.root)
                 install(active)
@@ -587,9 +614,11 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
                 machine.update(load1=0, load5=0, memory_pressure=1)
                 clock[0] += advance
                 active._admit()
+                file_hashed(active)
                 observed.append(snapshot(active, jobs))
                 clock[0] += 60
                 active._admit()
+                file_hashed(active)
                 observed.append(snapshot(active, jobs))
                 outcomes.append(observed)
             finally:

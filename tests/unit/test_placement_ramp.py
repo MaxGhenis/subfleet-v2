@@ -56,6 +56,8 @@ def test_rolling_window_expires_at_exact_boundary_inside_one_pass():
 
 
 def test_fractional_quota_uses_the_literal_preplacement_comparison():
+    # The loader refuses this setting (test_policy_ramp); raw settings that
+    # skip it keep the literal comparison, which admits the ceiling.
     gate = PlacementRamp()
     gate.begin_pass(policy(12, 1), [], stamp())
     assert gate.snapshot["limit"] == 0.2
@@ -188,8 +190,9 @@ def test_daemon_disabled_pass_resets_enabled_gate_without_reading_rows_or_clock(
     assert bare._ramp.reservations == {}
 
 
-# Integral quotas isolate the stated rolling-window invariant from the literal
-# policy comparison's fractional-quota rounding. Include subminute and longer
+# Integral quotas, the only ones the loader accepts, isolate the stated
+# rolling-window invariant from the literal comparison's fractional-quota
+# rounding (raw settings only). Include subminute and longer
 # windows to exercise the formula, rather than assuming every window is 60 s.
 QUOTAS = st.sampled_from([(per_minute, window_s)
                          for per_minute in range(1, 21)

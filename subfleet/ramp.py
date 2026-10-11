@@ -90,6 +90,8 @@ class PlacementRamp:
     def _snapshot(self, clock: int) -> dict[str, Any]:
         settings = self.settings
         product = settings["per_minute"] * settings["window_s"]
+        # The loader refuses a fractional allowance. Raw settings that skip it
+        # keep the literal comparison, which admits the allowance's ceiling.
         if product % 60 == 0:
             limit = product // 60
         else:
