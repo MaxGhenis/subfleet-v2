@@ -115,3 +115,17 @@ def test_probe_census_uses_the_same_identity_path(state_daemon, monkeypatch):
     record.pop("attempt_id")
     record.pop("evidence_json")
     assert daemon._probe_census(record).verified_empty
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatch, recorded):
+    """C-5.5: stale rows use exit child PID, then owned identity or receipt bounds."""
+    daemon, harness = state_daemon
+    _, attempt, _ = recycled_attempt(daemon, harness, monkeypatch, CASES[0])
+    attempt["child_pid"] = None
+    if not recorded:
+        attempt["evidence_json"] = "{}"
+    result = daemon._contain(attempt)
+    assert result.verified_empty
+    assert result.recycled[4203]["reason"] == ("different start identity" if recorded else
+                                               "started after exit receipt")

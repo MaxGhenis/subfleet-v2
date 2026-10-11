@@ -215,3 +215,44 @@ def test_failed_boot_inspection_never_excludes_root(monkeypatch):
                                recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, start())})
     assert result.group_pids == result.descendant_pids == {42}
     assert result.unverifiable and not result.recycled
+
+
+def test_uuid_against_timestamp_fallback_holds_root(monkeypatch):
+    """C-5.3: a UUID record cannot establish death against a failed UUID read."""
+    install(monkeypatch, {42: (1, 42, "S", start())}, boot="100")
+    result = procs.containment(42, 42, None, "job/a1",
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, start())})
+    assert result.group_pids == result.descendant_pids == {42}
+    assert result.unverifiable and not result.recycled
+
+
+def test_missing_start_inspection_holds_recorded_root(monkeypatch):
+    """C-5.3, C-5.5: no lstart is uncertainty, never proof of a reused identity."""
+    install(monkeypatch, {42: (1, 42, "S", "")})
+    result = procs.containment(42, 42, None, "job/a1",
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, start())})
+    assert result.group_pids == result.descendant_pids == {42}
+    assert result.unverifiable and not result.recycled
+
+
+def test_changed_start_proves_death_even_if_boot_read_fails(monkeypatch):
+    """C-5.3: positive start mismatch suffices; excluded evidence can lack a boot ID."""
+    install(monkeypatch, {42: (1, 42, "S", start(1000))})
+    def unavailable():
+        raise procs.InspectionError("boot unavailable")
+    monkeypatch.setattr(procs, "boot_id", unavailable)
+    result = procs.containment(42, 42, None, "job/a1",
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, start())})
+    assert result.verified_empty
+    assert result.recycled[42]["now"]["boot_id"] is None
+
+
+def test_cached_boot_mismatch_needs_fresh_confirmation(monkeypatch):
+    """C-5.12: a table's stale UUID cannot alone prune a matching start identity."""
+    rows = {42: (1, 42, "S", start())}
+    install(monkeypatch, rows)
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, BOOT_B))
+    result = procs.containment(42, 42, None, "job/a1",
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, start())})
+    assert result.group_pids == result.descendant_pids == {42}
+    assert not result.unverifiable and not result.recycled
