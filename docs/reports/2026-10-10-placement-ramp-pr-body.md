@@ -15,8 +15,8 @@ The literal comparison would admit a fractional allowance's ceiling (12/minute o
 
 The generated tests align routing and reservation clocks and keep capacity readings fresh. The differential compares every selected field with frozen pre-change admission, normalizes independently generated job IDs longest-first, then sorts map keys again after aliases; temporary workspace roots are normalized too. A minimized explicit case covers overlapping IDs, disk reopening and restart. Its last failure on `b6fdd0b28` was a fixture artefact: each run's restart wrote the loaded policy back with the loader's `_policy_path`, its own temporary root, so the two files hashed differently. Release/217's loader gives those two files different hashes too. Restarts now write the policy without loader metadata.
 
-TEST_RESULTS_PENDING
+Tests (CPython 3.14.7 free-threaded, under the shared suites lock): `tests/unit/test_policy*.py`, `tests/unit/test_test_module_names.py` and `tests/fake/test_admission_ramp.py` less the enabled property: 325 passed, 0 skipped. The enabled property, R6, `tests/fake/test_admission_disk.py` and `tests/fake/test_admission_lease_waiters.py`: 45 passed, 0 skipped (20, 30 and 30 Hypothesis examples). FINAL_RUN_PENDING
 
-MUTATION_RESULTS_PENDING
+Mutations, each killed: dropping this pass's own count (7 placed at rate 3; 56 instead of 12 in the replay), counting attended turns (the dispatch stays held behind a turn), dropping reconstruction (no hold forms), and keeping only this process's starts (a restarted daemon reports 0 used). See `docs/reports/2026-10-10-placement-ramp-mutations.json`.
 
 No machine-guard thresholds or disk defaults changed. No push; prepared PR text only.
