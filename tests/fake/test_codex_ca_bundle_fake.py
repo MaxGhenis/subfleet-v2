@@ -44,4 +44,4 @@ def test_fake_codex_and_its_tool_inherit_ca_environment(daemon, monkeypatch, mod
     report = json.loads((attempt_dir(daemon.root, job_id, 1) / "stdout").read_text())
     assert report == {"provider": expected, "tool": expected}
     if mode == "missing":
-        assert daemon.log_text().count("Codex CA bundle") == 1
+        assert (daemon.root / "daemon.log").read_text().count("Codex CA bundle") == 1
