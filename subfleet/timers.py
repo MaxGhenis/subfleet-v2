@@ -416,9 +416,9 @@ class Timers:
         lane and scope, so a hold that ends before an open provider limit on the
         account scope leaves no `operator-hold` row, though it is in force (and
         a later limit that ends after it, or that limit's release, takes the
-        row away). Releasing such a hold changes no row and so writes no
-        `lane.released` event; the hold then lasts until its own end, which
-        errs toward spending nothing.
+        row away). `lanes release` writes a `lane.released` event whether or not
+        it changed a row, so it ends such a hold too; a hold nobody releases
+        lasts until its own end, which errs toward spending nothing.
         """
         now = iso(self.now())
         held = {row['lane_id']: row['until_at'] for row in self.store.query(
@@ -1128,7 +1128,9 @@ class Timers:
             recent = (settled and settled.get('at') and (now - instant(settled['at'])).total_seconds() <= 2 * spacing
                       and not self._ran_since(row['lane_id'], settled['at']))
             block = self.touch_block(row)
-            if recent and verdict in TOUCH_FAILED:
+            if block and block.startswith('operator-hold:'):
+                pass                # the hold keeps the clock idle; `lanes touch` would refuse it
+            elif recent and verdict in TOUCH_FAILED:
                 alert = 'touch-failed'
             elif recent and verdict == 'ok':
                 alert = 'touch-ineffective'
@@ -1255,21 +1257,26 @@ class Timers:
     def _touch_refusal(self, lane):
         """C-18.7: why a lane this touch now holds must not be touched after all, or None.
 
-        Read from the store once the reservation is held, so no hold or closure
-        recorded between the plan and the reservation slips through: an
-        operator's hold (`operator_holds`, which also finds one the closures
-        hide) or an unexpired closure on the account or the touch model.
+        `touch_block`'s reasons, judged once the reservation is held on the store
+        as it stands, so nothing recorded while the touch planned or waited for
+        the lease slips through: the lane's row, its last probe's finding (a
+        credential the probe that held the lane found revoked, a limit), its
+        unexpired closures, and the operator's holds (`operator_holds`, which
+        also finds one the closures hide). The reservation was granted only to
+        a lane with no attempt and no lease, so it is not busy.
         """
         holds = self.operator_holds()
         if lane.lane_id in holds:
             return f"operator-hold:{holds[lane.lane_id]}"
-        closure = self.store.one(
-            "SELECT reason,scope,until_at FROM closures WHERE lane_id=? AND released_at IS NULL AND until_at>? "
-            "AND scope IN ('account',?) ORDER BY until_at DESC LIMIT 1",
-            (lane.lane_id, iso(self.now()), touch_model(self.policy)['id']))
-        if closure:
-            return 'auth-dead' if closure['reason'] == 'auth-dead' else f"closed:{closure['scope']}:{closure['until_at']}"
-        return None
+        current = self.store.one('SELECT * FROM lanes WHERE lane_id=?', (lane.lane_id,))
+        if current is None:
+            return 'disabled'
+        row = self.merge_lane(dict(current))
+        row['closures'] = self.store.query(
+            'SELECT * FROM closures WHERE lane_id=? AND released_at IS NULL AND until_at>? ORDER BY until_at DESC',
+            (lane.lane_id, iso(self.now())))
+        row['in_flight'] = 0
+        return self.touch_block(row)
 
     def _touch_lane(self, lane, entry, *, mode, request_id, wait_s):
         """C-18.7: one supervised touch: reserve, one tiny turn, re-probe.

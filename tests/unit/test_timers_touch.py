@@ -789,6 +789,49 @@ def test_a_limit_recorded_after_the_plan_stops_the_touch_before_its_turn(rig):
     assert turns == [] and store.list_leases() == []
 
 
+@pytest.mark.parametrize("status", ["revoked", "expired-token", "no-auth"])
+def test_a_credential_a_probe_latches_while_an_operator_touch_waits_is_not_touched(rig, status):
+    """C-18.7, C-11.8: an operator's touch waits for the probe reading the lane; the probe
+    finds the credential latched (a verdict, no closure) and lets go; the recheck under the
+    reservation reads that verdict, so no turn runs (an expired token's turn would be a
+    second heal in its epoch)."""
+    import threading
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer._persist(lane, {**wham.probe_status(lane, {}), "probed_at": iso(clock())})
+    holder = timer._claim(lane, "probe")
+    assert holder and holder != "busy"
+    entry = {"lane_id": lane.lane_id, "reason": "forced", "weekly_clock": "not-started"}
+    out = {}
+    waiter = threading.Thread(target=lambda: out.update(item=timer._touch_lane(
+        lane, entry, mode="operator", request_id="r", wait_s=20)))
+    waiter.start()
+    time.sleep(.5)
+    timer._persist(lane, {"status": status, "readings": (), "probed_at": iso(clock()),
+                          **({"revoked_epoch": "first"} if status == "revoked" else {})})
+    timer._release(holder)
+    waiter.join(30)
+    item = out["item"]
+    assert item["holder"] and item["record"]["status"] == "skipped-credential-latched"
+    timer._publish_touch(item, "operator")
+    assert turns == [] and touches(store) == [] and store.list_leases() == [] and not timer.active_holders
+
+
+def test_a_held_lane_raises_no_clock_warning_that_names_a_refused_command(rig):
+    """C-18.7, C-23.52: a lane an operator holds is idle by the operator's choice; a failed
+    touch before the hold does not warn "Run: subfleet lanes touch", which would be refused."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer._persist(lane, {**wham.probe_status(lane, {}), "probed_at": iso(clock())})
+    timer._record_touch(lane.lane_id, {"lane_id": lane.lane_id, "at": iso(clock()), "mode": "auto",
+                                       "status": "unknown", "detail": "transport error"})
+    row = next(row for row in timer.snapshot()["lanes"] if row["lane_id"] == lane.lane_id)
+    assert (row["weekly_clock"], row["clock_alert"]) == ("not-started", "touch-failed")
+    hold(store, lane.lane_id, clock() + timedelta(hours=2))
+    row = next(row for row in timer.snapshot()["lanes"] if row["lane_id"] == lane.lane_id)
+    assert (row["weekly_clock"], row["clock_alert"]) == ("not-started", None)
+
+
 @pytest.mark.parametrize("key,holder", [("slot:1", "job-x/a1"), ("slot:0", "probe:admission:token")])
 def test_a_lane_a_job_or_a_probe_holds_is_never_touched(rig, key, holder):
     """C-18.7, C-18.3: any lease on the lane makes it busy. A cycle reads it beside its holder

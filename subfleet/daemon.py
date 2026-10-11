@@ -1143,8 +1143,9 @@ class Daemon:
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
         scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
-        every open operator hold. A held lane is never a candidate (C-11.2) but is
-        still probed, so a held account keeps being measured."""
+        every open operator hold, including one only its `lane.held` event shows. A
+        held lane is never a candidate (C-11.2) nor touched (C-18.7) but is still
+        probed, so a held account keeps being measured."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list")
@@ -1165,6 +1166,10 @@ class Daemon:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
                            "AND released_at IS NULL", (utcnow(), a.lane_id))
+                # C-9.6, C-18.7: a hold `put_closure` folded into a longer limit has no
+                # row to release, only its `lane.held` event; this event ends it too
+                # (`Timers.operator_holds`), so a release always lifts every hold.
+                self.store.add_event("lane.released", lane_id=a.lane_id, data={"at": utcnow()})
         self._notify()
         view = self._capacity_view(self._desktop_identity())
         return {"held": a.lane_id if a.action == "hold" else None,

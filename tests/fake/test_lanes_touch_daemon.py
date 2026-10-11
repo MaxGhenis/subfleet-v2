@@ -180,6 +180,29 @@ def test_a_held_lane_is_refused_by_name_skipped_by_the_plan_and_never_turned(dae
     assert [row["status"] for row in result["results"]] == ["ok"] and turns == [lane.lane_id]
 
 
+def test_lanes_release_lifts_a_hold_the_closures_no_longer_show(daemon):
+    """C-9.6, C-18.7: a hold under a longer provider limit leaves no row of its own, and the
+    limit's release leaves none at all; `lanes release` still ends it, as the refusal's fix
+    says, because it records `lane.released` whether or not a row changed."""
+    lane = codex(daemon, 1)
+    measure(daemon, lane)
+    now = datetime.now(timezone.utc)
+    daemon.store.add_closure(Closure(lane.lane_id, "account", iso(now + timedelta(hours=5)),
+                                     ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "wham"))
+    until = (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    daemon.dispatch("lanes", {"action": "hold", "lane_id": lane.lane_id, "until": until})
+    with daemon.store.transaction("closure.reset") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id=?", (iso(now), lane.lane_id))
+    assert daemon.timers.operator_holds() == {lane.lane_id: until}
+    with pytest.raises(protocol.ProtocolError) as refused:
+        daemon.dispatch("lanes", {"action": "touch", "lane_id": lane.lane_id})
+    assert refused.value.fix == f"release the hold first: subfleet lanes release {lane.lane_id}"
+    daemon.dispatch("lanes", {"action": "release", "lane_id": lane.lane_id})
+    assert daemon.timers.operator_holds() == {}
+    touch = daemon.dispatch("lanes", {"action": "touch", "lane_id": lane.lane_id, "dry_run": True})["touch"]
+    assert [(row["action"], row["reason"]) for row in touch["plan"]] == [("touch", "forced")]
+
+
 def test_an_auth_dead_named_lane_is_refused_with_the_login_command(daemon):
     """C-18.7, C-23.44, C-23.52: the fix is the command a credential alert names."""
     lane = codex(daemon, 1)
