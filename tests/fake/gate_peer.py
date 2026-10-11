@@ -13,6 +13,10 @@ from subfleet.guardian import atomic_publish
 from tests.fake_adapter import FakeAdapter
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/gates/peer-verdict.txt"
+# A reviewed plan containing this marker makes the fixture peer summarize in prose
+# before its block, as live peers did (C-23.9), until the gate's format re-ask.
+PROSE_MARKER = "FAKE-GATE-PEER: prose before the block until re-asked"
+PROSE = "All the brief's items check out against the source.\n\n"
 
 
 class FakeGateAdapter(FakeAdapter):
@@ -69,7 +73,10 @@ def main(argv=None):
     evidence = {"synthetic": True, "attempt_id": os.environ["SUBFLEET_ATTEMPT"],
                 "model_served": args.model, "fixture_sha256": hashlib.sha256(fixture).hexdigest()}
     atomic_publish(args.evidence, json.dumps(evidence).encode())
-    sys.stdout.write(fixture.decode().replace("REVISION", json.dumps(revision)))
+    snapshot = Path("artifact.snapshot")
+    prose = (snapshot.is_file() and PROSE_MARKER in snapshot.read_text()
+             and "Format re-ask from the gate" not in prompt)
+    sys.stdout.write((PROSE if prose else "") + fixture.decode().replace("REVISION", json.dumps(revision)))
     return 0
 
 
