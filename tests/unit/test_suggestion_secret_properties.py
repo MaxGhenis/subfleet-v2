@@ -1,0 +1,274 @@
+"""No recognised secret ever appears in a suggestion's fields or events (C-25.5, C-25.7).
+
+Hypothesis properties. A secret is a value the C-25.5 scrubber recognizes (C-23.14's
+families: provider and forge tokens, cloud keys, JWTs, bearer tokens, URL passwords,
+sensitive assignments), set between separators in text a failing start says (a git
+hook's stderr, an OS error, a folder check's refusal) or in what an agent sends
+(the folder, its session). For every one, nothing a suggestion keeps or shows holds
+it: the row, `suggestion.list` (listing and by id), the watch feed, the origin's
+events, the error Start returns and the daemon's log line; every string there is
+one the scrubber leaves unchanged, and every error is one line within ERROR_MAX.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import sqlite3
+import string
+import subprocess
+import tempfile
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+
+import hypothesis.strategies as st
+from hypothesis import HealthCheck, given, settings
+
+from subfleet.conversations import suggestions
+from subfleet.conversations.peers import Verdict
+from subfleet.conversations.service import ConversationService
+from subfleet.conversations.store import ConversationError
+from subfleet.sessions.handoff import scrub_secrets
+from tests.unit.test_conversation_service import SETTINGS, FakeDaemon
+
+PERSON, AGENT = 1, 2
+ALNUM = string.ascii_letters + string.digits
+GIT_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUTHOR_NAME": "T",
+           "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.test"}
+
+
+def _tail(least: int, alphabet: str = ALNUM) -> st.SearchStrategy[str]:
+    return st.text(alphabet, min_size=least, max_size=least + 24)
+
+
+#: One secret of each family the scrubber recognizes.
+secrets = st.one_of(
+    st.tuples(st.sampled_from(["sk-ant-api03-", "sk-proj-", "sk-", "ghp_", "gho_", "github_pat_", "glpat-", "xoxb-",
+                               "npm_", "hf_", "sk_live_", "rk_test_"]), _tail(16)).map("".join),
+    _tail(16, string.ascii_uppercase + string.digits).map(lambda t: "AKIA" + t[:16]),
+    _tail(20).map(lambda t: "AIza" + t),
+    st.tuples(_tail(8), _tail(8), _tail(8)).map(lambda p: "eyJ" + ".".join(p)),
+    _tail(8).map(lambda t: "Bearer " + t),
+    _tail(6).map(lambda t: "https://agent:" + t + "@example.test/repo"),
+    _tail(8).map(lambda t: "api_key=" + t),
+)
+separators = st.sampled_from([" ", "\n", "\t", " (", "] ", ", ", "\r\n"])
+#: Words around it: lowercase prose, never a token character run next to the secret.
+padding = st.text(string.ascii_lowercase + " .:\n", max_size=1200)
+
+
+def said(before: str, left: str, secret: str, right: str, after: str) -> str:
+    return before + left + secret + right + after
+
+
+def recognized(value) -> list[str]:
+    """Every string in `value` (any JSON shape) the scrubber would change."""
+    found = []
+    if isinstance(value, str):
+        clean, count = scrub_secrets(value, strip_reminders=True)
+        if count or clean != value:
+            found.append(value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            found += recognized(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found += recognized(item)
+    return found
+
+
+@given(before=padding, left=separators, secret=secrets, right=separators, after=padding)
+@settings(max_examples=500, deadline=None)
+def test_c25_5_a_starts_error_is_scrubbed_whole_then_bounded(before, left, secret, right, after):
+    text = said(before, left, secret, right, after)
+    assert scrub_secrets(text, strip_reminders=True)[1] > 0          # the scrubber knows it
+    error = suggestions.scrub_error(text)
+    assert secret not in error and not recognized(error)
+    assert len(error) <= suggestions.ERROR_MAX and "\n" not in error and error
+
+
+class Captured(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines: list[str] = []
+
+    def emit(self, record):
+        self.lines.append(record.getMessage())
+
+
+@contextmanager
+def fixture():
+    """A real conversation service over a fake daemon, in its own folder; the person
+    is pid PERSON. One per example, so no example's claims count against another's."""
+    folder = Path(tempfile.mkdtemp(prefix="sf-sg-secret-"))
+    root = folder / "state"
+    root.mkdir()
+    daemon = FakeDaemon(root)
+    service = ConversationService(daemon)
+    service._person = lambda peer, what: (Verdict(True, "the Subfleet app", peer) if peer == PERSON else
+                                          (_ for _ in ()).throw(ConversationError("person-only", what, code=7)))
+    captured, level = Captured(), daemon.log.level
+    daemon.log.addHandler(captured)
+    daemon.log.setLevel(logging.INFO)
+    service.captured = captured
+    service.folder = folder
+    try:
+        yield service
+    finally:
+        daemon.log.removeHandler(captured)
+        daemon.log.setLevel(level)
+        service.close()
+        daemon.store.close()
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def origin_turn(service) -> tuple[str, str]:
+    """A conversation with a running turn whose job names it: (conversation, job)."""
+    work = service.folder / "work"
+    work.mkdir(exist_ok=True)
+    cid = service.store.create_conversation(provider="claude", workspace=str(work), workspace_kind="in-place",
+                                            settings=SETTINGS, origin="new")[0]["conversation_id"]
+    mid = str(uuid.uuid4())
+    service.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None, text="work",
+                                 attachments=[], settings=SETTINGS)
+    job = "20261011-000000-turn-" + mid[:8]
+    service.daemon.store.add_job(job_id=job, request_id=f"turn:{mid}:0", payload_digest="d", kind="turn",
+                                 workdir=str(work), prompt_path="p.md", sandbox="read-only", name=f"turn-{cid}",
+                                 in_place=1, max_attempts=1, state="running")
+    return cid, job
+
+
+def checkout(service, hook: str) -> Path:
+    """A git checkout whose post-checkout hook says `hook` on stderr and fails."""
+    repo = service.folder / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "file.txt").write_text("base\n")
+    env = {**os.environ, **GIT_ENV}
+    for argv in (["init", "-q", "-b", "feature/x"], ["add", "."], ["commit", "-q", "-m", "base"]):
+        subprocess.run(["git", "-C", str(repo), *argv], check=True, capture_output=True, env=env)
+    (repo / "said.txt").write_text(hook)
+    script = repo / ".git" / "hooks" / "post-checkout"
+    script.write_text(f"#!/bin/sh\ncat '{repo / 'said.txt'}' >&2\nexit 1\n")
+    script.chmod(0o755)
+    return repo
+
+
+def everything_shown(service, sid: str, cid: str, error: str) -> dict:
+    return {"row": service.store.query("SELECT * FROM suggestions WHERE suggestion_id=?", (sid,)),
+            "listing": service.handle("suggestion.list", {}, AGENT),
+            "named": service.handle("suggestion.list", {"suggestion_ids": [sid]}, AGENT),
+            "feed": service.handle("conversation.watch", {"after": 0}, AGENT),
+            "events": service.handle("conversation.events", {"conversation_id": cid, "after": 0}, AGENT),
+            "error": error, "log": service.captured.lines}
+
+
+@given(before=padding, left=separators, secret=secrets, right=separators, after=padding)
+@settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+def test_c25_5_what_a_failing_checkout_hook_says_never_reaches_a_suggestion_field_or_event(
+        before, left, secret, right, after):
+    """The review's leak, for every family and placement: a hook's stderr through
+    `git worktree add`, the claim's `start_error` and the returned error; then the
+    daemon's own finishing of the claim (which adopts the worktree the failed add
+    left, or fails again and logs why)."""
+    hook = said(before, left, secret, right, after)
+    with fixture() as service:
+        repo = checkout(service, hook)
+        cid, job = origin_turn(service)
+        row = service.handle("suggestion.create", {"request_id": str(uuid.uuid4()), "title": "Fixture",
+                                                   "tldr": "Fixture", "brief": "Fixture brief",
+                                                   "workspace": str(repo), "worktree": True, "calling_job": job},
+                             AGENT)["suggestion"]
+        sid = row["suggestion_id"]
+        try:
+            service.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
+        except ConversationError as exc:
+            assert exc.reason == "worktree-failed", exc
+            error = str(exc)
+        else:
+            raise AssertionError("the failing hook did not fail the start")
+        assert service.suggestions.get(sid)["state"] == "starting"
+        assert service.suggestions.get(sid)["start_error"].startswith("worktree-failed: ")
+        shown = everything_shown(service, sid, cid, error)
+        assert secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
+        service._resume_start(sid, 1, service.clock())
+        shown = everything_shown(service, sid, cid, error)
+        assert service.captured.lines and secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
+        assert len(error) <= suggestions.ERROR_MAX
+        assert all(len(r["start_error"]) <= suggestions.ERROR_MAX for r in shown["row"])
+
+
+@given(before=padding, left=separators, secret=secrets, right=separators, after=padding,
+       where=st.sampled_from(["folder check before the claim", "an OS error after it",
+                              "a refusal after it", "a store error inside the brief's transaction"]))
+@settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+def test_c25_5_any_start_failure_is_scrubbed_wherever_it_happens(before, left, secret, right, after, where):
+    text = said(before, left, secret, right, after)
+    with fixture() as service:
+        cid, job = origin_turn(service)
+        work = service.folder / "work"
+        row = service.handle("suggestion.create", {"request_id": str(uuid.uuid4()), "title": "Fixture",
+                                                   "tldr": "Fixture", "brief": "Fixture brief",
+                                                   "workspace": str(work), "calling_job": job}, AGENT)["suggestion"]
+        sid = row["suggestion_id"]
+
+        def fail(*args, **kwargs):
+            if where == "folder check before the claim":
+                raise ConversationError("protected-branch", text, code=7)
+            if where == "an OS error after it":
+                raise OSError(5, text)
+            if where == "a refusal after it":
+                raise ConversationError("worktree-failed", text, code=1)
+            raise sqlite3.OperationalError(text)
+        if where == "folder check before the claim":
+            service._validate_workspace = fail
+        elif where == "a store error inside the brief's transaction":
+            service.suggestions.finish_in = fail
+        else:
+            service.store.submit_message = fail
+        error = ""
+        try:
+            service.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
+        except ConversationError as exc:
+            error = str(exc)
+            assert where in ("folder check before the claim", "a refusal after it")
+        except (OSError, sqlite3.OperationalError):
+            # Not a refusal: the daemon answers these as "operation failed" (C-16.7),
+            # never with their text; the claim records them scrubbed.
+            assert where in ("an OS error after it", "a store error inside the brief's transaction")
+        else:
+            raise AssertionError("the start did not fail")
+        state = service.suggestions.get(sid)["state"]
+        assert state == ("open" if where == "folder check before the claim" else "starting")
+        if state == "starting":
+            # The daemon's own finishing of it fails the same way, and logs why.
+            service._resume_start(sid, 1, service.clock())
+            assert any("finishing the start" in line for line in service.captured.lines)
+        shown = everything_shown(service, sid, cid, error)
+        assert secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
+        assert len(error) <= suggestions.ERROR_MAX
+
+
+@given(secret=secrets.filter(lambda s: "/" not in s and "\n" not in s and "\x00" not in s),
+       which=st.sampled_from(["workspace", "session_id"]))
+@settings(max_examples=100, deadline=None)
+def test_c25_5_a_folder_or_session_shaped_like_a_secret_is_refused_and_makes_nothing(secret, which):
+    with fixture() as service:
+        args = {"request_id": str(uuid.uuid4()), "title": "Fixture", "tldr": "Fixture", "brief": "Fixture brief"}
+        if which == "workspace":
+            folder = service.folder / ("work " + secret)
+            folder.mkdir()
+            args["workspace"] = str(folder)
+        else:
+            args["session_id"] = "session " + secret
+        try:
+            service.handle("suggestion.create", args, AGENT)
+        except ConversationError as exc:
+            assert exc.reason == ("bad-workspace" if which == "workspace" else "bad-session-id"), exc
+            assert secret not in str(exc)
+        else:
+            raise AssertionError("a secret-shaped " + which + " was accepted")
+        assert service.store.query("SELECT * FROM suggestions") == []
+        assert service.store.changes_after(0)["changes"] == []

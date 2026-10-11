@@ -80,6 +80,8 @@ def test_c25_7_a_turns_suggestion_is_started_by_a_person_into_a_worktree_convers
     assert (made["suggestion"]["origin_conversation_id"], made["suggestion"]["origin_message_id"]) == (cid, mid)
     assert made["suggestion"]["creator_session"] == "the-turns-session"
     assert Path(made["suggestion"]["workspace"]) == repo.resolve()
+    # Where it starts was decided now, and the card shows it: a worktree of the checkout.
+    assert made["suggestion"]["workspace_kind"] == "worktree" and made["suggestion"]["repository"] == str(repo.resolve())
 
     # The app-facing ops see it: the list, the watch feed, the origin's events.
     assert [s["suggestion_id"] for s in svc.handle("suggestion.list", {}, PERSON)["suggestions"]] == [sid]
@@ -101,7 +103,8 @@ def test_c25_7_a_turns_suggestion_is_started_by_a_person_into_a_worktree_convers
     assert new["workspace_kind"] == "worktree" and new["worktree"]["branch"] == f"subfleet/{new['conversation_id']}"
     assert git(Path(new["worktree"]["path"]), "rev-parse", "--abbrev-ref", "HEAD") == f"subfleet/{new['conversation_id']}"
     first = out["message"]["message_id"]
-    assert first == suggestions.start_message_id(sid) and out["message"]["text"] == BRIEF
+    assert first == out["suggestion"]["started_message_id"] == svc.suggestions.get(sid)["start_message_id"]
+    assert out["message"]["text"] == BRIEF
 
     # Its first turn: dispatched in the worktree, and the provider reads the brief.
     svc._dispatch()

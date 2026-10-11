@@ -343,8 +343,9 @@ class ConversationStore:
             from .wakes import SCHEMA as WAKE_SCHEMA
             self._db.executescript(WAKE_SCHEMA)
             # C-25.7: suggested conversations, an additive table as the wake tables are.
-            from .suggestions import SCHEMA as SUGGESTION_SCHEMA
+            from .suggestions import SCHEMA as SUGGESTION_SCHEMA, add_columns as add_suggestion_columns
             self._db.executescript(SUGGESTION_SCHEMA)
+            add_suggestion_columns(self._db)
             # Additive columns need no numbered step: a build without them still reads the
             # rows (it selects by name and ignores what it does not know).
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
@@ -1002,14 +1003,18 @@ class ConversationStore:
                        wake_claim: dict | None = None,
                        continues: str | None = None, state: str = QUEUED,
                        state_reason: str | None = None,
-                       on_accept: Callable[[sqlite3.Connection], None] | None = None) -> tuple[dict, bool]:
+                       on_accept: Callable[[sqlite3.Connection], None] | None = None,
+                       starts_suggestion: str | None = None) -> tuple[dict, bool]:
         """Durably accept a message (C-24.2, C-24.3). Idempotent by id and digest;
         in order by the client's predecessor. A row Subfleet writes already
         settled (a withdrawal tombstone, IR-7) is born in its final `state`, so
         the dispatcher never sees it queued. `on_accept` runs inside the
         transaction that inserts the row, and only then (a suggestion's start
         records `started` with its first message, C-25.7); a repeat that finds
-        the message accepted already does not call it."""
+        the message accepted already does not call it. A conversation a
+        suggestion's Start made takes no message until its brief, which that
+        Start submits naming the suggestion (`starts_suggestion`), and the brief
+        only as its first (`suggestions.admit_message`, in this transaction)."""
         if state not in (QUEUED, *TERMINAL_STATES):
             raise ValueError(f"a message is accepted queued or terminal, not {state}")
         message_id = canonical_uuid(message_id)
@@ -1040,6 +1045,8 @@ class ConversationStore:
                 if again["digest"] != digest:
                     raise ConversationError("message-id-conflict", "message id already used with different content")
                 return _decode_message(dict(again)), False
+            from .suggestions import admit_message
+            admit_message(tx, conversation_id, starts_suggestion)
             if wake_claim is not None:
                 from .wakes import claim
                 claim(tx, conversation_id, message_id, wake_claim, accepted_at=now)
@@ -1121,6 +1128,8 @@ class ConversationStore:
             again = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
             if again:
                 return same(again), False
+            from .suggestions import admit_message
+            admit_message(tx, conversation_id, None)      # C-25.7: not before a suggestion's brief
             if tx.execute("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy' LIMIT 1",
                           (conversation_id,)).fetchone():
                 raise ConversationError("history-after-messages",

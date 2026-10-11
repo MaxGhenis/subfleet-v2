@@ -9,13 +9,23 @@ dismisses it; whoever proposed it may withdraw it while it is open.
 
 A suggestion moves `open` -> `starting` -> `started`, or from `open` to
 `dismissed` or `withdrawn`, and never back. `starting` is the person's claim:
-the one transaction that takes it also writes the new conversation's row, so a
-suggestion that has a conversation can no longer be dismissed or withdrawn, and
-one that was dismissed or withdrawn never gets a conversation. The brief is
-then submitted as that conversation's first message under an id derived from
-the suggestion's own, in the transaction that records `started`; a retry, a
-second click or a restart finishes the same start with the same conversation
-and the same message (`start_request_id`, `start_message_id`).
+the one transaction that takes it also writes the new conversation's row and
+chooses the id of its first message, so a suggestion that has a conversation can
+no longer be dismissed or withdrawn, and one that was dismissed or withdrawn
+never gets a conversation. The conversation is bound to the claim only by the
+suggestion's own `started_conversation_id`, written in that transaction: it has
+no request id an agent could reserve or replay (request ids beginning
+`suggestion:` are refused to every create and handoff), and the first message's
+id is random and kept private until it is accepted. Until then the conversation
+takes no message but the brief (`admit_message`, in every message's own
+transaction), and the brief is accepted, in the empty conversation, in the
+transaction that records `started`. A retry, a second click or a restart
+finishes the same start with the same conversation and the same message.
+
+Where a suggestion starts is decided when it is made (`workspace_kind`: a new
+worktree of `repository`, or in place; a suggestion with no folder starts in a
+new scratch folder), shown on its card, and what Start does: a worktree start
+whose folder is no longer a git checkout is refused, never run in place.
 
 The rows live in `conversations.sqlite3`, beside the conversations they start,
 in a table added as the wake tables are (`CREATE TABLE IF NOT EXISTS`, no
@@ -24,6 +34,10 @@ the store, and one that predates the table ignores it.
 
 Title, summary and brief are scrubbed once, when the suggestion is created
 (C-25.5, the handoff scrubber C-23.14): what the card shows is what Start sends.
+A folder path or caller session the scrubber would change is refused, and every
+error a start records, logs or returns is scrubbed whole, then cut to ERROR_MAX
+characters (`scrub_error`): no suggestion field or event holds a value the
+scrubber recognizes.
 """
 
 from __future__ import annotations
@@ -60,8 +74,13 @@ LIMITS = {"suggestion_title_chars": TITLE_MAX, "suggestion_tldr_chars": TLDR_MAX
           "suggestion_brief_bytes": BRIEF_MAX_BYTES, "suggestions_per_origin": PER_ORIGIN_OPEN,
           "suggestions_open": OPEN_MAX}
 
-#: The namespace of the first message's id (`start_message_id`).
-_NAMESPACE = uuid.UUID("5c2d3f0e-8a4b-4c1e-9f6a-2b7d0e1c4a91")
+#: The characters of a start's error a suggestion keeps and shows (`scrub_error`).
+ERROR_MAX = 500
+#: Request ids no `conversation.create` or handoff may take: a Start once named its
+#: conversation so, and an agent could reserve that name first (C-25.7).
+RESERVED_REQUEST_PREFIX = "suggestion:"
+#: Where a suggestion starts (`workspace_kind`), decided when it is made.
+WORKTREE, IN_PLACE = "worktree", "in-place"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS suggestions (
@@ -77,7 +96,9 @@ CREATE TABLE IF NOT EXISTS suggestions (
   brief                   TEXT NOT NULL,
   workspace               TEXT,
   worktree                INTEGER NOT NULL DEFAULT 0,
-  provider                TEXT NOT NULL CHECK (provider IN ('claude','codex')),
+  workspace_kind          TEXT,
+  repository              TEXT,
+  provider               TEXT NOT NULL CHECK (provider IN ('claude','codex')),
   model                   TEXT,
   state                   TEXT NOT NULL CHECK (state IN ('open','starting','started','dismissed','withdrawn')),
   revision                INTEGER NOT NULL DEFAULT 0,
@@ -85,23 +106,68 @@ CREATE TABLE IF NOT EXISTS suggestions (
   decided_at              TEXT,
   start_settings_json     TEXT,
   start_error             TEXT,
+  start_message_id        TEXT,
   started_conversation_id TEXT,
   started_message_id      TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS suggestions_by_state ON suggestions(state, created_at);
 CREATE INDEX IF NOT EXISTS suggestions_by_origin ON suggestions(origin_conversation_id, state);
+CREATE INDEX IF NOT EXISTS suggestions_by_conversation ON suggestions(started_conversation_id);
 """
+#: Columns a table an earlier build of this one made lacks: added as the store adds
+#: its own additive columns, never by a numbered step.
+_ADDED_COLUMNS = (("workspace_kind", "TEXT"), ("repository", "TEXT"), ("start_message_id", "TEXT"))
 
 
-def start_request_id(suggestion_id: str) -> str:
-    """The `conversation.create` request id of the conversation a suggestion starts."""
-    return f"suggestion:{suggestion_id}"
+def add_columns(db: sqlite3.Connection) -> None:
+    """Bring a suggestions table an earlier build made up to SCHEMA's columns."""
+    have = {row[1] for row in db.execute("PRAGMA table_info(suggestions)")}
+    for name, kind in _ADDED_COLUMNS:
+        if name not in have:
+            db.execute(f"ALTER TABLE suggestions ADD COLUMN {name} {kind}")
 
 
-def start_message_id(suggestion_id: str) -> str:
-    """The id of a started conversation's first message: the same on every retry (C-24.2)."""
-    return str(uuid.uuid5(_NAMESPACE, suggestion_id))
+def scratch_name(suggestion_id: str) -> str:
+    """The private scratch folder, below `conversations/workspaces`, a suggestion with
+    no folder starts in: the same on every retry, and never one `conversation.create`
+    makes (theirs are named by 64 hex digits)."""
+    return "suggestion-" + hashlib.sha256(suggestion_id.encode()).hexdigest()
+
+
+def holds_secret(text: str) -> bool:
+    """Whether the C-25.5 scrubber would change `text`: a value no suggestion field holds."""
+    clean, count = scrub_secrets(text, strip_reminders=True)
+    return count > 0 or clean != text
+
+
+def scrub_error(error: Any) -> str:
+    """A start's error as a suggestion keeps, shows and returns it (C-25.5): scrubbed
+    whole first, so no secret is cut into a fragment the rules no longer know, then
+    one line of at most ERROR_MAX characters."""
+    clean, _ = scrub_secrets(str(error), strip_reminders=True)
+    clean = " ".join(clean.split()) or "the start failed"
+    return clean if len(clean) <= ERROR_MAX else clean[:ERROR_MAX - 1] + "…"
+
+
+def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | None) -> None:
+    """C-25.7, inside the transaction that would accept a message: a conversation a
+    suggestion's claim made takes no message until that suggestion's brief, and the
+    brief only as its first. `starts` names the suggestion whose Start submits its
+    brief (`ConversationService._finish_start`); every other message passes None."""
+    claim = tx.execute("SELECT suggestion_id FROM suggestions WHERE started_conversation_id=? AND state=?",
+                       (conversation_id, STARTING)).fetchone()
+    if starts is None:
+        if claim is not None:
+            raise ConversationError("conversation-starting", "the conversation is being started from a suggestion: "
+                                    "its first message is the brief the person started, and nothing is accepted "
+                                    "before it", code=7, fix="send it once the conversation has started")
+        return
+    if claim is None or claim[0] != starts:
+        raise ConversationError("not-starting", f"suggestion {starts} is not starting this conversation", code=1)
+    if tx.execute("SELECT 1 FROM messages WHERE conversation_id=? LIMIT 1", (conversation_id,)).fetchone():
+        raise ConversationError("conversation-not-empty", "the conversation this start made already holds a "
+                                "message, so the brief cannot be its first", code=1)
 
 
 def _line(value: Any, name: str, limit: int) -> str:
@@ -164,14 +230,18 @@ def decode(row: Any) -> dict:
 def view(row: dict, *, full_brief: bool = False) -> dict:
     """What `suggestion.list`, the watch feed and the events carry (C-25.5): the
     agent's words (already scrubbed), where and how it would start, and what
-    became of it. A listing carries a brief's first PREVIEW_CHARS characters."""
+    became of it. A listing carries a brief's first PREVIEW_CHARS characters.
+    `worktree` is what the agent asked for; `workspace_kind` (and `repository`
+    for a worktree) is what Start does, decided when the suggestion was made."""
     brief = row["brief"]
     shown = brief if full_brief or len(brief) <= PREVIEW_CHARS else brief[:PREVIEW_CHARS]
     return {"suggestion_id": row["suggestion_id"], "state": row["state"], "title": row["title"],
             "tldr": row["tldr"], "brief": shown, "brief_truncated": len(shown) < len(brief),
             "brief_chars": len(brief), "origin_conversation_id": row["origin_conversation_id"],
             "origin_message_id": row["origin_message_id"], "creator_session": row["creator_session"],
-            "workspace": row["workspace"], "worktree": bool(row["worktree"]), "provider": row["provider"],
+            "workspace": row["workspace"], "worktree": bool(row["worktree"]),
+            "workspace_kind": row.get("workspace_kind"), "repository": row.get("repository"),
+            "provider": row["provider"],
             "model": row["model"], "decided_by": row["decided_by"], "decided_at": row["decided_at"],
             "start_error": row["start_error"], "started_conversation_id": row["started_conversation_id"],
             "started_message_id": row["started_message_id"], "created_at": row["created_at"],
@@ -202,6 +272,14 @@ def _changed(tx: sqlite3.Connection, row: dict) -> None:
                    "kind,data_json,ts) VALUES (?,?,?,'suggestion',?,0,'suggestion',?,?)",
                    (origin, row["origin_message_id"], f"suggestion:{row['suggestion_id']}", str(row["revision"]),
                     _event_body(row), now))
+
+
+def feed_seq(db: sqlite3.Connection) -> int:
+    """The watch feed's high-water mark (C-29.9), read under the lock that read the
+    rows beside it: every change up to it is in them. The table's AUTOINCREMENT
+    counter, so compaction never lowers it."""
+    row = db.execute("SELECT seq FROM sqlite_sequence WHERE name='changes'").fetchone()
+    return int(row[0]) if row else 0
 
 
 def _row(tx: sqlite3.Connection, suggestion_id: str) -> dict:
@@ -239,11 +317,14 @@ class Suggestions:
 
     def add(self, *, request_id: str, words: dict, origin: str | None, origin_message: str | None,
             creator_session: str | None, creator_job: str | None, workspace: str | None, worktree: bool,
-            provider: str, model: str | None, per_origin: int = PER_ORIGIN_OPEN,
-            open_max: int = OPEN_MAX) -> tuple[dict, bool]:
+            provider: str, model: str | None, workspace_kind: str = IN_PLACE, repository: str | None = None,
+            per_origin: int = PER_ORIGIN_OPEN, open_max: int = OPEN_MAX) -> tuple[dict, bool]:
         """Record a suggestion; idempotent by request id and what it stands for. The
         bounds are counted in the transaction that would add one, so concurrent
-        creates never pass them together."""
+        creates never pass them together. `workspace_kind` and `repository` are
+        where it starts, as the daemon decided it; a retry keeps the first decision."""
+        if workspace_kind not in (WORKTREE, IN_PLACE) or (workspace_kind == WORKTREE) != (repository is not None):
+            raise ValueError(f"a {workspace_kind!r} start with repository {repository!r}")
         stands_for = digest(words=words, origin=origin, creator_session=creator_session, workspace=workspace,
                             worktree=worktree, provider=provider, model=model)
         with self.store.transaction() as tx:
@@ -280,18 +361,18 @@ class Suggestions:
             suggestion_id = new_id("sg")
             tx.execute(
                 "INSERT INTO suggestions(suggestion_id,request_id,digest,origin_conversation_id,origin_message_id,"
-                "creator_session,creator_job,title,tldr,brief,workspace,worktree,provider,model,state,revision,"
-                "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
+                "creator_session,creator_job,title,tldr,brief,workspace,worktree,workspace_kind,repository,"
+                "provider,model,state,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
                 (suggestion_id, request_id, stands_for, origin, origin_message, creator_session, creator_job,
-                 words["title"], words["tldr"], words["brief"], workspace, int(bool(worktree)), provider, model,
-                 OPEN, now, now))
+                 words["title"], words["tldr"], words["brief"], workspace, int(bool(worktree)), workspace_kind,
+                 repository, provider, model, OPEN, now, now))
             _changed(tx, _row(tx, suggestion_id))
         return self.get(suggestion_id), True
 
     def listing(self, *, conversation_id: str | None = None, limit: int = OPEN_MAX,
-                closed_limit: int = CLOSED_LISTED) -> tuple[list[dict], int]:
-        """Open suggestions newest first, then the most recently closed; and how
-        many are open in all."""
+                closed_limit: int = CLOSED_LISTED) -> tuple[list[dict], int, int]:
+        """Open suggestions newest first, then the most recently closed; how many
+        are open in all; and the watch feed's sequence they were read at (`feed_seq`)."""
         where, params = ("", ()) if conversation_id is None else (" AND origin_conversation_id=?", (conversation_id,))
         marks, closed = ",".join("?" * len(OPEN_STATES)), ",".join("?" * len(CLOSED_STATES))
         with self.store.read() as db:
@@ -303,42 +384,62 @@ class Suggestions:
                 "ORDER BY updated_at DESC, suggestion_id DESC LIMIT ?", (*CLOSED_STATES, *params, max(0, closed_limit)))]
             total = db.execute(f"SELECT COUNT(*) FROM suggestions WHERE state IN ({marks}){where}",
                                (*OPEN_STATES, *params)).fetchone()[0]
-        return opened + ended, total
+            seq = feed_seq(db)
+        return opened + ended, total, seq
 
     def by_ids(self, suggestion_ids: list[str]) -> list[dict]:
-        if not suggestion_ids:
-            return []
+        return self.named(suggestion_ids)[0]
+
+    def named(self, suggestion_ids: list[str]) -> tuple[list[dict], int]:
+        """These suggestions, and the watch feed's sequence they were read at."""
         marks = ",".join("?" * len(suggestion_ids))
-        return [decode(r) for r in self.store.query(f"SELECT * FROM suggestions WHERE suggestion_id IN ({marks}) "
-                                                    "ORDER BY created_at DESC", tuple(suggestion_ids))]
+        with self.store.read() as db:
+            rows = [decode(r) for r in db.execute(f"SELECT * FROM suggestions WHERE suggestion_id IN ({marks}) "
+                                                  "ORDER BY created_at DESC", tuple(suggestion_ids))] \
+                if suggestion_ids else []
+            return rows, feed_seq(db)
 
     def claim(self, suggestion_id: str, *, by: str, conversation: dict) -> tuple[dict, bool]:
-        """A person's Start: `open` -> `starting`, writing the new conversation's row
-        (`conversation`: the `create_conversation` fields) in the same transaction.
-        Returns the row and whether this call took the claim; a suggestion already
-        starting or started is returned as it is, and any other is refused."""
+        """A person's Start: `open` -> `starting`, writing a new conversation's row
+        (`conversation`: the `create_conversation` fields) and choosing its first
+        message's id in the same transaction. Returns the row and whether this call
+        took the claim; a suggestion already starting or started is returned as it
+        is, and any other is refused.
+
+        The conversation is always a new one, with no request id: it is bound to the
+        claim by `started_conversation_id` alone, and nothing found by a name an
+        agent could reserve is ever adopted (C-25.7). Its first message's id is a
+        new random UUID, kept off every view until the message is accepted, so no
+        caller can take it first anywhere."""
         with self.store.transaction() as tx:
             row = _row(tx, suggestion_id)
             if row["state"] in (STARTING, STARTED):
                 return row, False
             if row["state"] != OPEN:
                 raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start", code=7)
-            existing = tx.execute("SELECT conversation_id FROM conversations WHERE request_id=?",
-                                  (start_request_id(suggestion_id),)).fetchone()
-            cid = existing["conversation_id"] if existing else self.store.insert_conversation(
-                tx, request_id=start_request_id(suggestion_id), **conversation)
-            settings = conversation["settings"]
-            return _move(tx, row, STARTING, decided_by=by, decided_at=utcnow(), started_conversation_id=cid,
-                         start_settings_json=json.dumps(settings), start_error=None), True
+            cid = self.store.insert_conversation(tx, request_id=None, **conversation)
+            return _move(tx, row, STARTING, decided_by=scrub_error(by), decided_at=utcnow(),
+                         started_conversation_id=cid, start_message_id=str(uuid.uuid4()),
+                         start_settings_json=json.dumps(conversation["settings"]), start_error=None), True
+
+    def message_id(self, suggestion_id: str) -> str:
+        """The first message's id a claim chose; one an earlier build's claim never
+        chose is chosen now, once."""
+        with self.store.transaction() as tx:
+            tx.execute("UPDATE suggestions SET start_message_id=? WHERE suggestion_id=? AND start_message_id IS NULL",
+                       (str(uuid.uuid4()), suggestion_id))
+            return _row(tx, suggestion_id)["start_message_id"]
 
     def finish_in(self, tx: sqlite3.Connection, suggestion_id: str, message_id: str) -> None:
         """`starting` -> `started`, in the transaction that accepts the first message
-        (`ConversationStore.submit_message`'s `on_accept`)."""
+        (`ConversationStore.submit_message`'s `on_accept`): the message the claim chose."""
         row = _row(tx, suggestion_id)
         if row["state"] == STARTED:
             return
         if row["state"] != STARTING:
             raise ConversationError("not-starting", f"the suggestion is {row['state']}", code=1)
+        if row["start_message_id"] is not None and message_id != row["start_message_id"]:
+            raise ConversationError("not-the-brief", "only the message the claim chose starts the suggestion", code=1)
         _move(tx, row, STARTED, started_message_id=message_id, start_error=None)
 
     def finish(self, suggestion_id: str, message_id: str) -> dict:
@@ -349,11 +450,13 @@ class Suggestions:
 
     def note_error(self, suggestion_id: str, error: str) -> dict:
         """A start that could not finish keeps its claim and says why; Start again
-        (or the daemon's own retry) finishes it."""
+        (or the daemon's own retry) finishes it. The reason is stored and shown as
+        `scrub_error` leaves it, however its caller made it (C-25.5)."""
+        error = scrub_error(error)
         with self.store.transaction() as tx:
             row = _row(tx, suggestion_id)
             if row["state"] == STARTING and row["start_error"] != error:
-                _move(tx, row, STARTING, start_error=error[:500])
+                _move(tx, row, STARTING, start_error=error)
         return self.get(suggestion_id)
 
     def close(self, suggestion_id: str, state: str, *, by: str) -> tuple[dict, bool]:

@@ -559,11 +559,21 @@ class ConversationService:
                 raise ConversationError("native-held", f"native session is held by live job {live['job_id']}",
                                         code=7, fix="wait for that job to finish")
 
-    def op_conversation_create(self, args, peer) -> dict:
-        provider = args.get("provider") or "claude"
-        request_id = args.get("request_id")
+    @staticmethod
+    def _check_request_id(request_id: Any) -> str:
+        """A create's or handoff's request id: 1 to 128 characters, never in the
+        namespace a suggestion's Start once named its conversation by (C-25.7)."""
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
+        if request_id.startswith(suggestions.RESERVED_REQUEST_PREFIX):
+            raise ConversationError("reserved-request-id", f"request ids beginning "
+                                    f"{suggestions.RESERVED_REQUEST_PREFIX!r} are reserved for suggested conversations",
+                                    fix="use a new UUID")
+        return request_id
+
+    def op_conversation_create(self, args, peer) -> dict:
+        provider = args.get("provider") or "claude"
+        request_id = self._check_request_id(args.get("request_id"))
         settings = validate_settings(provider, args.get("settings"))
         allow_main = bool(args.get("allow_main"))
         if allow_main or settings["permission"] in ("accept-edits", "bypass"):
@@ -697,7 +707,10 @@ class ConversationService:
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
             made = git(*argv, cap=self._git_timeout_s("worktree_add_timeout_s"))
             if made.returncode:
-                raise ConversationError("worktree-failed", made.stderr.strip()[-300:] or "git worktree add failed",
+                # Scrubbed whole before its tail is cut (C-25.5): a hook's output is the
+                # repository's to choose, and a cut could leave half a secret unrecognized.
+                said = session_handoff.scrub_secrets(made.stderr, strip_reminders=True)[0].strip()
+                raise ConversationError("worktree-failed", said[-300:] or "git worktree add failed",
                                         code=1, fix="repeat conversation.create with the same request_id")
             os.chmod(target, 0o700)
         base = git("rev-parse", "--verify", "HEAD", cwd=target)
@@ -972,19 +985,27 @@ class ConversationService:
             raise ConversationError("no-model", f"this fleet routes no {provider} model", code=7)
         return entry["value"]
 
-    def _suggestion_workspace(self, provider: str, workspace: Any, worktree: bool) -> str | None:
-        """The folder a suggestion would start in, checked now as `conversation.create`
-        checks one (C-26.10) for the start it would make (`_start_permission`); None
-        is a new scratch folder, made when it starts."""
+    def _suggestion_workspace(self, provider: str, workspace: Any,
+                              worktree: bool) -> tuple[str | None, str, str | None]:
+        """Where a suggestion would start, decided now and kept: (the folder, the kind
+        of start, the repository a worktree start cuts from). The folder is checked as
+        `conversation.create` checks one (C-26.10) for the start it would make
+        (`_start_permission`); a worktree when one is asked for and the folder is a
+        git checkout, else in place. No folder is a new scratch folder, made when it
+        starts. A path the C-25.5 scrubber would change is refused: a card shows it."""
         if workspace is None or workspace == "":
-            return None
+            return None, suggestions.IN_PLACE, None
         if not isinstance(workspace, str) or not os.path.isdir(folders.canonical(workspace)):
             raise ConversationError("bad-workspace", "workspace must be an existing directory",
                                     fix="name a folder, or leave it out for a new scratch folder")
         folder = folders.canonical(workspace)
-        kind = "worktree" if worktree and self._git_toplevel(folder) is not None else "in-place"
+        if suggestions.holds_secret(folder):
+            raise ConversationError("bad-workspace", "the folder's path holds a value shaped like a secret, which a "
+                                    "suggestion never shows (C-25.5)", fix="name another folder")
+        repository = self._git_toplevel(folder) if worktree else None
+        kind = suggestions.WORKTREE if repository is not None else suggestions.IN_PLACE
         settings = validate_settings(provider, {"model": "suggestion", "permission": self._start_permission(provider)})
-        return self._validate_workspace(provider, folder, settings, kind=kind, allow_main=False)
+        return self._validate_workspace(provider, folder, settings, kind=kind, allow_main=False), kind, repository
 
     def op_suggestion_create(self, args, peer) -> dict:
         """An agent proposes a conversation (C-25.7). Any caller may: what it makes is a
@@ -994,6 +1015,9 @@ class ConversationService:
         except ConversationError:
             raise ConversationError("bad-request-id", "request_id must be a canonical lowercase UUID") from None
         origin, message, session, job = self._suggestion_caller(args)
+        if session is not None and suggestions.holds_secret(session):
+            raise ConversationError("bad-session-id", "session_id holds a value shaped like a secret, which a "
+                                    "suggestion never shows (C-25.5)")
         provider = args.get("provider") or (origin["provider"] if origin else "claude")
         if provider not in PROVIDERS:
             raise ConversationError("bad-provider", "provider is claude or codex")
@@ -1002,51 +1026,63 @@ class ConversationService:
         worktree = args.get("worktree", False)
         if not isinstance(worktree, bool):
             raise ConversationError("bad-worktree", "worktree must be true or false")
-        workspace = self._suggestion_workspace(provider, args.get("workspace"), worktree)
+        workspace, kind, repository = self._suggestion_workspace(provider, args.get("workspace"), worktree)
         row, created = self.suggestions.add(
             request_id=request_id, words=words, origin=origin["conversation_id"] if origin else None,
             origin_message=message, creator_session=session, creator_job=job, workspace=workspace,
-            worktree=worktree, provider=provider, model=model, per_origin=suggestions.PER_ORIGIN_OPEN,
-            open_max=suggestions.OPEN_MAX)
+            worktree=worktree, provider=provider, model=model, workspace_kind=kind, repository=repository,
+            per_origin=suggestions.PER_ORIGIN_OPEN, open_max=suggestions.OPEN_MAX)
         return {"suggestion": suggestions.view(row, full_brief=True), "created": created, "scrubbed": scrubbed}
 
     def op_suggestion_list(self, args, peer) -> dict:
         """Open suggestions newest first, then the most recently closed (C-25.7); with
-        `suggestion_ids`, those, each with its whole brief."""
+        `suggestion_ids`, those, each with its whole brief. `watch_seq` is the watch
+        feed's sequence the rows were read at (C-29.14): a client that has a
+        suggestion from a later feed row keeps that, and drops nothing it has."""
         ids = args.get("suggestion_ids")
         cid = args.get("conversation_id") or None
         if ids is not None:
             if not isinstance(ids, list) or len(ids) > 50 or not all(isinstance(i, str) for i in ids):
                 raise ConversationError("bad-args", "suggestion_ids is a list of at most 50 ids")
-            views = [suggestions.view(row, full_brief=True) for row in self.suggestions.by_ids(ids)]
-            _, total = self.suggestions.listing(conversation_id=cid, limit=0, closed_limit=0)
+            rows, seq = self.suggestions.named(ids)
+            views = [suggestions.view(row, full_brief=True) for row in rows]
+            _, total, _ = self.suggestions.listing(conversation_id=cid, limit=0, closed_limit=0)
         else:
             limit = max(0, min(int(args.get("limit") if args.get("limit") is not None else suggestions.OPEN_MAX),
                                suggestions.OPEN_MAX))
             closed = args.get("closed_limit")
             closed = max(0, min(int(closed if closed is not None else suggestions.CLOSED_LISTED), 200))
-            rows, total = self.suggestions.listing(conversation_id=cid, limit=limit, closed_limit=closed)
+            rows, total, seq = self.suggestions.listing(conversation_id=cid, limit=limit, closed_limit=closed)
             views = [suggestions.view(row) for row in rows]
-        return {"suggestions": views, "open": total, "limits": suggestions.LIMITS}
+        return {"suggestions": views, "open": total, "limits": suggestions.LIMITS, "watch_seq": seq}
 
     def op_suggestion_start(self, args, peer) -> dict:
         """A person starts a suggestion (C-25.6, C-25.7): a conversation made as
-        `conversation.create` makes one, a worktree conversation when the suggestion
-        asks for one and its folder is a git checkout, with the brief as its first
-        message. Idempotent: the same suggestion has one conversation and one message."""
+        `conversation.create` makes one, where the suggestion said it would start
+        (`workspace_kind`), with the brief as its first message. Idempotent: the same
+        suggestion has one conversation and one message."""
         verdict = self._person(peer, "starting a suggested conversation")
         sid = self._suggestion_id(args)
-        with self._suggestion_lock(sid):
-            row = self.suggestions.get(sid)
-            if row["state"] == suggestions.OPEN:
-                conversation = self._start_fields(row, args)
-                row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
-            elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
-                raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start", code=7)
-            return self._finish_start(row)
+        try:
+            with self._suggestion_lock(sid):
+                row = self.suggestions.get(sid)
+                if row["state"] == suggestions.OPEN:
+                    conversation = self._start_fields(row, args)
+                    row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
+                elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
+                    raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start",
+                                            code=7)
+                return self._finish_start(row)
+        except ConversationError as exc:
+            # C-25.5: what git, a hook or a folder check said reaches the person only
+            # scrubbed, as `start_error` does (`_finish_start`).
+            raise ConversationError(exc.reason, suggestions.scrub_error(exc), code=exc.code, fix=exc.fix) from None
 
     def _start_fields(self, row: dict, args: dict) -> dict:
-        """The conversation a start makes, checked as `conversation.create` checks one."""
+        """The conversation a start makes, checked as `conversation.create` checks one,
+        where the suggestion's card says: its kept `workspace_kind`, never re-decided.
+        A worktree start whose folder is no longer a git checkout is refused, not run
+        in place."""
         provider = row["provider"]
         settings = validate_settings(provider, {
             "model": row["model"] or self._default_model(provider), "effort": None, "fast": False,
@@ -1055,41 +1091,53 @@ class ConversationService:
             raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
         self._check_codex_policy(provider, settings)
         if row["workspace"] is None:
-            # No folder: a private scratch folder, the same one on every retry (as create's).
-            key = hashlib.sha256(suggestions.start_request_id(row["suggestion_id"]).encode()).hexdigest()
+            # No folder: a private scratch folder, the same one on every retry, in a
+            # namespace no `conversation.create` names its scratch folders in.
             with self.store.writing():
-                workspace = str(self.store.subdirectory(Path("conversations/workspaces") / key))
-            kind = "in-place"
+                workspace = str(self.store.subdirectory(Path("conversations/workspaces")
+                                                        / suggestions.scratch_name(row["suggestion_id"])))
+            kind = suggestions.IN_PLACE
         else:
             workspace = row["workspace"]
             if not os.path.isdir(workspace):
                 raise ConversationError("bad-workspace", f"the suggestion's folder {workspace} is gone",
                                         fix="dismiss it")
-            kind = "worktree" if row["worktree"] and self._git_toplevel(workspace) is not None else "in-place"
+            kind = row["workspace_kind"]
+            if kind is None:                    # a row an earlier build made decided nothing
+                kind = (suggestions.WORKTREE if row["worktree"] and self._git_toplevel(workspace) is not None
+                        else suggestions.IN_PLACE)
+            elif kind == suggestions.WORKTREE and self._git_toplevel(workspace) is None:
+                raise ConversationError("not-a-repository", f"the suggestion's folder {workspace} is no longer a "
+                                        "git checkout, and it was to start in a worktree of its own", code=7,
+                                        fix="dismiss it")
         workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=False)
         return {"provider": provider, "workspace": workspace, "workspace_kind": kind, "settings": settings,
                 "origin": "new", "title": row["title"]}
 
     def _finish_start(self, row: dict) -> dict:
         """A claimed start, finished: the worktree a worktree conversation needs, then
-        the brief as its first message, accepted with `message.submit`'s rules (C-24.2,
-        C-24.3) in the transaction that records `started`. Each step is idempotent, so
-        a retry, or the daemon after a restart, finishes the same start."""
+        the brief as its first message, under the id the claim chose, accepted with
+        `message.submit`'s rules (C-24.2, C-24.3) in the transaction that records
+        `started`. Until then the conversation takes no other message
+        (`suggestions.admit_message`). Each step is idempotent, so a retry, or the
+        daemon after a restart, finishes the same start. What a failure says is
+        recorded (and logged, `_resume_start`; returned, `op_suggestion_start`) only
+        as `suggestions.scrub_error` leaves it."""
         sid = row["suggestion_id"]
         if row["state"] == suggestions.STARTED:
             return self._start_result(row, created=False)
         conversation = self.store.conversation(row["started_conversation_id"])
-        mid = suggestions.start_message_id(sid)
+        mid = row["start_message_id"] or self.suggestions.message_id(sid)
         try:
             if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
                 conversation = self._cut_worktree(conversation)
             _, created = self.store.submit_message(
                 conversation_id=conversation["conversation_id"], message_id=mid, after_message_id=None,
                 text=row["brief"], attachments=[], settings=row["start_settings"] or conversation["settings"],
-                on_accept=lambda tx: self.suggestions.finish_in(tx, sid, mid))
+                on_accept=lambda tx: self.suggestions.finish_in(tx, sid, mid), starts_suggestion=sid)
         except Exception as exc:
+            reason = exc.reason if isinstance(exc, ConversationError) else type(exc).__name__
             if not self._closed:
-                reason = exc.reason if isinstance(exc, ConversationError) else type(exc).__name__
                 with contextlib.suppress(Exception):
                     self.suggestions.note_error(sid, f"{reason}: {exc}")
             raise
@@ -1156,8 +1204,8 @@ class ConversationService:
                     self.log.info("finished the start of suggestion %s a person claimed earlier", sid)
         except Exception as exc:
             if not self._closed:
-                self.log.warning("finishing the start of suggestion %s failed (try %d): %s: %s", sid, tries,
-                                 type(exc).__name__, exc)
+                self.log.warning("finishing the start of suggestion %s failed (try %d): %s", sid, tries,
+                                 suggestions.scrub_error(f"{type(exc).__name__}: {exc}"))
         finally:
             with self._lock:
                 self._resuming[sid] = (tries, began + min(DEFER_MAX_S, DEFER_BASE_S * 2 ** tries))
@@ -1652,9 +1700,7 @@ class ConversationService:
         the source under the guard `message.cancel` uses (IR-28); a source with a
         live turn is refused. Idempotent by `request_id`: the same request returns
         the same conversation, a different request under that id is exit 2."""
-        request_id = args.get("request_id")
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
-            raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
+        request_id = self._check_request_id(args.get("request_id"))
         source_arg, target = args.get("from"), args.get("to")
         if not isinstance(source_arg, dict) or not isinstance(target, dict):
             raise ConversationError("bad-args", "a handoff needs `from` and `to` objects")

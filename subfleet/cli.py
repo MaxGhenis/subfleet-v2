@@ -206,6 +206,8 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     if op == "suggestion.create":
         if result.get("scrubbed"):
             note(f"note: {result['scrubbed']} secret-shaped value(s) were masked in what you wrote")
+        if row["worktree"] and row.get("workspace_kind") == "in-place":
+            note("note: the folder is not a git checkout, so it starts in place there, not in a worktree")
         where = ("in this conversation and " if row["origin_conversation_id"] else "") + "under Suggested"
         note(f"Suggested {row['title']!r}: the owner sees it in the Subfleet app {where}, and starts or "
              f"dismisses it. Withdraw it if it goes stale: subfleet suggest --withdraw {row['suggestion_id']}")

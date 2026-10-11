@@ -69,6 +69,10 @@ def refused(reason: str, code: int, call, *args, **kwargs) -> ConversationError:
     return caught.value
 
 
+def conversation_ids(svc) -> set[str]:
+    return {row["conversation_id"] for row in svc.store.query("SELECT conversation_id FROM conversations")}
+
+
 def changes_since(svc, after: int) -> list[dict]:
     return [c for c in svc.store.changes_after(after, limit=1000)["changes"] if c.get("suggestion_id")]
 
@@ -200,6 +204,7 @@ def test_c25_7_the_folder_is_checked_as_create_checks_one(svc, repo, tmp_path):
     # In a worktree of its own it is not on main.
     row = suggest(svc, workspace=str(repo), worktree=True)["suggestion"]
     assert row["worktree"] is True and Path(row["workspace"]) == repo.resolve()
+    assert row["workspace_kind"] == "worktree" and row["repository"] == str(repo.resolve())
     refused("bad-worktree", 2, suggest, svc, workspace=str(repo), worktree="yes")
     # A refused workspace makes nothing.
     assert len(svc.store.query("SELECT * FROM suggestions")) == 1
@@ -248,12 +253,12 @@ def test_c25_7_open_suggestions_are_bounded_per_origin_and_in_all(svc, monkeypat
 def test_c25_6_only_a_person_starts_or_dismisses(people):
     svc = people
     sid = suggest(svc, workspace=svc.test_workspace)["suggestion"]["suggestion_id"]
-    before = svc.store.changes_after(0)["next"]
+    before, made = svc.store.changes_after(0)["next"], conversation_ids(svc)
     refused("person-only", 7, svc.handle, "suggestion.start", {"suggestion_id": sid}, AGENT)
     refused("person-only", 7, svc.handle, "suggestion.dismiss", {"suggestion_id": sid}, AGENT)
     refused("person-only", 7, svc.handle, "suggestion.start", {"suggestion_id": sid}, None)
     assert svc.suggestions.get(sid)["state"] == "open" and svc.store.changes_after(before)["changes"] == []
-    assert not svc.store.query("SELECT 1 FROM conversations WHERE request_id=?", (suggestions.start_request_id(sid),))
+    assert conversation_ids(svc) == made and svc.suggestions.get(sid)["started_conversation_id"] is None
 
 
 def test_c25_7_a_start_makes_one_conversation_whose_first_message_is_the_brief(people):
@@ -262,7 +267,7 @@ def test_c25_7_a_start_makes_one_conversation_whose_first_message_is_the_brief(p
     job, _ = turn_of(svc, origin)
     row = suggest(svc, calling_job=job, workspace=svc.test_workspace)["suggestion"]
     sid = row["suggestion_id"]
-    notified = svc.daemon.notified
+    notified, made = svc.daemon.notified, conversation_ids(svc)
     out = svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
     started, view, receipt = out["suggestion"], out["conversation"], out["message"]
     assert out["created"] is True and started["state"] == "started" and started["decided_by"] == "the Subfleet app"
@@ -270,9 +275,15 @@ def test_c25_7_a_start_makes_one_conversation_whose_first_message_is_the_brief(p
     assert view["workspace"] == svc.test_workspace and view["workspace_kind"] == "in-place"
     assert view["title"] == row["title"] and view["origin"] == "new"
     assert view["settings"]["permission"] == "ask" and view["settings"]["model"] == "claude-opus-5-5"
-    # message.submit semantics: a canonical UUID derived from the suggestion, the
-    # text published under the conversation, a receipt, intent before any job.
-    assert receipt["message_id"] == started["started_message_id"] == suggestions.start_message_id(sid)
+    # message.submit semantics: the canonical UUID the claim chose (random, so no caller
+    # can take it first), the text published under the conversation, a receipt,
+    # intent before any job. The new conversation has no request id: the suggestion
+    # alone names it.
+    assert receipt["message_id"] == started["started_message_id"] == svc.suggestions.get(sid)["start_message_id"]
+    assert str(uuid.UUID(receipt["message_id"])) == receipt["message_id"]
+    assert conversation_ids(svc) == made | {view["conversation_id"]}
+    assert svc.store.one("SELECT request_id FROM conversations WHERE conversation_id=?",
+                         (view["conversation_id"],))["request_id"] is None
     assert receipt["text"] == BRIEF and receipt["state"] == "queued" and receipt["origin"] == "person"
     messages = svc.store.messages(view["conversation_id"])
     assert len(messages) == 1 and svc.store.message_text(messages[0]) == BRIEF
@@ -284,8 +295,7 @@ def test_c25_7_a_start_makes_one_conversation_whose_first_message_is_the_brief(p
     # A retry, a second click: the same conversation and message.
     again = svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
     assert again["created"] is False and again["conversation"]["conversation_id"] == view["conversation_id"]
-    assert len(svc.store.query("SELECT * FROM conversations WHERE request_id=?",
-                               (suggestions.start_request_id(sid),))) == 1
+    assert conversation_ids(svc) == made | {view["conversation_id"]}
     assert len(svc.store.messages(view["conversation_id"])) == 1
 
 
@@ -304,8 +314,11 @@ def test_c25_7_a_start_in_a_checkout_makes_a_worktree_conversation(people, repo)
 
 def test_c25_7_a_worktree_suggestion_outside_git_starts_in_place(people):
     svc = people
-    sid = suggest(svc, workspace=svc.test_workspace, worktree=True)["suggestion"]["suggestion_id"]
-    assert svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)["conversation"]["workspace_kind"] == "in-place"
+    row = suggest(svc, workspace=svc.test_workspace, worktree=True)["suggestion"]
+    # Decided when it was made, and shown: in place, the worktree it asked for impossible.
+    assert row["worktree"] is True and row["workspace_kind"] == "in-place" and row["repository"] is None
+    view = svc.handle("suggestion.start", {"suggestion_id": row["suggestion_id"]}, PERSON)["conversation"]
+    assert view["workspace_kind"] == "in-place" and view["workspace"] == svc.test_workspace
 
 
 def test_c25_7_no_folder_starts_in_a_private_scratch_folder(people):
@@ -313,6 +326,8 @@ def test_c25_7_no_folder_starts_in_a_private_scratch_folder(people):
     sid = suggest(svc)["suggestion"]["suggestion_id"]
     view = svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)["conversation"]
     assert Path(view["workspace"]).parent == svc.root / "conversations" / "workspaces"
+    # Never a name `conversation.create` gives a scratch folder (64 hex digits).
+    assert Path(view["workspace"]).name == suggestions.scratch_name(sid) and view["workspace_kind"] == "in-place"
     assert (Path(view["workspace"]).stat().st_mode & 0o777) == 0o700
 
 
@@ -342,13 +357,13 @@ def test_c25_7_a_dismissed_or_withdrawn_suggestion_never_starts(people):
     job, _ = turn_of(svc, cid)
     dismissed = suggest(svc, calling_job=job)["suggestion"]["suggestion_id"]
     withdrawn = suggest(svc, calling_job=job)["suggestion"]["suggestion_id"]
+    made = conversation_ids(svc)
     assert svc.handle("suggestion.dismiss", {"suggestion_id": dismissed}, PERSON)["changed"] is True
     assert svc.handle("suggestion.withdraw", {"suggestion_id": withdrawn, "calling_job": job}, AGENT)["changed"]
     for sid, state in ((dismissed, "dismissed"), (withdrawn, "withdrawn")):
         error = refused("not-open", 7, svc.handle, "suggestion.start", {"suggestion_id": sid}, PERSON)
         assert state in str(error)
-        assert not svc.store.query("SELECT 1 FROM conversations WHERE request_id=?",
-                                   (suggestions.start_request_id(sid),))
+        assert svc.suggestions.get(sid)["started_conversation_id"] is None and conversation_ids(svc) == made
     # Closing again changes nothing.
     assert svc.handle("suggestion.dismiss", {"suggestion_id": dismissed}, PERSON)["changed"] is False
     assert svc.handle("suggestion.dismiss", {"suggestion_id": withdrawn}, PERSON)["suggestion"]["state"] == "withdrawn"
@@ -429,14 +444,17 @@ def test_c25_7_the_daemon_finishes_a_claimed_start_after_a_restart(people, monke
 
 def test_c25_7_a_retry_while_the_message_was_accepted_records_started(people):
     """A start cut short after the message's transaction: no such state exists
-    (`started` commits with the message), but a store written by hand to it is
+    (`started` commits with the message), and no caller but the start itself can
+    put the brief there (`admit_message`), but a store written by hand to it is
     still finished, not given a second message."""
     svc = people
     sid = suggest(svc, workspace=svc.test_workspace)["suggestion"]["suggestion_id"]
     row, took = svc.suggestions.claim(sid, by="the Subfleet app", conversation=svc._start_fields(svc.suggestions.get(sid), {}))
     assert took
-    svc.store.submit_message(conversation_id=row["started_conversation_id"], message_id=suggestions.start_message_id(sid),
-                             after_message_id=None, text=row["brief"], attachments=[], settings=row["start_settings"])
+    brief = dict(conversation_id=row["started_conversation_id"], message_id=row["start_message_id"],
+                 after_message_id=None, text=row["brief"], attachments=[], settings=row["start_settings"])
+    refused("conversation-starting", 7, svc.store.submit_message, **brief)
+    svc.store.submit_message(**brief, starts_suggestion=sid)       # by hand: no `started` with it
     out = svc.handle("suggestion.start", {"suggestion_id": sid}, PERSON)
     assert out["suggestion"]["state"] == "started" and out["created"] is False
     assert len(svc.store.messages(row["started_conversation_id"])) == 1
