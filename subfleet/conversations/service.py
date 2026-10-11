@@ -1006,7 +1006,8 @@ class ConversationService:
         row, created = self.suggestions.add(
             request_id=request_id, words=words, origin=origin["conversation_id"] if origin else None,
             origin_message=message, creator_session=session, creator_job=job, workspace=workspace,
-            worktree=worktree, provider=provider, model=model)
+            worktree=worktree, provider=provider, model=model, per_origin=suggestions.PER_ORIGIN_OPEN,
+            open_max=suggestions.OPEN_MAX)
         return {"suggestion": suggestions.view(row, full_brief=True), "created": created, "scrubbed": scrubbed}
 
     def op_suggestion_list(self, args, peer) -> dict:
