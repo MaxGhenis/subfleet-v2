@@ -26,17 +26,19 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import folders, render, retention
+from subfleet import daemon as daemon_module
 from subfleet import retention_archive as rarch
 from tests.fake.test_admission_latency import fleet_daemon, submit
 from tests.fake.test_admission_liveness import _end, _live
 from tests.fake.test_writer_retention_fence import checkout, lease, look, measured
-from tests.unit.retention_world import snapshot
+from tests.unit.retention_world import git, snapshot
 from tests.unit.test_retention_shared_folders import nested_repository, retiring_tree
 
 #: The two shapes: a read-only job, and a writer whose worktree the daemon cuts (C-6.6).
@@ -1048,3 +1050,115 @@ def test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers(tmp_path):
         _end(daemon, priority)
         daemon._admit()
         assert _live(daemon, newer), daemon._holds
+
+
+# Executed safety inputs from review r2e, adapted to this module's helpers.
+def submit_overtaken_writer(daemon, harness, tree, cwd):
+    """Move after HEAD validation, before the real submitted-folder lookup."""
+    aside = Path(tree).with_name(Path(tree).name + "-submit-aside")
+    real_top = daemon_module.git_toplevel
+    moved = []
+
+    def top_while_away(workdir, *args, **kwargs):
+        if not moved and str(workdir) == str(cwd):
+            Path(tree).rename(aside)
+            moved.append(True)
+        return real_top(workdir, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(daemon_module, "git_toplevel", top_while_away)
+        job = submit(daemon, harness, workdir=str(cwd), in_place=True,
+                     sandbox="workspace-write", caller_session=None)
+    assert moved
+    aside.rename(tree)
+    assert daemon._submitted(job).get("unspelled") is True
+    return job
+
+
+def test_rediscovered_detached_write_target_is_checked_before_workspace(tmp_path):
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        external = daemon.root / "worktrees" / "External"
+        git(harness.workdir, "worktree", "add", "--quiet", "--detach", str(external), "HEAD")
+        (external / "f.txt").write_text("nested\n")
+        git(Path(nested), "config", "core.worktree", str(external))
+        external = folders.canonical(external)
+        job = submit_overtaken_writer(daemon, harness, tree, nested)
+        assert daemon._rediscovered(daemon._job(job)) == external
+        key = folders.exclusive_key(external)
+        assert daemon.store.acquire_lease(key, "retention:External")
+        real_workspace, prepared = daemon._workspace, []
+
+        def counted(job):
+            prepared.append(job["job_id"])
+            return real_workspace(job)
+
+        patch.setattr(daemon, "_workspace", counted)
+        daemon._admit()
+        hold = daemon._holds.get(job) or {}
+        print("DERIVED_DETACHED_FENCE", {"submitted": daemon._submitted(job),
+                                          "derived": external, "prepared": prepared, "hold": hold})
+        assert not _live(daemon, job)
+        assert hold.get("leases") == [key]
+        assert not prepared, "workspace ran while the rediscovered write target was fenced"
+        assert hold.get("folder") == external and hold.get("retiring") == [key]
+        assert daemon._capacity_waits[job]["blocked"] == ()
+
+
+def test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out(tmp_path):
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        job = submit_overtaken_writer(daemon, harness, tree, nested)
+        key = folders.exclusive_key(tree)
+        assert daemon.store.acquire_lease(key, "retention:retired")
+
+        def timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(["git", "rev-parse", "--show-toplevel"], 60)
+
+        patch.setattr(daemon, "_row_folder", timeout)
+        states = []
+        for _ in range(daemon.policy["caps"]["workspace_retry_max"] + 1):
+            daemon.store.update_job(job, next_check_at=None)
+            daemon._admit()
+            states.append((daemon._job(job)["state"], dict(daemon._holds.get(job) or {})))
+        holder = daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))["holder"]
+        assert holder == "retention:retired"
+        print("DETACHED_REDISCOVERY_TIMEOUT", {"fence": key, "fence_holder": holder, "states": states})
+        assert daemon._job(job)["state"] == "waiting", "a held fence consumed workspace retries and failed the writer"
+        assert daemon._holds[job].get("reason") == "lease-held"
+        assert daemon._holds[job].get("retiring") == [key]
+        assert all(state == "waiting" and hold.get("reason") == "lease-held"
+                   and hold.get("retiring") == [key] for state, hold in states), states
+        assert job not in daemon._workspace_deferrals
+
+
+def test_rediscovered_detached_absent_alias_is_fenced_before_workspace(tmp_path):
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        alias = str(Path(tree).with_name("rETIRED") / Path(nested).relative_to(tree))
+        if not Path(alias).is_dir():
+            pytest.skip("requires the host's case-insensitive filesystem")
+        job = submit_overtaken_writer(daemon, harness, tree, alias)
+        assert daemon._submitted(job)["write_target"] == alias
+        Path(tree).rename(Path(tree).with_name("retired-quarantine"))
+        key = folders.exclusive_key(tree)
+        assert daemon.store.acquire_lease(key, "retention:retired")
+        real_workspace, prepared = daemon._workspace, []
+
+        def counted(job):
+            prepared.append(job["job_id"])
+            return real_workspace(job)
+
+        patch.setattr(daemon, "_workspace", counted)
+        daemon._admit()
+        hold = daemon._holds.get(job) or {}
+        print("DETACHED_ABSENT_ALIAS", {"submitted": daemon._submitted(job), "prepared": prepared, "hold": hold})
+        assert not _live(daemon, job)
+        assert hold.get("leases") == [key]
+        assert not prepared, "the early detached lookup missed the folded absent-name fence"
