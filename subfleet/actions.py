@@ -22,11 +22,11 @@ from .contracts import HEADROOM_FLOOR, READING_TTL_S
 DEFAULTS = {"enabled": False, "min_interval_min": 30.0}
 TERMINAL = frozenset({"confirmed", "failed", "unknown"})
 #: C-23.16 (d): the consume answers that show no credit was spent, and so are
-#: `failed`: the provider refused it (a 4xx), or nothing was sent (no
+#: `failed`: the provider explicitly refused it (C-23.16's HTTP table), or nothing was sent (no
 #: credential, the marker, or the call never started). Any other answer that
 #: is not a confirmed reset, a 2xx of another shape included, is `unknown`:
 #: it blocks every spend until a usage read settles it (C-19.1).
-NOT_SPENT = frozenset({"http-error", "no-auth", "inhibited", "aborted-before-submission"})
+NOT_SPENT = frozenset({"refused", "no-auth", "inhibited", "aborted-before-submission"})
 #: C-23.16 (f): a file of this name in the state root refuses every list and
 #: consume, automatic or an operator's, for as long as it exists.
 INHIBIT_MARKER = "no-reset"

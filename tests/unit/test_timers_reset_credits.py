@@ -171,10 +171,10 @@ def test_only_exact_provider_success_confirms(store, tmp_path, response):
 
 
 @pytest.mark.parametrize("status,body,outcome", [
-    (409, {"error": {"code": "already_redeemed"}}, "http-error"),
-    (403, {}, "http-error")])
+    (409, {"error": {"code": "already_redeemed"}}, "refused"),
+    (429, {"error": {"code": "rate_limited"}}, "refused")])
 def test_a_refused_consume_is_failed_and_holds_nothing_back(store, tmp_path, status, body, outcome):
-    """C-23.16 (d): a 4xx is the provider refusing the consume: nothing was spent, so the action is
+    """C-23.16 (d): an explicit refusal proves nothing was spent, so the action is
     `failed`, starts no interval and blocks nothing."""
     lane(store, tmp_path)
     http = HTTP(response=body, status=status, credits=[GIFT, {**GIFT, "id": "gift-2"}])

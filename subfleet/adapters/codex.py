@@ -421,7 +421,16 @@ class CodexAdapter(Adapter):
         if not 200 <= status < 300:
             error = decoded.get("error")
             error = error if isinstance(error, dict) else {}
-            return {"status": "network-error" if status >= 500 else "http-error",
+            outcome = "network-error" if status >= 500 else "http-error"
+            if url == WHAM_RESET_CREDITS_CONSUME_URL:
+                # C-23.16 (d): an HTTP error alone does not prove this POST
+                # spent nothing. Only these explicit refusals do; redirects,
+                # unfamiliar 4xx and server errors may follow a spent credit.
+                refused = ((status == 409 and error.get("code") in ("already_redeemed", "already_consumed"))
+                           or (status == 429 and error.get("code") == "rate_limited"))
+                refused = refused and "code" not in decoded and "windows_reset" not in decoded
+                outcome = "refused" if refused else "unknown"
+            return {"status": outcome,
                     "http_status": status, "error_code": error.get("code"),
                     "detail": error.get("message", f"HTTP {status}")}
         return {"status": "ok", "payload": decoded}

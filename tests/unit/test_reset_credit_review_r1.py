@@ -164,7 +164,7 @@ def test_p2_1_an_unrecognised_2xx_is_settled_by_the_lane_reading_open(store, tmp
 def test_p2_1_only_answers_that_show_nothing_was_spent_are_failed():
     """C-23.16 (d): the four answers that are `failed`: a refusal, no credential, the marker, and a
     call never started. Every other non-confirmed answer is `unknown`."""
-    assert actions_module.NOT_SPENT == frozenset({"http-error", "no-auth", "inhibited", "aborted-before-submission"})
+    assert actions_module.NOT_SPENT == frozenset({"refused", "no-auth", "inhibited", "aborted-before-submission"})
 
 
 # --- the property behind P2-1: no second consume while an earlier one may have spent ---
@@ -184,8 +184,14 @@ ANSWERS = {
     "reset-by-peer": ConnectionResetError("dropped"),
     "409": (409, b'{"error":{"code":"already_redeemed"}}'),
     "429": (429, b'{"error":{"code":"rate_limited"}}'),
+    **{str(status): (status, b'{"code":"reset","windows_reset":2}')
+       for status in (301, 302, 303, 307, 308)},
+    "403-empty": (403, b"{}"),
+    "408": (408, b"{}"),
+    "409-reset": (409, b'{"code":"reset","windows_reset":2}'),
+    "429-conflicting": (429, b'{"error":{"code":"rate_limited"},"windows_reset":2}'),
 }
-#: What each answer records: only a 4xx refusal is `failed` among these.
+#: Only the explicit 409/429 refusals are `failed`; all other non-2xx are unknown.
 EXPECTED = {**{name: "unknown" for name in ANSWERS}, "confirmed": "confirmed", "409": "failed", "429": "failed"}
 
 OUTCOMES = settings(max_examples=int(os.environ.get("SUBFLEET_RESET_EXAMPLES", "100")),

@@ -1,0 +1,91 @@
+"""Round-2 regressions for #179; every provider call uses a fake opener."""
+from __future__ import annotations
+
+import io
+import json
+import urllib.error
+from datetime import timedelta
+
+import pytest
+
+from subfleet.adapters.codex import CodexAdapter, WHAM_RESET_CREDITS_CONSUME_URL
+from subfleet.store import Store
+from tests.unit.test_reset_credit_review_r1 import GIFTS, Wham, _resets, posts, view_at
+from tests.unit.test_timers_reset_credits import NOW, lane as limited_lane, wants
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_redirect_with_reset_body_blocks_another_consume(tmp_path, status):
+    with Store(tmp_path / "state.db") as store:
+        limited_lane(store, tmp_path, 1)
+        http = Wham(GIFTS, (status, b'{"code":"reset","windows_reset":2}'))
+        resets = _resets(store, http)
+        first = resets.evaluate(view_at(store, NOW), now=NOW, demand=wants(store))
+        later = NOW + timedelta(seconds=60)
+        second = resets.evaluate(view_at(store, later), now=later, demand=wants(store))
+        assert (first["status"], second["status"], len(posts(http))) == ("unknown", "unsettled-action", 1)
+        recorded = json.loads(store.get_action(first["action_id"])["result_json"])
+        assert recorded["http_status"] == status
+        assert store.list_closures(active_at=later.isoformat())
+
+
+# C-23.16 (d)'s exhaustive outcome categories. Unexpected codes fail closed.
+@pytest.mark.parametrize("status,body,state", [
+    (200, b'{"code":"reset","windows_reset":2}', "confirmed"),
+    (299, b'{"code":"reset","windows_reset":true}', "unknown"),
+    (204, b"", "unknown"),
+    (300, b'{"error":{"code":"already_redeemed"}}', "unknown"),
+    (399, b"{}", "unknown"),
+    (409, b'{"error":{"code":"already_redeemed"}}', "failed"),
+    (409, b'{"error":{"code":"already_consumed"}}', "failed"),
+    (429, b'{"error":{"code":"rate_limited"}}', "failed"),
+    (403, b"{}", "unknown"),
+    (408, b'{"error":{"code":"rate_limited"}}', "unknown"),
+    (409, b'{"code":"reset","windows_reset":2}', "unknown"),
+    (429, b'{"error":{"code":"rate_limited"},"code":"reset","windows_reset":2}', "unknown"),
+    (499, b"<html>", "unknown"),
+    (500, b'{"code":"reset","windows_reset":2}', "unknown"),
+    (599, b'{"error":{"code":"already_redeemed"}}', "unknown"),
+    (199, b"{}", "unknown"),
+    (600, b"{}", "unknown"),
+])
+def test_http_outcome_table_blocks_unless_definitely_unspent(tmp_path, status, body, state):
+    with Store(tmp_path / "state.db") as store:
+        limited_lane(store, tmp_path, 1)
+        http = Wham(GIFTS, (status, body))
+        resets = _resets(store, http)
+        first = resets.evaluate(view_at(store, NOW), now=NOW, demand=wants(store))
+        later = NOW + timedelta(seconds=60)
+        second = resets.evaluate(view_at(store, later), now=later, demand=wants(store))
+        assert first["status"] == store.get_action(first["action_id"])["state"] == state
+        assert second["status"] == {"unknown": "unsettled-action", "confirmed": "interval-blocked",
+                                    "failed": "failed"}[state]
+        assert len(posts(http)) == (2 if state == "failed" else 1)
+
+
+@pytest.mark.parametrize("body", [
+    {"code": "reset", "windows_reset": 2},
+    {"error": {"code": "already_redeemed"}},
+    {"error": {"code": "already_consumed"}},
+    {"error": {"code": "rate_limited"}},
+    {"error": {"code": "rate_limited"}, "windows_reset": 2},
+    {},
+])
+@pytest.mark.parametrize("raised", [False, True], ids=["opener-return", "http-error"])
+def test_consume_adapter_classifies_every_http_status(body, raised):
+    """Both transport paths, every integer status 100–699, including unknown codes."""
+    raw = {"tokens": {"access_token": "test-only", "account_id": "1"}}
+    encoded = json.dumps(body).encode()
+    for status in range(100, 700):
+        def opener(request, timeout):
+            assert request.get_method() == "POST"
+            if raised:
+                raise urllib.error.HTTPError(request.full_url, status, "fixture", None, io.BytesIO(encoded))
+            return status, encoded
+
+        answer = CodexAdapter(opener=opener)._request(raw, WHAM_RESET_CREDITS_CONSUME_URL, payload={})
+        error = body.get("error", {}).get("code")
+        refusal = ((status == 409 and error in ("already_redeemed", "already_consumed"))
+                   or (status == 429 and error == "rate_limited")) and "windows_reset" not in body
+        expected = "ok" if 200 <= status < 300 else "refused" if refusal else "unknown"
+        assert answer["status"] == expected, (status, body, answer)
