@@ -28,6 +28,7 @@ import sys
 import shutil
 import sqlite3
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -612,6 +613,54 @@ def check_sidebar_load(root: Path) -> dict[str, Any]:
     return row(check, PASS, gap["detail"], "`subfleet sessions mirror --status`")
 
 
+def check_sidebar_splits(root: Path) -> dict[str, Any]:
+    """C-23.28: a session id that opens one conversation under some logins and
+    another under the rest shows as two rows with one title. While both are
+    unarchived a person can open the stale one (2026-10-10), so it is a `warn`;
+    read from the last full pass's record, and `unknown` before any pass.
+    """
+    from .sessions import mirror as mirror_module
+    check = "desktop sidebar split ids"
+    try:
+        splits = mirror_module.splits(root)
+    except Exception as exc:                            # noqa: BLE001 - one row, not the table
+        return row(check, UNKNOWN, f"{type(exc).__name__}: {exc}",
+                   "`subfleet sessions mirror --status`")
+    if splits.get("checked_at") is None:
+        return row(check, UNKNOWN, "no full mirror pass has recorded its inventory",
+                   "`subfleet sessions mirror --once`")
+    # Only a pass that listed every folder and read every copy replaces the
+    # report, so an old one says nothing about the store as it is now.
+    checked = mirror_module._instant(str(splits.get("checked_at")))
+    age_min = ((datetime.now(timezone.utc) - checked).total_seconds() / 60
+               if checked is not None else None)
+    if age_min is None or age_min > mirror_module.DEFAULT_HANG_MIN:
+        return row(check, UNKNOWN,
+                   f"the last whole inventory is from {splits.get('checked_at')}; no pass "
+                   "since has listed every folder and read every copy",
+                   "`subfleet sessions mirror --status` for what holds the passes; "
+                   "`subfleet sessions mirror --once`")
+    live, count = int(splits.get("live") or 0), int(splits.get("count") or 0)
+    if live:
+        titles = []
+        for item in splits.get("sessions") or []:
+            if item.get("live"):
+                titles.append(next((part.get("title") for part in item.get("conversations") or []
+                                    if not part.get("archived") and part.get("title")), "")
+                              or str(item.get("name")))
+        named = ", ".join(titles[:3]) + (f" and {live - 3} more" if live > 3 else "")
+        return row(check, WARN,
+                   f"{live} session id{'s' if live != 1 else ''} open"
+                   f"{'' if live != 1 else 's'} a different conversation under different "
+                   f"logins, and both rows show: {named}",
+                   "`subfleet sessions mirror --status` names both conversations; archive "
+                   "the one you do not want")
+    return row(check, PASS,
+               f"no session id shows as two rows ({count} split id"
+               f"{'s' if count != 1 else ''}, each with at most one side unarchived)",
+               "`subfleet sessions mirror --status`")
+
+
 # --- the table ----------------------------------------------------------------
 
 def _with_fix(row: dict[str, Any]) -> dict[str, Any]:
@@ -647,6 +696,7 @@ def checks(root: Path, *, live: bool = False,
         check_queued_pins(root),
         check_mirror(root),
         check_sidebar_load(root),
+        check_sidebar_splits(root),
         *(check_module(name) for name in ("store", "procs", "compat", "hooks",
                                           "sessions.mirror")),
     ]
