@@ -4345,9 +4345,8 @@ class Daemon:
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
-        foreign = self._foreign_ownership(
-            {**record, "attempt_id": record["holder"], "evidence_json": json.dumps(record)})
-        census = self._probe_census(record, foreign_ownership=foreign)
+        census = self._probe_census(record)
+        foreign = census.foreign_ownership
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
         pid = record.get("guardian_pid")
@@ -6767,13 +6766,17 @@ class Daemon:
             if row["state"] in ('reserved','starting','running','finalizing','quarantined') and row["source"] != 'ambiguous_identities':
                 identities.add(ident)
         return procs.ForeignOwnership(tuple(identities), tuple(groups), tuple(launches),
-                                      tuple(claims), tuple(collisions), generation)
+                                      tuple(claims), tuple(collisions), generation,
+                                      frozenset(pid for pid, row in table.rows.items() if table.live(pid))
+                                      if table is not None else None)
 
     def _unambiguous_signal_identity(self, attempt_id: str, ident: procs.ProcessIdentity,
                                      census: procs.Containment, evidence: dict,
                                      foreign: procs.ForeignOwnership | None = None) -> bool:
         """Use one kill's claim snapshot and fresh identity/group delivery checks."""
         foreign = foreign if foreign is not None else self._foreign_ownership({"attempt_id": attempt_id})
+        if foreign.signal_candidates is not None and ident.pid not in foreign.signal_candidates:
+            return False
         if foreign.generation is not None and self.store.one(
                 "SELECT 1 FROM process_claim_revisions WHERE generation>? AND attempt_id<>? LIMIT 1",
                 (foreign.generation, attempt_id)):
@@ -7129,8 +7132,8 @@ class Daemon:
         self._notify()
 
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
-        foreign = self._foreign_ownership(a)
-        census = self._contain(a, foreign_ownership=foreign)
+        census = self._contain(a)
+        foreign = census.foreign_ownership
         evidence = json.loads(self.store.get_attempt(a["attempt_id"])["evidence_json"] or "{}")
         # Only group members observed while the recorded leader is still ours
         # may become additional signal targets. Escaped/new marker pids remain

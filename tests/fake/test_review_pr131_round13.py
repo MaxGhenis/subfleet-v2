@@ -447,3 +447,18 @@ def test_r13_finding_legacy_finished_child_claim_is_imported_once(state_daemon, 
     monkeypatch.setattr(daemon, "_read_json", lambda path: pytest.fail("receipt import repeated"))
     daemon._seed_process_claim_receipts()
     assert daemon._foreign_ownership({"attempt_id": "another"}, procs.snapshot()).claimed(procs.ProcessIdentity(**child))
+
+
+def test_r13_finding_cached_kill_cannot_gain_an_initially_absent_target(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    _, ours, _ = _running(daemon, harness)
+    _, other, _ = reserve(daemon, harness)
+    target = procs.ProcessIdentity(202, BOOT, "writer")
+    daemon.store.update_attempt(other["attempt_id"], state="succeeded", evidence_json=json.dumps(
+        {"owned_identity_history": {"202": [dataclasses.asdict(target)]}}))
+    script_table(monkeypatch, {100: (1, 100, "Ss", "guardian")})
+    foreign = daemon._foreign_ownership(ours, procs.snapshot())
+    assert not foreign.claimed(target)  # claims are restricted to live incarnations
+    script_table(monkeypatch, {100: (1, 100, "Ss", "guardian"), 202: (1, 202, "S", "writer")})
+    observed = procs.Containment(identities={202: target}, group_pids=frozenset({202}))
+    assert not daemon._unambiguous_signal_identity(ours["attempt_id"], target, observed, {}, foreign)

@@ -429,6 +429,7 @@ class ForeignOwnership:
     collisions: tuple[ProcessIdentity, ...] = ()
 
     generation: int | None = field(default=None, compare=False)
+    signal_candidates: frozenset[int] | None = field(default=None, compare=False, repr=False)
     claims_by_pid: dict[int, tuple[ProcessIdentity, ...]] = field(init=False, compare=False, repr=False)
 
     def __post_init__(self):
