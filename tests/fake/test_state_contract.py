@@ -345,9 +345,11 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, monkeypatch):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")

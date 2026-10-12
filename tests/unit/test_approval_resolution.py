@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shutil
 import uuid
 
 import hypothesis
 from hypothesis import strategies as st
 import pytest
 
+from subfleet import relay
 from subfleet.conversations.runner import Clocks, TurnRunner
 from subfleet.conversations.store import ConversationStore
 from subfleet.conversations.turn import TERMINAL_STATES, TurnSpec
@@ -138,7 +140,8 @@ def running_message(store: ConversationStore, provider: str) -> tuple[str, str]:
     return cid, mid
 
 
-def runner_for(store: ConversationStore, tmp_path, provider: str, cid: str, mid: str) -> TurnRunner:
+def runner_for(store: ConversationStore, tmp_path, provider: str, cid: str, mid: str,
+               *, control_socket: str | None = None) -> TurnRunner:
     """A runner for the message's attempt: the first, or one a later daemon adopts (same
     attempt id and directory). Nothing here reaches the relay."""
     spec = TurnSpec(provider=provider, message_id=mid, text="hi", model_id="opus[1m]" if provider == "claude"
@@ -147,7 +150,8 @@ def runner_for(store: ConversationStore, tmp_path, provider: str, cid: str, mid:
     adir = tmp_path / f"a-{provider}"
     adir.mkdir(parents=True, exist_ok=True)
     runner = TurnRunner(store=store, attempt={"attempt_id": f"job-{provider}/a1", "lane_id": f"{provider}-1"},
-                        spec=spec, conversation_id=cid, attempt_dir=adir, control_socket=str(tmp_path / "none.sock"),
+                        spec=spec, conversation_id=cid, attempt_dir=adir,
+                        control_socket=control_socket or str(tmp_path / "none.sock"),
                         on_outcome=lambda r: None, on_contain=lambda a: None, clocks=Clocks(), clock=Clock())
     if provider == "codex":
         runner.driver.thread_id = "th-1"            # past the handshake, as a live turn is
@@ -345,6 +349,83 @@ def test_a_replay_through_eof_writes_nothing_new(store, tmp_path, monkeypatch, p
     commits.check()
 
 
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("decision", ["allow", "deny", "cancel-turn"])
+@pytest.mark.parametrize("written", [False, True], ids=["answer-not-written", "answer-written"])
+def test_replay_applies_an_answer_before_a_later_provider_cancel(
+        store, tmp_path, monkeypatch, provider, decision, written):
+    """C-26.6, C-27.3: replay must answer the request before feeding the next
+    stdout line, even when that line cancels it. A written reply is not rebuilt."""
+    cid, mid, first = asked(store, tmp_path, provider)
+    [approval] = store.approvals(conversation_id=cid)
+    assert store.answer_approval(approval["approval_id"], {"decision": decision})
+    step = first.driver.respond(rid(provider), decision)
+    first._apply(step, send=False)
+    if written:
+        [frame] = step.frames
+        intent = relay._intent({"seq": 1, "op": frame.op, "line": frame.line,
+                                "tag": frame.tag, "sha256": relay.line_sha256(frame.line)})
+        (first.adir / "stdin.jsonl").write_text(
+            json.dumps(intent) + "\n" + json.dumps({"kind": "written", "seq": 1}) + "\n")
+    first._apply(first.driver.feed(cancel_line(provider), 1000), send=False)
+    events, changes = store.events_after(cid, 0)["events"], store.changes_after(0)["next"]
+    commits = Commits(store, monkeypatch)
+    again = runner_for(store, tmp_path, provider, cid, mid)
+    again.handshaken = True
+    transmitted = []
+
+    def transmit(frame):
+        transmitted.append(frame.tag)
+        again.sent[frame.tag] = "written"
+        again.outbox.pop(0)
+        return True
+
+    monkeypatch.setattr(again, "_transmit", transmit)
+    if written:
+        def forbid_rebuild(*args, **kwargs):
+            pytest.fail("a written answer must be restored without rebuilding its reply")
+        monkeypatch.setattr(again.driver, "respond", forbid_rebuild)
+    (again.adir / "stdout").write_text(request_line(provider) + "\n" + cancel_line(provider) + "\n")
+    assert again._read_stdout()
+    again._flush()
+    assert store.one("SELECT state FROM approvals WHERE approval_id=?", (approval["approval_id"],))["state"] == "answered"
+    assert resolved_events(store, cid) == [(rid(provider), decision)]
+    assert store.events_after(cid, 0)["events"] == events
+    assert store.changes_after(changes)["changes"] == []
+    assert not again.driver.pending and again.commands.empty()
+    assert again.driver.interrupt_requested == (decision == "cancel-turn")
+    assert transmitted == ([] if written else [f"approval:{rid(provider)}"])
+    assert [row["tag"] for row in relay.read_log(again.adir / "stdin.jsonl")] == (
+        [f"approval:{rid(provider)}"] if written else [])
+    commits.check()
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("caught_up,replayed", [(False, False), (True, False), (True, True)],
+                         ids=["first-runner-catching-up", "live-first-runner", "live-adopted-runner"])
+def test_live_answer_sync_keeps_the_response_on_the_command_queue(
+        store, tmp_path, monkeypatch, provider, caught_up, replayed):
+    """A live person's answer still waits for command draining, including the
+    first runner's initial stdout read. Only reconstruction applies it inline."""
+    cid, mid, runner = asked(store, tmp_path, provider)
+    [approval] = store.approvals(conversation_id=cid)
+    assert store.answer_approval(approval["approval_id"], {"decision": "deny", "message": "no"})
+    if replayed:
+        # This runner has an old answer to restore, but its initial replay has
+        # already caught up: a re-announcement is now live stdout.
+        runner = runner_for(store, tmp_path, provider, cid, mid)
+        runner._apply(runner.driver.feed(request_line(provider), 0))
+    runner.replay_caught_up, runner.replayed_message = caught_up, replayed
+    monkeypatch.setattr(runner, "_send_outbox", lambda: None)
+    runner._sync_answers()
+    assert rid(provider) in runner.driver.pending and runner.outbox == []
+    assert list(runner.commands.queue) == [("respond", rid(provider), "deny", "no", None)]
+    assert runner._drain_commands()
+    assert not runner.driver.pending and runner.commands.empty()
+    assert [frame.tag for frame in runner.outbox] == [f"approval:{rid(provider)}"]
+    assert resolved_events(store, cid) == [(rid(provider), "deny")]
+
+
 # --- any interleaving --------------------------------------------------------------------------
 
 @st.composite
@@ -376,10 +457,25 @@ def claude_row(op: tuple) -> str:
                        "session_id": "s", "num_turns": 1, "duration_ms": 1, "total_cost_usd": 0, "usage": {}})
 
 
-@hypothesis.settings(max_examples=80, deadline=None,
+@pytest.fixture(scope="module")
+def empty_approval_store(tmp_path_factory):
+    """A closed, empty schema; each history copies it into its own real store.
+
+    Schema creation is outside this property's approval/replay contract. Avoid
+    repeating its many durable DDL commits for every generated history, while
+    keeping each history's transactions and file publication unchanged.
+    """
+    store = ConversationStore(tmp_path_factory.mktemp("approval-schema"))
+    store.close()
+    return store.path
+
+
+@hypothesis.settings(max_examples=500, deadline=None,
                      suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
+@hypothesis.example(history=([("ask", "r1"), ("answer", "r1", "allow"),
+                              ("cancel", "r1"), ("end", "eof")], True))
 @hypothesis.given(histories())
-def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory, history):
+def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory, empty_approval_store, history):
     """C-27.1, C-27.3, C-29.9: for any interleaving of requests, answers, provider
     cancels and an end, then possibly a replay, and the service's settlement: no
     commit shows an approval resolved without its event (or the reverse), a pending
@@ -388,7 +484,10 @@ def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory
     and a replay writes nothing."""
     ops, replay = history
     tmp = tmp_path_factory.mktemp("h")
-    store = ConversationStore(tmp / "state")
+    state = tmp / "state"
+    state.mkdir(mode=0o700)
+    shutil.copy2(empty_approval_store, state / "conversations.sqlite3")
+    store = ConversationStore(state)
     try:
         cid, mid = running_message(store, "claude")
         runner = runner_for(store, tmp, "claude", cid, mid)
@@ -432,17 +531,7 @@ def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory
                     at += len(line) + 1
                 again._apply(again.driver.eof(at))
                 again._flush()
-                # Known, and older than C-27.3's events: a provider that cancels a
-                # request after the person's answer reached the driver. The replay
-                # reads the cancel before it re-applies the answer (`_sync_answers`
-                # queues it), so the provider's own `withdrawn` is written then; the
-                # approval stays answered and nothing else changes.
-                late = {op[1] for i, op in enumerate(ops) if op[0] == "cancel"
-                        and any(o[0] == "answer" and o[1] == op[1] for o in ops[:i])}
-                added = store.events_after(cid, 0)["events"][len(events):]
-                assert store.events_after(cid, 0)["events"][:len(events)] == events
-                assert all(e["kind"] == "approval.resolved" and e["data"]["decision"] == "withdrawn"
-                           and e["data"]["request_id"] in late for e in added), added
+                assert store.events_after(cid, 0)["events"] == events
                 assert store.changes_after(changes)["changes"] == []
             commits.check()
         assert store.approvals(conversation_id=cid) == []
