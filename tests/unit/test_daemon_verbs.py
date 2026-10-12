@@ -189,7 +189,7 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
     """C-17.1 `daemon install --dry-run` prints the plist and writes nothing."""
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(tmp_path / "subfleetd"))
     target = tmp_path / "com.subfleet.daemon.plist"
-    monkeypatch.setattr(cli, "PLIST_PATH", str(target))
+    monkeypatch.setenv("SUBFLEET_LAUNCHD_PLIST", str(target))
     assert cli.main(["daemon", "install", "--dry-run"]) == 0
     captured = capsys.readouterr()
     plist = plistlib.loads(captured.out.encode())

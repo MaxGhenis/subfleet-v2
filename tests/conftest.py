@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.home_paths import PYTEST_MARKER, SAFE_HOME_PATHS
+from subfleet.home_paths import PYTEST_MARKER, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
@@ -31,17 +31,32 @@ def pytest_configure(config):
     """Install safe baselines before collection, independently of monkeypatch.
 
     The 2026-10-12 mirror incident undid an autouse fixture's patches and wrote
-    to the real desktop store. Never restore the developer's environment during
-    this pytest process, including when individual tests undo their patches.
+    to the real desktop store. Keep the safe baseline through teardown, even
+    when individual tests undo their patches; restore it only at unconfigure.
     """
-    os.environ[PYTEST_MARKER] = "1"
+    config._subfleet_original_home_env = {
+        name: os.environ.get(name) for name in (PYTEST_MARKER, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+    }
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
+    os.environ[PYTEST_MARKER] = "1"
+    for name in SAFE_ENV_REMOVALS:
+        os.environ.pop(name, None)
     config._subfleet_safe_home_base = base
     os.environ.update({name: str(base / relative)
                        for name, relative in SAFE_HOME_PATHS.items()})
 
 
 def pytest_unconfigure(config):
+    # Captured child environments deliberately retain isolation. An in-process
+    # caller starting ordinary work afterward must capture a fresh environment.
+    original = getattr(config, "_subfleet_original_home_env", None)
+    if original is not None:
+        for name, value in original.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        del config._subfleet_original_home_env
     base = getattr(config, "_subfleet_safe_home_base", None)
     if base is not None:
         shutil.rmtree(base, ignore_errors=True)

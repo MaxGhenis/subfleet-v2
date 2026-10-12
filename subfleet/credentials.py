@@ -8,24 +8,41 @@ from pathlib import Path
 
 from .adapters.base import AdapterError
 from .contracts import Credential
+from .home_paths import home_path, under_pytest
 
 
-def keychain_command(reference: str, security_bin: str = "security") -> list[str]:
+_NATIVE_RUNNER = subprocess.run
+
+
+def keychain_command(reference: str, security_bin: str = "security", *,
+                     runner=None) -> list[str]:
     """Keep v1's dedicated agent keychain when its helper is installed.
 
     A failed helper read must not fall through to a same-named, stale credential
     in the login keychain. Hosts without the helper retain the native backend.
     """
-    helper = os.environ.get("CLAUDE_LANE_AGENT_SECRET")
-    default = Path.home() / "bin" / "agent-secret"
     # Provider-owned desktop/home OAuth blobs stay in their native keychain.
     # Only the explicit per-lane setup-token namespace belongs to agent-secret.
-    if reference.startswith("claude-quota-") and (helper or default.is_file()):
-        return [helper or str(default), "get", reference]
+    if reference.startswith("claude-quota-"):
+        helper = os.environ.get("CLAUDE_LANE_AGENT_SECRET")
+        if not helper:
+            default = Path(home_path("SUBFLEET_AGENT_SECRET",
+                                     lambda: Path.home() / "bin" / "agent-secret",
+                                     test_only=True))
+            helper = str(default) if default.is_file() else None
+        if helper:
+            return [helper, "get", reference]
+    # A reference or fake HOME does not isolate macOS's login keychain. Fixture
+    # undo cannot remove this guard. Only an explicit test runner or executable
+    # stand-in may issue a credential command while either marker is present.
+    if (under_pytest() and (runner is None or runner is _NATIVE_RUNNER)
+            and security_bin in ("security", "/usr/bin/security")):
+        raise AdapterError("refusing personal keychain read under pytest", code=7,
+                           fix="provide an isolated credential runner or executable")
     return [security_bin, "find-generic-password", "-s", reference, "-w"]
 
 
-def resolve_credential(credential: Credential) -> dict[str, str]:
+def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]:
     """C-10.5: credential values appear only in the returned child environment."""
     if credential.kind == "home" and credential.provider in ("codex", "claude"):
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
@@ -39,8 +56,8 @@ def resolve_credential(credential: Credential) -> dict[str, str]:
     if credential.kind != "keychain-token" or credential.provider != "claude":
         raise AdapterError("unsupported credential kind for provider", code=7)
     try:
-        result = subprocess.run(keychain_command(credential.ref),
-                                capture_output=True, text=True, timeout=10, check=False)
+        result = (runner or subprocess.run)(keychain_command(credential.ref, runner=runner),
+                                           capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
         raise AdapterError("could not resolve lane keychain credential", code=7,
                            fix="unlock the configured credential store and verify the lane reference with agent-secret") from None

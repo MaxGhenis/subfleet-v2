@@ -7,6 +7,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 PYTEST_MARKER = "SUBFLEET_UNDER_PYTEST"
+# An inherited helper may query the person's dedicated keychain. Tests must
+# explicitly install their own stand-in instead of inheriting this executable.
+SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET",)
 
 # One registry for the session fixture and every subprocess harness. Values are
 # relative to a temporary base, and must never name the operator's home stores.
@@ -24,7 +27,24 @@ SAFE_HOME_PATHS = {
     "SUBFLEET_DELEGATE_STATE": "legacy/delegate",
     "SUBFLEET_V1_ROSTER_DIR": "legacy/roster",
     "SUBFLEET_V1_LAUNCH_AGENTS": "legacy/agents",
+    "SUBFLEET_LAUNCHD_PLIST": "agents/com.subfleet.daemon.plist",
+    "SUBFLEET_AGENT_SECRET": "bin/agent-secret",
 }
+
+
+# Every credential command execution must go through credentials.keychain_command.
+# These readers accept explicit runners/binaries; session baselines never grant
+# permission to query the person's login keychain.
+KEYCHAIN_READERS = {
+    "subfleet.adapters.claude._keychain_blob",
+    "subfleet.adapters.claude.ClaudeAdapter._resolve_keychain_token",
+    "subfleet.adapters.claude.ClaudeAdapter._plan_from_keychain",
+    "subfleet.credentials.resolve_credential",
+}
+
+
+def under_pytest() -> bool:
+    return PYTEST_MARKER in os.environ or "PYTEST_CURRENT_TEST" in os.environ
 
 
 def home_path(variable: str, default: Callable[[], str | Path], *,
@@ -42,7 +62,7 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     expansion applies only to overrides, never to an already constructed default;
     raw overrides let other callers retain their expansion and empty handling.
     """
-    testing = PYTEST_MARKER in os.environ or "PYTEST_CURRENT_TEST" in os.environ
+    testing = under_pytest()
     if test_only and not testing:
         return default()
     values = os.environ if env is None else env

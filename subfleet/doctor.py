@@ -508,8 +508,8 @@ def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
     """
     from . import descriptors
     if plist is None:
-        from .cli import PLIST_PATH            # deferred: doctor does not load the CLI at import
-        plist = Path(PLIST_PATH).expanduser()
+        from .cli import launchd_plist_path    # deferred: doctor does not load the CLI at import
+        plist = launchd_plist_path()
     check = "launchd open-file limit"
     if not plist.exists():
         return row(check, UNKNOWN, f"no launchd job at {plist}; the daemon raises its own limit at start",

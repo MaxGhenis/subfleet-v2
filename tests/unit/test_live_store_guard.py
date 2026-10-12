@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import subprocess
@@ -12,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import client, home_paths, hooks, notify_push
+from subfleet import client, home_paths, hooks, notify_push, cli, credentials
 from subfleet import importer, lanes_transfer
 from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.claude_mcp import global_config_path
 from subfleet.guard.preflight import _state_root
 from subfleet.sessions import desktop, mirror, revive, transcripts
-from subfleet.home_paths import PYTEST_MARKER, SAFE_HOME_PATHS
+from subfleet.home_paths import KEYCHAIN_READERS, PYTEST_MARKER, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
 from tests.conftest import pytest_configure, pytest_unconfigure
 
 REPO = Path(__file__).resolve().parents[2]
@@ -40,6 +41,7 @@ RESOLVERS = [
     pytest.param("SUBFLEET_CODEX_APP_HOME", home_paths.codex_app_home, "", id="codex-app"),
     pytest.param("SUBFLEET_DESKTOP_LOGIN", home_paths.desktop_login_path, "", id="desktop-login"),
     pytest.param("SUBFLEET_PROVIDER_HOME", home_paths.provider_home, "", id="legacy-provider-home"),
+    pytest.param("SUBFLEET_LAUNCHD_PLIST", cli.launchd_plist_path, "", id="launchd-plist"),
 ]
 
 # The original import-time constants remain production defaults. Test seams
@@ -63,21 +65,98 @@ def outcome(call):
         return ("exception", type(error).__name__, str(error))
 
 
+def guard_calls(source, module):
+    """Resolve Python import spellings before inspecting guard calls."""
+    tree = ast.parse(source)
+    package = module.rpartition(".")[0]
+    bindings = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bindings[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            imported = node.module or ""
+            if node.level:
+                imported = importlib.util.resolve_name("." * node.level + imported, package)
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = imported + "." + alias.name
+    # Calls within home_paths itself have no import binding.
+    if module == "subfleet.home_paths":
+        bindings["home_path"] = module + ".home_path"
+    if module == "subfleet.credentials":
+        bindings["keychain_command"] = module + ".keychain_command"
+
+    def qualified(node):
+        if isinstance(node, ast.Name):
+            return bindings.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            return qualified(node.value) + "." + node.attr
+        return ""
+
+    constants = {node.targets[0].id: node.value.value for node in tree.body
+                 if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+                 and isinstance(node.value, ast.Constant)}
+    variables = set()
+    readers = set()
+
+    def visit(node, owner):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            owner += "." + node.name
+        if isinstance(node, ast.Call):
+            name = qualified(node.func)
+            if name == "subfleet.home_paths.home_path":
+                argument = node.args[0] if node.args else next(
+                    keyword.value for keyword in node.keywords if keyword.arg == "variable")
+                variable = argument.value if isinstance(argument, ast.Constant) else constants[argument.id]
+                assert variable in SAFE_HOME_PATHS, (module, node.lineno, variable)
+                variables.add(variable)
+            elif name == "subfleet.credentials.keychain_command":
+                readers.add(owner)
+        for child in ast.iter_child_nodes(node):
+            visit(child, owner)
+
+    visit(tree, module)
+    return variables, readers
+
+
 def test_registry_covers_every_production_guard():
     """Adding a guard variable must also isolate it in fixtures and children."""
-    variables = set()
+    variables, readers = set(), set()
     for path in (REPO / "subfleet").rglob("*.py"):
-        tree = ast.parse(path.read_text())
-        constants = {node.targets[0].id: node.value.value for node in tree.body
-                     if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
-                     and isinstance(node.value, ast.Constant)}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "home_path":
-                argument = node.args[0]
-                variable = argument.value if isinstance(argument, ast.Constant) else constants[argument.id]
-                assert variable in SAFE_HOME_PATHS, (path, node.lineno, variable)
-                variables.add(variable)
+        module = ".".join(path.relative_to(REPO).with_suffix("").parts)
+        found_variables, found_readers = guard_calls(path.read_text(), module)
+        variables.update(found_variables)
+        readers.update(found_readers)
     assert variables == set(SAFE_HOME_PATHS)
+    assert readers == KEYCHAIN_READERS
+
+
+@pytest.mark.parametrize("import_line,call", [
+    ("from subfleet.home_paths import home_path", "home_path"),
+    ("from subfleet import home_paths", "home_paths.home_path"),
+    ("from subfleet.home_paths import home_path as guarded_path", "guarded_path"),
+    ("from .home_paths import home_path as hp", "hp"),
+    ("import subfleet.home_paths as paths", "paths.home_path"),
+    ("import subfleet.home_paths", "subfleet.home_paths.home_path"),
+    ("from . import home_paths as paths", "paths.home_path"),
+])
+def test_registry_rejects_unregistered_import_spellings(import_line, call):
+    """Reviewer's direct, qualified and aliased scratch inputs use the real check."""
+    source = (import_line + '\ndef new_resolver():\n    return ' + call +
+              '("SUBFLEET_REVIEW_UNREGISTERED", lambda: "/fake-personal-store")\n')
+    with pytest.raises(AssertionError, match="SUBFLEET_REVIEW_UNREGISTERED"):
+        guard_calls(source, "subfleet.review_scratch")
+
+
+@pytest.mark.parametrize("import_line,call", [
+    ("from subfleet import home_paths", "home_paths.home_path"),
+    ("from .home_paths import home_path as hp", "hp"),
+])
+def test_registry_counts_registered_import_spellings(import_line, call):
+    source = (import_line + '\ndef resolver():\n    return ' + call +
+              '("SUBFLEET_HOME", lambda: "/fake-personal-store")\n')
+    assert guard_calls(source, "subfleet.review_scratch") == ({"SUBFLEET_HOME"}, set())
 
 
 # This executes during actual pytest collection, before any autouse fixture or
@@ -431,3 +510,176 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
                             text=True, capture_output=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(json.loads(result.stdout)) == 11
+
+
+@pytest.mark.parametrize("marker", [PYTEST_MARKER, "PYTEST_CURRENT_TEST"])
+def test_keychain_after_undo_never_requests_native_command(tmp_path, monkeypatch, marker):
+    """Replay the review's default desktop reader with a recording backend."""
+    from subfleet.adapters import claude
+    from subfleet.adapters.claude import PROFILE_UNAVAILABLE
+    from tests.conftest import no_desktop_login
+    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as phase:
+        phase.delenv(PYTEST_MARKER, raising=False)
+        phase.delenv("PYTEST_CURRENT_TEST", raising=False)
+        phase.setenv(marker, "1")
+        phase.setenv("HOME", str(tmp_path / "fake-home"))
+        calls = []
+
+        def record(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 1, "", "fixture unavailable")
+
+        phase.setattr(claude.subprocess, "run", record)
+        removable = pytest.MonkeyPatch()
+        no_desktop_login.__wrapped__(removable)
+        removable.undo()
+        result = ClaudeAdapter().probe_desktop_profile()
+        assert result.status == PROFILE_UNAVAILABLE
+        assert calls == []
+
+
+@pytest.mark.parametrize("reader", ["blob", "home-login", "token", "plan", "credential"])
+@pytest.mark.parametrize("marker", [PYTEST_MARKER, "PYTEST_CURRENT_TEST"])
+def test_every_keychain_reader_refuses_default_backend(tmp_path, monkeypatch, reader, marker):
+    from subfleet.adapters import claude
+    from subfleet.adapters.base import AdapterError
+    from subfleet.contracts import Credential
+    monkeypatch.delenv(PYTEST_MARKER, raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv(marker, "1")
+    monkeypatch.setenv("HOME", str(tmp_path / "fake-home"))
+    monkeypatch.delenv("CLAUDE_LANE_AGENT_SECRET", raising=False)
+    calls = []
+
+    def record(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 1, "", "fixture unavailable")
+
+    monkeypatch.setattr(claude.subprocess, "run", record)
+    adapter = ClaudeAdapter()
+    if reader == "blob":
+        assert claude._keychain_blob("Claude Code-credentials") is None
+    elif reader == "home-login":
+        assert claude.home_login(tmp_path / "empty-home") is None
+    elif reader == "plan":
+        assert adapter._plan_from_keychain("claude-quota-fixture") is None
+    else:
+        with pytest.raises(AdapterError, match="refusing personal keychain"):
+            if reader == "token":
+                adapter._resolve_keychain_token("claude-quota-fixture")
+            else:
+                credentials.resolve_credential(Credential("claude", "claude-quota-fixture", "keychain-token"))
+    assert calls == []
+
+
+def test_keychain_explicit_runner_is_a_standin(monkeypatch):
+    from subfleet.adapters import claude
+    from subfleet.contracts import Credential
+    monkeypatch.delenv("CLAUDE_LANE_AGENT_SECRET", raising=False)
+    calls = []
+
+    def record(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "fixture-token", "")
+
+    assert claude._keychain_blob("fixture-service", runner=record) == "fixture-token"
+    credential = Credential("claude", "fixture-service", "keychain-token")
+    assert credentials.resolve_credential(credential, runner=record)["CLAUDE_CODE_OAUTH_TOKEN"] == "fixture-token"
+    assert ClaudeAdapter(runner=record).credential_env(credential)["CLAUDE_CODE_OAUTH_TOKEN"] == "fixture-token"
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("security_bin", ["security", "/usr/bin/security"])
+@pytest.mark.parametrize("explicit_native_runner", [False, True])
+def test_native_keychain_command_is_never_a_standin(security_bin, explicit_native_runner):
+    from subfleet.adapters.base import AdapterError
+    runner = credentials._NATIVE_RUNNER if explicit_native_runner else None
+    with pytest.raises(AdapterError, match="refusing personal keychain"):
+        credentials.keychain_command("Claude Code-credentials", security_bin, runner=runner)
+
+
+def test_implicit_agent_helper_lookup_is_isolated(monkeypatch):
+    from subfleet.adapters.base import AdapterError
+    monkeypatch.delenv("CLAUDE_LANE_AGENT_SECRET", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: pytest.fail("personal helper HOME was evaluated"))
+    with pytest.raises(AdapterError, match="refusing personal keychain"):
+        credentials.keychain_command("claude-quota-fixture")
+    monkeypatch.delenv("SUBFLEET_AGENT_SECRET")
+    with pytest.raises(RuntimeError, match="SUBFLEET_AGENT_SECRET"):
+        credentials.keychain_command("claude-quota-fixture")
+
+
+def test_doctor_default_plist_is_isolated(monkeypatch):
+    from subfleet import doctor
+    monkeypatch.setattr(Path, "home", lambda: pytest.fail("personal plist HOME was evaluated"))
+    assert doctor.check_launchd_limit()["status"] == doctor.UNKNOWN
+    monkeypatch.delenv("SUBFLEET_LAUNCHD_PLIST")
+    with pytest.raises(RuntimeError, match="SUBFLEET_LAUNCHD_PLIST"):
+        doctor.check_launchd_limit()
+
+
+@pytest.mark.parametrize("prior", ["missing", "empty", "configured"])
+def test_unconfigure_restores_environment_and_keeps_captured_child_isolated(tmp_path, monkeypatch, prior):
+    """Review's daemon_env snapshot remains a test child; new work uses fresh env."""
+    from types import SimpleNamespace
+    config = SimpleNamespace()
+    tracked = (PYTEST_MARKER, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+    with monkeypatch.context() as phase:
+        phase.delenv("PYTEST_CURRENT_TEST", raising=False)
+        fake_home = tmp_path / "fake-home"
+        fake_home.mkdir()
+        (fake_home / ".claude.json").write_text(
+            '{"oauthAccount":{"emailAddress":"fixture@example.test"}}')
+        phase.setenv("HOME", str(fake_home))
+        for name in tracked:
+            if prior == "missing":
+                phase.delenv(name, raising=False)
+            else:
+                phase.setenv(name, "" if prior == "empty" else str(tmp_path / name))
+        original = {name: os.environ.get(name) for name in tracked}
+        try:
+            pytest_configure(config)
+            base = config._subfleet_safe_home_base
+            captured = cli.daemon_env(tmp_path / "daemon")
+            assert all(name not in captured for name in SAFE_ENV_REMOVALS)
+        finally:
+            pytest_unconfigure(config)
+        assert {name: os.environ.get(name) for name in tracked} == original
+        assert not base.exists()
+        pytest_unconfigure(config)  # repeated cleanup must not restore a second time
+        assert {name: os.environ.get(name) for name in tracked} == original
+        assert captured[PYTEST_MARKER] == "1"
+        assert all(name in captured for name in SAFE_HOME_PATHS)
+        captured["PYTHONPATH"] = str(REPO)
+        probe = '''
+from subfleet import home_paths, capacity
+from pathlib import Path
+import os
+assert os.environ[home_paths.PYTEST_MARKER] == "1"
+assert not Path(os.environ["SUBFLEET_DESKTOP_LOGIN"]).parent.exists()
+assert home_paths.desktop_login_path() == Path(os.environ["SUBFLEET_DESKTOP_LOGIN"])
+assert home_paths.codex_app_home() == Path(os.environ["SUBFLEET_CODEX_APP_HOME"])
+assert capacity.read_desktop_account() is None
+'''
+        result = subprocess.run([sys.executable, "-c", probe], env=captured,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stdout + result.stderr
+        if prior == "missing":
+            # A newly captured ordinary child resolves release defaults under a
+            # fake HOME, after the session has removed its marker and overrides.
+            fresh = cli.daemon_env(tmp_path / "ordinary-daemon")
+            fresh["PYTHONPATH"] = str(REPO)
+            probe = '''
+from subfleet import home_paths, capacity
+from pathlib import Path
+import os
+assert home_paths.PYTEST_MARKER not in os.environ
+assert capacity.read_desktop_account() == "fixture@example.test"
+assert home_paths.desktop_login_path() == Path.home() / ".claude.json"
+assert home_paths.codex_app_home() == Path.home() / ".codex"
+assert home_paths.home_path("SUBFLEET_CLAUDE_DIR", lambda: Path.home() / ".claude") == Path.home() / ".claude"
+'''
+            result = subprocess.run([sys.executable, "-c", probe], env=fresh,
+                                    capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0, result.stdout + result.stderr
