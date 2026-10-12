@@ -126,3 +126,13 @@ Unrun: the full repository suite, real-process/live-provider suites, a live hub
 replay, and integration with unmerged PR #131's timed quarantine rechecks.
 Incident reproduction used only temporary stores and fake process tables; no
 incident process was signalled. No logs or JSON evidence are committed.
+
+## Fix round 1 — work in progress
+
+Starting head: `cb23ab373f1da830f276661f1390b11beb3ddfa1`; current integration
+base: `be7afd599`. Read the original brief, CI log and all review-r1 findings.
+Adopted the independent unit and writable-lease fixtures unchanged, naming the
+unit module `test_census_survivors_review.py` to preserve unique module names.
+CI reproduction and individual review-fixture runs are queued, one file per
+lock hold with an 1,100-second pytest cap. This draft will be replaced with
+measured before/after counts and the final identity rules.
