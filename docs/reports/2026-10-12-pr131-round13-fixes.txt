@@ -1,3 +1,106 @@
+Round 13, part 3 continuation, 2026-10-12
+Base fa367caadbae; implementation head ed7c44720672.
+
+Commits on feat/quarantine-self-resolve in workspace-local .git-local:
+- 53c1722c3: index late child receipts before authorizing signals.
+- c2b1201c5: retain every observed identity while its PID holds quarantine.
+- 79a3db7b9: read the canonical status field in the D-QC1 witness.
+- ed7c44720: suppress cached delivery if a pending child receipt appears.
+The sandbox denied the shared index.lock, so the hub must carry this local
+history. The assigned shared checkout HEAD remains fa367caadbae. No history
+was rewritten, no remote was contacted, and no other workspace was changed.
+
+Safety regression:
+The host's unchanged 800-example property counterexample was claims={200},
+source='child', foreign_state='running', same_start=True, same_boot=True,
+guardian_live=True, table_outage=False. Its start.json claims pid 200 with
+BOOT/p200, but the prior head delivered signals to that identity.
+Source attribution: 6eca3ea21 removed per-call foreign start.json reads in
+favor of indexed attempt-row claims. The startup-only imports in 00a4fb8a6
+and e01fe8e01 do not cover a receipt published after daemon construction or
+a child publication dropped from a changed attempt row. The later cached
+snapshot changes retain this gap. This attribution is from source diffs;
+the requested test bisect could not execute because of the shared lock.
+
+The fix retries missing publications on indexed active/quarantined rows and
+reads newly finished/changed rows from a durable receipt queue. Terminal
+history is not scanned in steady-state ownership checks. One upgrade import
+repairs receipts the earlier startup bit could have missed. Imported claims
+advance the existing ownership revision. A cached kill remembers only missing
+active receipts and rechecks those before delivery: a late claim suppresses
+permission, and cannot widen the first census's signal candidates. Queue
+reads begin with the queue via CROSS JOIN and attempt primary-key lookups.
+Added 8 late-publication cases (4 foreign states x table/outage), plus 2
+publication-after-cached-census cases. The original property is unchanged.
+
+Lost identity:
+Source attribution: 5b320ea98 filters resolved_identities out of quarantine
+history before merging. A live pid with a different current start caused the
+older observation to disappear. Preserve all observations while that pid is
+in census.live_pids; discard resolved observations once it is absent. The
+existing witness still requires both first and second, and still checks that
+first remains a containment root on a later recheck. Added an absent-pid
+pruning check while another marker keeps the quarantine alive. Dead lineage
+roots with empty groups still retire before budgeting unresolved roots.
+
+D-QC1:
+Fixed the witness, not the payload: daemon.status's rendered-text field is
+status (also used by the existing front end), not text. The next-check/time
+assertions now read status['status']. why already appends a 'Quarantined ...'
+line with the time and exact subfleet kill <job> --confirm-dead command; its
+original lowercased assertion is preserved. The diagnostic print now also
+uses lower(), so it no longer falsely reports that capitalized guidance is
+missing. Notice, why and command assertions were not weakened.
+
+P7 REMAINS OPEN:
+Requested tests/fake/test_r12orig_liveness.py alone with
+--hypothesis-show-statistics -x. Lockf exited 75 before pytest started; no
+counterexample or statistics were produced. The 200-example/40-step property,
+its deadline, phases, settings and assertions are unchanged. There is no
+supported cause attribution or speculative P7 fix in this continuation.
+
+Validation in this continuation:
+11 foreground lock requests, each with its own TMPDIR and 45-second queue
+wait, all exited 75 ('already locked') before pytest started. The runner had
+a 19-minute outer watchdog, so no hold could reach 20 minutes. No lock was
+held by this job, no pytest process ran, and no detached runner/build exists.
+Every request's TMPDIR was cleaned by the required Python shutil command.
+Host load observed at preparation was 208/180/196; no calmer-load wait was
+performed. Both previously failing real-child cases were requested together
+as their own isolated run but never started; they remain unclassified here.
+
+Bisect archives (code from each revision, same checkpoint test witnesses):
+- Safety: d284f15cf, 00a4fb8a6, 6eca3ea21 requested; none ran.
+- Identity: a0d1f5993 and 5b320ea98 requested; neither ran.
+Copies stayed under the disposable task TMPDIR. No stash/worktree rewrite.
+
+Per-file pytest counts at the new implementation head (all UNRUN):
+  file                                              passed failed unrun cases
+  fake/test_quarantine_ambiguity.py                       0      0     26
+  fake/test_quarantine_review_fixes.py                    0      0     38
+  fake/test_review_pr131_round13.py                       0      0     16
+  fake/test_review_pr131_round13_probes.py                0      0      3
+  fake/test_r12orig_liveness.py                           0      0     41
+  fake/test_quarantine_detached_writers.py                0      0      2 targeted
+  unit/test_quarantine_migration.py                      0      0      2
+  unit/test_quarantine_pacing_store.py                    0      0      1
+  unit/test_census_interleavings.py                       0      0      8
+  unit/test_review_pr131_census_property.py               0      0      1
+  fake/test_r12orig_ownership.py                          0      0      18
+  fake/test_r12orig_signal_authority.py                   0      0      4
+Case counts above were read from literal parametrizations, not collection;
+ownership's unchanged 18-case count also matches the saved baseline suite.
+Other self-resolve, isolation, retention, round-review and process-world
+regression suites were not run here. The caller's fa367caad host results are
+baseline evidence only, not validation of this new implementation.
+
+Non-pytest checks: all 6 changed Python files parse with ast.parse; named-file
+git diff --check passes. No logs, JSON evidence, environments or archives are
+staged. All commits have the requested Co-Authored-By trailer.
+
+The previous round-13 report follows unchanged for historical measurements.
+========================================================================
+
 PR #131 review 13 fix report, 2026-10-12
 Base d284f15cf51d; implementation head 43cdb7627.
 
