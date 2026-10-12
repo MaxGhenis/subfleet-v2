@@ -5,7 +5,8 @@ import sqlite3
 
 import pytest
 
-from subfleet.daemon import Daemon, PUSH_WORKSPACE_STORE_MAX_FAILURES
+from subfleet import daemon as daemon_module
+from subfleet.daemon import Daemon, PUSH_WORKSPACE_STORE_MAX_FAILURES, PUSH_WORKSPACE_STORE_RETRY_WINDOW_S
 from test_host_push import submit, worlds  # noqa: F401
 from test_host_push_admission import notices, ordinary, placed
 from test_host_push_store_completion_pr183 import ManualExecutor
@@ -13,7 +14,7 @@ from test_host_push_store_interleavings import BusyRows, finished
 
 
 TRANSIENT_CODES = [sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_BUSY_SNAPSHOT,
-                   sqlite3.SQLITE_FULL, sqlite3.SQLITE_PROTOCOL, sqlite3.SQLITE_IOERR_WRITE,
+                   sqlite3.SQLITE_FULL, sqlite3.SQLITE_PROTOCOL, sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_IOERR_WRITE,
                    sqlite3.SQLITE_IOERR_FSYNC, sqlite3.SQLITE_IOERR_DIR_FSYNC,
                    sqlite3.SQLITE_IOERR_TRUNCATE, None]
 
@@ -23,6 +24,7 @@ def completion(tmp_path):
     core = object.__new__(Daemon)
     core.root, core.store, core.pushes = tmp_path, BusyRows(1), ManualExecutor()
     core._push_workspace_store_errors, core._push_workspace_store_failures = {}, {}
+    core._push_workspace_store_first_failure = {}
     core._push_unused_workspaces = set()
     core._capacity_waits = {}
     core._notify = lambda: None
@@ -79,7 +81,7 @@ def test_completion_storage_fault_retries_atomic_ownership_once(completion, monk
     assert core.store.connection.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
 
 
-@pytest.mark.parametrize("code", [sqlite3.SQLITE_IOERR, sqlite3.SQLITE_IOERR_READ,
+@pytest.mark.parametrize("code", [sqlite3.SQLITE_IOERR,
                                  sqlite3.SQLITE_IOERR_SHORT_READ, sqlite3.SQLITE_IOERR_DATA,
                                  sqlite3.SQLITE_IOERR_CORRUPTFS, sqlite3.SQLITE_IOERR_SHMLOCK,
                                  sqlite3.SQLITE_READONLY, sqlite3.SQLITE_CORRUPT,
@@ -118,6 +120,8 @@ def test_cancellation_clears_pending_storage_budget(completion, monkeypatch):
 def test_exhausted_completion_budget_fails_once_even_if_failure_write_needs_retry(worlds, failure_commit_faults):
     with worlds() as world:
         core = world.core
+        # The count is the bound under test here; the time floor is tested below.
+        world.patch.setattr(daemon_module, "PUSH_WORKSPACE_STORE_RETRY_WINDOW_S", 0)
         job, future = finished(world)
         healthy = submit(world, "jobs/after-storage-budget")
         plain = ordinary(world)
@@ -179,3 +183,59 @@ def test_exhausted_completion_budget_fails_once_even_if_failure_write_needs_retr
         core._admit_kind("detached")
         assert len(notices(core, job)) == 1
         assert healthy in core._push_workspaces or placed(core, healthy)
+
+
+def test_completion_retries_last_the_window_not_just_the_count(completion, monkeypatch):
+    """Review r3 of #183: admission passes run every tick, so eight retries took about
+    350 ms. A recoverable failure is retried for PUSH_WORKSPACE_STORE_RETRY_WINDOW_S after
+    the first one, however many passes that is; the job fails only once both the count and
+    the window are spent, and a write that succeeds inside the window records ownership."""
+    core, future, destination = completion
+    clock = [1000.0]
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: clock[0])
+    transaction = core.store.transaction
+
+    @contextmanager
+    def full(*args, **kwargs):
+        error = sqlite3.OperationalError("database or disk is full")
+        error.sqlite_errorcode = sqlite3.SQLITE_FULL
+        raise error
+        yield
+
+    monkeypatch.setattr(core.store, "transaction", full)
+    for _ in range(PUSH_WORKSPACE_STORE_MAX_FAILURES * 5):
+        assert core._reap_push_workspaces({}) == {"0"}
+        clock[0] += 0.05
+    assert core._push_workspace_store_failures["0"] == PUSH_WORKSPACE_STORE_MAX_FAILURES * 5
+    assert destination.is_dir() and core._push_workspaces == {"0": future}
+    clock[0] = 1000.0 + PUSH_WORKSPACE_STORE_RETRY_WINDOW_S - 1
+    assert core._reap_push_workspaces({}) == {"0"}
+    monkeypatch.setattr(core.store, "transaction", transaction)
+    core._reap_push_workspaces({})
+    assert core._push_workspaces == {} and core._push_workspace_store_failures == {}
+    assert core._push_workspace_store_first_failure == {}
+    assert destination.is_dir()
+
+
+def test_completion_fails_once_window_and_count_are_both_spent(completion, monkeypatch):
+    core, future, destination = completion
+    clock = [1000.0]
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: clock[0])
+    failed = []
+    core._fail_queued = lambda job, detail, **kwargs: failed.append(detail)
+
+    @contextmanager
+    def full(*args, **kwargs):
+        error = sqlite3.OperationalError("database or disk is full")
+        error.sqlite_errorcode = sqlite3.SQLITE_FULL
+        raise error
+        yield
+
+    monkeypatch.setattr(core.store, "transaction", full)
+    for _ in range(PUSH_WORKSPACE_STORE_MAX_FAILURES - 1):
+        core._reap_push_workspaces({})
+    clock[0] += PUSH_WORKSPACE_STORE_RETRY_WINDOW_S
+    assert failed == []
+    core._reap_push_workspaces({})
+    assert len(failed) == 1 and f"after {PUSH_WORKSPACE_STORE_MAX_FAILURES} completion write failures" in failed[0]
+    assert core._push_workspace_store_failures == {} and core._push_workspace_store_first_failure == {}

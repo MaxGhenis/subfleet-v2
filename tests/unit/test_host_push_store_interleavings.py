@@ -12,6 +12,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet import host_push
+from subfleet import daemon as daemon_module
 from subfleet.daemon import Daemon, PUSH_WORKSPACE_STORE_MAX_FAILURES
 from subfleet.retention_archive import owned_worktree
 from subfleet.adapters.base import AdapterError
@@ -65,11 +66,14 @@ class BusyRows(Rows):
 
 
 def busy_interleavings(root, count, steps, patch):
+    # The count is the bound under test here; the retry window is tested in test_host_push_storage_retry_budget.
+    patch.setattr(daemon_module, "PUSH_WORKSPACE_STORE_RETRY_WINDOW_S", 0)
     core = object.__new__(Daemon)
     core.root, core.store, core.pushes = root, BusyRows(count), ManualExecutor()
     core._push_workspaces, core._push_unused_workspaces = {}, set()
     core._push_workspace_store_errors = {}
     core._push_workspace_store_failures = {}
+    core._push_workspace_store_first_failure = {}
     core._push_preparation_offered = False
     core._capacity_waits = {}
     core._notify = lambda: None
@@ -173,6 +177,7 @@ def busy_interleavings(root, count, steps, patch):
                 core._push_workspaces, core._push_unused_workspaces = {}, set()
                 core._push_workspace_store_errors = {}
                 core._push_workspace_store_failures = {}
+                core._push_workspace_store_first_failure = {}
                 core._push_preparation_offered = False
             for index in range(count):
                 job_id = str(index)

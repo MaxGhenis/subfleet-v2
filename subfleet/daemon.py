@@ -77,6 +77,11 @@ TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 #: C-8.5: keep a finished checkout through seven failed completion writes;
 #: the eighth failure settles the job instead of retrying ownership forever.
 PUSH_WORKSPACE_STORE_MAX_FAILURES = 8
+#: C-8.5: a recoverable completion write is retried for at least this long after its first
+#: failure, and at least PUSH_WORKSPACE_STORE_MAX_FAILURES times, before the job fails. Admission
+#: passes run every tick, so a count alone spent its retries in well under a second (review r3 of
+#: #183), far less than a full disk takes to recover.
+PUSH_WORKSPACE_STORE_RETRY_WINDOW_S = 600.0
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
@@ -855,6 +860,8 @@ class Daemon:
         self._push_workspaces: dict[str, Future] = {}
         self._push_workspace_store_errors: dict[str, sqlite3.Error] = {}
         self._push_workspace_store_failures: dict[str, int] = {}
+        # time.monotonic() of each job's first completion-write failure (C-8.5's retry window)
+        self._push_workspace_store_first_failure: dict[str, float] = {}
         self._push_unused_workspaces: set[str] = set()
         self._push_preparation_offered = False
         # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
@@ -4100,6 +4107,9 @@ class Daemon:
 
         Do not mask IOERR's extended code: checksum and filesystem corruption
         share its primary code, and unknown I/O faults are not known to recover.
+        IOERR_READ is a failed read that SQLite does not diagnose as corruption, so it
+        is retried like a failed write (review r3 of #183); a store that stays broken
+        still fails the job once the retry window and count are both spent.
         PROTOCOL is WAL transaction-start contention; FULL can recover when
         space (or the database page quota) becomes available after rollback.
         """
@@ -4108,7 +4118,7 @@ class Daemon:
         code = getattr(exc, "sqlite_errorcode", None)
         if code is not None:
             return (code & 0xff) in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_PROTOCOL) or code in (
-                sqlite3.SQLITE_IOERR_WRITE, sqlite3.SQLITE_IOERR_FSYNC,
+                sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_IOERR_WRITE, sqlite3.SQLITE_IOERR_FSYNC,
                 sqlite3.SQLITE_IOERR_DIR_FSYNC, sqlite3.SQLITE_IOERR_TRUNCATE)
         return isinstance(exc, sqlite3.OperationalError) and str(exc) == "database or disk is full"
 
@@ -4146,7 +4156,9 @@ class Daemon:
             if job_id not in self._push_workspace_store_errors and self._push_workspace_store_transient(exc):
                 count = self._push_workspace_store_failures.get(job_id, 0) + 1
                 self._push_workspace_store_failures[job_id] = count
-                if count < PUSH_WORKSPACE_STORE_MAX_FAILURES:
+                first = self._push_workspace_store_first_failure.setdefault(job_id, time.monotonic())
+                if (count < PUSH_WORKSPACE_STORE_MAX_FAILURES
+                        or time.monotonic() - first < PUSH_WORKSPACE_STORE_RETRY_WINDOW_S):
                     return None
             self._push_workspace_store_errors[job_id] = exc
             try:
@@ -4159,6 +4171,7 @@ class Daemon:
             ready = False
         self._push_workspace_store_errors.pop(job_id, None)
         self._push_workspace_store_failures.pop(job_id, None)
+        self._push_workspace_store_first_failure.pop(job_id, None)
         if not ready:
             self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         return ready
@@ -4179,12 +4192,14 @@ class Daemon:
                 if future is not None and not future.done() and not future.cancel():
                     self._push_workspace_store_errors.pop(job_id, None)
                     self._push_workspace_store_failures.pop(job_id, None)
+                    self._push_workspace_store_first_failure.pop(job_id, None)
                     continue  # The running worker still owns the build slot.
                 self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
                 self._push_workspaces.pop(job_id, None)
                 self._push_workspace_store_errors.pop(job_id, None)
                 self._push_workspace_store_failures.pop(job_id, None)
+                self._push_workspace_store_first_failure.pop(job_id, None)
                 continue
             ready = self._finish_push_workspace(job, future)
             if ready is None:
@@ -5164,6 +5179,7 @@ class Daemon:
                     self._push_workspaces.pop(job_id, None)
                     self._push_workspace_store_errors.pop(job_id, None)
                     self._push_workspace_store_failures.pop(job_id, None)
+                    self._push_workspace_store_first_failure.pop(job_id, None)
                     self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)

@@ -205,6 +205,7 @@ def gate_harness(root: Path, count: int):
     core._push_workspaces, core._push_unused_workspaces = {}, set()
     core._push_workspace_store_errors = {}
     core._push_workspace_store_failures = {}
+    core._push_workspace_store_first_failure = {}
     core._prepare_push_workspace = lambda *args: True
     return core
 
