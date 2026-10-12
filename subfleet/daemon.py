@@ -4367,17 +4367,17 @@ class Daemon:
         if not census.verified_empty and record.get("state") != "quarantined":
             record["state"] = "containing"
             self._save_probe(record)  # Authority precedes every signal, including recovery.
-            if leader_live and self._unambiguous_signal_group(record["holder"], leader, census, record, foreign):
-                procs.signal_group(record["pgid"], signal.SIGTERM,
-                                   boot_id=record["boot_id"], proc_start=record["proc_start"])
+            for ident in owned.values():
+                if signal_allowed(ident):
+                    procs.signal_process(ident, signal.SIGTERM)
             deadline = time.monotonic() + self.term_grace_s
             while not census.verified_empty and time.monotonic() < deadline:
                 time.sleep(.05)
                 census = self._probe_census(record, foreign_ownership=foreign)
             if not census.verified_empty:
-                if leader_live and self._unambiguous_signal_group(record["holder"], leader, census, record, foreign):
-                    procs.signal_group(record["pgid"], signal.SIGKILL,
-                                       boot_id=record["boot_id"], proc_start=record["proc_start"])
+                for ident in owned.values():
+                    if signal_allowed(ident):
+                        procs.signal_process(ident, signal.SIGKILL)
                 # A failed census cannot erase recorded ownership. Each
                 # individual signal still requires a fresh full identity.
                 for target in census.live_pids | (owned.keys() if census.unverifiable else set()):
@@ -7204,19 +7204,21 @@ class Daemon:
                                                                before, evidence["owned_identities"])
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
-        def group_signal_allowed():
-            return self._unambiguous_signal_group(a["attempt_id"], leader, census, evidence, foreign)
-
-        if a.get("pgid") and group_signal_allowed():
-            procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"], proc_start=a["proc_start"])
+        # Group membership can change after any census, even with an unchanged
+        # leader. Individual delivery preserves this kill's first target cap.
+        for ident in owned.values():
+            if signal_allowed(ident):
+                procs.signal_process(ident, signal.SIGTERM)
         deadline = time.monotonic() + self.term_grace_s
         while not census.verified_empty and time.monotonic() < deadline:
             if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
                 return
             census = self._contain(a, foreign_ownership=foreign)
         escalated = not census.verified_empty
-        if escalated and a.get("pgid") and group_signal_allowed():
-            procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
+        if escalated:
+            for ident in owned.values():
+                if signal_allowed(ident):
+                    procs.signal_process(ident, signal.SIGKILL)
         census = self._contain(a, foreign_ownership=foreign)
         # Inspection outages retain both leases and previously recorded signal
         # targets; signal_process independently reconfirms every full identity.
