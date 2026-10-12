@@ -75,6 +75,13 @@ TRANSIENT_RE = re.compile(
 )
 
 
+class _NoConsumeRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the consume POST's response; a later request cannot prove refusal."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -403,7 +410,10 @@ class CodexAdapter(Adapter):
             if self._opener:
                 status, body = self._opener(request, timeout)
             else:
-                with urllib.request.urlopen(request, timeout=timeout) as response:
+                opener = urllib.request.urlopen
+                if url == WHAM_RESET_CREDITS_CONSUME_URL:
+                    opener = urllib.request.build_opener(_NoConsumeRedirect()).open
+                with opener(request, timeout=timeout) as response:
                     status, body = response.status, response.read()
         except urllib.error.HTTPError as exc:
             status, body = exc.code, exc.read()
@@ -421,7 +431,17 @@ class CodexAdapter(Adapter):
         if not 200 <= status < 300:
             error = decoded.get("error")
             error = error if isinstance(error, dict) else {}
-            return {"status": "network-error" if status >= 500 else "http-error",
+            outcome = "network-error" if status >= 500 else "http-error"
+            if url == WHAM_RESET_CREDITS_CONSUME_URL:
+                # C-23.16 (d): an HTTP error alone does not prove this POST
+                # spent nothing. Only these explicit refusals do; redirects,
+                # unfamiliar 4xx and server errors may follow a spent credit.
+                refused = ((status == 409 and error.get("code") in ("already_redeemed", "already_consumed"))
+                           or (status == 429 and error.get("code") == "rate_limited"))
+                refused = (refused and set(decoded) == {"error"} and set(error) <= {"code", "message"}
+                           and ("message" not in error or isinstance(error["message"], str)))
+                outcome = "refused" if refused else "unknown"
+            return {"status": outcome,
                     "http_status": status, "error_code": error.get("code"),
                     "detail": error.get("message", f"HTTP {status}")}
         return {"status": "ok", "payload": decoded}
@@ -576,10 +596,6 @@ class CodexAdapter(Adapter):
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
-        for event, text in signals:
-            if AUTH_RE.search(text):
-                evidence["authentication"] = event or text
-                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
@@ -587,6 +603,12 @@ class CodexAdapter(Adapter):
             if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
                 evidence["admission"] = "deliverable with exit 0"
                 return result(OutcomeClass.OK, "Codex completed with a deliverable")
+        # Agent messages and last.md never enter these patterns. A verified
+        # success also supersedes recovered CLI authentication diagnostics.
+        for event, text in signals:
+            if AUTH_RE.search(text):
+                evidence["authentication"] = event or text
+                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
                                    (CONTENT_RE, OutcomeClass.CONTENT_FILTER,
                                     "The provider's content filter refused the prompt; reword it and resubmit (not retried)")):

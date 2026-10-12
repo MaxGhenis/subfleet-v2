@@ -22,7 +22,7 @@ STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN, doctor.WARN}
 @pytest.fixture
 def stub_probes(monkeypatch):
     """Every subprocess the table would run answers 0 with a stub version line."""
-    def run(argv, timeout=20.0):
+    def run(argv, timeout=20.0, **kwargs):
         return 0, f"stub {Path(argv[0]).name}"
     monkeypatch.setattr(doctor, "_run", run)
     monkeypatch.setattr(doctor, "_run_full", run)

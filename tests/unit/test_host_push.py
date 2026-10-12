@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 from uuid import uuid4
@@ -104,7 +105,11 @@ def worlds(tmp_path, monkeypatch):
             actual_git = host_push.git
 
             def watch(quarantine_repo, *args, **kwargs):
-                assert not world.core.store.connection.in_transaction, "Git ran inside a store transaction"
+                # Another thread can commit admission while this worker runs
+                # Git. The invariant forbids a transaction on this thread.
+                held = world.core.store._lock.held
+                assert not (held and held[0] == threading.get_ident()
+                            and world.core.store.connection.in_transaction), "Git ran inside a store transaction"
                 assert world.core.root / "push-quarantine" in quarantine_repo.parents, "job-controlled Git directory"
                 if args[0] in {"push", "ls-remote", "fetch"} and len(args) > 2:
                     # A GitHub spelling a test recorded at submit reaches the
