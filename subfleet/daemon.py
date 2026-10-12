@@ -4841,14 +4841,17 @@ class Daemon:
     def _fence_hold(self, job: dict, folder: str, holds: dict[str, dict], waiters: dict, tier: str,
                     models: frozenset[str] | None, lanes: frozenset[str] | None,
                     run_folder: str | None = None, *, fold: bool = False,
+                    absent: OSError | None = None, write_target: str | None = None,
                     priority_waiters: list | None = None) -> bool:
         """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
         folder, actual cwd or a folder above either (`folders.retiring`), found
         before its workspace is prepared. Turn folders are spelled off the lock,
         with absent names compared folded, just as in the reserving transaction;
         an unspelled turn uses the one top `_rediscovered` found for this look.
-        Detached folders come from `_detached_folders`, with its legacy `fold`
-        comparison retained in both the early look and reserving transaction.
+        Detached source folders come from `_detached_folders`, with its legacy
+        `fold` comparison retained independently of the row subject's absence.
+        An in-place writer supplies its one spelled `write_target` and `absent`
+        answer for this look, reservation and own-key/blocked classification.
 
         The admitting transaction reads that fence too, and its answer is the one
         that counts. This look spares a job that cannot start its start snapshot
@@ -4876,8 +4879,8 @@ class Daemon:
         def fences(read):
             if job["kind"] == "turn":
                 return self._turn_fences(read, folder, absent, run_folder, run_absent)
-            retiring = folders.retiring_folded if fold else folders.retiring
-            git_fences = retiring(read, folder)
+            git_fences = (folders.retiring_folded(read, folder) if fold else
+                          folders.retiring(read, folder, folded=absent is not None))
             run_fences = folders.retiring(read, run_folder) if run_folder and run_folder != folder else []
             return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
 
@@ -4894,7 +4897,7 @@ class Daemon:
             hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": held_folder}
             # A key it only needs free, as for the transaction's `blocked` (C-6.11): every
             # fence but an in-place writer's own target, a lease that writer takes.
-            own = (folders.exclusive_key(self._write_target(job, job["workdir"]))
+            own = (folders.exclusive_key(write_target or self._write_target(job, job["workdir"]))
                    if job["kind"] != "turn" and job["sandbox"] == "workspace-write" and job["in_place"] else None)
             rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(fence)), hold,
                                            blocked=[key for key in fence if key != own])
@@ -5316,8 +5319,21 @@ class Daemon:
                     # there but `_rediscovered`'s read (the transaction below still reads
                     # the fence, and decides).
                     continue
+                # An in-place detached writer's row subject may be an external
+                # Git top rediscovered above, or an absent alias of a quarantined
+                # tree. Spell it once, off the store lock, and carry both answers
+                # to the early look and reservation. Source/legacy folds stay separate.
+                row_folder, row_absent = None, None
+                if job["kind"] != "turn" and job["in_place"] and job["sandbox"] == "workspace-write":
+                    row_folder, row_absent = folders.present(derived or self._write_target(job, job["workdir"]))
+                if row_folder and self._fence_hold(
+                        job, row_folder, holds, waiters, tier, models, lanes,
+                        absent=row_absent, write_target=row_folder,
+                        priority_waiters=priority_waiters if klass == "priority" else None):
+                    continue
                 job_folders = self._detached_folders(job) if job["kind"] != "turn" else []
                 if any(self._fence_hold(job, folder, holds, waiters, tier, models, lanes, fold=fold,
+                                        write_target=row_folder,
                                         priority_waiters=priority_waiters if klass == "priority" else None)
                        for folder, fold in job_folders):
                     # C-8.4: retention is retiring the tree the job's folder is in, so no
@@ -5360,7 +5376,8 @@ class Daemon:
             elif derived is not None and write_target:
                 write_target = derived
             # C-8.4, C-24.5, C-6.5: the folder a row will name (a turn's, or an in-place
-            # writer's `worktree:`), spelled again now, off the store lock. Submit spelled
+            # writer's `worktree:`), spelled off the store lock. Detached in-place
+            # writers reuse the spelling/absence answer from their early look. Submit spelled
             # it, but a name it could not look up kept the case it was given: a native
             # session's cwd typed `…/jOB/vendor/lib`, spelled while retention had the tree
             # `Job` in quarantine, keyed the row on `jOB`, which no check on the tree
@@ -5369,7 +5386,8 @@ class Daemon:
             # one that is not reserves no row (`absent`, below).
             named, absent = read_folder or (write_target if job["kind"] == "turn" or job["in_place"] else None), None
             if named:
-                spelled, absent = folders.present(named)
+                spelled, absent = ((row_folder, row_absent) if row_folder is not None
+                                   else folders.present(named))
                 named = spelled
                 if read_folder:
                     read_folder = spelled
