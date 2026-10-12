@@ -260,6 +260,21 @@ def test_a_pick_in_a_less_active_account_is_never_undone(world):
     assert read(store, 0)["lastActivityAt"] == T0 + 5 * HOUR, "the rank is the app's, untouched"
 
 
+def test_the_hot_pass_spreads_a_pick_within_seconds(world):
+    """release/217's hot pass syncs the changed sessions' flags, titles and
+    settings, so a pick reaches every copy at the next 2 s hot pass."""
+    running, store = world
+    everywhere(store, FABLE)
+    running.run_once()                                       # the inventory a hot pass needs
+    app_writes(path(store, 1), at=T0 + HOUR, model=OPUS)
+    result = running.run_hot()
+    assert result.state == "ok" and result.kind == "hot"
+    assert models(store) == [OPUS] * 3
+    app_writes(path(store, 0), at=T0 + 2 * HOUR, model=FABLE)   # a stale save in A
+    running.run_hot()
+    assert models(store) == [OPUS] * 3
+
+
 def test_a_stale_save_never_spreads_without_activity(world):
     """The flag protocol's known limit, closed for settings. The mirror wrote
     opus into A; the app, which loaded A before that, re-saves its Fable
