@@ -236,13 +236,13 @@ def test_r13_finding_d_qc1_caller_is_told_when_the_recheck_happens(state_daemon,
     why = daemon.dispatch("why", {"job_id": job_id})["text"]
     when = actual["quarantine_recheck_at"]
     print(f"\nR13 D-QC1: next recheck {when}; notice mentions it: {when in notice}; "
-          f"why mentions quarantine: {'quarantin' in why}; why text: {why.splitlines()[:3]}")
+          f"why mentions quarantine: {'quarantin' in why.lower()}; why text: {why.splitlines()[:3]}")
     command = f"subfleet kill {job_id} --confirm-dead"
     assert when in notice and command in notice, notice[:400]
     assert "quarantin" in why.lower() and when in why and command in why, why
     daemon.store.update_attempt(a["attempt_id"], finished_at="2026-10-01T00:00:00Z")
     _, status = status_bytes(daemon, monkeypatch)
-    assert "Next check" in status["text"] and when in status["text"]
+    assert "Next check" in status["status"] and when in status["status"]
 
 
 def test_r13_check_d_pr1_recycled_group_hold_is_paced_and_only_status_tells(state_daemon, monkeypatch):
