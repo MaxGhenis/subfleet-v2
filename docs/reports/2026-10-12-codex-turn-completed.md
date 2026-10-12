@@ -92,13 +92,13 @@ files remain unrun and require the hub's host test run:
 ```text
 tests/unit/test_codex_adapter.py
 tests/unit/test_codex_turn_completed.py
-tests/fake/test_codex_turn_completed.py
+tests/fake/test_codex_turn_completed_fake.py
 tests/fake/test_finalization_replay.py
 tests/fake/test_notice_header.py
 tests/fake/test_resume_contract.py
 tests/fake/test_resume_cli.py
 tests/process/test_codex_isolation.py
-tests/e2e/test_codex_turn_completed.py
+tests/e2e/test_codex_turn_completed_e2e.py
 tests/e2e/test_milestone1_codex.py
 tests/e2e/test_notice_job_state.py
 tests/e2e/test_guard_and_isolation.py
