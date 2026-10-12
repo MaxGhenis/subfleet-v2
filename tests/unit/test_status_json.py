@@ -687,8 +687,9 @@ def _fresh_weekly(store, lane_id, utilization=.2):
 
 
 def test_c18_1_c19_the_probe_cycles_reset_credit_policy_judges_before_the_leases(fleet):
-    """C-18.1, C-19 an admission probe's seconds on the only lane with headroom do not send the policy looking
-    for a credit to spend: it judges the snapshot before the leases, and status.json shows the lane held."""
+    """C-18.1, C-19, C-23.16 an admission probe's seconds on the only lane with headroom do not send the policy
+    looking for a credit to spend: it judges the snapshot before the leases (and a lane a probe holds is room to
+    C-23.16 in any case), and status.json shows the lane held."""
     timer, store, records, sent, enroll = fleet
     enroll(1)
     timer.policy["reset_credits"] = {"enabled": True}
@@ -698,17 +699,20 @@ def test_c18_1_c19_the_probe_cycles_reset_credit_policy_judges_before_the_leases
     snapshot = timer.probe_cycle()
     status, homes = _published(timer)
     assert homes["codex-1"]["probe_state"] == "reserved" and not homes["codex-1"]["dispatchable"]
-    assert snapshot["reset_policy"]["status"] == "not-triggered", snapshot["reset_policy"]
+    assert snapshot["reset_policy"]["status"] in ("no-eligible-lane", "no-demand"), snapshot["reset_policy"]
+    assert not store.query("SELECT * FROM actions")
 
 
 def test_c18_1_c19_a_reset_credit_pass_judges_before_the_leases(fleet):
-    """C-18.1, C-19 the reset-credit timer's own pass judges the snapshot before the leases, as the cycle's does."""
+    """C-18.1, C-19, C-23.16 the reset-credit timer's own pass judges the snapshot before the leases, as the
+    cycle's does, and spends nothing for a lane a probe holds."""
     timer, store, records, sent, enroll = fleet
     enroll(1)
     timer.policy["reset_credits"] = {"enabled": True}
     _fresh_weekly(store, "codex-1")
     store.acquire_lease("lane:codex-1:slot:0", "probe:admission")
-    assert timer.reset_credits_cycle()["status"] == "not-triggered"
+    assert timer.reset_credits_cycle()["status"] in ("no-eligible-lane", "no-demand")
+    assert not store.query("SELECT * FROM actions")
     status, homes = _published(timer)
     assert homes["codex-1"]["probe_state"] == "uncertain" and not homes["codex-1"]["dispatchable"]
 
