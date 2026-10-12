@@ -34,7 +34,10 @@ import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from .conversations.peers import AuditToken
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
@@ -7719,7 +7722,7 @@ class Daemon:
             return None
 
     def _start_request(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
-                       arrived: float, peer: int | None) -> Future | None:
+                       arrived: float, peer: AuditToken | None) -> Future | None:
         """Start one request where it runs (C-16.5, C-25.3): a future, or None when
         it was answered here, on the connection's own thread."""
         if self.conversations.owns(req.op):
@@ -7745,8 +7748,8 @@ class Daemon:
         reads: set[Future] = set()              # pending futures whose request only reads
         framer = descriptors.LineFramer()
         replied = [0.0]                         # when a reply last finished (monotonic)
-        from .conversations.peers import peer_pid
-        peer = peer_pid(conn)                   # C-25.6: who is asking, read from the socket
+        from .conversations.peers import peer_token
+        peer = peer_token(conn)                 # C-25.6: retain the original process/image instance
 
         def note_reply(_future=None) -> None:
             replied[0] = time.monotonic()

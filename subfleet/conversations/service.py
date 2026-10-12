@@ -45,7 +45,7 @@ from . import codex_brief, waits
 from .. import folders, resource_leases
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
-from .peers import APP_EXECUTABLES, judge, peer_pid
+from .peers import APP_EXECUTABLES, AuditToken, allowed_executable_paths, judge
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
@@ -128,6 +128,7 @@ class ConversationService:
     def __init__(self, daemon):
         self.daemon = daemon
         self.root: Path = daemon.root
+        self._allowed_app_paths = allowed_executable_paths(self._app_executables())
         self.store = ConversationStore(self.root)
         from .wakes import WakeEngine
         self.wakes = WakeEngine(self)
@@ -230,7 +231,7 @@ class ConversationService:
         stdout, descriptors the daemon keeps back from client connections (C-16.7)."""
         return sum(1 for runner in list(self.runners.values()) if not runner.finished.is_set())
 
-    def respond(self, conn, write_lock, req: protocol.Request, peer: int | None) -> None:
+    def respond(self, conn, write_lock, req: protocol.Request, peer: AuditToken | None) -> None:
         ended = getattr(self.daemon, "_ended_here", None)
 
         def gone() -> bool:
@@ -257,7 +258,7 @@ class ConversationService:
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         descriptors.send_reply(conn, write_lock, response, end_stream=getattr(self.daemon, "_end_stream", None))
 
-    def handle(self, op: str, args: dict, peer: int | None, *,
+    def handle(self, op: str, args: dict, peer: AuditToken | None, *,
                client_gone: Callable[[], bool] | None = None) -> dict:
         """One conversation op. `client_gone`, from the socket, ends a long poll
         whose client has left (C-16.7)."""
@@ -276,10 +277,10 @@ class ConversationService:
             return (*APP_EXECUTABLES, dev)
         return APP_EXECUTABLES
 
-    def _person(self, peer: int | None, what: str):
+    def _person(self, peer: AuditToken | None, what: str):
         """C-25.6: refuse agents Subfleet launched; accept only the app (D-PB1: a
         terminal is not enough)."""
-        verdict = judge(peer, root=str(self.root), app_executables=self._app_executables())
+        verdict = judge(peer, root=str(self.root), allowed_paths=self._allowed_app_paths)
         if not verdict.person:
             raise ConversationError("person-only", f"{what} is a person's decision: {verdict.reason}", code=7,
                                     fix="answer it in the Subfleet app")
@@ -763,7 +764,7 @@ class ConversationService:
 
     # --- ops: events -----------------------------------------------------------
 
-    def _slot(self, peer: int | None, kind: str) -> threading.Event:
+    def _slot(self, peer: AuditToken | None, kind: str) -> threading.Event:
         """C-29.9: one poll of each kind per client; a new one supersedes the old."""
         key = (peer, kind)
         with self._lock:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import os
+import struct
 import stat
 import threading
 from types import SimpleNamespace
@@ -12,10 +13,17 @@ from types import SimpleNamespace
 import pytest
 
 from subfleet.conversations import attachments
-from subfleet.conversations.peers import Proc, executable_path, judge
+from subfleet.conversations.peers import AuditToken, Proc, allowed_executable_paths, executable_path, judge
 from subfleet.conversations.store import ConversationError, ConversationStore
 
 APP = "/Applications/Subfleet.app/Contents/MacOS/Subfleet"
+
+
+def token(pid):
+    """Synthetic socket identity for the process-inspection fakes."""
+    if pid is None or isinstance(pid, AuditToken):
+        return pid
+    return AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, pid, 0, 1))
 
 
 def chain_of(*procs):
@@ -24,7 +32,7 @@ def chain_of(*procs):
 
 def test_the_app_is_a_person():
     """C-25.6 the installed app's executable may approve."""
-    v = judge(10, chain=chain_of(Proc(10, 1, "??", f"{APP} HOME=/Users/m")), executable=lambda pid: APP)
+    v = judge(token(10), chain=chain_of(Proc(10, 1, "??", f"{APP} HOME=/Users/m")), executable=lambda pid: APP)
     assert v.person and v.reason == "the Subfleet app"
 
 
@@ -33,10 +41,10 @@ def test_the_app_is_known_by_its_executable_path_even_with_spaces():
     cannot be split back into a path with spaces (reported from the app build)."""
     dev = "/Users/m/build/Subfleet Dev.app/Contents/MacOS/Subfleet Dev"
     command = f"{dev} HOME=/Users/m"
-    assert judge(10, chain=chain_of(Proc(10, 1, "??", command)), app_executables=(dev,),
+    assert judge(token(10), chain=chain_of(Proc(10, 1, "??", command)), allowed_paths=allowed_executable_paths((dev,)),
                  executable=lambda pid: dev).person
     # Another program whose command line merely starts like the app is not the app.
-    assert not judge(10, chain=chain_of(Proc(10, 1, "??", f"{APP} --flag")),
+    assert not judge(token(10), chain=chain_of(Proc(10, 1, "??", f"{APP} --flag")),
                      executable=lambda pid: "/usr/bin/python3").person
 
 
@@ -63,9 +71,9 @@ def test_executable_path_reads_the_running_process():
 def test_neither_a_terminal_nor_a_headless_agent_is_a_person():
     """C-25.6 after D-PB1: a process with a controlling terminal may not, any more than
     one without (tests/unit/test_person_boundary.py has the cases)."""
-    assert not judge(10, chain=chain_of(Proc(10, 9, "ttys003", "/bin/zsh"), Proc(9, 1, "ttys003", "login")),
+    assert not judge(token(10), chain=chain_of(Proc(10, 9, "ttys003", "/bin/zsh"), Proc(9, 1, "ttys003", "login")),
                      executable=lambda pid: "/bin/zsh").person
-    assert not judge(10, chain=chain_of(Proc(10, 9, "??", "/usr/bin/python3 x.py"), Proc(9, 1, "??", "node")),
+    assert not judge(token(10), chain=chain_of(Proc(10, 9, "??", "/usr/bin/python3 x.py"), Proc(9, 1, "??", "node")),
                      executable=lambda pid: "/usr/bin/python3").person
 
 
@@ -76,14 +84,14 @@ def test_neither_a_terminal_nor_a_headless_agent_is_a_person():
 def test_anything_subfleet_launched_is_refused_even_with_a_terminal(ancestor):
     """C-25.6 a guardian's descendant, or a process carrying the attempt markers, may not
     act as the person, whatever its terminal."""
-    v = judge(10, chain=chain_of(Proc(10, 9, "ttys001", "/bin/zsh"), ancestor, Proc(8, 1, "ttys001", "login")))
+    v = judge(token(10), chain=chain_of(Proc(10, 9, "ttys001", "/bin/zsh"), ancestor, Proc(8, 1, "ttys001", "login")))
     assert not v.person
 
 
 def test_an_unidentified_caller_is_refused():
     """C-25.6 no pid, or no process table, decides nothing in the caller's favour."""
-    assert not judge(None).person
-    assert not judge(10, chain=lambda pid: []).person
+    assert not judge(token(None)).person
+    assert not judge(token(10), chain=lambda pid: []).person
 
 
 @pytest.fixture

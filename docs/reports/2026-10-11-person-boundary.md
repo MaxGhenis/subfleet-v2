@@ -184,3 +184,43 @@ The end-to-end person and terminal checks under `tests/e2e/` need a caller outsi
 - **The vetoes are as they were.** They read a `ps` snapshot, and stop at pid 1, at a repeated or missing pid, or after 64 processes. `SUBFLEET_ROOT=<root>` matches as a substring, so a daemon on `/Users/m/.subfleet` also vetoes `SUBFLEET_ROOT=/Users/m/.subfleet-dev`. That errs toward refusing.
 - **The e2e person and terminal checks did not run here.** Inside a Subfleet lane every ancestor carries the lane's markers, so `as_person` and `as_terminal` skip by design. They run in CI or from a terminal outside Subfleet. This job did not push, so CI has not run them on this head.
 - **Phone access (d1350)** would need a new positive authority, such as per-request signatures from a paired device. Nothing here adds one, and a terminal can no longer stand in for it.
+
+
+## Review round 1: connection-time image identity (2026-10-12)
+
+The review at `3cbd81d5c7c3` confirmed D-PB1 and found two inherited bypasses:
+a queued non-app request became authorized if its sender exec'd the app,
+and resolving a kernel path with `realpath` could bless a different running
+image after a filesystem name was swapped for a symlink. Both are closed.
+
+`daemon._connection` saves `LOCAL_PEERTOKEN` (SOL_LOCAL 0, option 6, 32 bytes)
+before reading requests and passes that immutable token to every conversation
+request. Its word 5 supplies the ancestry pid and its word 7 binds the process
+version. `peers.judge` uses `proc_pidpath_audittoken` to inspect that instance;
+it refuses a missing token and failed or unavailable lookup, without falling
+back to `proc_pidpath`. Exec, exit and pid reuse cannot authorize an old
+connection with a later image. `proc_pidpath` remains a diagnostic helper.
+
+`ConversationService` freezes the configured executable spellings and their
+real paths when it is constructed at daemon startup. Neither environment
+changes nor later symlink targets change that set. `judge` compares the
+kernel answer verbatim; a real symlink launch already reports the target's
+canonical path.
+
+The moved-bundle compatibility choice is **restart the app**. Renaming an
+allowed running bundle moves its kernel pathname outside the frozen set, so
+it is refused with a reason naming the restart. The audit token proves the
+process instance but does not attest that a renamed path used to designate
+an allowed app. Accepting arbitrary renamed images would require another
+trusted identity mechanism. C-25.6 and the module docstring state this choice.
+
+The new `tests/unit/test_person_boundary_identity.py` ports the review's native
+probes, compiling `tests/e2e/dev_app.py` into disposable test bundles. It covers
+connection token retention, exec into the app after connecting, exited peers,
+a mismatched pid version (simulated reuse against a real live process), direct
+and symlink launches, a swap immediately after real token lookup, a moved
+running bundle, lookup failures and real socket-pair audit-token pid reads.
+The existing two unit files now supply synthetic audit tokens alongside their
+ancestry and executable fakes; their native client reads a real token.
+
+Validation results and mutation failures are recorded below after execution.

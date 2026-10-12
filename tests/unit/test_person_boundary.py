@@ -14,6 +14,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import struct
 import shutil
 import socket
 import subprocess
@@ -30,14 +31,22 @@ from hypothesis import strategies as st
 
 from subfleet.conversations import peers
 from subfleet.conversations import service as service_module
-from subfleet.conversations.peers import APP_EXECUTABLES, Proc, judge
+from subfleet.conversations.peers import APP_EXECUTABLES, AuditToken, Proc, allowed_executable_paths, judge
+from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
-from tests.unit.test_conversation_service import SETTINGS, conversation, svc  # noqa: F401 (a fixture)
+from tests.unit.test_conversation_service import SETTINGS, FakeDaemon, conversation, svc  # noqa: F401 (a fixture)
 
 APP = APP_EXECUTABLES[0]
 DEV = "/Users/m/build/Subfleet Dev.app/Contents/MacOS/Subfleet Dev"
 ROOT = "/Users/m/.subfleet-dev"
 SHELL = "/bin/zsh"
+
+
+def token(pid):
+    """Synthetic socket identity for the process-inspection fakes."""
+    if pid is None or isinstance(pid, AuditToken):
+        return pid
+    return AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, pid, 0, 1))
 
 
 def chain_of(*procs):
@@ -75,7 +84,7 @@ def test_a_terminal_without_subfleet_ancestry_is_not_a_person(shape):
     """D-PB1: an orphan holding a pseudo-terminal, the terminal child it forks, an SSH
     login and a person's Terminal window are all refused; a terminal admits nobody."""
     procs = REFUSED_TERMINALS[shape]
-    verdict = judge(procs[0].pid, chain=chain_of(*procs), executable=exe(SHELL), root=ROOT)
+    verdict = judge(token(procs[0].pid), chain=chain_of(*procs), executable=exe(SHELL), root=ROOT)
     assert not verdict.person, verdict
     assert verdict.reason.startswith("this needs the Subfleet app"), verdict
     assert f"a terminal ({procs[0].tty})" in verdict.reason, verdict
@@ -83,8 +92,8 @@ def test_a_terminal_without_subfleet_ancestry_is_not_a_person(shape):
 
 
 def test_a_caller_with_no_terminal_that_is_not_the_app_is_told_it_needs_the_app():
-    verdict = judge(10, chain=chain_of(Proc(10, 1, "??", "/usr/bin/python3 x.py")), executable=exe("/usr/bin/python3"))
-    assert not verdict.person and verdict.reason == "this needs the Subfleet app"
+    verdict = judge(token(10), chain=chain_of(Proc(10, 1, "??", "/usr/bin/python3 x.py")), executable=exe("/usr/bin/python3"))
+    assert not verdict.person and verdict.reason.startswith("this needs the Subfleet app")
 
 
 @pytest.mark.parametrize("shape", sorted(REFUSED_TERMINALS))
@@ -93,13 +102,13 @@ def test_the_app_is_still_a_person_whatever_its_ancestry_and_terminal(shape):
     the daemon was told of (D-21). Neither needs, or is refused for, a terminal."""
     procs = REFUSED_TERMINALS[shape]
     as_app = (Proc(procs[0].pid, procs[0].ppid, procs[0].tty, f"{APP} HOME=/Users/m"), *procs[1:])
-    assert judge(as_app[0].pid, chain=chain_of(*as_app), executable=exe(APP), root=ROOT).person
+    assert judge(token(as_app[0].pid), chain=chain_of(*as_app), executable=exe(APP), root=ROOT).person
     detached = (Proc(10, 1, "??", f"{APP} HOME=/Users/m"), Proc(1, 0, "??", "/sbin/launchd"))
-    verdict = judge(10, chain=chain_of(*detached), executable=exe(APP), root=ROOT)
+    verdict = judge(token(10), chain=chain_of(*detached), executable=exe(APP), root=ROOT)
     assert verdict.person and verdict.reason == "the Subfleet app"
     dev = (Proc(10, 1, "??", f"{DEV} HOME=/Users/m"), Proc(1, 0, "??", "/sbin/launchd"))
-    assert judge(10, chain=chain_of(*dev), executable=exe(DEV), app_executables=(APP, DEV), root=ROOT).person
-    assert not judge(10, chain=chain_of(*dev), executable=exe(DEV), root=ROOT).person
+    assert judge(token(10), chain=chain_of(*dev), executable=exe(DEV), allowed_paths=allowed_executable_paths((APP, DEV)), root=ROOT).person
+    assert not judge(token(10), chain=chain_of(*dev), executable=exe(DEV), root=ROOT).person
 
 
 VETOES = {
@@ -120,21 +129,21 @@ def test_the_marker_and_guardian_vetoes_are_unchanged_and_bind_the_app_too(veto,
     procs = [Proc(10, 9, tty, f"{APP} HOME=/Users/m"), Proc(9, 8, tty, "/bin/zsh"), Proc(8, 1, "??", "login")]
     index = {"caller": 0, "parent": 1, "top": 2}[where]
     procs[index] = Proc(procs[index].pid, procs[index].ppid, procs[index].tty, f"{procs[index].command} {command}")
-    verdict = judge(10, chain=chain_of(*procs), executable=exe(APP), root=ROOT)
+    verdict = judge(token(10), chain=chain_of(*procs), executable=exe(APP), root=ROOT)
     assert not verdict.person and verdict.reason == reason, verdict
 
 
 def test_another_state_roots_marker_is_not_a_veto():
     """C-25.6: `SUBFLEET_ROOT` vetoes only when it names this daemon's state root."""
     procs = (Proc(10, 9, "??", f"{APP} HOME=/Users/m"), Proc(9, 1, "??", "zsh SUBFLEET_ROOT=/Users/m/other"))
-    assert judge(10, chain=chain_of(*procs), executable=exe(APP), root=ROOT).person
+    assert judge(token(10), chain=chain_of(*procs), executable=exe(APP), root=ROOT).person
 
 
 def test_an_unidentified_or_uninspectable_caller_is_refused():
-    assert not judge(None, executable=exe(APP)).person
-    assert not judge(10, chain=lambda pid: [], executable=exe(APP)).person
+    assert not judge(token(None), executable=exe(APP)).person
+    assert not judge(token(10), chain=lambda pid: [], executable=exe(APP)).person
     # The kernel could not say what the caller runs: never the app.
-    assert not judge(10, chain=chain_of(Proc(10, 1, "ttys001", "zsh")), executable=exe(None)).person
+    assert not judge(token(10), chain=chain_of(Proc(10, 1, "ttys001", "zsh")), executable=exe(None)).person
 
 
 # --- every person-only op, through the service ---------------------------------------
@@ -186,7 +195,7 @@ def test_every_person_only_op_refuses_a_terminal_caller_with_exit_7_naming_the_a
     cid = conversation(svc)
     op, args = person_only_calls(cid)[name]
     with pytest.raises(ConversationError) as refused:
-        svc.handle(op, args, procs[0].pid)
+        svc.handle(op, args, token(procs[0].pid))
     error = refused.value
     assert (error.reason, error.code) == ("person-only", 7), error
     assert "this needs the Subfleet app" in str(error) and error.fix == "answer it in the Subfleet app"
@@ -200,25 +209,32 @@ def test_every_person_only_op_lets_the_app_past_its_person_check(svc, monkeypatc
     cid = conversation(svc)
     op, args = person_only_calls(cid)[name]
     try:
-        svc.handle(op, args, 10)
+        svc.handle(op, args, token(10))
     except ConversationError as error:
         assert error.reason != "person-only", error
     except (KeyError, LookupError):
         pass                                    # past the check: the approval or message is not there
 
 
-def test_the_development_build_is_the_app_only_on_a_development_state_root(svc, monkeypatch, tmp_path):
-    """D-21 with D-PB1: on a development root, `SUBFLEET_DEV_APP_EXECUTABLE` is the app;
-    on ~/.subfleet it is not, and a terminal is not either."""
+def test_the_development_build_is_the_app_only_on_a_development_state_root(monkeypatch, tmp_path):
+    """D-21: each daemon freezes its own startup configuration."""
     monkeypatch.setenv("SUBFLEET_DEV_APP_EXECUTABLE", DEV)
-    with_process_table(monkeypatch, (Proc(10, 1, "??", f"{DEV} HOME=/Users/m"),), DEV)
-    assert svc._person(10, "answering an approval").reason == "the Subfleet app"
     monkeypatch.setenv("HOME", str(tmp_path))
-    (tmp_path / ".subfleet").mkdir(exist_ok=True)
-    monkeypatch.setattr(svc, "root", tmp_path / ".subfleet")       # restored before `svc` closes
-    with pytest.raises(ConversationError) as refused:
-        svc._person(10, "answering an approval")
-    assert refused.value.code == 7 and "this needs the Subfleet app" in str(refused.value)
+    with_process_table(monkeypatch, (Proc(10, 1, "??", f"{DEV} HOME=/Users/m"),), DEV)
+    for root, accepted in ((tmp_path / "dev-state", True), (tmp_path / ".subfleet", False)):
+        root.mkdir()
+        daemon = FakeDaemon(root)
+        service = ConversationService(daemon)
+        try:
+            if accepted:
+                assert service._person(token(10), "answering an approval").reason == "the Subfleet app"
+            else:
+                with pytest.raises(ConversationError) as refused:
+                    service._person(token(10), "answering an approval")
+                assert refused.value.code == 7 and "this needs the Subfleet app" in str(refused.value)
+        finally:
+            service.close()
+            daemon.store.close()
 
 
 # --- property: only the app, and never under a veto ---------------------------------------
@@ -272,7 +288,7 @@ def test_property_a_caller_is_a_person_only_if_it_is_the_app_and_nothing_above_i
     if the caller's image is the installed app (or the development build the daemon
     was told of) and no process in the chain is a guardian or carries the markers."""
     apps = (APP, DEV) if dev_known else (APP,)
-    verdict = judge(procs[0].pid, chain=chain_of(*procs), app_executables=apps, root=root, executable=exe(caller))
+    verdict = judge(token(procs[0].pid), chain=chain_of(*procs), allowed_paths=allowed_executable_paths(apps), root=root, executable=exe(caller))
     is_app = caller == APP or (dev_known and caller == DEV)
     assert verdict.person == (is_app and not vetoed(procs, root)), (verdict, procs, caller, root)
     assert verdict.pid == procs[0].pid
@@ -284,8 +300,8 @@ def test_property_terminals_never_change_the_verdict(procs, caller, root, ttys):
     """D-PB1: giving any process in the chain a terminal, or taking one away, never
     changes whether the caller is a person."""
     retty = [Proc(p.pid, p.ppid, ttys[i], p.command) for i, p in enumerate(procs)]
-    a = judge(procs[0].pid, chain=chain_of(*procs), root=root, executable=exe(caller))
-    b = judge(retty[0].pid, chain=chain_of(*retty), root=root, executable=exe(caller))
+    a = judge(token(procs[0].pid), chain=chain_of(*procs), root=root, executable=exe(caller))
+    b = judge(token(retty[0].pid), chain=chain_of(*retty), root=root, executable=exe(caller))
     assert a.person == b.person
 
 
@@ -298,14 +314,14 @@ def test_property_a_veto_anywhere_in_the_chain_refuses(procs, caller, root, at, 
     at %= len(procs)
     marked = list(procs)
     marked[at] = Proc(procs[at].pid, procs[at].ppid, procs[at].tty, f"{procs[at].command} {mark}")
-    assert not judge(marked[0].pid, chain=chain_of(*marked), root=root, executable=exe(caller),
-                     app_executables=(APP, DEV)).person
+    assert not judge(token(marked[0].pid), chain=chain_of(*marked), root=root, executable=exe(caller),
+                     allowed_paths=allowed_executable_paths((APP, DEV))).person
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID and proc_pidpath are macOS")
+@pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERTOKEN and proc_pidpath_audittoken are macOS")
 def test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check(tmp_path):
     """The e2e person (`tests/e2e/dev_app.py`, D-21) is recognised by the kernel's path for
-    its image, read through the socket's real `LOCAL_PEERPID`; a Python client on the
+    its image, read through the socket's real `LOCAL_PEERTOKEN`; a Python client on the
     same socket is not the app. The ancestry is faked marker-free, because inside a
     Subfleet lane the real one carries the lane's markers (and the e2e person tests
     skip there), so this is the part of the e2e path a lane can check."""
@@ -322,10 +338,11 @@ def test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check(
         for _ in range(count):
             conn, _ = server.accept()
             with conn, conn.makefile("rb") as stream:
+                peer = peers.peer_token(conn)
                 stream.readline()
-                pid = peers.peer_pid(conn)
-                verdict = judge(pid, chain=lambda p: [Proc(p, 1, "??", "caller HOME=/Users/m")],
-                                app_executables=(str(app),))
+                pid = peer.pid if peer else None
+                verdict = judge(peer, chain=lambda p: [Proc(p, 1, "??", "caller HOME=/Users/m")],
+                                allowed_paths=allowed_executable_paths((str(app),)))
                 verdicts.append((verdict, peers.executable_path(pid) if pid else None))
                 conn.sendall((json.dumps({"ok": verdict.person, "reason": verdict.reason}) + "\n").encode())
 
@@ -344,7 +361,8 @@ def test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check(
         server.close()
         shutil.rmtree(sock_dir, ignore_errors=True)
     assert as_app == {"ok": True, "reason": "the Subfleet app"}, (as_app, verdicts)
-    assert json.loads(python.stdout) == {"ok": False, "reason": "this needs the Subfleet app"}, python
+    assert not json.loads(python.stdout)["ok"], python
+    assert json.loads(python.stdout)["reason"].startswith("this needs the Subfleet app"), python
     kernel_path = verdicts[0][1]
     assert kernel_path and os.path.realpath(kernel_path) == str(app) and " " in kernel_path   # spaces kept
 
