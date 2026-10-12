@@ -1162,3 +1162,26 @@ def test_rediscovered_detached_absent_alias_is_fenced_before_workspace(tmp_path)
         assert not _live(daemon, job)
         assert hold.get("leases") == [key]
         assert not prepared, "the early detached lookup missed the folded absent-name fence"
+
+
+def test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget(tmp_path):
+    """An unknown top without a fence still follows normal C-6.8 failure handling."""
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        job = submit_overtaken_writer(daemon, harness, tree, nested)
+        workspaces = Workspaces(daemon, patch, real=True)
+
+        def timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(["git", "rev-parse", "--show-toplevel"], 60)
+
+        patch.setattr(daemon, "_row_folder", timeout)
+        for look_number in range(daemon.policy["caps"]["workspace_retry_max"] + 1):
+            daemon.store.update_job(job, next_check_at=None)
+            daemon._admit()
+            expected = "waiting" if look_number < daemon.policy["caps"]["workspace_retry_max"] else "failed"
+            assert daemon._job(job)["state"] == expected
+            assert daemon._holds[job]["reason"] == "workspace"
+            assert daemon._holds[job]["error_type"] == "TimeoutExpired"
+        assert workspaces.calls == [] and not _live(daemon, job)

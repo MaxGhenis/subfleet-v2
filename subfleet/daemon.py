@@ -5296,11 +5296,16 @@ class Daemon:
                     # spelled below like any other.
                     derived = self._rediscovered(job)
                 except (OSError, subprocess.SubprocessError, SalvageError):
-                    # C-6.8's, as a workspace that cannot be prepared is. A turn whose folder
-                    # submit recorded is in a tree retention is retiring still waits on that
-                    # fence, as it did before git was asked.
+                    # C-6.8's, as a workspace that cannot be prepared is. Failure to
+                    # rediscover does not prove the recorded/current folders are clear:
+                    # turns and detached jobs still wait on their retirement fences.
                     if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
                                                                   tier, models, lanes, run_folder):
+                        continue
+                    if job["kind"] != "turn" and any(
+                            self._fence_hold(job, folder, holds, waiters, tier, models, lanes, fold=fold,
+                                             priority_waiters=priority_waiters if klass == "priority" else None)
+                            for folder, fold in self._detached_folders(job)):
                         continue
                     raise
                 # `_turn_folder`, from the one answer above.
