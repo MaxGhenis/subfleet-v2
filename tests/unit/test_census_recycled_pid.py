@@ -162,11 +162,13 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
         # A matching guardian can still own its members, but the recycled
         # child's unrelated group must never refresh the child's old identity.
         rows[child] = (1, child, "Ss", rows[child][3])
+    survivor = guardian + 2
+    survivor_identity = procs.ProcessIdentity(survivor, BOOT_A, rows[survivor][3])
     a = {"attempt_id": "job/a1", "job_id": "job", "seq": 1, "guardian_pid": guardian,
          "child_pid": None if leader else child, "pgid": guardian, "boot_id": BOOT_A,
          "proc_start": old.proc_start if leader else rows[guardian][3],
          "started_at": "2026-10-11T01:00:00Z", "evidence_json": json.dumps({
-             "owned_identities": {str(target): asdict(old)}})}
+             "owned_identities": {str(target): asdict(old), str(survivor): asdict(survivor_identity)}})}
     saved, signalled = {}, []
 
     class Store:
@@ -195,6 +197,12 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
         Daemon._kill_attempt(core, a)
     assert saved[str(target)] == asdict(old)
     assert all(identity.pid != target for identity in signalled)
+    assert survivor_identity in signalled
+    allowed = {survivor} | ({pid for pid, row in rows.items() if row[1] == guardian}
+                            if not leader else set())
+    assert {identity.pid for identity in signalled} <= allowed
+    assert all(identity.boot_id == BOOT_A and identity.proc_start == rows[identity.pid][3]
+               for identity in signalled)
 
 
 @PROPERTY
