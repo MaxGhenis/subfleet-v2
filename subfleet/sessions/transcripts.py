@@ -202,7 +202,7 @@ def claude_dir() -> Path:
     Every test points this at its own tree; nothing here ever writes.
     """
     from ..home_paths import home_path
-    return Path(home_path("SUBFLEET_CLAUDE_DIR", lambda: Path.home() / ".claude")).expanduser()
+    return Path(home_path("SUBFLEET_CLAUDE_DIR", lambda: Path.home() / ".claude", expand_override=True))
 
 
 def projects_dir() -> Path:

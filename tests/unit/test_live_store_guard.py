@@ -167,7 +167,8 @@ def test_consumers_cannot_bypass_refusal(tmp_path, monkeypatch, consumer, variab
         calls[consumer]()
 
 
-@pytest.mark.parametrize("mode", ["absent", "empty", "absolute", "relative", "tilde", "legacy-mcp"])
+@pytest.mark.parametrize("mode", ["absent", "empty", "absolute", "relative", "tilde", "legacy-mcp",
+                                  "literal-tilde-home"])
 def test_outside_pytest_matches_release_217(tmp_path, mode):
     """C-23.28: execute the original release functions and ours in a child.
 
@@ -179,7 +180,12 @@ def test_outside_pytest_matches_release_217(tmp_path, mode):
     fake_home.mkdir()
     env["HOME"] = str(fake_home)
     env["PYTHONPATH"] = str(REPO)
-    if mode != "absent" and mode != "legacy-mcp":
+    if mode == "literal-tilde-home":
+        # A literal tilde in HOME must not be expanded a second time. All
+        # resulting relative paths remain beneath this child's temporary cwd.
+        (tmp_path / "~" / "fake-home").mkdir(parents=True)
+        env["HOME"] = "~/fake-home"
+    if mode not in ("absent", "legacy-mcp", "literal-tilde-home"):
         chosen = {"empty": "", "absolute": str(tmp_path / "configured"),
                   "relative": "relative-config", "tilde": "~/configured"}[mode]
         env.update({name: chosen for name in SAFE_HOME_PATHS})

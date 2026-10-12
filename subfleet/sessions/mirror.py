@@ -312,7 +312,7 @@ def _project(value: Any) -> dict[str, Any]:
 def store_dir() -> Path:
     from ..home_paths import home_path
     return Path(home_path(STORE_ENV, lambda: Path.home() / "Library" / "Application Support"
-                          / "Claude" / "claude-code-sessions")).expanduser()
+                          / "Claude" / "claude-code-sessions", expand_override=True))
 
 
 def projects_dir() -> Path:

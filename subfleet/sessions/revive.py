@@ -150,7 +150,7 @@ def session_store_dir() -> Path:
     """
     from ..home_paths import home_path
     return Path(home_path("SUBFLEET_SESSION_STORE", lambda: Path.home() / "Library"
-                          / "Application Support" / "Claude" / "claude-code-sessions")).expanduser()
+                          / "Application Support" / "Claude" / "claude-code-sessions", expand_override=True))
 
 
 def store_metadata(session_id: str) -> dict[str, Any]:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 def home_path(variable: str, default: Callable[[], str | Path], *,
               env: Mapping[str, str] | None = None, accept_empty: bool = False,
-              test_only: bool = False) -> str | Path:
+              test_only: bool = False, expand_override: bool = False) -> str | Path:
     """Test-only guard against implicit access to the person's home stores.
 
     On 2026-10-12 a test's monkeypatch.undo() undid the desktop-store fixture,
@@ -17,8 +17,9 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     environment isolation is the first defense; while PYTEST_CURRENT_TEST is
     set, a missing override refuses the fallback here, before any file access.
     test_only supplies an isolation seam for defaults that historically had no
-    environment override, preserving their behavior outside pytest. Return raw
-    overrides so each caller retains its existing expansion and empty handling.
+    environment override, preserving their behavior outside pytest. Optional
+    expansion applies only to overrides, never to an already constructed default;
+    raw overrides let other callers retain their expansion and empty handling.
     """
     testing = "PYTEST_CURRENT_TEST" in os.environ
     if test_only and not testing:
@@ -26,7 +27,7 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     values = os.environ if env is None else env
     override = values.get(variable)
     if override or (accept_empty and override is not None):
-        return override
+        return Path(override).expanduser() if expand_override else override
     if testing:
         raise RuntimeError(f"Refusing personal path fallback under pytest; set {variable} "
                            "to an isolated test path")

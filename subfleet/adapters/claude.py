@@ -1289,7 +1289,7 @@ class ClaudeAdapter(Adapter):
         )
         from ..home_paths import home_path
         base = Path(config).expanduser() if config else Path(home_path(
-            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude")).expanduser()
+            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude", expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:

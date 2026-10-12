@@ -60,7 +60,7 @@ DEFAULT_TIMEOUT_S = 5.0
 def claude_dir() -> Path:
     """`~/.claude`, overridable exactly as v1 overrides it (`paths.claude_dir`)."""
     from .home_paths import home_path
-    return Path(home_path("SUBFLEET_CLAUDE_DIR", lambda: Path.home() / ".claude")).expanduser()
+    return Path(home_path("SUBFLEET_CLAUDE_DIR", lambda: Path.home() / ".claude", expand_override=True))
 
 
 def sessions_dir() -> Path:
