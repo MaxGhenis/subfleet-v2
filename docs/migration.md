@@ -106,7 +106,9 @@ The unchanged-reader promise covers persisted decision inputs. `why`'s live queu
 
 The full-history readers retain every attempt-linked decision, every row of an unfinished job, both latest-row choices, and both latest attempt-less choices. They do not promise the original row count. Existing archives are untouched and can still be verified, read (`rows.json`), and restored by the retention tools. Retention restore restores files and Git objects; it does not reinsert archived database rows into the live store. The pre-prune whole-store copy and gzip deleted-row backup preserve the original decision history for recovery.
 
-Schema 7 has no foreign key targeting `decisions`. The pass enumerates all application tables from `sqlite_master`, including `job_owned_branches`, `job_pushes`, and `service_notices`; `decisions` and `events` have separate proofs. It holds the same exclusive `flock` on `daemon.lock` as this line's daemon and refuses while the daemon holds it. The audit kind `decisions.pruned` is valid JSON with no job id: generic event readers tolerate arbitrary kinds, while recovery and job-specific readers filter for their own kinds. A writing pass refuses schemas older than this build's schema 7 before `Store` can migrate or initialize them, including schema 0 (an absent or empty version record); newer schemas are also refused by `Store`.
+Archives made after a prune contain no pruning marker or record of the original decision count. Their `rows.json` alone cannot establish the original history; keep the prune report and pre-prune backups for that provenance. This pass documents the caveat and does not add an archive marker.
+
+Schema 7 has no foreign key targeting `decisions`. The pass enumerates all application tables from `sqlite_master`, including `job_owned_branches`, `job_pushes`, and `service_notices`; `decisions` and `events` have separate proofs. It holds the same exclusive `flock` on `daemon.lock` as this line's daemon and refuses while the daemon holds it. The audit kind `decisions.pruned` is valid JSON with no job id: generic event readers tolerate arbitrary kinds, while recovery and job-specific readers filter for their own kinds. A writing pass refuses schemas older than this build's schema 7 before `Store` can migrate or initialize them, including schema 0 (an absent or empty version record); newer schemas are also refused by `Store`. It also refuses missing expected tables, and opens the existing writer without applying schema DDL, so neither tables nor indexes are repaired before the baseline or backup.
 
 **The commands.**
 
@@ -123,8 +125,10 @@ The dry run is the default and computes the real keep and delete sets, the exact
 
 **The backups, and restoring from them.** Before the first delete a real pass writes both of these to `<state root>/backups/` (0700, files 0600) and verifies them:
 
-- `state-<utc>.sqlite3` — a whole `VACUUM INTO` copy of the store, checked with `PRAGMA integrity_check`. Restore it with the procedure below.
+- `state-<utc>.sqlite3` — a whole `VACUUM INTO` copy of the store, checked with `PRAGMA integrity_check` and every table's row count and content digest against the planning snapshot. The same canonical row hashing is used for the after-proofs. The copy must be content-equal to that snapshot before any DELETE; its verified fingerprints are recorded under `backups.copy.fingerprints`. Restore it with the procedure below.
 - `decisions-pruned-<utc>.jsonl.gz` — every deleted row as one JSON object per line with every column, re-read and checked against the row count and digest recorded while writing. Its SHA-256 is in the report (`shasum -a 256` confirms it later). To put rows back without restoring the whole store, `INSERT` them from the file.
+
+After deletion, the proof also hashes the complete event table, including the new prune audit payload bytes. `--vacuum` must preserve that digest as well as the original append-only event history, other tables, retained decisions, and reader answers.
 
 <!-- prune-restore:start -->
 Stop the daemon with `subfleet daemon stop`. If its launchd job is
