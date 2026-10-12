@@ -179,11 +179,11 @@ def cmd_suggest(args: argparse.Namespace) -> int:
             else:
                 brief = sys.stdin.read()
         except (OSError, UnicodeDecodeError) as exc:
-            return fail(Exit.INVALID_INPUT, scrub_error(f"cannot read the brief: {exc}"))
+            return fail(Exit.INVALID_INPUT, scrub_error(exc, prefix="cannot read the brief: "))
         try:
             workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
         except OSError as exc:
-            return fail(Exit.OPERATIONAL, scrub_error(f"cannot resolve the workspace: {exc}"))
+            return fail(Exit.OPERATIONAL, scrub_error(exc, prefix="cannot resolve the workspace: "))
         op, payload = "suggestion.create", {
             "request_id": args.request_id or str(uuid.uuid4()), "title": args.title, "tldr": args.tldr,
             "brief": brief, "workspace": workspace, "worktree": bool(args.worktree), "provider": args.provider,

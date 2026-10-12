@@ -262,16 +262,16 @@ class ConversationService:
         try:
             response = protocol.ok(req.id, self.handle(req.op, req.args, peer, client_gone=gone))
         except ConversationError as exc:
-            response = protocol.fail(req.id, exc.code, suggestions.scrub_error(f"{exc.reason}: {exc}"),
+            response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc, prefix=f"{exc.reason}: "),
                                      suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc),
                                      suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (ValueError, TypeError, KeyError) as exc:
-            response = protocol.fail(req.id, 2, suggestions.scrub_error(f"invalid arguments: {exc}"))
+            response = protocol.fail(req.id, 2, suggestions.scrub_error(exc, prefix="invalid arguments: "))
         except Exception as exc:
             self.log.error("%s", suggestions.scrub_error(
-                f"conversation op {req.op} failed: {type(exc).__name__}: {exc}"))
+                exc, prefix=f"conversation op {req.op} failed: {type(exc).__name__}: "))
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         descriptors.send_reply(conn, write_lock, response, end_stream=getattr(self.daemon, "_end_stream", None))
 
@@ -628,7 +628,7 @@ class ConversationService:
                                                  kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
             return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
         except ConversationError as exc:
-            return {"ok": False, "reason": suggestions.scrub_error(f"{exc.reason}: {exc}"),
+            return {"ok": False, "reason": suggestions.scrub_error(exc, prefix=f"{exc.reason}: "),
                     "fix": suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None,
                     "workspace": workspace}
 
@@ -658,7 +658,7 @@ class ConversationService:
                 raise ConversationError("protected-branch", suggestions.scrub_error(exc), code=exc.code,
                                         fix=suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None) from exc
             except SalvageError as exc:
-                raise ConversationError("git-unavailable", suggestions.scrub_error(f"could not inspect {workspace}: {exc}"), code=1,
+                raise ConversationError("git-unavailable", suggestions.scrub_error(exc, prefix=f"could not inspect {workspace}: "), code=1,
                                         fix="try again") from exc
         return workspace
 
@@ -667,7 +667,7 @@ class ConversationService:
         try:
             return git_toplevel(directory, timeout_s=self._git_timeout_s())
         except SalvageError as exc:
-            raise ConversationError("git-unavailable", suggestions.scrub_error(f"could not inspect {directory}: {exc}"), code=1,
+            raise ConversationError("git-unavailable", suggestions.scrub_error(exc, prefix=f"could not inspect {directory}: "), code=1,
                                     fix="try again") from exc
 
     def _git_timeout_s(self, key: str = "workspace_git_timeout_s") -> float:
@@ -693,7 +693,7 @@ class ConversationService:
                 return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
                                       errors="backslashreplace", timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
-                raise ConversationError("worktree-failed", suggestions.scrub_error(f"git {argv[0]} did not finish: {exc}"), code=1,
+                raise ConversationError("worktree-failed", suggestions.scrub_error(exc, prefix=f"git {argv[0]} did not finish: "), code=1,
                                         fix="repeat conversation.create with the same request_id") from exc
 
         adopted = False
@@ -1149,7 +1149,7 @@ class ConversationService:
             reason = exc.reason if isinstance(exc, ConversationError) else type(exc).__name__
             if not self._closed:
                 with contextlib.suppress(Exception):
-                    self.suggestions.note_error(sid, suggestions.scrub_error(f"{reason}: {exc}"))
+                    self.suggestions.note_error(sid, suggestions.scrub_error(exc, prefix=f"{reason}: "))
             raise
         if not created:
             self.suggestions.finish(sid, mid)       # accepted by a start cut short after it
@@ -1215,7 +1215,7 @@ class ConversationService:
         except Exception as exc:
             if not self._closed:
                 self.log.warning("%s", suggestions.scrub_error(
-                    f"finishing the start of suggestion {sid} failed (try {tries}): {type(exc).__name__}: {exc}"))
+                    exc, prefix=f"finishing the start of suggestion {sid} failed (try {tries}): {type(exc).__name__}: "))
         finally:
             with self._lock:
                 # The n-th try failing waits 2, 4, 8, ... s, at most DEFER_MAX_S (C-25.7).
@@ -2127,10 +2127,10 @@ class ConversationService:
                 if self._closed:
                     # close() overtook the step (its store now refuses): no failure of the step's own.
                     self.log.info("%s", suggestions.scrub_error(
-                        f"conversation tick step {step.__name__} stopped: the service closed ({type(exc).__name__}: {exc})"))
+                        exc, prefix=f"conversation tick step {step.__name__} stopped: the service closed ({type(exc).__name__}): "))
                     return
                 self.log.error("%s", suggestions.scrub_error(
-                    f"conversation tick step {step.__name__} failed: {type(exc).__name__}: {exc}"))
+                    exc, prefix=f"conversation tick step {step.__name__} failed: {type(exc).__name__}: "))
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
 

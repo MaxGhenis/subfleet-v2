@@ -183,9 +183,27 @@ def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
     return bounded(clean, limit, "…")
 
 
-def scrub_error(error: Any) -> str:
-    """A start's error as a suggestion keeps, shows and returns it: `scrubbed_line`."""
-    return scrubbed_line(str(error)) or "the start failed"
+def scrub_error(error: Any, *, prefix: str = "") -> str:
+    """A suggestion's diagnostic, scrubbed before exception quoting and folding.
+
+    String exception arguments are the original message: KeyError's repr and a
+    multi-argument exception's tuple repr can escape credential delimiters. Keep
+    those arguments raw until they are scrubbed, with the diagnostic prefix.
+    """
+    if isinstance(error, BaseException) and error.args and all(isinstance(arg, str) for arg in error.args):
+        text = "\n".join(error.args)
+    elif isinstance(error, BaseException) and (isinstance(error, KeyError) or
+                                             type(error).__str__ is BaseException.__str__):
+        text = "\n".join(str(arg) for arg in error.args)
+    else:
+        text = str(error)
+    if isinstance(error, OSError):
+        # OSError uses repr for filenames, which can escape assignment quotes.
+        for name in ("filename", "filename2"):
+            filename = getattr(error, name, None)
+            if isinstance(filename, str):
+                text = text.replace(repr(filename), filename)
+    return scrubbed_line(prefix + text) or "the start failed"
 
 
 def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | None) -> None:

@@ -307,8 +307,9 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
     parts: list[str] = []
     cursor = 0
     quote_ends: dict[int, int] | None = None
+    ranges: list[tuple[int, int, str]] = []
     for token in _IDENTIFIER_RE.finditer(text):
-        if token.start() < cursor:
+        if token.start() < cursor and not (quoted and multiline):
             continue
         key = token.group()
         if not _SENSITIVE_SUFFIX_RE.search(key[-17:]):
@@ -347,6 +348,19 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     continue
                 end = value.end()
                 out = text[start:value_start] + REDACTED
+        if quoted and multiline:
+            # A surrounding assignment can end at an inner value's opening
+            # quote. Mask the union of overlapping matches, including the inner
+            # value beyond that quote, instead of skipping its candidate key.
+            if ranges and start < ranges[-1][1]:
+                previous_start, previous_end, previous_out = ranges[-1]
+                ranges[-1] = (previous_start, max(previous_end, end), previous_out)
+            else:
+                ranges.append((start, end, out))
+        else:
+            parts.extend((text[cursor:start], replace(text[start:end], out)))
+            cursor = end
+    for start, end, out in ranges:
         parts.extend((text[cursor:start], replace(text[start:end], out)))
         cursor = end
     parts.append(text[cursor:])

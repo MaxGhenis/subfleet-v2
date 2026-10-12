@@ -69,7 +69,7 @@ secrets = st.one_of(
 )
 separators = st.sampled_from([" ", "\n", "\t", " (", "] ", ", ", "\r\n", "\u2003", "\u2028"])
 #: Unicode prose and whitespace around each credential.
-padding = st.text(string.ascii_lowercase + "界右🧪éα .:\n\r\t\u2003\u2028", max_size=1200)
+padding = st.text(string.ascii_lowercase + "界右🧪éα .:'\"\n\r\t\u2003\u2028", max_size=1200)
 
 
 def said(before: str, left: str, secret: str, right: str, after: str) -> str:

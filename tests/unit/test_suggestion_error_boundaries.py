@@ -18,7 +18,7 @@ from subfleet.client import DaemonError, DaemonUnavailable
 from subfleet.conversations import suggestions
 from subfleet.conversations.store import ConversationError
 from tests.unit.test_suggestion_secret_properties import (
-    PERSON, assert_secret_absent, fixture, padding, said, secrets, separators,
+    AGENT, PERSON, assert_secret_absent, everything_shown, fixture, origin_turn, padding, said, secrets, separators,
 )
 
 
@@ -153,3 +153,41 @@ def test_a_brief_is_scrubbed_again_after_line_end_normalization():
     secret = "authorization: Basic SECRET7-left-右秘密-TAIL8"
     words, _ = suggestions.normalize("Fixture", "Fixture", "ordinary\r" + secret)
     assert_secret_absent(words, secret)
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+@pytest.mark.parametrize("key", ["password", "token"])
+def test_overlapping_quoted_assignments_cannot_hide_an_inner_secret(quote, key):
+    secret = "token=" + quote + "SECRET7-left\n右秘密-TAIL8" + quote
+    assert_secret_absent(suggestions.scrub_error(key + "=" + quote + "public " + secret), secret)
+
+
+@pytest.mark.parametrize("kind", ["key", "multiple strings", "mixed arguments", "filename"])
+def test_exception_quoting_cannot_hide_a_sensitive_assignment(kind):
+    secret = "password='SECRET7-left\n右秘密-TAIL8'"
+    text = 'failure said "ok" ' + secret
+    error = (KeyError(text) if kind == "key" else ValueError("failure", text) if kind == "multiple strings" else
+             TypeError(5, text) if kind == "mixed arguments" else OSError(5, "failure", text))
+    assert_secret_absent(suggestions.scrub_error(error, prefix="failure: "), secret)
+
+
+def test_key_error_quoting_is_safe_in_storage_wire_events_and_retry_logs():
+    secret = "password='SECRET7-left\n右秘密-TAIL8'"
+    with fixture() as service:
+        cid, job = origin_turn(service)
+        row = service.handle("suggestion.create", {
+            "request_id": "8497810a-2c51-4a24-83bc-6c164edff181", "title": "Fixture", "tldr": "Fixture",
+            "brief": "Fixture brief", "workspace": str(service.folder / "work"), "calling_job": job,
+        }, AGENT)["suggestion"]
+        sid = row["suggestion_id"]
+
+        def fail(**kwargs):
+            raise KeyError('failure said "ok" ' + secret)
+
+        service.store.submit_message = fail
+        response = reply(service, args={"suggestion_id": sid})
+        assert response["ok"] is False and response["error"]["code"] == 2
+        service._resume_start(sid, 1, service.clock())
+        shown = everything_shown(service, sid, cid, response["error"]["message"])
+        shown["response"] = response
+        assert_secret_absent(shown, secret)

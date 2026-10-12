@@ -68,3 +68,11 @@ Additional normalization check: converting a bare CR into a newline can create
 an Authorization header boundary. The brief is now scrubbed again after newline
 normalization. A direct probe exposed its value before this follow-up; a focused
 regression is included with the contract update.
+
+Broader surrounding-text probes exposed two more cases: exception repr can escape
+a quoted assignment's delimiters, and an overlapping surrounding assignment can
+hide an inner value. Diagnostics now receive the exception object plus a prefix,
+using original string arguments and unquoted OS filenames; whole-text assignment
+matching merges overlapping ranges before replacement. Focused regressions cover
+KeyError across real storage/wire/events/retry logs, mixed/multiple arguments,
+filenames, and overlapping quoted credentials.
