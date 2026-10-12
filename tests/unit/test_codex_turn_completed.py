@@ -8,7 +8,7 @@ import tempfile
 import pytest
 from hypothesis import example, given, seed, settings, strategies as st
 
-from subfleet.adapters.codex import CodexAdapter, model_answered
+from subfleet.adapters.codex import CodexAdapter, completion_evidence, model_answered
 from subfleet.contracts import ExitInfo, OutcomeClass
 from tests.unit.test_codex_adapter import FIXTURES, THREAD, _events, _exit, _job, _lane, _launch
 
@@ -98,6 +98,22 @@ def test_completion_and_answered_have_distinct_evidence(tmp_path):
     assert outcome.cls == OutcomeClass.OK
     assert outcome.evidence["model_answered"] is False
     assert outcome.evidence["turn_completed"] is True
+
+
+def test_stream_after_reader_boundaries_and_large_output_keeps_completion(tmp_path):
+    """Port the review's >65 MiB, split-write, no-final-newline input."""
+    launch = _events(tmp_path, MESSAGE)
+    path = Path(launch.raw_stream_path)
+    padding = (b'{"type":"item.updated","item":{"type":"command_execution","text":"'
+               + b"x" * (1024 * 1024) + b'"}}\n')
+    with path.open("ab") as stream:
+        for _ in range(65):
+            stream.write(padding)
+        stream.write(b'{"type":"turn.com')
+        stream.write(b'pleted"}')
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
+    assert completion_evidence(tmp_path, launch) == {"turn_completed": True, "last_event_type": "turn.completed"}
 
 
 @pytest.mark.parametrize("auth,admission,deliverable", [

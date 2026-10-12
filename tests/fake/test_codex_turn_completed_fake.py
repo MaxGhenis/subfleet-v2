@@ -1,6 +1,6 @@
 """D-SHUT1 acceptance, export, retry and replay with the real Codex adapter."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 from pathlib import Path
 
@@ -8,6 +8,8 @@ import pytest
 
 from subfleet import daemon as module
 from subfleet.adapters.codex import CodexAdapter
+from subfleet.contracts import ExitInfo, OutcomeClass
+from subfleet.daemon import Daemon
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
 
 
@@ -15,7 +17,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 CUT_OFF_CASES = ("cut-off-item-completed", "cut-off-item-started", "cut-off-error")
 
 
-def finalize_fixture(daemon, adapter, attempt, adir, case):
+def stage_fixture(daemon, adapter, attempt, adir, case, *, rc=0):
     spec = daemon._spec(daemon.store.get_job(attempt["job_id"]))
     launch = adapter.build_launch(spec, attempt["attempt_id"], adir,
                                   daemon.store.get_lane(attempt["lane_id"]), {},
@@ -24,8 +26,13 @@ def finalize_fixture(daemon, adapter, attempt, adir, case):
     saved.pop("env_add")
     (adir / "launch.json").write_text(json.dumps(saved))
     fixture = FIXTURES / case
-    finalizing = receipt_fixture(daemon, attempt, adir, stdout=(fixture / "stdout").read_bytes())
+    finalizing = receipt_fixture(daemon, attempt, adir, rc=rc, stdout=(fixture / "stdout").read_bytes())
     (adir / "stderr").write_bytes((fixture / "stderr").read_bytes())
+    return launch, finalizing
+
+
+def finalize_fixture(daemon, adapter, attempt, adir, case):
+    _, finalizing = stage_fixture(daemon, adapter, attempt, adir, case)
     daemon._finalize(finalizing)
 
 
@@ -117,3 +124,67 @@ def test_cut_off_verdict_survives_finalization_replay(state_daemon, monkeypatch)
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
     assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
+
+
+@pytest.mark.parametrize("path", ("fresh", "cached", "legacy", "recovery"))
+@pytest.mark.parametrize("complete", (False, True))
+@pytest.mark.parametrize("rc", (0, 1))
+@pytest.mark.parametrize("last", (None, "interim", "final"))
+def test_i1_succeeded_requires_completion_on_every_finalization_path(
+        state_daemon, monkeypatch, path, complete, rc, last):
+    """Exhaustive 48-case daemon invariant, including pre-upgrade receipts."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_text("previous output\n")
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=1, out_path=str(out))
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "cut-off-item-completed", rc=rc)
+    interim = json.loads((adir / "stdout").read_text().splitlines()[-1])["item"]["text"]
+    if complete:
+        with (adir / "stdout").open("a") as stream:
+            stream.write('{"type":"turn.completed"}\n')
+    if last is not None:
+        (adir / "last.md").write_text(interim if last == "interim" else "Final result.")
+    if path != "fresh":
+        outcome = adapter.classify(adir, launch, ExitInfo(rc, None, .1, None, None))
+        # Replay untrusted `ok`, even a cached claim of completion. Only the
+        # attempt stream can prove it; the legacy schema lacks those fields.
+        evidence = {**outcome.evidence, "turn_completed": True, "last_event_type": "turn.completed"}
+        if path in ("legacy", "recovery"):
+            evidence.pop("turn_completed")
+            evidence.pop("last_event_type")
+        verdict = replace(outcome, cls=OutcomeClass.OK, detail="legacy provider success", evidence=evidence)
+        attest = adapter.attest(adir, launch, verdict, attempt["model_requested"])
+        (adir / "finalization.json").write_text(json.dumps({"outcome": asdict(verdict),
+                                                           "attestation": asdict(attest)}))
+        def refuse_reclassification(*args):
+            raise AssertionError("cached provider classification was repeated")
+        monkeypatch.setattr(adapter, "classify", refuse_reclassification)
+    successor = None
+    try:
+        if path == "recovery":
+            daemon.close()
+            successor = daemon = Daemon(harness.root)
+            monkeypatch.setattr(daemon, "_launch", lambda *args: pytest.fail("recovery must not launch"))
+            daemon._process_attempt(attempt["attempt_id"])
+        else:
+            daemon._finalize(finalizing)
+        job = daemon.store.get_job(job_id)
+        accepted = complete and rc == 0
+        assert (job["state"] == "succeeded") == accepted
+        assert job["accepted_attempt_id"] == (attempt["attempt_id"] if accepted else None)
+        row = daemon.store.get_attempt(attempt["attempt_id"])
+        evidence = json.loads(row["evidence_json"])
+        if not complete:
+            assert row["outcome_class"] == "transient"
+            assert evidence["classification"]["turn_completed"] is False
+            assert evidence["classification"]["last_event_type"] == "item.completed"
+            if path != "fresh":
+                assert evidence["provider_verdict"] == {
+                    "class": "ok", "detail": "legacy provider success", "killed_by": None}
+        assert out.read_text() == ((adir / "deliverable.md").read_text() if accepted else "previous output\n")
+        assert len(daemon.store.list_notices()) == 1
+    finally:
+        if successor is not None:
+            successor.close()
