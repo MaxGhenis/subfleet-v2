@@ -2,10 +2,9 @@
 
 Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
-`add_decision` each time a routing verdict left a job waiting), and nothing
-reads those rows again: `subfleet why` (the daemon's `why` verb) and offline
-`runs show` each serve one row per job, and no foreign key in
-`store_schema.sql` points at `decisions`. #16 stopped the repeats — a wait
+`add_decision` each time a routing verdict left a job waiting). The latest-row
+readers need only two rows per job, but retention archives and the store's
+history method read all rows. No foreign key in schema 7 points at `decisions`. #16 stopped the repeats — a wait
 that reaches the verdict it reached last time adds no row (C-6.10) — and this
 module is the one-off operator pass that gives back the space the rows already
 written take. The dry run measures how many of them a store holds.
@@ -19,10 +18,24 @@ What it guarantees:
   rather than written to, because opening one for writing migrates it
   (`store.py` `_migrate`), which would write `schema_version` and `events` rows
   before this pass could copy or fingerprint anything.
-* **No reader loses a row.** The keep set is built from `KEEP_QUERIES`, whose
-  first two statements are the readers of `READER_QUERIES`; after the pass those
-  two are asked again for every affected job, and the bytes they return must be
-  identical to the bytes they returned before.
+* **Latest answers unchanged.** The daemon's `why` selects the greatest
+  `decision_id`: its `decision_json` and `evaluated_at` stay byte-identical.
+  Offline `runs show` selects the greatest `(evaluated_at, decision_id)`:
+  its `decision_json` stays byte-identical. `KEEP_QUERIES` keeps both choices
+  separately. `READER_QUERIES` repeats both reads for every job, including jobs
+  with no decisions, after deletion and again after `--vacuum`.
+* **Full histories intentionally shrink.** `retention_archive.job_rows` and
+  `Store.list_decisions` read all rows in `decision_id` order. For a pruned job
+  their answers change to the retained subsequence, with every surviving row
+  unchanged. An archive made after the prune holds fewer decision rows than
+  one made before. Existing archives are untouched, remain readable through
+  `rows.json`, and can still be verified and restored by the retention tools.
+  Retention restore restores files and Git objects; it does not reinsert
+  `rows.json` into the live store. `Store.list_decisions` has only test callers
+  on release/217. Neither full-history reader promises the original row count.
+  Every attempt-linked row, every unfinished job's row, and the latest
+  attempt-less rows under both orderings remain. The whole-store backup and
+  gzip row backup preserve the original history for recovery.
 * **Recoverable.** A real pass writes two backups before the first DELETE: a
   `VACUUM INTO` copy of the whole store, verified with `PRAGMA integrity_check`,
   and every row it is about to delete as gzipped JSON lines, re-read and checked
@@ -169,7 +182,7 @@ NEEDED_MARGIN_TEXT = "512 MiB"
 #: added to the select list, which chooses no other row. The prune keeps the row
 #: each one selects, and proves afterwards that both still return the same bytes.
 READER_QUERIES: dict[str, str] = {
-    "why": "SELECT decision_id, decision_json FROM decisions WHERE job_id=?"
+    "why": "SELECT decision_id, decision_json, evaluated_at FROM decisions WHERE job_id=?"
            " ORDER BY decision_id DESC LIMIT 1",
     "show_job": "SELECT decision_id, decision_json FROM decisions WHERE job_id = ?"
                 " ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1",
@@ -513,12 +526,12 @@ def _digest_ids(conn: sqlite3.Connection, ids: Sequence[int], batch_size: int) -
 
 
 def _reader_bytes(conn: sqlite3.Connection, jobs: Sequence[str]) -> dict[str, dict[str, Any]]:
-    """What each reader serves for these jobs, as the bytes it would return."""
+    """What each reader serves for these jobs, as the stored fields it consumes, without parsing or reserializing JSON."""
     served: dict[str, dict[str, Any]] = {}
     for job_id in jobs:
         for name, sql in READER_QUERIES.items():
             row = conn.execute(sql, (job_id,)).fetchone()
-            served.setdefault(job_id, {})[name] = row["decision_json"] if row else None
+            served.setdefault(job_id, {})[name] = dict(row) if row else None
     return served
 
 
@@ -549,8 +562,9 @@ def plan(conn: sqlite3.Connection) -> Plan:
 
     A row is kept when it carries an attempt id (C-11.5: the decision is stored
     per attempt), when one of `KEEP_QUERIES` selects it for its job, or when its
-    job is not terminal. Everything else is redundant: no reader in the package
-    reaches it and no foreign key names it.
+    job is not terminal. Everything else is omitted from future full histories
+    intentionally: latest answers are preserved, not the original history
+    length. No foreign key names a decision row on schema 7.
     """
     states = {row["job_id"]: row["state"] for row in conn.execute("SELECT job_id, state FROM jobs")}
     # `length()` over a TEXT column counts characters, and `store._json` writes
@@ -883,7 +897,9 @@ def _pass_body(store: Store, report: PruneReport, *, database: Path, state_root:
     events_max = conn.execute("SELECT COALESCE(MAX(event_id),0) AS top FROM events").fetchone()["top"]
     events_before = _digest(conn.execute("SELECT * FROM events WHERE event_id<=?", (events_max,)))
     kept_before = _digest_ids(conn, sorted(planned.keep), batch_size)
-    readers_before = _reader_bytes(conn, planned.affected)
+    reader_jobs = [row["job_id"] for row in conn.execute(
+        "SELECT job_id FROM jobs UNION SELECT job_id FROM decisions ORDER BY job_id")]
+    readers_before = _reader_bytes(conn, reader_jobs)
     report.fingerprints = {"before": {**before, "events": events_before,
                                       "decisions-kept": kept_before}}
     report.space = _space(database, state_root, backups,
@@ -978,7 +994,7 @@ def _invariants(conn: sqlite3.Connection, *, planned: Plan, before: dict[str, di
     Every other table counted and digested again and matching byte for byte;
     `events` holding the rows it already had, unchanged; `decisions` being
     exactly the rows the plan kept, unchanged; both readers returning the same
-    bytes for every affected job; `PRAGMA integrity_check` and
+    bytes (including `why`'s timestamp) for every job; `PRAGMA integrity_check` and
     `PRAGMA foreign_key_check` clean. Returns what did not hold, what was found,
     and the after-fingerprints. `_verify` takes it once the last batch has
     committed and `_reverify` again once `--vacuum` has rewritten every page.
@@ -995,7 +1011,7 @@ def _invariants(conn: sqlite3.Connection, *, planned: Plan, before: dict[str, di
     kept_after = _digest(conn.execute("SELECT * FROM decisions"))
     if kept_after != kept_before:
         mismatches.append(f"the kept decisions changed: {kept_before} -> {kept_after}")
-    readers_after = _reader_bytes(conn, planned.affected)
+    readers_after = _reader_bytes(conn, sorted(readers_before))
     differing = sorted(job for job in readers_before if readers_before[job] != readers_after.get(job))
     if differing:
         mismatches.append(f"a reader returns different bytes for {', '.join(differing[:5])}"

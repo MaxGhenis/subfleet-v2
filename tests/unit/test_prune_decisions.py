@@ -264,7 +264,7 @@ def test_the_two_readers_return_identical_bytes_for_every_affected_job(seeded):
                    json.dumps(Offline(root).show_job(job)["decision"], sort_keys=True))
              for job in (TERMINAL, MIXED, LIVE)}
     assert after == before
-    assert report.verification["readers_identical"] == report.verification["readers_checked"] == 2
+    assert report.verification["readers_identical"] == report.verification["readers_checked"] == 3
 
 
 def test_the_daemon_and_offline_readers_keep_the_rows_they_each_select(seeded):

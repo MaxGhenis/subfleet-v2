@@ -93,6 +93,19 @@ Stop admission; drain or re-adopt attempts; `VACUUM INTO '<state root>/backups/s
 
 **What is kept.** Every row with an `attempt_id` (C-11.5); per job the row `subfleet why` selects (`ORDER BY decision_id DESC LIMIT 1`) and the row offline `runs show` selects (`ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1`), and the same two over the attempt-less rows alone; and every row of a job that is not terminal — a waiting job's history belongs to the daemon. Everything else is deleted. Nothing outside `decisions` is written but the one `events` row per delete batch that C-3.2 requires.
 
+**Reader promises on release/217 (schema 7).**
+
+| Reader | Answer after pruning |
+| --- | --- |
+| Daemon `why` (`daemon.py`, `_why_job`) | Unchanged stored `decision_json` and `evaluated_at` from the greatest `decision_id`; the new jobless prune event does not affect its refusal lookup. |
+| Offline `runs show` (`offline.py`, `show_job`) | Unchanged `decision_json` from the greatest `(evaluated_at, decision_id)`, even when this is a different row from `why`. |
+| Retention archive (`retention_archive.py`, `job_rows`) | Intentionally fewer rows for a pruned job, in the same `decision_id` order, with every surviving row unchanged. An archive made after the prune holds fewer decision rows than one made before. |
+| `Store.list_decisions` (`store.py`) | Intentionally the retained subsequence rather than the original full history. On this line its callers are tests in `test_probe_turn`, `test_routing_end_to_end`, `test_admission_visibility`, and `test_capacity_wait_backoff`; no production caller uses it. |
+
+The full-history readers retain every attempt-linked decision, every row of an unfinished job, both latest-row choices, and both latest attempt-less choices. They do not promise the original row count. Existing archives are untouched and can still be verified, read (`rows.json`), and restored by the retention tools. Retention restore restores files and Git objects; it does not reinsert archived database rows into the live store. The pre-prune whole-store copy and gzip deleted-row backup preserve the original decision history for recovery.
+
+Schema 7 has no foreign key targeting `decisions`. The pass enumerates all application tables from `sqlite_master`, including `job_owned_branches`, `job_pushes`, and `service_notices`; `decisions` and `events` have separate proofs. It holds the same exclusive `flock` on `daemon.lock` as this line's daemon and refuses while the daemon holds it. The audit kind `decisions.pruned` is valid JSON with no job id: generic event readers tolerate arbitrary kinds, while recovery and job-specific readers filter for their own kinds. A writing pass refuses schemas older than this build's schema 7 before `Store` can migrate them; newer schemas are also refused by `Store`.
+
 **The commands.**
 
 ```
@@ -151,7 +164,7 @@ if installed, or `subfleet daemon start`. Keep the displaced files and backup
 until the restore is verified.
 <!-- prune-restore:end -->
 
-**What the pass proves before it reports success.** Every table other than `decisions` and `events` is counted and digested before and after and must match; the tables are enumerated from `sqlite_master`, so one added later is covered. `events` must hold its existing rows unchanged and gain exactly one `decisions.pruned` row per batch. The surviving `decisions` rows must be byte-identical to the rows the plan kept, `COUNT(DISTINCT job_id)` unchanged, and both reader queries must return identical `decision_json` for every affected job. `PRAGMA integrity_check` and `PRAGMA foreign_key_check` must be clean. Any mismatch exits non-zero, saves the report, and names the copy to restore from. A second pass is a no-op: the keep set is everything that is left.
+**What the pass proves before it reports success.** Every table other than `decisions` and `events` is counted and digested before and after and must match; the tables are enumerated from `sqlite_master`, so one added later is covered. `events` must hold its existing rows unchanged and gain exactly one `decisions.pruned` row per batch. The surviving `decisions` rows must be byte-identical to the rows the plan kept, `COUNT(DISTINCT job_id)` unchanged, and both latest-row reader queries must return identical stored fields for every job, including jobs without decisions (`why` also reads `evaluated_at`). The archive and store full-history readers intentionally return the unchanged retained subsequence. These proofs are repeated after `--vacuum`. `PRAGMA integrity_check` and `PRAGMA foreign_key_check` must be clean. Any mismatch exits non-zero, saves the report, and names the copy to restore from. A second pass is a no-op: the keep set is everything that is left.
 
 ## Dry run against the real v1 state, 2026-09-05 16:21 EDT
 
