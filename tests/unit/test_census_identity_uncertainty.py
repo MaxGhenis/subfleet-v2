@@ -43,9 +43,23 @@ def test_incomparable_orphan_record_keeps_writer_protection(monkeypatch):
 
 
 def test_clock_step_forward_cannot_prove_unrecorded_root_reuse(monkeypatch):
+    # A clock advance before birth followed by rollback before the exit receipt
+    # can put the genuine birth after the recorded finish time.
     install(monkeypatch, {43: (1, 43, "Ss", start(1000))})
     result = procs.containment(42, 42, 43, "job/a1",
                                started_at="2026-10-11T01:00:00Z",
                                finished_at="2026-10-11T01:01:00Z")
     assert result.descendant_pids == {43}
     assert result.unverifiable and not result.verified_empty and not result.recycled
+
+
+def test_recycled_zombie_group_excludes_strangers_and_keeps_owned_orphan(monkeypatch):
+    install(monkeypatch, {42: (1, 42, "Z", start(1000)),
+                          43: (42, 42, "S", start(1001)),
+                          44: (1, 44, "Ss", start(2))})
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities={
+        42: procs.ProcessIdentity(42, BOOT_A, start()),
+        44: procs.ProcessIdentity(44, BOOT_A, start(2))})
+    assert not result.group_pids
+    assert result.descendant_pids == result.live_pids == {44}
+    assert 42 in result.recycled and not result.verified_empty

@@ -432,18 +432,24 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         """Only a comparable recorded identity can prune a walk or group."""
         if pid in checked:
             return pid in recycled
-        if not live(pid) or seen is None:
+        if pid not in table or seen is None:
             return False
         checked.add(pid)
         began = table[pid][3]
         known = recorded_identities.get(pid)
         reason = None
+        needs_comparison = live(pid) or (pid == pgid and bool(groups))
         if known and known.boot_id and known.proc_start:
             if not began:
-                errors.append(f"start identity unavailable for root pid {pid}")
+                if needs_comparison:
+                    errors.append(f"start identity unavailable for root pid {pid}")
                 return False
             if began != known.proc_start:
                 reason = "different start identity"
+            elif not needs_comparison:
+                # A zombie alone contributes no live PID. Compare its boot only
+                # when needed to decide ownership of surviving group members.
+                return False
             else:
                 try:
                     current_boot = seen.boot()
@@ -462,7 +468,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         else:
             # Receipt times and process birth times use the wall clock. A clock
             # step between those reads cannot establish PID reuse (C-5.3).
-            errors.append(f"recorded identity unavailable for pid {pid}")
+            if needs_comparison:
+                errors.append(f"recorded identity unavailable for pid {pid}")
         if reason is None:
             return False
         try:

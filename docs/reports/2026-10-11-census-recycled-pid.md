@@ -58,6 +58,12 @@ record; observed absence or zombie state still proves death independently.
 Added regressions cover each seam and a clock step forward as well as the
 reviewer's rollback case.
 
+An additional regression excludes a positively recycled zombie leader and its
+foreign group while retaining a separately recorded orphan. A zombie alone
+with no live group needs no boot read. The matching-identity property pins the
+complete recorded live walk and its identity map, including orphans; the old
+walk-equality expectation would contradict the newly required recorded source.
+
 The old unit assertion that an incomplete live identity was dead, and the five
 receipt-bound expectations, contradicted C-5.3's unknown-never-establishes-death
 rule. Their replacements require retained protection and unknown/unverifiable

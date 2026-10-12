@@ -102,7 +102,7 @@ def test_b_matching_roots_and_group_members_are_included(monkeypatch, generated,
         result = procs.containment(guardian, guardian, child, "job/a1",
                                    recorded_identities=known)
     assert root in result.descendant_pids
-    if other == guardian and recycle_other and other in rows and rows[other][2] != "Z":
+    if other == guardian and recycle_other and other in rows:
         assert not result.group_pids
     else:
         assert result.group_pids == {pid for pid, row in rows.items()
@@ -142,6 +142,11 @@ def test_d_matching_identities_preserve_the_entire_census(monkeypatch, generated
     assert before.descendant_pids <= after.descendant_pids
     assert before.marker_pids == after.marker_pids
     assert before.identities.items() <= after.identities.items()
+    # C-5.5 now requires every matching recorded orphan, not just those already
+    # reachable from the named roots. Pin the entire resulting live walk.
+    expected = {pid for pid, row in rows.items() if not row[2].startswith("Z")}
+    assert after.descendant_pids == expected
+    assert after.identities == {pid: recorded(rows)[pid] for pid in expected}
     assert not after.recycled and not after.unverifiable
 
 
