@@ -12,8 +12,10 @@ import tempfile
 import pytest
 
 from subfleet.adapters.codex import CodexAdapter, WHAM_USAGE_URL, WHAM_RESET_CREDITS_URL, WHAM_RESET_CREDITS_CONSUME_URL
-from subfleet.contracts import Credential, Lane, LaneOwner, Outcome, OutcomeClass, Reading, ReadingLabel
+from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Outcome,
+                                OutcomeClass, Reading, ReadingLabel)
 from subfleet.daemon import Daemon
+from subfleet.protocol import KillArgs
 from subfleet.timers import iso
 
 
@@ -34,6 +36,8 @@ def daemon(tmp_path, monkeypatch):
     monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda pid: 'fake-start')
     policy = json.loads(Path('subfleet/default_policy.json').read_text())
     policy['timers'] = {'probe_interval_s': .15, 'keepalive_interval_s': .12}
+    # C-23.16 (f) ships automatic redemption off; these cycles are about an operator who turned it on.
+    policy['reset_credits']['enabled'] = True
     # Keep the production reset cooldown. A 0.6-second cooldown permits a
     # second account's gift while an overloaded test observer is still waiting
     # to inspect the first cycle; that is valid policy behavior, not a duplicate.
@@ -46,22 +50,40 @@ def daemon(tmp_path, monkeypatch):
         value.close()
 
 
-def codex(daemon, number):
+def codex(daemon, number, *, limited=False):
     home = daemon.root / f'codex-{number}'
     home.mkdir()
     (home / 'auth.json').write_text(json.dumps({'tokens': {'account_id': str(number), 'access_token': 'FAKE-ONLY'}}))
     lane = Lane(f'codex-{number}', 'codex', f'codex:{number}', Credential('codex', str(home), 'home'), str(home), LaneOwner.V2, False)
     daemon.store.put_lane(lane)
+    if limited:
+        # Closed before the first cycle, so admission holds the job rather than
+        # placing it on a lane nobody has measured yet.
+        daemon.store.put_closure(Closure(lane.lane_id, 'account', iso(datetime.now(timezone.utc) + timedelta(days=3)),
+                                         ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, 'fixture'))
     return lane
+
+
+def waiting_job(daemon, *, exclude=()):
+    """C-23.16 (a): a job that needs Codex, submitted for admission to hold."""
+    work = daemon.root / 'work'
+    work.mkdir(exist_ok=True)
+    prompt = daemon.root / 'prompt.md'
+    prompt.write_text('fixture prompt')
+    return daemon.dispatch('submit', {'request_id': 'reset-demand', 'kind': 'dispatch', 'workdir': str(work),
+                                      'prompt_path': str(prompt), 'sandbox': 'read-only', 'pinned_model': 'astra',
+                                      'allow_tmp': True, 'caller_session': 'fake-session',
+                                      'exclusions': list(exclude)})['job_id']
 
 
 @pytest.mark.parametrize('consume_timeout', [False, True])
 @pytest.mark.parametrize('observe_late', [False, True])
 def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
     """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
-    codex(daemon, 1)
-    codex(daemon, 2)
+    codex(daemon, 1, limited=True)
+    codex(daemon, 2, limited=True)
     dead = codex(daemon, 3)
+    job_id = waiting_job(daemon, exclude=[dead.lane_id])
     claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
     daemon.store.put_lane(claude)
     state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
@@ -100,7 +122,9 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
     thread = threading.Thread(target=daemon._control, daemon=True)
     thread.start()
     try:
-        until(lambda: daemon.store.query('SELECT * FROM actions'))
+        # The consume waits for admission to hold the job (C-23.16 (a)), so it can
+        # land a cycle or more after the first; wait for its result, not a row.
+        until(lambda: daemon.store.query("SELECT * FROM actions WHERE state IN ('confirmed','unknown','failed')"))
         until(lambda: daemon.store.query("SELECT * FROM events WHERE kind='timer.cycle'"))
         if observe_late:
             # Reproduce a hosted runner that lets several real timer cycles
@@ -110,6 +134,15 @@ def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeou
         assert len(actions) == 1
         assert actions[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
         assert actions[0]['op_key'] == f"codex:{state['consume_accounts'][0]}:gift"
+        request = json.loads(daemon.store.get_action(actions[0]['action_id'])['request_json'])
+        assert request['job_id'] == job_id and request['trigger_reason'] == 'waiting-demand'
+        if consume_timeout:
+            # An unknown consume reserves nothing; the job's own wait is not what this test covers.
+            daemon.kill(KillArgs(job_id))
+        else:
+            # C-23.16 (c): the job that caused the reset is the one admitted to that lane.
+            attempt = until(lambda: daemon.store.list_attempts(job_id))[0]
+            assert attempt['lane_id'] == f"codex-{state['consume_accounts'][0]}"
         assert not daemon.store.get_lane(dead.lane_id).enabled
         assert state['consumes'] == 1
         until(lambda: state['keepalives'] == 1)
