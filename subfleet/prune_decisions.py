@@ -24,7 +24,9 @@ What it guarantees:
   Offline `runs show` selects the greatest `(evaluated_at, decision_id)`:
   its `decision_json` stays byte-identical. `KEEP_QUERIES` keeps both choices
   separately. `READER_QUERIES` repeats both reads for every job, including jobs
-  with no decisions, after deletion and again after `--vacuum`.
+  with no decisions, after deletion and again after `--vacuum`. The promise
+  covers persisted decision inputs; `why` also reports live queue and disk
+  conditions, which can change with time and daemon restart.
 * **Full histories intentionally shrink.** `retention_archive.job_rows` and
   `Store.list_decisions` read all rows in `decision_id` order. For a pruned job
   their answers change to the retained subsequence, with every surviving row

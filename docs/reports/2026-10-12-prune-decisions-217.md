@@ -17,6 +17,10 @@ the tool. This only lands the tool; applying it remains Max's decision d204.
 | `retention_archive.py:312`, `job_rows` | Intentionally changes for a pruned job: all-row history becomes the retained subsequence in `decision_id` order, with every surviving row unchanged. An archive made after pruning holds fewer decision rows than one made before. |
 | `store.py:789`, `Store.list_decisions` | Intentionally changes in the same way. `rg -n list_decisions subfleet tests` found the definition and test callers only: `test_probe_turn`, `test_routing_end_to_end`, `test_admission_visibility`, and `test_capacity_wait_backoff`. No production caller uses it on this line. |
 
+The unchanged-reader promise concerns persisted decision inputs. The actual
+`why` comparison fixes admission, liveness, and disk context; its live queue
+and disk information can change with time and daemon restart.
+
 Existing retention archives are untouched, retain their original `rows.json`,
 and remain verifiable, readable, and restorable. `retention_archive.restore`
 restores files and Git objects; it does not reinsert `rows.json` into the live
