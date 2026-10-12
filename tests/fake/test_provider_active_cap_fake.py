@@ -9,7 +9,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import cli, protocol, scheduler
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner
-from subfleet.daemon import after
+from subfleet.daemon import after, utcnow
 from subfleet.procs import Containment
 from tests.fake.test_admission_latency import (add_codex_lanes, fleet_daemon, measure, submit, submit_turn)
 from tests.fake.test_admission_liveness import _end, _live
@@ -276,16 +276,23 @@ ACTIONS = st.lists(st.tuples(st.sampled_from(["codex", "turn", "claude", "comple
 
 @pytest.mark.parametrize("survivor", ["live", "unknown", "empty"])
 @pytest.mark.parametrize("force", [False, True])
-def test_quarantine_retains_provider_slot_until_contained_or_released(fleet, monkeypatch, survivor, force):
+@pytest.mark.parametrize("first_pool", ["detached", "turn"])
+@pytest.mark.parametrize("waiting_pool", ["detached", "turn"])
+def test_quarantine_retains_provider_slot_until_contained_or_released(
+        fleet, monkeypatch, survivor, force, first_pool, waiting_pool):
     service, harness = fleet
+    # Keep the wait's clock ahead even on a slow host: only freed capacity can
+    # bring its next look forward, rather than the one-second recheck expiring.
+    now = utcnow()
+    monkeypatch.setattr("subfleet.daemon.utcnow", lambda: now)
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
-    first = submit(service, harness)
+    first = submit_turn(service, harness, 1) if first_pool == "turn" else submit(service, harness)
     service._admit()
     attempt = service.store.list_attempts(first)[0]
     census = (Containment(marker_pids=frozenset({123456})) if survivor == "live" else
               Containment(unverifiable=True) if survivor == "unknown" else Containment())
     service._quarantine(attempt, census, "fixture containment")
-    second = submit(service, harness)
+    second = submit_turn(service, harness, 2) if waiting_pool == "turn" else submit(service, harness)
     service._admit()
     assert _live(service, second) == census.verified_empty
     assert live_count(service) == 1
@@ -293,16 +300,52 @@ def test_quarantine_retains_provider_slot_until_contained_or_released(fleet, mon
     if not census.verified_empty:
         assert_unleased(service, second)
         assert service._holds[second]["live"] == 1
+        assert service.store.get_job(second)["next_check_at"] > now
+        # Both pools have already observed the quarantine's lane lease gone.
+        # Resolution must wake them even with no remaining leases to release.
+        assert not service.store.list_leases(attempt["attempt_id"])
+        if first_pool == "detached":
+            assert not service.store.list_leases(first)
         assert "codex: 1 of 1 running" in service.dispatch("daemon.status", {})["status"]
         monkeypatch.setattr(service, "_contain", lambda a: census)
         service._resolve_quarantine(attempt, protocol.KillArgs(first, confirm_dead=True))
         assert live_count(service) == 1
         assert service.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
+        service._admit()
+        assert not _live(service, second)
     monkeypatch.setattr(service, "_contain", lambda a: census if force else Containment())
     service._resolve_quarantine(attempt, protocol.KillArgs(
         first, confirm_dead=not force, force_release=force, operator_note="fixture release"))
+    assert service.store.get_attempt(attempt["attempt_id"])["state"] == "lost"
     service._admit()
     assert _live(service, second) and live_count(service) == 1
+
+
+@pytest.mark.parametrize("pool", ["detached", "turn"])
+@pytest.mark.parametrize("survivor", ["live", "unknown"])
+def test_verified_empty_quarantine_census_wakes_provider_waiter(fleet, monkeypatch, pool, survivor):
+    """C-6.4a: recorded containment frees the count even before state resolution."""
+    service, harness = fleet
+    now = utcnow()
+    monkeypatch.setattr("subfleet.daemon.utcnow", lambda: now)
+    service.policy["providers"]["codex"]["max_active_attempts"] = 1
+    first = submit(service, harness)
+    service._admit()
+    attempt = service.store.list_attempts(first)[0]
+    census = (Containment(marker_pids=frozenset({123456})) if survivor == "live" else
+              Containment(unverifiable=True))
+    service._quarantine(attempt, census, "fixture containment")
+    waiting = submit_turn(service, harness, 1) if pool == "turn" else submit(service, harness)
+    service._admit()
+    assert_unleased(service, waiting)
+    assert service._holds[waiting]["reason"] == "provider-cap"
+    assert service.store.get_job(waiting)["next_check_at"] > now
+    with service.store.transaction("test.contained") as tx:
+        tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?",
+                   (json.dumps(Containment().to_dict()), attempt["attempt_id"]))
+    service._admit()
+    assert service.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
+    assert _live(service, waiting) and live_count(service) == 1
 
 
 @pytest.mark.parametrize("pool", ["turn", "detached"])

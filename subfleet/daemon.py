@@ -878,6 +878,9 @@ class Daemon:
         # C-6.10: the leases the last pass of each kind saw that no probe holds.
         # One that has gone since is capacity that came free.
         self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
+        # C-6.4a, C-6.10: quarantine can retain a provider slot after its lane
+        # lease is gone. Each pool must notice that count freeing independently.
+        self._provider_quarantines_seen: dict[str, frozenset[str]] = {}
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
@@ -4967,9 +4970,14 @@ class Daemon:
         probes = "holder NOT LIKE 'probe:timer:%'" if kind == "turn" else "holder NOT LIKE 'probe:%'"
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
             f"SELECT lease_key,holder FROM leases WHERE {probes}"))
+        quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
+                                    if scheduler.uncontained_quarantine(row))
+                           if self.policy.get("providers") else frozenset())
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
-            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
+            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now
+                         or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
+            self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
