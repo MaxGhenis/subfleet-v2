@@ -37,3 +37,15 @@ def test_zero_exit_cut_off_turn_cannot_publish_output(e2e, case):
     why = e2e.cli("why", identity)
     assert why.rc == 0, why
     assert "Codex exited before its turn completed" in why.stdout
+    shown = e2e.cli("runs", "show", identity)
+    assert shown.rc == 1, shown
+    assert "No accepted result" in shown.stdout
+    assert "Unaccepted evidence" in shown.stdout
+    assert "--- out.md ---" not in shown.stdout
+    interim = (adir / "deliverable.md").read_text()
+    if interim:
+        assert interim not in shown.stdout
+    result = e2e.cli("runs", "show", identity, "--out")
+    assert result.rc == 1, result
+    assert result.stdout == ""
+    assert "no accepted deliverable recorded" in result.stderr

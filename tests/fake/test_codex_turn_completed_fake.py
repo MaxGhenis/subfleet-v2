@@ -1,12 +1,13 @@
 """D-SHUT1 acceptance, export, retry and replay with the real Codex adapter."""
 
+from argparse import Namespace
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
 
 import pytest
 
-from subfleet import daemon as module
+from subfleet import cli, daemon as module
 from subfleet.adapters.codex import CodexAdapter
 from subfleet.contracts import ExitInfo, OutcomeClass
 from subfleet.daemon import Daemon
@@ -188,3 +189,29 @@ def test_i1_succeeded_requires_completion_on_every_finalization_path(
     finally:
         if successor is not None:
             successor.close()
+
+
+@pytest.mark.parametrize("explicit_out", (False, True))
+def test_runs_show_separates_failed_interim_evidence(state_daemon, monkeypatch, capsys, explicit_out):
+    """Port the review's corrected fixture text assertion as desired behavior."""
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=1)
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    finalize_fixture(daemon, adapter, attempt, adir, "cut-off-item-completed")
+    interim = json.loads((adir / "stdout").read_text().splitlines()[-1])["item"]["text"]
+    class Client:
+        def call(self, operation, args):
+            return daemon.dispatch(operation, args)
+    monkeypatch.setattr(cli, "_client", lambda _: Client())
+    monkeypatch.setattr(cli, "_ack_notices", lambda *args: None)
+    assert cli.cmd_runs_show(Namespace(id=job_id, json=False, out=explicit_out, err=False)) == 1
+    captured = capsys.readouterr()
+    assert interim not in captured.out
+    assert "--- out.md ---" not in captured.out
+    if explicit_out:
+        assert captured.out == ""
+        assert "no accepted deliverable recorded" in captured.err
+    else:
+        assert "No accepted result" in captured.out
+        assert f"Unaccepted evidence ({attempt['attempt_id']}): {adir / 'deliverable.md'}" in captured.out
