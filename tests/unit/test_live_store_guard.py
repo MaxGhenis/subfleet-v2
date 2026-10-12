@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -60,6 +61,23 @@ def outcome(call):
         return ("value", call())
     except Exception as error:
         return ("exception", type(error).__name__, str(error))
+
+
+def test_registry_covers_every_production_guard():
+    """Adding a guard variable must also isolate it in fixtures and children."""
+    variables = set()
+    for path in (REPO / "subfleet").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        constants = {node.targets[0].id: node.value.value for node in tree.body
+                     if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+                     and isinstance(node.value, ast.Constant)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "home_path":
+                argument = node.args[0]
+                variable = argument.value if isinstance(argument, ast.Constant) else constants[argument.id]
+                assert variable in SAFE_HOME_PATHS, (path, node.lineno, variable)
+                variables.add(variable)
+    assert variables == set(SAFE_HOME_PATHS)
 
 
 # This executes during actual pytest collection, before any autouse fixture or
