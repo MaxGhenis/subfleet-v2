@@ -441,12 +441,13 @@ def test_terminal_failure_wins_over_zero_rc_and_leftover_deliverable(tmp_path, m
 
 @pytest.mark.parametrize("stream", ["", "not json\n", '{"type":"turn.completed"}\n'])
 def test_zero_rc_without_deliverable_is_unknown(tmp_path, stream):
-    """C-12.6 An empty or damaged successful stream cannot manufacture a deliverable."""
+    """C-12.6: a completion frame cannot manufacture a deliverable."""
     launch = _launch(tmp_path)
     Path(launch.raw_stream_path).write_text(stream)
     (tmp_path / "last.md").write_bytes(b"")
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
     assert outcome.cls == OutcomeClass.UNKNOWN
+    assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
     assert outcome.evidence["rc"] == 0
 
 

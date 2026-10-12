@@ -2081,14 +2081,23 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "lanes transfer: --to must be v1 or v2")
     if action == "hold" and not args.until:
         return fail(Exit.INVALID_INPUT, "lanes hold: --until is required")
+    limits = bool(getattr(args, "limits", False))
+    note = getattr(args, "note", None)
+    if limits and not (note or "").strip():
+        return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
+    if note is not None and not limits:
+        return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
     lanes_args = protocol.LanesArgs(
-        action=action,
+        # Older daemons ignore unknown fields. A distinct action prevents them
+        # from releasing operator holds when asked to release guessed limits.
+        action="release-limits" if limits else action,
         lane_id=getattr(args, "lane", None),
         credential=getattr(args, "credential", None),
         until=getattr(args, "until", None),
         owner=getattr(args, "to", None),
         dry_run=bool(getattr(args, "dry_run", False)),
         confirm_v1_edit=bool(getattr(args, "confirm_v1_edit", False)),
+        note=note,
     )
     try:
         result = _client(args).call("lanes", _asdict(lanes_args))
@@ -2104,6 +2113,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         # that as a completed no-op would record a canary transfer that never ran.
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not perform the transfer; it is older than this CLI",
+                    RESTART_DAEMON)
+    if limits and not isinstance(result.get("limits_released"), list):
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    "the daemon did not release guessed limits; it is older than this CLI",
                     RESTART_DAEMON)
     if args.json:
         emit(result)
@@ -2124,6 +2137,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
         out(f"{action}: {result.get('held') or result.get('released')}")
+        if limits:
+            out(f"guessed limits released: {len(result['limits_released'])}")
+            if result.get("limits_reported"):
+                out(f"reported clocks kept: {len(result['limits_reported'])}; cannot release by hand")
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
@@ -3121,8 +3138,14 @@ def build_parser() -> argparse.ArgumentParser:
     l_hold.add_argument("lane")
     l_hold.add_argument("--until", required=True, help="ISO 8601 UTC instant")
     _add_json(l_hold, nested=True)
-    l_release = lanes_sub.add_parser("release")
+    l_release = lanes_sub.add_parser("release", help="release operator holds or guessed limits",
+                                     description="Release operator holds, or use --limits --note TEXT to "
+                                     "release guessed provider-limit and credits closures. "
+                                     "Provider-reported clocks cannot be released by hand.")
     l_release.add_argument("lane")
+    l_release.add_argument("--limits", action="store_true",
+                           help="release open guessed provider-limit and credits closures")
+    l_release.add_argument("--note", help="required operator reason for --limits, recorded in an event")
     _add_json(l_release, nested=True)
     l_transfer = lanes_sub.add_parser("transfer")
     l_transfer.add_argument("lane")

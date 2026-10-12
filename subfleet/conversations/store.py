@@ -1323,7 +1323,8 @@ class ConversationStore:
                       title: "TitleUpdate | None" = None) -> list[tuple[dict, bool]]:
         """A provider's requests (C-27.1, design §8): each one's approval; with `events`,
         the batch that announces them and the attempt's watermark (as `append_events`);
-        with `expect`, the message's move to `approval-needed` from those states. All in
+        with `expect`, the message's move to `approval-needed` from those states if
+        an approval remains pending. All in
         one transaction, so no reader sees an `approval.requested` event whose approval
         `approval.list` does not list yet: the app lists approvals as soon as the event
         shows the card, to answer it, and found none when the event had been committed
@@ -1367,7 +1368,12 @@ class ConversationStore:
                 pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
                                      (message_id,)).fetchone()[0]
                 self._change(tx, conversation_id, message_id, None, pending=pending)
-            if expect is not None:
+            # Replayed requests may already be answered or withdrawn. Only a
+            # pending approval can move the message back to approval-needed;
+            # check in this transaction, after inserting any new requests.
+            if expect is not None and tx.execute(
+                    "SELECT 1 FROM approvals WHERE message_id=? AND state='pending'",
+                    (message_id,)).fetchone():
                 self._set_state(tx, message_id, APPROVAL_NEEDED, expect=expect)
         return [(self._approval_row(attempt_id, a["provider_request_id"]), new is not None) for a, new in staged]
 
