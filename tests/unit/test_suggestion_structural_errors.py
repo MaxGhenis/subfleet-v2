@@ -16,6 +16,7 @@ from subfleet.client import DaemonError
 from subfleet.conversations import suggestions
 from subfleet.conversations.store import ConversationError
 from tests.unit.test_suggestion_error_boundaries import reply
+from tests.unit.test_protocol_secrecy import wire_reply
 from tests.unit.test_suggestion_secret_properties import (
     AGENT, assert_secret_absent, everything_shown, fixture, origin_turn, secrets,
 )
@@ -96,7 +97,7 @@ def test_generated_exception_and_caller_text_never_reaches_any_channel(
             raise error
 
         service.store.submit_message = fail
-        response = reply(service, args={"suggestion_id": sid})
+        response = wire_reply(service, op="suggestion.start", args={"suggestion_id": sid})
         assert response["ok"] is False
         service._resume_start(sid, 1, service.clock())
         shown = everything_shown(service, sid, cid, "")
@@ -111,7 +112,7 @@ def test_generated_exception_and_caller_text_never_reaches_any_channel(
             op, args = "suggestion.start", {"suggestion_id": sid, field: caller}
         else:
             op, args = "suggestion.create", {**payload, "request_id": str(uuid.uuid4()), field: caller}
-        caller_response = reply(service, op, args)
+        caller_response = wire_reply(service, op=op, args=args)
         assert_secret_absent(caller_response, secret)
         # Both error replies and successful admissions must leave all stored and
         # published suggestion fields clean. Successful title/brief text follows
@@ -120,6 +121,17 @@ def test_generated_exception_and_caller_text_never_reaches_any_channel(
         if not caller_response["ok"]:
             refusal = caller_response["error"]
             assert_secret_absent({"notice": notice(refusal), "cli": cli_error(service, refusal)}, secret)
+
+        # Exercise the pre-routing envelope, the real argument responder and
+        # correlation metadata on every one of the 500 generated examples.
+        for response in (
+            wire_reply(service, op=secret),
+            wire_reply(service, v=secret),
+            wire_reply(service, args={**payload, "request_id": str(uuid.uuid4()), "model": secret}),
+            wire_reply(service, id=secret, args={**payload, "model": "invalid"}),
+        ):
+            assert response["ok"] is False
+            assert_secret_absent(response, secret)
 
 
 @pytest.mark.parametrize("kind", (KeyError, ValueError, OSError, UnicodeError, sqlite3.Error, UnrenderableFailure))
