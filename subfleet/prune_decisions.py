@@ -177,9 +177,9 @@ NEEDED_MARGIN = 512 * 1024 ** 2
 #: this comment and `docs/migration.md` state.
 NEEDED_MARGIN_TEXT = "512 MiB"
 
-#: The two statements that serve a job's decision today, their ORDER BY and
-#: LIMIT copied from the readers: the daemon's `why` verb (`daemon.py`, `op ==
-#: "why"`) and offline `runs show` (`offline.py`, `show_job`). `decision_id` is
+#: The two latest-row readers whose answers must remain unchanged, their
+#: ORDER BY and LIMIT copied from the daemon's `why` (`daemon.py`, `_why_job`)
+#: and offline `runs show` (`offline.py`, `show_job`). `decision_id` is
 #: added to the select list, which chooses no other row. The prune keeps the row
 #: each one selects, and proves afterwards that both still return the same bytes.
 READER_QUERIES: dict[str, str] = {
@@ -1076,8 +1076,8 @@ def _reverify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
 
     `VACUUM` rewrites every page, so `PRAGMA integrity_check` on its own would
     only say the new file is well formed, not that it holds the same rows. The
-    kept set is a row or two per job, so the fingerprints, the kept digest and
-    both readers are simply asked again and compared against the same
+    fingerprints, the retained-row digest, and both latest-row readers are
+    taken again and compared against the same
     before-values `_verify` used.
     """
     mismatches, found, fingerprints = _invariants(
