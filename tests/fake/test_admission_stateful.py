@@ -32,7 +32,8 @@ pending, none placed for 4863 s; 14 lanes open`).
 
 Settings profiles, chosen with `HYPOTHESIS_PROFILE`: `ci` (the default when
 `CI` is set: derandomized and modest), `dev` (the default otherwise), and
-`deep` for a long local search. A failure prints the steps that reproduce it.
+`deep` for a long local search (opt-in; `HYPOTHESIS_MAX_EXAMPLES` sizes it).
+A failure prints the steps that reproduce it, and a blob for `@reproduce_failure`.
 """
 
 from __future__ import annotations
@@ -79,6 +80,9 @@ settings.register_profile("dev", max_examples=60, stateful_step_count=40, deadli
 settings.register_profile("deep", max_examples=1000, stateful_step_count=80, deadline=None, print_blob=True,
                           suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
 PROFILE = settings.get_profile(os.environ.get("HYPOTHESIS_PROFILE") or ("ci" if os.environ.get("CI") else "dev"))
+if os.environ.get("HYPOTHESIS_MAX_EXAMPLES"):
+    # Size a long search to the time a run may hold the host's shared test lock.
+    PROFILE = settings(PROFILE, max_examples=int(os.environ["HYPOTHESIS_MAX_EXAMPLES"]))
 if os.environ.get("HYPOTHESIS_NO_SHRINK"):
     # A stateful example here takes up to a second, so shrinking one can take minutes:
     # this reports the first failure as found (rerun its seed without it to shrink).
@@ -291,7 +295,8 @@ class AdmissionMachine(RuleBasedStateMachine):
                        policy_module, actions_module, ids_module):
             self.patch.setattr(module, "datetime", self.clock.datetime)
         # No process ever runs here, so containment's settle sleeps (C-5.5) wait for nothing.
-        self.patch.setattr(daemon_module, "time", SimpleNamespace(monotonic=time.monotonic, sleep=lambda seconds: None))
+        fast_time = {name: getattr(time, name) for name in dir(time) if not name.startswith("_")}
+        self.patch.setattr(daemon_module, "time", SimpleNamespace(**{**fast_time, "sleep": lambda seconds: None}))
         self.patch.setattr(daemon_module.procs, "boot_id", lambda: "stateful-boot")
         self.patch.setattr(daemon_module.procs, "proc_start", lambda pid: "stateful-start")
         self.patch.setattr(daemon_module.procs, "same_process", lambda *args: False)
@@ -970,13 +975,13 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert held(job_id), (
                 f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} could run on {lane} under fair "
                 f"capacity and is still pending after {self.passes} passes: {hold}")
-            if hold["reason"] == "slot-kept" and not any(
-                    compete(mine, theirs) for mine in self.demands(jobs[job_id], roster)
-                    for theirs in self.demands(jobs[older], roster)):
-                # KNOWN_SLOT_KEPT_STARVATION: xfailed in test_admission_properties.py. At
-                # max_active_attempts 1 the slot C-6.9 keeps for an older waiter that can never be
-                # placed starves every job of its tier, including those that do not compete with it.
-                event("known C-6.9 conflict: a slot kept for a job that can never use it")
+            # P3 (C-6.9, C-11.8): a slot is never kept for a job no lane can admit, so slot-keeping never
+            # starves a job that does not compete with the one it is kept for.
+            assert not (hold["reason"] == "slot-kept" and not placeable.get(older) and not any(
+                compete(mine, theirs) for mine in demands[job_id] for theirs in demands[older])), (
+                f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} is starved by the slot kept for "
+                f"{older} {self.describe(jobs[older], roster)}, which can never use it and does not compete "
+                f"with it")
 
 
 AdmissionMachine.TestCase.settings = PROFILE

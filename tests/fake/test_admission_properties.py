@@ -5,10 +5,14 @@ admission pass (P1 totality, P2 non-interference, P3 bounded progress, P4 rechec
 cost). Every counterexample it or its reviewers found is pinned here as the
 smallest scenario that shows it:
 
-- fixed in this change, as a regression test;
+- fixed in this change, or already by release/217's design, as a regression test;
 - not fixed, as a strict `xfail` that states what the contract (or the property)
-  requires. Each fails today. When a fix lands it passes, `strict` turns that into
-  a failure, and the marker must come off with the fix.
+  requires. Each fails today, at its last assertion (`raises=AssertionError` keeps
+  any other error from hiding behind the marker). When a fix lands it passes,
+  `strict` turns that into a failure, and the marker must come off with the fix.
+
+C-6.9's hold-back and slot-keeping exist only in a pool with a count cap (C-6.4's
+default is none), so the scenarios about them set one.
 
 Found with the stateful search and the adversarial review of 2026-09-24
 (`~/reviews/formal-verification-2026-09-24/verify-s7-subfleet.md`, M1).
@@ -76,8 +80,9 @@ def rows(service, job_id):
 
 @pytest.fixture
 def fleet(routing_state):  # noqa: F811
-    """codex-1 and claude-a, both measured: two slots each, room for anything."""
+    """codex-1 and claude-a, both measured, in a pool with a count cap far above what runs here."""
     service, harness = routing_state
+    service.policy["caps"]["max_active_attempts"] = 10
     service.store.put_lane(lane("claude-a"))
     for lane_id in ("codex-1", "claude-a"):
         measured(service, lane_id)
@@ -246,66 +251,59 @@ def test_c6_12_a_retry_that_let_its_pin_go_is_not_passed_by_a_younger_competitor
 def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(routing_state):  # noqa: F811
     """C-6.10 (P4): "a recheck that reaches the verdict it reached last time adds no decision row". A
     terra job whose output path another job holds waits `lease-held` while the fleet has room and
-    `slot-kept` while it does not (an older Opus job no lane takes keeps one slot, C-6.9). Every look
-    chooses codex-1 with the same verdict; each return to `slot-kept` records it again."""
+    `slot-kept` while it does not: an older job waiting for its own output path keeps the last slot
+    (C-6.9, which also says it holds no job back). Every look chooses one lane with one verdict; each
+    return to `slot-kept` records it again."""
     service, harness = routing_state
+    service.policy["caps"]["max_active_attempts"] = 3
     service.store.put_lane(lane("codex-2", "codex"))
     for lane_id in ("codex-1", "codex-2"):
         measured(service, lane_id)
-    submit(service, harness, pinned_model="opus")           # oldest in `standard`, no lane: limit is cap - 1
-    out = str(harness.root / "report.md")
+    kept_out, out = str(harness.root / "kept.md"), str(harness.root / "report.md")
+    keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
     job = submit(service, harness, pinned_model="terra", out_path=out)
+    assert service.store.acquire_lease(f"out:{kept_out}", "another-job")
     assert service.store.acquire_lease(f"out:{out}", "another-job")
-    for _ in range(2):
-        submit(service, harness, pinned_model="terra", tier="hard")
-    service._admit()                                        # lease-held; the two fillers start
-    filler = submit(service, harness, pinned_model="terra", tier="hard")
+    fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
+    service._admit()                                        # both lease-held; the two fillers start: 2 live
     for _ in range(3):
-        service._admit()                                    # the filler starts: 3 live, the limit
-        due(service, job)
-        service._admit()
-        assert service._holds[job]["reason"] == "slot-kept"
-        end(service, filler)
-        due(service, job)
-        service._admit()
+        due(service, keeper), due(service, job)
+        service._admit()                                    # 2 live: the cap less the slot kept for `keeper`
+        assert service._holds[job]["reason"] == "slot-kept" and service._holds[job]["kept_for"] == keeper
+        end(service, fillers.pop())
+        fillers.append(submit(service, harness, pinned_model="terra", tier="hard"))
+        due(service, keeper), due(service, job)
+        service._admit()                                    # 1 live at its look; the new filler starts after
         assert service._holds[job]["reason"] == "lease-held"
-        filler = submit(service, harness, pinned_model="terra", tier="hard")
     signatures = {scheduler.verdict_signature(json.loads(row["decision_json"])) for row in rows(service, job)}
     assert len(signatures) == 1
     assert len(rows(service, job)) == 1
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="P3: C-6.9 keeps a slot for an older waiter whatever it waits "
-                   "for; at max_active_attempts 1 a waiter no lane can ever take starves every job of "
-                   "its tier, including those that do not compete with it (needs a contract ruling)")
-def test_c6_9_a_slot_kept_for_a_job_that_can_never_use_it_does_not_starve_its_tier(routing_state):  # noqa: F811
-    """P3 (C-6.9): "A job that passes an older waiting job of its tier leaves one active-attempt slot free
-    (`max_active_attempts` minus one)" is unconditional, and so is "holds back the later jobs of its
-    tier that compete with it, and no others". At a cap of 1 they disagree: an Opus job with no Claude
-    lane keeps the only slot for as long as it waits (it is never started, so `max_wall_s` never ends
-    it), and a Terra job that does not compete with it never runs beside a free Codex lane."""
+def test_c6_9_a_slot_is_not_kept_for_a_job_no_lane_can_admit(routing_state):  # noqa: F811
+    """P3 (C-6.9, C-11.8): slot-keeping (`max_active_attempts` minus one for a job that passes an older
+    waiter) never leaves a slot unusable for good. On the line this was found on (main, 2026-09-27) an
+    Opus job with no Claude lane kept the only slot of a cap of 1 for as long as it waited (never started,
+    so `max_wall_s` never ended it), and a Terra job that does not compete with it never ran beside a free
+    Codex lane. Here C-11.8 holds: "A job no lane can admit ... holds back none ... no later job is ...
+    kept out of a slot for it"."""
     service, harness = routing_state
     measured(service, "codex-1")
     service.policy["caps"]["max_active_attempts"] = 1
-    submit(service, harness, pinned_model="opus")
+    opus = submit(service, harness, pinned_model="opus")
     terra = submit(service, harness, pinned_model="terra")
-    for _ in range(5):
-        due(service, terra)
-        service._admit()
-    assert service._holds[terra]["reason"] == "slot-kept"
+    service._admit()
+    assert service._holds[opus].get("for_good") == ["no-lanes"]
     assert placed_on(service, terra) == "codex-1"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="P3: an admission probe always reserves slot 0, so a job that must "
-                   "probe waits for the attempt on slot 0 to end although slot 1 is free (the contract "
-                   "says nothing about the slot a probe takes)")
-def test_c6_9_a_job_that_must_probe_is_not_held_by_the_attempt_on_slot_0(routing_state):  # noqa: F811
-    """P3 (C-11.4, C-11.7a): the head of its class has an admissible lane with a free slot on every
-    pass and is never placed. claude-r is measured (two slots); a Sonnet job runs there on slot 0. An
-    authorized Opus job, which must probe first, chooses claude-r on every look, but `_prepare_route`
-    only ever leases `lane:claude-r:slot:0` for its probe, so it waits `probe-pending` until the Sonnet
-    attempt ends (up to `max_wall_s`). With the Sonnet attempt on slot 1 instead it is probed and placed
-    at once."""
+def test_c6_9_a_job_that_must_probe_is_not_held_by_an_attempt_in_flight(routing_state):  # noqa: F811
+    """P3 (C-6.9, C-11.4): the head of its class has an admissible lane with a free slot on every pass, so
+    it is placed. On the line this was found on (main, 2026-09-27) an attempt took the lowest free slot
+    from 0 and a probe always leased `slot:0`, so an authorized Opus job, which must probe first, waited
+    `probe-pending` behind the Sonnet attempt on claude-r's slot 0 until it ended (up to `max_wall_s`)
+    with slot 1 free. Here "a detached attempt takes the lowest free `lane:<lane id>:slot:<n>` from
+    n = 1, so `slot:0` is the admission probe's alone"."""
     service, harness = routing_state
     service.store.put_lane(lane("claude-r"))
     measured(service, "claude-r")
