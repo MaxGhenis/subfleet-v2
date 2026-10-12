@@ -84,7 +84,7 @@ So on this base the shipped CLI changes for no one. The one CLI path that does r
 | `tests/frontend/test_core_live.py` | approvals | Already the development app (the Swift probe) | Unchanged |
 | Tests that stub `_person` (listed above) | n/a | Stubbed | Unchanged |
 
-For Max: nothing you run from the `subfleet` CLI on this base changes. Approving, steering, resolving, unblocking and widening are now done only in the Subfleet app, or in a development build on a development root. A terminal, an SSH session, or an agent's leftover process gets exit 7 naming the app. Once #181 lands, `subfleet suggest --start` and `--dismiss` get that refusal too, so suggestions are started and dismissed in the app's Suggested section.
+For Max: nothing you run from the `subfleet` CLI on this base changes. Approving, steering, resolving, unblocking and widening are now done only in the Subfleet app, or in a development build on a development root. A terminal, an SSH session, or an agent's leftover process whose image is outside the allowed app path set gets exit 7 naming the app. Once #181 lands, `subfleet suggest --start` and `--dismiss` get that refusal too, so suggestions are started and dismissed in the app's Suggested section.
 
 No existing mechanism routes a CLI request through the app. The app reads no command-line arguments, URLs or Apple events: `app/Sources` has no `CommandLine`, `ProcessInfo…arguments`, `onOpenURL`, `openURLs` or `NSAppleEventManager` (searched this session). So of the brief's two options, only refusing with the app named is available.
 
@@ -180,7 +180,7 @@ The end-to-end person and terminal checks under `tests/e2e/` need a caller outsi
 
 ## Not changed, and what is left
 
-- **The app's image is the only positive test.** An agent could start the app's executable itself, and that process is the app, so it passes. The app reads no command-line arguments, URLs or Apple events (searched above), so it acts only on what is clicked in its window. Whether code can be injected into the app's process depends on how the build is signed, which this change does not touch and I did not check.
+- **The app's image is the only positive test.** An agent could start the app's executable itself, and that process is the app, so it passes. The app reads no command-line arguments, URLs or Apple events (searched above). This does not prove who wrote queued socket bytes; the exec-before-token-read limitation below remains. Whether code can be injected into the app's process depends on how the build is signed, which this change does not touch and I did not check.
 - **The vetoes are as they were.** They read a `ps` snapshot, and stop at pid 1, at a repeated or missing pid, or after 64 processes. `SUBFLEET_ROOT=<root>` matches as a substring, so a daemon on `/Users/m/.subfleet` also vetoes `SUBFLEET_ROOT=/Users/m/.subfleet-dev`. That errs toward refusing.
 - **The e2e person and terminal checks did not run here.** Inside a Subfleet lane every ancestor carries the lane's markers, so `as_person` and `as_terminal` skip by design. They run in CI or from a terminal outside Subfleet. This job did not push, so CI has not run them on this head.
 - **Phone access (d1350)** would need a new positive authority, such as per-request signatures from a paired device. Nothing here adds one, and a terminal can no longer stand in for it.
@@ -191,15 +191,17 @@ The end-to-end person and terminal checks under `tests/e2e/` need a caller outsi
 The review at `3cbd81d5c7c3` confirmed D-PB1 and found two inherited bypasses:
 a queued non-app request became authorized if its sender exec'd the app,
 and resolving a kernel path with `realpath` could bless a different running
-image after a filesystem name was swapped for a symlink. Both are closed.
+image after a filesystem name was swapped for a symlink. Round 1 closed the
+exec case only when the token was saved before exec, and closed the path swap.
+The delayed first-token-read case remained; round 2 records it below.
 
 `daemon._connection` saves `LOCAL_PEERTOKEN` (SOL_LOCAL 0, option 6, 32 bytes)
 before reading requests and passes that immutable token to every conversation
 request. Its word 5 supplies the ancestry pid and its word 7 binds the process
 version. `peers.judge` uses `proc_pidpath_audittoken` to inspect that instance;
 it refuses a missing token and failed or unavailable lookup, without falling
-back to `proc_pidpath`. Exec, exit and pid reuse cannot authorize an old
-connection with a later image. `proc_pidpath` remains a diagnostic helper.
+back to `proc_pidpath`. Once the token has been saved, exec, exit and pid reuse
+cannot authorize that connection with a later image. `proc_pidpath` remains a diagnostic helper.
 
 `ConversationService` freezes the configured executable spellings and their
 real paths when it is constructed at daemon startup. Neither environment
@@ -272,3 +274,105 @@ All three mutations were restored. No failure count is claimed from these
 unrun attempts. The hub must run the three baseline files and these mutation
 selections on the host; the native cases and their compiler were not started
 here. All task-owned foreground runners have exited.
+
+
+## Review round 2: early capture and request-time recheck (2026-10-12)
+
+Base: `9ed60d41dad1`. The hub's host validation of that base passed the identity
+file's 18 cases and the boundary/attachment modules' 142 cases. Review round 2
+then demonstrated that `LOCAL_PEERTOKEN` read on an accepted socket after exec
+returns the new image's token. Saving it in the reader thread left connection
+admission and thread startup before the first token read.
+
+The daemon now reads `LOCAL_PEERTOKEN` on the accept thread as the very next
+statement after `accept()` returns, before recovery logging, connection-cap
+accounting, locking or reader creation. It passes that token through
+`_hold_connection`, `_read_connection` and `_connection`; the reader never
+replaces it. The app's `DaemonClient.swift` connects to this `daemon.sock`
+listener; there is no separate app-facing listener accepting person requests.
+The runner relay's listener serves provider traffic, not these operations.
+
+The saved `AuditToken` carries the socket for a fresh read, excluded from token
+equality and hashing so poll ownership keeps its existing token identity.
+`ConversationService._person` calls `peers.judge` after the full request line
+has been read and before acting. `judge` re-reads `LOCAL_PEERTOKEN` and requires
+both pid and pid version to match the saved token. An unreadable token or a
+difference refuses with `person-only`, exit 7, naming the failed re-read or
+changed process/image and telling the caller to reconnect from the app. The
+existing ancestry vetoes and saved-token executable lookup still follow.
+Non-person operations retain their existing behavior.
+
+### The remaining case and the follow-up
+
+A same-user process that replaces its image with the app's executable before
+the daemon reads its token can still be taken for the app, even for request
+bytes written by its earlier image. The kernel reports the process as it is
+now, so an image check cannot establish which program wrote those bytes.
+The check therefore separates the app from Subfleet's own launched processes
+only as far as those processes do not do that. The follow-up, an app-held
+credential that proves each person-only request, is what closes this case.
+C-25.6 and the `peers.py` module docstring now state this explicitly, and the
+round-1 claims above have been narrowed to exec after the saved token read.
+
+### Regression coverage
+
+Two native tests create a real socket pair in a disposable Python child and
+pass the server end to pytest with `SCM_RIGHTS`, so the peer token identifies
+that child. The child writes a complete `message.resolve` request and waits
+for the test to release it into exec of the compiled `tests/e2e/dev_app.py`
+stand-in. The stand-in's fresh connection is the readiness barrier; there is
+no sleep or pid polling. Only ancestry is faked marker-free, as in round 1.
+The original queued request goes through the real service person check;
+its downstream action is recorded only if the check accepts it.
+
+- A token saved before exec, followed by reading the queued request after
+  exec, refuses with exit 7 and records no action.
+- A first token read delayed until after exec accepts the queued request.
+  This assertion is marked `documented_limitation`, so the credential
+  follow-up must deliberately change it.
+- Synthetic cases cover matching identity, changed pid, changed pid version
+  and a failed token re-read. Another test fixes the order immediately after
+  accept; the existing retention test checks every request keeps that token.
+- The connection shutdown test wrapper passes the saved token through the
+  updated reader signature.
+
+### Validation in the round-2 workspace
+
+All five invocations returned exit 75 after a 120-second shared-lock queue
+wait, before pytest started. In total, 0 tests executed in this workspace. Each invocation is a single
+foreground `uv run pytest -q` under its own `lockf -k -t 120` hold attempt on
+`/private/tmp/claude-501/subfleet-suites.lock`, with its own
+`TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-r191f2-$$/`. A task-owned supervisor
+bounds the whole invocation to 1080 seconds plus at most 40 seconds of shutdown,
+so any hold stays below 20 minutes. There is no wait for calmer host load while
+holding the lock. The requested Python `shutil.rmtree` cleanup runs afterward.
+
+| Invocation | Executed in this workspace | Outcome |
+|---|---:|---|
+| `tests/unit/test_person_boundary_identity.py` | 0 | exit 75; lock queue timed out |
+| `tests/unit/test_person_boundary.py` | 0 | exit 75; lock queue timed out |
+| `tests/unit/test_conversation_peers_attachments.py` | 0 | exit 75; lock queue timed out |
+| `--pyargs tests.unit.test_person_boundary_identity tests.unit.test_person_boundary tests.unit.test_conversation_peers_attachments` | 0 | exit 75; lock queue timed out |
+| `tests/unit/test_daemon_connections.py tests/unit/test_daemon_accept.py` | 0 | exit 75; lock queue timed out |
+
+The identity file now has 25 cases counted from source (18 existing, 7 added),
+including the two native exec-ordering cases. This is a static count, not a
+collection or pass result. All four changed Python files passed syntax
+compilation; `git diff --check` passed.
+
+The shared Git metadata remains read-only to the sandbox: an attempted index
+write was refused. Commit `bba8c771d` contains the fix, tests and C-25.6 text on
+`fix/person-boundary-terminal` in the workspace's `.git-local`, with the caller's
+repository objects as read-only alternates. The report is a separate commit
+on that same branch. No shared index, caller checkout or network remote was
+written. The test environment was copied from the caller's existing
+environment into this workspace, its pytest entry point was changed to use
+the workspace interpreter, and `UV_NO_SYNC=1` plus workspace-local
+`UV_CACHE_DIR` keep these invocations local.
+
+
+All five requested TMPDIR cleanups completed. No pytest process, compiler or
+native probe started, and all task-owned foreground runners have exited.
+The hub must run the three required files, their module-name invocation and
+the supplemental daemon checks on the host; no runtime pass count is claimed
+from this workspace.
