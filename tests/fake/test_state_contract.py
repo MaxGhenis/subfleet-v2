@@ -254,8 +254,14 @@ def reserve(daemon, harness, **submit_overrides):
     from datetime import datetime, timedelta
     real_now = daemon_module.utcnow
     fixture_now = datetime.fromisoformat(real_now().replace("Z", "+00:00"))
+    class FixtureDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixture_now.astimezone(tz) if tz is not None else fixture_now.replace(tzinfo=None)
+
     with pytest.MonkeyPatch.context() as clock:
-        clock.setattr(daemon_module, "utcnow", lambda: fixture_now.isoformat(timespec="seconds").replace("+00:00", "Z"))
+        # Routing, due checks and retry timestamps must use the same clock.
+        clock.setattr(daemon_module, "datetime", FixtureDatetime)
         for retry in range(4):
             daemon._admit()
             attempts = daemon.store.list_attempts(job_id)

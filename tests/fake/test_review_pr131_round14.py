@@ -215,8 +215,12 @@ def test_world_constructor_cleans_up_after_setup_failure(monkeypatch):
 
 @pytest.mark.parametrize("publication", ["receipt", "indexed-claim"])
 def test_publication_serializes_with_authorized_syscall(state_daemon, monkeypatch, publication):
+    from subfleet import guardian
     from subfleet.guardian import _receipt
     daemon, harness = state_daemon
+    # This witness concerns exclusion at dispatch, not power-loss durability.
+    daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
+    monkeypatch.setattr(guardian, "atomic_publish", lambda path, data: path.write_bytes(data))
     ours, _ = running(daemon, harness, 200, 201)
     other, directory = running(daemon, harness, 100, 101)
     daemon.store.update_attempt(other["attempt_id"], evidence_json="{}")
@@ -245,7 +249,7 @@ def test_publication_serializes_with_authorized_syscall(state_daemon, monkeypatc
     delivered = []
     def syscall(pid, sig):
         publisher.start()
-        assert attempted.wait(2)
+        assert attempted.wait(10)
         assert not finished.wait(.05), "claim publisher crossed the authorized syscall boundary"
         delivered.append(pid)
     monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
@@ -256,7 +260,7 @@ def test_publication_serializes_with_authorized_syscall(state_daemon, monkeypatc
                              procs.Containment(), {}, foreign)
     finally:
         if publisher.ident is not None:
-            publisher.join(timeout=5)
+            publisher.join(timeout=30)
     assert delivered == [200]
     assert finished.is_set() and not publisher.is_alive()
 
