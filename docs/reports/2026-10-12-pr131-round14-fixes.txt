@@ -257,3 +257,13 @@ files are staged. Dependencies were copied read-only from the caller's venv
 into the ignored workspace venv; bytecode writes and pytest caches are disabled
 for execution attempts. No source, state, process or Git history in the caller's
 checkout is modified. No remote, sub-agent or live application operation occurs.
+
+Final lock outcomes: 13 requests exited 75 before pytest (12 queues of 45 s,
+one of 300 s). They cover two diagnostic traces, two focused-head requests,
+the r14/r13/ambiguity/self-resolution files, state contract, reduced full world,
+the remaining changed stand-in files, all three mutations, and both baseline
+differentials. Zero tests executed, so no runtime pass, negative-baseline
+failure or caught mutation is claimed. The hub must run every UNRUN entry.
+All temporary task directories and disposable source trees were cleaned using
+the requested Python shutil.rmtree cleanup. No runner or build remains, and
+there is no .hypothesis directory in the worktree.
