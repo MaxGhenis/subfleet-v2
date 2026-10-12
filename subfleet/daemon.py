@@ -2934,16 +2934,37 @@ class Daemon:
 
     @staticmethod
     def _validate_home(lane: Lane) -> None:
+        """C-6.5: a Codex home logged in with an API key is refused, at submit (a lane
+        pin), at an attempt's launch and at an admission probe (C-11.4).
+
+        So is one whose `auth.json` is not a JSON object (empty, cut short, not UTF-8,
+        or `[]`, `null`, a string or a number), which says nothing either way. Each is an
+        `AdapterError` those callers already handle: the probe ends `unknown`, the
+        launch is refused, submit answers code 7. Parsed and `.get` as it stood, such a
+        file raised JSONDecodeError or AttributeError out of the probe and so out of the
+        admission pass (C-6.12), and out of the launch; submit answered it as invalid
+        input or raised; `null` was taken for no file at all. A read the host refuses
+        (an OSError) says nothing about the file and is raised as before: the probe
+        ends `unknown` on it (`_probe_candidate`)."""
         if lane.provider != "codex" or lane.credential.kind != "home":
             return
         path = Path(lane.credential.ref).expanduser() / "auth.json"
         try:
-            auth = json.loads(read_regular(path))                  # never waiting in open()
+            data = read_regular(path)                              # never waiting in open()
         except (FileNotFoundError, NotRegularFile):
-            auth = None                                            # none there, as `is_file()` had said
-        if auth is not None:
-            if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
-                raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
+            return                                                 # none there, as `is_file()` had said
+        try:
+            auth, parsed = json.loads(data), True
+        except (ValueError, RecursionError):                       # JSONDecodeError, UnicodeDecodeError
+            auth, parsed = None, False
+        if not parsed:
+            # Raised here, not in the handler: the parser's error keeps the whole document,
+            # the lane's tokens, and would ride along as this error's context.
+            raise AdapterError("lane auth.json is unreadable", fix="log this lane in again")
+        if not isinstance(auth, dict):
+            raise AdapterError("lane auth.json is not an object", fix="log this lane in again")
+        if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
+            raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
@@ -4742,8 +4763,13 @@ class Daemon:
         stopped = {"stopped": record["stopped"]} if record.get("stopped") else {}
         if not receipt:
             return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt", evidence=dict(stopped))
-        outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
-                                ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+        try:
+            outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
+                                    ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+        except sqlite3.Error:
+            raise                                   # C-6.12: a store error is the pass's; C-5.10 retries it
+        except Exception as exc:                    # noqa: BLE001 - the receipt's, never the pass's (C-6.12)
+            outcome = self._unclassified(record, exc)
         request = self._read_json(directory / "request.json") or {}
         return dataclasses.replace(outcome, evidence={**outcome.evidence, **request, **stopped,
                                    "rc": receipt.get("rc"), "signal": receipt.get("signal")})
@@ -4809,13 +4835,36 @@ class Daemon:
             if not safe:
                 continue
             outcome = Outcome(OutcomeClass.UNKNOWN, "probe recovered without an exit receipt")
-            if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
-                value.update(env_add=self._relaunch_env(record["lane_id"]),
-                             argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
-                adapter = get_adapter(self.store.get_lane(record["lane_id"]).provider)
-                outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
-                    key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+            try:
+                # Its launch is rebuilt in here too: one this daemon's `Launch` cannot take
+                # (written by another version) is as unclassifiable as the receipt.
+                if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
+                    value.update(env_add=self._relaunch_env(record["lane_id"]),
+                                 argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
+                    adapter = get_adapter(self.store.get_lane(record["lane_id"]).provider)
+                    outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
+                        key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+            except sqlite3.Error:
+                raise                               # C-6.12: a store error is the pass's; C-5.10 retries it
+            except Exception as exc:                # noqa: BLE001 - the receipt's, never the pass's (C-6.12)
+                outcome = self._unclassified(record, exc)
             self._finish_probe(record, outcome)
+
+    def _unclassified(self, record: dict, exc: Exception) -> Outcome:
+        """C-6.12, C-11.4: a probe whose receipt its adapter raised on ends `unknown`.
+
+        Both callers have verified the probe's containment first, so the lease
+        `_finish_probe` then releases holds nothing that runs. What the adapter raised
+        is the receipt's, never the pass's: a reset clock in a zone that does not
+        normalize made the Codex adapter raise ValueError, which ended the pass from
+        `_execute_probe`, and from `_recover_probes` ended every pass after it, since
+        that probe's lease was never released. Its type is recorded and logged, never
+        its message, as C-5.10 logs a worker's: a provider's text can hold a secret."""
+        error = type(exc).__name__
+        self.log.warning("admission: probe %s on %s: its receipt could not be classified: %s",
+                         record["holder"], record["lane_id"], error)
+        return Outcome(OutcomeClass.UNKNOWN, f"probe receipt could not be classified: {error}",
+                       evidence={"error_type": error})
 
     def _probe_candidate(self, job: dict, decision, holder: str) -> Outcome:
         lane = self.store.get_lane(decision.chosen_lane)

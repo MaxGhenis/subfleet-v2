@@ -644,6 +644,60 @@ def test_reported_reset_clock_uses_explicit_timezone(tmp_path):
     assert outcome.closure.until_at == "2026-09-06T01:00:00Z"
 
 
+#: Keys the reset-clock pattern captures that `ZoneInfo` refuses with ValueError: not normalized.
+UNNORMALIZED_ZONES = ["America//New_York", "America/New_York/", "America/Indiana//Indianapolis"]
+
+
+@pytest.mark.parametrize("channel", ["stream", "stderr"])
+@pytest.mark.parametrize("zone", UNNORMALIZED_ZONES)
+def test_a_reset_clock_in_a_zone_that_does_not_normalize_is_guessed(tmp_path, zone, channel):
+    """C-9.4, C-6.12: `_reset` caught only `ZoneInfoNotFoundError`, so `ZoneInfo`'s ValueError for
+    such a key left `classify`, and from an admission probe ended the admission pass
+    (tests/fake/test_admission_probe_errors.py). The limit now closes on a guessed clock, as a
+    limit with no reset clock does."""
+    message = f"You've hit your usage limit. Try again at 6:00 PM ({zone})."
+    launch = (_events(tmp_path, {"type": "turn.failed", "error": {"message": message}}) if channel == "stream"
+              else _events(tmp_path, stderr=f"ERROR: {message}\n"))
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.LIMITED
+    assert outcome.closure.clock_source == ClockSource.GUESSED
+    assert outcome.closure.until_at == "2026-09-05T13:00:00Z"
+
+
+def test_a_reset_clock_in_a_zone_this_host_has_not_is_guessed(tmp_path):
+    """C-9.4: the case the code already covered (`ZoneInfoNotFoundError`), kept beside the new one."""
+    launch = _events(tmp_path, stderr="You've hit your usage limit. Try again at 6:00 PM (Mars/Olympus_Mons).\n")
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.closure.clock_source == ClockSource.GUESSED
+
+
+_JSON = st.recursive(st.none() | st.booleans() | st.integers() | st.floats() | st.text(max_size=12),
+                     lambda inner: st.lists(inner, max_size=3)
+                     | st.dictionaries(st.sampled_from(["resets_at", "reset_at", "resetsAt", "reset_time",
+                                                        "reset_timestamp", "error", "message"]) | st.text(max_size=6),
+                                       inner, max_size=3), max_leaves=8)
+#: A Codex rejection's wall clock, with any zone the pattern captures and any date words after it.
+_WALL_CLOCK = st.builds(
+    "{} {}:{:02d} {}M ({}){}".format,
+    st.sampled_from(["try again at", "resets at", "reset", "Try again at"]),
+    st.integers(0, 13), st.integers(0, 61), st.sampled_from("APap"),
+    st.from_regex(r"[A-Za-z_]{1,8}/[A-Za-z_/]{1,12}", fullmatch=True),
+    st.one_of(st.just(""), st.text(max_size=20).map(" on {}".format),
+              st.builds("  ({} {}, {})".format, st.sampled_from(["Feb", "February", "Sep", "Jan"]),
+                        st.integers(0, 40), st.integers(1, 9999))))
+
+
+@settings(max_examples=400, deadline=None)
+@given(event=_JSON, text=st.one_of(st.text(max_size=80), _WALL_CLOCK))
+def test_property_reset_never_raises(event, text):
+    """C-9.4, C-6.12 for all inputs: `_reset` gives a clock or None for any event and any text,
+    and a clock it gives is an instant in UTC. Classification falls back to a guessed clock on
+    None, so nothing a provider prints about its reset can end `classify`."""
+    result = codex_module._reset(event if isinstance(event, dict) else {"error": event}, text, NOW)
+    assert result is None or (isinstance(result, str) and result.endswith("Z")
+                              and datetime.fromisoformat(result.replace("Z", "+00:00")).tzinfo is not None)
+
+
 def test_explicit_account_scope_beats_requested_model_metadata(tmp_path):
     """C-9.4 C-9.6 Account limits retain their explicit scope even when a requested model is recorded."""
     launch = _events(tmp_path, {"type": "turn.failed", "model": MODEL, "error": {
