@@ -8,6 +8,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -66,8 +67,27 @@ def volume(request, tmp_path):
     try:
         yield request.param, mount
     finally:
-        detached = subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True, text=True)
-        assert detached.returncode == 0, detached.stderr
+        _detach(mount)
+
+
+#: Spotlight or fseventsd can hold a volume for a moment after its files are
+#: used; CI saw `hdiutil: couldn't eject "disk5" - Resource busy` on 2026-10-12.
+DETACH_TRIES, DETACH_PAUSE_S = 5, 2.0
+
+
+def _detach(mount):
+    """Detach a test image, waiting out a brief hold before forcing it; fail
+    only when even `-force` cannot detach it."""
+    errors = []
+    for attempt in range(DETACH_TRIES + 1):
+        force = ["-force"] if attempt == DETACH_TRIES else []
+        detached = subprocess.run(["hdiutil", "detach", *force, str(mount)], capture_output=True, text=True)
+        if detached.returncode == 0:
+            return
+        errors.append(detached.stderr.strip())
+        if attempt < DETACH_TRIES:
+            time.sleep(DETACH_PAUSE_S)
+    raise AssertionError(f"hdiutil detach {mount}: {errors}")
 
 
 def test_real_files_agree_with_identity(volume):
@@ -93,3 +113,34 @@ def test_real_files_agree_with_identity(volume):
 def test_conservative_rule_also_guards_absent_names(tmp_path, monkeypatch, left, right):
     monkeypatch.setattr(folders, "_case_sensitive", lambda _: False)
     assert folders.identity(tmp_path / left) == folders.identity(tmp_path / right)
+
+
+@pytest.mark.parametrize("busy, expect_force, expect_error", [
+    (0, False, False),                          # detaches at once
+    (2, False, False),                          # a brief hold is waited out
+    (DETACH_TRIES, True, False),                # only the last try forces it
+    (DETACH_TRIES + 1, True, True),             # even -force failed: the test fails
+])
+def test_detach_waits_out_a_busy_volume_before_forcing(monkeypatch, tmp_path, busy, expect_force, expect_error):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        failed = len(calls) <= busy
+        return subprocess.CompletedProcess(argv, 1 if failed else 0, "",
+                                           'hdiutil: couldn\'t eject "disk5" - Resource busy' if failed else "")
+
+    slept = []
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(time, "sleep", slept.append)
+    if expect_error:
+        with pytest.raises(AssertionError, match="Resource busy"):
+            _detach(tmp_path)
+    else:
+        _detach(tmp_path)
+    assert all(argv[:2] == ["hdiutil", "detach"] and argv[-1] == str(tmp_path) for argv in calls)
+    assert ["-force" in argv for argv in calls] == [n == DETACH_TRIES for n in range(len(calls))]
+    assert ("-force" in calls[-1]) == expect_force
+    assert len(calls) == min(busy, DETACH_TRIES) + 1
+    # A pause follows every busy try before the forced one, and none follows the last.
+    assert slept == [DETACH_PAUSE_S] * min(busy, DETACH_TRIES)
