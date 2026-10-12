@@ -125,7 +125,7 @@ def _counted(usage: Any) -> bool:
 
 
 def cli_placeholder(row: Any) -> bool:
-    """C-9.3: is this `assistant` frame the CLI's own words, not a model's? One marked
+    """C-9.2–9.5: is this `assistant` frame the CLI's own words, not a model's? One marked
     as an API error message, one whose model is missing or Claude Code's `<synthetic>`
     sentinel, or one carrying a credential or organisation error (`AUTH_ERROR_KINDS`),
     which is the CLI's refusal whatever else the frame holds."""
@@ -316,7 +316,8 @@ class StreamSummary:
         return ""
 
     def texts(self) -> tuple[str, ...]:
-        """Every human-readable string the stream carries, for text classification.
+        """Every human-readable string the stream carries, for display/diagnostics.
+        Classifiers must use `cli_texts()` instead: these include model prose.
         Deliberately excludes the prompt: nothing here echoes what was sent."""
         out: list[str] = []
         for message in self.assistants:
@@ -329,13 +330,14 @@ class StreamSummary:
         return tuple(out)
 
     def cli_texts(self) -> tuple[str, ...]:
-        """C-9.3, C-4.5: the strings the CLI and the provider wrote, not the model:
+        """C-9.2–9.5, C-4.5: strings the CLI and the provider wrote, not the model:
         every `assistant` frame that is the CLI's own (`cli_placeholder`: Claude
         Code's placeholders, such as the 2026-09-30 organisation block), the
         `errors` of the result, and its text when it is marked `is_error`, where
         it repeats the refusal. A model's own words, and a success result that
         repeats them, are left out: a review of this classifier quotes its
-        phrases, and an `auth-dead` read from them would disable its lane."""
+        phrases; reading them as auth or quota evidence would disable or close
+        its lane. Closure reset clocks must use this same input boundary."""
         out = [message.text for message in self.assistants if message.text and cli_placeholder(message.raw)]
         if self.result is not None:
             if self.result.text and self.result.is_error:

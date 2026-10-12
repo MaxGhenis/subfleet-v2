@@ -576,10 +576,6 @@ class CodexAdapter(Adapter):
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
-        for event, text in signals:
-            if AUTH_RE.search(text):
-                evidence["authentication"] = event or text
-                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
@@ -587,6 +583,12 @@ class CodexAdapter(Adapter):
             if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
                 evidence["admission"] = "deliverable with exit 0"
                 return result(OutcomeClass.OK, "Codex completed with a deliverable")
+        # Agent messages and last.md never enter these patterns. A verified
+        # success also supersedes recovered CLI authentication diagnostics.
+        for event, text in signals:
+            if AUTH_RE.search(text):
+                evidence["authentication"] = event or text
+                return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
                                    (CONTENT_RE, OutcomeClass.CONTENT_FILTER,
                                     "The provider's content filter refused the prompt; reword it and resubmit (not retried)")):
