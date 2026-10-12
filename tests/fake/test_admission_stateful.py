@@ -42,9 +42,11 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import HealthCheck, Phase, event, note, settings
@@ -71,9 +73,9 @@ from tests.fake_adapter import FakeAdapter
 settings.register_profile("ci", max_examples=40, stateful_step_count=30, derandomize=True,
                           database=None, deadline=None, print_blob=True,
                           suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
-settings.register_profile("dev", max_examples=60, stateful_step_count=40, deadline=None,
+settings.register_profile("dev", max_examples=60, stateful_step_count=40, deadline=None, print_blob=True,
                           suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
-settings.register_profile("deep", max_examples=1000, stateful_step_count=80, deadline=None,
+settings.register_profile("deep", max_examples=1000, stateful_step_count=80, deadline=None, print_blob=True,
                           suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
 PROFILE = settings.get_profile(os.environ.get("HYPOTHESIS_PROFILE") or ("ci" if os.environ.get("CI") else "dev"))
 if os.environ.get("HYPOTHESIS_NO_SHRINK"):
@@ -99,7 +101,8 @@ ROUTE_FAULTS = {
 #: One job as a caller submits it: every tier (none is `standard`), a model, a task, or both, and a
 #: pin by index into the names lanes answer to (lane ids, labels, probe emails, one nobody answers to).
 JOB = st.fixed_dictionaries({
-    "tier": st.one_of(st.just("standard"), st.sampled_from(TIERS)),
+    # `standard` for contention, `hard` because hard work on an unmeasured lane probes first (C-11.4).
+    "tier": st.sampled_from(("standard", "hard") + TIERS),
     "model": st.sampled_from((None,) + MODELS), "task": st.sampled_from((None,) + TASKS),
     "pin": st.none() | st.integers(0, 15), "legacy": st.booleans(), "authorize": st.booleans(),
     # C-6.12: a stored exclusion that is not a lane name (submit refuses one now; an older row may hold one).
@@ -120,12 +123,13 @@ CAPACITY = st.one_of(
     st.tuples(st.just("enroll"), st.integers(0, 7), st.sampled_from(("claude", "codex")),
               st.sampled_from((None,) + NAMES)),
 )
+#: What an admission probe (C-11.4) finds: admitted, limited, inconclusive, not run, or not contained.
+PROBE_MODES = ("ok", "limited", "unknown", "adapter-error", "os-error", "quarantined")
 #: One failure or repair.
 FAILURE = st.one_of(
     st.tuples(st.just("route"), st.sampled_from(("evaluate", "probe_required")), st.sampled_from(sorted(ROUTE_FAULTS))),
     st.tuples(st.just("workspace")),
-    st.tuples(st.just("probe"), st.sampled_from(("ok", "limited", "unknown", "adapter-error", "os-error",
-                                                  "quarantined"))),
+    st.tuples(st.just("probe"), st.sampled_from(PROBE_MODES)),
     st.tuples(st.just("garbage"), st.integers(0, 7)),
     st.tuples(st.just("repair")),
 )
@@ -277,6 +281,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         for module in (daemon_module, scheduler, capacity, store_module, timers_module,
                        policy_module, actions_module, ids_module):
             self.patch.setattr(module, "datetime", self.clock.datetime)
+        # No process ever runs here, so containment's settle sleeps (C-5.5) wait for nothing.
+        self.patch.setattr(daemon_module, "time", SimpleNamespace(monotonic=time.monotonic, sleep=lambda seconds: None))
         self.patch.setattr(daemon_module.procs, "boot_id", lambda: "stateful-boot")
         self.patch.setattr(daemon_module.procs, "proc_start", lambda pid: "stateful-start")
         self.patch.setattr(daemon_module.procs, "same_process", lambda *args: False)
@@ -337,6 +343,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             return Containment(unverifiable=True) if self.quarantine else Containment()
 
         def execute_probe(job, lane, model, holder):
+            event(f"probe: {self.probe_mode}")
             if self.probe_mode == "quarantined":
                 # What `_execute_probe` returns when `_await_probe` finds the probe's
                 # processes cannot be accounted for: the record and the job are quarantined.
@@ -395,8 +402,9 @@ class AdmissionMachine(RuleBasedStateMachine):
     @initialize(cap=st.integers(1, 4), per_lane=st.integers(1, 2), reserve=st.booleans(),
                 claude=st.lists(st.sampled_from((None,) + NAMES), min_size=0, max_size=2),
                 codex_email=st.sampled_from((None,) + NAMES), second_codex=st.booleans(),
-                capacity=st.lists(CAPACITY, max_size=4), queue=st.lists(JOB, max_size=6))
-    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue):
+                capacity=st.lists(CAPACITY, max_size=4), queue=st.lists(JOB, max_size=6),
+                probe=st.sampled_from(PROBE_MODES))
+    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe):
         """A fleet (its caps, the Fable reserve on or off, lanes whose names may collide), the
         capacity it starts with, and a queue submitted before the first pass sees any of it."""
         self.root = self.tmp / "state"
@@ -407,6 +415,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         policy["reserve"]["models"] = ["fable"] if reserve else []
         (self.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         self.service = self.start()
+        self.probe_mode = probe
         for label in claude:
             self.put_lane("claude", label)
         if second_codex:
@@ -415,7 +424,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             # C-11.2, the 2026-09-22 roster: a Codex lane answers to the email its usage probe read.
             self.report_email("codex-1", codex_email)
         note(f"fleet: cap={cap} per_lane={per_lane} reserve={reserve} lanes="
-             f"{[(lane['lane_id'], lane['label']) for lane in self.roster()]} codex-1 email={codex_email}")
+             f"{[(lane['lane_id'], lane['label']) for lane in self.roster()]} codex-1 email={codex_email} probe={probe}")
         for change in capacity:
             self.change_capacity(change)
         for job in queue:
@@ -723,7 +732,10 @@ class AdmissionMachine(RuleBasedStateMachine):
             for older in waiting:
                 assert not all(compete(mine, theirs) for mine in demand[job_id] for theirs in demand[older]), (
                     f"P2, C-6.9: {job_id} was placed past {older}, an older job of its tier that competes with it "
-                    f"and could not be placed ({holds[older]})")
+                    f"and could not be placed ({holds[older]}); before the pass {older} was "
+                    f"{ {key: before[older][key] for key in ('state', 'wait_reason', 'next_check_at')} } "
+                    f"and {job_id} {self.describe(after[job_id], roster)}; looked at: "
+                    f"{sorted(self.looks & {older, job_id})}")
             if waiting:
                 assert live <= cap - 1, (f"C-6.9: {job_id} passed waiting {waiting} and left no slot free "
                                          f"({live} live, max_active_attempts {cap})")
@@ -886,23 +898,38 @@ class AdmissionMachine(RuleBasedStateMachine):
         pending = self.pending(jobs)
         placeable = {job_id: self.placeable(job) for job_id, job in pending.items()}
 
-        def stuck(job_id, seen=()) -> bool:
+        demands = {job_id: self.demands(job, roster) for job_id, job in pending.items()}
+        known: dict[str, bool] = {}
+
+        def stuck(job_id) -> bool:
             """Left pending for a reason fair capacity cannot end: the job can never be placed, or the
-            job its hold names is stuck (C-6.9 keeps a competitor behind it, or a slot for it)."""
-            if job_id not in pending or job_id in seen:
+            job its hold names is stuck (C-6.9 keeps a competitor behind it, or a slot for it). Holds
+            only ever name older jobs, so this walks a DAG and each answer is kept."""
+            if job_id not in pending:
                 return False
-            if not placeable[job_id]:
-                return True
+            if job_id not in known:
+                known[job_id] = not placeable[job_id] or held(job_id)
+            return known[job_id]
+
+        def held(job_id) -> bool:
             hold = holds.get(job_id, {})
-            older = hold.get("behind") or hold.get("kept_for")
-            return hold.get("reason") in ("behind-older-job", "slot-kept") and stuck(older, (*seen, job_id))
+            if hold.get("reason") in ("behind-older-job", "slot-kept"):
+                return stuck(hold.get("behind") or hold.get("kept_for"))
+            if hold.get("reason") in ("approval", "uncertain", "workspace"):
+                # C-6.11 reports such a wait "even when ... an older job is also ahead of it", so the
+                # hold does not name it: a job held behind one is never looked at, and its wait stays.
+                return any(self.seq[older] < self.seq[job_id]
+                           and tier_of(self.policy, jobs[older]) == tier_of(self.policy, jobs[job_id])
+                           and any(compete(mine, theirs) for mine in demands[job_id] for theirs in demands[older])
+                           and stuck(older) for older in pending)
+            return False
 
         for job_id, lane in placeable.items():
             if not lane:
                 continue
             hold = holds.get(job_id, {})
             older = hold.get("behind") or hold.get("kept_for")
-            assert hold.get("reason") in ("behind-older-job", "slot-kept") and stuck(older, (job_id,)), (
+            assert held(job_id), (
                 f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} could run on {lane} under fair "
                 f"capacity and is still pending after {self.passes} passes: {hold}")
             if hold["reason"] == "slot-kept" and not any(
