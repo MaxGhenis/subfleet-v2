@@ -240,7 +240,8 @@ _HOLD_TEXT = {
 
 
 def provider_cap_text(row: Mapping[str, Any]) -> str:
-    return f"{row['provider']}: {row['live']} of {row['max_active_attempts']} running ({row['key']})"
+    text = f"{row['provider']}: {row['live']} of {row['max_active_attempts']} running ({row['key']})"
+    return text + (f"; {row['probes']} exempt probe reservations" if row.get("probes") else "")
 
 
 def disk_floor_detail(reading: Mapping[str, Any]) -> str:

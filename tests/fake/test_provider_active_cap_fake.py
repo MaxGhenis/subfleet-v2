@@ -1,14 +1,16 @@
 """C-6.4a: provider admission across lanes and both pools, using the fake daemon."""
 
 from pathlib import Path
+import json
 import tempfile
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import cli, scheduler
+from subfleet import cli, protocol, scheduler
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner
 from subfleet.daemon import after
+from subfleet.procs import Containment
 from tests.fake.test_admission_latency import (add_codex_lanes, fleet_daemon, measure, submit, submit_turn)
 from tests.fake.test_admission_liveness import _end, _live
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
@@ -35,9 +37,21 @@ def fleet(routing_state, monkeypatch):
 
 
 def live_count(service, provider="codex"):
-    return service.store.one("SELECT count(*) n FROM attempts a JOIN lanes l USING(lane_id) "
-                             "WHERE a.state IN ('reserved','starting','running','finalizing') AND l.provider=?",
-                             (provider,))["n"]
+    """Independent oracle: ordinary attempts plus unresolved containment evidence."""
+    rows = service.store.query("SELECT a.state,a.quarantine_reason FROM attempts a JOIN lanes l USING(lane_id) "
+                               "WHERE l.provider=?", (provider,))
+    total = 0
+    for row in rows:
+        if row["state"] in {"reserved", "starting", "running", "finalizing"}:
+            total += 1
+        elif row["state"] == "quarantined":
+            try:
+                census = json.loads(row["quarantine_reason"])
+                contained = isinstance(census, dict) and census.get("live_pids") == [] and census.get("unverifiable") is False
+            except (ValueError, TypeError):
+                contained = False
+            total += not contained
+    return total
 
 
 def assert_unleased(service, job):
@@ -164,7 +178,11 @@ def test_probe_reservations_do_not_consume_provider_slots(fleet):
     service.store.release_leases("probe:timer:fixture")
     holder = service.timers._claim(service.store.get_lane("codex-2"), "probe")
     assert holder and holder.startswith("probe:timer:")
-    assert scheduler.provider_live(service._capacity_view())["codex"] == 1
+    view = service._capacity_view()
+    assert scheduler.provider_live(view)["codex"] == 1
+    assert view["provider_caps"][0]["probes"] == 2
+    for text in (service.dispatch("daemon.status", {})["status"], cli.format_status(service.dispatch("daemon.status", {}))):
+        assert "2 exempt probe reservations" in text
     service.timers._release(holder)
 
 
@@ -250,8 +268,133 @@ def test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses(fleet, cla
         assert service._holds[mixed]["behind"] == older
 
 
-ACTIONS = st.lists(st.tuples(st.sampled_from(["codex", "turn", "claude", "complete", "state"]),
+ACTIONS = st.lists(st.tuples(st.sampled_from(["codex", "turn", "claude", "complete", "state",
+                                            "quarantine-live", "quarantine-empty", "quarantine-unknown",
+                                            "release", "probe", "probe-end"]),
                             st.integers(0, 10)), min_size=1, max_size=25)
+
+
+@pytest.mark.parametrize("survivor", ["live", "unknown", "empty"])
+@pytest.mark.parametrize("force", [False, True])
+def test_quarantine_retains_provider_slot_until_contained_or_released(fleet, monkeypatch, survivor, force):
+    service, harness = fleet
+    service.policy["providers"]["codex"]["max_active_attempts"] = 1
+    first = submit(service, harness)
+    service._admit()
+    attempt = service.store.list_attempts(first)[0]
+    census = (Containment(marker_pids=frozenset({123456})) if survivor == "live" else
+              Containment(unverifiable=True) if survivor == "unknown" else Containment())
+    service._quarantine(attempt, census, "fixture containment")
+    second = submit(service, harness)
+    service._admit()
+    assert _live(service, second) == census.verified_empty
+    assert live_count(service) == 1
+    assert scheduler.provider_live(service._capacity_view())["codex"] == 1
+    if not census.verified_empty:
+        assert_unleased(service, second)
+        assert service._holds[second]["live"] == 1
+        assert "codex: 1 of 1 running" in service.dispatch("daemon.status", {})["status"]
+        monkeypatch.setattr(service, "_contain", lambda a: census)
+        service._resolve_quarantine(attempt, protocol.KillArgs(first, confirm_dead=True))
+        assert live_count(service) == 1
+        assert service.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
+    monkeypatch.setattr(service, "_contain", lambda a: census if force else Containment())
+    service._resolve_quarantine(attempt, protocol.KillArgs(
+        first, confirm_dead=not force, force_release=force, operator_note="fixture release"))
+    service._admit()
+    assert _live(service, second) and live_count(service) == 1
+
+
+@pytest.mark.parametrize("pool", ["turn", "detached"])
+@pytest.mark.parametrize("releases", [False, True])
+def test_quarantine_census_change_is_revalidated_before_reservation(fleet, monkeypatch, pool, releases):
+    service, harness = fleet
+    service.policy["providers"]["codex"]["max_active_attempts"] = 1
+    first = submit(service, harness)
+    service._admit()
+    attempt = service.store.list_attempts(first)[0]
+    survivor = Containment(marker_pids=frozenset({123456}))
+    service._quarantine(attempt, survivor if releases else Containment(), "fixture census")
+    target = submit_turn(service, harness, 1) if pool == "turn" else submit(service, harness)
+    pick = service._pick
+    changed = []
+
+    def pick_then_change(job, **options):
+        decision = pick(job, **options)
+        if job["job_id"] == target and not changed:
+            changed.append(True)
+            if releases:
+                monkeypatch.setattr(service, "_contain", lambda a: Containment())
+                service._resolve_quarantine(attempt, protocol.KillArgs(first, confirm_dead=True))
+            else:
+                with service.store.transaction("test.census") as tx:
+                    tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?",
+                               (json.dumps(survivor.to_dict()), attempt["attempt_id"]))
+        return decision
+
+    monkeypatch.setattr(service, "_pick", pick_then_change)
+    service._admit()
+    assert changed
+    assert _live(service, target) == releases
+    assert live_count(service) == 1
+    if not releases:
+        assert_unleased(service, target)
+        assert service._holds[target]["reason"] == "provider-cap"
+
+
+@pytest.mark.parametrize("key,value", [("max_in_flight_per_lane", 2),
+                                      ("max_active_attempts", 3),
+                                      ("max_active_attempts_per_parent", 1)])
+def test_existing_caps_preserve_fifo_for_the_selected_provider(fleet, key, value):
+    service, harness = fleet
+    service.policy["caps"][key] = value
+    service.store.add_closure(Closure("codex-1", "account", after(3600),
+                                      ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
+    older = submit(service, harness, pinned_lane="codex-1", pinned_model="astra")
+    later = submit(service, harness, pinned_lane="codex-2", pinned_model="terra")
+    service._admit()
+    assert_unleased(service, later)
+    assert service._holds[later]["behind"] == older
+    assert service._holds[later]["provider"] == "codex"
+
+
+@settings(max_examples=60, deadline=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(lane_cap=st.booleans(), pool_cap=st.booleans(), parent_cap=st.booleans(),
+       related=st.booleans(), selected=st.sampled_from(["codex", "claude"]),
+       waiter_count=st.integers(1, 3))
+def test_mixed_chains_wait_only_for_selected_provider_with_existing_caps(
+        tmp_path, lane_cap, pool_cap, parent_cap, related, selected, waiter_count):
+    """Provider FIFO cannot add an older peer from a provider routing did not select."""
+    with tempfile.TemporaryDirectory(dir=tmp_path) as directory:
+        with fleet_daemon(Path(directory) / "state") as (service, harness, patch):
+            prepare(service, patch, 2)
+            service.policy["providers"]["claude"] = {"max_active_attempts": 2}
+            if lane_cap:
+                service.policy["caps"]["max_in_flight_per_lane"] = 2
+            if pool_cap:
+                service.policy["caps"]["max_active_attempts"] = 3
+            if parent_cap:
+                service.policy["caps"]["max_active_attempts_per_parent"] = 1
+            # Terminal parent jobs keep these siblings in the same queue class.
+            parents = [submit(service, harness) for _ in range(2)]
+            for parent in parents:
+                _end(service, parent)
+            blocked_lane = "codex-1" if selected == "claude" else "claude-1"
+            blocked_model = "astra" if selected == "claude" else "opus"
+            service.store.add_closure(Closure(blocked_lane, "account", after(3600),
+                                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
+            older = [submit(service, harness, pinned_lane=blocked_lane, pinned_model=blocked_model,
+                            parent_job_id=parents[0]) for _ in range(waiter_count)]
+            mixed = submit(service, harness, pinned_model=None, task="research", tier="standard",
+                           parent_job_id=parents[0 if related else 1])
+            decision = service._pick(service.store.get_job(mixed))
+            assert service.policy["models"][decision.chosen_model]["provider"] == selected
+            service._admit()
+            assert all(not _live(service, job) for job in older)
+            assert _live(service, mixed), service._holds
+            attempt = service.store.list_attempts(mixed)[0]
+            assert service.store.get_lane(attempt["lane_id"]).provider == selected
 
 
 @settings(max_examples=50, deadline=None, derandomize=True,
@@ -269,9 +412,36 @@ def test_random_arrivals_and_completions_never_overbook_at_reservation(tmp_path,
             patch.setattr(service, "_boundary", boundary)
             jobs = []
             # Exercise a filled cap and its release in every example.
-            actions = [("codex", n) for n in range(cap + 1)] + list(actions) + [("complete", 0)]
+            actions = ([("codex", n) for n in range(cap + 1)] +
+                       [("quarantine-live", 0), ("probe", 0), ("probe-end", 0), ("release", 1),
+                        ("quarantine-empty", 0), ("codex", 0),
+                        ("quarantine-unknown", 0), ("release", 0)] +
+                       list(actions) + [("complete", 0)])
             for action, n in actions:
-                if action == "complete":
+                if action.startswith("quarantine-"):
+                    live = [job for job in jobs if _live(service, job)]
+                    if live:
+                        attempt = service.store.list_attempts(live[n % len(live)])[-1]
+                        census = (Containment(marker_pids=frozenset({123456})) if action == "quarantine-live" else
+                                  Containment(unverifiable=True) if action == "quarantine-unknown" else Containment())
+                        service._quarantine(attempt, census, "generated containment")
+                elif action == "release":
+                    rows = service.store.query("SELECT * FROM attempts WHERE state='quarantined'")
+                    if rows:
+                        attempt = rows[n % len(rows)]
+                        with patch.context() as release_patch:
+                            release_patch.setattr(service, "_contain", lambda a: Containment() if n % 2 == 0 else
+                                                  Containment(marker_pids=frozenset({123456})))
+                            service._resolve_quarantine(attempt, protocol.KillArgs(
+                                attempt["job_id"], confirm_dead=n % 2 == 0, force_release=n % 2 == 1,
+                                operator_note="generated release"))
+                elif action == "probe":
+                    service.store.acquire_lease(f"lane:codex-{n % 3 + 1}:slot:0",
+                                                f"probe:{'timer' if n % 2 else 'admission'}:generated-{n}")
+                elif action == "probe-end":
+                    for row in service.store.query("SELECT holder FROM leases WHERE holder LIKE 'probe:%'"):
+                        service.store.release_leases(row["holder"])
+                elif action == "complete":
                     live = [job for job in jobs if _live(service, job)]
                     if live:
                         _end(service, live[n % len(live)])
@@ -286,8 +456,11 @@ def test_random_arrivals_and_completions_never_overbook_at_reservation(tmp_path,
                 else:
                     model = "opus" if action == "claude" else "astra" if n % 2 else "terra"
                     jobs.append(submit(service, harness, pinned_model=model))
+                assert live_count(service) <= cap
                 service._admit()
                 assert live_count(service) <= cap
+                assert scheduler.provider_live(service._capacity_view())["codex"] == live_count(service)
+                assert scheduler.provider_live(service._capacity_view(rows=service._capacity_rows(route=True)))["codex"] == live_count(service)
                 for job in jobs:
                     if not _live(service, job) and service.store.get_job(job)["state"] in ("queued", "waiting"):
                         assert_unleased(service, job)

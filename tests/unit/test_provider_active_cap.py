@@ -91,3 +91,34 @@ def test_absent_provider_key_decides_exactly_as_before(case):
     family = bool(job.get('parent_job_id')) and caps.get('max_active_attempts_per_parent') is not None
     assert scheduler.pool_capped(policy, job) == bool(pooled or family)
     assert scheduler.hold_scope(policy, job) == ('pool' if pooled else 'family' if family else None)
+
+
+@pytest.mark.parametrize("aggregated", [False, True])
+@pytest.mark.parametrize("state,census,counted", [
+    ("quarantined", {"live_pids": [123456], "unverifiable": False}, True),
+    ("quarantined", {"live_pids": [], "unverifiable": True}, True),
+    ("quarantined", {"live_pids": [], "unverifiable": False}, False),
+    ("quarantined", {}, True),
+    ("quarantined", None, True),
+    ("quarantined", "invalid-json", True),
+    ("lost", {"live_pids": [123456], "unverifiable": False}, False),
+])
+def test_provider_census_counts_uncontained_quarantine(aggregated, state, census, counted):
+    view = {"lanes": [{"lane_id": "codex-1", "provider": "codex"}],
+            "attempts": [{"lane_id": "codex-1", "state": "running"},
+                         {"lane_id": "codex-1", "state": state,
+                          "quarantine_reason": json.dumps(census) if isinstance(census, dict) else census}]}
+    if aggregated:
+        view.update(in_flight={"codex-1": 1}, in_flight_turns={})
+    assert scheduler.provider_live(view) == {"codex": 1 + counted}
+
+
+def test_provider_fifo_scope_keeps_legacy_parent_scope_separate():
+    policy = json.loads(DEFAULT_POLICY_PATH.read_bytes())
+    policy["providers"] = {"codex": {"max_active_attempts": 2}}
+    policy["caps"]["max_active_attempts_per_parent"] = 1
+    job = {"pinned_model": "astra", "parent_job_id": "parent"}
+    assert scheduler.hold_scope(policy, job) == "pool"
+    assert scheduler.hold_scope(policy, job, include_providers=False) == "family"
+    job.pop("parent_job_id")
+    assert scheduler.hold_scope(policy, job, include_providers=False) is None

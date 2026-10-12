@@ -294,14 +294,14 @@ def pool_capped(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = 
             or bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None)
 
 
-def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = ()) -> str | None:
+def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = (),
+               include_providers: bool = True) -> str | None:
     """C-6.9: which older jobs a job may wait behind. `pool`: any that compete with
     it (its pool has a fleet or per-lane count); `family`: only those that share
     an ancestor with it (the parent cap is its pool's only count, and that count is
-    shared only within a family, review of PR #72); None: none."""
+    shared only within a family, review of PR #72); None: none. Admission passes
+    `include_providers=False` to retain this scope separately from provider FIFO."""
     job = _row(job)
-    if not pool_capped(policy, job, roster=roster):
-        return None
     caps = policy.get("caps") or {}
     if job.get("kind") == "turn":
         conversations = policy.get("conversations") or {}
@@ -310,10 +310,11 @@ def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = (
     else:
         pooled = any(cap(caps, key) is not None for key in
                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
-    pooled = pooled or bool(policy.get("providers")) and any(provider_cap(policy, provider) is not None
+    pooled = pooled or include_providers and bool(policy.get("providers")) and any(provider_cap(policy, provider) is not None
                            for provider in demand_providers(policy, demand_models(policy, job),
                                                             demand_lanes(roster, job, policy), roster))
-    return "pool" if pooled else "family"
+    family = bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None
+    return "pool" if pooled else "family" if family else None
 
 
 def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, klass: str) -> dict[str, Any] | None:
@@ -668,9 +669,27 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
             "lane_spread": admission_settings(policy)["lane_spread"]}
 
 
+def uncontained_quarantine(attempt: Mapping[str, Any]) -> bool:
+    """An unresolved quarantine counts until its recorded census verifies empty.
+
+    Resolution changes the attempt's state. Missing or unreadable containment
+    evidence cannot establish that its provider process has gone.
+    """
+    if attempt.get("state") != "quarantined":
+        return False
+    detail = attempt.get("quarantine_reason")
+    try:
+        census = json.loads(detail) if isinstance(detail, str) else detail
+    except (ValueError, TypeError):
+        return True
+    return not (isinstance(census, dict) and census.get("live_pids") == []
+                and census.get("unverifiable") is False)
+
+
 def provider_live(view: Mapping[str, Any]) -> dict[str, int]:
     """C-6.4: live attempts across both pools, grouped by their lane's provider.
 
+    Uncontained quarantines count in addition to ordinary active attempts.
     Probes hold leases, not attempts, and never enter this count.
     """
     lanes = {_row(lane)["lane_id"]: _row(lane)["provider"] for lane in view.get("lanes", ())}
@@ -685,6 +704,10 @@ def provider_live(view: Mapping[str, Any]) -> dict[str, int]:
             attempt = _row(item)
             if attempt.get("state") in ACTIVE_ATTEMPTS and attempt.get("lane_id") in lanes:
                 counts[lanes[attempt["lane_id"]]] += 1
+    for item in view.get("attempts", ()):
+        attempt = _row(item)
+        if uncontained_quarantine(attempt) and attempt.get("lane_id") in lanes:
+            counts[lanes[attempt["lane_id"]]] += 1
     return counts
 
 

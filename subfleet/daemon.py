@@ -124,6 +124,10 @@ STATUS_JOBS = (
     "SELECT * FROM jobs WHERE state IN ('queued','waiting','running') OR job_id IN "
     "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
     "UNION ALL SELECT job_id FROM attempts WHERE state='quarantined') ORDER BY +created_at,rowid")
+#: D-RT1: retain containment evidence without expanding ordinary pool counts.
+PROVIDER_QUARANTINES = (
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,quarantine_reason "
+    "FROM attempts WHERE state='quarantined' ORDER BY reserved_at,seq")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -1245,6 +1249,14 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
+            if self.policy.get("providers"):
+                quarantines = self.store.query(PROVIDER_QUARANTINES)
+                if route:
+                    rows["attempts"].extend(quarantines)
+                else:
+                    details = {row["attempt_id"]: row["quarantine_reason"] for row in quarantines}
+                    rows["attempts"] = [dict(row, quarantine_reason=details[row["attempt_id"]])
+                                        if row["attempt_id"] in details else row for row in rows["attempts"]]
             if not route:
                 rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt
@@ -1269,7 +1281,12 @@ class Daemon:
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
         view = self.timers.enrich_view(view, rows["timers"])
         provider_counts = scheduler.provider_live(view) if self.policy.get("providers") else {}
+        probe_counts = dict.fromkeys(provider_counts, 0)
+        for lane in view["lanes"]:
+            if lane.get("probe_holder"):
+                probe_counts[lane["provider"]] = probe_counts.get(lane["provider"], 0) + 1
         provider_caps = [{"provider": provider, "live": provider_counts.get(provider, 0),
+                          "probes": probe_counts.get(provider, 0),
                           "max_active_attempts": limit, "key": f"providers.{provider}.max_active_attempts"}
                          for provider in sorted(self.policy.get("providers") or {})
                          if (limit := scheduler.provider_cap(self.policy, provider)) is not None]
@@ -5113,16 +5130,13 @@ class Daemon:
             # waiting while lanes were free. A lease keeps its FIFO below, capped or
             # not, and a job waiting for one holds no later job back (`ahead`).
             scope = scheduler.hold_scope(self.policy, job, roster=roster)
-            family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
-            # A mixed-provider job may still take an uncapped provider while a
-            # capped provider waits. Defer only this provider's FIFO check until
-            # routing chooses a provider; existing fleet/lane/family FIFO stays.
-            provider_only = (bool(self.policy.get("providers")) and scope == "pool"
-                             and policy_cap(self.policy["caps"], "max_active_attempts_per_parent") is None
-                             and (all(turn_cap(self.policy.get("conversations"), key) is None for key in
-                                      ("max_active_turns", "turn_slots_per_lane")) if pool == "turn" else
-                                  all(policy_cap(self.policy["caps"], key) is None for key in
-                                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))))
+            # Keep the old fleet/lane/family scope separate from provider FIFO.
+            # With provider caps enabled, narrow demand to the selected provider
+            # before applying either competition rule.
+            fifo_scope = scheduler.hold_scope(self.policy, job, roster=roster, include_providers=False)
+            family = self._ancestors(job, ancestry) if fifo_scope == "family" else frozenset()
+            defer_fifo = any(scheduler.provider_cap(self.policy, provider) is not None
+                             for provider in self.policy.get("providers", {}))
 
             own_here: list[frozenset[str]] = []
 
@@ -5139,13 +5153,6 @@ class Daemon:
                 job has run (review of PR #72)."""
                 return not (waiter[3] and waiter[3] & own_leases())
 
-            def competes_with(waiter, models, lanes):
-                if provider_only:
-                    shared = (scheduler.demand_providers(self.policy, models, lanes, roster) &
-                              scheduler.demand_providers(self.policy, waiter[1], waiter[2], roster))
-                    return any(scheduler.provider_cap(self.policy, provider) is not None for provider in shared)
-                return scheduler.competes(models, waiter[1], lanes, waiter[2], policy=self.policy, roster=roster)
-
             def ahead(models, lanes):
                 """The oldest waiter this job may not pass (C-6.9), or None: only one
                 waiting for a slot. A waiter on a lease waits for no slot this job
@@ -5155,15 +5162,13 @@ class Daemon:
                 job has run (review of PR #72: a retrying resume and a newer one of
                 the same native session, the newer ordered first by class, each
                 waited for the other until `max_wall_s`)."""
-                if scope is None:
-                    return None
-                if provider_only and len(scheduler.demand_providers(self.policy, models, lanes, roster)) > 1:
+                if fifo_scope is None:
                     return None
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
-                             and competes_with(waiter, models, lanes)
-                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
-            behind = ahead(models, lanes)
+                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
+            behind = None if defer_fifo else ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
@@ -5172,19 +5177,6 @@ class Daemon:
                 if older_hold.get("key", "").startswith("providers."):
                     holds[job["job_id"]].update({key: older_hold[key] for key in
                                                 ("provider", "live", "max_active_attempts", "key")})
-                elif behind and provider_only:
-                    older = next(waiter for waiter in older_waiters(tier) if waiter[0] == behind)
-                    shared = (scheduler.demand_providers(self.policy, models, lanes, roster) &
-                              scheduler.demand_providers(self.policy, older[1], older[2], roster))
-                    provider = next(provider for provider in sorted(shared)
-                                    if scheduler.provider_cap(self.policy, provider) is not None)
-                    count = self.store.one(
-                        "SELECT count(*) n FROM attempts a JOIN lanes l USING(lane_id) "
-                        "WHERE a.state IN ('reserved','starting','running','finalizing') AND l.provider=?",
-                        (provider,))["n"]
-                    holds[job["job_id"]].update(provider=provider, live=count,
-                                               max_active_attempts=scheduler.provider_cap(self.policy, provider),
-                                               key=f"providers.{provider}.max_active_attempts")
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -5349,7 +5341,7 @@ class Daemon:
                     # and as submitted it keeps C-6.9's place behind older jobs.
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
-                    behind = ahead(models, lanes)
+                    behind = None if defer_fifo else ahead(models, lanes)
                     if behind:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
@@ -5533,8 +5525,25 @@ class Daemon:
                         provider_at_limit = False
                         provider_kept = []
                         provider_behind = None
+                        fifo_behind = None
+                        provider = None
                         if decision.chosen_lane:
                             provider = self.policy["models"][decision.chosen_model]["provider"]
+                        elif defer_fifo:
+                            # A rejected single-provider route still has that one
+                            # provider's FIFO. A mixed route with no selection has
+                            # no provider peer to wait behind yet.
+                            possible = scheduler.demand_providers(self.policy, models, lanes, roster)
+                            if len(possible) == 1:
+                                provider = next(iter(possible))
+                        if provider is not None:
+                            if defer_fifo:
+                                selected_models = (frozenset(name for name in models
+                                                   if self.policy["models"][name]["provider"] == provider)
+                                                   if models is not None else frozenset(
+                                                       name for name, model in self.policy["models"].items()
+                                                       if model["provider"] == provider))
+                                fifo_behind = ahead(selected_models, lanes)
                             provider_limit = scheduler.provider_cap(self.policy, provider)
                             if provider_limit is not None:
                                 # C-6.4: both pools share this count. Check inside the
@@ -5543,15 +5552,19 @@ class Daemon:
                                     "SELECT count(*) FROM attempts a JOIN lanes l USING(lane_id) "
                                     "WHERE a.state IN ('reserved','starting','running','finalizing') "
                                     "AND l.provider=?", (provider,)).fetchone()[0]
+                                # Separate predicates retain the live/quarantine
+                                # partial indexes instead of scanning history.
+                                provider_count += sum(scheduler.uncontained_quarantine(dict(row)) for row in tx.execute(
+                                    "SELECT a.state,a.quarantine_reason FROM attempts a JOIN lanes l USING(lane_id) "
+                                    "WHERE a.state='quarantined' AND l.provider=?", (provider,)))
                                 provider_kept = [waiter for waiter in kept if provider in
                                                  scheduler.demand_providers(self.policy, waiter[1], waiter[2], roster)]
-                                if provider_only:
-                                    provider_behind = next((waiter[0] for waiter in provider_kept if not waiter[3]), None)
+                                provider_behind = next((waiter[0] for waiter in provider_kept if not waiter[3]), None)
                                 provider_at_limit = provider_count >= provider_limit - bool(provider_kept)
                                 provider_hold = {"provider": provider, "live": provider_count,
                                                  "max_active_attempts": provider_limit,
                                                  "key": f"providers.{provider}.max_active_attempts"}
-                        if not decision.chosen_lane or at_limit or provider_at_limit or provider_behind:
+                        if not decision.chosen_lane or at_limit or provider_at_limit or provider_behind or fifo_behind:
                             # C-11.8: a job every lane refuses for a reason no wait ends
                             # (the pinned lane turned so since this pass's check) waits
                             # for no slot, so it holds no later job back (C-6.9).
@@ -5565,12 +5578,14 @@ class Daemon:
                             # 2026-09-20 three such jobs were each re-evaluated every
                             # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
                             # 709 MB store, and a daemon at a full core doing it.
-                            if not decision.chosen_lane:
+                            if fifo_behind or provider_behind:
+                                label = "behind-older-job"
+                            elif not decision.chosen_lane:
                                 label = scheduler.dominant_rejection(decision)
                             else:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
-                                label = ("behind-older-job" if provider_behind else
+                                label = ("behind-older-job" if fifo_behind or provider_behind else
                                          "provider-cap" if provider_at_limit and provider_hold["live"] >=
                                          provider_hold["max_active_attempts"] else
                                          "provider-slot-kept" if provider_at_limit else
@@ -5588,16 +5603,18 @@ class Daemon:
                                 hold.update(provider_hold)
                             if label == "provider-slot-kept":
                                 hold.update(kept_for=provider_kept[0][0], tier=tier)
-                            if provider_behind:
-                                hold.update(provider_hold, behind=provider_behind, tier=tier)
+                            if fifo_behind or provider_behind:
+                                hold.update(behind=fifo_behind or provider_behind, tier=tier)
+                                if provider_behind:
+                                    hold.update(provider_hold)
                             if kind == "turn" and not decision.chosen_lane:
                                 # C-24.4, C-29.11: what each lane said, for the message's
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
                             signature = f"{scheduler.verdict_signature(decision)}:{at_limit or provider_at_limit}"
-                            if provider_behind:
-                                signature += f":behind:{provider_behind}"
+                            if fifo_behind or provider_behind:
+                                signature += f":behind:{fifo_behind or provider_behind}"
                             rechecks = self._capacity_wait(job["job_id"], signature, hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
@@ -5975,6 +5992,10 @@ class Daemon:
         attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,j.kind,j.parent_job_id "
                                "FROM attempts a JOIN jobs j USING(job_id) "
                                "WHERE a.state IN ('reserved','starting','running','finalizing')")
+        if self.policy.get("providers"):
+            attempts.extend(store.query(
+                "SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,a.quarantine_reason,j.kind,j.parent_job_id "
+                "FROM attempts a JOIN jobs j USING(job_id) WHERE a.state='quarantined'"))
         # C-6.14: each lane's pilot, from the attempts in flight now and what has
         # answered by now, as `_capacity_view` lays them: an attempt placed or an
         # answer heard since the early view changes the lane, which is judged again.
