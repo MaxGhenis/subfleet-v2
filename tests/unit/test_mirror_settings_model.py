@@ -194,6 +194,21 @@ def test_a_held_later_pick_is_recorded_decided(race, next_decision):
     assert set(stalled.value) == {1}, "a save that moves no rank holds nothing"
 
 
+def test_a_hold_that_records_any_other_decision_breaks_hold_keeps_base(monkeypatch):
+    """Review round 3 of #193: "hold keeps base" now excepts a later pick, and
+    is still a check. A publish that recorded every held decision fails it."""
+    publish = model.pass_publish
+
+    def every_hold_decides(state, *, honest):
+        if state.phase == model.DECIDED and model.held(state):
+            state = replace(state, later=True)
+        return publish(state, honest=honest)
+
+    monkeypatch.setattr(model, "pass_publish", every_hold_decides)
+    _states, broken = model.explore(settled_roots(), picked=True, honest=False, limit=3)
+    assert "hold-keeps-base" in broken
+
+
 def test_the_first_decision_property_is_not_the_rule_restated():
     """C-23.28, review round 1: "newer never overwritten" judges a first decision
     by the ghost of which values picks produced, which the rule never reads.
