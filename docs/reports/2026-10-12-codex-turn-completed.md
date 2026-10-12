@@ -5,10 +5,20 @@
 The supplied live-store audit reports that the 2026-10-12 11:38:52Z reboot
 ended 40 running Codex attempts, all with rc 0 and no signal. Six had both
 `turn.completed` and a non-empty `last.md`; the other 34 had neither and
-were nevertheless accepted from 87–408-byte interim progress notes. Since
-2026-09-25, 4,830 `ok` attempts had both completion artifacts and 173 had
-neither. Those 173 ended on `item.completed` (140), `item.started` (16), or
-`error` (17), clustered at host stops with additional transport failures.
+were nevertheless accepted from 87–408-byte interim progress notes. The
+daemon sent those processes no signal, so `killed_by` stayed null and C-9.2's
+rule that a signalled attempt is never `ok` could not apply.
+
+Correction (hub, from the attempts table): the build brief also cited 173
+`ok` attempts without `turn.completed` since 2026-09-25. That figure read the
+adapter's verdict, which `finalization.json` keeps even when the daemon
+overrides it. 138 of the 139 before the reboot are recorded `unknown` and
+`interrupted` by the daemon, with `killed_by` `max_wall_s` (79) or `operator`
+(59), and the remaining one (2026-09-25, operator kill) is on a cancelled job
+with nothing accepted. All 139 jobs are `cancelled` with no accepted attempt.
+The reboot's 34 are the only cut-off turns accepted as a job's result. Among
+4,830 genuine `ok` attempts, every one had both `turn.completed` and a
+non-empty `last.md`, so requiring `turn.completed` rejects none of them.
 This report uses the supplied evidence; no live store or live process was read.
 
 `CodexAdapter.classify()` now requires this attempt's `turn.completed` event,
