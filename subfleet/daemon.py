@@ -2038,12 +2038,19 @@ class Daemon:
                 # spelled one way (`folders.canonical`, as a conversation's workspace
                 # is): a folder outside git kept the case it was typed in, so
                 # `~/Scratch` and `~/scratch` were two keys for one folder.
-                write_target = (folders.canonical(push_top or git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
-                                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
-                # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
-                # target is, so retention can tell it is in use (`folders.READER`).
-                read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
-                               if turn is not None and write_target is None else None)
+                # C-8.4, C-13.4: a read-only turn's folder is the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`). Both are
+                # spelled in one look (`_row_folder`), which also says whether admission must
+                # find the folder again (`unspelled`), and admission spells it again before it
+                # takes a row (`folders.present`). C-8.5: a push job's checkout top comes from
+                # `host_push.validate_submit`, which read it without asking git, so it is
+                # spelled as given and git is not run in that checkout here either; nor at
+                # admission, since such a folder is never `unspelled`.
+                named, unspelled = (self._row_folder(workdir, push_top)
+                                    if (sandbox == Sandbox.WORKSPACE_WRITE and args.in_place) or turn is not None
+                                    else (None, False))
+                write_target = named if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None
+                read_folder = named if turn is not None and write_target is None else None
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -2266,6 +2273,7 @@ class Daemon:
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
                          **({"folder": read_folder} if read_folder else {}),
+                         **({"unspelled": True} if unspelled else {}),
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
@@ -2568,6 +2576,68 @@ class Daemon:
             return None
         return True if state == "alive" else False if state == "dead" else None
 
+    def _row_folder(self, workdir: str | Path, top: str | Path | None = None) -> tuple[str, bool]:
+        """C-6.5, C-8.4: the folder a row for a job in `workdir` names (its checkout's
+        top level, or `workdir` outside git), spelled (`folders.present`), and whether
+        a name of it was not there to spell. Submit records such a folder `unspelled`,
+        and admission finds it again.
+
+        When git finds no checkout but a `.git` is at or above the folder
+        (`folders.under_git`), the tree may have been away for git's look and back for
+        the spelling, and `workdir` may be a folder below its checkout's top: git is
+        asked once more (review of fb674463, Q1, Q1b and Q1c). A `.git` git
+        deliberately ignores (GIT_CEILING_DIRECTORIES, an owner `safe.directory`
+        refuses) answers the same twice, and the folder is then `workdir`, as before.
+        One spelling gives both answers, so the folder recorded is the one judged.
+
+        C-8.5: `top`, when given, is a push job's checkout top as
+        `host_push.validate_submit` read it from the checkout's own metadata. It is
+        spelled as given and git is not asked, so no git runs on a push checkout's
+        configuration at submit. It is never `unspelled`, also when a name of it was
+        not there to spell: the folder a push job writes in is the top submit
+        validated, and admission never finds it again (`_rediscovered`), which would
+        run git there and let the checkout's own `core.worktree` name another folder
+        as the job's write target (review of #141 at 2cbf6fca, P2-B)."""
+        if top is not None:
+            return folders.present(top)[0], False
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        top = git_toplevel(workdir, timeout_s=cap)
+        folder, missing = folders.present(top or workdir)
+        if top is None and missing is None and folders.under_git(folder):
+            top = git_toplevel(workdir, timeout_s=cap)
+            if top is not None:
+                folder, missing = folders.present(top)
+        return folder, missing is not None
+
+    def _rediscovered(self, job: dict) -> str | None:
+        """C-6.5, C-8.4: for a job submit could not spell in full (`unspelled`), the
+        folder its row names now, found again from its folder as submit finds it
+        (`_row_folder`); None for any other job. Admission asks once per look, before
+        the look for retention's fence (`_fence_hold`), and the reserving transaction
+        uses that same answer, so the two read one folder: one found after the
+        workspace was prepared had been read by the transaction alone, and a turn
+        whose persisted `core.worktree` named a fenced top elsewhere prepared its
+        workspace (review of #141 at 2cbf6fca, P2-A).
+
+        This is `git rev-parse --show-toplevel` in the job's folder, twice when git
+        finds no checkout under a `.git`, run off the store lock. It reads the
+        repository and writes nothing: no content, mode, mtime or ctime of the
+        folder's tree, its `.git` and index, a linked worktree's admin directory or
+        an external top moves (measured by `test_retention_rediscovery.py`); a read
+        may move an atime, which retention does not sign. Git's diagnostic traces are
+        not inherited (`salvage._git_env`), so an operator's `GIT_TRACE*` cannot make
+        it write a trace file in the fenced tree (`test_rediscovery_git_trace.py`). A turn's folder is in
+        place, so this is the folder `_workspace` would return.
+
+        Never for a push job (C-8.5): its write target is the top
+        `host_push.validate_submit` validated, as submit spelled it, and git run on
+        that checkout here would read its configuration, which the job controls."""
+        if job.get("push_branch") is not None or not (job["kind"] == "turn" or job["in_place"]):
+            return None
+        if not self._submitted(job["job_id"]).get("unspelled"):
+            return None
+        return self._row_folder(job.get("worktree") or job["workdir"])[0]
+
     def _write_target(self, job: dict, workspace: str) -> str:
         """The worktree lease's subject: the checkout for an in-place job, the
         allocated worktree otherwise (C-6.5, C-6.6)."""
@@ -2577,9 +2647,17 @@ class Daemon:
 
     def _turn_folder(self, job: dict) -> str:
         """C-8.4, C-24.5: the folder a turn's row is on, as its admitting transaction
-        names it (`write_target`, or a read-only turn's `folder`), without preparing
-        its workspace: a turn is in place, so the folder `_workspace` would return is
-        the one it was submitted in."""
+        names it, without preparing its workspace: for a turn submit could not spell
+        in full (`unspelled`), the folder `_rediscovered` finds now; for any other,
+        the one submit recorded (`_recorded_folder`). The admission pass asks
+        `_rediscovered` once and hands that one answer to its look before the
+        workspace and to its reserving transaction."""
+        return self._rediscovered(job) or self._recorded_folder(job)
+
+    def _recorded_folder(self, job: dict) -> str:
+        """The folder submit recorded for a turn's row (`write_target`, or a read-only
+        turn's `folder`), with no git: a turn is in place, so the folder `_workspace`
+        would return is the one it was submitted in."""
         workspace = job.get("worktree") or job["workdir"]
         if job["sandbox"] == "workspace-write":
             return self._write_target(job, workspace)
@@ -4707,12 +4785,34 @@ class Daemon:
         if wait:
             self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
 
+    @staticmethod
+    def _turn_fences(read: Callable, folder: str, absent: OSError | None,
+                     run_folder: str | None, run_absent: OSError | None) -> tuple[list[str], str]:
+        """C-8.4: the early look and reservation compare the same spelled folders.
+
+        Callers spell both with `folders.present` outside the store lock. Names
+        that were absent may alias a quarantined tree, so compare those folded.
+        The actual cwd names the hold whenever its fence is among the blockers.
+        """
+        git_fences = folders.retiring(read, folder, folded=absent is not None)
+        run_fences = []
+        if run_folder:
+            # A move between the two spellings can change the comparison even
+            # when their strings match. Reuse only an identical fence query.
+            same = run_folder == folder and (run_absent is None) == (absent is None)
+            run_fences = (git_fences if same else
+                          folders.retiring(read, run_folder, folded=run_absent is not None))
+        return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+
     def _fence_hold(self, job: dict, folder: str, holds: dict[str, dict], waiters: dict, tier: str,
                     models: frozenset[str] | None, lanes: frozenset[str] | None,
                     run_folder: str | None = None) -> bool:
         """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
         folder, actual cwd or a folder above either (`folders.retiring`), found
-        before its workspace is prepared. The cwd is canonicalized off the lock.
+        before its workspace is prepared. Both folders are spelled off the lock,
+        with absent names compared folded, just as in the reserving transaction.
+        `folder` is the one that transaction will name: for a job submit could not
+        spell (`unspelled`), the one `_rediscovered` found for this look.
 
         The admitting transaction reads that fence too, and its answer is the one
         that counts. This look spares a job that cannot start its start snapshot
@@ -4731,10 +4831,11 @@ class Daemon:
         capacity wait under the same signature, the job's `waiting` row and clock, and
         the job's folder, which its reason names (C-6.11). A job that ended or was
         cancelled meanwhile is not held, and not prepared either."""
+        folder, absent = folders.present(folder)
+        run_folder, run_absent = folders.present(run_folder) if run_folder else (None, None)
+
         def fences(read):
-            git_fences = folders.retiring(read, folder)
-            run_fences = folders.retiring(read, run_folder) if run_folder and run_folder != folder else []
-            return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+            return self._turn_fences(read, folder, absent, run_folder, run_absent)
 
         if not fences(self.store.query)[0]:
             return False
@@ -5119,13 +5220,30 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
-            if job["kind"] == "turn" and self._fence_hold(job, self._turn_folder(job), holds, waiters, tier,
-                                                          models, lanes, run_folder):
-                # C-8.4: retention is retiring the tree the turn's folder is in; no
-                # git runs there for a turn that cannot start (the transaction below
-                # still reads the fence, and decides).
-                continue
             try:
+                try:
+                    # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
+                    # so what it recorded may be below its checkout's top, or not the top its
+                    # `core.worktree` names: found again as submit finds it, once, for the look
+                    # below and for the reserving transaction alike (`_rediscovered`), then
+                    # spelled below like any other.
+                    derived = self._rediscovered(job)
+                except (OSError, subprocess.SubprocessError, SalvageError):
+                    # C-6.8's, as a workspace that cannot be prepared is. A turn whose folder
+                    # submit recorded is in a tree retention is retiring still waits on that
+                    # fence, as it did before git was asked.
+                    if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
+                                                                  tier, models, lanes, run_folder):
+                        continue
+                    raise
+                # `_turn_folder`, from the one answer above.
+                if job["kind"] == "turn" and self._fence_hold(job, derived or self._recorded_folder(job), holds,
+                                                              waiters, tier, models, lanes, run_folder):
+                    # C-8.4: retention is retiring the tree the turn's folder is in; no
+                    # workspace is prepared for a turn that cannot start, and no git runs
+                    # there but `_rediscovered`'s read (the transaction below still reads
+                    # the fence, and decides).
+                    continue
                 baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
@@ -5151,16 +5269,42 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
                                         "error": str(exc)[:200]}
                 continue
-            self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
             # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
-            # A submitted path can be replaced before admission, and Git's
-            # core.worktree can put the writer hold outside the provider cwd.
-            # Resolve once off the lock; fence, pin and launch this same folder.
-            run_folder = folders.canonical(workspace)
-            if job["wait_reason"] == "workspace":
+            if derived is not None and read_folder:
+                read_folder = derived
+            elif derived is not None and write_target:
+                write_target = derived
+            # C-8.4, C-24.5, C-6.5: the folder a row will name (a turn's, or an in-place
+            # writer's `worktree:`), spelled again now, off the store lock. Submit spelled
+            # it, but a name it could not look up kept the case it was given: a native
+            # session's cwd typed `…/jOB/vendor/lib`, spelled while retention had the tree
+            # `Job` in quarantine, keyed the row on `jOB`, which no check on the tree
+            # matched once the turn's job had ended (review of 8a112986, finding 1). A
+            # folder spelled in full here is the one spelling of a folder that is there;
+            # one that is not reserves no row (`absent`, below).
+            named, absent = read_folder or (write_target if job["kind"] == "turn" or job["in_place"] else None), None
+            if named:
+                spelled, absent = folders.present(named)
+                named = spelled
+                if read_folder:
+                    read_folder = spelled
+                else:
+                    write_target = spelled
+            git_absent = absent
+            # The provider's cwd may differ from Git's hold (core.worktree).
+            # Require that extra reader row's folder to be present too.
+            # Detached jobs keep the resolved cwd through launch and quarantine;
+            # turns also require every name of their extra reader row to be present.
+            run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn"
+                                      else (folders.canonical(workspace), None))
+            if absent is None and run_absent is not None:
+                named, absent = run_folder, run_absent
+            if absent is None:
+                self._workspace_deferrals.pop(job["job_id"], None)
+            if job["wait_reason"] == "workspace" and absent is None:
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
@@ -5459,10 +5603,6 @@ class Daemon:
                             # retention and a detached writer still see the folder in use.
                             leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
                             blockers.append(folders.exclusive_key(write_target))
-                            # C-8.4: nor while retention retires a tree its folder is
-                            # in, a repository nested in a job's worktree; a detached
-                            # writer above it holds another checkout (C-6.5).
-                            blockers.extend(folders.retiring(read, write_target))
                         elif job["sandbox"] == "workspace-write":
                             # C-6.5: the hold is where the job writes. A session is not a
                             # place, so it takes no lease; its instances are told apart
@@ -5481,19 +5621,33 @@ class Daemon:
                             # retention never removes a folder a turn is working in, or
                             # the tree it is nested in.
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
-                            blockers.extend(folders.retiring(read, read_folder))
-                        run_fences = folders.retiring(read, run_folder) if run_folder else []
-                        # The detached writer already contests its own exclusive
-                        # key; report that fence once, as before.
-                        own_run_key = (folders.exclusive_key(write_target)
-                                       if job["kind"] != "turn" and write_target else None)
-                        blockers.extend(key for key in run_fences if key != own_run_key)
-                        if job["kind"] != "turn" or run_folder != (write_target or read_folder):
-                            # A job-held reader row survives retries and quarantine
-                            # and is released by the existing holder-keyed cleanup.
-                            # It keeps the resolved cwd without changing C-6.5's
-                            # writer contention on the submitted write target.
+                        held_folder = write_target or read_folder
+                        if job["kind"] == "turn":
+                            # C-8.4: only retention's fences above either folder
+                            # hold a turn; a detached writer above holds another
+                            # checkout (C-6.5). Use the early look's comparison.
+                            fence, held_folder = self._turn_fences(read, held_folder, git_absent,
+                                                                    run_folder, run_absent)
+                            blockers.extend(fence)
+                        else:
+                            # The writer already contests its own exclusive key.
+                            own_run_key = folders.exclusive_key(write_target) if write_target else None
+                            blockers.extend(key for key in folders.retiring(read, run_folder)
+                                            if key != own_run_key)
+                        if run_folder and (job["kind"] != "turn" or run_folder != (write_target or read_folder)):
+                            # This job-held reader row keeps the resolved cwd through
+                            # retries and quarantine without changing the Git hold's
+                            # writer rules. Holder-keyed cleanup releases it.
                             leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
+                        if absent is not None and job["kind"] != "turn":
+                            # C-8.4: its folder is not there now, so the names that could not
+                            # be looked up may not be the ones its volume stores: retention may
+                            # have its tree in quarantine under a fence spelled `Job`. Any
+                            # fence of retention's that folds alike above it holds it, as the
+                            # fence on its spelling would; with none it reserves nothing.
+                            taken = {key for key, _ in leases}       # contested already when held
+                            blockers.extend(key for key in folders.retiring(read, named, folded=True)
+                                            if key not in taken)
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -5535,7 +5689,7 @@ class Daemon:
                             # A turn's hold names its folder: a fence it waits for may be
                             # on a tree that folder is in, which its reason says (C-6.11).
                             hold = {"reason": "lease-held", "leases": contested + blocked,
-                                    **({"folder": run_folder if run_fences else write_target or read_folder}
+                                    **({"folder": held_folder}
                                        if job["kind"] == "turn" and (write_target or read_folder) else {}),
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
@@ -5546,6 +5700,9 @@ class Daemon:
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
+                            break
+                        if absent is not None:
+                            status = "absent"           # no row on a folder that is not there now
                             break
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
@@ -5617,6 +5774,9 @@ class Daemon:
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
+                continue
+            if status == "absent":
+                self._folder_absent(job, named, absent, holds)
                 continue
             if status != "placed":
                 continue
@@ -6125,6 +6285,20 @@ class Daemon:
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
+
+    def _folder_absent(self, job: dict, folder: str, missing: OSError, holds: dict) -> None:
+        """C-8.4, C-6.8: `folder`, the one `job`'s row would name, is not there now
+        (`folders.present`), and no retirement is moving a tree it is in. It takes no
+        row on a spelling that may not be the folder's once it is back; like any
+        workspace that could not be prepared it waits with backoff, and fails after
+        `caps.workspace_retry_max` tries (a tree another tool held aside comes back,
+        one that was removed does not)."""
+        error = SalvageError(f"its folder {folder} is not there now "
+                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True)
+        error.__cause__ = missing
+        self._workspace_failed(job, error)
+        self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
+        holds[job["job_id"]] = {"reason": "workspace", **self._workspace_error(error)[1]}
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
                      data: dict | None = None) -> None:

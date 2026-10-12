@@ -23,12 +23,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import APPROVAL_NEEDED, CANCELLED, COMPLETE, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES, WAITING
+from .turn import (
+    APPROVAL_NEEDED, CANCELLED, COMPLETE, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, RUNNING, TERMINAL_STATES,
+    WAITING,
+)
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -1388,28 +1391,80 @@ class ConversationStore:
         return [_decode_approval(r) for r in self.query(sql + " ORDER BY created_at", tuple(params))]
 
     def answer_approval(self, approval_id: str, decision: dict) -> bool:
+        """A person's answer (C-27.1). The row, its `approval.resolved` event, a
+        change-feed row and, once nothing of the message is pending, its move back to
+        running commit together (C-27.3): a client that reads any of them finds the
+        others, so it never meets a card still pending with no approval to answer it
+        by, and the card reads answered even when the provider ends before the runner
+        hands the answer over (a replay applies EOF before its queued answers). The
+        event carries the key the driver's own event for the answer gets in the
+        runner's batch (`respond`: source `cmd:approval:<id>`), so the log keeps one."""
         with self.transaction() as tx:
             cur = tx.execute("UPDATE approvals SET state='answered', decision_json=?, answered_at=? "
                              "WHERE approval_id=? AND state='pending'",
                              (json.dumps(decision), utcnow(), approval_id))
             if cur.rowcount:
-                row = tx.execute("SELECT conversation_id, message_id FROM approvals WHERE approval_id=?",
-                                 (approval_id,)).fetchone()
+                row = tx.execute("SELECT conversation_id, message_id, attempt_id, provider_request_id FROM approvals "
+                                 "WHERE approval_id=?", (approval_id,)).fetchone()
+                rid = row["provider_request_id"]
+                self._resolved_event(tx, row, f"cmd:approval:{rid}", decision.get("decision"))
                 pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
                                      (row["message_id"],)).fetchone()[0]
                 self._change(tx, row["conversation_id"], row["message_id"], None, pending=pending)
+                if not pending:
+                    self._set_state(tx, row["message_id"], RUNNING, expect=(APPROVAL_NEEDED,))
             return bool(cur.rowcount)
 
     def withdraw_approvals(self, *, attempt_id: str, provider_request_ids: list[str] | None = None) -> int:
-        sql = "UPDATE approvals SET state='withdrawn', answered_at=? WHERE attempt_id=? AND state='pending'"
-        params: list[Any] = [utcnow(), attempt_id]
-        if provider_request_ids is not None:
-            if not provider_request_ids:
-                return 0
-            sql += f" AND provider_request_id IN ({','.join('?' * len(provider_request_ids))})"
-            params += provider_request_ids
+        """Withdraw an attempt's pending approvals (those named, or all of them), each
+        with its `approval.resolved {withdrawn}` event and a change-feed row, in one
+        transaction (C-27.3). Returns how many were withdrawn; a second call finds
+        none and writes nothing."""
+        if provider_request_ids is not None and not provider_request_ids:
+            return 0
         with self.transaction() as tx:
-            return tx.execute(sql, tuple(params)).rowcount
+            return self._withdraw(tx, attempt_id, provider_request_ids)
+
+    def _withdraw(self, tx: sqlite3.Connection, attempt_id: str, provider_request_ids: Sequence[str] | None,
+                  *, announced: frozenset[str] = frozenset()) -> int:
+        """`withdraw_approvals` inside a transaction the caller holds. A row moved from
+        pending gets an `approval.resolved {withdrawn}` event unless `announced` holds
+        its request id (the provider's own withdrawal, a `withdrawn` event in the same
+        batch), so
+        each withdrawal is said once, in the commit that makes it; one change-feed row
+        per message whose approvals moved. A row already answered or withdrawn is left
+        as it is and gets no event."""
+        sql = ("SELECT approval_id, message_id, conversation_id, attempt_id, provider_request_id FROM approvals "
+               "WHERE attempt_id=? AND state='pending'")
+        params: list[Any] = [attempt_id]
+        if provider_request_ids is not None:
+            sql += f" AND provider_request_id IN ({','.join('?' * len(provider_request_ids))})"
+            params += list(provider_request_ids)
+        rows = tx.execute(sql + " ORDER BY created_at, approval_id", tuple(params)).fetchall()
+        now = utcnow()
+        moved: dict[str, str] = {}
+        for row in rows:
+            tx.execute("UPDATE approvals SET state='withdrawn', answered_at=? WHERE approval_id=? AND state='pending'",
+                       (now, row["approval_id"]))
+            rid = row["provider_request_id"]
+            if rid not in announced:
+                self._resolved_event(tx, row, f"cmd:withdrawn:{rid}", "withdrawn")
+            moved[row["message_id"]] = row["conversation_id"]
+        for message_id, conversation_id in moved.items():
+            self._change(tx, conversation_id, message_id, None)
+        return len(rows)
+
+    def _resolved_event(self, tx: sqlite3.Connection, approval: sqlite3.Row, position: str,
+                        decision: str | None) -> None:
+        """The `approval.resolved` event for an approval the store resolves, at a key
+        only that resolution uses (`cmd:approval:<id>` the driver's own for an answer,
+        `cmd:withdrawn:<id>` for a withdrawal): a replay, or the driver's event for the
+        same answer, adds no second row (C-26.6)."""
+        data = {"request_id": approval["provider_request_id"], "decision": decision}
+        tx.execute("INSERT OR IGNORE INTO events(conversation_id,message_id,attempt_id,source,position,ordinal,kind,"
+                   "data_json,ts) VALUES (?,?,?,?,?,?,?,?,?)",
+                   (approval["conversation_id"], approval["message_id"], approval["attempt_id"], "command", position, 0,
+                    "approval.resolved", json.dumps(data, separators=(",", ":"), ensure_ascii=False), utcnow()))
 
     # --- attachments -----------------------------------------------------------
 
@@ -1432,20 +1487,46 @@ class ConversationStore:
 
     def append_events(self, *, conversation_id: str, message_id: str, attempt_id: str,
                       events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int,
-                      title: "TitleUpdate | None" = None) -> int:
+                      title: "TitleUpdate | None" = None, resolved: Sequence[str] = (),
+                      resume: bool = False) -> int:
         """One batch (C-25.4): events `(source, position, ordinal, kind, data)` and the
         attempt's watermark, in one transaction. Duplicates are ignored (C-26.6).
 
         `title` carries the first turn's optional title work (titles.py) into the same
         transaction: its claim, with the batch that records the turn's result, and a
         generated title the provider answered. It has a savepoint of its own, so a
-        failure there costs the title, never the batch; the store sets its results."""
+        failure there costs the title, never the batch; the store sets its results.
+
+        `resolved` names the attempt's provider requests no longer pending (a driver
+        step's `resolved`). The ones still pending are withdrawn in the same
+        transaction, each with its `approval.resolved {withdrawn}` event unless the
+        batch carries the provider's own, ahead of a `turn.completed` in the batch, and
+        a change-feed row (C-27.3); with `resume` (the turn is still going), a message
+        left with nothing pending moves back to running. A reader of the batch's events
+        never meets a pending card the store has withdrawn, or the reverse."""
         with self.transaction() as tx:
             if title is not None:
                 self._apply_title(tx, conversation_id, message_id, title)
-            return self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
-                                       attempt_id=attempt_id, events=events, stdout_offset=stdout_offset,
-                                       stdin_seq=stdin_seq)
+            if not resolved:
+                return self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                           attempt_id=attempt_id, events=events, stdout_offset=stdout_offset,
+                                           stdin_seq=stdin_seq)
+            announced = frozenset(str(data.get("request_id")) for _, _, _, kind, data in events
+                                  if kind == "approval.resolved" and isinstance(data, dict)
+                                  and data.get("decision") == "withdrawn")
+            end = next((i for i, event in enumerate(events) if event[3] == "turn.completed"), len(events))
+            written = self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                          attempt_id=attempt_id, events=events[:end], stdout_offset=stdout_offset,
+                                          stdin_seq=stdin_seq)
+            self._withdraw(tx, attempt_id, resolved, announced=announced)
+            if end < len(events):
+                written += self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                               attempt_id=attempt_id, events=events[end:],
+                                               stdout_offset=stdout_offset, stdin_seq=stdin_seq)
+            if resume and not tx.execute("SELECT 1 FROM approvals WHERE message_id=? AND state='pending'",
+                                         (message_id,)).fetchone():
+                self._set_state(tx, message_id, RUNNING, expect=(APPROVAL_NEEDED,))
+            return written
 
     def _apply_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str,
                      title: "TitleUpdate") -> None:
