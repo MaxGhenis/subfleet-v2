@@ -223,4 +223,52 @@ running bundle, lookup failures and real socket-pair audit-token pid reads.
 The existing two unit files now supply synthetic audit tokens alongside their
 ancestry and executable fakes; their native client reads a real token.
 
-Validation results and mutation failures are recorded below after execution.
+### Validation in this workspace
+
+The shared suite lock prevented all three baseline runs from starting. Each
+file was attempted separately, in the foreground, with its own TMPDIR and
+`lockf -k -t 120` on `/private/tmp/claude-501/subfleet-suites.lock`, followed
+by the requested Python cleanup. Each returned exit 75 (`already locked`)
+before pytest started. No lock was held while waiting for lower host load.
+
+| File under `tests/unit/` | Cases enumerated from source | Executed here |
+|---|---:|---|
+| `test_person_boundary.py` | 97 | 0; lock queue timed out |
+| `test_conversation_peers_attachments.py` | 44 | 0; lock queue timed out |
+| `test_person_boundary_identity.py` | 18 | 0; lock queue timed out |
+
+These counts include parametrization and are static counts, not collection
+or pass results. All six changed Python files passed syntax compilation, and
+`git diff --check` passed. Dependencies matching `uv.lock` were copied from
+the caller's environment into this workspace's independent environment;
+`UV_NO_SYNC=1` and a workspace-local `UV_CACHE_DIR` keep `uv run pytest` local.
+Neither the caller's environment nor a network remote was changed.
+
+The sandbox refused a write to the worktree's `.git` metadata link. Commits
+therefore use the assigned workspace's `.git-local`, on
+`fix/person-boundary-terminal`, with the original repository's objects as
+read-only alternates. The shared index, HEAD and branches were not written.
+
+### Mutation targets
+
+Each mutation is applied alone and restored in a `finally` block. Each uses
+one foreground pytest process under a separate lock hold, with a 60-second
+queue bound. The selected assertions are the expected failures below; they
+are not claimed as observed until the lock admits pytest.
+
+| Mutation | Expected failing cases in `test_person_boundary_identity.py` |
+|---|---|
+| Compare the returned path through `realpath` again | `test_a_kernel_path_swapped_after_lookup_is_not_resolved_again`; `test_swapping_a_path_to_a_symlink_after_lookup_cannot_change_the_verdict` (2 cases) |
+| Replace token lookup with `executable_path(token.pid)` | `test_failed_or_unavailable_token_lookup_is_a_refusal` (3 parameters); `test_a_client_that_execs_into_the_app_after_connecting_is_refused`; `test_a_reused_pid_version_is_refused_even_if_the_current_image_is_the_app` (5 cases) |
+| Accept a failed token lookup | The same 5 cases as above, plus `test_a_client_whose_process_is_gone_is_refused` (6 cases) |
+
+| Mutation attempt | Observed result |
+|---|---|
+| `realpath` | Unrun; lock queue returned exit 75 before pytest started |
+| bare pid | Unrun; lock queue returned exit 75 before pytest started |
+| accept failed lookup | Unrun; lock queue returned exit 75 before pytest started |
+
+All three mutations were restored. No failure count is claimed from these
+unrun attempts. The hub must run the three baseline files and these mutation
+selections on the host; the native cases and their compiler were not started
+here. All task-owned foreground runners have exited.
