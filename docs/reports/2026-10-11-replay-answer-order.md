@@ -16,21 +16,18 @@ Regression coverage:
 - The approval history property removes the known-case exemption, requires exact event equality after replay, pins the formerly exempt history as an explicit example and increases generated examples from 80 to 500.
 - The Claude queued-steer cancellation test covers live and restored answers.
 
-Validation is blocked by the required shared pytest lock. The baseline waited for over 60 minutes without starting pytest; its output log remained empty, and a nonblocking lock probe returned exit 75 (`already locked`). Only this job's waiting command was interrupted (exit 130), leaving the other workspace's lock holder alone. No suite lock was held by this job. Six touched Python files passed syntax compilation, `git diff --check` passed, and the working tree was clean before this report update.
+Fix round 1 has executed tests. The initial unchanged-head run selected all six required files under the shared lock on CPython 3.14.7 free-threaded. It completed 32 tests: **12 failed, 20 passed**, all failures at the replay change-feed assertion. It was interrupted during history generation after 912.71 seconds to keep the hold below 20 minutes. This partial run is not counted as completed validation. Its temporary tree was explicitly removed with the requested `python3`/`shutil.rmtree` command.
 
 | Check | Executed | Result |
 | --- | ---: | --- |
-| Baseline: 12 cancellation cases, six live queue cases, strict history property | 0 | blocked before pytest started |
-| `test_approval_resolution.py` | 0 | blocked |
-| `test_approval_commit.py` | 0 | blocked |
-| `test_turn_runner.py` | 0 | blocked |
-| `test_turn_replay.py` | 0 | blocked |
-| `test_claude_turn.py` | 0 | blocked |
-| `test_codex_turn.py` | 0 | blocked |
+| Initial unchanged-head `test_approval_resolution.py` | 32 | 12 failed, 20 passed; property interrupted |
+| Complete pre-fix comparison on standard CPython 3.14.7 | pending | queued under the shared lock |
+| `release/217` comparison, all six files | pending | not started |
+| Fixed head, all six files and complete history property | pending | not started |
 
-Property counts: the old setting was 80 generated examples; the new setting is 500 generated examples plus one explicit formerly exempt history. Executed generated examples: 0. Executed explicit examples: 0. Before/after failure and pass counts are unavailable because the baseline never started; no failing or passing pytest result is claimed.
+The history property retains 500 generated examples plus the explicit formerly exempt history. The initial run began generation but did not finish; its partial example count was not instrumented and is not claimed. Complete property runs will have Hypothesis statistics and a local counter of calls to the unchanged test body. No test has been weakened, deleted or reduced in example count.
 
-Before, answer synchronization queued a response and left the driver pending when a later cancel arrived. The changed code applies startup-recorded answers before that cancel and preserves the person's sole decision event. This behavior is asserted by the new regressions but remains unverified at runtime until the lock becomes available.
+On `release/217`, answer synchronization queued a response and left the driver pending when a later cancel arrived. At `ca4a53677`, startup-recorded answers are already applied before the cancel, but approval reconstruction writes spurious `approval-needed` and `running` changes. Fix-round commit `02f52e131` checks for pending approvals inside `ConversationStore.add_approvals`' transaction before moving the message to `approval-needed`. New requests still publish their pending state atomically. Complete before/after runtime validation is in progress.
 
 Rerun all required suites from the workspace once the shared lock is available:
 
@@ -47,11 +44,11 @@ export HYPOTHESIS_STORAGE_DIRECTORY="$PWD/.uv-cache/hypothesis"
   --hypothesis-seed=20261011 --hypothesis-show-statistics
 ```
 
-Commits before this validation report: `c04c90feb` (strict regressions), `5189b6b07` (restore paths and contract), `84e8e00d7` (durable startup answer detection), `52f88ff7a` (caught-up live coverage and initial report). The final head is on `refs/heads/fix/replay-answer-order` in `.git-local`. A local delivery bundle at `docs/reports/2026-10-11-replay-answer-order.bundle` contains this job's commits and requires the base commit above.
+Fix-round commits are on `refs/heads/fix/replay-answer-order` in this assigned workspace's `.git-local`, starting from `ca4a53677`: `7841a9766` records the diagnosis and `02f52e131` adds the pending-state guard. No bundle or evidence log is committed.
 
 Tests use one pytest process at a time under `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`, with `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-replay-$$/`. Temporary roots are cleaned with the requested `python3`/`shutil.rmtree` command. Dependencies and Hypothesis storage are local to `.venv` and `.uv-cache`; pytest uses `UV_NO_SYNC=1` and `UV_OFFLINE=1` after installing the locked dependencies.
 
-The baseline uses an unchanged source copy under `.uv-cache/replay-baseline`, selected with pytest's `pythonpath` override and `--import-mode=importlib`. Its runner is byte-for-byte equal to the base commit (SHA-256 `144692c540f4ec5f768895e21e9810dbf24fec4649ab7d3f09691f1d45b6077c`). This allows implementation work to continue while the baseline run waits for the shared lock.
+Comparisons use unchanged `git archive` source copies in `.uv-cache/release-217` and `.uv-cache/head-before`, selected with pytest's `pythonpath` override and `--import-mode=importlib`. The release runner's SHA-256 is `144692c540f4ec5f768895e21e9810dbf24fec4649ab7d3f09691f1d45b6077c`; the pre-fix runner's SHA-256 is `2aeaca567ed4287280b26c52df369159c12d43ab314ba94c5b1b978c6c71f9cc`, identical to the assigned starting source. A local pytest probe verifies the imported runner, store and both drivers belong to the selected source tree.
 
 Fix round 1 starts from `ca4a536777508072208bbfb835c741d61a251175` in the assigned workspace. CI's 14 failures all reach the assertion that replay writes no change-feed rows: `ConversationStore.add_approvals` preserves the answered approval but unconditionally moves its running message to `approval-needed`; restoring the answer moves it back to `running`. These assertions are required by C-26.6's idempotent replay and C-27.3's durable resolutions, so they will remain intact. The missing guard belongs inside the approval transaction and must still allow a genuinely pending request to move the message to `approval-needed`.
 
