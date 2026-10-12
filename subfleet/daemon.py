@@ -39,6 +39,7 @@ from typing import Any, Callable
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from . import resource_leases
+from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
@@ -810,7 +811,12 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, demand=self._reset_demand)
+        # C-23.16 (f): the policy is read once, here; say what it means for resets.
+        resets = self.timers.actions.describe()
+        self.log.info("reset credits: automatic redemption %s; no-reset marker %s",
+                      "on (only for a job waiting on the lane, one at a time, C-23.16)" if resets["automatic"] else "off",
+                      resets["inhibited_by"] or "absent")
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
         self.timers.probe_record = self._probe_record            # C-18.1: the probe holding a lane, by name
         self._recovery_complete = threading.Event()
@@ -917,6 +923,11 @@ class Daemon:
         # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        # C-23.16 (a): what the pass of each kind now running has held so far
+        # (the dict it fills, None between passes). `_reset_demand` reads a
+        # job's hold here first, so a job this pass held at the door is no
+        # demand from that moment, not only once the pass ends.
+        self._pass_holds: dict[str, dict[str, dict] | None] = {"turn": None, "detached": None}
         self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
         self._pass_seq = {"turn": 0, "detached": 0}   # passes begun, per kind, under their pass lock
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
@@ -1812,6 +1823,53 @@ class Daemon:
                          desktop_in_use=view.get("desktop_in_use"), instant=instant, overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
                                                      for lane_id, found in overrides.items()})
         return decision
+
+    def _reset_demand(self) -> list[dict]:
+        """C-23.16 (a), (b): the jobs held waiting for lane capacity, each judged as admission judges it.
+
+        The reset-credit timer calls this from its own thread, so it reads and
+        never writes, and asks nothing of the network (the cached desktop
+        identity, not a profile request). A job counts only while it is
+        `waiting` on `capacity`, is not being cancelled, its latest admission
+        look evaluated its route and found no lane would take it
+        (`_capacity_waits`, `lane_wait`), and admission's latest hold of it is
+        for that same reason: the hold the pass now running gave it, if it has
+        reached the job, else the last whole pass's. So a job submitted a moment
+        ago, one a restart has not looked at yet, and one held at the door
+        (`disk`, `machine-busy`), behind an older job, for a full fleet, a
+        lease, a probe or a person is never the reason a credit is spent, from
+        the moment that hold is made. Its lanes are the ones admission would
+        try: the lanes its own earlier attempts exclude stay excluded, and a
+        transient retry waiting for a slot on its own lane is waiting, not
+        demand. Returned in admission order, each entry `actions.demand_verdict`
+        of the job's decision now, plus its id and tier.
+        """
+        # The running passes' holds before the last whole pass's: a pass that ends
+        # between the two reads is then seen whole, never as neither.
+        running = [found.copy() for found in list(self._pass_holds.values()) if found is not None]
+        holds = self._holds
+        waits = self._capacity_waits.copy()         # one C call; admission replaces entries meanwhile
+
+        def latest(job_id: str) -> dict:
+            return next((found[job_id] for found in running if job_id in found), None) or holds.get(job_id) or {}
+        rows = self.store.query("SELECT * FROM jobs WHERE state='waiting' AND wait_reason='capacity' "
+                                "AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        rows = [job for job in rows if (wait := waits.get(job["job_id"])) and wait.get("lane_wait")
+                and latest(job["job_id"]).get("reason") == wait.get("label")]
+        if not rows:
+            return []
+        desktop = self._cached_desktop_identity()
+        demand = []
+        for job in scheduler.ordered_jobs(self.policy, rows):
+            try:
+                _, exclusions, retry = self._retry_pin(job)
+                if retry and self._retry_waits_on_a_slot(retry, exclusions, desktop):
+                    continue
+                decision = self._pick(job, extra_exclusions=exclusions, desktop=desktop)
+            except (*ROUTE_ERRORS, Unroutable):
+                continue            # C-6.12: a route that cannot be evaluated is no demand
+            demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
+        return demand
 
     def _route(self, job: dict, **options):
         """C-6.12: `_pick` for admission. An evaluation that raises is this job's, not the pass's."""
@@ -4999,6 +5057,7 @@ class Daemon:
             seq = self._pass_seq[kind]
             holds: dict[str, dict] = {}
             tally = {"placed": 0}
+            self._pass_holds[kind] = holds
             # A pass that raises leaves both as the last whole pass left them: half
             # a hold set would read as "nothing left pending" and end the idle
             # stretch with the queue untouched. C-5.10 logs and paces the failure.
@@ -5007,6 +5066,7 @@ class Daemon:
                 self._holds_by_kind = {**self._holds_by_kind, kind: holds}
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
+            self._pass_holds[kind] = None
             lock.release()
         if kind == "turn":
             # C-24.4 (I3): every message a turn pass left waiting says why, and one it
@@ -5040,7 +5100,8 @@ class Daemon:
                 totals[key] = totals.get(key, 0) + value
             self._route_evaluations = totals
 
-    def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True) -> int:
+    def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True,
+                       lane_wait: bool = False) -> int:
         """C-6.10: how many times in a row this job's wait has reached this verdict.
 
         The count follows the verdict; what is reported follows the latest look
@@ -5050,6 +5111,8 @@ class Daemon:
         looks must still be able to give `why`. `expedite` is whether freed
         capacity may bring the next look forward; a probe's own 60 s wait may
         not be, or every released lease would re-probe the provider.
+        `lane_wait` is whether this look evaluated the job's route and no lane
+        would take it: only such a wait can be C-23.16's demand (`_reset_demand`).
         """
         now = utcnow()
         wait = self._capacity_waits.get(job_id)
@@ -5058,14 +5121,16 @@ class Daemon:
         self._capacity_waits[job_id] = {
             "signature": signature, "rechecks": wait["rechecks"] + 1 if same else 0,
             "since": wait["since"] if same else now, "checked_at": now,
-            "label": hold["reason"], "hold": dict(hold), "expedite": expedite}
+            "label": hold["reason"], "hold": dict(hold), "expedite": expedite, "lane_wait": lane_wait}
         return self._capacity_waits[job_id]["rechecks"]
 
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
         """C-6.11: a look that changed no verdict and no clock still reports what it found."""
         wait = self._capacity_waits.get(job_id)
         if wait:
-            self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
+            # A refreshed hold is a probe's or a moved route's, never a no-lane verdict (C-23.16 (a)).
+            self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold),
+                                            "lane_wait": False}
 
     @staticmethod
     def _turn_fences(read: Callable, folder: str, absent: OSError | None,
@@ -5841,7 +5906,8 @@ class Daemon:
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
                             rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
+                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
+                                lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
