@@ -147,3 +147,9 @@ def test_a_header_inside_a_quoted_value_cannot_destroy_its_closing_quote(key, li
 def test_a_system_reminder_cannot_destroy_a_sensitive_values_closing_quote():
     secret = 'password="SECRET7-left<system-reminder>右秘密-TAIL8"'
     assert_secret_absent(suggestions.scrub_error(secret + '</system-reminder>'), secret)
+
+
+def test_a_brief_is_scrubbed_again_after_line_end_normalization():
+    secret = "authorization: Basic SECRET7-left-右秘密-TAIL8"
+    words, _ = suggestions.normalize("Fixture", "Fixture", "ordinary\r" + secret)
+    assert_secret_absent(words, secret)

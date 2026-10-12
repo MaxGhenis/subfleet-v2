@@ -1,6 +1,6 @@
 # Suggested conversations: review r2b fixes
 
-Status: base reproduced (9 expected failures, 7 passes); fixes implemented; head validation queued.
+Status: base reproduced (9 expected failures, 7 passes); fixes implemented; head pytest blocked by the shared lock; direct head regressions pass.
 
 Scope: multiline and Unicode secrets, exception text at every suggestions boundary,
 intact redaction markers at character cuts, and the C-25.7 contract. Work is confined
@@ -19,7 +19,7 @@ The full review and all three supplied probe files have been read. They were cop
 
 ## Exception-to-text audit
 
-Source paths found so far (all reachable by suggestions):
+Complete exception-to-text audit for suggestion operations and their shared helpers:
 
 - `respond`: ConversationError reason/message/fix; ProtocolError and AdapterError
   message/fix; ValueError, TypeError, KeyError; generic exception daemon logs.
@@ -31,12 +31,17 @@ Source paths found so far (all reachable by suggestions):
 - `op_workspace_check`: refusal reason and repair text in its result object.
 - Shared workspace helpers `_validate_workspace`, `_git_toplevel`, `_cut_worktree`
   turn adapter, salvage, OS and subprocess failures into ConversationError.
-  `_cut_worktree` also keeps a stderr tail; it needs a safe character cut.
-- `cmd_suggest`: brief-read exceptions and daemon error/unavailable notices;
-  workspace resolution can reach `main`'s raw OSError handler.
+  `_cut_worktree` now keeps a scrubbed, folded, marker-safe first 300 characters
+  of stderr, replacing its unsafe tail cut.
+- `cmd_suggest`: brief-read OSError/UnicodeDecodeError, workspace-resolution
+  OSError (now caught locally), DaemonError, DaemonUnavailable, and ProtocolError;
+  messages and optional repair text are scrubbed before CLI notice rendering.
 - Swift `startSuggestion`/`dismissSuggestion` -> `report` -> `describe` displays
-  the responder's refusal message and fix in the notice. Those fields need
-  scrubbing at their daemon boundary.
+  the responder's clean refusal message and repair text in the app notice.
+- `_resume_suggestions`'s pool-shutdown RuntimeError is discarded without
+  rendering; `descriptors.send_reply`'s OSError is discarded without logging.
+  `suggestions.py` itself formats no caught exceptions beyond `scrub_error`
+  (`str(error)`) and the `note_error` storage path above.
 
 ## Validation
 
@@ -56,5 +61,10 @@ temporary directory and a hold below 20 minutes.
 Shared-index writes are denied by the sandbox (`index.lock`: operation not permitted).
 Commits use workspace-local `.git-local` metadata on `feat/suggested-conversations`,
 with the original base as parent and shared objects read-only.
-Probe/report step: `63b6b88b7`. Fix commit pending. Every commit uses the requested
+Probe/report step: `63b6b88b7`. Fix commit: `4e8771067a4cfe39d1416d6a3f38fa1cfcb6e044`. Every commit uses the requested
 co-author trailer.
+
+Additional normalization check: converting a bare CR into a newline can create
+an Authorization header boundary. The brief is now scrubbed again after newline
+normalization. A direct probe exposed its value before this follow-up; a focused
+regression is included with the contract update.

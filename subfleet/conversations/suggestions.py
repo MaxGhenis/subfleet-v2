@@ -234,6 +234,10 @@ def normalize(title: Any, tldr: Any, brief: Any) -> tuple[dict, int]:
     clean, count = scrub_secrets(brief, strip_reminders=True, whole=True)
     brief = brief.replace("\r\n", "\n").replace("\r", "\n")
     clean = clean.replace("\r\n", "\n").replace("\r", "\n")
+    # A bare CR can become a header boundary: scrub shapes normalization creates,
+    # just as _scrub_line scrubs the shapes whitespace folding creates.
+    clean, normalized_count = scrub_secrets(clean, strip_reminders=True, whole=True)
+    count += normalized_count
     if len(brief.encode("utf-8")) > BRIEF_MAX_BYTES:
         raise ConversationError("bad-brief", f"the brief must be at most {BRIEF_MAX_BYTES} bytes of UTF-8 "
                                 f"(it is {len(brief.encode('utf-8'))})", fix="shorten it, or point it at a file")
