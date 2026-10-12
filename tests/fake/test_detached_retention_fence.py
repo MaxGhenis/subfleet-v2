@@ -1108,12 +1108,20 @@ def test_rediscovered_detached_write_target_is_checked_before_workspace(tmp_path
         assert daemon._capacity_waits[job]["blocked"] == ()
 
 
-def test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out(tmp_path):
+@pytest.mark.parametrize("quarantined_alias", [False, True], ids=["present", "quarantined-alias"])
+def test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out(tmp_path, quarantined_alias):
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
         daemon.policy["caps"]["reading_ttl_s"] = 3600
         tree, nested = retiring_tree(daemon, harness)
-        job = submit_overtaken_writer(daemon, harness, tree, nested)
+        cwd = nested
+        if quarantined_alias:
+            cwd = str(Path(tree).with_name("rETIRED") / Path(nested).relative_to(tree))
+            if not Path(cwd).is_dir():
+                pytest.skip("requires the host's case-insensitive filesystem")
+        job = submit_overtaken_writer(daemon, harness, tree, cwd)
+        if quarantined_alias:
+            Path(tree).rename(Path(tree).with_name("retired-quarantine"))
         key = folders.exclusive_key(tree)
         assert daemon.store.acquire_lease(key, "retention:retired")
 

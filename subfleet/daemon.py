@@ -5305,11 +5305,22 @@ class Daemon:
                     if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
                                                                   tier, models, lanes, run_folder):
                         continue
-                    if job["kind"] != "turn" and any(
-                            self._fence_hold(job, folder, holds, waiters, tier, models, lanes, fold=fold,
-                                             priority_waiters=priority_waiters if klass == "priority" else None)
-                            for folder, fold in self._detached_folders(job)):
-                        continue
+                    if job["kind"] != "turn":
+                        job_folders = self._detached_folders(job)
+                        fallback_folder, fallback_absent = None, None
+                        if job["in_place"] and job["sandbox"] == "workspace-write":
+                            fallback_folder, fallback_absent = folders.present(self._recorded_folder(job))
+                        if fallback_folder and self._fence_hold(
+                                job, fallback_folder, holds, waiters, tier, models, lanes,
+                                absent=fallback_absent, write_target=fallback_folder,
+                                priority_waiters=priority_waiters if klass == "priority" else None):
+                            continue
+                        if any(self._fence_hold(
+                                job, folder, holds, waiters, tier, models, lanes, fold=fold,
+                                write_target=fallback_folder,
+                                priority_waiters=priority_waiters if klass == "priority" else None)
+                               for folder, fold in job_folders):
+                            continue
                     raise
                 # `_turn_folder`, from the one answer above.
                 if job["kind"] == "turn" and self._fence_hold(job, derived or self._recorded_folder(job), holds,
