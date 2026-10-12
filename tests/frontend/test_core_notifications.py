@@ -4,9 +4,9 @@ A notification the app posts carries its conversation and its kind. Clicking it
 opens the main window on that conversation, and an approval's brings the
 conversation's oldest waiting card into view. One that arrives while the app is
 frontmost shows as it would in the background, unless its conversation is
-focused by then. Until 2026-09-28 no notification delegate was registered, so a
-click only brought the app forward, and a notification that arrived while the
-app was frontmost was never shown.
+focused by then. Until 2026-10-12 the delegate was set after launch ended and
+had no `willPresent`, so the click that launched the app never reached it, and
+a notification that arrived while the app was frontmost was never shown.
 
 What the app's delegate reads from a delivered notification is Foundation code
 (`NotificationTarget`), probed here: through the real daemon's feed, for every
