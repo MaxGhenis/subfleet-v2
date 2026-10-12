@@ -179,7 +179,10 @@ def test_i1_succeeded_requires_completion_on_every_finalization_path(
         row = daemon.store.get_attempt(attempt["attempt_id"])
         evidence = json.loads(row["evidence_json"])
         if not complete:
-            assert row["outcome_class"] == "transient"
+            # Fresh nonzero exits keep the adapter's existing classification.
+            # Cached `ok` verdicts are overridden when completion is absent.
+            expected_class = "unknown" if path == "fresh" and rc != 0 else "transient"
+            assert row["outcome_class"] == expected_class
             assert evidence["classification"]["turn_completed"] is False
             assert evidence["classification"]["last_event_type"] == "item.completed"
             if path != "fresh":
