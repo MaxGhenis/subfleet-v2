@@ -61,7 +61,7 @@ def clone_quarantined(daemon, row, n):
 
 # --- item 3: the status reply ---------------------------------------------------
 
-@pytest.mark.parametrize("live_pids,rechecks,rows", [(300, 0, 40), (300, 14, 8)])
+@pytest.mark.parametrize("live_pids,rechecks,rows", [(300, 0, 40), (300, 14, 8), (4096, 1, 3)])
 def test_r13_finding_status_reply_stays_bounded_with_large_quarantines(state_daemon, monkeypatch,
                                                                        live_pids, rechecks, rows):
     """One attempt is quarantined through `_quarantine`, then rechecked through
