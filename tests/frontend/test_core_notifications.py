@@ -367,10 +367,12 @@ def notification_model_probe(tmp_path_factory) -> Path:
 
 
 def model_clicks(probe, tmp_path, steps: list[dict], focused: str | None = "cv-1", baselined: bool = True,
-                 pending: dict | None = None) -> list[dict]:
+                 pending: dict | None = None, detail: dict | None = None,
+                 posted_detail: dict | None = None) -> list[dict]:
     root = tmp_path / f"model-{uuid.uuid4().hex}"
     root.mkdir()
-    data = {"root": str(root), "focused": focused, "baselined": baselined, "pending": pending or {}, "steps": steps}
+    data = {"root": str(root), "focused": focused, "baselined": baselined, "pending": pending or {}, "steps": steps,
+            "detail": detail, "posted_detail": posted_detail}
     return run_probe(probe, write_json(tmp_path / f"{uuid.uuid4().hex}.json", data))["steps"]
 
 
@@ -401,3 +403,89 @@ def test_c29_9_an_approval_click_reveals_its_card_only_while_one_waits(notificat
 def test_c29_9_a_click_leaves_a_new_conversation_draft_for_its_conversation(notification_model_probe, tmp_path):
     out = model_clicks(notification_model_probe, tmp_path, [{"new_draft": True}, click("completed", "cv-1")])
     assert [(o["focused"], o["new_draft"]) for o in out] == [(None, True), ("cv-1", False)]
+
+
+# Allow once, as release/217's delegate answered it (c3763edba, #65), now through
+# the one merged delegate: UIModel.handleNotification and allowOnce, with the
+# userInfo post() builds (NotificationIntent.userInfo(allowing:)).
+
+def approval_detail(**approval) -> dict:
+    """approval.get's answer for one pending, unmasked tool request with an allow option."""
+    return {"approval": {"approval_id": "ap-one", "message_id": "msg-one", "conversation_id": "cv-one",
+                         "kind": "tool", "display": {"tool": "Bash", "command": "pwd"}, "options": ["allow", "deny"],
+                         "created_at": "2026-09-28T12:00:00Z", "state": "pending", **approval},
+            "request": {"name": "Bash", "input": {"command": "pwd"}}, "masked": [],
+            "request_sha256": "original-sha", "nonce": "fresh-nonce"}
+
+
+APPROVAL = {"kind": "approval", "subject": "7", "conversation": "cv-one", "message": "msg-one"}
+ALLOWING = {"intent": APPROVAL, "allowing": True}
+REVIEW = "This request needs review. Use the approval card's details in the conversation."
+
+
+def test_c29_9_allow_once_allows_the_request_it_advertised(notification_model_probe, tmp_path):
+    """The request is read again (a fresh nonce) and allowed with the hash the
+    notification carried, then the pending set is read; nothing is left to review."""
+    out = model_clicks(notification_model_probe, tmp_path, [{"allow": ALLOWING}], detail=approval_detail())
+    assert out[-1]["calls"] == [
+        {"op": "approval.get", "args": {"approval_id": "ap-one"}},
+        {"op": "approval.respond", "args": {"approval_id": "ap-one", "nonce": "fresh-nonce",
+                                            "request_sha256": "original-sha", "decision": "allow"}},
+        {"op": "approval.list", "args": {"conversation_id": "cv-one"}}]
+    assert out[-1]["problem"] is None
+
+
+@pytest.mark.parametrize("changed", [
+    {"request_sha256": "replaced-sha"},
+    {"masked": [{"path": "input.token", "rule": "token", "length": 24, "sha256": "masked-sha"}]},
+    {"approval": {"state": "answered"}},
+    {"approval": {"approval_id": "ap-two"}},
+])
+def test_c29_9_allow_once_leaves_a_changed_request_for_review(notification_model_probe, tmp_path, changed):
+    """A request that is no longer the one advertised (replaced, masked, answered,
+    another approval) is read and left alone: no answer is sent."""
+    fresh = approval_detail(**changed.get("approval", {}))
+    fresh.update({k: v for k, v in changed.items() if k != "approval"})
+    out = model_clicks(notification_model_probe, tmp_path, [{"allow": ALLOWING}], detail=fresh,
+                       posted_detail=approval_detail())
+    assert [c["op"] for c in out[-1]["calls"]] == ["approval.get"]
+    assert out[-1]["problem"] == REVIEW
+
+
+@pytest.mark.parametrize("posted", [
+    {"intent": APPROVAL, "allowing": False},                         # posted with no exact request
+    {"user_info": {"conversation_id": "cv-one", "kind": "approval"}},
+])
+def test_c29_9_allow_once_without_an_advertised_request_asks_for_review(notification_model_probe, tmp_path, posted):
+    out = model_clicks(notification_model_probe, tmp_path, [{"allow": posted}], detail=approval_detail())
+    assert out[-1]["calls"] == [] and out[-1]["problem"] == "Review the pending request in the conversation."
+
+
+def test_c29_9_every_response_but_a_dismissal_opens_its_conversation(notification_model_probe, tmp_path):
+    """Through handleNotification, the one delegate's response: Allow once opens the
+    conversation (a click before the baseline would wait) and answers; a plain
+    click opens it and sends nothing; a dismissal does neither."""
+    allow = model_clicks(notification_model_probe, tmp_path,
+                         [{"respond": {"action": "allow-once", "request_id": "approval:7", **ALLOWING}}],
+                         detail=approval_detail())
+    assert allow[-1]["focused"] == "cv-one"
+    assert [c["op"] for c in allow[-1]["calls"]] == ["approval.get", "approval.respond", "approval.list"]
+    click = model_clicks(notification_model_probe, tmp_path,
+                         [{"respond": {"action": "default", "request_id": "approval:7", **ALLOWING}}],
+                         detail=approval_detail(), pending={"cv-one": 1})
+    assert (click[-1]["focused"], click[-1]["reveal"], click[-1]["calls"]) == ("cv-one", "cv-one", [])
+    dismissed = model_clicks(notification_model_probe, tmp_path,
+                             [{"respond": {"action": "dismiss", "request_id": "approval:7", **ALLOWING}}],
+                             detail=approval_detail())
+    assert (dismissed[-1]["focused"], dismissed[-1]["calls"]) == ("cv-1", [])
+
+
+def test_c29_9_the_merged_userinfo_reads_back_as_both_targets(notification_model_probe, tmp_path):
+    """What post() puts on an allowable approval's notification still opens its
+    conversation and kind: one arriving while frontmost for another conversation
+    shows, and one for the focused conversation does not."""
+    out = model_clicks(notification_model_probe, tmp_path, [
+        {"frontmost": {"request_id": "approval:7", **ALLOWING}},
+        {"frontmost": {"request_id": "approval:7", "intent": {**APPROVAL, "conversation": "cv-1"}, "allowing": False}},
+    ], detail=approval_detail())
+    assert [o["shows"] for o in out] == [True, False]

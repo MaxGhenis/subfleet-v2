@@ -431,9 +431,12 @@ final class UIModel: ObservableObject {
     private var clicks = NotificationClicks()
 
     /// Makes the model's delegate the notification center's, with its Allow once
-    /// action. The app delegate calls this before launch ends, as the system
-    /// requires for the click that launched the app to be delivered (C-29.9);
-    /// `start` calls it too, and it acts once.
+    /// action, once. In the app the call that acts is the app delegate's, in
+    /// `applicationWillFinishLaunching`: the system delivers the click that
+    /// launched the app only to a delegate set before launch ends (C-29.9), and
+    /// `start` runs later, when the main window first appears. `start`'s call
+    /// then does nothing; it acts only in a build with no app delegate (the
+    /// view-test build).
     func registerNotifications() {
         guard !notificationsRegistered else { return }
         notificationsRegistered = true
@@ -442,7 +445,7 @@ final class UIModel: ObservableObject {
 
     /// Whether one that arrives while the app is frontmost shows: as it would in
     /// the background, unless its conversation is the one open by now (D-24).
-    private func showsWhileFrontmost(requestID: String, userInfo: [AnyHashable: Any]) -> Bool {
+    func showsWhileFrontmost(requestID: String, userInfo: [AnyHashable: Any]) -> Bool {
         NotificationTarget(requestID: requestID, userInfo: userInfo)?
             .showsWhileFrontmost(focusedConversationID: state.focusedConversationID) ?? true
     }
@@ -1212,7 +1215,7 @@ final class UIModel: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = intent.title
             content.body = intent.body
-            content.userInfo = intent.userInfo
+            content.userInfo = intent.userInfo(allowing: nil)
             if intent.kind == .approval, let engine {
                 let detail: ApprovalDetail? = try? await onOutbox {
                     let approvals = try engine.approvals(conversationID: intent.conversationID)
@@ -1222,8 +1225,7 @@ final class UIModel: ObservableObject {
                 }
                 if let detail, let target = ApprovalNotificationTarget(detail: detail) {
                     content.categoryIdentifier = ApprovalNotificationDelegate.categoryID
-                    // The click still reads its conversation and kind (NotificationTarget).
-                    content.userInfo = intent.userInfo.merging(target.userInfo) { _, exact in exact }
+                    content.userInfo = intent.userInfo(allowing: target)
                     let display = detail.approval.display
                     let summary = display.command ?? display.input ?? display.description ?? display.tool
                     if let summary { content.body += "\n" + summary }
@@ -1238,10 +1240,12 @@ final class UIModel: ObservableObject {
     /// window on its conversation, an approval's at the conversation's oldest
     /// waiting card while one waits (`show`: a response before the first list
     /// and feed baseline waits for them). Allow once also answers the one
-    /// request the notification advertised, after checking it again.
-    private func handleNotification(action: String, requestID: String, userInfo: [AnyHashable: Any]) {
+    /// request the notification advertised (`allowOnce`). Returns Allow once's
+    /// work, for a probe to wait on.
+    @discardableResult
+    func handleNotification(action: String, requestID: String, userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard action != UNNotificationDismissActionIdentifier,
-              let target = NotificationTarget(requestID: requestID, userInfo: userInfo) else { return }
+              let target = NotificationTarget(requestID: requestID, userInfo: userInfo) else { return nil }
         show(target)
         #if !SUBFLEET_VIEW_TEST
         // Nil before the window first appears (the click that launched the app):
@@ -1250,12 +1254,21 @@ final class UIModel: ObservableObject {
         SubfleetAppDelegate.openMain?()
         #endif
         NSApp?.activate(ignoringOtherApps: true)
-        guard action == ApprovalNotificationDelegate.allowOnceID else { return }
+        guard action == ApprovalNotificationDelegate.allowOnceID else { return nil }
+        return allowOnce(userInfo)
+    }
+
+    /// Allow once, as release/217's delegate answered it (c3763edba): the request
+    /// the notification advertised is read again and allowed only if it is still
+    /// that pending, unmasked request with an `allow` option; otherwise it is left
+    /// for review in the conversation. Returns the work, for a probe to wait on.
+    @discardableResult
+    func allowOnce(_ userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard let target = ApprovalNotificationTarget(userInfo: userInfo) else {
             problem = "Review the pending request in the conversation."
-            return
+            return nil
         }
-        Task {
+        return Task {
             guard let detail = await approvalDetail(target.approvalID, reveal: false) else { return }
             guard target.canAllow(detail) else {
                 problem = "This request needs review. Use the approval card's details in the conversation."
