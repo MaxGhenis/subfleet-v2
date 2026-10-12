@@ -7799,6 +7799,7 @@ class Daemon:
                           and signal_allowed(ident)})
             owned.update({pid: ident for pid, ident in census.group_identities.items()
                           if signal_allowed(ident) and procs.same_process(pid, ident.boot_id, ident.proc_start)})
+            owned[leader.pid] = leader
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         evidence["owned_identity_history"] = _identity_history(evidence.get("owned_identity_history", {}),
                                                                before, evidence["owned_identities"])

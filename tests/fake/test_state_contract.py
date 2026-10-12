@@ -548,14 +548,16 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: True)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     signals = []
-    monkeypatch.setattr(daemon_module.procs, "signal_group",
-                        lambda pgid, sig, **identity: signals.append(("group", pgid, sig)))
-    monkeypatch.setattr(daemon_module.procs, "signal_process",
-                        lambda identity, sig: signals.append(("process", identity.pid, sig)))
+    monkeypatch.setattr(daemon_module.procs.os, "getpgid", lambda pid: 42001)
+    monkeypatch.setattr(daemon_module.procs.os, "kill",
+                        lambda pid, sig: signals.append(("process", pid, sig)))
+    monkeypatch.setattr(daemon_module.procs.os, "killpg",
+                        lambda *args: pytest.fail("group delivery is not authorized"))
     daemon.term_grace_s = 0
     daemon.dispatch("kill", {"job_id": job_id})
     daemon._kill_attempt(attempt)
-    assert signals == [("group", 42001, signal.SIGTERM), ("group", 42001, signal.SIGKILL),
+    assert signals == [("process", 42001, signal.SIGTERM), ("process", 42002, signal.SIGTERM),
+                       ("process", 42001, signal.SIGKILL), ("process", 42002, signal.SIGKILL),
                        ("process", 42002, signal.SIGKILL)]
     assert daemon.store.get_attempt(attempt["attempt_id"])["killed_by"] == "operator"
     assert json.loads((adir / "exit.json").read_text())["signal"] == signal.SIGKILL
