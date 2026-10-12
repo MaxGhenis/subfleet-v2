@@ -2,6 +2,7 @@
 
 from argparse import Namespace
 from dataclasses import asdict, replace
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
@@ -215,3 +216,51 @@ def test_runs_show_separates_failed_interim_evidence(state_daemon, monkeypatch, 
     else:
         assert "No accepted result" in captured.out
         assert f"Unaccepted evidence ({attempt['attempt_id']}): {adir / 'deliverable.md'}" in captured.out
+
+
+@pytest.mark.parametrize("legacy", (False, True))
+def test_restart_in_transient_backoff_preserves_deadline(state_daemon, monkeypatch, legacy):
+    daemon, harness = state_daemon
+    class Clock(datetime):
+        current = datetime.now(timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.astimezone(tz)
+    monkeypatch.setattr(module, "datetime", Clock)
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=2)
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    finalize_fixture(daemon, adapter, attempt, adir, "cut-off-item-completed")
+    deadline = daemon.store.get_job(job_id)["next_check_at"]
+    assert deadline == module.after(60)
+    if legacy:
+        # Existing waiting rows have no completion or new retry metadata.
+        daemon.store.update_attempt(attempt["attempt_id"], evidence_json="{}")
+    Clock.current += timedelta(seconds=30)
+    daemon.close()
+    successor = Daemon(harness.root)
+    monkeypatch.setattr(successor, "_launch", lambda *args: pytest.fail("state-only test"))
+    try:
+        successor._recover_capacity_waits()
+        assert successor.store.get_job(job_id)["next_check_at"] == deadline
+        successor._admit()
+        assert len(successor.store.list_attempts(job_id)) == 1
+        Clock.current += timedelta(seconds=29)
+        successor._admit()
+        assert len(successor.store.list_attempts(job_id)) == 1
+        Clock.current += timedelta(seconds=1)
+        successor._admit()
+        second = successor.store.list_attempts(job_id)[-1]
+        assert second["seq"] == 2
+        successor._pending_launches.discard(second["attempt_id"])
+    finally:
+        successor.close()
+
+
+@pytest.mark.parametrize("reason", ("capacity", "route"))
+def test_recovery_still_rechecks_ordinary_waits(state_daemon, reason):
+    daemon, harness = state_daemon
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    daemon.store.update_job(job_id, state="waiting", wait_reason=reason, next_check_at=module.after(600))
+    daemon._recover_capacity_waits()
+    assert daemon.store.get_job(job_id)["next_check_at"] <= module.utcnow()
