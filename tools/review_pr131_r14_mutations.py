@@ -4,6 +4,7 @@ The checkout and Git history are never modified. Each invocation uses one
 foreground locked pytest hold, then removes its own temporary directory.
 """
 import os
+import ast
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix="sf-r131f14-mutation-", dir=os.environ["
                 try:
                     if procs.os.getpgid(ident.pid) == ident.pid:
                         with self._signal_claim_authority(attempt_id, ident, census, evidence, foreign) as allowed:
-                            if allowed:
+                            if allowed and procs.same_process(ident.pid, ident.boot_id, ident.proc_start):
                                 procs.os.killpg(ident.pid, sig)
                                 return True
                 except (ProcessLookupError, PermissionError):
@@ -43,9 +44,15 @@ with tempfile.TemporaryDirectory(prefix="sf-r131f14-mutation-", dir=os.environ["
         needle = """            with authorize() as allowed:
                 if not allowed:
                     return False
+                # Authorization can import receipts. Reconfirm after that I/O
+                # while publications remain excluded through the syscall.
+                if not same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
+                    return False
                 os.kill(recorded.pid, sig)"""
         assert source.count(needle) == 1
-        path.write_text(source.replace(needle, "            os.kill(recorded.pid, sig)"))
+        path.write_text(source.replace(needle,
+            "            if not same_process(recorded.pid, recorded.boot_id, recorded.proc_start):\n"
+            "                return False\n            os.kill(recorded.pid, sig)"))
         target = "test_live_claim_during_scalar_confirmation_blocks_delivery"
     elif mode == "receipts":
         # Restore the two incomplete-import bugs, retaining paced queue schema.
@@ -59,6 +66,11 @@ with tempfile.TemporaryDirectory(prefix="sf-r131f14-mutation-", dir=os.environ["
         target = "pending_terminal_receipt or failed_startup_receipt"
     else:
         raise ValueError(mode)
+    ast.parse(daemon.read_text())
+    ast.parse((tree / "subfleet/procs.py").read_text())
+    if "--check" in sys.argv[2:]:
+        print("Mutation source parses:", mode)
+        sys.exit(0)
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv"), "UV_NO_SYNC": "1"}
     result = subprocess.run([sys.executable, str(ROOT / "tools/review_pr131_r14_locked.py"),
                              str(tree / "mutation.log"), "tests/fake/test_review_pr131_round14.py", "--tb=short", "--show-capture=no", "-k", target],

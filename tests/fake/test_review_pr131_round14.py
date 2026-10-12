@@ -295,13 +295,14 @@ def test_unresolved_terminal_receipt_refuses_all_delivery(state_daemon, monkeypa
 
 
 def test_identity_reused_during_claim_authorization_is_not_signalled(monkeypatch):
-    confirmed = []
+    confirmed, original_identity = [], [True]
     @contextmanager
     def authorize():
+        original_identity[0] = False  # The kernel reuses this PID during receipt I/O.
         yield True
     def same_process(*args):
         confirmed.append(args)
-        return len(confirmed) == 1
+        return original_identity[0]
     delivered = []
     monkeypatch.setattr(procs, "same_process", same_process)
     monkeypatch.setattr(procs.os, "getpgid", lambda pid: pid)

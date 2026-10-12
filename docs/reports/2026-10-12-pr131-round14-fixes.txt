@@ -9,6 +9,8 @@ b0ba1c670 Retry deferred fixture reservations and cover dispatch serialization
 3c6bfb8e4 Keep reservation retry clocks consistent with capacity evaluation
 c4b2a5c06 Upgrade receipt retry metadata in one transaction
 e96dc118b Witness legacy receipt recovery through interrupted schema upgrade
+5675f3017 Report round 14 safety fixes and locked validation outcomes
+8e8bdac9f Reconfirm process identity after receipt authorization I/O
 
 The shared Git metadata is outside the writable workspace. Local metadata
 uses the original object store read-only; the assigned checkout remains at
@@ -29,6 +31,8 @@ authorization context. The final claim check and syscall share the Store's
 writer lock; every daemon indexed claim mutation uses that lock. Pending
 start.json publications also share sidecar flock locks with guardian._receipt.
 The locks remain held through os.kill, without a SQL transaction spanning I/O.
+A final same_process check inside those locks reconfirms identity after receipt
+I/O; a new witness models PID reuse during authorization.
 A concurrent publisher therefore completes before the final authorization or
 after delivery. Noncooperating legacy/missing receipts cannot be proven closed:
 unresolved foreign receipt work refuses all delivery. A cached foreign claim
@@ -82,13 +86,16 @@ reservation diagnostics, publisher serialization and unresolved-receipt refusal.
 
 Recorded executions: 38 passed / 7 failed across three completed holds,
 including baseline and superseded-head runs. Completed hold pytest times:
-414.73 s, 242.02 s, 195.87 s. Only the corrected head results below count as
-the final focused validation; baseline/superseded failures are stated above.
+414.73 s, 242.02 s, 195.87 s. The corrected 18-case probe run preceded the
+additional identity reconfirmation safeguard. The final request for all 19
+probes, upgrade witnesses and module-name test expired before pytest. Thus
+final-head validation is outstanding; earlier passes are not claimed reruns.
 
-Per-file validation (unrun counts from source parametrizations, not collection):
-file                                                 passed failed unrun
-fake/test_review_pr131_round14.py                         18      0     0
-unit/test_test_module_names.py                            1      0     0
+Per-file most recent completed focused results and final-head unrun cases
+(unrun counts from source parametrizations, not collection):
+file                                         recorded_pass failed head_unrun
+fake/test_review_pr131_round14.py                         18      0    19
+unit/test_test_module_names.py                            1      0     1
 fake/test_review_pr131_round13.py                         0      0    16
 fake/test_review_pr131_round13_probes.py                  0      0     3
 fake/test_quarantine_self_resolve.py                     0      0    13
@@ -117,12 +124,14 @@ pytest hold. Group delivery selects the entrant witness (4 attempt/probe
 cases); removing post-confirmation authorization selects scalar publication
 (4 cases); forgetting receipt work/completing incomplete imports selects late,
 read-outage and startup witnesses (3 cases). Every mutant was generated, but
-all three lock requests exited 75 before pytest. These mutations are UNRUN;
+all three lock requests exited 75 before pytest. Final templates retain the
+new identity safeguard, and all three generated final-head mutants parse.
+These mutations are UNRUN;
 no mutation detection is claimed. Source checkout/history remain untouched.
 
-Lock outcomes: 12 requests expired before pytest (11 x 45 s, 1 x 300 s),
-including the regressions, reduced world and mutations. The final five
-regression requests were separately held/queued for self-resolve, ambiguity,
+Lock outcomes: 13 requests expired before pytest (12 x 45 s, 1 x 300 s),
+including the regressions, reduced world and mutations. The five
+regression requests were separately queued for self-resolve, ambiguity,
 review-fix, both original/ported r12 ownership/signal files, and r13 plus
 migration/receipt checks. The hub must run those outstanding validations.
 
