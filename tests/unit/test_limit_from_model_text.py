@@ -273,7 +273,7 @@ def test_codex_agent_wording_and_neutralization_preserve_verdict(text, rc, termi
         directory = Path(tmp)
         adapter = CodexAdapter(now=lambda: NOW)
         outcomes = []
-        for value in ("x" if text.strip() else "", text):
+        for value in ("x" if text.encode().strip() else "", text):
             rows = [{"type": "item.completed", "item": {"type": "agent_message", "text": value}}]
             if terminal:
                 rows.append({"type": "turn.failed", "error": {"message": "usage limit reached"}})
@@ -330,6 +330,6 @@ def test_codex_exact_model_erasure_only_removes_deliverable_acceptance(text, rc,
                 rows.append({"type": "turn.completed"})
             launch = codex_events(directory, *rows)
             outcomes.append(CodexAdapter(now=lambda: NOW).classify(directory, launch, codex_exit(rc)))
-    assert outcomes[0].cls is (OutcomeClass.OK if rc == 0 and text.strip() else OutcomeClass.UNKNOWN)
+    assert outcomes[0].cls is (OutcomeClass.OK if rc == 0 and text.encode().strip() else OutcomeClass.UNKNOWN)
     assert outcomes[1].cls is OutcomeClass.UNKNOWN
     assert outcomes[0].closure is outcomes[1].closure is None

@@ -192,3 +192,16 @@ def test_codex_rc_zero_last_blank_agent_cannot_accept_earlier_text(tmp_path, las
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
     assert outcome.cls is OutcomeClass.UNKNOWN
     assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
+
+
+@pytest.mark.parametrize("text", ("\u00a0", "\u2009"), ids=("nbsp", "thin-space"))
+@pytest.mark.parametrize("source", ("last-file", "agent-message"))
+def test_codex_keeps_existing_nonempty_utf8_byte_payloads(tmp_path, text, source):
+    """C-12.6: Codex's byte check preserves these payloads; it does not normalize text."""
+    rows = [{"type": "item.completed", "item": {"type": "agent_message", "text": text}}] if source == "agent-message" else []
+    launch = _events(tmp_path, *rows)
+    if source == "last-file":
+        (tmp_path / "last.md").write_bytes(text.encode())
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    assert outcome.cls is OutcomeClass.OK
+    assert CodexAdapter().deliverable(tmp_path, launch, outcome) == text.encode()
