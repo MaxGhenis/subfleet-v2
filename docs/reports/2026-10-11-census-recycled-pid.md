@@ -53,7 +53,8 @@ arguments for callers. An incomplete recorded identity, shifted legacy boot
 timestamp, failed comparison or live row without a start makes the census
 unverifiable. Do not repair a missing snapshot start with a later PID read that
 could observe a different incarnation. `identity` raises for a live PID with an
-unavailable start, and `liveness` answers unknown for an incomplete record.
+unavailable start, and `liveness` answers unknown for an observed live process with an incomplete
+record; observed absence or zombie state still proves death independently.
 Added regressions cover each seam and a clock step forward as well as the
 reviewer's rollback case.
 

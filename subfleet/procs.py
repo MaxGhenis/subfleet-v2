@@ -169,8 +169,6 @@ def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> st
     signals, collapses "unknown" into "not the same" (C-5.4)."""
     if not pid or pid <= 0:
         return "dead"
-    if not boot_id or not proc_start:
-        return "unknown"
     for fresh in (False, True):
         try:
             current = identity(pid)
@@ -178,6 +176,8 @@ def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> st
             return "unknown"
         if current is None:
             return "dead"
+        if not boot_id or not proc_start:
+            return "unknown"
         if current.proc_start != proc_start:
             return "dead"
         try:

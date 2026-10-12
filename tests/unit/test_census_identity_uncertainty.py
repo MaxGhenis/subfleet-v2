@@ -12,6 +12,9 @@ def test_incomplete_recorded_identity_is_unknown(monkeypatch, boot, began):
     install(monkeypatch, {42: (1, 42, "Ss", start())})
     assert procs.liveness(42, boot, began) == "unknown"
     assert not procs.same_process(42, boot, began)
+    # Observed absence proves death independently of the missing record.
+    monkeypatch.setattr(procs, "identity", lambda _: None)
+    assert procs.liveness(42, boot, began) == "dead"
 
 
 def test_live_pid_without_readable_start_is_unknown(monkeypatch):
