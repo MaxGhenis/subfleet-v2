@@ -73,6 +73,13 @@ struct MainWindow: View {
             // conversation) moves the highlight, so clicking a row always selects.
             if let id, selection != "cv:" + id { selection = "cv:" + id }
         }
+        .onChange(of: model.focusReasserted) { _, _ in
+            // A click for the conversation already focused moves no focus, but the
+            // highlight may be on a native session whose open the click dropped:
+            // put it back, or clicking that row again would select nothing new.
+            // `select` then finds the conversation focused and its pages left.
+            if let id = model.state.focusedConversationID, selection != "cv:" + id { selection = "cv:" + id }
+        }
         .foregroundStyle(Theme.text.primary.color)
         .background(Theme.surface.conversation.color)
         .tint(Theme.accent)

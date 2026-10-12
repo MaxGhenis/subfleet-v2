@@ -63,6 +63,10 @@ final class UIModel: ObservableObject {
     /// hand badge, the strip's Review); cleared once it is in view.
     @Published private(set) var approvalReveal: ApprovalReveal?
     private var reveals = 0
+    /// Moves on when a notification's click opens the conversation already
+    /// focused, which moves no focus: the sidebar puts its highlight back on that
+    /// conversation, which a native session chosen just before may have taken.
+    @Published private(set) var focusReasserted = 0
     /// What the stale-approvals check last read, per conversation (the daemon's
     /// count and the cards shown), so an unchanged mismatch is read once.
     private var staleRead: [String: [Int]] = [:]
@@ -321,11 +325,17 @@ final class UIModel: ObservableObject {
         eventsGeneration += 1
     }
 
-    func focus(_ conversationID: String) {
+    /// What showing a conversation leaves: a failed or new conversation's
+    /// draft, and a locked session's page.
+    private func leavePages() {
         selectedFailedDraftID = nil
         endFailedDraftEditing()
         newDraft.leave()
         lockedEntry = nil
+    }
+
+    func focus(_ conversationID: String) {
+        leavePages()
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
         navigation += 1
@@ -457,7 +467,8 @@ final class UIModel: ObservableObject {
         // Already focused, where `focus` changes nothing: open it again under a
         // new token, so the click still drops an open on its way (a native session
         // chosen just before) and replaces its own conversation's, not loses it.
-        lockedEntry = nil
+        leavePages()
+        focusReasserted += 1
         navigation += 1
         let token = navigation
         Task { await open(.conversation(opening.conversationID), token: token) }

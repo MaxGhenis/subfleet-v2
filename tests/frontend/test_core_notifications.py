@@ -28,6 +28,7 @@ import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness, claude_assistant, claude_init, claude_result
+from tests.frontend.swift import ROOT, compile_probe
 
 pytestmark = needs_swift
 
@@ -354,3 +355,49 @@ def test_property_clicks_open_once_in_order_and_yield_to_navigation(core_probe, 
     clicked = [i for i in range(first_baseline) if "click" in steps[i] and expected_openings([steps[i], {"baseline": True}])[0][-1]]
     event(f"a held click, then navigation or a new conversation before the baseline: "
           f"{bool(clicked) and any('navigate' in steps[j] or 'create' in steps[j] for j in range(clicked[-1], first_baseline))}")
+
+
+# A real UIModel, built without its views (SUBFLEET_UI_MODEL_TEST): what a click
+# focuses, reveals and reasserts (UIModel.show, openClicked).
+
+@pytest.fixture(scope="module")
+def notification_model_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-notification-model") / "probe",
+                         [ROOT / "tests/frontend/NotificationModelProbe.swift"], "SUBFLEET_UI_MODEL_TEST")
+
+
+def model_clicks(probe, tmp_path, steps: list[dict], focused: str | None = "cv-1", baselined: bool = True,
+                 pending: dict | None = None) -> list[dict]:
+    root = tmp_path / f"model-{uuid.uuid4().hex}"
+    root.mkdir()
+    data = {"root": str(root), "focused": focused, "baselined": baselined, "pending": pending or {}, "steps": steps}
+    return run_probe(probe, write_json(tmp_path / f"{uuid.uuid4().hex}.json", data))["steps"]
+
+
+def test_c29_9_a_click_for_the_focused_conversation_reasserts_it(notification_model_probe, tmp_path):
+    """Round 4 of #62's review: a click for the conversation already focused moves
+    no focus, so the sidebar's highlight (perhaps on a native session the click's
+    reopen dropped) is put back through `focusReasserted`. A click for another
+    conversation moves the focus, which moves the highlight itself."""
+    out = model_clicks(notification_model_probe, tmp_path,
+                       [click("completed", "cv-1"), click("failed", "cv-2"), click("delivery-unknown", "cv-2")])
+    assert [(o["focused"], o["focus_reasserted"]) for o in out] == [("cv-1", 1), ("cv-2", 1), ("cv-2", 2)]
+
+
+def test_c29_9_a_click_held_for_the_baseline_moves_nothing_yet(notification_model_probe, tmp_path):
+    out = model_clicks(notification_model_probe, tmp_path, [click("approval", "cv-2"), click("completed", "cv-1")],
+                       baselined=False, pending={"cv-2": 1})
+    assert [(o["focused"], o["focus_reasserted"], o["reveal"]) for o in out] == [("cv-1", 0, None), ("cv-1", 0, None)]
+
+
+def test_c29_9_an_approval_click_reveals_its_card_only_while_one_waits(notification_model_probe, tmp_path):
+    out = model_clicks(notification_model_probe, tmp_path, [click("approval", "cv-2"), click("approval", "cv-1")],
+                       pending={"cv-1": 0, "cv-2": 1})
+    # cv-1 has none waiting: its click asks for no card (cv-2's request stands
+    # until that conversation's view has brought its card into view).
+    assert [(o["focused"], o["reveal"]) for o in out] == [("cv-2", "cv-2"), ("cv-1", "cv-2")]
+
+
+def test_c29_9_a_click_leaves_a_new_conversation_draft_for_its_conversation(notification_model_probe, tmp_path):
+    out = model_clicks(notification_model_probe, tmp_path, [{"new_draft": True}, click("completed", "cv-1")])
+    assert [(o["focused"], o["new_draft"]) for o in out] == [(None, True), ("cv-1", False)]
