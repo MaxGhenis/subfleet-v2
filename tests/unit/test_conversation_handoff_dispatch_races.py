@@ -8,6 +8,35 @@ from subfleet.conversations.store import ConversationError
 from tests.unit.test_conversation_handoff import handoff, source, turn_job, world
 
 
+def test_archived_handoff_recovery_keeps_the_message_until_unarchive(world):
+    """An archive remains honest; an explicit unarchive allows the same retry to move the text."""
+    cid, (mid,) = source(world, "keep this message")
+    job_id = turn_job(world, mid, cid, state="waiting")
+    world.store.set_state(mid, "waiting", reason="admission: not yet placed", job_id=job_id)
+    assert world.service._cancel_job_without_attempt(
+        job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
+    world.service._settle_unstarted()
+    archived = world.store.archive_conversation(cid, archived=True)
+    before = world.store.message(mid)
+    feed = world.store.changes_after(0)["next"]
+
+    with pytest.raises(ConversationError) as refused:
+        handoff(world, cid)
+    assert (refused.value.reason, refused.value.code) == ("archived", 7)
+    assert "unarchive" in refused.value.fix
+    assert world.store.conversation(cid) == archived
+    assert world.store.message(mid) == before and before["state"] == "cancelled"
+    assert world.store.message_text(before) == "keep this message"
+    assert world.store.changes_after(feed)["changes"] == []
+
+    world.store.archive_conversation(cid, archived=False)
+    result = handoff(world, cid)
+    assert result["withdrawn"] == [mid] and len(result["moved"]) == 1
+    moved = world.store.message(result["moved"][0]["message_id"])
+    assert moved["state"] == "queued" and world.store.message_text(moved) == "keep this message"
+    assert world.store.message(mid)["state_reason"] == f"handed-off:{moved['conversation_id']}"
+
+
 def test_dispatch_rechecks_order_after_a_handoff_restores_an_earlier_message(world, monkeypatch):
     """A cached follower from a legacy unfenced cancellation waits when recovery
     restores the first message before the dispatcher claims the follower.

@@ -842,16 +842,23 @@ class ConversationStore:
         Each `{message_id, job_id, turn_seq}` in `restores` names a message whose turn job
         the handoff cancelled: it goes back to `queued` in its place, under the
         next turn sequence (so its next turn job is a new one) and bound to no
-        job, unless a handoff did move it. Then the fence is lifted. One
-        transaction; returns the ids put back.
+        job, unless a handoff did move it. An archived source refuses recovery
+        (exit 7): its cancelled messages stay terminal, intact in its history,
+        until the person unarchives and retries. This includes older handoffs
+        with no fence. Then the fence is lifted. One transaction; returns the
+        ids put back.
         """
         now = utcnow()
         restored: list[str] = []
         with self.transaction() as tx:
-            source = tx.execute("SELECT blocked_by FROM conversations WHERE conversation_id=?",
+            source = tx.execute("SELECT blocked_by, archived_at FROM conversations WHERE conversation_id=?",
                                 (conversation_id,)).fetchone()
             if source is None or source["blocked_by"] not in (None, fence):
                 return restored
+            if source["archived_at"] is not None:
+                raise ConversationError("archived", "the handoff's source conversation is archived; "
+                                        "its cancelled messages remain in its history", code=7,
+                                        fix="unarchive the source conversation, then retry the handoff")
             for item in restores:
                 # A steer that missed its turn keeps the mark the queue orders it by, so
                 # it still runs next (C-24.5): its last change back to `queued` has it.
@@ -993,7 +1000,10 @@ class ConversationStore:
         queued one in its own transaction, so neither can slip past the other. Also
         refused while a handoff's fence stands (it may put the source's messages back
         in the queue) and while a suggestion's Start is making the conversation
-        (its brief is still to come, C-25.7). Archiving an archived conversation
+        (its brief is still to come, C-25.7). Recovery of an older unfenced
+        handoff rechecks archive in its own write transaction: cancelled messages
+        in an archived source stay terminal until the person unarchives and
+        retries. Archiving an archived conversation
         keeps its first `archived_at`; unarchiving one that is not archived changes
         nothing. Neither moves `updated_at`: where a conversation sorts is its
         activity, which archiving is not."""

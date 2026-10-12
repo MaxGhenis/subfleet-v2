@@ -1781,7 +1781,8 @@ class ConversationService:
                 # left its fence: put back what it withdrew before anything else.
                 conversation = self._lift_stale_fence(conversation)
                 # Older handoffs could die after their audited cancel but before
-                # leaving a fence. A retry still owns those pending messages.
+                # leaving a fence. A retry still owns those pending messages;
+                # the store refuses recovery if the person archived the source.
                 self._lift_fence(cid, f"{HANDOFF_FENCE}{request_id}")
             marker = _handoff_marker(request_id)
             # A live turn is the reason to refuse whatever else is true of the source.
@@ -1888,7 +1889,9 @@ class ConversationService:
         """Undo a handoff of `cid` that never committed (C-30.3, D-18): each source
         message whose turn job that handoff cancelled (its audit event carries the
         handoff's marker) is queued again in its place, and the fence is lifted,
-        in one conversation-store transaction. The caller holds `_handing_off`."""
+        in one conversation-store transaction. An archived source refuses the
+        lift (exit 7), keeping cancelled messages visible in its history until
+        the person unarchives and retries. The caller holds `_handing_off`."""
         marker = _handoff_marker(fence[len(HANDOFF_FENCE):])
         restores = []
         for message in self.store.query(
