@@ -16,7 +16,6 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from . import boot_identity
@@ -154,9 +153,11 @@ def identity(pid: int) -> ProcessIdentity | None:
     if pid <= 0:
         return None
     started = proc_start(pid)
-    state = _stat(pid) if started else None
-    if not started or not state or state.startswith("Z"):
+    state = _stat(pid)
+    if not state or state.startswith("Z"):
         return None
+    if not started:
+        raise InspectionError("process start identity is unavailable")
     return ProcessIdentity(pid, boot_id(), started)
 
 
@@ -166,8 +167,10 @@ def liveness(pid: int | None, boot_id: str | None, proc_start: str | None) -> st
     failed). A caller that would act on death must treat "unknown" as no
     evidence at all and look again later; only `same_process`, which gates
     signals, collapses "unknown" into "not the same" (C-5.4)."""
-    if not pid or pid <= 0 or not boot_id or not proc_start:
+    if not pid or pid <= 0:
         return "dead"
+    if not boot_id or not proc_start:
+        return "unknown"
     for fresh in (False, True):
         try:
             current = identity(pid)
@@ -392,6 +395,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 started_at: str | None = None, finished_at: str | None = None) -> Containment:
     """Collect C-5.5 sources; failed sources or needed identity reads prevent release.
 
+    Receipt timestamps are accepted for caller compatibility, but cannot prove
+    reuse: a wall-clock correction can put a genuine birth outside those bounds.
+
     Identities describe the census, not authority to signal. In particular a
     newly discovered escaped process must remain quarantined unless the caller
     already recorded that process's ownership before the escape.
@@ -422,26 +428,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
 
-    def timestamp(value: str | None, *, process: bool = False) -> datetime | None:
-        try:
-            if process:
-                return datetime.strptime(value or "", "%a %b %d %H:%M:%S %Y").replace(tzinfo=timezone.utc)
-            parsed = datetime.fromisoformat(value or "")
-            return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
-        except (ValueError, TypeError):
-            return None
-
-    lower, upper = timestamp(started_at), timestamp(finished_at)
-    # ps lstart has only whole seconds. A guardian born in the same second as
-    # started_at must not be excluded by the receipt's fractional precision.
-    if lower is not None:
-        lower = lower.replace(microsecond=0)
-
     def is_recycled(pid: int) -> bool:
-        """Only positive identity/time evidence can prune a root or its group."""
+        """Only a comparable recorded identity can prune a walk or group."""
         if pid in checked:
             return pid in recycled
-        if pid not in table or seen is None:
+        if not live(pid) or seen is None:
             return False
         checked.add(pid)
         began = table[pid][3]
@@ -469,12 +460,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 except InspectionError:
                     errors.append(f"boot identity unavailable for root pid {pid}")
         else:
-            current_start = timestamp(began, process=True)
-            if current_start is not None:
-                if lower is not None and current_start < lower:
-                    reason = "started before attempt"
-                elif upper is not None and current_start > upper:
-                    reason = "started after exit receipt"
+            # Receipt times and process birth times use the wall clock. A clock
+            # step between those reads cannot establish PID reuse (C-5.3).
+            errors.append(f"recorded identity unavailable for pid {pid}")
         if reason is None:
             return False
         try:
@@ -491,7 +479,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
 
     if seen is not None:
         # XNU forkproc rejects PIDs reserved by a process group or session:
-        # https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L895-L949
+        # https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L970-L972
         # Thus a different process at pid == pgid proves the old group is gone.
         # An absent leader does NOT: retain its surviving group members.
         groups = set(seen.group(pgid))
@@ -499,8 +487,12 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             groups.clear()
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
-        roots = {pid for pid in (guardian_pid, child_pid)
-                 if pid and pid > 0 and live(pid) and not is_recycled(pid)}
+        # The snapshot is not atomic: an absent/zombie parent may still have
+        # live child rows. Keep its links, and seed every recorded survivor so
+        # an escaped writer reparented to init survives exclusion of its root.
+        # These are census seeds only; signal ownership is checked separately.
+        roots = {pid for pid in {*recorded_identities, guardian_pid, child_pid}
+                 if pid and pid > 0 and not is_recycled(pid)}
         found = set(roots)
         frontier = roots
         while frontier:
@@ -531,6 +523,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         try:
             # The snapshot's own start time when it has one; a pid it could not
             # describe (a marker spawned after the read) is asked about singly.
+            if seen is not None and seen.live(pid) and not table[pid][3]:
+                raise InspectionError("snapshot start identity is unavailable")
             current = (seen.identity(pid) if seen is not None else None) or identity(pid)
             if current is not None:
                 identities[pid] = current

@@ -1,138 +1,136 @@
 # Containment census and recycled PIDs — 2026-10-11
 
-Base: `4c6a8a9c989e`. Branch: `fix/census-recycled-pid` in `.git-local`
-(shared Git metadata is read-only). No history rewrite, remote Git operation,
-or live-state change. Implementation and a draft report were committed before
-long test waits; each coherent step has its own commit.
+Fix round 1 starts at `cb23ab373f1da830f276661f1390b11beb3ddfa1`, with integration
+base `be7afd599` (`release/217`). Work stays in the assigned checkout, on
+`fix/census-recycled-pid` in `.git-local`; shared Git metadata is outside the
+writable workspace. Each coherent step is committed without rewriting history.
+No remote Git operation or live-state change, and no sub-agents.
 
-The census counted whichever process currently occupied the guardian or child
-PID, even after the attempt's recorded start identity had died. A reused leader
-PID also supplied an unrelated group. The measured incidents were qyp16-r1c
-(child 4203), pb-kit-u4-docs (leader 243), and pe-uk-2192-r2/a2 (child 16379).
-Successful work could become `lost`, rc 125, with indefinitely held leases.
-Signalling already checked identity separately and retains those checks.
+The original incidents were qyp16-r1c (child 4203), pb-kit-u4-docs (leader 243),
+and pe-uk-2192-r2/a2 (child 16379). The previous census counted strangers under
+recycled root/group PIDs, causing false quarantines and successful runs reported
+lost. Start-identity filtering fixes those incidents, but the reviewed head
+introduced unsafe disappearance of genuine survivors.
 
-Apple's [XNU 12377.1.9 `forkproc`, lines 895–949](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L895-L949)
-allocates PIDs under `proc_list_lock` and rejects a candidate present in the
-process hash, process-group hash, or session hash. A different process at the
-recorded leader PID therefore proves that the original group no longer exists.
-An absent leader does not establish group death: surviving members remain.
-The same citation appears in the code comment and C-5.5.
+## Causes and fixes
 
-## Design and changes
+**C-6.5 writer refusals (five fanout tests and one policy test):** the branch added
+`procs.liveness = lambda *args: "dead"` to the borrowed `state_daemon` fixture.
+Tests supplied live or unreadable identities through `procs.identity`, but the
+stub bypassed comparison and told the writer precheck the holder had died.
+Production `_instance_alive` and `_writable_precheck` already implement the
+contract's cautious three-way rule. Keep the real liveness function, default
+identity reads to the synthetic table, and let behavioral tests override either
+seam. New fixture regressions pin live, absent and unreadable overrides.
 
-- `subfleet/procs.py:324,389`: census evidence includes `recycled`; recorded
-  identities filter roots and the group leader in the fresh process snapshot.
-  Different start times or freshly confirmed different boot UUIDs establish
-  death. Each root/leader is compared once per snapshot. Empty groups and zombie
-  roots need no boot read. Absent leaders preserve surviving groups.
-- `subfleet/daemon.py:6450`: `_contain` supplies guardian identity from the row
-  or start receipt, child identity from `owned_identities`, and receipt bounds.
-  The exit receipt supplies the child PID before the row is refreshed and its
-  actual `finished_at`, rather than a later quarantine timestamp. Proven reuse
-  persists in attempt evidence and an event, including verified-empty success,
-  so `runs show --json` explains it. Existing evidence is preserved.
-- `subfleet/daemon.py:4137`: probe censuses delegate to `_contain`. Finalization,
-  kill, start grace, quarantine and `--confirm-dead` already use that path.
-  Production edits stay within these two files for the PR #131 interaction.
-- `docs/acceptance-contract.md:9,205`: dated incident entry and C-5.5 specify
-  identity filtering, bounds, unknown handling, kernel rule and durable evidence.
-  C-5.3 already specifies reused starts as death and is unchanged.
-- `tests/unit/test_census_recycled_pid.py:58`: five generated properties and
-  conservative examples cover identity, bounds, legacy timestamps, failed reads,
-  fresh UUID confirmation, absent leaders and zombie-only empty groups.
-- `tests/fake/test_census_recycled_pid.py:51`: three incident regressions,
-  rc-0 success/export, verified-empty quarantine release with Git salvage,
-  probe delegation and receipt-supplied child identities.
-- `tests/fake/test_state_contract.py:40`: state-only fixture now stubs the shared
-  process table, liveness and group-member inspection. Its old `same_process`
-  stub did not cover the C-5.12 running-inspection path.
+**C-10.3 desktop signal (five tests):** the same fixture also added an always-empty
+snapshot. Registry validation therefore removed the simulated desktop caller.
+Its default synthetic table now includes the fixture's own caller; unlisted
+attempt guardians remain absent. A regression pins both registry validation and
+liveness for that row without host process inspection. These two CI causes are
+fixture defects, separate from P1; no writer or desktop production refusal was
+weakened, and all existing behavioral assertions are preserved.
 
-Unknown legacy boot matches or failed reads needed to decide identity retain
-containment and make it unverifiable. A different start alone proves reuse even
-when the optional boot read for evidence fails. Without a complete recorded
-identity, readable birth times before attempt start or after the exit receipt
-exclude a root. The lower bound
-is rounded down to whole seconds to match `ps lstart` precision; missing or
-unparseable bounds retain it. Matching recorded identities override bounds.
-Marker enumeration is unchanged. Evidence records only identity/bounds and a
-fixed reason, never commands or environments. The kill ownership and signal
-checks are unchanged.
+**Module collection:** unit and fake modules shared `test_census_recycled_pid.py`.
+The fake module is now `test_census_recycled_pid_daemon.py`. The review's unit
+fixtures use `test_census_survivors_review.py`, preserving the specifically
+requested fake name `test_review_r185_adversarial.py` without another collision.
 
-## Regressions: before and after
+**P1:** only live guardian/child PIDs seeded the walk. Filtering a recycled,
+absent or zombie guardian could hide its live descendants, and a fully
+reparented recorded writer outside those roots was ignored. Seed every recorded
+identity independently unless positive comparison proves reuse. Retain absent
+and zombie PIDs as parent-link anchors for non-atomic scan rows. Matching and
+incomparable recorded survivors retain protection even in their own sessions.
+The adopted unit fixtures cover absent, zombie and recycled guardians, plus the
+owned survivor's individual kill loop; the writable fake fixture proves
+`--confirm-dead` keeps both job- and attempt-held leases while PID 43 survives.
 
-The before run used a frozen copy of the unfixed source inside this workspace,
-checked to contain neither new identity argument. Existing fake process-table
-fixtures supply all incident OS reads. All four tests failed at behavior
-assertions: **4 failed in 41.19 s**.
+**P2 and identity uncertainty:** attempt receipts and process births are separate
+wall-clock samples. A clock step can put a genuine birth before start or after
+exit. Remove both receipt bounds as proof of reuse; preserve the existing API
+arguments for callers. An incomplete recorded identity, shifted legacy boot
+timestamp, failed comparison or live row without a start makes the census
+unverifiable. Do not repair a missing snapshot start with a later PID read that
+could observe a different incarnation. `identity` raises for a live PID with an
+unavailable start, and `liveness` answers unknown for an incomplete record.
+Added regressions cover each seam and a clock step forward as well as the
+reviewer's rollback case.
 
-| Regression | Before | After |
-|---|---|---|
-| qyp16-r1c child 4203 | Walk `{4203, 55000}` | Verified empty; recorded/current starts retained |
-| pb-kit-u4-docs leader 243 | Group and walk `{243, 55000}` | Both empty; reuse explains exclusion |
-| pe-uk-2192-r2/a2 child 16379 | Walk `{16379, 55000}` | Verified empty; recorded/current starts retained |
-| Exit rc 0, then recycled child | `lost`, rc 125 | `succeeded`, rc 0; acceptance, export and lease release |
+The old unit assertion that an incomplete live identity was dead, and the five
+receipt-bound expectations, contradicted C-5.3's unknown-never-establishes-death
+rule. Their replacements require retained protection and unknown/unverifiable
+results for every input, including births outside either bound. No test was
+deleted or weakened to accept unsafe release.
 
-PID 55000 is a synthetic child of the stranger. The incident PID/start pairs and
-qyp16 exit time are measured values from the task; guardian PIDs 4000/16000 and
-the other two exit bounds are synthetic fixture data. The salvage regression
-recreates qyp16's quarantine in a temporary writable Git repository, verifies
-empty without override, releases leases and preserves the deliverable in a
-salvage ref. It does not modify the live qyp16 job.
+**P3:** verified the raw tagged source directly. Apple's
+[XNU 12377.1.9 `forkproc`, lines 970–972](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L970-L972)
+rejects candidates present in the process, group or session hashes. Corrected
+the code comment, C-5.5 and this report. A proven different leader excludes the
+old group; an absent leader retains surviving group members. Reuse of the
+leader says nothing about recorded writers that already escaped that group.
 
-## Invariants and validation
+C-5.3/C-5.5 and a dated Changes entry state these rules. Markers and the signal
+ownership checks are unchanged; census identities never confer authority to
+signal. Recycled evidence keeps only recorded/current identity and fixed reasons,
+never command or environment data. All deciding callers retain `Daemon._contain`.
 
-The final run completed **1,000 valid Hypothesis cases**, **200 per property**,
-with **0 failures** and 104 rejected generation attempts (not failing cases).
-Property (b) also varies whether the other root is recycled, preserving a
-matching child even under a recycled guardian. The earlier property run passed
-1,000 valid cases too, with 108 rejected generation attempts.
+## Validation (in progress)
 
-| Invariant | Valid passing cases |
-|---|---:|
-| (a) Recycled roots/groups cannot contribute the stranger or its walk | 200 |
-| (b) Matching roots remain; a matching leader retains live group members | 200 |
-| (c) Marker source is unaffected | 200 |
-| (d) All matching identities preserve all source sets and captured identities | 200 |
-| (e) Kill ownership retains the old identity and never adds/signals the stranger | 200 |
+Baseline comparisons freeze the starting head's `identity`, `liveness`,
+`containment` and state fixture in a job-local pytest plugin. Original test copies
+retain the starting assertions and generators. These files and all logs stay in
+ignored local metadata; they are not committed. This lets implementation proceed
+while the shared lock queues without changing the measured baseline.
 
-All pytest runs used one process at a time, the prescribed `lockf` lock and an
-isolated Darwin TMPDIR removed on exit. Own lock holds stayed below 20 minutes.
-Dependencies were installed from the unchanged lockfile.
+Every pytest invocation runs one file under its own prescribed Darwin TMPDIR and
+`lockf` hold, with cleanup by `shutil.rmtree`. A timeout inside the hold caps each
+pytest at 1,100 seconds; time waiting for the lock is outside that cap. Dependencies
+were installed from the unchanged lockfile.
 
-- First fixed-code run: **118 passed, 1 failed in 83.95 s** across new unit/fake
-  regressions, existing process units and daemon-settle units. The failure was
-  the new writable salvage fixture lacking measured lane capacity; it failed
-  before containment. Added the existing workspace fixture's measured reading.
-- Related fake-daemon run: **106 passed, 1 failed in 802.14 s** across new fake
-  regressions, state contract, notice headers, probe recovery, probe cancellation
-  and daemon launch. Salvage and all incident checks passed. The old missing-exit
-  state test exposed incomplete process stubs; corrected the fixture as above.
-- Final validation at `4085e06dcd77b365994243736de82cfb500de6cb`:
-  **115 passed, 0 failed in 455.72 s (7 min 35 s)**. Files:
-  `tests/unit/test_census_recycled_pid.py`,
-  `tests/fake/test_census_recycled_pid.py`, `tests/unit/test_procs.py`,
-  `tests/fake/test_state_contract.py`, with `--hypothesis-show-statistics`.
-  Both previously failing fixtures passed, as did all three incident cases,
-  rc-0 success/export, verified-empty salvage and the strengthened properties.
+| File | Starting head | Fixed head |
+|---|---:|---:|
+| unit/test_test_module_names.py | 1 failed | pending |
+| fake/test_writable_fanout.py | pending | pending |
+| fake/test_policy_sandbox.py | pending | pending |
+| fake/test_admission_priority.py | pending | pending |
+| unit/test_census_survivors_review.py | pending | pending |
+| fake/test_review_r185_adversarial.py | pending | pending |
+| unit/test_census_identity_uncertainty.py | pending | pending |
+| fake/test_state_fixture_processes.py | pending | pending |
+| unit/test_census_recycled_pid.py | pending | pending |
+| fake/test_census_recycled_pid_daemon.py (previous name before) | pending | pending |
+| fake/test_state_contract.py | pending | pending |
+| unit/test_procs.py | pending | pending |
 
-Across the fixed-code runs, **220 distinct selected pytest items passed**,
-including **31 new items** (23 unit, 8 fake). The final runner waited about two
-hours for the shared lock; its actual test duration remained below 20 minutes.
-The runner exited 0 and its TMPDIR cleanup completed. The frozen before copy
-and local Hypothesis artifacts were removed; no background runner remains.
+The Hypothesis generator now gives each root live, absent, zombie and recycled
+states, and always includes a genuinely recorded escaped survivor reparented to
+init in its own session. Seven properties run 200 examples apiece. Invariants:
 
-Unrun: the full repository suite, real-process/live-provider suites, a live hub
-replay, and integration with unmerged PR #131's timed quarantine rechecks.
-Incident reproduction used only temporary stores and fake process tables; no
-incident process was signalled. No logs or JSON evidence are committed.
+- A census is never verified empty while any matching recorded identity is alive.
+- Excluding a recycled PID never removes a different matching live process.
+- Incomparable identity produces unverifiable, never death or verified empty.
+- The set of PIDs that may be signalled does not grow: the generated kill property
+  keeps the old identity and refuses the recycled incarnation; the review's kill
+  fixture still signals its previously recorded escaped writer.
+- Marker discovery is unchanged, and matching identities never shrink any existing
+  source. Independent recorded survivors may extend the descendant source.
 
-## Fix round 1 — work in progress
+Unrun while validation is pending: remaining table rows, the full repository
+suite, real-process/live-provider suites, live incident replay and unmerged
+PR #131 integration. Final measured counts will replace this draft.
 
-Starting head: `cb23ab373f1da830f276661f1390b11beb3ddfa1`; current integration
-base: `be7afd599`. Read the original brief, CI log and all review-r1 findings.
-Adopted the independent unit and writable-lease fixtures unchanged, naming the
-unit module `test_census_survivors_review.py` to preserve unique module names.
-CI reproduction and individual review-fixture runs are queued, one file per
-lock hold with an 1,100-second pytest cap. This draft will be replaced with
-measured before/after counts and the final identity rules.
+## Updated PR description for the hub
+
+Prevent recycled guardian and child PIDs from keeping completed attempts
+quarantined while retaining genuine escaped writers after their ancestor dies,
+becomes a zombie or is recycled. The census walks from all recorded survivors,
+keeps uncertain identity checks unverifiable and uses comparable identities
+rather than wall-clock receipt bounds to prove reuse. Signal ownership remains
+subject to the existing recorded-identity and fresh-read checks. Correct the
+XNU citation to the tagged source's lines 970–972.
+
+Repair the shared fake process fixture that bypassed writer refusals and hid
+simulated desktop callers, give the fake recycled-PID module a unique basename,
+and add the independent review fixtures and departing-root generated cases.
+Validation counts are recorded above. No remote PR edit was attempted.

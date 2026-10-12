@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, event, given, settings, strategies as st
 import pytest
 
 from subfleet import procs
@@ -29,13 +29,26 @@ def tables(draw):
     guardian = draw(st.integers(min_value=100, max_value=10000))
     child = guardian + 1
     rows = {guardian: (1, guardian, "Ss", start()),
-            child: (guardian, guardian, "S", start(1))}
+            child: (guardian, guardian, "S", start(1)),
+            guardian + 2: (1, guardian + 2, "Ss", start(2))}
     for offset in range(draw(st.integers(min_value=0, max_value=15))):
-        pid = guardian + offset + 2
+        pid = guardian + offset + 3
         parent = draw(st.sampled_from([1, *rows]))
         group = draw(st.sampled_from([guardian, pid, 2]))
         state = draw(st.sampled_from(["S", "R", "Z"]))
-        rows[pid] = (parent, group, state, start(offset + 2))
+        rows[pid] = (parent, group, state, start(offset + 3))
+    states = []
+    for pid in (guardian, child):
+        state = draw(st.sampled_from(["live", "absent", "zombie", "recycled"]))
+        states.append(state)
+        ppid, pgid, stat, began = rows[pid]
+        if state == "absent":
+            del rows[pid]
+        elif state == "zombie":
+            rows[pid] = (ppid, pgid, "Z", began)
+        elif state == "recycled":
+            rows[pid] = (1, pid, "Ss", start(1000))
+    event("root states: " + "/".join(states))
     marked = draw(st.sets(st.sampled_from(list(rows))))
     return guardian, child, rows, marked
 
@@ -60,7 +73,7 @@ def test_a_recycled_root_and_group_are_excluded(monkeypatch, generated, leader, 
     guardian, child, rows, marked = generated
     root = guardian if leader else child
     # Model the stranger's own group/tree; the attempt's other root is gone.
-    rows.pop(child if leader else guardian)
+    rows.pop(child if leader else guardian, None)
     rows[root] = (1, root, "Ss", start(1000))
     rows = {pid: (root if pid != root else 1, root, row[2], row[3]) for pid, row in rows.items()}
     boot = BOOT_B if different_boot else BOOT_A
@@ -80,15 +93,16 @@ def test_b_matching_roots_and_group_members_are_included(monkeypatch, generated,
     """C-5.5 (b): a matching root and every live member of its group remain."""
     guardian, child, rows, marked = generated
     root, other = (guardian, child) if leader else (child, guardian)
+    rows[root] = (1, root, "Ss", start(0 if leader else 1))
     known = recorded(rows)
-    if recycle_other:
+    if recycle_other and other in rows:
         known[other] = procs.ProcessIdentity(other, BOOT_A, start(-100))
     with monkeypatch.context() as patch:
         install(patch, rows, marked)
         result = procs.containment(guardian, guardian, child, "job/a1",
                                    recorded_identities=known)
     assert root in result.descendant_pids
-    if other == guardian and recycle_other:
+    if other == guardian and recycle_other and other in rows and rows[other][2] != "Z":
         assert not result.group_pids
     else:
         assert result.group_pids == {pid for pid, row in rows.items()
@@ -114,7 +128,7 @@ def test_c_markers_are_unchanged_by_recycled_identities(monkeypatch, generated, 
 @PROPERTY
 @given(tables())
 def test_d_matching_identities_preserve_the_entire_census(monkeypatch, generated):
-    """C-5.5 (d): with all identities matching, all three sets equal the old census."""
+    """C-5.5 (d): matching identities never shrink any existing census source."""
     guardian, child, rows, marked = generated
     with monkeypatch.context() as patch:
         install(patch, rows, marked)
@@ -123,8 +137,11 @@ def test_d_matching_identities_preserve_the_entire_census(monkeypatch, generated
                                   recorded_identities=recorded(rows),
                                   started_at="2026-10-11T02:00:00Z",
                                   finished_at="2026-10-11T00:00:00Z")
-    assert (after.group_pids, after.descendant_pids, after.marker_pids, after.identities) == (
-        before.group_pids, before.descendant_pids, before.marker_pids, before.identities)
+    # Independent recorded survivors can extend the walk after reparenting.
+    assert before.group_pids <= after.group_pids
+    assert before.descendant_pids <= after.descendant_pids
+    assert before.marker_pids == after.marker_pids
+    assert before.identities.items() <= after.identities.items()
     assert not after.recycled and not after.unverifiable
 
 
@@ -134,12 +151,14 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
     """C-5.4, C-5.6 (e): _kill_attempt never records/signals the stranger's identity."""
     guardian, child, rows, _ = generated
     target = guardian if leader else child
+    rows[target] = (1, target, "Ss", start(0 if leader else 1))
     old = procs.ProcessIdentity(target, BOOT_A, start(-100))
     if leader:
         # Its entire new group belongs to the stranger; both old roots died.
         rows[guardian] = (1, guardian, "Ss", rows[guardian][3])
-        rows.pop(child)
+        rows.pop(child, None)
     else:
+        rows[guardian] = (1, guardian, "Ss", start())
         # A matching guardian can still own its members, but the recycled
         # child's unrelated group must never refresh the child's old identity.
         rows[child] = (1, child, "Ss", rows[child][3])
@@ -178,16 +197,62 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
     assert all(identity.pid != target for identity in signalled)
 
 
-@pytest.mark.parametrize("seconds,expected", [(-1, False), (0, True), (1, True), (60, True), (61, False)])
-def test_unrecorded_root_uses_attempt_time_bounds(monkeypatch, seconds, expected):
-    """C-5.5: unrecorded roots outside start/exit bounds cannot be the attempt's."""
+@PROPERTY
+@given(tables())
+def test_f_recorded_survivors_remain_after_roots_depart(monkeypatch, generated):
+    """A matching writer survives root absence, zombie rows and positive reuse."""
+    guardian, child, rows, _ = generated
+    known = recorded(rows)
+    known[guardian] = procs.ProcessIdentity(guardian, BOOT_A, start())
+    known[child] = procs.ProcessIdentity(child, BOOT_A, start(1))
+    matching = {pid for pid, row in rows.items()
+                if not row[2].startswith("Z") and known[pid].proc_start == row[3]}
+    with monkeypatch.context() as patch:
+        install(patch, rows)
+        result = procs.containment(guardian, guardian, None, "job/a1",
+                                   recorded_identities=known)
+    assert matching <= result.descendant_pids
+    assert not result.verified_empty
+    assert guardian + 2 in result.live_pids  # fully reparented, separate session
+
+
+@PROPERTY
+@given(tables(), st.sampled_from(["missing-boot", "missing-recorded-start",
+                                 "missing-current-start", "legacy", "failed-boot"]))
+def test_g_incomparable_survivor_never_reads_dead(monkeypatch, generated, failure):
+    guardian, child, rows, _ = generated
+    survivor = guardian + 2
+    known = recorded(rows)
+    if failure == "missing-boot":
+        known[survivor] = procs.ProcessIdentity(survivor, "", start(2))
+    elif failure == "missing-recorded-start":
+        known[survivor] = procs.ProcessIdentity(survivor, BOOT_A, "")
+    elif failure == "missing-current-start":
+        rows[survivor] = (1, survivor, "Ss", "")
+    elif failure == "legacy":
+        known[survivor] = procs.ProcessIdentity(survivor, "99", start(2))
+    with monkeypatch.context() as patch:
+        install(patch, rows)
+        if failure == "failed-boot":
+            def unavailable():
+                raise procs.InspectionError("boot unavailable")
+            patch.setattr(procs, "boot_id", unavailable)
+        result = procs.containment(guardian, guardian, child, "job/a1",
+                                   recorded_identities=known)
+    assert survivor in result.descendant_pids
+    assert result.unverifiable and not result.verified_empty
+    assert survivor not in result.recycled
+
+
+@pytest.mark.parametrize("seconds", [-1, 0, 1, 60, 61])
+def test_unrecorded_root_cannot_be_excluded_by_wall_clock_bounds(monkeypatch, seconds):
+    """C-5.3, C-5.5: receipt/birth clock samples never prove reuse without identity."""
     install(monkeypatch, {42: (1, 42, "S", start(seconds))})
     result = procs.containment(42, 42, None, "job/a1",
                                started_at="2026-10-11T01:00:00.900Z",
                                finished_at="2026-10-11T01:01:00Z")
-    assert (42 in result.descendant_pids) is expected
-    assert (42 in result.group_pids) is expected
-    assert result.verified_empty is (not expected)
+    assert result.descendant_pids == result.group_pids == {42}
+    assert result.unverifiable and not result.verified_empty and not result.recycled
 
 
 @pytest.mark.parametrize("began", ["", "unparseable", start(20)])
