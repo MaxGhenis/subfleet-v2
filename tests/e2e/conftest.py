@@ -51,6 +51,18 @@ if Path(sys.argv[0]).name == "subfleetd":
     # guard reads a quiet machine here (tests/conftest.py's QUIET_MACHINE).
     import subfleet.machine
     subfleet.machine.read = lambda: {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0}
+    # A slow disk under an approval's request file, as CI's was (C-27.1): the publish
+    # waits before it writes, and nothing else changes. Any commit that shows an
+    # approval's event before its row would show it for this long.
+    publish_delay = float(os.environ.get("SUBFLEET_E2E_APPROVAL_PUBLISH_DELAY_S", "0"))
+    if publish_delay:
+        from subfleet.conversations.store import ConversationStore
+        original_publish = ConversationStore._publish
+        def slow_publish(self, path, data):
+            if path.parent.name == "approvals":
+                time.sleep(publish_delay)
+            return original_publish(self, path, data)
+        ConversationStore._publish = slow_publish
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)
