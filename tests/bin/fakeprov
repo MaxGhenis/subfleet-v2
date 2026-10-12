@@ -88,6 +88,7 @@ def main() -> int:
             text=True, capture_output=True, check=True)
         print(json.dumps({"provider": {k: os.environ[k] for k in keys if k in os.environ},
                           "tool": json.loads(child.stdout)}), flush=True)
+        completed()
         return 0
     print(f"fake provider ready: {scenario}", flush=True)
     if scenario in {"ignore-sigterm", "nested-setsid"}:
