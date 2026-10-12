@@ -199,17 +199,23 @@ def test_c6_12_a_stored_exclusion_that_is_not_a_lane_name_is_its_jobs_problem(ro
         service._merged_exclusions(service.store.get_job(stuck), ("codex-1",))
 
 
-# --- found, not fixed: strict xfails ----------------------------------------------------------
+# C-6.9, C-6.12: a job held behind an older one while its capacity clock runs (strict xfails until
+# 2026-10-12). Each scenario: an older job waits on its clock and holds a middle one (they share Astra);
+# a younger job competes with the middle one and not with the older one.
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="C-6.9: a capacity waiter held behind an older job is not a "
-                   "waiter itself, so younger jobs that compete only with it pass it (not fixed here: "
-                   "the fix adds holds and needs its own review)")
+def transient_on(service, job_id, lane_id="claude-a", model="opus"):
+    """The job's last attempt ended `transient` on that pair: its retry is pinned there (C-4.5)."""
+    service.store.add_attempt(attempt_id=f"{job_id}/a1", job_id=job_id, seq=1, lane_id=lane_id,
+                              model_requested=service.policy["models"][model]["id"], state="failed",
+                              outcome_class="transient")
+
+
 def test_c6_9_a_waiting_job_held_behind_an_older_one_still_holds_its_own_competitors(fleet):
-    """C-6.9 (P2): "A job that cannot be placed on this pass (it is `waiting` on `capacity` with a
-    `next_check_at` still ahead, ...) holds back the later jobs of its tier that compete with it". X waits
-    on capacity with its clock ahead and is held behind W (they share Astra); Y competes with X (Opus)
-    but not with W. Without W, Y is held behind X; with W, Y is placed past X, because `_admit_pass` checks
-    `behind` before it registers a clocked capacity wait as a waiter."""
+    """C-6.9 (P2): "A job that cannot be placed on this pass for want of a slot or a lane (it is `waiting`
+    on `capacity` with a `next_check_at` still ahead ...) holds back the later jobs of its tier that
+    compete with it". X waits on capacity with its clock ahead and is held behind W (they share Astra);
+    Y competes with X (Opus) but not with W. Without W, Y is held behind X; with W, Y was placed past X,
+    because `_admit_pass` checked `behind` before it registered a clocked capacity wait as a waiter."""
     service, harness = fleet
     closed(service, "codex-1")
     older = submit(service, harness, pinned_model="astra")
@@ -218,16 +224,93 @@ def test_c6_9_a_waiting_job_held_behind_an_older_one_still_holds_its_own_competi
     waiting(service, middle, 20)
     younger = submit(service, harness, pinned_model="opus")
     service._admit()
-    assert service._holds[middle]["behind"] == older
+    assert service._holds[middle] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
     assert service._holds.get(younger) == {"reason": "behind-older-job", "behind": middle, "tier": "standard"}
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="C-6.12: a retry that let its pin go and is held behind an older "
-                   "job never becomes a waiter, so a younger competitor passes it (same root cause as "
-                   "the test above)")
+def test_c6_9_a_job_held_behind_an_older_one_holds_nobody_once_its_clock_is_due(fleet):
+    """C-6.9, the bound on the hold above: a job held behind an older one gets no look, so nothing starts
+    it a new clock, and once its clock is due it holds nobody. The younger job is placed on the first
+    pass after that, beside the middle job, which is still held: a hold through a job held behind
+    another lasts no longer than the clock its own last look set."""
+    service, harness = fleet
+    closed(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra")
+    waiting(service, older, 600)
+    middle = submit(service, harness, pinned_model=None, task="review", tier="standard")   # opus, astra
+    waiting(service, middle, 20)
+    younger = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert service._holds[younger]["behind"] == middle
+    due(service, middle)
+    for _ in range(2):
+        service._admit()
+        assert service._holds[middle] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+        assert service.store.get_job(middle)["next_check_at"] <= utcnow()   # never looked at: no new clock
+    assert placed_on(service, younger) == "claude-a"
+
+
+def test_c6_9_a_lease_waiter_held_behind_an_older_one_holds_nobody(fleet):
+    """C-6.9: "A job waiting for a lease holds back none, capped or not ... on this pass or on its clock
+    since". The middle job's look found its output path held by another job; on its clock, held behind
+    the older one, it still waits for that lease and for no slot, so the younger job is placed."""
+    service, harness = fleet
+    closed(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra")
+    service.store.update_job(older, state="waiting", wait_reason="approval")     # holds nobody yet
+    out = str(harness.root / "report.md")
+    middle = submit(service, harness, pinned_model=None, task="review", tier="standard", out_path=out)
+    assert service.store.acquire_lease(f"out:{out}", "another-job")
+    service._admit()
+    assert service._holds[middle]["reason"] == "lease-held"
+    waiting(service, older, 600)
+    service.store.update_job(middle, next_check_at=after(60))                    # its lease clock runs
+    younger = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert service._holds[middle] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+    assert placed_on(service, younger) == "claude-a"
+
+
+def test_c6_9_a_job_no_lane_can_admit_held_behind_an_older_one_holds_nobody_and_says_so(fleet):
+    """C-11.8: "A job no lane can admit ... holds back none", asked "as it is put among the waiters";
+    C-6.11: its hold carries `for_good`, and `why` says it holds no other job back. The middle job
+    excludes every lane it could use."""
+    service, harness = fleet
+    closed(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra")
+    waiting(service, older, 600)
+    middle = submit(service, harness, pinned_model=None, task="review", tier="standard",
+                    exclusions=["claude-a", "codex-1"])
+    waiting(service, middle, 20)
+    younger = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert service._holds[middle] == {"reason": "behind-older-job", "behind": older, "tier": "standard",
+                                      "for_good": ["excluded"]}
+    assert placed_on(service, younger) == "claude-a"
+    assert "it holds no other job back (C-11.8)" in service.dispatch("why", {"job_id": middle})["text"]
+
+
+def test_c6_9_a_pinned_retry_held_behind_an_older_one_holds_back_with_its_pair(fleet):
+    """C-6.12: "While it is pinned, its C-6.9 demand is that one model on that one lane". The retry, on
+    the 60 s clock its transient attempt left, is held behind an older Opus job; it holds back what
+    competes for Opus on claude-a, not the Astra job its own chain would also compete with."""
+    service, harness = fleet
+    older = submit(service, harness, pinned_model="opus")
+    waiting(service, older, 600)
+    closed(service, "claude-a", scope=service.policy["models"]["opus"]["id"], seconds=600)   # older waits
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")     # opus, astra
+    transient_on(service, retry)
+    waiting(service, retry, 60)
+    astra = submit(service, harness, pinned_model="astra")
+    service._admit()
+    assert service._holds[retry] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+    assert placed_on(service, astra) == "codex-1"
+
+
 def test_c6_12_a_retry_that_let_its_pin_go_is_not_passed_by_a_younger_competitor(fleet):
     """C-6.12: "once a look has let the pin go, the job's demand is its own on that pass and while its
-    clock runs, so it neither passes an older job it competes with nor is passed by a younger one"."""
+    clock runs, so it neither passes an older job it competes with nor is passed by a younger one". On
+    the pass whose look let the pin go and on one while its clock runs."""
     service, harness = fleet
     service.store.put_lane(lane("claude-b"))
     measured(service, "claude-b")
@@ -236,14 +319,65 @@ def test_c6_12_a_retry_that_let_its_pin_go_is_not_passed_by_a_younger_competitor
     older = submit(service, harness, pinned_model="astra")
     waiting(service, older, 600)
     retry = submit(service, harness, pinned_model=None, task="review", tier="standard")     # opus, astra
-    service.store.add_attempt(attempt_id=f"{retry}/a1", job_id=retry, seq=1, lane_id="claude-a",
-                              model_requested=service.policy["models"]["opus"]["id"], state="failed",
-                              outcome_class="transient")
+    transient_on(service, retry)
     younger = submit(service, harness, pinned_model="opus")
     service._admit()
     assert service._retry_verdicts[retry][1] is False and service._holds[retry]["behind"] == older
+    assert service._holds.get(younger) == {"reason": "behind-older-job", "behind": retry, "tier": "standard"}
+    service.store.update_job(retry, next_check_at=after(60))
+    service._admit()                                        # on its clock: held at the top, own demand
+    assert service._holds[retry] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+    assert service._holds.get(younger) == {"reason": "behind-older-job", "behind": retry, "tier": "standard"}
     assert not placed_on(service, younger)
 
+
+def test_c6_12_a_retry_that_let_its_pin_go_holds_back_with_its_own_demand_not_its_pair(fleet):
+    """C-6.12: once the pin is let go "the job's demand is its own". The retry's pair is Opus on claude-a;
+    as submitted it walks Opus and Astra on any lane. A younger Astra job pinned to codex-2 competes with
+    it as submitted, not with its pair, nor with the older Astra job pinned to codex-1 that holds it."""
+    service, harness = fleet
+    for lane_id, provider in (("codex-2", "codex"), ("claude-b", "claude")):
+        service.store.put_lane(lane(lane_id, provider))
+        measured(service, lane_id)
+    closed(service, "codex-1")
+    closed(service, "claude-a")
+    older = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+    waiting(service, older, 600)
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")     # opus, astra
+    transient_on(service, retry)
+    younger = submit(service, harness, pinned_model="astra", pinned_lane="codex-2")
+    for look in ("lets the pin go", "on its clock"):
+        service._admit()
+        assert service._holds[retry]["behind"] == older, look
+        assert service._holds.get(younger) == {"reason": "behind-older-job", "behind": retry, "tier": "standard"}, look
+        service.store.update_job(retry, next_check_at=after(60))
+
+
+def test_c6_12_a_let_go_retry_s_hold_ends_when_the_job_ahead_of_it_leaves(fleet):
+    """The bound on the let-go retry's hold. Each due look that lets its pin go again and finds it behind
+    the older job sets it a new clock (C-6.12), so it holds the younger job for as long as the older one
+    waits and its pair stays refused. Once the older job leaves, the retry's next due look places it, and
+    the younger job is placed on that pass too."""
+    service, harness = fleet
+    service.store.put_lane(lane("claude-b"))
+    measured(service, "claude-b")
+    closed(service, "codex-1")
+    closed(service, "claude-a")
+    older = submit(service, harness, pinned_model="astra")
+    waiting(service, older, 600)
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard")     # opus, astra
+    transient_on(service, retry)
+    younger = submit(service, harness, pinned_model="opus")
+    for _ in range(3):                                      # each due look lets the pin go again
+        service._admit()
+        assert service._holds[retry]["behind"] == older and service._holds[younger]["behind"] == retry
+        due(service, retry)
+    service.dispatch("kill", {"job_id": older})
+    service._admit()
+    assert placed_on(service, retry) == "claude-b" and placed_on(service, younger) == "claude-b"
+
+
+# --- found, not fixed: strict xfails ----------------------------------------------------------
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="C-6.10: the wait is keyed on its kind as well as its verdict, so a "
                    "job that alternates between lease-held and slot-kept records one verdict again on "

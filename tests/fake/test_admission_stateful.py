@@ -14,7 +14,8 @@ against the code that produced it:
 - P2 non-interference (C-6.9, C-11.2): `behind-older-job` names an older job of
   the same tier that competes with the held job, by the models routing walks
   and the lanes the pins name; a younger job that competes with a waiting job
-  is not placed past it.
+  is not placed past it, even when that job is itself held behind an older
+  one, while its capacity clock runs.
 - P3 bounded progress (C-6.9): under fair capacity every job some lane would
   take is placed within a bounded number of passes unless an older job that
   competes with it can never be placed, and the fleet stays within its caps.
@@ -753,19 +754,33 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert any(compete(mine, theirs) for mine in demand[job_id] for theirs in demand[older]), (
                 f"P2, C-6.9: {job_id} is held behind {older} but they cannot compete: "
                 f"{job_id} {self.describe(after[job_id], roster)} vs {older} {self.describe(after[older], roster)}")
+
+        def holds_back(older) -> bool:
+            """C-6.9: whether an older job waits for a slot or a lane (not for a probe's turn, a pilot, a moved
+            route, a lease, nor for good). Held behind an older job of its own, it still does while its
+            capacity clock runs (C-6.9, C-6.12), unless its last look found it waiting for a lease."""
+            hold = holds.get(older, {})
+            if "for_good" in hold:
+                return False
+            if hold.get("reason") == "behind-older-job":
+                job = after[older]
+                return (job["state"] == "waiting" and job["wait_reason"] == "capacity" and bool(job["next_check_at"])
+                        and parse(job["next_check_at"]) > self.clock.instant
+                        and self.last_look.get(older, {}).get("reason") != "lease-held")
+            return "behind" not in hold and hold.get("reason") not in HOLD_NOBODY | {
+                "waiting", "route-moved", "lane-proving", None}
+
         live = live_before
         for row in sorted(placed, key=lambda row: (
                 self.policy["tiers"].index(tier_of(self.policy, after[row["job_id"]])), self.seq[row["job_id"]])):
             live += 1
             job_id = row["job_id"]
             # C-6.9: an older waiter holds back only in a pool with a count cap, and only while it waits for a
-            # slot or a lane (not for a probe's turn, a pilot, a moved route, nor for good).
+            # slot or a lane.
             waiting = [older for older in pending
                        if self.capped() and self.seq[older] < self.seq[job_id]
                        and tier_of(self.policy, after[older]) == tier_of(self.policy, after[job_id])
-                       and "for_good" not in holds.get(older, {}) and "behind" not in holds.get(older, {})
-                       and holds.get(older, {}).get("reason") not in HOLD_NOBODY | {
-                           "behind-older-job", "waiting", "route-moved", "lane-proving", None}]
+                       and holds_back(older)]
             for older in waiting:
                 assert not all(compete(mine, theirs) for mine in demand[job_id] for theirs in demand[older]), (
                     f"P2, C-6.9: {job_id} was placed past {older}, an older job of its tier that competes with it "

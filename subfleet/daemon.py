@@ -5518,10 +5518,32 @@ class Daemon:
                              and scheduler.competes(models, waiter[1], lanes, waiter[2])
                              and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
             behind = ahead(models, lanes)
+            for_good = None
+            if (behind and not saturated.get(pool) and job["wait_reason"] == "capacity"
+                    and job["next_check_at"] and job["next_check_at"] > utcnow()):
+                # C-6.9, C-6.12: a job held behind an older one while its capacity clock runs still
+                # cannot be placed on this pass for want of a slot or a lane, so it still holds back
+                # the later jobs of its tier that compete with it, with the demand it has while that
+                # clock runs (its own once a look has let a retry's pin go), as it would were nothing
+                # ahead of it (below). Before, it registered nothing here, and a younger job that
+                # competes with it but not with the older one was placed past it. This adds holds
+                # only while the clock runs: a job held here gets no look, so nothing starts it a new
+                # clock, and once that clock is due it holds nobody unless a look finds it waiting
+                # again (a let-go retry's due look evaluates its pair, which may let the pin go and
+                # set the next clock, C-6.12). A lease wait still holds nobody (`ahead`; the lease's
+                # queue keeps its place), nor does a job no lane can admit (C-11.8), which its hold
+                # says (C-6.11). Nor is it in a probe's line: held here, it carries no probe on this
+                # pass, and a later job of another tier would wait for one nobody runs.
+                held = self._capacity_waits.get(job["job_id"])
+                if not (held and held["hold"].get("reason") == "lease-held"):
+                    for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo)
+                    if not for_good:
+                        wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
-                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                                        {"reason": "behind-older-job", "behind": behind, "tier": tier,
+                                         **({"for_good": for_good} if for_good else {})})
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -5704,7 +5726,15 @@ class Daemon:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
                         # the pass with its own demand, with no git and no scoring.
-                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier}
+                        # C-6.12: its demand is its own on this pass and while that clock runs, "so it
+                        # neither passes an older job it competes with nor is passed by a younger one":
+                        # a waiter with that demand now, as on the passes before its clock is due
+                        # (above), unless no lane can admit it as submitted (C-11.8).
+                        for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo)
+                        if not for_good:
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier,
+                                **({"for_good": for_good} if for_good else {})}
                         rechecks = self._capacity_wait(job["job_id"], f"retry-let-go:behind:{behind}", hold)
                         next_check = after(scheduler.capacity_recheck_delay(rechecks))
                         with self.store.transaction("job.retry_let_go", job_id=job["job_id"]) as tx:
