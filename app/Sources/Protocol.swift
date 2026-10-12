@@ -849,6 +849,10 @@ struct ConversationChange: Codable, Equatable {
     /// cut to a preview). One with no origin is under conversation id "".
     var suggestion_id: String? = nil
     var suggestion: Suggestion? = nil
+    /// Archive state now, like the title. `archived` is absent on older daemons;
+    /// false with a null timestamp explicitly clears a previous archive.
+    var archived: Bool? = nil
+    var archived_at: String? = nil
 }
 
 // MARK: - messages

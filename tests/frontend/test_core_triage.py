@@ -242,6 +242,55 @@ def test_pins_lead_the_sidebar_newest_pin_first_and_are_listed_once(core_probe, 
 # --- the Archived view -----------------------------------------------------------
 
 
+def test_remote_archive_and_unarchive_update_focus_without_losing_pin_or_read_marks(core_probe, tmp_path, harness):
+    cid = harness.create(title="Focused")["conversation_id"]
+    mid = harness.submit(cid, "keep the timeline")["message_id"]
+    listing = harness.call("conversation.list", include_catalog=False)
+    baseline = watch_from(harness, 0)
+    settle(harness, mid)
+    completed = watch_from(harness, baseline[-1]["next"])
+    archived = harness.call("conversation.archive", conversation_id=cid)["conversation"]
+    archive_pages = watch_from(harness, completed[-1]["next"])
+    filtered = harness.call("conversation.list", include_catalog=False)
+    archived_listing = harness.call("conversation.list", include_catalog=False, include_archived=True)
+    assert filtered["conversations"] == []
+    change = archive_pages[0]["changes"][0]
+    assert change["archived"] is True and change["archived_at"] == archived["archived_at"]
+    assert_lossless(core_probe, tmp_path, "conversation.watch", archive_pages[0])
+
+    harness.call("conversation.archive", conversation_id=cid, archived=False)
+    unarchive_pages = watch_from(harness, archive_pages[-1]["next"])
+    refreshed = harness.call("conversation.list", include_catalog=False)
+    assert unarchive_pages[0]["changes"][0]["archived"] is False
+    assert unarchive_pages[0]["changes"][0]["archived_at"] is None
+    # An older feed lacks both fields: it must not clear a known archive.
+    old_change = {k: v for k, v in change.items() if k not in ("archived", "archived_at")}
+    old_page = {"changes": [old_change], "next": old_change["seq"]}
+    out = triage(core_probe, tmp_path, [
+        {"list": listing}, *({"watch": p} for p in baseline), {"pin": cid}, {"focus": cid},
+        *({"watch": p} for p in completed), {"snapshot": "read"},
+        *({"watch": p} for p in archive_pages), {"snapshot": "watch_archived"},
+        {"list": filtered}, {"snapshot": "list_archived"},
+        *({"watch": p} for p in unarchive_pages),
+        {"snapshot": "watch_unarchived"}, {"list": refreshed}, {"snapshot": "list_unarchived"}])
+    snaps = out["snapshots"]
+    read_marks = snaps["read"]["marks"]
+    for name in ("watch_archived", "list_archived"):
+        snap = snaps[name]
+        assert snap["sections"] == [] and snap["focused"] == cid
+        assert snap["focused_conversation"]["archived_at"] == archived["archived_at"]
+        assert snap["marks"] == read_marks and snap["unread"] == []
+    older = triage(core_probe, tmp_path, [
+        {"list": archived_listing}, {"focus": cid}, {"watch": old_page}, {"snapshot": "older"}])
+    assert older["snapshots"]["older"]["focused_conversation"]["archived_at"] == archived["archived_at"]
+    assert older["snapshots"]["older"]["sections"] == []
+    for name in ("watch_unarchived", "list_unarchived"):
+        snap = snaps[name]
+        assert section_ids(snap) == [("pinned", ["cv:" + cid])]
+        assert snap["focused"] == cid and not snap["focused_conversation"].get("archived_at")
+        assert snap["marks"] == read_marks and snap["unread"] == []
+
+
 def test_the_archived_view_lists_archived_conversations_only(core_probe, tmp_path, harness):
     kept = harness.create(title="Kept")["conversation_id"]
     gone = harness.create(title="Gone")["conversation_id"]

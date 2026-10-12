@@ -343,7 +343,10 @@ final class UIModel: ObservableObject {
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()
-        if page.changes.contains(where: { !$0.conversation_id.isEmpty && !known.contains($0.conversation_id) }) {
+        if page.changes.contains(where: {
+            !$0.conversation_id.isEmpty && (!known.contains($0.conversation_id) ||
+                ($0.message_id == nil && $0.suggestion_id == nil))
+        }) {
             Task { await refreshList() }
         }
     }

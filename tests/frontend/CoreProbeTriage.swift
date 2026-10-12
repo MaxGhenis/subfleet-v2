@@ -35,6 +35,7 @@ func triageSnapshot(_ state: ConversationStoreState, now: Date) -> [String: Any]
     },
      "unread": state.conversations.map(\.conversation_id).filter(state.isUnread).sorted(),
      "focused": state.focusedConversationID as Any? ?? NSNull(),
+     "focused_conversation": state.focusedConversation.map { jsonObject($0) } as Any? ?? NSNull(),
      "conversations": state.conversations.map(\.conversation_id),
      "marks": jsonObject(state.marks), "message_seqs": state.messageSeqs]
 }

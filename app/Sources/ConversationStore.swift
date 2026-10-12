@@ -508,6 +508,8 @@ struct ConversationStoreState: Equatable {
         var listed = list.conversations
         // The open conversation stays while it is open, whatever the list left out (one
         // just archived, one past the list's limit): the daemon never deletes one.
+        // Its archive state is updated by the watch feed before a filtered list
+        // omits it; pin/read marks remain the person's local choices.
         if let focused = focusedConversation, !listed.contains(where: { $0.conversation_id == focused.conversation_id }) {
             listed.append(focused)
         }
@@ -702,6 +704,9 @@ struct ConversationStoreState: Equatable {
             }
             if let index = conversations.firstIndex(where: { $0.conversation_id == cid }) {
                 conversations[index].pending_approvals = change.pending_approvals
+                if let archived = change.archived {
+                    conversations[index].archived_at = archived ? (change.archived_at ?? change.ts) : nil
+                }
                 if let title = change.title {
                     conversations[index].title = title
                     conversations[index].title_source = change.title_source

@@ -1848,7 +1848,7 @@ class ConversationStore:
     def changes_after(self, after: int, *, limit: int = 500) -> dict:
         # Titles enrich the feed; missing catalog metadata must not hide a
         # snapshot/overlap notification or prevent its cursor from advancing.
-        rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
+        rows = self.query("SELECT ch.*,c.title,c.title_source,c.archived_at FROM changes ch "
                           "LEFT JOIN conversations c ON c.conversation_id=ch.conversation_id "
                           "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
         # C-25.7: a suggestion's row carries the suggestion as it is now (its brief cut
@@ -1857,6 +1857,10 @@ class ConversationStore:
         named = [row["suggestion_id"] for row in rows if row.get("suggestion_id")]
         views = Suggestions(self).views_for_changes(named) if named else {}
         for row in rows:
+            # Optional wire fields, as titles are: the current archive state.
+            # The boolean distinguishes an explicit unarchive from an older
+            # daemon's feed, which has no archive fields at all.
+            row["archived"] = row["archived_at"] is not None
             row["steered_into"] = steered_into(row.get("state_reason"))
             if row.get("suggestion_id"):
                 row["suggestion"] = views.get(row["suggestion_id"])
