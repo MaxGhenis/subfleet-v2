@@ -91,6 +91,7 @@ import os
 import shlex
 import shutil
 import sqlite3
+import struct
 import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -501,16 +502,31 @@ def _space_refusal(space: dict[str, Any]) -> PruneRefused:
 
 # --- fingerprints --------------------------------------------------------------
 
-def _blob(value: Any) -> str:
-    """A BLOB column has no JSON spelling; hex is one, and it is reversible."""
+def _cell(value: Any) -> tuple[str, Any]:
+    """Tag a sqlite3 value with its storage class and preserve its contents."""
+    if value is None:
+        return "NULL", None
+    if type(value) is int:
+        return "INTEGER", value
+    if type(value) is float:
+        # Preserve every IEEE-754 bit: signed zero, infinities, and even NaN
+        # payloads if supplied directly (SQLite reads stored NaN as NULL).
+        return "REAL", struct.pack(">d", value).hex()
+    if type(value) is str:
+        return "TEXT", value
     if isinstance(value, (bytes, bytearray)):
-        return "blob:" + bytes(value).hex()
+        return "BLOB", bytes(value).hex()
     raise TypeError(f"cannot digest a {type(value).__name__} column")
 
 
 def _row_digest(row: sqlite3.Row) -> bytes:
-    return hashlib.sha256(json.dumps(dict(row), sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False, default=_blob).encode()).digest()
+    cells = {name: _cell(value) for name, value in dict(row).items()}
+    # ASCII JSON escaping aliases a literal surrogate pair with its non-BMP
+    # character. UTF-8 with surrogatepass keeps both spellings distinct, for
+    # column names as well as TEXT, and accepts lone surrogate code points.
+    encoded = json.dumps(cells, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False).encode("utf-8", errors="surrogatepass")
+    return hashlib.sha256(encoded).digest()
 
 
 def _combine(digests: list[bytes]) -> dict[str, Any]:
@@ -524,10 +540,12 @@ def _combine(digests: list[bytes]) -> dict[str, Any]:
 def _digest(rows: Iterator[sqlite3.Row]) -> dict[str, Any]:
     """Count and digest rows in an order no row can change.
 
-    Every row becomes canonical JSON and is hashed; the digests are sorted and
-    hashed in turn, so the fingerprint covers the multiset of rows and needs no
-    primary key. A table added to the schema after this was written is therefore
-    covered without being named here.
+    Every row becomes canonical JSON with column names and storage-class tags
+    on every cell and is hashed; the digests are sorted and hashed in turn, so
+    the fingerprint covers the multiset of rows and needs no primary key. A
+    table added to the schema after this was written is therefore covered
+    without being named here. All planning, backup and after-proofs share this
+    encoding through `_row_digest`.
     """
     return _combine([_row_digest(row) for row in rows])
 
