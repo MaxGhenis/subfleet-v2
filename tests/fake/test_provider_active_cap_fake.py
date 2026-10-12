@@ -8,7 +8,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import cli, protocol, scheduler
-from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner
+from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, attempt_dir
 from subfleet.daemon import after, utcnow
 from subfleet.procs import Containment
 from tests.fake.test_admission_latency import (add_codex_lanes, fleet_daemon, measure, submit, submit_turn)
@@ -289,6 +289,9 @@ def test_quarantine_retains_provider_slot_until_contained_or_released(
     first = submit_turn(service, harness, 1) if first_pool == "turn" else submit(service, harness)
     service._admit()
     attempt = service.store.list_attempts(first)[0]
+    # Admission alone never launches the fake. Production creates this before
+    # starting the guardian, including when a late start receipt quarantines it.
+    attempt_dir(service.root, first, attempt["seq"]).mkdir(parents=True, exist_ok=True)
     census = (Containment(marker_pids=frozenset({123456})) if survivor == "live" else
               Containment(unverifiable=True) if survivor == "unknown" else Containment())
     service._quarantine(attempt, census, "fixture containment")
@@ -465,6 +468,10 @@ def test_random_arrivals_and_completions_never_overbook_at_reservation(tmp_path,
                     live = [job for job in jobs if _live(service, job)]
                     if live:
                         attempt = service.store.list_attempts(live[n % len(live)])[-1]
+                        # Model launch's directory setup before a turn can be
+                        # quarantined and its release publishes trees.json.
+                        attempt_dir(service.root, attempt["job_id"], attempt["seq"]).mkdir(
+                            parents=True, exist_ok=True)
                         census = (Containment(marker_pids=frozenset({123456})) if action == "quarantine-live" else
                                   Containment(unverifiable=True) if action == "quarantine-unknown" else Containment())
                         service._quarantine(attempt, census, "generated containment")
