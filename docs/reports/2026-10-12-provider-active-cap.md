@@ -1,75 +1,149 @@
-# Provider active-attempt cap (D-RT1)
+# Provider active-attempt cap (D-RT1), review round 1
 
-Verdict: implemented and committed; pytest validation remains pending because
-the shared test lock was occupied throughout three bounded queue attempts.
+Both P2 fixes are implemented and committed. The shared test lock has blocked
+local runtime validation; the exact outcomes below distinguish static checks
+from executed tests. No live installation was changed.
 
-Policy: `providers.<provider>.max_active_attempts` accepts a positive integer or
-null. An absent key is null (off); shipped default policy bytes remain unchanged.
-The chosen operating value remains Max's decision.
+`providers.<provider>.max_active_attempts` remains optional and off in the shipped
+policy. Max chose Codex 40 (d1407); installation must set that value in the live
+policy. This task did not install or edit it.
 
-Implemented invariants:
+Changes:
 
-- Reservation counts the provider's `reserved`, `starting`, `running`, and
-  `finalizing` attempts across all lanes inside the reserving transaction.
-- Detached jobs and conversation turns both count and are held at the cap:
-  D-RT1's evidence counted turns, and both use the affected provider runtime.
-- Probes are exempt from this provider cap.
-- Held jobs acquire no lease, preserve admission order with their peers, and
-  explain the exact policy key and provider count in `why` and status.
-- Other providers remain unaffected; policies without the key retain their
-  exact-byte hash and prior admission decisions.
-- FIFO applies across models and lane pins sharing the provider count. A mixed
-  provider chain can still take an available uncapped provider; once it selects
-  a capped provider it respects that provider's older peers. Each existing pool
-  keeps its order, and attended turns retain priority over detached work.
-- An older lease waiter holds no later job back but keeps the last provider
-  slot, as the existing fleet cap does. Existing caps continue to apply.
+- Provider counts include ordinary active attempts and unresolved quarantines
+  with recorded live PIDs or unverifiable containment. Missing or unreadable
+  containment evidence counts conservatively. A verified-empty census or an
+  operator release frees the count. Existing pool/lane counts remain unchanged.
+  Route snapshots, transactional revalidation, reservation and status use this
+  same rule; quarantine resolution uses its existing attempt state transition.
+- Provider FIFO follows routing, including transactional revalidation, regardless
+  of lane, pool or parent caps. Existing competition is scoped separately and
+  considers only demand for the selected provider. The class/tier traversal,
+  family ancestry, lease FIFO and last fleet slot kept for an older waiter stay
+  in force. A rejected route restricted to one provider keeps that provider's
+  queue position; a mixed route with no selection has no provider FIFO peer yet.
+- Timer and admission probes stay exempt. Status reports `provider_caps[].probes`
+  and prints their held reservations separately, including quarantined probe
+  leases conservatively. Each kind shares the lane's exclusive `slot:0`, so at
+  most one probe reservation per enrolled lane is held. Counting reservations
+  separately keeps recovery probing available at the work cap and makes its
+  extra runtime budget visible. The attempt invariant is **counted attempts <=
+  cap**; provider runtimes may exceed it by live probes or survivors explicitly
+  force-released by an operator. Codex 40 must therefore
+  be operated with the extra probe count in view; this is not a total-runtime
+  bound of 40. The generated tests use fake probe leases and containment PIDs,
+  not escaped provider processes.
+- C-6.4a now specifies the quarantine lifecycle, probe exemption/accounting and
+  the order of saturation, routing, FIFO/count checks and leases.
 
-Test counts:
+Regression inputs are copied from the review's evidence file to
+`tests/fake/test_provider_cap_review_evidence.py`, with the two diagnostic
+expectations inverted into regressions and a unique module basename. The
+cap-40 restart and transient retry inputs are retained too.
 
-- 31 new unit cases: loader validation and optional-section shapes, positive and
-  null values, absent-key byte/hash preservation, and a differential against the
-  independent pre-cap scheduler (300 Hypothesis examples configured).
-- 24 new fake-daemon cases: N-plus-one admission and release, provider isolation,
-  all four live states for turns and detached jobs, turn priority, changes between
-  evaluation and reservation in both pools, probe exemption including the timer's
-  actual reservation path, FIFO across models/lanes, lease waiters, mixed provider
-  routing, and random arrivals/completions (50 Hypothesis examples configured).
-- **0 pytest cases executed, 0 passes, 0 failures.** All 55 new cases and the
-  requested regression batch remain unrun. Queue windows were 120, 120 and 180
-  seconds; each `lockf -k -t ...` exited 75 (`already locked`). No pytest process
-  started and no lock was acquired. No detached runner or build remains.
-- Static checks passed: all nine changed Python files parse; `git diff --check`
-  is clean; the shipped default policy is byte-identical to `24be965c5ce8`.
-  Its SHA-256 remains
+The hub completed its original-head diagnostic run at 13:37:18 UTC: **5 passed
+in 2.94 s**. Its quarantine diagnostic confirmed that another attempt reserved
+with the survivor still quarantined; its two optional-cap diagnostics confirmed
+that the mixed job waited despite an available Claude route. These are
+hub-reported diagnostics, not passes of the fixed regression assertions.
+
+Added coverage includes both aggregate and row-based provider counts, unreadable
+containment, contained/forced release, changes to quarantine evidence between
+routing and reservation in both pools, and separate probe status accounting.
+The random schedule property generates arrivals, state changes, completions,
+quarantines with live/absent/unknown survivors, releases, and both probe kinds.
+It checks the independent count before/after admission and at each reservation,
+and compares route/status counts after each action. It configures 50 examples.
+The mixed-chain property varies lane, fleet/pool and parent caps, shared and
+unrelated parents, both selected providers and one to three older opposite-
+provider peers; it configures 60 examples. The existing default-policy
+scheduler differential configures 300 examples.
+
+Local validation:
+
+- **0 pytest cases started, 0 passed, 0 failed; 0 lock holds.** Every completed
+  queue attempt exited 75 (`already locked`). There were 12 configured 45-second
+  queue windows (540 seconds): three baseline attempts, two provider/head batches,
+  one regression batch and two runs of all three mutants.
+- The copied assertions were queued against the unchanged implementation and an
+  isolated `e541c1796` source tree; neither acquired the lock. They cannot yet be
+  claimed failing at the base or passing at the fixed head. The hub's five
+  diagnostic passes above corroborate the old behavior only.
+- Provider/module coverage has 90 statically expanded cases: 46 provider units,
+  38 provider fakes, five review inputs and one module-basename case. **All 90
+  are unrun.** Executed property examples: **0/50** schedule examples, **0/60**
+  mixed-cap examples and **0/300** default-policy differential examples.
+- Requested regressions were queued in a regression batch and again in the
+  final-head batch: `tests/unit/test_scheduler.py`,
+  `tests/unit/test_scheduler_turns.py`, and
+  `tests/fake/test_admission_lease_waiters.py`. They remain **unrun**. Additional
+  route/status checks (`test_route_view.py`, `test_route_check.py`, and the
+  quarantine-related functions in `test_status_payload.py`) are also unrun.
+- The final-head batch selected **31 existing quarantine-related test functions**
+  by examining each function's source for `quarant`, excluding the new cap
+  modules. All remain unrun, including daemon/state containment, escaped probe
+  recovery, turn quarantine/release, retention fences, salvage, native-session
+  ownership, re-enrolment, notice and admission cases. Parameter expansions were
+  not collected because pytest never started.
+- Static checks pass: all seven changed Python files parse; test module basenames
+  have no duplicates; all three mutation recipes apply once at every intended
+  site and compile; `git diff --check` is clean. The shipped policy is identical
+  to the base with SHA-256
   `47e1c5111b9cef28751257667cd8aa2eb9ba0ac39ef7e55beff30879a429e49c`.
 
-The final attempted batch, for the hub to rerun under its own shared-lock hold:
+The review mutation script is ported to `tools/pr194_review_mutations.py`.
+Its running-only recipe follows the separate indexed ordinary/quarantine SQL
+reads; the turn-exemption and equality recipes are unchanged. Artifact paths
+are workspace-local and ignored, and it restores both sources in `finally`.
+Both runs queued each mutant separately and restored the sources afterward.
+The final run used the committed implementation's indexed census.
+
+| Mutation | Final outcome | Executed failures |
+| --- | --- | --- |
+| Count only `running` | Queue exited 75; 0 cases started | Unverified |
+| Exempt turns | Queue exited 75; 0 cases started | Unverified |
+| Allow equality | Queue exited 75; 0 cases started | Unverified |
+
+No mutant was killed or survived an executed suite. Logs and structured outcomes
+remain ignored in `.git-local/provider-cap-mutations/` and
+`.git-local/provider-cap-mutations.json`; source restoration leaves no diff.
+
+For host reruns, each pytest invocation must have its own shared-lock hold:
 
 ```sh
-export TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-provider-cap-$$/
+TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-r194f1-$$/
+export TMPDIR
 mkdir -p "$TMPDIR"
-/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock uv run pytest -q \
+UV_CACHE_DIR="$PWD/.uv-cache" /usr/bin/lockf -k \
+  /private/tmp/claude-501/subfleet-suites.lock uv run pytest -q \
   tests/unit/test_provider_active_cap.py tests/fake/test_provider_active_cap_fake.py \
-  tests/unit/test_policy.py tests/unit/test_scheduler.py \
+  tests/fake/test_provider_cap_review_evidence.py tests/unit/test_scheduler.py \
   tests/unit/test_scheduler_turns.py tests/fake/test_admission_lease_waiters.py \
-  tests/fake/test_route_view.py tests/fake/test_admission_visibility.py
+  tests/unit/test_test_module_names.py --hypothesis-show-statistics
 suite_rc=$?
 python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$TMPDIR"
 exit "$suite_rc"
 ```
 
-Dependencies were installed into the workspace `.venv` in the foreground.
-Every task-specific temporary directory was removed with the required Python
-cleanup command. The cap remains off; no operating value was chosen or enabled.
+Run the mutation tool separately with the same task-specific temporary-directory
+setup; it acquires one bounded hold per pytest. The prepared base tree is
+`.git-local/baseline-e541c1796`; pass its absolute path as pytest's `pythonpath`
+override to execute the copied assertions against the original implementation.
+The selected quarantine node inventory is `.git-local/provider-cap-quarantine-nodes.txt`.
 
-Git: the shared worktree index is read-only in this sandbox. Commits use
-workspace-local metadata `.subfleet-build.git` on `feat/provider-active-cap`,
-with the original object store as a read-only alternate. The initial report is
-committed as `b68959f0f`, and the implementation, contract and tests as
-`478848c13`. Only named source, test and Markdown files were staged. No remote
-was contacted; no caller checkout, live state or live process was changed.
-The local branch can be inspected with
-`git --git-dir=.subfleet-build.git --work-tree=. log --oneline` from this workspace.
-The original shared worktree HEAD remains unchanged; import the commits from
-this local metadata when collecting the build.
+Dependencies were installed in the workspace. Every suite wrapper bounds its
+whole command group to 1100 seconds (less than 20 minutes), waits for at most
+45 seconds in the lock queue, and cleans its temporary directory with the
+required Python command. No pytest, detached runner or background build remains.
+Temporary helper/log files were removed with Python cleanup; ignored workspace
+metadata retains the mutation outcomes and isolated base input for host review.
+
+Commits: `1c7068b46` ports the evidence inputs; `b0e376c6f` implements the fixes,
+contract and extended tests; this report is finalized in the following docs
+commit. Git commits use workspace-local metadata `.git-local/provider-cap.git` on
+`feat/provider-active-cap`, based directly on `e541c17962c4`. The shared index is
+outside the sandbox's writable roots. Inspect with
+`git --git-dir=.git-local/provider-cap.git --work-tree=. log --oneline`.
+Only named source, test, tool and Markdown files are staged; mutation logs/JSON,
+baseline copies and dependencies are untracked/ignored artifacts. No remote,
+caller checkout, live store, policy or process was touched.
