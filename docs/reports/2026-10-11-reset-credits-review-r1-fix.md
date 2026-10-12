@@ -279,10 +279,10 @@ Two causes, both measured (`fix1-runs/status`, `fix1-runs/sample-fast-every.txt`
 
 | Property | Reviewer's count | Run at the head (0572dfb91 code) |
 |---|---|---|
-| `test_every_rule_holds_over_generated_worlds` | 5,000 | seed 1: 1,000 passing, 0 failing (62 invalid), 376 s (previous lane, OFF); seed 2: 1,000 passing, 0 failing (70 invalid), 83 s (previous lane, OFF); seed 3: queued, no completed examples; seeds 4 and 5: unrun behind the suite lock |
-| `test_a_restart_before_every_step_changes_no_decision` | 2,000 | 0/2,000 completed; seeds 1 and 2 unrun behind the suite lock |
-| `test_real_demand_spends_only_when_no_route_lane_has_room` | 2,000 | 0/2,000 completed; seeds 1 and 2 unrun behind the suite lock |
-| `test_with_the_switch_off_every_decision_is_release_217s` | 1,000 | 0/1,000 completed; seed 1 unrun behind the suite lock |
+| `test_every_rule_holds_over_generated_worlds` | 5,000 | seeds 1-2: 2,000 passing (previous lane, OFF); seeds 3-5: 3,000 passing, 0 failing (hub host run 2026-10-12, OFF). **5,000 of 5,000** |
+| `test_a_restart_before_every_step_changes_no_decision` | 2,000 | seeds 1-2: 2,000 passing, 0 failing (hub host run, OFF). **2,000 of 2,000** |
+| `test_real_demand_spends_only_when_no_route_lane_has_room` | 2,000 | seeds 1-2: 2,000 passing, 0 failing (hub host run, OFF). **2,000 of 2,000** |
+| `test_with_the_switch_off_every_decision_is_release_217s` | 1,000 | seed 1: 1,000 passing, 0 failing (hub host run, OFF). **1,000 of 1,000** |
 
 The finish seed 3 FULL attempt exhausted its 18-minute budget and exited interrupted
 after 1112.00 s (18 min 32 s), with no completed property and no examples counted toward
@@ -306,21 +306,25 @@ checked byte-for-byte against the current test. These runs retain SQLite synchro
 | Finding | Reverted behavior | Check | Result |
 |---|---|---|---|
 | P2-1 | Restore the old consume classifier: an unrecognised 2xx is failed | unit regressions `-k p2_1` | killed: 6 failed, 2 passed, 14 deselected in 160.68s |
-| P3-1, caps | Drop capped from the demand verdict | unit regressions `-k p3_1` | no completed verdict: the earlier process died after session startup; retry awaits the suite lock |
-| P3-1, door | Read only the last completed admission pass's hold | incident door-hold regressions | unrun: shared suite lock prevents startup |
-| P3-2 | Record the consume at the evaluation start | interval timestamp regression | unrun: shared suite lock prevents startup |
-| P3-3 | Remove both shadow-listing hold filters | unit regressions `-k p3_3` | unrun: shared suite lock prevents startup |
-| P3-5 | Return timeout/network-error for calls never started | unit regressions `-k p3_5` | unrun: shared suite lock prevents startup |
+| P3-1, caps | Drop capped from the demand verdict | unit regressions `-k p3_1` | killed: 2 failed, 1 passed (hub host run 2026-10-12) |
+| P3-1, door | Read only the last completed admission pass's hold | incident door-hold regressions | killed: 2 failed, 2 passed (hub host run) |
+| P3-2 | Record the consume at the evaluation start | interval timestamp regression | killed: 1 failed (hub host run) |
+| P3-3 | Remove both shadow-listing hold filters | unit regressions `-k p3_3` | killed: 3 failed (hub host run) |
+| P3-5 | Return timeout/network-error for calls never started | unit regressions `-k p3_5` | killed: 2 failed, 1 passed (hub host run) |
 | Cascade replay | Archive release/217 (4c6a8a9c9), copy in the corrected replay | 9/22 one-reset-at-a-time replay | killed: all 3 previous-lane runs fail at the cascade assertion (9.33 s, 5.24 s, 1.23 s) |
+
+
+### Hub host run, 2026-10-12 (all remaining checks)
+
+Run by the hub outside any lane (`~/reviews/subfleet-2110/reset-demand-only/finish2-runs/run.sh`), at `3a95c1a0a`, one pytest process per hold of the shared suite lock, 22:51Z to 04:10Z. Each mutant ran in a `git archive` copy with one revert patch applied; every run printed which `subfleet/actions.py` it imported, and each mutant run imported its own copy. Properties ran with the run-only OFF plugin, as before.
+
+- Mutants: all five checks without a verdict now kill (counts in the table above).
+- Control, the same tests on the unmutated head (excluding the two generated properties): 39 passed.
+- Properties: 8,000 examples, 0 failing (table above). Hypothesis reported 43 to 77 invalid cases per seed.
 
 ## Not run
 
-As of 18:02 EDT, every-rule seeds 3 to 5 (3,000 examples), restart
-seeds 1 and 2 (2,000), real-demand seeds 1 and 2 (2,000), switch-off seed 1 (1,000),
-the five selective mutation checks still lacking a verdict, and the finish deterministic controls have no
-completed result: seed 3 is queued behind the shared suite lock, and the sequential
-runner has not started the later checks. Interrupted runs above count
-no examples toward the requested totals.
+Every property count and mutation check the review asked for has now run (above).
 
 - The whole test suite, frontend and e2e tests.
 - CI's GIL Python 3.12 and 3.14 interpreters; the finish venv is free-threaded Python 3.14.
