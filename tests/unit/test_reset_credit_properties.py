@@ -40,6 +40,7 @@ import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import HealthCheck, Phase, find, given, settings, strategies as st
@@ -75,6 +76,17 @@ def _route_policy() -> dict:
 
 
 ROUTE_POLICY = _route_policy()
+
+
+@pytest.fixture(autouse=True)
+def fake_transport_clock(monkeypatch):
+    """Generated fake providers finish; host fsync time must not choose a deadline path.
+
+    Business time is still each world's explicit clock. Dedicated transport
+    regressions replace this clock when they exercise cancellation/deadlines.
+    Patch the actions module's reference, leaving SQLite and Hypothesis clocks alone.
+    """
+    monkeypatch.setattr(actions_module, "time", SimpleNamespace(monotonic=lambda: 0.0))
 
 
 # --- the world ---------------------------------------------------------------
@@ -294,6 +306,7 @@ def play(world: World, *, restart_every_step: bool = False) -> tuple[list[str], 
                 result = resets.evaluate(_snapshot(store, model, now), now=now, demand=demand, target_lane_id=target,
                                          clock=lambda now=now: now)
                 calls = http.calls[before_calls:]
+                submitted_accounts = {account for method, account in calls if method == "POST"}
                 new = [row for row in store.query("SELECT * FROM actions") if row["action_id"] not in before]
                 decisions.append((result["status"], result.get("lane_id"), result.get("job_id")))
                 where = f"step {index} at +{(now - START).total_seconds() / 60:g} min: {result['status']}"
@@ -304,6 +317,11 @@ def play(world: World, *, restart_every_step: bool = False) -> tuple[list[str], 
                 for action in new:
                     request = json.loads(action["request_json"])
                     number = int(request["lane_id"].rsplit("-", 1)[1])
+                    # The world's provider records every submitted consume.
+                    # A durable intent/claim can expire before its call starts:
+                    # it is still counted above as an action, but is no spend.
+                    if str(number) not in submitted_accounts:
+                        continue
                     # Lying demand can name one job twice with different lanes (the real
                     # `_reset_demand` never does): the spend must match one of its entries.
                     entries = [item for item in demand if item.get("verdict") == "codex-demand"

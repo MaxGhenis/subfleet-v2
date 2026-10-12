@@ -39,7 +39,7 @@ from subfleet.scheduler import evaluate
 from subfleet.store import Store
 from subfleet.timers import Timers
 from tests.unit.test_reset_credit_demand import Clock, _limited_probe, astra_job, codex_fleet, place_hold
-from tests.unit.test_reset_credit_properties import Step, World, play
+from tests.unit.test_reset_credit_properties import Step, World, fake_transport_clock, play  # noqa: F401 (fixture)
 from tests.unit.test_scheduler import attempt, policy, view  # noqa: F401  (fixture)
 from tests.unit.test_timers_reset_credits import HTTP, NOW, limit_again, store, wants  # noqa: F401  (fixture)
 from tests.unit.test_timers_reset_credits import lane as limited_lane
