@@ -442,7 +442,10 @@ class SessionsArgs:
 def encode(obj: Any) -> bytes:
     """One JSON line, UTF-8, trailing newline."""
     if is_dataclass(obj):
-        omit_id = isinstance(obj, Response) and not obj.id
+        # Old clients require id even on uncorrelated busy/unknown-op replies.
+        # Only invalid-id refusals omit it, so the rejected token is never sent.
+        omit_id = (isinstance(obj, Response) and not obj.id and obj.error is not None
+                   and obj.error.message == REFUSAL_MESSAGES["bad-id"])
         obj = asdict(obj)
         if omit_id:
             obj.pop("id", None)

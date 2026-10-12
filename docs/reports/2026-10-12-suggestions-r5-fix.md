@@ -33,6 +33,12 @@ integer versions, response-helper id validation, exact unknown-op discovery,
 and repeated retained reads leaving stored bytes unchanged. No recovered changes
 were dropped, and no existing secrecy assertions were weakened.
 
+Changed the recovered encoder's broad empty-id omission: only invalid-id
+refusals omit the field. Native `ResponseHeader` requires a String id, so normal
+uncorrelated busy/unknown-operation/success replies keep `id: ""`. A regression
+protects that existing wire contract; malformed-line checks still require the
+fixed diagnostic and sentinel absence, with the legacy empty id retained.
+
 The three review-r4 fixtures were executed directly in an archive of
 `75ffe34f5`, using the ported regression file: **0 passed, 3 failed**, matching
 retained-event, version-field and correlation-id leaks. The identical fixtures

@@ -197,7 +197,7 @@ def test_malformed_lines_have_template_refusals(line):
     assert response["ok"] is False
     assert response["error"]["message"] in protocol.REFUSAL_MESSAGES.values()
     assert "SECRET7-left" not in json.dumps(response)
-    assert "id" not in response
+    assert response["id"] == ""
 
 
 @pytest.mark.parametrize("op", (VALUE, {"x": VALUE}, [VALUE], 5, None, ""))
@@ -249,6 +249,15 @@ def test_response_helpers_do_not_reflect_unvalidated_ids():
     assert_secret_absent(response, VALUE)
     with pytest.raises(protocol.ProtocolError):
         protocol.ok(VALUE, {})
+
+
+def test_uncorrelated_replies_preserve_native_clients_required_id_field():
+    unknown = wire_reply(op=VALUE)
+    busy = json.loads(descriptors.busy_answer("the daemon is busy"))
+    successful = json.loads(protocol.encode(protocol.ok("", {})))
+    for response in (unknown, busy, successful):
+        assert response["id"] == ""
+    assert_secret_absent(unknown, VALUE)
 
 
 def test_retained_event_read_does_not_rewrite_storage():
