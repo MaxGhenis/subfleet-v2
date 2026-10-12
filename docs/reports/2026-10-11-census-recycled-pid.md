@@ -59,8 +59,7 @@ Added regressions cover each seam and a clock step forward as well as the
 reviewer's rollback case.
 
 An additional regression excludes a positively recycled zombie leader and its
-foreign group while retaining a separately recorded orphan. A zombie alone
-with no live group needs no boot read. The matching-identity property pins the
+foreign group while retaining a separately recorded orphan. A zombie whose recorded start still matches, with no live group, needs no boot read. The matching-identity property pins the
 complete recorded live walk and its identity map, including orphans; the old
 walk-equality expectation would contradict the newly required recorded source.
 
@@ -86,7 +85,8 @@ never command or environment data. All deciding callers retain `Daemon._contain`
 
 Baseline comparisons freeze the starting head's `identity`, `liveness`,
 `containment` and state fixture in a job-local pytest plugin. Original test copies
-retain the starting assertions and generators. These files and all logs stay in
+retain the starting assertions and generators; copies outside `tests/` explicitly
+register its shared fixtures, including network/desktop isolation and cache resets. These files and all logs stay in
 ignored local metadata; they are not committed. This lets implementation proceed
 while the shared lock queues without changing the measured baseline.
 
@@ -98,15 +98,15 @@ were installed from the unchanged lockfile.
 | File | Starting head | Fixed head |
 |---|---:|---:|
 | unit/test_test_module_names.py | 1 failed | pending |
-| fake/test_writable_fanout.py | pending | pending |
-| fake/test_policy_sandbox.py | pending | pending |
+| fake/test_writable_fanout.py | 20 passed, 5 failed; 3 pending after cap | pending |
+| fake/test_policy_sandbox.py | 23 passed, 1 failed | pending |
 | fake/test_admission_priority.py | pending | pending |
 | unit/test_census_survivors_review.py | pending | pending |
 | fake/test_review_r185_adversarial.py | pending | pending |
-| unit/test_census_identity_uncertainty.py | pending | pending |
-| fake/test_state_fixture_processes.py | pending | pending |
-| unit/test_census_recycled_pid.py | pending | pending |
-| fake/test_census_recycled_pid_daemon.py (previous name before) | pending | pending |
+| unit/test_census_identity_uncertainty.py | 8 failed | pending |
+| fake/test_state_fixture_processes.py | 1 passed, 3 failed | pending |
+| unit/test_census_recycled_pid.py | 23 passed | pending |
+| fake/test_census_recycled_pid_daemon.py (previous name before) | 8 passed | pending |
 | fake/test_state_contract.py | pending | pending |
 | unit/test_procs.py | pending | pending |
 
@@ -122,6 +122,13 @@ init in its own session. Seven properties run 200 examples apiece. Invariants:
   fixture still signals its previously recorded escaped writer.
 - Marker discovery is unchanged, and matching identities never shrink any existing
   source. Independent recorded survivors may extend the descendant source.
+
+The first full fanout batch reached its 1,100-second cap after 20 passes and
+five failures. Its progress order matches the five CI failures; a short rerun
+will collect their full assertions and cover the remaining three cases. Future
+runs record each completed case in ignored local evidence. No interrupted
+pytest process remains alive after its hold. Syntax compilation and named-file
+Git diff checks passed.
 
 Unrun while validation is pending: remaining table rows, the full repository
 suite, real-process/live-provider suites, live incident replay and unmerged
