@@ -46,6 +46,9 @@ def test_redirect_with_reset_body_blocks_another_consume(tmp_path, status):
     (408, b'{"error":{"code":"rate_limited"}}', "unknown"),
     (409, b'{"code":"reset","windows_reset":2}', "unknown"),
     (429, b'{"error":{"code":"rate_limited"},"code":"reset","windows_reset":2}', "unknown"),
+    (409, b'{"error":{"code":"already_redeemed"},"result":{"code":"reset","windows_reset":2}}', "unknown"),
+    (409, b'{"error":{"code":"already_redeemed","windows_reset":2}}', "unknown"),
+    (429, b'{"error":{"code":"rate_limited","message":"rejected"}}', "failed"),
     (499, b"<html>", "unknown"),
     (500, b'{"code":"reset","windows_reset":2}', "unknown"),
     (599, b'{"error":{"code":"already_redeemed"}}', "unknown"),
@@ -66,16 +69,20 @@ def test_http_outcome_table_blocks_unless_definitely_unspent(tmp_path, status, b
         assert len(posts(http)) == (2 if state == "failed" else 1)
 
 
-@pytest.mark.parametrize("body", [
-    {"code": "reset", "windows_reset": 2},
-    {"error": {"code": "already_redeemed"}},
-    {"error": {"code": "already_consumed"}},
-    {"error": {"code": "rate_limited"}},
-    {"error": {"code": "rate_limited"}, "windows_reset": 2},
-    {},
+@pytest.mark.parametrize("body,refused_statuses", [
+    ({"code": "reset", "windows_reset": 2}, ()),
+    ({"error": {"code": "already_redeemed"}}, (409,)),
+    ({"error": {"code": "already_consumed"}}, (409,)),
+    ({"error": {"code": "rate_limited"}}, (429,)),
+    ({"error": {"code": "rate_limited"}, "windows_reset": 2}, ()),
+    ({}, ()),
+    ({"error": {"code": "already_redeemed"}, "result": {"code": "reset", "windows_reset": 2}}, ()),
+    ({"error": {"code": "already_redeemed", "windows_reset": 2}}, ()),
+    ({"error": {"code": "rate_limited", "message": {"code": "reset"}}}, ()),
+    ({"error": {"code": "rate_limited", "message": "rejected"}}, (429,)),
 ])
 @pytest.mark.parametrize("raised", [False, True], ids=["opener-return", "http-error"])
-def test_consume_adapter_classifies_every_http_status(body, raised):
+def test_consume_adapter_classifies_every_http_status(body, refused_statuses, raised):
     """Both transport paths, every integer status 100–699, including unknown codes."""
     raw = {"tokens": {"access_token": "test-only", "account_id": "1"}}
     encoded = json.dumps(body).encode()
@@ -87,10 +94,7 @@ def test_consume_adapter_classifies_every_http_status(body, raised):
             return status, encoded
 
         answer = CodexAdapter(opener=opener)._request(raw, WHAM_RESET_CREDITS_CONSUME_URL, payload={})
-        error = body.get("error", {}).get("code")
-        refusal = ((status == 409 and error in ("already_redeemed", "already_consumed"))
-                   or (status == 429 and error == "rate_limited")) and "windows_reset" not in body
-        expected = "ok" if 200 <= status < 300 else "refused" if refusal else "unknown"
+        expected = "ok" if 200 <= status < 300 else "refused" if status in refused_statuses else "unknown"
         assert answer["status"] == expected, (status, body, answer)
 
 

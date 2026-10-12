@@ -428,7 +428,8 @@ class CodexAdapter(Adapter):
                 # unfamiliar 4xx and server errors may follow a spent credit.
                 refused = ((status == 409 and error.get("code") in ("already_redeemed", "already_consumed"))
                            or (status == 429 and error.get("code") == "rate_limited"))
-                refused = refused and "code" not in decoded and "windows_reset" not in decoded
+                refused = (refused and set(decoded) == {"error"} and set(error) <= {"code", "message"}
+                           and ("message" not in error or isinstance(error["message"], str)))
                 outcome = "refused" if refused else "unknown"
             return {"status": outcome,
                     "http_status": status, "error_code": error.get("code"),

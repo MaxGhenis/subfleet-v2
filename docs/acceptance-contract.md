@@ -405,8 +405,8 @@ Version 2, 2026-09-05. These clauses close the 92 rows of the v1 invariant ledge
   | 2xx with `code=reset` and positive integer `windows_reset`, excluding booleans | `confirmed` | Recognized reset confirmation |
   | Any other 2xx, including malformed/non-object JSON or unfamiliar body | `unknown` | May have spent |
   | Any 3xx, including a reset-shaped body | `unknown` | Redirect does not prove refusal |
-  | 409 with `error.code=already_redeemed` or `already_consumed`, or 429 with `error.code=rate_limited`, and neither top-level `code` nor `windows_reset` | `failed` (`refused`) | Explicit rejection of this consume |
-  | Every other 4xx, including empty/unknown bodies, 408, reset fields, or a refusal code on the wrong status | `unknown` | No proof nothing was spent |
+  | 409 with `error.code=already_redeemed` or `already_consumed`, or 429 with `error.code=rate_limited`; body contains only `error`, whose only fields are `code` and optionally a string `message` | `failed` (`refused`) | Explicit rejection of this consume |
+  | Every other 4xx, including empty/unknown bodies or fields, 408, reset fields, or a refusal code on the wrong status | `unknown` | No proof nothing was spent |
   | Any 5xx, regardless of body | `unknown` | May have spent before answering |
   | Any other HTTP status outside 2xx–5xx | `unknown` | Unrecognized response |
   | No credential, inhibit marker, or deadline/cancel/occupied HTTP slot before the call starts | `failed` (`no-auth`, `inhibited`, `aborted-before-submission`) | Nothing submitted |
