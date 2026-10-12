@@ -2,14 +2,14 @@
 
 Approving a tool call, resolving an ambiguous delivery, widening a permission
 policy, setting `allow_main` and unblocking an unfinished turn are a person's
-decisions. At connection time the daemon retains the socket's 32-byte audit
-token (`LOCAL_PEERTOKEN`), including its pid and pid version. It refuses when
-the caller, or any ancestor, is a process Subfleet launched (a guardian's descendant, or one carrying the C-5.1
-markers), and accepts only the installed app's executable (or, on a
-development state root, the development build the daemon was started with,
-D-21). Any other process of the same user is outside this check, as it is
-outside `daemon.sock`'s: it is a boundary against the agents Subfleet runs and
-headless agents, not against the user.
+decisions. Immediately after accept, before any other connection work, the
+daemon retains the socket's 32-byte audit token (`LOCAL_PEERTOKEN`), including
+its pid and pid version. After the full request line is read, the person check
+re-reads the token and refuses if either differs or the read fails. It also
+refuses when the caller, or any ancestor, is a process Subfleet launched (a
+guardian's descendant, or one carrying the C-5.1 markers), and requires the
+installed app's executable (or, on a development state root, the development
+build the daemon was started with, D-21).
 
 A controlling terminal is not a person (D-PB1, 2026-10-11). The vetoes read
 only the caller's ancestry as it is now: a process an agent started can drop
@@ -21,13 +21,22 @@ So the positive test is what the caller's image is, and a terminal is never
 enough.
 
 The kernel looks up the image through the saved token
-(`proc_pidpath_audittoken`), so an exec, an exited process or a reused pid
-cannot give an earlier connection a new identity. A missing token or a failed
-or unavailable lookup is a refusal. The kernel's canonical path is compared
-verbatim with the configured executables and their real paths, frozen when
-the daemon starts; the caller's path is never resolved again. An update that
-moves the running app bundle aside requires the app to be restarted: the
-token proves the process instance, not that its moved path was an allowed app.
+(`proc_pidpath_audittoken`): an exec after that token was saved, an exited
+process or a reused pid is refused. A missing token or a failed or unavailable
+lookup is a refusal. The kernel's canonical path is compared verbatim with the
+configured executables and their real paths, frozen when the daemon starts;
+the caller's path is never resolved again. An update that moves the running
+app bundle aside requires the app to be restarted: the token identifies the
+process/image instance, not whether its moved path was an allowed app.
+
+A same-user process that replaces its image with the app's executable before
+the daemon reads its token can still be taken for the app, including for
+request bytes written before exec. The kernel describes the process as it is
+now; this image check cannot prove which program wrote those bytes. It
+therefore separates the app from Subfleet's own launched processes only as
+far as those processes do not replace their image with the app before the
+first token read. The follow-up, an app-held credential that proves each
+person-only request, is what closes this remaining case.
 """
 
 from __future__ import annotations
@@ -37,7 +46,7 @@ import os
 import socket
 import struct
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
@@ -48,8 +57,9 @@ NO_TERMINAL = ("??", "-", "")
 
 @dataclass(frozen=True)
 class AuditToken:
-    """A socket's connection-time audit_token_t, including pid (5) and version (7)."""
+    """The saved audit_token_t; its socket lets person checks re-read the identity."""
     value: bytes
+    conn: socket.socket | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if len(self.value) != 32:
@@ -93,7 +103,7 @@ class Verdict:
 
 def peer_token(conn: socket.socket) -> AuditToken | None:
     try:
-        return AuditToken(conn.getsockopt(0, 6, 32))   # SOL_LOCAL, LOCAL_PEERTOKEN
+        return AuditToken(conn.getsockopt(0, 6, 32), conn)   # SOL_LOCAL, LOCAL_PEERTOKEN
     except (OSError, ValueError):
         return None
 
@@ -165,6 +175,17 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
         return Verdict(False, "the caller's connection-time audit token could not be identified; "
                               "reconnect from the Subfleet app", None)
     pid = peer.pid
+    # _person calls judge only after the full request has been read, before
+    # acting. Compare the process/image version, not mutable credential words.
+    if peer.conn is not None:
+        current = peer_token(peer.conn)
+        if current is None:
+            return Verdict(False, "the caller's audit token could not be re-read after the request; "
+                                  "reconnect from the Subfleet app", pid)
+        if (current.pid, current.pidversion) != (peer.pid, peer.pidversion):
+            return Verdict(False, "the caller's process/image changed between accept and the person-only request "
+                                  "(audit token pid or pid version differs); "
+                                  "reconnect from the Subfleet app", pid)
     procs = chain(pid)
     if not procs:
         return Verdict(False, "the caller's process could not be inspected", pid)

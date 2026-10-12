@@ -1,4 +1,7 @@
-"""C-25.6: the socket's original image instance owns its person-only requests.
+"""C-25.6: recheck the image saved at accept before person-only requests.
+
+Exec before the first token read remains a documented limitation: image
+identity cannot prove which program wrote already queued request bytes.
 
 Native probes use only disposable compiled development-app stand-ins. Only
 ancestry is faked marker-free, because a Subfleet lane's real ancestors veto
@@ -10,7 +13,9 @@ we do not churn host processes to force the kernel to recycle a pid.
 from __future__ import annotations
 
 import contextlib
+import array
 import ctypes
+import json
 import os
 import shutil
 import socket
@@ -26,6 +31,7 @@ from types import SimpleNamespace
 import pytest
 
 from subfleet.conversations import peers
+from subfleet.conversations import service as service_module
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from tests.e2e import dev_app
@@ -139,9 +145,57 @@ def test_daemon_captures_the_token_before_reading_and_keeps_it_for_every_request
         return future
     daemon._start_request = start
     monkeypatch.setattr("subfleet.descriptors.client_gone", lambda conn: True)
-    daemon._connection(conn)
+    accepted = peers.peer_token(conn)
+    daemon._connection(conn, accepted)
     assert seen == [original, original]
     assert socket_reads == [(0, 6, 32)]
+
+
+def test_daemon_reads_the_token_immediately_after_accept(tmp_path, monkeypatch):
+    from subfleet import daemon as daemon_module
+    events = []
+    conn = SimpleNamespace(getsockopt=lambda *args: events.append("token") or token().value)
+
+    class Listener:
+        def bind(self, path):
+            Path(path).touch()
+        def listen(self, backlog):
+            pass
+        def settimeout(self, timeout):
+            pass
+        def accept(self):
+            events.append("accept")
+            return conn, None
+
+    daemon = daemon_module.Daemon.__new__(daemon_module.Daemon)
+    daemon.root = tmp_path
+    daemon.stopping = threading.Event()
+    daemon._control = lambda: None
+    daemon.lock_watch = SimpleNamespace(start=lambda: None)
+    daemon.close = lambda: daemon._control_thread.join(5)
+    def hold(connection, peer):
+        events.append("hold")
+        assert connection is conn and peer == token() and peer.conn is conn
+        daemon.stopping.set()
+    daemon._hold_connection = hold
+    monkeypatch.setattr(daemon_module.socket, "socket", lambda *args: Listener())
+    monkeypatch.setattr(daemon_module.os, "chmod", lambda *args: None)
+    daemon.serve_forever()
+    assert events == ["accept", "token", "hold"]
+
+
+@pytest.mark.parametrize("current, accepted, reason", [
+    (token(10, 1), True, "the Subfleet app"),
+    (token(11, 1), False, "process/image changed"),
+    (token(10, 2), False, "process/image changed"),
+    (None, False, "could not be re-read"),
+])
+def test_person_check_rechecks_the_saved_pid_and_version(monkeypatch, current, accepted, reason):
+    conn = object()
+    peer = peers.AuditToken(token().value, conn)
+    monkeypatch.setattr(peers, "peer_token", lambda connection: current if connection is conn else None)
+    verdict = judge(peer, "/app", executable=lambda audit: "/app")
+    assert verdict.person is accepted and reason in verdict.reason
 
 
 def test_service_freezes_development_configuration_and_real_paths_at_startup(tmp_path, monkeypatch):
@@ -286,6 +340,94 @@ def test_a_client_that_execs_into_the_app_after_connecting_is_refused(app, serve
                 verdict = judge(original, app)
                 assert not verdict.person and "audit token" in verdict.reason
                 fresh.sendall(b'{"ok":true}\n')
+
+
+@contextlib.contextmanager
+def exec_socket_pair(app, server):
+    """A child-created socket pair, so LOCAL_PEERTOKEN identifies the child.
+
+    Pass the server end with SCM_RIGHTS; keep the client end across exec.
+    The development stand-in's new connection is the exec readiness barrier.
+    """
+    _, path = server
+    payload = {"v": 1, "id": "queued", "op": "message.resolve", "args": {}}
+    source = (
+        "import array,os,socket,sys; control=socket.socket(fileno=int(sys.argv[1])); "
+        "client,remote=socket.socketpair(); os.set_inheritable(client.fileno(),True); "
+        "control.sendmsg([b'c'],[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array('i',[remote.fileno()]))]); "
+        "remote.close(); control.close(); client.sendall(sys.argv[4].encode()+b'\\n'); "
+        "sys.stdin.readline(); os.execv(sys.argv[3],[sys.argv[3],sys.argv[2],'{}'])"
+    )
+    with contextlib.ExitStack() as stack:
+        control, inherited = socket.socketpair()
+        stack.enter_context(control)
+        stack.enter_context(inherited)
+        control.settimeout(30)
+        with child_process([sys.executable, "-c", source, str(inherited.fileno()), str(path),
+                            str(app), json.dumps(payload)], stdin=subprocess.PIPE,
+                           pass_fds=(inherited.fileno(),)) as child:
+            inherited.close()
+            message, ancillary, flags, _ = control.recvmsg(1, socket.CMSG_SPACE(array.array("i").itemsize))
+            assert message == b"c" and not flags & socket.MSG_CTRUNC
+            fds = array.array("i")
+            for level, kind, data in ancillary:
+                assert (level, kind) == (socket.SOL_SOCKET, socket.SCM_RIGHTS)
+                fds.frombytes(data)
+            assert len(fds) == 1
+            with socket.socket(fileno=fds[0]) as conn:
+                conn.settimeout(30)
+                yield child, conn, payload
+
+
+def person_request_after_exec(app, server, monkeypatch, *, capture_before_exec):
+    listener, _ = server
+    acted = []
+    service = ConversationService.__new__(ConversationService)
+    service.root = app.parents[3] / "state"
+    service._allowed_app_paths = peers.allowed_executable_paths((str(app),))
+    service._lock = threading.Lock()
+    service._resolve_message = lambda args, verdict: acted.append(verdict.pid) or {"accepted": True}
+    monkeypatch.setattr(service_module, "judge", lambda peer, **kwargs: peers.judge(peer, chain=clean, **kwargs))
+    with exec_socket_pair(app, server) as (child, conn, payload):
+        saved = peers.peer_token(conn) if capture_before_exec else None
+        child.stdin.write(b"\n")
+        child.stdin.flush()
+        # No pid polling: this connection can only be opened by the new image.
+        fresh, _ = listener.accept()
+        with fresh, fresh.makefile("rb") as ready, conn.makefile("rb") as queued:
+            fresh.settimeout(30)
+            after_exec = peers.peer_token(fresh)
+            assert ready.readline() == b"{}\n"
+            assert after_exec.pid == child.pid and peers.executable_path(child.pid) == str(app)
+            if saved is None:
+                saved = peers.peer_token(conn)       # deliberately delayed until after exec
+                assert saved.pidversion == after_exec.pidversion
+            else:
+                assert saved.pid == after_exec.pid and saved.pidversion != after_exec.pidversion
+            assert json.loads(queued.readline()) == payload
+            if capture_before_exec:
+                with pytest.raises(ConversationError, match="process/image changed") as failure:
+                    service.handle(payload["op"], payload["args"], saved)
+                assert failure.value.code == 7 and failure.value.reason == "person-only"
+                assert not acted
+            else:
+                assert service.handle(payload["op"], payload["args"], saved) == {"accepted": True}
+                assert acted == [child.pid]
+            fresh.sendall(b'{"ok":true}\n')
+            stdout, stderr = child.communicate(timeout=30)
+            assert child.returncode == 0, (stdout, stderr)
+
+
+@MACOS
+def test_a_token_change_between_accept_and_request_is_refused(app, server, monkeypatch):
+    person_request_after_exec(app, server, monkeypatch, capture_before_exec=True)
+
+
+@MACOS
+@pytest.mark.documented_limitation
+def test_exec_before_the_first_token_read_is_accepted_documented_limitation(app, server, monkeypatch):
+    """A credential proving each request must deliberately change this acceptance."""
+    person_request_after_exec(app, server, monkeypatch, capture_before_exec=False)
 
 
 @MACOS

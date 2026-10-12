@@ -43,6 +43,7 @@ from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from . import resource_leases
 from .conversations.store import canonical_native, native_any_case
+from .conversations.peers import peer_token
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
@@ -7742,14 +7743,12 @@ class Daemon:
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
         return pool.submit(self._respond, conn, write_lock, req, arrived)
 
-    def _connection(self, conn: socket.socket) -> None:
+    def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()
         pending: list[Future] = []
         reads: set[Future] = set()              # pending futures whose request only reads
         framer = descriptors.LineFramer()
         replied = [0.0]                         # when a reply last finished (monotonic)
-        from .conversations.peers import peer_token
-        peer = peer_token(conn)                 # C-25.6: retain the original process/image instance
 
         def note_reply(_future=None) -> None:
             replied[0] = time.monotonic()
@@ -7843,7 +7842,7 @@ class Daemon:
         service = self.__dict__.get("conversations")       # none yet while __init__ runs
         return service.live_runners() if service is not None else 0
 
-    def _hold_connection(self, conn: socket.socket) -> None:
+    def _hold_connection(self, conn: socket.socket, peer: AuditToken | None = None) -> None:
         """C-16.7: hold a new connection, with a reader of its own, up to the cap.
 
         Each admitted connection gets its own reader thread, so it is read at
@@ -7864,7 +7863,7 @@ class Daemon:
             self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit",
                          "connection over the cap")
             return
-        reader = threading.Thread(target=self._read_connection, args=(conn,),
+        reader = threading.Thread(target=self._read_connection, args=(conn, peer),
                                   name="subfleet-socket", daemon=True)
         with self._connection_lock:
             self._readers.add(reader)
@@ -7880,9 +7879,9 @@ class Daemon:
             self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})",
                          f"connection no reader thread could start for ({exc})")
 
-    def _read_connection(self, conn: socket.socket) -> None:
+    def _read_connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         try:
-            self._connection(conn)
+            self._connection(conn, peer)
         finally:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
@@ -7971,6 +7970,7 @@ class Daemon:
             while not self.stopping.is_set():
                 try:
                     conn, _ = self._socket.accept()
+                    peer = peer_token(conn)     # C-25.6: first work after accept, before any logging or reader
                 except socket.timeout:
                     continue
                 except OSError as exc:
@@ -8010,7 +8010,7 @@ class Daemon:
                 if failures:
                     self.log.info("accept recovered after %d failures", failures)
                     failures = 0
-                self._hold_connection(conn)
+                self._hold_connection(conn, peer)
         finally:
             self.close()
 
