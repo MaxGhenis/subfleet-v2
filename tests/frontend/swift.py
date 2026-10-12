@@ -27,6 +27,22 @@ def app_sources() -> list[Path]:
     return sources
 
 
+def run_swift(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run a compiler or app/build.sh, killing and reaping its group on timeout."""
+    compiler = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, start_new_session=True)
+    try:
+        output, errors = compiler.communicate(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(compiler.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        compiler.communicate()
+        raise
+    return subprocess.CompletedProcess(command, compiler.returncode, output, errors)
+
+
 def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout: int = 540) -> Path:
     """Build `binary` from the app's sources and the probe file(s); the machine
     may be loaded, so the timeout is generous."""
@@ -52,18 +68,8 @@ def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout:
         return binary
     # Keep the compiler and its frontend children tied to this foreground run.
     # subprocess.run's timeout kills only swiftc, leaving its children compiling.
-    compiler = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, start_new_session=True)
-    try:
-        _, errors = compiler.communicate(timeout=timeout)
-    except BaseException:
-        try:
-            os.killpg(compiler.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        compiler.communicate()
-        raise
-    assert compiler.returncode == 0, errors[-20000:]
+    result = run_swift(command, timeout=timeout)
+    assert result.returncode == 0, result.stderr[-20000:]
     cached.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binary, cached)
     return binary
