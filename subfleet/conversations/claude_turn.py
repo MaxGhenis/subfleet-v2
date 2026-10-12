@@ -323,6 +323,23 @@ class ClaudeTurn(SteerTracking):
         self.interrupt_requested = True
         return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
 
+    def restore_answer(self, request_id: str, decision: str) -> Step:
+        """Replay a recorded answer whose reply was written, without rebuilding it."""
+        if self.pending.pop(request_id, None) is None:
+            return Step()
+        step = Step(resolved=[request_id],
+                    events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
+                                  f"cmd:approval:{request_id}")])
+        if decision == "cancel-turn":
+            self.interrupt_requested = True
+            if self._steer_pending:
+                # The reply can have been written before the separate interrupt
+                # that sweeps queued steers. Its own tag still deduplicates it.
+                step.frames.append(Frame("interrupt", "write", _line({
+                    "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                    "request": self._interrupt_request()})))
+        return step
+
     def respond(self, request_id: str, decision: str, message: str | None = None,
                 answers: dict | None = None) -> Step:
         """A person's answer to one pending `can_use_tool` request (C-27.1, C-27.2)."""
