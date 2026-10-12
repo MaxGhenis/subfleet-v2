@@ -284,11 +284,10 @@ def test_a_stream_disconnect_is_transient(adapter, tmp_path):
     assert outcome.evidence["stream_truncated_tail"] is True
 
 
-def test_empty_success_is_structurally_ok_before_finalization(adapter, tmp_path):
-    """C-9.2: the adapter's verdict ignores model text; C-12.6's empty-deliverable
-    validation is enforced by the daemon, with the readings retained."""
+def test_an_empty_deliverable_with_rc_zero_is_unknown(adapter, tmp_path):
+    """C-12.6: empty success is unknown in the adapter; provider readings survive."""
     _e, launch, outcome = _classify(adapter, tmp_path, "empty-result-rc0")
-    assert outcome.cls is OutcomeClass.OK
+    assert outcome.cls is OutcomeClass.UNKNOWN
     assert adapter.deliverable(Path(launch.stdout_path).parent, launch, outcome) is None
     assert len(outcome.readings) == 2
     assert all(r.label is ReadingLabel.PROVIDER for r in outcome.readings)

@@ -1491,7 +1491,7 @@ class ClaudeAdapter(Adapter):
 
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
         """CLI/provider evidence only (C-9.2). On a failed run: the host CLI's
-        version gate, authentication, admission, then quota. Structural success
+        version gate, authentication, admission, then quota. Verified success
         supersedes text failures; structured admission rejection still wins.
 
         The raw rc and signal ride along with every class (C-9.2), and the readings the
@@ -1534,8 +1534,10 @@ class ClaudeAdapter(Adapter):
         # routinely quote these signatures; model prose cannot classify a lane.
         cli_corpus = "\n".join([stderr, *summary.cli_texts()])
         scrubbed = _scrub_non_limit(cli_corpus)
-        successful = (exit_info.rc == 0 and summary.result is not None
-                      and not summary.result.is_error)
+        non_error_result = (exit_info.rc == 0 and summary.result is not None
+                            and not summary.result.is_error)
+        text = self._final_text(summary, transcript, notes, session_id)
+        successful = non_error_result and bool(text.strip())
 
         evidence: dict[str, Any] = {
             "rc": exit_info.rc,
@@ -1713,15 +1715,22 @@ class ClaudeAdapter(Adapter):
                 answered={"content": "stop_reason=refusal"},
             )
 
-        # 5. Structural success. Deliverable validation belongs to finalization
-        # (C-12.6); erasing a model's words must not change the provider verdict.
-        if successful:
+        # 5. Success requires a deliverable (C-12.6). Its presence matters for
+        # acceptance; its wording never supplies a provider failure signature.
+        if non_error_result:
+            if not text.strip():
+                return finish(
+                    OutcomeClass.UNKNOWN,
+                    "unknown: empty deliverable with rc 0",
+                    answered={"deliverable": "empty with rc 0 (C-12.6)"},
+                )
             sensed = ", ".join(sorted(info.windows)) if info and info.windows else "none"
             return finish(
                 OutcomeClass.OK,
-                f"ok: rc 0 with a non-error result; rate_limit_event windows: {sensed}",
+                f"ok: {len(text.encode('utf-8'))} bytes delivered; "
+                f"rate_limit_event windows: {sensed}",
                 answered={
-                    "auth": "system/init" if summary.has_init else "non-error result with rc 0",
+                    "auth": "system/init",
                     "admission": (f"rate_limit_event.status={info.status}" if info else
                                   "no rate_limit_event"),
                 },

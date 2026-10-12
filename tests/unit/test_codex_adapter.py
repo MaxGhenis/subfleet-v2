@@ -439,15 +439,14 @@ def test_terminal_failure_wins_over_zero_rc_and_leftover_deliverable(tmp_path, m
     assert outcome.evidence["rc"] == 0
 
 
-@pytest.mark.parametrize("stream,expected", [("", OutcomeClass.UNKNOWN),
-    ("not json\n", OutcomeClass.UNKNOWN), ('{"type":"turn.completed"}\n', OutcomeClass.OK)])
-def test_zero_rc_without_deliverable_uses_structural_completion(tmp_path, stream, expected):
-    """C-9.2 a completed turn is structural success; finalization enforces C-12.6."""
+@pytest.mark.parametrize("stream", ["", "not json\n", '{"type":"turn.completed"}\n'])
+def test_zero_rc_without_deliverable_is_unknown(tmp_path, stream):
+    """C-12.6: a completion frame cannot manufacture a deliverable."""
     launch = _launch(tmp_path)
     Path(launch.raw_stream_path).write_text(stream)
     (tmp_path / "last.md").write_bytes(b"")
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
-    assert outcome.cls == expected
+    assert outcome.cls == OutcomeClass.UNKNOWN
     assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
     assert outcome.evidence["rc"] == 0
 

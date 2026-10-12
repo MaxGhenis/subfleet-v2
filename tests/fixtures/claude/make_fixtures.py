@@ -968,7 +968,7 @@ def build() -> None:
         },
     )
 
-    # 14 — structural success; finalization enforces the empty deliverable (C-12.6).
+    # 14 — rc 0 with nothing to deliver is `unknown`, not `ok` (C-12.6).
     sid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     rows = [
         init_event(sid, HAIKU),
@@ -985,12 +985,12 @@ def build() -> None:
             "provenance": (
                 "Synthetic. rc 0 with an empty `result` string and no assistant text; "
                 "the rate_limit_info is the verbatim experiment-0 max@axiom.org payload, "
-                "the adapter records structural success and finalization makes the empty deliverable unknown."
+                "so the readings survive a class of `unknown`."
             ),
             "requested_model": HAIKU,
             "session_id": sid,
-            "class": "ok",
-            "detail_contains": "non-error result",
+            "class": "unknown",
+            "detail_contains": "empty",
             "evidence": {
                 "auth": "system/init",
                 "admission": "rate_limit_event.status=allowed",

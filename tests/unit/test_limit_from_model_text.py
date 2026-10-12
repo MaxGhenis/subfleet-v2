@@ -86,24 +86,35 @@ LIMIT_CASES = tuple(case for case in case_names()
 
 def replace_model_text(rows, text):
     rows = deepcopy(rows)
+
+    def rewrite(value):
+        # C-12.6 permits acceptance to depend on presence, never on wording.
+        if isinstance(value, str) and value.strip():
+            return text if text.strip() else "x" + text
+        return value
+
     for row in rows:
         if not isinstance(row, dict):
             continue
         if row.get("type") == "assistant" and not cli_placeholder(row):
             content = row["message"].get("content")
             if isinstance(content, str):
-                row["message"]["content"] = text
+                row["message"]["content"] = rewrite(content)
             elif isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "text":
-                        block["text"] = text
+                        block["text"] = rewrite(block.get("text"))
         if row.get("type") == "result" and row.get("is_error") is not True:
-            row["result"] = text
+            row["result"] = rewrite(row.get("result"))
     return rows
 
 
-def erase_model_text(stream):
-    """Preserve invalid rows/tails, including the captured disconnect fixture."""
+def erase_model_words(stream):
+    """Remove wording, keeping a neutral marker for nonblank text (C-12.6).
+
+    Preserve invalid rows/tails, including the captured disconnect fixture.
+    Exact erasure that removes the deliverable is tested separately below.
+    """
     try:
         whole = json.loads(stream)
     except ValueError:
@@ -128,11 +139,13 @@ def verdict(outcome):
 @INVARIANTS
 @given(rows=STREAMS, text=MODEL_TEXT, rc=st.sampled_from((0, 1, 5, -15)))
 def test_model_text_mutation_and_insertion_preserve_class_and_closure(rows, text, rc):
-    """C-9.2–9.5: change model text or add model frames to any generated stream."""
+    """C-9.2–9.5: change wording while preserving deliverable presence."""
     with TemporaryDirectory() as tmp:
         directory = Path(tmp)
         before = classify(directory, rows, rc)
-        mutated = [assistant(text), *replace_model_text(rows, text), assistant(text)]
+        stream = "".join(json.dumps(row) + "\n" for row in rows)
+        inserted = "Model report: " + text if parse_stream(stream).final_text.strip() else ""
+        mutated = [assistant(inserted), *replace_model_text(rows, text), assistant(inserted)]
         after = classify(directory, mutated, rc)
         assert verdict(after) == verdict(before)
         if before.closure is None:
@@ -157,22 +170,22 @@ def test_fixture_limit_keeps_its_scope_and_clock_with_surrounding_model_text(cas
 @INVARIANTS
 @given(rows=STREAMS, rc=st.sampled_from((0, 1, 5, -15)), stderr=MODEL_TEXT,
        tail=st.sampled_from(("", "not json\n", '{"type":')))
-def test_classifier_equals_stream_with_all_model_text_erased(rows, rc, stderr, tail):
-    """Differential: all assistant/success prose can be erased without changing the verdict."""
+def test_classifier_equals_stream_with_model_words_removed(rows, rc, stderr, tail):
+    """Differential: removing wording while retaining presence preserves the verdict."""
     with TemporaryDirectory() as tmp:
         directory = Path(tmp)
         stream = "".join(json.dumps(row) + "\n" for row in rows) + tail
         assert verdict(classify_stream(directory, stream, rc, stderr)) == verdict(
-            classify_stream(directory, erase_model_text(stream), rc, stderr))
+            classify_stream(directory, erase_model_words(stream), rc, stderr))
 
 
 @pytest.mark.parametrize("case", case_names())
-def test_fixture_differential_with_model_text_erased(tmp_path, case):
+def test_fixture_differential_with_model_words_removed(tmp_path, case):
     stream = (FIXTURES / case / "stdout").read_text()
     rc = int((FIXTURES / case / "rc").read_text())
     stderr = (FIXTURES / case / "stderr").read_text()
     assert verdict(classify_stream(tmp_path, stream, rc, stderr)) == verdict(
-        classify_stream(tmp_path, erase_model_text(stream), rc, stderr))
+        classify_stream(tmp_path, erase_model_words(stream), rc, stderr))
 
 
 @pytest.mark.parametrize("text,until", [
@@ -254,13 +267,13 @@ def test_model_clock_cannot_supply_cli_limit_reset(tmp_path):
 
 @INVARIANTS
 @given(text=MODEL_TEXT, rc=st.sampled_from((0, 1, 5)), terminal=st.booleans())
-def test_codex_agent_text_and_erasure_preserve_verdict(text, rc, terminal):
+def test_codex_agent_wording_and_neutralization_preserve_verdict(text, rc, terminal):
     """Codex model messages never reach quota, credits, auth or other failure patterns."""
     with TemporaryDirectory() as tmp:
         directory = Path(tmp)
         adapter = CodexAdapter(now=lambda: NOW)
         outcomes = []
-        for value in ("", text):
+        for value in ("x" if text.strip() else "", text):
             rows = [{"type": "item.completed", "item": {"type": "agent_message", "text": value}}]
             if terminal:
                 rows.append({"type": "turn.failed", "error": {"message": "usage limit reached"}})
@@ -289,3 +302,34 @@ def test_codex_last_answer_is_not_failure_evidence(tmp_path, text):
         outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, codex_exit(rc))
         assert outcome.cls is (OutcomeClass.OK if rc == 0 else OutcomeClass.UNKNOWN)
         assert outcome.closure is None
+
+
+@INVARIANTS
+@given(text=MODEL_TEXT, rc=st.sampled_from((0, 1, 5)))
+def test_claude_exact_model_erasure_only_removes_deliverable_acceptance(text, rc):
+    """C-9.2, C-12.6: absent deliverables are unknown; phrases never create failures."""
+    with TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        original = classify(directory, [assistant(text), success(text)], rc)
+        erased = classify(directory, [assistant(""), success("")], rc)
+    assert original.cls is (OutcomeClass.OK if rc == 0 and text.strip() else OutcomeClass.UNKNOWN)
+    assert erased.cls is OutcomeClass.UNKNOWN
+    assert original.closure is erased.closure is None
+
+
+@INVARIANTS
+@given(text=MODEL_TEXT, rc=st.sampled_from((0, 1, 5)), completed=st.booleans())
+def test_codex_exact_model_erasure_only_removes_deliverable_acceptance(text, rc, completed):
+    """C-9.2, C-12.6: even a completed turn needs a nonblank deliverable."""
+    with TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        outcomes = []
+        for value in (text, ""):
+            rows = [{"type": "item.completed", "item": {"type": "agent_message", "text": value}}]
+            if completed:
+                rows.append({"type": "turn.completed"})
+            launch = codex_events(directory, *rows)
+            outcomes.append(CodexAdapter(now=lambda: NOW).classify(directory, launch, codex_exit(rc)))
+    assert outcomes[0].cls is (OutcomeClass.OK if rc == 0 and text.strip() else OutcomeClass.UNKNOWN)
+    assert outcomes[1].cls is OutcomeClass.UNKNOWN
+    assert outcomes[0].closure is outcomes[1].closure is None
