@@ -35,6 +35,7 @@ from .client import Client, DaemonError, DaemonUnavailable, LOCK_NAME, SOCKET_NA
 from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
+from .provider_env import ProviderEnvironment
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
 #: Something to act on that is not subfleet failing: it prints a fix line and,
@@ -57,18 +58,21 @@ def row(check: str, status: str, detail: str, fix: str) -> dict[str, Any]:
     return {"check": check, "status": status, "detail": detail, "fix": fix}
 
 
-def _run_full(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+def _run_full(argv: list[str], timeout: float = 20.0, *,
+              env: dict[str, str] | None = None) -> tuple[int | None, str]:
     """(rc, all of stdout+stderr). `rc is None` means it could not be run."""
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                              **({"env": env} if env is not None else {}))
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{exc.__class__.__name__}: {exc}"
     return done.returncode, f"{done.stdout or ''}\n{done.stderr or ''}".strip()
 
 
-def _run(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+def _run(argv: list[str], timeout: float = 20.0, *,
+         env: dict[str, str] | None = None) -> tuple[int | None, str]:
     """(rc, first line) — the shape the one-line detail columns want."""
-    code, text = _run_full(argv, timeout)
+    code, text = _run_full(argv, timeout, **({"env": env} if env is not None else {}))
     lines = text.splitlines()
     return code, lines[0] if lines else "(no output)"
 
@@ -313,12 +317,20 @@ def check_queued_pins(root: Path) -> dict[str, Any]:
                "resubmit with `-a <lane id>` (`subfleet lanes list` shows the ids)")
 
 
-def check_provider(binary: str) -> dict[str, Any]:
+def check_provider(binary: str, *, root: Path | None = None) -> dict[str, Any]:
     found = shutil.which(binary)
     if found is None:
         return row(f"{binary} --version", FAIL, f"{binary} is not on PATH",
                    f"install {binary}; no lane of that provider can launch without it")
-    code, text = _run([found, "--version"])
+    if binary == "codex":
+        policy_path = root / "policy.json" if root is not None else DEFAULT_POLICY_PATH
+        try:
+            policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
+        except PolicyError as exc:
+            return row("codex --version", FAIL, str(exc), "correct policy.json, then rerun doctor")
+        code, text = _run([found, "--version"], env=ProviderEnvironment(policy).build("codex"))
+    else:
+        code, text = _run([found, "--version"])
     if code is None:
         return row(f"{binary} --version", UNKNOWN, f"{found}: {text}",
                    f"run `{found} --version` by hand")
@@ -646,7 +658,7 @@ def checks(root: Path, *, live: bool = False,
         check_symlink(),
         check_pythonpath(),
         *(check_path_shadows(binary) for binary in ("subfleet", "claude", "codex")),
-        *(check_provider(binary) for binary in ("claude", "codex")),
+        *(check_provider(binary, root=root) for binary in ("claude", "codex")),
         check_toolchain("uv"),
         check_guard_preflight(root),
         check_state_root(root),
