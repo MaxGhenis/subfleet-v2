@@ -172,6 +172,15 @@ def provider_cap(policy: Mapping[str, Any], provider: str) -> int | None:
     return (policy.get("providers") or {}).get(provider, {}).get("max_active_attempts")
 
 
+def provider_caps_on(policy: Mapping[str, Any]) -> bool:
+    """C-6.4a: whether any provider names a `max_active_attempts` cap.
+
+    Not whether the policy has a `providers` section: every loaded policy has
+    one, because C-10.8's `providers.codex.ca_bundle` is filled in at load.
+    """
+    return any(provider_cap(policy, provider) is not None for provider in (policy.get("providers") or {}))
+
+
 def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     """C-6.4: how many detached attempts one lane may hold, or None for no cap.
 

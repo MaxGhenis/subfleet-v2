@@ -17,7 +17,7 @@ from .capacity import credential_gone, desktop_excluded, fresh_provider, identit
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
-                     provider_cap, resolve_model, turn_cap)
+                     provider_cap, provider_caps_on, resolve_model, turn_cap)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -289,7 +289,7 @@ def pool_capped(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = 
         capped = any(cap(caps, key) is not None for key in
                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
     providers = (demand_providers(policy, demand_models(policy, job), demand_lanes(roster, job, policy), roster)
-                 if policy.get("providers") else frozenset())
+                 if provider_caps_on(policy) else frozenset())
     return (capped or any(provider_cap(policy, provider) is not None for provider in providers)
             or bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None)
 
@@ -310,7 +310,7 @@ def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = (
     else:
         pooled = any(cap(caps, key) is not None for key in
                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
-    pooled = pooled or include_providers and bool(policy.get("providers")) and any(provider_cap(policy, provider) is not None
+    pooled = pooled or include_providers and provider_caps_on(policy) and any(provider_cap(policy, provider) is not None
                            for provider in demand_providers(policy, demand_models(policy, job),
                                                             demand_lanes(roster, job, policy), roster))
     family = bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None
@@ -408,7 +408,7 @@ def competes(models: frozenset[str] | None, other: frozenset[str] | None,
     """C-6.9: two jobs compete when some model could serve both AND some lane could
     serve both; either side unknown counts as overlap. Two jobs pinned to
     different lanes compete only when their provider has a shared count cap."""
-    if policy and policy.get("providers") and any(provider_cap(policy, provider) is not None for provider in
+    if policy and provider_caps_on(policy) and any(provider_cap(policy, provider) is not None for provider in
                       demand_providers(policy, models, lanes, roster) &
                       demand_providers(policy, other, other_lanes, roster)):
         return True  # C-6.4: different models and lanes can share one provider's count.
@@ -665,7 +665,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
             "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
             "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
             "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
-            "provider_live": provider_live(view) if policy.get("providers") else {},
+            "provider_live": provider_live(view) if provider_caps_on(policy) else {},
             "lane_spread": admission_settings(policy)["lane_spread"]}
 
 

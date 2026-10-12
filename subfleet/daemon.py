@@ -1318,7 +1318,7 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
-            if self.policy.get("providers"):
+            if scheduler.provider_caps_on(self.policy):
                 quarantines = self.store.query(PROVIDER_QUARANTINES)
                 if route:
                     rows["attempts"].extend(quarantines)
@@ -1349,7 +1349,7 @@ class Daemon:
         # `status.json` lays the same leases over the timer's snapshot (C-18.1).
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
         view = self.timers.enrich_view(view, rows["timers"])
-        provider_counts = scheduler.provider_live(view) if self.policy.get("providers") else {}
+        provider_counts = scheduler.provider_live(view) if scheduler.provider_caps_on(self.policy) else {}
         probe_counts = dict.fromkeys(provider_counts, 0)
         for lane in view["lanes"]:
             if lane.get("probe_holder"):
@@ -5346,7 +5346,7 @@ class Daemon:
             f"SELECT lease_key,holder FROM leases WHERE {probes}"))
         quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
                                     if scheduler.uncontained_quarantine(row))
-                           if self.policy.get("providers") else frozenset())
+                           if scheduler.provider_caps_on(self.policy) else frozenset())
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
             freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now
                          or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
@@ -6390,7 +6390,7 @@ class Daemon:
         attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,j.kind,j.parent_job_id "
                                "FROM attempts a JOIN jobs j USING(job_id) "
                                "WHERE a.state IN ('reserved','starting','running','finalizing')")
-        if self.policy.get("providers"):
+        if scheduler.provider_caps_on(self.policy):
             attempts.extend(store.query(
                 "SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,a.quarantine_reason,j.kind,j.parent_job_id "
                 "FROM attempts a JOIN jobs j USING(job_id) WHERE a.state='quarantined'"))

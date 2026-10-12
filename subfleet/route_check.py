@@ -163,7 +163,7 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
     # A reservation/completion in the OTHER pool or on another lane can change
     # this provider's count. Refresh every lane of that provider, including the
     # count in its evidence, even when the cap has not become full yet.
-    if policy.get("providers"):
+    if scheduler.provider_caps_on(policy):
         provider_then, provider_now = scheduler.provider_live(view), scheduler.provider_live(skeleton)
         changed.update(lane_id for lane_id, lane in now_lanes.items()
                        if scheduler.provider_cap(policy, lane["provider"]) is not None

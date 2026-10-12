@@ -7,7 +7,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 
 from subfleet import scheduler
-from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy, provider_cap
+from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, load_policy, provider_cap, provider_caps_on
 from tests.reference_scheduler import reference_evaluate
 from tests.routing_strategies import NOW, view_of
 from tests.unit.test_scheduler_split import cases, outcome
@@ -55,7 +55,7 @@ def test_invalid_provider_section(tmp_path, section, key):
 def test_missing_cap_preserves_bytes_and_hash(tmp_path, section):
     raw = DEFAULT_POLICY_PATH.read_bytes()
     data = json.loads(raw)
-    assert "providers" not in data
+    assert not provider_caps_on(data)       # it has `providers.codex.ca_bundle` (C-10.8), but no cap
     if section is not None:
         data["providers"] = section
         raw = (json.dumps(data, indent=3) + "\n\n").encode()
@@ -67,9 +67,29 @@ def test_missing_cap_preserves_bytes_and_hash(tmp_path, section):
     assert path.read_bytes() == raw
     assert loaded["_policy_hash"] == hashlib.sha256(raw).hexdigest()
     if section is None:
-        assert "providers" not in loaded
-        # Original shipped bytes at release/217, including the trailing newline.
-        assert hashlib.sha256(raw).hexdigest() == "47e1c5111b9cef28751257667cd8aa2eb9ba0ac39ef7e55beff30879a429e49c"
+        assert not provider_caps_on(loaded)
+        # Shipped bytes at release/217 (after #179 and #190), including the trailing newline.
+        assert hashlib.sha256(raw).hexdigest() == "29e76475f03eb5f27b7ca83a0a321e1d296c4701a6fd33733b104d5d7844d2a2"
+
+
+@pytest.mark.parametrize("providers,on", [
+    ({"codex": {"ca_bundle": "/etc/ssl/cert.pem"}}, False),
+    ({"codex": {"ca_bundle": None, "max_active_attempts": None}}, False),
+    ({"codex": {"ca_bundle": "/etc/ssl/cert.pem", "max_active_attempts": 2}}, True),
+    ({"codex": {"ca_bundle": "/etc/ssl/cert.pem"}, "claude": {"max_active_attempts": 1}}, True),
+])
+def test_only_a_named_cap_turns_the_provider_count_on(tmp_path, providers, on):
+    """C-6.4a, C-10.8: every loaded policy has a `providers` section (the CA
+    bundle is filled in at load), so the section's presence is not a cap. Only
+    a `max_active_attempts` value turns the provider count and the quarantine
+    reads on (the 2026-10-12 merge of #190 into #194 had them on for all)."""
+    data = json.loads(DEFAULT_POLICY_PATH.read_bytes())
+    data["providers"] = providers
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(data))
+    loaded = load_policy(path)
+    assert loaded["providers"]["codex"]["ca_bundle"] == providers["codex"]["ca_bundle"]
+    assert provider_caps_on(loaded) is on
 
 
 @settings(max_examples=300, deadline=None, derandomize=True,
@@ -78,7 +98,7 @@ def test_missing_cap_preserves_bytes_and_hash(tmp_path, section):
 def test_absent_provider_key_decides_exactly_as_before(case):
     """Differential against the independent pre-cap routing oracle, all decision fields."""
     policy, store, job = case
-    assert 'providers' not in policy
+    assert not provider_caps_on(policy)
     view = view_of(store, NOW)
     assert outcome(scheduler.evaluate, policy, view, job) == outcome(reference_evaluate, policy, view, job)
     caps = policy.get('caps', {})
