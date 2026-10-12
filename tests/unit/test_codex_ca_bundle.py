@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 from hypothesis import HealthCheck, given, settings, strategies as st
@@ -35,8 +36,9 @@ def ca_values(env):
 
 def test_default_codex_launch_environment(monkeypatch):
     seen = []
-    def read(path):
+    def read(path, limit=None):
         seen.append(path)
+        assert limit == 4 * 1024 * 1024
         return CERTIFICATE.read_bytes()
     monkeypatch.setattr(provider_env, "read_regular", read)
     environment = ProviderEnvironment({})
@@ -104,6 +106,49 @@ def test_bundle_is_rechecked_when_it_changes(bundle, caplog):
     Path(bundle).write_bytes(CERTIFICATE.read_bytes())
     assert environment.build("codex", environ={}) == {"SSL_CERT_FILE": bundle}
     assert len(caplog.records) == 1
+
+
+def test_oversized_bundle_is_unusable_and_read_is_capped(bundle, monkeypatch, caplog):
+    """Even a valid certificate cannot authorize reading an oversized bundle."""
+    cap = 4 * 1024 * 1024
+    with Path(bundle).open("r+b") as stream:
+        stream.truncate(cap + 1)
+    reads = []
+    original = provider_env.read_regular
+    def read(path, limit=None):
+        reads.append(limit)
+        return original(path, limit=limit)
+    monkeypatch.setattr(provider_env, "read_regular", read)
+    environment = ProviderEnvironment(selected(bundle))
+    results = [environment.build("codex", environ={}) for _ in range(2)]
+    assert results == [{}, {}]
+    assert reads == [cap, cap]
+    warnings = [record for record in caplog.records if "Codex CA bundle" in record.message]
+    assert len(warnings) == 1
+
+
+@pytest.mark.parametrize("count", [4000, 8000])
+def test_unterminated_pem_markers_do_not_exhaust_launch_cpu(tmp_path, count):
+    """The review's adversarial input must fit a generous CPU budget.
+
+    CPU time excludes lock-queue and host scheduling delays. The old regex
+    took over a second at 4,000 markers; a forward scan takes milliseconds.
+    """
+    path = tmp_path / "repeated-begins.pem"
+    path.write_bytes(b"-----BEGIN CERTIFICATE-----\n" * count)
+    environment = ProviderEnvironment(selected(str(path)))
+    started = time.process_time()
+    result = environment.build("codex", environ={})
+    elapsed = time.process_time() - started
+    assert result == {}
+    assert elapsed < 0.25, f"PEM scanning used {elapsed:.3f}s of CPU for {count} markers"
+
+
+def test_pem_bundle_at_cap_with_multiple_certificates_and_text_is_usable(bundle):
+    certificate = CERTIFICATE.read_bytes()
+    data = b"system bundle header\n" + certificate + b"\n# next root\n" + certificate
+    Path(bundle).write_bytes(data + b" " * (4 * 1024 * 1024 - len(data)))
+    assert ProviderEnvironment(selected(bundle)).build("codex", environ={}) == {"SSL_CERT_FILE": bundle}
 
 
 @pytest.mark.parametrize("operator", [{}, {"SSL_CERT_FILE": "operator.pem"}, {"SSL_CERT_DIR": "operator-dir"}])

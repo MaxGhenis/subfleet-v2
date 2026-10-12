@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 import logging
 import os
-import re
 import ssl
 import threading
 from typing import Any
@@ -14,6 +13,27 @@ from .policy import codex_ca_bundle
 from .sessions.transcripts import read_regular
 
 CA_SOURCES = ("SSL_CERT_FILE", "SSL_CERT_DIR")
+# System bundles are a few hundred KiB. Allow ample room for custom roots
+# while bounding launch-worker memory and validation work.
+CA_BUNDLE_MAX_BYTES = 4 * 1024 * 1024
+_PEM_BEGIN = b"-----BEGIN CERTIFICATE-----"
+_PEM_END = b"-----END CERTIFICATE-----"
+
+
+def _pem_certificates(data: bytes) -> list[bytes]:
+    """Extract nonoverlapping PEM blocks with a forward-only, linear scan."""
+    certificates = []
+    cursor = 0
+    while True:
+        start = data.find(_PEM_BEGIN, cursor)
+        if start < 0:
+            break
+        end = data.find(_PEM_END, start + len(_PEM_BEGIN))
+        if end < 0:
+            break
+        cursor = end + len(_PEM_END)
+        certificates.append(data[start:cursor])
+    return certificates
 
 
 class ProviderEnvironment:
@@ -48,8 +68,8 @@ class ProviderEnvironment:
         if bundle is None:
             return result
         try:
-            data = read_regular(bundle)
-            certificates = re.findall(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", data, re.S)
+            data = read_regular(bundle, limit=CA_BUNDLE_MAX_BYTES)
+            certificates = _pem_certificates(data)
             if not certificates:
                 raise ValueError("bundle contains no PEM certificates")
             # An empty SSLContext reads only these bytes, never native roots.
