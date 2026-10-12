@@ -7321,7 +7321,11 @@ class Daemon:
             gone = set(census.resolved_identities)
             sources = []
             for source in (previous.get("identity_history", {}), previous.get("identities", {})):
-                sources.append({str(pid): [dataclasses.asdict(value) for value in values if value not in gone]
+                # Keep the union while this PID still holds the quarantine.
+                # A later census can show an earlier observed incarnation;
+                # pruning one on reuse would discard that containment root.
+                sources.append({str(pid): [dataclasses.asdict(value) for value in values
+                                          if value not in gone or pid in census.live_pids]
                                 for pid, values in _identity_union(source).items()})
             history, overflow_boot = _recent_census_identities(*sources, current["identities"])
             detail = {**previous, **current,

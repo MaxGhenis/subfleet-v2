@@ -45,6 +45,14 @@ def test_rechecks_preserve_all_observed_identities_per_pid(state_daemon, monkeyp
     clock.advance()
     daemon._recheck_quarantines()
     assert daemon.store.get_attempt(a['attempt_id'])['state'] == 'quarantined'
+    # Once the PID is absent, its resolved observations no longer consume the
+    # history budget, even while another marker keeps the quarantine alive.
+    script_table(monkeypatch, {301: (1, 301, 'Ss', 'remaining')}, markers=f'301 writer {marker}\n')
+    clock.advance()
+    daemon._recheck_quarantines()
+    held = daemon.store.get_attempt(a['attempt_id'])
+    assert held['state'] == 'quarantined'
+    assert '300' not in json.loads(held['quarantine_reason'])['identity_history']
 
 
 def test_owned_identity_recording_retains_older_observations(state_daemon):
