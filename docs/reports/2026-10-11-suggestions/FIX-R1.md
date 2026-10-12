@@ -196,7 +196,7 @@ session (`suggestions.py` whole; in `service.py` the suggestion ops, `_suggestio
     it, and is not checked on its own.
 - C-25.7's "every write of a message ... checks in its own transaction": the
   writers are `submit_message` and `insert_legacy_history` (both call
-  `admit_message`) and `create_handoff`. A handoff inserts messages only into the
+  `admit_message`) and `commit_handoff`. A handoff inserts messages only into the
   new conversation it creates in the same transaction, which no claim can name.
 - C-29.14's merge rule: the app reads a whole listing (`apply(suggestions:)`) only
   in `refreshSuggestions`, which is unfiltered, so a missing open suggestion there
