@@ -58,6 +58,16 @@ struct ApprovalNotificationTarget: Codable, Equatable {
     }
 }
 
+extension NotificationIntent {
+    /// What the posted notification carries: its conversation and kind, and for a
+    /// tool approval that Allow once can answer, that one request, so the click
+    /// still reads its conversation and kind (`NotificationTarget`).
+    func userInfo(allowing target: ApprovalNotificationTarget?) -> [String: String] {
+        guard let target else { return userInfo }
+        return userInfo.merging(target.userInfo) { _, exact in exact }
+    }
+}
+
 #if !SUBFLEET_MODEL_TEST || SUBFLEET_UI_MODEL_TEST
 import UserNotifications
 
