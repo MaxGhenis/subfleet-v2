@@ -72,7 +72,7 @@ if [ "${SUBFLEET_SWIFT_NESTED_SANDBOX:-on}" = off ]; then
 fi
 SDK=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
 STAGING=$(mktemp -d "$OUTPUT/.subfleet-build.XXXXXX")
-trap 'rm -rf "$STAGING"' EXIT HUP INT TERM
+trap 'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)" "$STAGING"' EXIT HUP INT TERM
 APP="$STAGING/$NAME.app"
 mkdir -p "$APP/Contents/MacOS"
 # Every source under app/Sources (including subdirectories such as Views/) in
@@ -91,7 +91,7 @@ fi
 plutil -lint "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 if [ -e "$OUTPUT/$NAME.app" ]; then
-  rm -rf "$OUTPUT/$NAME.app"
+  python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$OUTPUT/$NAME.app"
 fi
 mv "$APP" "$OUTPUT/$NAME.app"
 printf 'Built: %s/%s.app (%s)\n' "$OUTPUT" "$NAME" "$BUNDLE_ID"

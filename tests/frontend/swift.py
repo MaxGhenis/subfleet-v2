@@ -14,6 +14,7 @@ import hashlib
 import os
 import platform
 import shutil
+import signal
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,8 +50,20 @@ def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout:
     if cached.is_file():
         shutil.copy2(cached, binary)
         return binary
-    compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
-    assert compiled.returncode == 0, compiled.stderr[-20000:]
+    # Keep the compiler and its frontend children tied to this foreground run.
+    # subprocess.run's timeout kills only swiftc, leaving its children compiling.
+    compiler = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, start_new_session=True)
+    try:
+        _, errors = compiler.communicate(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(compiler.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        compiler.communicate()
+        raise
+    assert compiler.returncode == 0, errors[-20000:]
     cached.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binary, cached)
     return binary
