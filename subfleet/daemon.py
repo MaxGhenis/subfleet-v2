@@ -155,7 +155,9 @@ def _retain_lineage(evidence: dict, census: dict) -> dict:
     boots.update(ident.boot_id for records in _identity_union(census["identities"]).values()
                  for ident in records)
     result = {**evidence, "lineage_boot_ids": sorted(boots)} if boots else dict(evidence)
-    roots = list(result.get("lineage_roots", []))
+    resolved = {procs.CensusRoot(**value) for value in census.get("resolved_lineage_roots", [])}
+    roots = [value for value in result.get("lineage_roots", []) if procs.CensusRoot(**value) not in resolved]
+    result.pop("lineage_roots", None)
     captured = list(census.get("lineage_roots", []))
     # Receipts from older censuses already carried identity and group shapes.
     for pid, value in census.get("identities", {}).items():
@@ -6968,6 +6970,10 @@ class Daemon:
             actual = self.store.get_attempt(a["attempt_id"])
             previous = json.loads(actual["evidence_json"] or "{}")
             evidence = self._prune_foreign_lineage(previous, foreign)
+            # A verified table can retire only gone identities with empty groups.
+            # Live/reused group members and incomplete identity reads still hold.
+            evidence["lineage_roots"] = [value for value in evidence.get("lineage_roots", [])
+                                         if not table.root_resolved(procs.CensusRoot(**value))]
             if child:
                 evidence["child_identity"] = child
             before = dict(evidence.get("owned_identities", {}))
@@ -7193,8 +7199,12 @@ class Daemon:
             # read supplies no identities. They are checked on the next pass.
             previous = _json_object(a["quarantine_reason"])
             current = census.to_dict()
-            history, overflow_boot = _recent_census_identities(previous.get("identity_history", {}),
-                                                               previous.get("identities", {}), current["identities"])
+            gone = set(census.resolved_identities)
+            sources = []
+            for source in (previous.get("identity_history", {}), previous.get("identities", {})):
+                sources.append({str(pid): [dataclasses.asdict(value) for value in values if value not in gone]
+                                for pid, values in _identity_union(source).items()})
+            history, overflow_boot = _recent_census_identities(*sources, current["identities"])
             detail = {**previous, **current,
                       "identities": {pid: records[-1] for pid, records in history.items()},
                       "identity_history": history}

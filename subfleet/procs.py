@@ -309,6 +309,29 @@ class ProcessTable:
             raise InspectionError("macOS boot session identity is unavailable")
         return legacy and boot_identity.matches(str(boot_id), current, self.legacy_seconds) is True
 
+    def identity_gone(self, known: ProcessIdentity) -> bool:
+        """A missing/zombie/reused identity is proved gone; incomplete reads hold."""
+        if not self.live(known.pid):
+            return True
+        started = self.rows[known.pid][3]
+        if started and known.proc_start and started != known.proc_start:
+            return True
+        if not known.boot_id:
+            return False
+        try:
+            old = boot_identity.session_uuid(known.boot_id)
+            current = boot_identity.session_uuid(self.boot())
+            if old is not None and current is not None and old != current:
+                return True
+            if not started or not known.proc_start:
+                return False
+            return boot_identity.matches(known.boot_id, self.boot(), self.legacy_seconds) is False
+        except InspectionError:
+            return False
+
+    def root_resolved(self, known: CensusRoot) -> bool:
+        return self.identity_gone(known.identity) and not self.group(known.pgid)
+
     def group(self, pgid: int | None) -> frozenset[int]:
         if not pgid or pgid <= 0:
             return frozenset()
@@ -626,6 +649,8 @@ class Containment:
     ambiguous_identities: tuple[ProcessIdentity, ...] = ()
 
     foreign_ownership: ForeignOwnership = field(default_factory=ForeignOwnership, repr=False, compare=False)
+    resolved_lineage_roots: tuple[CensusRoot, ...] = ()
+    resolved_identities: tuple[ProcessIdentity, ...] = ()
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -637,6 +662,8 @@ class Containment:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "resolved_lineage_roots": [asdict(value) for value in self.resolved_lineage_roots],
+            "resolved_identities": [asdict(value) for value in self.resolved_identities],
             "cwd_pids": sorted(self.cwd_pids),
             "lineage_roots": [asdict(value) for value in self.lineage_roots],
             "provider_identities": [asdict(value) for value in self.provider_identities],
@@ -735,6 +762,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     local_seen: dict[int, ProcessIdentity] = {}
     proven_roots = set()
     genuine_descendants = ()
+    resolved_roots = tuple(known for known in lineage_roots if seen.root_resolved(known)) if seen is not None else ()
+    lineage_roots = tuple(known for known in lineage_roots if known not in set(resolved_roots))
+    resolved_identities = tuple(known for values in (recorded or {}).values()
+                                for known in ([values] if isinstance(values, ProcessIdentity) else values)
+                                if seen.identity_gone(known)) if seen is not None else ()
     if callable(foreign_ownership):
         foreign_ownership = foreign_ownership(seen)
     if seen is not None:
@@ -1110,7 +1142,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                        frozenset(cwds), captured, providers, group_identities, tuple(excluded_identities),
                        tuple(value for value in proven_descendants if value not in ambiguous),
                        tuple(sorted(ambiguous, key=lambda value: (value.pid, value.boot_id, value.proc_start))),
-                       foreign_ownership)
+                       foreign_ownership, resolved_roots, resolved_identities)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
