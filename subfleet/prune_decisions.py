@@ -502,6 +502,15 @@ def _space_refusal(space: dict[str, Any]) -> PruneRefused:
 
 # --- fingerprints --------------------------------------------------------------
 
+def _blob(value: Any) -> str:
+    """The decision-row dump's spelling of a BLOB column (unchanged from the first
+    release of this tool): JSON has none, and hex is reversible. Fingerprints use
+    `_cell`, which also tags the storage class."""
+    if isinstance(value, (bytes, bytearray)):
+        return "blob:" + bytes(value).hex()
+    raise TypeError(f"cannot digest a {type(value).__name__} column")
+
+
 def _cell(value: Any) -> tuple[str, Any]:
     """Tag a sqlite3 value with its storage class and preserve its contents."""
     if value is None:
