@@ -207,10 +207,10 @@ def test_c6_12_an_unreadable_auth_json_ends_the_probe_unknown_and_the_pass_goes_
 
 @pytest.mark.parametrize("content", [UNREADABLE["torn"], UNREADABLE["list"]], ids=["torn", "list"])
 def test_c6_12_an_unreadable_auth_json_refuses_the_launch_and_names_the_fix(fleet, monkeypatch, content):
-    """C-6.12, C-5.10, C-10.2: a job that needs no probe met the same error at its launch, raised
+    """C-6.12, C-5.10, C-6.5: a job that needs no probe met the same error at its launch, raised
     out of `_process_attempt`: the worker failed, was paced, and the attempt was ended a pass later
     as `reserved-no-launch`, which says nothing about why. Now the launch is refused as an API-key
-    home is (C-10.2), naming the file and the fix, and no provider is started."""
+    home is (C-6.5), naming the file and the fix, and no provider is started."""
     service, harness = fleet
     job_id = submit(service, harness)                                       # standard: no probe
     admission_pass(service)
@@ -233,7 +233,7 @@ def test_c6_12_an_unreadable_auth_json_refuses_the_launch_and_names_the_fix(flee
 
 @pytest.mark.parametrize("content", [UNREADABLE["torn"], UNREADABLE["list"]], ids=["torn", "list"])
 def test_c11_2_a_pin_to_a_lane_whose_auth_json_is_unreadable_is_refused_at_submit(fleet, content):
-    """C-11.2, C-10.2: submit checks a pinned Codex lane's home. Before the fix a torn file was
+    """C-11.2, C-6.5: submit checks a pinned Codex lane's home. Before the fix a torn file was
     answered as invalid input with the parser's message (rc 2), and `[]` raised AttributeError
     out of submit. Now both are refused as an API-key home is: code 7, with the fix."""
     service, harness = fleet

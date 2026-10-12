@@ -2934,7 +2934,7 @@ class Daemon:
 
     @staticmethod
     def _validate_home(lane: Lane) -> None:
-        """C-10.2: a Codex home logged in with an API key is refused, at submit (a lane
+        """C-6.5: a Codex home logged in with an API key is refused, at submit (a lane
         pin), at an attempt's launch and at an admission probe (C-11.4).
 
         So is one whose `auth.json` is not a JSON object (empty, cut short, not UTF-8,
@@ -2942,9 +2942,10 @@ class Daemon:
         `AdapterError` those callers already handle: the probe ends `unknown`, the
         launch is refused, submit answers code 7. Parsed and `.get` as it stood, such a
         file raised JSONDecodeError or AttributeError out of the probe and so out of the
-        admission pass (C-6.12), and out of the launch and submit; `null` was taken
-        for no file at all. A read the host refuses (an OSError) is still raised as
-        it is: the probe and C-5.10 retry those (C-6.12)."""
+        admission pass (C-6.12), and out of the launch; submit answered it as invalid
+        input or raised; `null` was taken for no file at all. A read the host refuses
+        (an OSError) says nothing about the file and is raised as before: the probe
+        ends `unknown` on it (`_probe_candidate`)."""
         if lane.provider != "codex" or lane.credential.kind != "home":
             return
         path = Path(lane.credential.ref).expanduser() / "auth.json"

@@ -63,7 +63,7 @@ _JSON_VALUES = st.recursive(
 @settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(content=st.one_of(st.binary(max_size=48), _JSON_VALUES.map(lambda value: json.dumps(value).encode())))
 def test_property_a_codex_home_is_accepted_or_refused_and_nothing_else(tmp_path, content):
-    """C-10.2, C-6.12 for all inputs: whatever a Codex home's `auth.json` holds, `_validate_home`
+    """C-6.5, C-6.12 for all inputs: whatever a Codex home's `auth.json` holds, `_validate_home`
     returns (a JSON object with no API key) or raises AdapterError, code 7 with a fix, which every
     caller handles (tests/fake/test_admission_probe_errors.py). Before, an unparsable file raised
     JSONDecodeError and one that is not an object AttributeError, out of the admission pass. The
@@ -87,7 +87,7 @@ def test_property_a_codex_home_is_accepted_or_refused_and_nothing_else(tmp_path,
 
 @pytest.mark.parametrize("home", ["missing", "directory"])
 def test_c10_2_a_codex_home_with_no_auth_json_file_is_not_refused(tmp_path, home):
-    """C-10.2: no regular file there is still not a refusal, as before (`is_file()`'s answer)."""
+    """C-6.5: no regular file there is still not a refusal, as before (`is_file()`'s answer)."""
     if home == "directory":
         (tmp_path / "auth.json").mkdir()
     Daemon._validate_home(lane(tmp_path))
