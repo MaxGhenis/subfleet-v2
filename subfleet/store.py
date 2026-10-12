@@ -274,7 +274,10 @@ class Store:
                     self._migrate(version)          # records one schema_version row per step
                     self.connection.commit()
                     migrated_from, version = version, SCHEMA_VERSION
+                claims_present = self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempt_process_claims'").fetchone()
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
+                schema += "\n" + Path(__file__).with_name("store_process_claims.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
                 if (migrated_from is not None and migrated_from < 3) or (version and version < 3):
                     columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
@@ -282,6 +285,9 @@ class Store:
                                               ("review_root", "TEXT"), ("round_lease", "TEXT")):
                         if name not in columns:
                             self.connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
+                if not claims_present:
+                    # One upgrade backfill, never a read/inspection-time ledger scan.
+                    self.connection.execute("UPDATE attempts SET evidence_json=evidence_json")
                 if not version:
                     self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utc_now()))
                 if not version or migrated_from is not None:

@@ -6479,6 +6479,12 @@ class Daemon:
             return
         start = self._read_json(adir / "start.json")
         receipt = self._read_json(adir / "exit.json")
+        if start and start.get("child_identity"):
+            evidence = _json_object(a.get("evidence_json"))
+            if evidence.get("child_identity") != start["child_identity"]:
+                self.store.update_attempt(aid, child_pid=start["child_identity"]["pid"],
+                                          evidence_json=json.dumps({**evidence, "child_identity": start["child_identity"]}))
+                a = self.store.get_attempt(aid)
         if start and a["state"] == "starting":
             with self.store.transaction("attempt.running", job_id=a["job_id"], attempt_id=aid) as tx:
                 tx.execute("UPDATE attempts SET state='running',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,started_at=? WHERE attempt_id=? AND state='starting'",
@@ -6616,66 +6622,86 @@ class Daemon:
             self._lost(a)
         return True
 
-    def _foreign_ownership(self, a: dict) -> procs.ForeignOwnership:
-        """Recorded processes delimit other non-terminal attempts, held ones too.
+    def _foreign_ownership(self, a: dict, table=_UNSET) -> procs.ForeignOwnership:
+        """Indexed claims for current incarnations; terminal history grants no exclusion.
 
-        Job ancestry and caller sessions confer no process ownership. Include
-        launch identities before the first paced inspection, so a parent's
-        descendant walk cannot adopt a newly dispatched child's guardian.
+        An unavailable table uses local recorded signal identities as candidates.
+        Fresh scalar identity/group checks still gate every signal delivery.
         """
-        identities = set()
-        groups = []
-        launches = []
-        claims = set()
-        claims_by_pid = {}
-        collisions = set()
-        for other in self.store.query(
-                "SELECT * FROM attempts WHERE attempt_id<>?",
-                (a["attempt_id"],)):
-            evidence = _json_object(other.get("evidence_json"))
-            # Descendant identities were captured below verified local roots,
-            # so they remain foreign after reparenting. General census roots
-            # can be old shared-cwd adoption and cannot establish ownership.
-            records = _local_process_records(evidence)
-            history = {ident for values in records.values() for ident in values}
-            history.update(procs.ProcessIdentity(**value) for value in evidence.get("ambiguous_identities", []))
-            active = other["state"] not in TERMINAL
+        if table is _UNSET:
+            try:
+                table = procs.snapshot()
+            except procs.InspectionError:
+                table = None
+        generation = self.store.one("SELECT generation FROM process_claim_clock WHERE singleton=1")["generation"]
+        active = self.store.query(
+            "SELECT attempt_id,guardian_pid,pgid,boot_id,proc_start,"
+            "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END AS child_identity "
+            "FROM attempts WHERE state IN ('reserved','starting','running','finalizing') AND attempt_id<>? "
+            "UNION ALL SELECT attempt_id,guardian_pid,pgid,boot_id,proc_start,"
+            "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END "
+            "FROM attempts WHERE state='quarantined' AND attempt_id<>?",
+            (a["attempt_id"], a["attempt_id"]))
+        groups, launches = [], []
+        for other in active:
             if other.get("guardian_pid") and other.get("boot_id") and other.get("proc_start"):
                 leader = procs.CensusRoot(other["guardian_pid"], other["boot_id"],
                                           other["proc_start"], other.get("pgid") or 0)
-                history.add(leader.identity)
-                if active:
-                    launches.append(leader.identity)
-                if active and leader.pgid:
+                launches.append(leader.identity)
+                if leader.pgid:
                     groups.append(leader)
-            start = self._read_json(attempt_dir(self.root, other["job_id"], other["seq"]) / "start.json") or {}
-            if start.get("child_identity"):
-                child = procs.ProcessIdentity(**start["child_identity"])
-                history.add(child)
-                if active:
-                    launches.append(child)
-            if active:
-                # Ambiguous observations are holds, not foreign exclusion proof.
-                identities.update(ident for values in records.values() for ident in values)
-                if other.get("guardian_pid") and other.get("boot_id") and other.get("proc_start"):
-                    identities.add(leader.identity)
-                if start.get("child_identity"):
-                    identities.add(child)
-            # A legacy seconds receipt and a modern UUID can name the same
-            # boot. Compare claims by PID across attempts, rather than relying
-            # on dataclass equality, which would miss that ambiguity.
-            collisions.update(ident for ident in history if any(
-                procs.identities_overlap(known, ident) for known in claims_by_pid.get(ident.pid, ())))
-            for ident in history:
-                claims_by_pid.setdefault(ident.pid, []).append(ident)
-            claims.update(history)
+            child = _json_object(other.get("child_identity"))
+            if child:
+                launches.append(procs.ProcessIdentity(**child))
+        if table is not None:
+            candidates = [(pid, row[3]) for pid, row in table.rows.items() if table.live(pid)]
+        else:
+            local = self.store.get_attempt(a["attempt_id"]) or a
+            evidence = _json_object(local.get("evidence_json"))
+            records = [ident for values in _local_process_records(evidence).values() for ident in values]
+            if local.get("guardian_pid"):
+                records.append(procs.ProcessIdentity(local["guardian_pid"], local.get("boot_id") or "",
+                                                     local.get("proc_start") or ""))
+            candidates = list({(ident.pid, ident.proc_start) for ident in records})
+        rows = self.store.query(
+            "SELECT c.*,a.state FROM json_each(?) live JOIN attempt_process_claims c "
+            "ON c.pid=json_extract(live.value,'$[0]') "
+            "AND c.proc_start IN ('',json_extract(live.value,'$[1]')) "
+            "JOIN attempts a ON a.attempt_id=c.attempt_id WHERE c.attempt_id<>?",
+            (json.dumps(candidates), a["attempt_id"])) if candidates else []
+        # An unreadable start is ambiguous with every claim on that live PID.
+        unknown = [pid for pid, started in candidates if not started]
+        if unknown:
+            rows += self.store.query(
+                "SELECT c.*,a.state FROM json_each(?) live JOIN attempt_process_claims c ON c.pid=live.value "
+                "JOIN attempts a ON a.attempt_id=c.attempt_id WHERE c.attempt_id<>?",
+                (json.dumps(unknown), a["attempt_id"]))
+        identities, claims, collisions = set(), set(), set()
+        claims_by_pid: dict[int, dict[str, set[procs.ProcessIdentity]]] = {}
+        for row in rows:
+            ident = procs.ProcessIdentity(row["pid"], row["boot_id"], row["proc_start"])
+            if table is not None and ident.pid not in procs.protected_pids(table, (ident,)):
+                continue
+            owners = claims_by_pid.setdefault(ident.pid, {})
+            collisions.update([ident] if any(procs.identities_overlap(known, ident)
+                              for owner, values in owners.items() if owner != row["attempt_id"]
+                              for known in values) else [])
+            owners.setdefault(row["attempt_id"], set()).add(ident)
+            claims.add(ident)
+            if row["state"] in ('reserved','starting','running','finalizing','quarantined') and row["source"] != 'ambiguous_identities':
+                identities.add(ident)
         return procs.ForeignOwnership(tuple(identities), tuple(groups), tuple(launches),
-                                      tuple(claims), tuple(collisions))
+                                      tuple(claims), tuple(collisions), generation)
 
     def _unambiguous_signal_identity(self, attempt_id: str, ident: procs.ProcessIdentity,
-                                     census: procs.Containment, evidence: dict) -> bool:
-        """Re-read other attempts' claims at each signal delivery boundary."""
-        foreign = self._foreign_ownership({"attempt_id": attempt_id})
+                                     census: procs.Containment, evidence: dict,
+                                     foreign: procs.ForeignOwnership | None = None) -> bool:
+        """Use one kill's claim snapshot and fresh identity/group delivery checks."""
+        foreign = foreign if foreign is not None else self._foreign_ownership({"attempt_id": attempt_id})
+        if foreign.generation is not None and self.store.one(
+                "SELECT 1 FROM process_claim_revisions WHERE generation>? AND attempt_id<>? LIMIT 1",
+                (foreign.generation, attempt_id)):
+            return False
         if (foreign.claimed(ident)
                 or any(procs.identities_overlap(procs.ProcessIdentity(**value), ident)
                        for value in evidence.get("ambiguous_identities", []))
@@ -6696,18 +6722,19 @@ class Daemon:
         return True
 
     def _unambiguous_signal_group(self, attempt_id: str, leader: procs.ProcessIdentity | None,
-                                  census: procs.Containment, evidence: dict) -> bool:
+                                  census: procs.Containment, evidence: dict,
+                                  foreign: procs.ForeignOwnership | None = None) -> bool:
+        foreign = foreign if foreign is not None else self._foreign_ownership({"attempt_id": attempt_id})
         # killpg delivers to every member. A failed census cannot certify that
         # none overlaps another attempt's claims. With no competing claims,
         # scalar confirmation still permits C-5.4's original-group protocol,
         # even when a table start column or an unrelated census source failed.
         if census.unverifiable:
-            foreign = self._foreign_ownership({"attempt_id": attempt_id})
             if foreign.claims or foreign.identities or foreign.groups or foreign.launches or foreign.collisions:
                 return False
         return (leader is not None and not census.ambiguous_identities
-                and self._unambiguous_signal_identity(attempt_id, leader, census, evidence)
-                and all(self._unambiguous_signal_identity(attempt_id, ident, census, evidence)
+                and self._unambiguous_signal_identity(attempt_id, leader, census, evidence, foreign)
+                and all(self._unambiguous_signal_identity(attempt_id, ident, census, evidence, foreign)
                         for ident in census.group_identities.values()))
 
     @staticmethod
@@ -6727,7 +6754,7 @@ class Daemon:
                                         or procs.CensusRoot(**value).identity not in foreign.identities]
         return result
 
-    def _contain(self, a: dict):
+    def _contain(self, a: dict, *, foreign_ownership: procs.ForeignOwnership | None = None):
         a = self.store.get_attempt(a["attempt_id"])
         evidence = json.loads(a.get("evidence_json") or "{}")
         held = _json_object(a.get("quarantine_reason"))
@@ -6768,7 +6795,6 @@ class Daemon:
                                 and not evidence.get("provider_identities") and not owned_provider
                                 and self._read_json(adir / "exit.json") is None)
         job = self._job(a["job_id"])
-        foreign = self._foreign_ownership(a)
         census = procs.containment(a.get("pgid"), a.get("guardian_pid"), child_pid,
                                    a["attempt_id"], root=str(self.root), recorded=recorded,
                                    owned_identities=tuple(ident for values in local_records.values()
@@ -6782,8 +6808,10 @@ class Daemon:
                                    lineage_roots=tuple(procs.CensusRoot(**value)
                                                        for value in roots),
                                    lineage_overflow_boot=evidence.get("lineage_overflow_boot", legacy_lineage.get("lineage_overflow_boot")),
-                                   foreign_ownership=foreign)
-        foreign = dataclasses.replace(foreign, identities=foreign.identities + census.excluded_identities)
+                                   foreign_ownership=foreign_ownership if foreign_ownership is not None else
+                                   lambda table: self._foreign_ownership(a, table))
+        foreign = dataclasses.replace(census.foreign_ownership,
+                                      identities=census.foreign_ownership.identities + census.excluded_identities)
         # Every full census (kill and finalization included) retains observations
         # before parent death can erase them. These never become signal targets.
         # A quarantine recheck records the same census in still_live/release;
@@ -6897,7 +6925,7 @@ class Daemon:
         if not guardian_live and not child_live:
             return
         roots = tuple(pid for pid, live in ((guardian, guardian_live), (child.get("pid"), child_live)) if live)
-        foreign = self._foreign_ownership(a)
+        foreign = self._foreign_ownership(a, table)
         previous = _json_object(self.store.get_attempt(a["attempt_id"])["evidence_json"])
         local = [ident for values in _local_process_records(previous).values() for ident in values]
         prior_ambiguity = [procs.ProcessIdentity(**value) for value in previous.get("ambiguous_identities", [])]
@@ -6940,6 +6968,8 @@ class Daemon:
             actual = self.store.get_attempt(a["attempt_id"])
             previous = json.loads(actual["evidence_json"] or "{}")
             evidence = self._prune_foreign_lineage(previous, foreign)
+            if child:
+                evidence["child_identity"] = child
             before = dict(evidence.get("owned_identities", {}))
             owned = {**before, **{str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident}}
             if owned != before:
@@ -7012,17 +7042,18 @@ class Daemon:
         self._notify()
 
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
-        census = self._contain(a)
+        foreign = self._foreign_ownership(a)
+        census = self._contain(a, foreign_ownership=foreign)
         evidence = json.loads(self.store.get_attempt(a["attempt_id"])["evidence_json"] or "{}")
         # Only group members observed while the recorded leader is still ours
         # may become additional signal targets. Escaped/new marker pids remain
         # evidence for quarantine, never authority inferred from a PID alone.
-        evidence = self._prune_foreign_lineage(evidence, self._foreign_ownership(a))
+        evidence = self._prune_foreign_lineage(evidence, foreign)
         owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
         before = evidence.get("owned_identities", {})
         leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
         def signal_allowed(ident):
-            return self._unambiguous_signal_identity(a["attempt_id"], ident, census, evidence)
+            return self._unambiguous_signal_identity(a["attempt_id"], ident, census, evidence, foreign)
 
         leader = (procs.ProcessIdentity(a["guardian_pid"], a["boot_id"], a["proc_start"])
                   if a.get("guardian_pid") else None)
@@ -7039,7 +7070,7 @@ class Daemon:
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
         def group_signal_allowed():
-            return self._unambiguous_signal_group(a["attempt_id"], leader, census, evidence)
+            return self._unambiguous_signal_group(a["attempt_id"], leader, census, evidence, foreign)
 
         if a.get("pgid") and group_signal_allowed():
             procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"], proc_start=a["proc_start"])
@@ -7047,11 +7078,11 @@ class Daemon:
         while not census.verified_empty and time.monotonic() < deadline:
             if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
                 return
-            census = self._contain(a)
+            census = self._contain(a, foreign_ownership=foreign)
         escalated = not census.verified_empty
         if escalated and a.get("pgid") and group_signal_allowed():
             procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"], proc_start=a["proc_start"])
-        census = self._contain(a)
+        census = self._contain(a, foreign_ownership=foreign)
         # Inspection outages retain both leases and previously recorded signal
         # targets; signal_process independently reconfirms every full identity.
         for pid in census.live_pids | (owned.keys() if census.unverifiable else set()):
@@ -7066,7 +7097,7 @@ class Daemon:
         while True:
             if self.stopping.wait(.05):
                 return
-            census = self._contain(a)
+            census = self._contain(a, foreign_ownership=foreign)
             if census.verified_empty or time.monotonic() >= settle_until:
                 break
         if not census.verified_empty:

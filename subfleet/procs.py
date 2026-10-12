@@ -396,8 +396,17 @@ class ForeignOwnership:
     claims: tuple[ProcessIdentity, ...] = ()
     collisions: tuple[ProcessIdentity, ...] = ()
 
+    generation: int | None = field(default=None, compare=False)
+    claims_by_pid: dict[int, tuple[ProcessIdentity, ...]] = field(init=False, compare=False, repr=False)
+
+    def __post_init__(self):
+        buckets: dict[int, set[ProcessIdentity]] = {}
+        for known in (*self.claims, *self.identities):
+            buckets.setdefault(known.pid, set()).add(known)
+        object.__setattr__(self, "claims_by_pid", {pid: tuple(values) for pid, values in buckets.items()})
+
     def claimed(self, current: ProcessIdentity) -> bool:
-        return any(identities_overlap(known, current) for known in self.claims + self.identities)
+        return any(identities_overlap(known, current) for known in self.claims_by_pid.get(current.pid, ()))
 
     def ambiguous(self, current: ProcessIdentity) -> bool:
         return any(identities_overlap(known, current) for known in self.collisions)
@@ -616,6 +625,8 @@ class Containment:
     # Collisions hold leases/quarantine, but are never new signal ownership.
     ambiguous_identities: tuple[ProcessIdentity, ...] = ()
 
+    foreign_ownership: ForeignOwnership = field(default_factory=ForeignOwnership, repr=False, compare=False)
+
     @property
     def live_pids(self) -> frozenset[int]:
         return self.group_pids | self.descendant_pids | self.marker_pids | self.cwd_pids
@@ -685,7 +696,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 lineage_overflow_boot: str | None = None,
                 guardian_identity: ProcessIdentity | None = None,
                 child_identity: ProcessIdentity | None = None,
-                foreign_ownership: ForeignOwnership = ForeignOwnership()) -> Containment:
+                foreign_ownership: ForeignOwnership | Callable[[ProcessTable | None], ForeignOwnership] = ForeignOwnership()) -> Containment:
     """Collect C-5.5 group, lineage, cwd and marker sources; failures hold.
 
     General identities describe the census, not authority to signal. Only
@@ -724,6 +735,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     local_seen: dict[int, ProcessIdentity] = {}
     proven_roots = set()
     genuine_descendants = ()
+    if callable(foreign_ownership):
+        foreign_ownership = foreign_ownership(seen)
     if seen is not None:
         protected = protected_pids(seen, (*owned_identities, *ambiguous_identities))
         for known in owned_identities:
@@ -1096,7 +1109,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                        bool(errors), identities, tuple(errors), shapes, tuple(sorted(observed_boots)),
                        frozenset(cwds), captured, providers, group_identities, tuple(excluded_identities),
                        tuple(value for value in proven_descendants if value not in ambiguous),
-                       tuple(sorted(ambiguous, key=lambda value: (value.pid, value.boot_id, value.proc_start))))
+                       tuple(sorted(ambiguous, key=lambda value: (value.pid, value.boot_id, value.proc_start))),
+                       foreign_ownership)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
