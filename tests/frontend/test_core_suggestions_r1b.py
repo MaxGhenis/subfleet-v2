@@ -25,6 +25,8 @@ import uuid
 
 import pytest
 
+from subfleet.conversations.store import ConversationError
+
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness
 
@@ -105,7 +107,7 @@ def test_r1b_an_older_answer_never_rewinds_a_change_within_a_state(core_probe, h
                                                                                  {}))
     between = harness.call("suggestion.list")
     named = harness.call("suggestion.list", suggestion_ids=[sid])
-    harness.service.suggestions.note_error(sid, "worktree-failed: git worktree add failed")
+    harness.service.suggestions.note_error(sid, ConversationError("worktree-failed", "untrusted hook text", code=1))
     page = harness.call("conversation.watch", after=0)
     out = fold(core_probe, tmp_path, [{"watch": page}, {"suggestions": between},
                                       {"rows": named["suggestions"], "read_at": named["watch_seq"]}])

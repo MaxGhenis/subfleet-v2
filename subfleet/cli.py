@@ -139,7 +139,7 @@ def _uuid_arg(value: str) -> str:
     try:
         return str(uuid.UUID(value))
     except ValueError:
-        raise argparse.ArgumentTypeError(f"{value!r} is not a UUID") from None
+        raise argparse.ArgumentTypeError("request_id must be a UUID") from None
 
 
 #: The `suggestion.create` op on the file pool runs the same folder and git checks
@@ -151,7 +151,7 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     """`subfleet suggest` (C-25.7): propose a separate conversation the owner starts in
     the Subfleet app with one click; or withdraw one this conversation or session
     made, list them, and, from a terminal, start or dismiss one."""
-    from .conversations.suggestions import scrub_error, scrubbed_line
+    from .conversations.suggestions import error_code, error_fix, scrub_error
     caller = {"session_id": session_id(), "calling_job": os.environ.get("SUBFLEET_TURN_JOB") or None}
     if args.withdraw:
         op, payload = "suggestion.withdraw", {"suggestion_id": args.withdraw, **caller}
@@ -191,14 +191,14 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     try:
         result = Client(_root(args)).call(op, payload, timeout=SUGGEST_TIMEOUT_S)
     except DaemonError as exc:
-        if protocol.UNKNOWN_OP in str(exc):
+        if exc.suggestion_reason == "unknown-op":
             return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is older than this CLI and has no suggestions",
                         RESTART_DAEMON)
-        return fail(exc.code, scrub_error(exc), scrubbed_line(exc.fix) if exc.fix is not None else None)
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
     except DaemonUnavailable as exc:
-        return fail(Exit.DAEMON_UNAVAILABLE, scrub_error(exc), scrubbed_line(exc.fix) if exc.fix is not None else None)
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is unavailable", RESTART_DAEMON)
     except ProtocolError as exc:
-        return fail(exc.code, scrub_error(exc), scrubbed_line(exc.fix) if exc.fix is not None else None)
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
     if args.json:
         emit(result)
         return 0
@@ -3166,6 +3166,12 @@ def build_parser() -> argparse.ArgumentParser:
                     "the Subfleet app (in this conversation, and under Suggested) and starts it with one click; "
                     "the brief becomes the new conversation's first message, so make it self-contained. "
                     "Nothing starts until the owner does (C-25.7).")
+    def suggestion_argument_error(message):
+        # argparse diagnostics quote invalid caller values before our verb runs.
+        p_suggest.print_usage(sys.stderr)
+        p_suggest.exit(int(Exit.INVALID_INPUT), "subfleet suggest: invalid arguments; see subfleet suggest --help\n")
+
+    p_suggest.error = suggestion_argument_error
     p_suggest.add_argument("--title", help="what the new conversation is, at most 60 characters")
     p_suggest.add_argument("--tldr", help="one line on why it is worth doing, at most 300 characters")
     brief = p_suggest.add_mutually_exclusive_group()

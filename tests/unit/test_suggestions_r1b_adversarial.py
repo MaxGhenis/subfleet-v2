@@ -242,9 +242,9 @@ def test_r1b_a_failing_hooks_secret_never_reaches_the_list_feed_events_or_error(
     with pytest.raises(ConversationError) as caught:
         svc.handle("suggestion.start", {"suggestion_id": row["suggestion_id"]}, PERSON)
     assert caught.value.reason == "worktree-failed" and FIXTURE_SECRET not in str(caught.value)
-    assert "[REDACTED]" in str(caught.value)
+    assert str(caught.value) == "worktree-failed: git worktree add failed"
     stored = svc.suggestions.get(row["suggestion_id"])
-    assert stored["start_error"].startswith("worktree-failed: ") and "[REDACTED]" in stored["start_error"]
+    assert stored["start_error"] == "worktree-failed: git worktree add failed"
     shown = json.dumps([svc.handle("suggestion.list", {"suggestion_ids": [row["suggestion_id"]]}, AGENT),
                         svc.handle("suggestion.list", {}, AGENT), svc.store.changes_after(0, limit=1000),
                         svc.store.events_after(origin, 0),
@@ -313,7 +313,8 @@ def test_r1b_no_cut_splits_a_placeholder_into_text_the_scrubber_recognizes(peopl
             "start_error": stored["start_error"], "returned": str(caught.value), "decided_by": stored["decided_by"]}
     assert {name: value[-24:] for name, value in said.items() if suggestions.holds_secret(value)} == {}
     assert all(len(said[name]) <= suggestions.ERROR_MAX for name in ("start_error", "returned", "decided_by"))
-    assert stored["start_error"].startswith("worktree-failed: a a") and stored["decided_by"].startswith("a a")
+    assert stored["start_error"] == "worktree-failed: git worktree add failed"
+    assert stored["decided_by"].startswith("a a")
 
 
 def test_r1b_decided_by_is_the_verdict_scrubbed_never_the_start_errors_fallback(people, monkeypatch):

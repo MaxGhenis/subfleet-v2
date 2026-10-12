@@ -105,7 +105,7 @@ def test_c25_7_withdraw_list_start_and_dismiss(call, capsys):
 
 
 def test_c17_3_refusals_keep_their_codes_and_an_old_daemon_is_69(call, capsys):
-    call.side_effect = DaemonError(7, "person-only: starting a suggested conversation is a person's decision",
+    call.side_effect = DaemonError(7, "person-only: starting or dismissing a suggestion is a person's decision",
                                    "answer it in the Subfleet app")
     assert run("--start", "sg-1") == 7
     assert "answer it in the Subfleet app" in capsys.readouterr().err

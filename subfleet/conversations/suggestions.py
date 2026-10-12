@@ -35,9 +35,9 @@ the store, and one that predates the table ignores it.
 Title, summary and brief are scrubbed when the suggestion is created
 (C-25.5, the handoff scrubber C-23.14): what the card shows is what Start sends.
 A folder path, caller session or calling job the scrubber would change is refused,
-every error a suggestion records, logs or returns is scrubbed whole, including
-quoted multiline Unicode values, before whitespace folding; the folded form is
-scrubbed again before a marker-safe cut to ERROR_MAX characters (`scrub_error`).
+every error a suggestion records, logs or returns comes from fixed templates
+and validated errno numbers, never caller text or exception rendering
+(`scrub_error`). Scrubbing and marker-safe bounds remain defence in depth.
 A Start's `decided_by` is scrubbed the
 same way (`scrubbed_line`). No cut, of these or of a title, summary or listed
 brief, splits what scrubbing put in (`bounded`): no suggestion field or event
@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from typing import Any
@@ -183,27 +184,138 @@ def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
     return bounded(clean, limit, "…")
 
 
-def scrub_error(error: Any, *, prefix: str = "") -> str:
-    """A suggestion's diagnostic, scrubbed before exception quoting and folding.
+# Public diagnostics are selected from this vocabulary, never rendered from an
+# exception's message, args, filenames or repair text. Unknown reasons/classes
+# fall back to a fixed diagnostic. Keep scrubbed_line as defence in depth.
+ERROR_MESSAGES = {
+    "bad-args": "suggestion arguments must have the documented shape",
+    "bad-request-id": "request_id must be a canonical lowercase UUID",
+    "bad-suggestion-id": "suggestion_id must name a suggestion",
+    "bad-session-id": "session_id cannot be recorded safely",
+    "bad-calling-job": "calling_job cannot be recorded safely",
+    "bad-provider": "provider is claude or codex",
+    "bad-title": "title must contain 1 to 60 characters after secrets are removed",
+    "bad-tldr": "tldr must contain 1 to 300 characters after secrets are removed",
+    "bad-brief": "brief must contain text and fit within 32768 UTF-8 bytes after secrets are removed",
+    "bad-model": "model must name a known alias or model id in at most 80 characters",
+    "unknown-model": "model must name an active model this fleet routes",
+    "no-model": "this fleet routes no model for the suggestion's provider",
+    "bad-worktree": "worktree must be true or false",
+    "bad-workspace": "the suggestion needs an existing, safe folder or a new scratch folder",
+    "bad-settings": "start settings must use the documented model and permission values",
+    "person-only": "starting or dismissing a suggestion is a person's decision",
+    "confirm-widen": "a policy above Ask needs confirm_widen: true",
+    "codex-read-only": "Codex conversations currently require read-only permission",
+    "protected-workspace": "the folder is protected from writable conversations",
+    "protected-branch": "a writable conversation cannot start on main or master without permission",
+    "git-unavailable": "git could not inspect the suggestion's folder",
+    "not-a-repository": "the suggestion needs a git checkout to start in its own worktree",
+    "worktree-failed": "git worktree add failed",
+    "unknown-suggestion": "no such suggestion",
+    "unknown-conversation": "no such origin conversation",
+    "suggestion-moved": "the suggestion changed meanwhile; read it again",
+    "suggestion-id-conflict": "request id already used for a different suggestion",
+    "too-many-suggestions": "too many suggestions are open; withdraw or dismiss stale suggestions",
+    "not-open": "the suggestion is closed and cannot start",
+    "not-starting": "the suggestion is not starting this conversation",
+    "not-the-brief": "only the message the claim chose starts the suggestion",
+    "conversation-not-empty": "the conversation this start made already holds a message",
+    "conversation-starting": "the conversation is waiting for its suggestion's first message",
+    "not-creator": "only the conversation or session that suggested it may withdraw it",
+    "too-late": "the person already started the suggestion",
+    "unknown-op": "the daemon is older than this CLI and has no suggestions",
+}
+ERROR_FIXES = {
+    "unknown-model": "pick a model from models.list",
+    "bad-model": "pick a model from models.list",
+    "person-only": "answer it in the Subfleet app",
+    "confirm-widen": "confirm the permission in the Subfleet app",
+    "worktree-failed": "start again to finish the suggestion",
+    "git-unavailable": "try again",
+    "bad-workspace": "choose another folder or a new scratch folder",
+    "not-a-repository": "dismiss it or restore its checkout",
+    "too-many-suggestions": "withdraw or dismiss stale suggestions",
+    "not-creator": "dismiss it in the Subfleet app",
+    "unknown-op": "subfleet daemon restart",
+}
+SUGGESTION_OPS = frozenset("suggestion." + action for action in ("create", "list", "start", "dismiss", "withdraw"))
+# Only these fixed context templates may precede an error. Caller text is ignored.
+_ERROR_PREFIXES = frozenset(("cannot read the brief: ", "cannot resolve the workspace: ",
+                             "invalid arguments: "))
 
-    String exception arguments are the original message: KeyError's repr and a
-    multi-argument exception's tuple repr can escape credential delimiters. Keep
-    those arguments raw until they are scrubbed, with the diagnostic prefix.
+
+def error_reason(error: Any) -> str | None:
+    reason = (error.reason if isinstance(error, ConversationError) else
+              getattr(error, "suggestion_reason", None))
+    return reason if type(reason) is str and reason in ERROR_MESSAGES else None
+
+
+def error_code(error: Any) -> int:
+    from ..contracts import Exit
+    code = getattr(error, "code", None)
+    if type(code) in (int, Exit) and code in (1, 2, 7, 69):
+        return int(code)
+    return 2 if isinstance(error, (ValueError, TypeError, KeyError)) else 1
+
+
+def error_fix(error: Any) -> str | None:
+    return ERROR_FIXES.get(error_reason(error))
+
+
+def scrub_error(error: Any, *, prefix: str = "") -> str:
+    """C-25.7's structural boundary: templates and validated errno only.
+
+    No exception rendering occurs here. Even strings passed by old callers are
+    untrusted and receive a fixed fallback. The scrubber remains defence in depth.
     """
-    if isinstance(error, BaseException) and error.args and all(isinstance(arg, str) for arg in error.args):
-        text = "\n".join(error.args)
-    elif isinstance(error, BaseException) and (isinstance(error, KeyError) or
-                                             type(error).__str__ is BaseException.__str__):
-        text = "\n".join(str(arg) for arg in error.args)
+    reason = error_reason(error)
+    if reason is not None:
+        text = reason + ": " + ERROR_MESSAGES[reason]
     else:
-        text = str(error)
-    if isinstance(error, OSError):
-        # OSError uses repr for filenames, which can escape assignment quotes.
-        for name in ("filename", "filename2"):
-            filename = getattr(error, name, None)
-            if isinstance(filename, str):
-                text = text.replace(repr(filename), filename)
-    return scrubbed_line(prefix + text) or "the start failed"
+        # Fixed class names also cover subclasses with arbitrary __str__/__repr__.
+        name = next((name for kind, name in ((KeyError, "KeyError"), (UnicodeError, "UnicodeError"),
+                    (ValueError, "ValueError"), (TypeError, "TypeError"), (OSError, "OSError"),
+                    (sqlite3.Error, "sqlite3.Error")) if isinstance(error, kind)), "Exception")
+        text = name + ": the suggestion operation failed"
+        if isinstance(error, OSError) and type(error.errno) is int and 0 < error.errno < 256:
+            text += f" (errno {error.errno}: {os.strerror(error.errno)})"
+    context = prefix if type(prefix) is str and prefix in _ERROR_PREFIXES else ""
+    return scrubbed_line(context + text)
+
+
+def response_reason(message: Any) -> str | None:
+    """Validate a daemon wire message against our finite vocabulary, for the CLI.
+
+    Return an enum key, never wire text. Exact legacy unknown-op templates keep
+    old-daemon discovery working without allowing arbitrary diagnostic prose.
+    """
+    if type(message) is not str:
+        return None
+    for reason, template in ERROR_MESSAGES.items():
+        if message == reason + ": " + template:
+            return reason
+    if message in tuple("unknown op '" + op + "'" for op in SUGGESTION_OPS):
+        return "unknown-op"
+    return None
+
+
+# Older daemon builds may have persisted arbitrary diagnostics. Views/events must
+# not republish them: reconstruct only a member of the current vocabulary.
+_PUBLIC_ERROR_TEXT = {reason + ": " + template: reason + ": " + template
+                      for reason, template in ERROR_MESSAGES.items()}
+for _name in ("KeyError", "UnicodeError", "ValueError", "TypeError", "OSError", "sqlite3.Error", "Exception"):
+    _text = _name + ": the suggestion operation failed"
+    _PUBLIC_ERROR_TEXT[_text] = _text
+for _errno in range(1, 256):
+    _text = f"OSError: the suggestion operation failed (errno {_errno}: {os.strerror(_errno)})"
+    _PUBLIC_ERROR_TEXT[_text] = _text
+
+
+def stored_error(error: Any) -> str | None:
+    if error is None:
+        return None
+    return (_PUBLIC_ERROR_TEXT.get(error, "Exception: the suggestion operation failed")
+            if type(error) is str else "Exception: the suggestion operation failed")
 
 
 def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | None) -> None:
@@ -220,7 +332,7 @@ def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | No
                                     "before it", code=7, fix="send it once the conversation has started")
         return
     if claim is None or claim[0] != starts:
-        raise ConversationError("not-starting", f"suggestion {starts} is not starting this conversation", code=1)
+        raise ConversationError("not-starting", "the suggestion is not starting this conversation", code=1)
     if tx.execute("SELECT 1 FROM messages WHERE conversation_id=? LIMIT 1", (conversation_id,)).fetchone():
         raise ConversationError("conversation-not-empty", "the conversation this start made already holds a "
                                 "message, so the brief cannot be its first", code=1)
@@ -302,7 +414,7 @@ def view(row: dict, *, full_brief: bool = False) -> dict:
             "workspace_kind": row.get("workspace_kind"), "repository": row.get("repository"),
             "provider": row["provider"],
             "model": row["model"], "decided_by": row["decided_by"], "decided_at": row["decided_at"],
-            "start_error": row["start_error"], "started_conversation_id": row["started_conversation_id"],
+            "start_error": stored_error(row["start_error"]), "started_conversation_id": row["started_conversation_id"],
             "started_message_id": row["started_message_id"], "created_at": row["created_at"],
             "updated_at": row["updated_at"]}
 
@@ -344,7 +456,7 @@ def feed_seq(db: sqlite3.Connection) -> int:
 def _row(tx: sqlite3.Connection, suggestion_id: str) -> dict:
     found = tx.execute("SELECT * FROM suggestions WHERE suggestion_id=?", (suggestion_id,)).fetchone()
     if found is None:
-        raise ConversationError("unknown-suggestion", f"no suggestion {suggestion_id}")
+        raise ConversationError("unknown-suggestion", "no such suggestion")
     return decode(found)
 
 
@@ -371,7 +483,7 @@ class Suggestions:
     def get(self, suggestion_id: str) -> dict:
         found = self.store.one("SELECT * FROM suggestions WHERE suggestion_id=?", (suggestion_id,))
         if found is None:
-            raise ConversationError("unknown-suggestion", f"no suggestion {suggestion_id}")
+            raise ConversationError("unknown-suggestion", "no such suggestion")
         return decode(found)
 
     def add(self, *, request_id: str, words: dict, origin: str | None, origin_message: str | None,
@@ -383,7 +495,7 @@ class Suggestions:
         creates never pass them together. `workspace_kind` and `repository` are
         where it starts, as the daemon decided it; a retry keeps the first decision."""
         if workspace_kind not in (WORKTREE, IN_PLACE) or (workspace_kind == WORKTREE) != (repository is not None):
-            raise ValueError(f"a {workspace_kind!r} start with repository {repository!r}")
+            raise ValueError("invalid suggestion workspace plan")
         stands_for = digest(words=words, origin=origin, creator_session=creator_session, workspace=workspace,
                             worktree=worktree, provider=provider, model=model)
         with self.store.transaction() as tx:
@@ -395,7 +507,7 @@ class Suggestions:
                 return decode(existing), False
             if origin is not None and not tx.execute("SELECT 1 FROM conversations WHERE conversation_id=?",
                                                      (origin,)).fetchone():
-                raise ConversationError("unknown-conversation", f"no conversation {origin}")
+                raise ConversationError("unknown-conversation", "no such origin conversation")
             marks = ",".join("?" * len(OPEN_STATES))
             total = tx.execute(f"SELECT COUNT(*) FROM suggestions WHERE state IN ({marks})", OPEN_STATES).fetchone()[0]
             if total >= open_max:
@@ -507,10 +619,10 @@ class Suggestions:
             self.finish_in(tx, suggestion_id, message_id)
         return self.get(suggestion_id)
 
-    def note_error(self, suggestion_id: str, error: str) -> dict:
+    def note_error(self, suggestion_id: str, error: Any) -> dict:
         """A start that could not finish keeps its claim and says why; Start again
-        (or the daemon's own retry) finishes it. The reason is stored and shown as
-        `scrub_error` leaves it, however its caller made it (C-25.5)."""
+        (or the daemon's own retry) finishes it. Only the fixed diagnostic vocabulary is stored and published;
+        caller-rendered strings receive a generic fallback (C-25.7)."""
         error = scrub_error(error)
         with self.store.transaction() as tx:
             row = _row(tx, suggestion_id)

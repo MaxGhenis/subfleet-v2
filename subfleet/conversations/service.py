@@ -13,6 +13,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -58,6 +59,19 @@ from .turn import (
     APPROVAL_NEEDED, CANCELLED, COMPLETE, DELIVERY_UNKNOWN, FAILED, INTERRUPTED, QUEUED, RUNNING,
     STARTING, STEERING, STEERED, TERMINAL_STATES, WAITING,
 )
+
+
+def _suggestion_errors(handler):
+    """Keep direct suggestion refusals inside the public template vocabulary too."""
+    @functools.wraps(handler)
+    def checked(self, args, peer):
+        try:
+            return handler(self, args, peer)
+        except ConversationError as exc:
+            reason = suggestions.error_reason(exc) or "suggestion-failed"
+            raise ConversationError(reason, suggestions.scrub_error(exc), code=suggestions.error_code(exc),
+                                    fix=suggestions.error_fix(exc)) from None
+    return checked
 
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
 # default; `status.json` rows carry `kind` (C-18.2, C-26.12, C-29.6).
@@ -262,16 +276,26 @@ class ConversationService:
         try:
             response = protocol.ok(req.id, self.handle(req.op, req.args, peer, client_gone=gone))
         except ConversationError as exc:
-            response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc, prefix=f"{exc.reason}: "),
-                                     suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
+            if req.op in suggestions.SUGGESTION_OPS:
+                response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
+                                         suggestions.error_fix(exc))
+            else:
+                response = protocol.fail(req.id, exc.code, suggestions.scrubbed_line(f"{exc.reason}: {exc}"),
+                                         suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (protocol.ProtocolError, AdapterError) as exc:
-            response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc),
-                                     suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
+            if req.op in suggestions.SUGGESTION_OPS:
+                response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
+                                         suggestions.error_fix(exc))
+            else:
+                response = protocol.fail(req.id, exc.code, suggestions.scrubbed_line(str(exc)),
+                                         suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (ValueError, TypeError, KeyError) as exc:
-            response = protocol.fail(req.id, 2, suggestions.scrub_error(exc, prefix="invalid arguments: "))
+            message = (suggestions.scrub_error(exc, prefix="invalid arguments: ")
+                       if req.op in suggestions.SUGGESTION_OPS else
+                       suggestions.scrubbed_line(f"invalid arguments: {exc}"))
+            response = protocol.fail(req.id, 2, message)
         except Exception as exc:
-            self.log.error("%s", suggestions.scrub_error(
-                exc, prefix=f"conversation op {req.op} failed: {type(exc).__name__}: "))
+            self.log.error("%s", suggestions.scrub_error(exc))
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         descriptors.send_reply(conn, write_lock, response, end_stream=getattr(self.daemon, "_end_stream", None))
 
@@ -655,10 +679,10 @@ class ConversationService:
                     existing = existing.parent
                 validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
             except AdapterError as exc:
-                raise ConversationError("protected-branch", suggestions.scrub_error(exc), code=exc.code,
-                                        fix=suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None) from exc
+                raise ConversationError("protected-branch", suggestions.ERROR_MESSAGES["protected-branch"],
+                                        code=suggestions.error_code(exc), fix="choose another branch") from exc
             except SalvageError as exc:
-                raise ConversationError("git-unavailable", suggestions.scrub_error(exc, prefix=f"could not inspect {workspace}: "), code=1,
+                raise ConversationError("git-unavailable", suggestions.ERROR_MESSAGES["git-unavailable"], code=1,
                                         fix="try again") from exc
         return workspace
 
@@ -667,7 +691,7 @@ class ConversationService:
         try:
             return git_toplevel(directory, timeout_s=self._git_timeout_s())
         except SalvageError as exc:
-            raise ConversationError("git-unavailable", suggestions.scrub_error(exc, prefix=f"could not inspect {directory}: "), code=1,
+            raise ConversationError("git-unavailable", suggestions.ERROR_MESSAGES["git-unavailable"], code=1,
                                     fix="try again") from exc
 
     def _git_timeout_s(self, key: str = "workspace_git_timeout_s") -> float:
@@ -693,7 +717,7 @@ class ConversationService:
                 return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
                                       errors="backslashreplace", timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
-                raise ConversationError("worktree-failed", suggestions.scrub_error(exc, prefix=f"git {argv[0]} did not finish: "), code=1,
+                raise ConversationError("worktree-failed", suggestions.ERROR_MESSAGES["worktree-failed"], code=1,
                                         fix="repeat conversation.create with the same request_id") from exc
 
         adopted = False
@@ -713,10 +737,9 @@ class ConversationService:
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
             made = git(*argv, cap=self._git_timeout_s("worktree_add_timeout_s"))
             if made.returncode:
-                # C-25.5: redact the complete hook output before folding or cutting;
-                # keep whole markers in the bounded diagnostic as in every Start error.
-                said = suggestions.scrubbed_line(made.stderr, 300)
-                raise ConversationError("worktree-failed", said or "git worktree add failed",
+                # Details belong only in the local daemon.log, scrubbed whole.
+                self.log.warning("%s", suggestions.scrubbed_line("git worktree add diagnostic: " + made.stderr))
+                raise ConversationError("worktree-failed", "git worktree add failed",
                                         code=1, fix="repeat conversation.create with the same request_id")
             os.chmod(target, 0o700)
         base = git("rev-parse", "--verify", "HEAD", cwd=target)
@@ -979,7 +1002,7 @@ class ConversationService:
         entry = next((m for m in self.op_models_list({"provider": provider}, None)["models"] if m["short"] == short),
                      None)
         if entry is None or entry["retired"]:
-            raise ConversationError("unknown-model", f"{value!r} is retired in this fleet",
+            raise ConversationError("unknown-model", "model must name an active model this fleet routes",
                                     fix="pick a model from models.list")
         return entry["value"] if value == short and value != entry["id"] else value
 
@@ -1013,6 +1036,7 @@ class ConversationService:
         settings = validate_settings(provider, {"model": "suggestion", "permission": self._start_permission(provider)})
         return self._validate_workspace(provider, folder, settings, kind=kind, allow_main=False), kind, repository
 
+    @_suggestion_errors
     def op_suggestion_create(self, args, peer) -> dict:
         """An agent proposes a conversation (C-25.7). Any caller may: what it makes is a
         card for a person; nothing starts until a person's `suggestion.start`."""
@@ -1043,6 +1067,7 @@ class ConversationService:
             per_origin=suggestions.PER_ORIGIN_OPEN, open_max=suggestions.OPEN_MAX)
         return {"suggestion": suggestions.view(row, full_brief=True), "created": created, "scrubbed": scrubbed}
 
+    @_suggestion_errors
     def op_suggestion_list(self, args, peer) -> dict:
         """Open suggestions newest first, then the most recently closed (C-25.7); with
         `suggestion_ids`, those, each with its whole brief. `watch_seq` is the watch
@@ -1065,6 +1090,7 @@ class ConversationService:
             views = [suggestions.view(row) for row in rows]
         return {"suggestions": views, "open": total, "limits": suggestions.LIMITS, "watch_seq": seq}
 
+    @_suggestion_errors
     def op_suggestion_start(self, args, peer) -> dict:
         """A person starts a suggestion (C-25.6, C-25.7): a conversation made as
         `conversation.create` makes one, where the suggestion said it would start
@@ -1072,21 +1098,14 @@ class ConversationService:
         suggestion has one conversation and one message."""
         verdict = self._person(peer, "starting a suggested conversation")
         sid = self._suggestion_id(args)
-        try:
-            with self._suggestion_lock(sid):
-                row = self.suggestions.get(sid)
-                if row["state"] == suggestions.OPEN:
-                    conversation = self._start_fields(row, args)
-                    row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
-                elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
-                    raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start",
-                                            code=7)
-                return self._finish_start(row)
-        except ConversationError as exc:
-            # C-25.5: what git, a hook or a folder check said reaches the person only
-            # scrubbed, as `start_error` does (`_finish_start`).
-            raise ConversationError(suggestions.scrubbed_line(exc.reason), suggestions.scrub_error(exc), code=exc.code,
-                                    fix=suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None) from None
+        with self._suggestion_lock(sid):
+            row = self.suggestions.get(sid)
+            if row["state"] == suggestions.OPEN:
+                conversation = self._start_fields(row, args)
+                row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
+            elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
+                raise ConversationError("not-open", "the suggestion is closed and cannot start", code=7)
+            return self._finish_start(row)
 
     def _start_fields(self, row: dict, args: dict) -> dict:
         """The conversation a start makes, checked as `conversation.create` checks one,
@@ -1110,14 +1129,14 @@ class ConversationService:
         else:
             workspace = row["workspace"]
             if not os.path.isdir(workspace):
-                raise ConversationError("bad-workspace", f"the suggestion's folder {workspace} is gone",
+                raise ConversationError("bad-workspace", "the suggestion's folder is gone",
                                         fix="dismiss it")
             kind = row["workspace_kind"]
             if kind is None:                    # a row an earlier build made decided nothing
                 kind = (suggestions.WORKTREE if row["worktree"] and self._git_toplevel(workspace) is not None
                         else suggestions.IN_PLACE)
             elif kind == suggestions.WORKTREE and self._git_toplevel(workspace) is None:
-                raise ConversationError("not-a-repository", f"the suggestion's folder {workspace} is no longer a "
+                raise ConversationError("not-a-repository", "the suggestion's folder is no longer a "
                                         "git checkout, and it was to start in a worktree of its own", code=7,
                                         fix="dismiss it")
         workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=False)
@@ -1132,7 +1151,7 @@ class ConversationService:
         (`suggestions.admit_message`). Each step is idempotent, so a retry, or the
         daemon after a restart, finishes the same start. What a failure says is
         recorded (and logged, `_resume_start`; returned, `op_suggestion_start`) only
-        as `suggestions.scrub_error` leaves it."""
+        from the fixed vocabulary in `suggestions.scrub_error`."""
         sid = row["suggestion_id"]
         if row["state"] == suggestions.STARTED:
             return self._start_result(row, created=False)
@@ -1146,10 +1165,9 @@ class ConversationService:
                 text=row["brief"], attachments=[], settings=row["start_settings"] or conversation["settings"],
                 on_accept=lambda tx: self.suggestions.finish_in(tx, sid, mid), starts_suggestion=sid)
         except Exception as exc:
-            reason = exc.reason if isinstance(exc, ConversationError) else type(exc).__name__
             if not self._closed:
                 with contextlib.suppress(Exception):
-                    self.suggestions.note_error(sid, suggestions.scrub_error(exc, prefix=f"{reason}: "))
+                    self.suggestions.note_error(sid, exc)
             raise
         if not created:
             self.suggestions.finish(sid, mid)       # accepted by a start cut short after it
@@ -1162,12 +1180,14 @@ class ConversationService:
         return {"suggestion": suggestions.view(row, full_brief=True), "conversation": self._view(conversation),
                 "message": self._receipt(message, text=True) if message else None, "created": created}
 
+    @_suggestion_errors
     def op_suggestion_dismiss(self, args, peer) -> dict:
         """A person dismisses a suggestion (C-25.6, C-25.7), only while it is open."""
         verdict = self._person(peer, "dismissing a suggestion")
         row, changed = self.suggestions.close(self._suggestion_id(args), suggestions.DISMISSED, by=verdict.reason)
         return {"suggestion": suggestions.view(row, full_brief=True), "changed": changed}
 
+    @_suggestion_errors
     def op_suggestion_withdraw(self, args, peer) -> dict:
         """Whoever suggested it withdraws it while it is open (C-25.7): a turn of the
         conversation it came from, or the session that made it."""
@@ -1214,8 +1234,9 @@ class ConversationService:
                     self.log.info("finished the start of suggestion %s a person claimed earlier", sid)
         except Exception as exc:
             if not self._closed:
-                self.log.warning("%s", suggestions.scrub_error(
-                    exc, prefix=f"finishing the start of suggestion {sid} failed (try {tries}): {type(exc).__name__}: "))
+                attempt = f" (try {tries})" if type(tries) is int and 0 < tries < 65536 else ""
+                self.log.warning("%s", suggestions.scrubbed_line(
+                    "finishing the start of a suggestion failed" + attempt + ": " + suggestions.scrub_error(exc)))
         finally:
             with self._lock:
                 # The n-th try failing waits 2, 4, 8, ... s, at most DEFER_MAX_S (C-25.7).
@@ -3159,7 +3180,7 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
     for short, entry in models.items():
         if entry["provider"] == provider and entry["id"] == base:
             return short
-    raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
+    raise ConversationError("unknown-model", "model must name a known alias or model id this fleet routes",
                             fix="pick a model from models.list")
 
 

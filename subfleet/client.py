@@ -106,6 +106,10 @@ class DaemonError(Exception):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        # An enum selected by exact template validation, never diagnostic prose.
+        # Suggestion CLI errors consume only this enum and the validated exit code.
+        from .conversations.suggestions import response_reason
+        self.suggestion_reason = response_reason(message)
 
     @property
     def busy(self) -> bool:
