@@ -80,6 +80,15 @@ intact:
   on mere focus.
 * The transcript's last `custom-title` record is the newest intended name,
   account-agnostic and append-only, so it survives an index write the app skipped.
+* A resumed session runs on its copy's `model` and `effort`, in its
+  `worktreePath` or `cwd` (bundle 2.9939.2), so those converge too, unit by
+  unit (`SETTING_UNITS`, `decide_setting`), in the flags' all-or-nothing
+  publish. A pick never raises `lastActivityAt`, so the most active copy
+  alone is not the newest setting; and the app re-saves its whole record from
+  memory, so any change from a merge base is not a user's change either. A
+  value no pass has seen wins, then new activity, else the decided value
+  stands (the 2026-09-26 report). A session file whose copies hold different
+  conversation ids (a `/clear` in one account) is reported, never rewritten.
 
 What v2 changes is only where state lives and how health is judged.
 
@@ -177,17 +186,55 @@ JOURNAL_LIMIT = 50_000
 #: Sample idle hot progress at most this often; changes and errors record at once.
 HOT_RECORD_S = 60.0
 
+#: The settings a session keeps in every copy, unit by unit. Each unit's
+#: fields always come from one copy, so a record never mixes two moves: the
+#: app writes `cwd`, `worktreePath`, `worktreeName`, `branch`, `sourceBranch`
+#: and `gitAnchors` together, and `effortInherited` decides whether `effort`
+#: applies (bundle 2.9939.2, read 2026-09-26). The app runs a resumed session
+#: on the record's `model` and `effort` and in its `worktreePath` or `cwd`.
+#: Grants, worktree retention and the permission mode stay per account.
+SETTING_UNITS: dict[str, tuple[str, ...]] = {
+    "model": ("model",),
+    "effort": ("effort", "effortInherited"),
+    "place": ("cwd", "originCwd", "worktreePath", "worktreeName", "worktreeLazy",
+              "branch", "sourceBranch", "gitAnchors", "gitAnchorsLookupOnly"),
+}
+#: The unit whose picks (the model picker, `set_session_model`), which never
+#: raise `lastActivityAt`, the session's transcript can tell from old values:
+#: every assistant message records the model it ran on, account-agnostic and
+#: append-only. A value re-saved from memory has run, or was picked and never
+#: ran; so at a session's first decision, a model only copies written after
+#: the last activity hold, and that never ran, is a pick. Effort has no such
+#: record, and a place moves in or right after a turn.
+PICK_EVIDENCE_UNIT = "model"
+SETTING_FIELDS = tuple(field for fields in SETTING_UNITS.values() for field in fields)
+#: The fields `_rank` reads.
+RANK_FIELDS = ("lastActivityAt", "lastFocusedAt", "createdAt")
+#: A copy the app wrote this long after the session's last activity was
+#: written after that activity settled: the app saves a record within 1-3 s
+#: of the frame that raised `lastActivityAt` (its save debounce).
+SETTLE_MS = 60_000
+#: How many values a session's settings base remembers per unit.
+SEEN_LIMIT = 64
+
 #: The fields a pass reads from an index entry; the cache keeps nothing else.
 #: Records average 12 KB, three quarters of it MCP configuration the mirror
 #: never looks at (measured 2026-09-24).
-PROJECTED = ("sessionId", "cliSessionId", "isArchived", "isStarred", "title",
-             "titleSource", "lastActivityAt", "lastFocusedAt", "createdAt", "cwd",
-             "originCwd", "sessionSettings", "priorCliSessionIds")
+PROJECTED = tuple(dict.fromkeys((
+    "sessionId", "cliSessionId", "isArchived", "isStarred", "title", "titleSource",
+    *RANK_FIELDS, "sessionSettings", "priorCliSessionIds", *SETTING_FIELDS)))
 #: What flag sync decides on. A copy whose on-disk values of these moved since
 #: the pass read it is left for the next pass instead of being overwritten.
 FLAG_FIELDS = ("cliSessionId", "isArchived", "isStarred", "title", "titleSource",
                "sessionSettings")
 FLAG_WRITES = ("isArchived", "isStarred", "title", "titleSource", "sessionSettings")
+#: What a publish re-checks on every copy it writes. A write patches the flag
+#: fields and every setting field back from what the pass decided, so each of
+#: them must still hold what the pass read.
+CHECKED_FIELDS = FLAG_FIELDS + SETTING_FIELDS
+#: Stands for a field the record does not have, which the app treats
+#: differently from `null`.
+_ABSENT = object()
 
 class _Cancelled(Exception):
     pass
@@ -478,19 +525,20 @@ def _write_json(path: Path, value: Any, *, keep_mtime: bool = False,
     on the temporary file before it is put in place, so the live file is never
     touched after that.
     """
-    stamp = mtime
-    if keep_mtime and stamp is None:
+    # Nanoseconds: a float round trip moves an APFS mtime by up to ~0.1 us.
+    stamp_ns = int(mtime * 1_000_000_000) if mtime is not None else None
+    if keep_mtime and stamp_ns is None:
         try:
-            stamp = path.stat().st_mtime
+            stamp_ns = path.stat().st_mtime_ns
         except OSError:
-            stamp = None
+            stamp_ns = None
     handle, temporary = _temporary(path)
     try:
         with open(handle, "w", encoding="utf-8") as stream:
             stream.write(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
             stream.flush()
-            if stamp is not None:
-                os.utime(stream.fileno(), (stamp, stamp))
+            if stamp_ns is not None:
+                os.utime(stream.fileno(), ns=(stamp_ns, stamp_ns))
             if sync:                           # a record the app loads: as it does
                 os.fsync(stream.fileno())
             inode = os.fstat(stream.fileno()).st_ino
@@ -566,25 +614,37 @@ class Pass:
     flags_held: int = 0
     #: Why, for the first few: `{"path", "reason"}`.
     held_by: list[dict[str, str]] | None = None
+    #: Sessions whose model, effort or place this pass brought every copy to.
+    settings_synced: int = 0
+    #: Session files (by `sessionId`) whose copies hold different conversation
+    #: ids: a `/clear`, a rewind or an undone clear in one account that the
+    #: others never saw. Reported, never rewritten (the report of 2026-09-26).
+    ids_diverged: int = 0
+    #: The first few: `{"session", "ids": {id: copies}, "newest"}`.
+    diverged: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
             "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned",
-            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by")}
+            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by",
+            "settings_synced", "ids_diverged", "diverged")}
 
     @property
     def changed(self) -> bool:
         return any((self.added, self.repaired, self.revived, self.pruned,
-                    self.flag_synced, self.retitled, self.transcript_retitled))
+                    self.flag_synced, self.retitled, self.transcript_retitled,
+                    self.settings_synced))
 
     @property
     def summary(self) -> str:
         return (f"added {self.added}, repaired {self.repaired}, revived {self.revived}, "
                 f"pruned {self.pruned}, flag-synced {self.flag_synced}, "
-                f"retitled {self.retitled}, t-retitled {self.transcript_retitled}"
-                + (f", flags held {self.flags_held}" if self.flags_held else ""))
+                f"retitled {self.retitled}, t-retitled {self.transcript_retitled}, "
+                f"settings-synced {self.settings_synced}"
+                + (f", flags held {self.flags_held}" if self.flags_held else "")
+                + (f", ids diverged {self.ids_diverged}" if self.ids_diverged else ""))
 
 
 @dataclass
@@ -596,6 +656,9 @@ class Options:
     dead_home: str = ""
     exclude: tuple[str, ...] = ()
     flag_sync: bool = True
+    #: Bring every copy's model, effort and place to one value (runs with
+    #: flag sync, in the same all-or-nothing publish).
+    settings_sync: bool = True
     restore: bool = True
     archive: str = ""
     ultracode_default: bool = True
@@ -620,7 +683,8 @@ def options_from(policy: dict[str, Any], **overrides: Any) -> Options:
     settings = policy.get("sessions", {})
     config = load_config()
     values: dict[str, Any] = {
-        "ultracode_default": bool(settings.get("mirror_ultracode_default", True))}
+        "ultracode_default": bool(settings.get("mirror_ultracode_default", True)),
+        "settings_sync": bool(settings.get("mirror_settings_sync", True))}
     if isinstance(config.get("dead_home"), str):
         values["dead_home"] = config["dead_home"]
     if isinstance(config.get("archive"), str):
@@ -662,6 +726,138 @@ def _short(account: str, org: str) -> str:
 def _rank(data: dict) -> Any:
     return (data.get("lastActivityAt") or data.get("lastFocusedAt")
             or data.get("createdAt") or 0)
+
+
+def _rank_ms(data: dict) -> int:
+    """`_rank` as a number: epoch milliseconds, 0 when it is not one."""
+    value = _rank(data)
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def _unit_value(data: dict, fields: tuple[str, ...]) -> dict[str, Any]:
+    """A unit's fields as the record holds them: absent fields stay absent."""
+    return {key: data[key] for key in fields if key in data}
+
+
+def _unit_digest(value: dict[str, Any]) -> str:
+    """A unit value's identity in the settings base."""
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                      default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class SettingCopy:
+    """One copy's value of one settings unit, as the decision reads it."""
+
+    digest: str
+    rank: int          # `_rank`, epoch ms
+    mtime_ms: int      # the file's mtime: the app's last write (the mirror keeps it)
+
+
+def decide_setting(copies: list[SettingCopy], base: dict[str, Any] | None, *,
+                   ran: Callable[[str], bool] | None = None) -> tuple[str, str]:
+    """The digest every copy of one unit should hold, and which rule chose it.
+
+    `copies` are in path order. `base` is the unit's settings base: `v` (the
+    value last decided, if any), `seen` (the digests of every value a
+    deciding pass read or displaced) and the session's `rank` (the greatest
+    rank that pass read). `ran`, given for the model when the session's
+    transcript can be read, says whether a value ever ran in it. In order:
+
+    * `agree`: every copy holds the same value;
+    * `later`: no value decided yet, and a value that never ran is held
+      only by copies the app wrote after the session's last activity
+      settled. A pick never raises `lastActivityAt`; a re-save from memory
+      writes a value that ran (or one picked earlier that never ran, which
+      is still a pick). The latest such write wins;
+    * `first`: no value decided yet. The most active copy wins (greatest
+      rank, then latest write, then path order);
+    * `new`: a value no pass has seen can only be a change the app made
+      since, a pick or a move; the most active copy holding one wins. The
+      app's stale memory can only hold a value some pass read;
+    * `activity`: a copy with activity since the base was decided wins, the
+      most active first;
+    * `base`: otherwise the base stands. A copy that differs without new
+      activity holds a value the app re-saved from memory older than the
+      mirror's write (or a pick of a value the session held before, which
+      spreads with the session's next activity).
+    """
+    if not copies:
+        raise ValueError("a unit is decided from at least one copy")
+
+    def best(indices: list[int], key) -> str:
+        top = indices[0]
+        for index in indices[1:]:
+            if key(copies[index]) > key(copies[top]):
+                top = index
+        return copies[top].digest
+
+    def activity(item: SettingCopy) -> tuple[int, int]:
+        return (item.rank, item.mtime_ms)
+
+    digests = {item.digest for item in copies}
+    if len(digests) == 1:
+        return copies[0].digest, "agree"
+    everyone = list(range(len(copies)))
+    decided = base.get("v") if base else None
+    if decided is None:
+        if ran is not None:
+            settled = max(item.rank for item in copies) + SETTLE_MS
+            holders: dict[str, list[int]] = {}
+            for index, item in enumerate(copies):
+                holders.setdefault(item.digest, []).append(index)
+            later = [index for index, item in enumerate(copies)
+                     if all(copies[other].mtime_ms > settled for other in holders[item.digest])
+                     and not ran(item.digest)]
+            if later:
+                return best(later, lambda item: item.mtime_ms), "later"
+        return best(everyone, activity), "first"
+    seen = set(base.get("seen") or ())
+    new = [index for index, item in enumerate(copies) if item.digest not in seen]
+    if new:
+        return best(new, activity), "new"
+    since = int(base.get("rank") or 0)
+    active = [index for index, item in enumerate(copies) if item.rank > since]
+    if active:
+        return best(active, activity), "activity"
+    return str(decided), "base"
+
+
+def _model_family(model: str) -> str:
+    """A model id without its context suffix: `claude-opus-4-7[1m]` ran as `claude-opus-4-7`."""
+    return re.sub(r"\[[^\]]*\]$", "", model.strip())
+
+
+def _seen_list(value: Any) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _remember(seen: list[str], digests: Iterable[str], keep: str | None) -> list[str]:
+    """`seen` with `digests` appended (oldest first), at most SEEN_LIMIT long;
+    `keep` (the decided value) is never the one dropped."""
+    merged = list(seen)
+    for digest in digests:
+        if digest not in merged:
+            merged.append(digest)
+    while len(merged) > SEEN_LIMIT:
+        drop = next(index for index, digest in enumerate(merged) if digest != keep)
+        del merged[drop]
+    return merged
+
+
+def _seen_ahead(settings: Any, displaced: dict[str, set[str]]) -> dict[str, Any]:
+    """A settings base with `displaced` added to each unit's `seen`, and
+    nothing else changed (the write-ahead before a publish)."""
+    record = dict(settings) if isinstance(settings, dict) else {}
+    units = dict(record.get("units")) if isinstance(record.get("units"), dict) else {}
+    for unit, digests in displaced.items():
+        entry = dict(units.get(unit)) if isinstance(units.get(unit), dict) else {}
+        entry["seen"] = _remember(_seen_list(entry.get("seen")), sorted(digests),
+                                  entry.get("v") if isinstance(entry.get("v"), str) else None)
+        units[unit] = entry
+    record["units"] = units
+    return record
 
 
 class _Journal:
@@ -1177,6 +1373,34 @@ class Mirror:
                     return title
         return None
 
+    @staticmethod
+    def transcript_models(path: Path | None) -> frozenset[str] | None:
+        """Every model an assistant message in the transcript ran on, without
+        a context suffix (`claude-opus-4-7[1m]` is `claude-opus-4-7`); None
+        when there is no transcript to read. Read only at a session's first
+        decision, when a model saved after the last activity must be told
+        from one that ran before."""
+        if path is None:
+            return None
+        found: set[str] = set()
+        try:
+            with path.open("r", encoding="utf-8", errors="ignore") as stream:
+                for line in stream:
+                    if '"assistant"' not in line or '"model"' not in line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    message = entry.get("message") if isinstance(entry, dict) else None
+                    model = message.get("model") if isinstance(message, dict) else None
+                    if entry.get("type") == "assistant" and isinstance(model, str) \
+                            and not model.startswith("<"):
+                        found.add(_model_family(model))
+        except OSError:
+            return None
+        return frozenset(found)
+
     # --- the inventory -------------------------------------------------------
 
     def _sweep_due(self) -> bool:
@@ -1575,6 +1799,99 @@ class Mirror:
             return True
         finally:
             temporary.unlink(missing_ok=True)
+    def _mtime_ms(self, path: Path, name: str) -> int:
+        """A copy's mtime in ms: the app's last write (every mirror write keeps it)."""
+        cached = self._entries.get(os.path.join(path, name))
+        try:
+            mtime_ns = cached[0][2] if cached is not None else os.stat(path / name).st_mtime_ns
+        except OSError:
+            return 0
+        return mtime_ns // 1_000_000
+
+    def _settle_settings(self, copies: list[tuple[Path, str, dict]], previous: Any,
+                         writable: Callable[[Path, str], dict],
+                         setting_dirty: set[tuple[Path, str]], *,
+                         transcript: Path | None = None,
+                         memo: dict[tuple[int, str], tuple[dict, str]] | None = None
+                         ) -> tuple[dict[str, Any], dict[str, set[str]], bool]:
+        """Decide one session's model, effort and place from every copy.
+
+        Marks each copy that differs for a write through `writable` and
+        `setting_dirty`, and returns the session's new settings base, the
+        values each unit's publish displaces (for the write-ahead), and
+        whether any copy is written. The base holds the session's `rank` (the
+        greatest this pass read) and, per unit, the decided value (`v`, its
+        digest, and `value`) and `seen`: every value a deciding pass read.
+        `memo` shares unit values across copies with one payload (equal
+        records are one object; 9.6k distinct among 217k on 2026-09-24), and
+        mtimes are read only for a session whose copies disagree.
+        """
+        ordered = sorted(copies, key=lambda item: (os.fspath(item[0]), item[1]))
+        old = previous if isinstance(previous, dict) else {}
+        old_units = old.get("units") if isinstance(old.get("units"), dict) else {}
+        ranks = [_rank_ms(data) for _path, _name, data in ordered]
+        memo = {} if memo is None else memo
+
+        def unit_of(data: dict, unit: str) -> tuple[dict, str]:
+            key = (id(data), unit)
+            if key not in memo:
+                value = _unit_value(data, SETTING_UNITS[unit])
+                memo[key] = (value, _unit_digest(value))
+            return memo[key]
+
+        columns = {unit: [unit_of(data, unit) for _path, _name, data in ordered]
+                   for unit in SETTING_UNITS}
+        if any(len({digest for _value, digest in column}) > 1 for column in columns.values()):
+            stamps = [self._mtime_ms(path, name) for path, name, _data in ordered]
+        else:
+            stamps = [0] * len(ordered)         # every unit agrees: nothing to order
+        units: dict[str, Any] = {}
+        displaced: dict[str, set[str]] = {}
+        wrote = False
+        ran_models: list[frozenset[str] | None] = []
+
+        def ran(values: list[dict], digests: list[str]) -> Callable[[str], bool]:
+            def check(digest: str) -> bool:
+                if not ran_models:
+                    ran_models.append(self.transcript_models(transcript))
+                models = ran_models[0]
+                model = values[digests.index(digest)].get("model")
+                if models is None or not isinstance(model, str):
+                    return True                 # no evidence it never ran: not a pick
+                return _model_family(model) in models
+            return check
+
+        for unit, fields in SETTING_UNITS.items():
+            values = [value for value, _digest in columns[unit]]
+            digests = [digest for _value, digest in columns[unit]]
+            prior = old_units.get(unit) if isinstance(old_units.get(unit), dict) else {}
+            seen = _seen_list(prior.get("seen"))
+            known = prior.get("v") if isinstance(prior.get("v"), str) else None
+            stored = prior.get("value") if isinstance(prior.get("value"), dict) else None
+            if known is not None and (stored is None or _unit_digest(stored) != known):
+                known = None                    # a base it cannot write back: start over
+            decided, _rule = decide_setting(
+                [SettingCopy(digest, rank, stamp)
+                 for digest, rank, stamp in zip(digests, ranks, stamps)],
+                {"v": known, "seen": seen, "rank": old.get("rank")} if known else None,
+                ran=ran(values, digests) if unit == PICK_EVIDENCE_UNIT else None)
+            value = values[digests.index(decided)] if decided in digests else stored
+            assert value is not None and _unit_digest(value) == decided
+            for (path, name, _data), digest in zip(ordered, digests):
+                if digest == decided:
+                    continue
+                target = writable(path, name)
+                for key in fields:
+                    if key in value:
+                        target[key] = json.loads(json.dumps(value[key]))
+                    else:
+                        target.pop(key, None)
+                setting_dirty.add((path, name))
+                wrote = True
+            displaced[unit] = {digest for digest in digests if digest != decided}
+            units[unit] = {"v": decided, "value": value,
+                           "seen": _remember(seen, [*digests, decided], decided)}
+        return {"rank": max(ranks, default=0), "units": units}, displaced, wrote
 
     def sync_flags(self, folder_files: dict[Path, dict[str, dict]],
                    stems: dict[str, Path], options: Options,
@@ -1618,6 +1935,14 @@ class Mirror:
         (the loaded one, or one where an earlier account's session still runs)
         can write back a value the mirror changed there, and the merge base
         reads that re-save as a user's change. See the 2026-09-24 report.
+
+        With `options.settings_sync`, the same pass brings every copy's model,
+        effort and place to one value (`_settle_settings`, `decide_setting`),
+        in the same publish: a copy it writes for a setting must also still
+        rank as the pass read it, so a copy that ran a turn since is never
+        overwritten with an older copy's values. A setting re-saved from
+        stale memory spreads only with new activity, never by itself. See
+        the 2026-09-26 report.
         """
         base_all = _load(self.flags_path)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
@@ -1643,6 +1968,14 @@ class Mirror:
         dirty: set[tuple[Path, str]] = set()
         originals: dict[tuple[Path, str], dict] = {}
         owners: dict[tuple[Path, str], str] = {}
+        #: Copies this pass writes a setting into: their rank is re-checked too.
+        setting_dirty: set[tuple[Path, str]] = set()
+        #: Per session and unit, the values its publish will displace. They
+        #: join the settings base's `seen` before any copy is written, so a
+        #: crash between the writes and the base cannot make a displaced value
+        #: read as new when the app's memory saves it back.
+        ahead: dict[str, dict[str, set[str]]] = {}
+        unit_memo: dict[tuple[int, str], tuple[dict, str]] = {}
 
         def writable(path: Path, name: str) -> dict:
             # Cached/interned snapshots are shared across accounts and passes.
@@ -1762,12 +2095,37 @@ class Mirror:
                 record["ttitle"] = anchor
             if stamp is not None:
                 record["tmt"] = stamp
+            previous = base_all.get(identity, {}).get("settings")
+            if options.settings_sync:
+                settled, displaced, wrote = self._settle_settings(
+                    copies, previous, writable, setting_dirty,
+                    transcript=stems.get(identity), memo=unit_memo)
+                record["settings"] = settled
+                if any(displaced.values()):
+                    ahead[identity] = displaced
+                if wrote:
+                    current.settings_synced += 1
+            elif isinstance(previous, dict):
+                record["settings"] = previous           # switched off: kept, not dropped
             fresh[identity] = record
 
         if not options.dry_run:
             # Once writes start, finish the matching merge base. Cancellation
             # inside this batch could mistake our partial writes for user edits.
             self._checkpoint(current, "publishing flags")
+            if ahead:
+                # Write-ahead: what the writes displace is marked seen first.
+                # Only `seen` grows; every decided value and flag keeps its base.
+                # A session with no base yet gets a record holding only
+                # `settings.units.<unit>.seen`: every flag reader and the
+                # settings rule read that as no base (no flag keys, no `v`).
+                # A session held below keeps this base, `seen` included.
+                for identity, displaced in ahead.items():
+                    known = dict(base_all.get(identity) or {})
+                    known["settings"] = _seen_ahead(known.get("settings"), displaced)
+                    base_all[identity] = known
+                self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+                _write_json(self.flags_path, base_all, sync=True)
             held: set[str] = set()
             batches: dict[str, list[tuple[Path, str]]] = {}
             for path, name in sorted(dirty, key=lambda item: (str(item[0]), item[1])):
@@ -1782,11 +2140,20 @@ class Mirror:
                         continue
                     target = path / name
                     self._invalidate_folder(path)
+                    # Only a copy getting a setting write is checked and patched
+                    # on the settings; a flag-only write keeps the fresh read's.
+                    settings = (path, name) in setting_dirty
                     try:
                         expect = _signature_of(target)
                         body = _load(target, strict=True)
                         if (_signature_of(target) != expect
-                                or any(body.get(key) != original.get(key) for key in FLAG_FIELDS)):
+                                or any(body.get(key) != original.get(key) for key in FLAG_FIELDS)
+                                or (settings and any(
+                                    body.get(key, _ABSENT) != original.get(key, _ABSENT)
+                                    for key in SETTING_FIELDS))
+                                # A copy that ran a turn since the read may now
+                                # be the newest: never write older values over it.
+                                or (settings and _rank(body) != _rank(original))):
                             break                   # moved under us; decide next pass
                     except (OSError, ValueError):
                         break
@@ -1794,6 +2161,12 @@ class Mirror:
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
+                    for key in SETTING_FIELDS if settings else ():
+                        # Unchanged fields write back what the check just saw.
+                        if key in resolved:
+                            body[key] = resolved[key]
+                        else:
+                            body.pop(key, None)
                     ready.append((target, body, before, resolved, expect))
                 else:
                     written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
@@ -2054,6 +2427,7 @@ class Mirror:
         self._drop_folders(folders)
         folders = [item for item in folders if item[2] in folder_files]
         self._inventoried = True
+        self._report_diverged_ids(folder_files, current)
         by_name: dict[str, dict[Path, dict]] = {}
         if options.prune:
             for path, files in folder_files.items():
@@ -2158,6 +2532,41 @@ class Mirror:
         self._stems = stems
         if sweep:
             self._last_sweep = time.monotonic()
+
+    @staticmethod
+    def _report_diverged_ids(folder_files: dict[Path, dict[str, dict]], current: Pass) -> None:
+        """Count session files whose copies hold different conversation ids.
+
+        The app changes `cliSessionId` in the account where a `/clear`, a
+        rewind or an undone clear happens, and nowhere else; opening another
+        account's copy resumes the conversation from before. The mirror groups
+        copies by that id, so it never converges them. It reports them rather
+        than rewrite the id: `priorCliSessionIds` does not order them (an
+        undone clear puts the newer id into it, and a resume that finds no
+        conversation drops the old id without recording it; bundle 2.9939.2).
+        """
+        by_session: dict[str, dict[str, list[tuple[int, bool]]]] = {}
+        for _path, files in folder_files.items():
+            for name, data in files.items():
+                identity = data.get("cliSessionId") or ""
+                if not identity:
+                    continue
+                session = str(data.get("sessionId") or name.removesuffix(".json"))
+                by_session.setdefault(session, {}).setdefault(identity, []).append(
+                    (_rank_ms(data), bool(data.get("isArchived"))))
+        diverged = []
+        for session, ids in by_session.items():
+            if len(ids) < 2:
+                continue
+            newest = max(ids, key=lambda identity: (max(rank for rank, _a in ids[identity]),
+                                                    identity))
+            archived = all(flag for rank, flag in ids[newest]
+                           if rank == max(r for r, _a in ids[newest]))
+            diverged.append({"session": session, "newest": newest, "archived": archived,
+                             "ids": {identity: len(held) for identity, held in sorted(ids.items())}})
+        current.ids_diverged = len(diverged)
+        diverged.sort(key=lambda item: (item["archived"], item["session"]))
+        current.diverged = diverged[:HELD_BY_LIMIT] or None
 
     def _flag_inventory(self, current: Pass, options: Options):
         """Refresh a full flag snapshot after embedded hot writes."""
@@ -2541,6 +2950,8 @@ class Mirror:
             return {"status": "healthy", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1), "run_min": None, "flags_held": held,
                     "held_by": causes,
+                    "ids_diverged": int(record.get("ids_diverged") or 0),
+                    "diverged": record.get("diverged") or [],
                     "detail": f"last pass {age_min:.1f} min ago: "
                               f"{record.get('added', 0)} added, "
                               f"{record.get('repaired', 0)} repaired"
