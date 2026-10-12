@@ -74,10 +74,12 @@ def marked_pids(token: str) -> list[int]:
     return pids
 
 
-def _kill_marked(token: str) -> None:
+def _kill_marked(token: str, own: int | None = None) -> None:
     """Kill every process carrying `token` and wait, at most DRAIN_TIMEOUT_S,
     until each is gone: a killed descendant that launchd adopted is reaped by
-    launchd, not by us, so it can still answer `kill(pid, 0)` for a moment."""
+    launchd, not by us, so it can still answer `kill(pid, 0)` for a moment.
+    `own` is our own child, the compiler: it is killed but not waited for here,
+    because it stays a zombie until we reap it, which the caller does next."""
     pids = marked_pids(token)
     for pid in pids:
         try:
@@ -86,6 +88,8 @@ def _kill_marked(token: str) -> None:
             pass
     deadline = time.monotonic() + DRAIN_TIMEOUT_S
     for pid in pids:
+        if pid == own:
+            continue
         while time.monotonic() < deadline:
             try:
                 os.kill(pid, 0)
@@ -96,16 +100,40 @@ def _kill_marked(token: str) -> None:
 
 def _end_build(group: int, token: str) -> None:
     """Kill what is left of a build: its process group, then every process
-    carrying its marker. Never raises an ordinary exception, so a failed scan
-    cannot skip the drain that follows or replace the exception that brought
-    us here. The group id is the compiler's pid; it is killed right after the
-    compiler is reaped, before that number can name another group."""
+    carrying its marker. Never raises an ordinary exception, so a failed kill
+    or scan cannot skip the rest of the cleanup or replace the exception that
+    brought us here. The group id is the compiler's pid. While any member of
+    the build's group lives, the kernel will not hand that number out as a new
+    process or group id. Once the group is empty, reusing the number would
+    need the pid space to wrap between the compiler being reaped and this
+    kill, which this narrows but does not rule out."""
     try:
         os.killpg(group, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    except OSError:
         pass
     try:
-        _kill_marked(token)
+        _kill_marked(token, own=group)
+    except Exception:
+        pass
+
+
+def _drain(compiler: subprocess.Popen) -> None:
+    """Reap a build that was killed, waiting at most DRAIN_TIMEOUT_S for its
+    pipes and then at most DRAIN_TIMEOUT_S for the process. Never raises an
+    ordinary exception: the caller is already handling the one that matters."""
+    try:
+        compiler.communicate(timeout=DRAIN_TIMEOUT_S)
+        return
+    except Exception:
+        pass
+    for pipe in (compiler.stdout, compiler.stderr):
+        try:
+            if pipe:
+                pipe.close()
+        except Exception:
+            pass
+    try:
+        compiler.wait(timeout=DRAIN_TIMEOUT_S)
     except Exception:
         pass
 
@@ -116,22 +144,16 @@ def run_swift(command: list[str], *, timeout: int) -> subprocess.CompletedProces
     build's marker. On an abnormal end, reap it, waiting at most
     DRAIN_TIMEOUT_S for its pipes."""
     token = uuid.uuid4().hex
+    # errors="replace": a compiler or a child that writes bytes that are not
+    # UTF-8 must not turn reading its output into a UnicodeDecodeError.
     compiler = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True, env={**os.environ, RUN_MARKER: token})
+                                errors="replace", start_new_session=True,
+                                env={**os.environ, RUN_MARKER: token})
     try:
         output, errors = compiler.communicate(timeout=timeout)
     except BaseException:
         _end_build(compiler.pid, token)
-        try:
-            compiler.communicate(timeout=DRAIN_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            for pipe in (compiler.stdout, compiler.stderr):
-                if pipe:
-                    pipe.close()
-            try:
-                compiler.wait(timeout=DRAIN_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                pass
+        _drain(compiler)
         raise
     _end_build(compiler.pid, token)  # a child may outlive a compiler that exited by itself
     return subprocess.CompletedProcess(command, compiler.returncode, output, errors)

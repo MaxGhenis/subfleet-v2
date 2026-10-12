@@ -122,3 +122,44 @@ def test_a_normal_exit_still_kills_the_build_group(tmp_path):
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+
+def test_undecodable_output_cannot_replace_the_timeout():
+    """Review r4 delta: a child that writes b'\\xff' and hangs still ends in TimeoutExpired."""
+    code = "import sys, time; sys.stdout.buffer.write(b'\\xff'); sys.stdout.flush(); time.sleep(30)"
+    with pytest.raises(subprocess.TimeoutExpired):
+        swift.run_swift([sys.executable, "-c", code], timeout=1)
+
+
+def test_a_failing_group_kill_cannot_replace_the_timeout(monkeypatch):
+    """Review r4 delta: an OSError from killpg must not skip the scan and drain or
+    replace the timeout; the marker sweep still ends the build."""
+    import errno
+
+    def broken_killpg(group, sig):
+        raise OSError(errno.EIO, "injected")
+
+    monkeypatch.setattr(swift.os, "killpg", broken_killpg)
+    began = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        swift.run_swift([sys.executable, "-c", "import time; time.sleep(30)"], timeout=1)
+    assert time.monotonic() - began < 20
+
+
+def test_an_interrupt_survives_a_failing_drain(monkeypatch):
+    """Review r4 delta: a KeyboardInterrupt during the build is what propagates,
+    even when the cleanup's drain itself fails."""
+    real_popen = subprocess.Popen
+
+    class Interrupted(real_popen):
+        calls = 0
+
+        def communicate(self, *args, **kwargs):
+            Interrupted.calls += 1
+            if Interrupted.calls == 1:
+                raise KeyboardInterrupt
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "injected")
+
+    monkeypatch.setattr(subprocess, "Popen", Interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        swift.run_swift([sys.executable, "-c", "import time; time.sleep(30)"], timeout=30)
