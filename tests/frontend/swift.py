@@ -32,21 +32,39 @@ def app_sources() -> list[Path]:
 #: Every process a build starts inherits this variable with a value unique to
 #: that build, so cleanup can find a descendant that left the build's process
 #: group and was adopted by launchd (a swift-frontend outlived its build that
-#: way on 2026-10-12, D-SW1).
+#: way on 2026-10-12, D-SW1). This relies on inheritance: a descendant that
+#: replaces its environment wholesale (`env -i`, `execve` with a fresh
+#: environment) and also leaves the build's group is not found. The Swift
+#: toolchain's children inherit their environment, which is the scope here.
 RUN_MARKER = "SUBFLEET_SWIFT_RUN"
-#: How long cleanup waits for a killed build's pipes to close.
+#: How long cleanup waits for a killed build's pipes to close, and for each
+#: killed process to be gone.
 DRAIN_TIMEOUT_S = 30
-
+#: How long the cleanup's own `ps` may take before it is killed and skipped.
+SCAN_TIMEOUT_S = 10
 
 #: The real Popen, kept so the cleanup's own `ps` is never a test's patched one.
 _POPEN = subprocess.Popen
 
 
 def marked_pids(token: str) -> list[int]:
-    """The pids of this user's processes whose environment carries `token`."""
-    with _POPEN(["/bin/ps", "-axEww", "-o", "pid=,command="], stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True) as ps:
-        listing, _ = ps.communicate(timeout=10)
+    """The pids of this user's processes whose environment carries `token`.
+    Bounded: a `ps` that does not finish in SCAN_TIMEOUT_S is killed, reaped
+    for at most SCAN_TIMEOUT_S more, and the scan finds nothing."""
+    try:
+        ps = _POPEN(["/bin/ps", "-axEww", "-o", "pid=,command="], stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, text=True)
+    except OSError:
+        return []
+    try:
+        listing, _ = ps.communicate(timeout=SCAN_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        ps.kill()
+        try:
+            ps.communicate(timeout=SCAN_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            pass
+        return []
     needle = f"{RUN_MARKER}={token}"
     pids = []
     for line in listing.splitlines():
@@ -76,30 +94,46 @@ def _kill_marked(token: str) -> None:
             time.sleep(0.01)
 
 
+def _end_build(group: int, token: str) -> None:
+    """Kill what is left of a build: its process group, then every process
+    carrying its marker. Never raises an ordinary exception, so a failed scan
+    cannot skip the drain that follows or replace the exception that brought
+    us here. The group id is the compiler's pid; it is killed right after the
+    compiler is reaped, before that number can name another group."""
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        _kill_marked(token)
+    except Exception:
+        pass
+
+
 def run_swift(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
-    """Run a compiler or app/build.sh. On timeout or any other exit, kill its
-    group and every process carrying this build's marker, then reap it, waiting
-    at most DRAIN_TIMEOUT_S for its pipes."""
+    """Run a compiler or app/build.sh. However it ends (by itself, on timeout,
+    or on any other exception), kill its group and every process carrying this
+    build's marker. On an abnormal end, reap it, waiting at most
+    DRAIN_TIMEOUT_S for its pipes."""
     token = uuid.uuid4().hex
     compiler = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 start_new_session=True, env={**os.environ, RUN_MARKER: token})
     try:
         output, errors = compiler.communicate(timeout=timeout)
     except BaseException:
-        try:
-            os.killpg(compiler.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        _kill_marked(token)
+        _end_build(compiler.pid, token)
         try:
             compiler.communicate(timeout=DRAIN_TIMEOUT_S)
         except subprocess.TimeoutExpired:
             for pipe in (compiler.stdout, compiler.stderr):
                 if pipe:
                     pipe.close()
-            compiler.wait(timeout=DRAIN_TIMEOUT_S)
+            try:
+                compiler.wait(timeout=DRAIN_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                pass
         raise
-    _kill_marked(token)             # a child may outlive a compiler that exited by itself
+    _end_build(compiler.pid, token)  # a child may outlive a compiler that exited by itself
     return subprocess.CompletedProcess(command, compiler.returncode, output, errors)
 
 

@@ -63,3 +63,62 @@ def test_compiler_timeout_does_not_leave_a_child_in_its_own_group(tmp_path, monk
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=5)
+
+
+def _gone_within(pid, seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_a_hung_scan_cannot_hang_cleanup(monkeypatch):
+    """Review r3 delta: a `ps` that never finishes is killed and skipped, within bounds."""
+    started = []
+
+    def slow_ps(argv, **kwargs):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(swift, "_POPEN", slow_ps)
+    monkeypatch.setattr(swift, "SCAN_TIMEOUT_S", 0.5)
+    began = time.monotonic()
+    try:
+        assert swift.marked_pids("0" * 32) == []
+        assert time.monotonic() - began < 5
+        assert started and started[0].poll() is not None      # the scan was killed and reaped
+    finally:
+        for process in started:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=5)
+
+
+def test_a_normal_exit_still_kills_the_build_group(tmp_path):
+    """Review r3 delta: a child that dropped the marker but stayed in the build's
+    group does not outlive a compiler that exited by itself."""
+    ready = tmp_path / "child.pid"
+    child = f"import os, pathlib, time; pathlib.Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(30)"
+    parent = ("import subprocess, sys, time, pathlib; "
+              f"subprocess.Popen([sys.executable, '-c', {child!r}], env={{}}, "
+              "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+              f"p = pathlib.Path({str(ready)!r})\n"
+              "deadline = time.monotonic() + 20\n"
+              "while not p.exists() and time.monotonic() < deadline: time.sleep(0.01)")
+    pid = None
+    try:
+        result = swift.run_swift([sys.executable, "-c", parent], timeout=30)
+        assert result.returncode == 0
+        pid = int(ready.read_text())
+        assert _gone_within(pid, 5), f"run_swift left its group's child {pid} alive"
+    finally:
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
