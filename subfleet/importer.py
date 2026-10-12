@@ -75,6 +75,7 @@ from .actions import reset_credit_op_keys
 from .conversations import legacy
 from .conversations.store import ConversationError, ConversationStore
 from .contracts import READING_TTL_S, WINDOW_KEYS
+from .home_paths import home_path
 from .policy import DEFAULT_POLICY_PATH
 from .store import Store, utc_now
 
@@ -2031,9 +2032,12 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
     `~/.claude/projects`, or `$SUBFLEET_CLAUDE_DIR/projects`).
     """
     state_root = Path(state_root).expanduser()
-    v1_state = Path(v1_state).expanduser()
-    delegate_state = Path(delegate_state).expanduser()
-    roster_dir = Path(roster_dir).expanduser()
+    v1_state = Path(home_path("SUBFLEET_V1_STATE", lambda: V1_STATE, test_only=True)
+                    if v1_state is V1_STATE else v1_state).expanduser()
+    delegate_state = Path(home_path("SUBFLEET_DELEGATE_STATE", lambda: DELEGATE_STATE, test_only=True)
+                          if delegate_state is DELEGATE_STATE else delegate_state).expanduser()
+    roster_dir = Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)
+                      if roster_dir is V1_ROSTER_DIR else roster_dir).expanduser()
     from .home_paths import provider_home
     home = Path(home).expanduser() if home is not None else provider_home()
     now = now or utc_now()
@@ -2161,7 +2165,8 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     either way.
     """
     state_root = Path(state_root).expanduser()
-    v1_state = Path(v1_state).expanduser()
+    v1_state = Path(home_path("SUBFLEET_V1_STATE", lambda: V1_STATE, test_only=True)
+                    if v1_state is V1_STATE else v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
     v1_ok = _is_v1_state(v1_state, state_root)
     if _looks_like_v1_root(state_root):
@@ -2210,9 +2215,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="subfleet.importer",
                                      description="import v1 state per docs/migration.md")
     parser.add_argument("--state-root", default=None)
-    parser.add_argument("--v1-state", default=str(V1_STATE))
-    parser.add_argument("--delegate-state", default=str(DELEGATE_STATE))
-    parser.add_argument("--roster-dir", default=str(V1_ROSTER_DIR))
+    # Keep the captured Path objects so omitted arguments use the guarded
+    # defaults; an explicitly supplied path keeps its historical precedence.
+    parser.add_argument("--v1-state", default=V1_STATE)
+    parser.add_argument("--delegate-state", default=DELEGATE_STATE)
+    parser.add_argument("--roster-dir", default=V1_ROSTER_DIR)
     parser.add_argument("--home", default=None,
                         help="where ~/.codex-<n> and ~/.claude.json live (default: $HOME)")
     parser.add_argument("--milestone", type=int, default=DEFAULT_MILESTONE)

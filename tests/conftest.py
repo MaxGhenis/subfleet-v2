@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from subfleet.home_paths import PYTEST_MARKER, SAFE_HOME_PATHS
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
@@ -24,21 +25,8 @@ TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "claude"
 FAKE_CLAUDE = TESTS / "bin" / "claude"
 
-# C-23.28: these process-wide values survive a test's monkeypatch.undo().
-# Fixed production paths get test-only seams; existing overrides retain theirs.
-SAFE_HOME_PATHS = {
-    "SUBFLEET_SESSION_STORE": "claude-code-sessions",
-    "SUBFLEET_DESKTOP_LOG": "logs/main.log",
-    "SUBFLEET_CLAUDE_DIR": "claude",
-    "SUBFLEET_HOME": "state",
-    "CLAUDE_CONFIG_DIR": "claude-config",
-    "SUBFLEET_CLAUDE_SETTINGS": "claude/settings.json",
-    "SUBFLEET_CODEX_APP_HOME": "codex",
-    "SUBFLEET_DESKTOP_LOGIN": "claude.json",
-    "SUBFLEET_PROVIDER_HOME": "providers",
-}
 
-
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
     """Install safe baselines before collection, independently of monkeypatch.
 
@@ -46,6 +34,7 @@ def pytest_configure(config):
     to the real desktop store. Never restore the developer's environment during
     this pytest process, including when individual tests undo their patches.
     """
+    os.environ[PYTEST_MARKER] = "1"
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
     config._subfleet_safe_home_base = base
     os.environ.update({name: str(base / relative)
