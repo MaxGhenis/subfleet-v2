@@ -138,7 +138,7 @@ def test_foreign_exclusion_keeps_owned_writers_and_never_signals_parent(state_da
     signals = []
     monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kwargs:
                         signals.append(("group", pgid)) or True)
-    monkeypatch.setattr(procs, "signal_process", lambda identity, sig:
+    monkeypatch.setattr(procs, "signal_process", lambda identity, sig, **kwargs:
                         signals.append(("pid", identity.pid)) or True)
     daemon.term_grace_s = daemon.kill_settle_s = 0
     before = {lease["lease_key"] for lease in daemon.store.list_leases()

@@ -70,7 +70,7 @@ def test_late_child_receipt_blocks_signals_after_startup_import(
 
 
 @pytest.mark.parametrize("foreign_claim", [False, True])
-def test_partial_table_keeps_group_protocol_only_without_competing_claims(
+def test_partial_table_delivers_individually_without_competing_claims(
         state_daemon, monkeypatch, foreign_claim):
     daemon, harness = state_daemon
     ours, _ = running(daemon, harness, 200, 201)
@@ -100,7 +100,10 @@ def test_partial_table_keeps_group_protocol_only_without_competing_claims(
     if foreign_claim:
         assert not groups and 202 not in delivered
     else:
-        assert groups == [15, 9] and 202 in delivered
+        assert not groups and 202 in delivered
+        # Preserve TERM-before-KILL for all initial owned members; delivery
+        # must not widen to members that join after this census.
+        assert all(pid in delivered for pid in (200, 201, 202))
 
 
 def test_ambiguous_guardian_does_not_authenticate_new_ownership(state_daemon, monkeypatch):

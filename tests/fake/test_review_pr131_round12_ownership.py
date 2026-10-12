@@ -76,7 +76,7 @@ def test_collision_order_and_reboot_preserve_signal_and_lease(
                         pid in rows and rows[pid][3] == start and boot == NEXT_BOOT)
     sent = []
     monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-    monkeypatch.setattr(procs, "signal_process", lambda known, sig:
+    monkeypatch.setattr(procs, "signal_process", lambda known, sig, **kwargs:
                         sent.append(known) or True)
     daemon.term_grace_s = daemon.kill_settle_s = 0
     daemon._kill_attempt(ours)
@@ -121,7 +121,7 @@ def test_guardian_exit_after_table_snapshot_keeps_collision_without_signal(
                         pid in rows and rows[pid][3] == start and boot == BOOT)
     sent = []
     monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-    monkeypatch.setattr(procs, "signal_process", lambda known, sig:
+    monkeypatch.setattr(procs, "signal_process", lambda known, sig, **kwargs:
                         sent.append(known.pid) or True)
     daemon.term_grace_s = daemon.kill_settle_s = 0
     daemon._kill_attempt(ours)
@@ -170,7 +170,7 @@ def test_reused_foreign_launch_pid_does_not_release_or_skip_local_writer(
         monkeypatch.setattr(procs, "same_process", lambda pid, boot, start:
                             pid in rows and rows[pid][3] == start and boot == BOOT)
         monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-        monkeypatch.setattr(procs, "signal_process", lambda known, sig:
+        monkeypatch.setattr(procs, "signal_process", lambda known, sig, **kwargs:
                             sent.append(known.pid) or True)
         daemon.term_grace_s = daemon.kill_settle_s = 0
         daemon._kill_attempt(ours)

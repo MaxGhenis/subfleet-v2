@@ -249,8 +249,36 @@ def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
 
 def reserve(daemon, harness, **submit_overrides):
     job_id = daemon.dispatch("submit", harness.submit_args(**submit_overrides))["job_id"]
-    daemon._admit()
-    attempt = daemon.store.list_attempts(job_id)[-1]
+    # Admission may legitimately defer a real Git check. Submit once and keep
+    # retrying that job, with a fixture clock rather than sleeping on host load.
+    from datetime import datetime, timedelta
+    real_now = daemon_module.utcnow
+    fixture_now = datetime.fromisoformat(real_now().replace("Z", "+00:00"))
+    with pytest.MonkeyPatch.context() as clock:
+        clock.setattr(daemon_module, "utcnow", lambda: fixture_now.isoformat(timespec="seconds").replace("+00:00", "Z"))
+        for retry in range(4):
+            daemon._admit()
+            attempts = daemon.store.list_attempts(job_id)
+            if attempts:
+                attempt = attempts[-1]
+                break
+            job = daemon.store.get_job(job_id)
+            hold = daemon._holds.get(job_id)
+            diagnostic = {"job": job, "hold": hold, "leases": daemon.store.list_leases(),
+                          "readings": daemon.store.latest_reading_candidates()}
+            if (job["state"] != "waiting" or job["wait_reason"] != "workspace"
+                    or not job["next_check_at"] or retry == 3):
+                raise AssertionError("fixture reservation was not admitted: " + json.dumps(diagnostic, default=str))
+            fixture_now = datetime.fromisoformat(job["next_check_at"].replace("Z", "+00:00")) + timedelta(seconds=1)
+            # Fixture capacity must remain measured at the advanced instant.
+            # Preserve every reading's actual label/value; never bypass route
+            # checks or refresh unrelated/stale production measurements.
+            for reading in daemon.store.latest_reading_candidates():
+                if reading["source"] == "fixture":
+                    with daemon.store.transaction("fixture.capacity_clock", audit=False) as tx:
+                        tx.execute("UPDATE readings SET observed_at=?,resets_at=? WHERE reading_id=?",
+                                   (daemon_module.utcnow(), (fixture_now + timedelta(hours=1)).isoformat(timespec="seconds").replace("+00:00", "Z"), reading["reading_id"]))
+
     daemon._pending_launches.discard(attempt["attempt_id"])
     adir = daemon.root / "jobs" / job_id / f"a{attempt['seq']}"
     adir.mkdir(mode=0o700)

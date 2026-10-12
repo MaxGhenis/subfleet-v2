@@ -179,7 +179,7 @@ def test_r13_finding_dead_lineage_roots_do_not_turn_a_long_successful_run_lost(s
 def _record_signals(monkeypatch):
     sent = []
     monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kw: sent.append(("group", pgid, int(sig))) or False)
-    monkeypatch.setattr(procs, "signal_process", lambda ident, sig: sent.append(("pid", ident.pid, int(sig))) or False)
+    monkeypatch.setattr(procs, "signal_process", lambda ident, sig, **kwargs: sent.append(("pid", ident.pid, int(sig))) or False)
     return sent
 
 

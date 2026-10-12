@@ -45,7 +45,7 @@ def test_observed_detached_lineage_and_group_survive_parent_exit(state_daemon, m
         monkeypatch.setattr(procs, "same_process", lambda *args: True)
         monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
         signals = []
-        monkeypatch.setattr(procs, "signal_process", lambda identity, sig: signals.append(identity.pid))
+        monkeypatch.setattr(procs, "signal_process", lambda identity, sig, **kwargs: signals.append(identity.pid))
         daemon._kill_attempt(a)
         assert not {200, 201}.intersection(signals), "lineage is not signal authority"
     else:
@@ -232,7 +232,7 @@ def test_probe_saved_groups_never_grant_signal_authority(state_daemon, monkeypat
     monkeypatch.setattr(procs, "same_process", lambda *args: True)
     monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
     signalled = []
-    monkeypatch.setattr(procs, "signal_process", lambda identity, sig: signalled.append(identity.pid))
+    monkeypatch.setattr(procs, "signal_process", lambda identity, sig, **kwargs: signalled.append(identity.pid))
     daemon.term_grace_s = 0
     assert not daemon._contain_probe(record)
     assert 200 not in signalled and "200" not in record["owned_identities"]

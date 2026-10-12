@@ -338,12 +338,25 @@ class ProcessWorldMachine(RuleBasedStateMachine):
             self.setup_prepared_world()
             return
         self.directory = tempfile.TemporaryDirectory(prefix="sf-process-world-", dir=os.environ["TMPDIR"])
-        # This model has no power-loss invariant. Omit only fixture setup's
-        # file durability waits; real content and SQL commits remain exercised.
-        with fixture_io(self.patch):
-            self.setup_world()
-        if prepared:
-            PREPARED_WORLD = self.prepared = PreparedWorld(self)
+        try:
+            # This model has no power-loss invariant. Omit only fixture setup's
+            # file durability waits; real content and SQL commits remain exercised.
+            with fixture_io(self.patch):
+                self.setup_world()
+            if prepared:
+                PREPARED_WORLD = self.prepared = PreparedWorld(self)
+        except BaseException:
+            try:
+                try:
+                    if hasattr(self, "daemon"):
+                        self.daemon.close()
+                finally:
+                    if hasattr(self, "fixture"):
+                        self.fixture.close()
+            finally:
+                self.patch.undo()
+                self.directory.cleanup()
+            raise
 
     @staticmethod
     def close_pool():
