@@ -396,7 +396,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": ""
+      "notes": "2026-10-12 (PR 62, rebased onto the line's Allow once delegate): a click, or Allow once, opens the main window on the notification's conversation, an approval's at its oldest pending card while one is pending; a response before the first list and feed baseline waits for it and yields to the person's own navigation or a conversation they start; one arriving while the app is frontmost shows unless its conversation is focused (tests/frontend/test_core_notifications.py: NotificationTarget and NotificationClicks, through the daemon's feed, in examples and over generated notifications and click sequences). Not verified outside the installed app: the delegate set before launch ends (SubfleetApp.swift, UINotifications.swift), UIModel's wiring of NotificationClicks (show, openClicked, handleNotification, the end of connect) and the approval sheet closing when a click replaces the conversation (UIWindow.swift)."
     },
     {
       "id": "R-1",

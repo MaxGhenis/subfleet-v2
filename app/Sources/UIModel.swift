@@ -83,9 +83,14 @@ final class UIModel: ObservableObject {
     private var availabilityChecks = 0
     /// What `lostDaemon` put in the status line, cleared when the daemon is back.
     private var lostProblem: String?
-    private lazy var notificationDelegate = ApprovalNotificationDelegate { [weak self] action, userInfo in
-        self?.handleNotification(action: action, userInfo: userInfo)
-    }
+    private lazy var notificationDelegate = ApprovalNotificationDelegate(
+        receive: { [weak self] action, requestID, userInfo in
+            self?.handleNotification(action: action, requestID: requestID, userInfo: userInfo)
+        },
+        present: { [weak self] requestID, userInfo in
+            self?.showsWhileFrontmost(requestID: requestID, userInfo: userInfo) ?? true
+        })
+    private var notificationsRegistered = false
 
     init(paths: AppPaths = .standard(), client: DaemonCalling? = nil, defaults: UserDefaults = .standard,
          state initialState: ConversationStoreState = ConversationStoreState()) {
@@ -132,7 +137,7 @@ final class UIModel: ObservableObject {
     func start() {
         guard !started, engine != nil else { return }
         started = true
-        notificationDelegate.register()
+        registerNotifications()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -166,13 +171,16 @@ final class UIModel: ObservableObject {
         state = baseline
         state.watchBaselined = true
         startWatchLoop()
+        // A notification clicked before now (the click that launched the app).
+        let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if !newDraft.isPresented,
+        } else if clicked == nil, !newDraft.isPresented,
                   let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
             // A launch that names a conversation opens it (notifications and links reuse this).
             focus(requested)
         }
+        if let clicked { openClicked(clicked) }
     }
 
     func refreshList() async {
@@ -405,6 +413,54 @@ final class UIModel: ObservableObject {
         if let found = try? await onOutbox({ try engine.runs(conversationID: conversationID) }), runs[conversationID] != found {
             runs[conversationID] = found
         }
+    }
+
+    // MARK: Notifications
+
+    /// Clicks, one held until `connect` has its baseline.
+    private var clicks = NotificationClicks()
+
+    /// Makes the model's delegate the notification center's, with its Allow once
+    /// action. The app delegate calls this before launch ends, as the system
+    /// requires for the click that launched the app to be delivered (C-29.9);
+    /// `start` calls it too, and it acts once.
+    func registerNotifications() {
+        guard !notificationsRegistered else { return }
+        notificationsRegistered = true
+        notificationDelegate.register()
+    }
+
+    /// Whether one that arrives while the app is frontmost shows: as it would in
+    /// the background, unless its conversation is the one open by now (D-24).
+    private func showsWhileFrontmost(requestID: String, userInfo: [AnyHashable: Any]) -> Bool {
+        NotificationTarget(requestID: requestID, userInfo: userInfo)?
+            .showsWhileFrontmost(focusedConversationID: state.focusedConversationID) ?? true
+    }
+
+    /// A clicked notification (C-29.9): its conversation, and for an approval
+    /// still waiting that conversation's oldest card (C-27.5), which the
+    /// conversation view scrolls to once the card is in its timeline.
+    func show(_ target: NotificationTarget) {
+        if let opening = clicks.click(target, baselined: state.watchBaselined, navigation: navigation,
+                                      pendingApprovals: state.pendingApprovals) {
+            openClicked(opening)
+        }
+    }
+
+    private func openClicked(_ opening: NotificationOpening) {
+        if opening.revealsCard { revealApprovals(in: opening.conversationID) }
+        guard state.focusedConversationID == opening.conversationID else {
+            // `focus` takes a new token, which drops any open still on its way.
+            focus(opening.conversationID)
+            return
+        }
+        // Already focused, where `focus` changes nothing: open it again under a
+        // new token, so the click still drops an open on its way (a native session
+        // chosen just before) and replaces its own conversation's, not loses it.
+        lockedEntry = nil
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(opening.conversationID), token: token) }
     }
 
     // MARK: Changes
@@ -640,6 +696,8 @@ final class UIModel: ObservableObject {
         let checkSupported = state.availability.capabilities.map { $0.has("workspace.check.v1") } ?? true
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
+        // A conversation the person starts is newer than any click still held.
+        clicks.drop()
         Task {
             do {
                 try await onReads {
@@ -1143,7 +1201,7 @@ final class UIModel: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = intent.title
             content.body = intent.body
-            content.userInfo = ["conversation_id": intent.conversationID]
+            content.userInfo = intent.userInfo
             if intent.kind == .approval, let engine {
                 let detail: ApprovalDetail? = try? await onOutbox {
                     let approvals = try engine.approvals(conversationID: intent.conversationID)
@@ -1153,7 +1211,8 @@ final class UIModel: ObservableObject {
                 }
                 if let detail, let target = ApprovalNotificationTarget(detail: detail) {
                     content.categoryIdentifier = ApprovalNotificationDelegate.categoryID
-                    content.userInfo = target.userInfo
+                    // The click still reads its conversation and kind (NotificationTarget).
+                    content.userInfo = intent.userInfo.merging(target.userInfo) { _, exact in exact }
                     let display = detail.approval.display
                     let summary = display.command ?? display.input ?? display.description ?? display.tool
                     if let summary { content.body += "\n" + summary }
@@ -1164,14 +1223,22 @@ final class UIModel: ObservableObject {
         }
     }
 
-    private func handleNotification(action: String, userInfo: [AnyHashable: Any]) {
+    /// A notification's response (C-29.9). Any but a dismissal opens the main
+    /// window on its conversation, an approval's at the conversation's oldest
+    /// waiting card while one waits (`show`: a response before the first list
+    /// and feed baseline waits for them). Allow once also answers the one
+    /// request the notification advertised, after checking it again.
+    private func handleNotification(action: String, requestID: String, userInfo: [AnyHashable: Any]) {
         guard action != UNNotificationDismissActionIdentifier,
-              let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return }
+              let target = NotificationTarget(requestID: requestID, userInfo: userInfo) else { return }
+        show(target)
         #if !SUBFLEET_VIEW_TEST
+        // Nil before the window first appears (the click that launched the app):
+        // the window, the app's first scene, presents itself at launch, and
+        // `connect` opens the held click in it.
         SubfleetAppDelegate.openMain?()
         #endif
         NSApp?.activate(ignoringOtherApps: true)
-        focus(conversationID)
         guard action == ApprovalNotificationDelegate.allowOnceID else { return }
         guard let target = ApprovalNotificationTarget(userInfo: userInfo) else {
             problem = "Review the pending request in the conversation."
