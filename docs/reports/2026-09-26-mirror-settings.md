@@ -108,7 +108,10 @@ The fields that stay per account:
 The settings base, in `mirror-flags.json` under the session's `settings`, holds:
 - `rank`, the greatest `lastActivityAt` the deciding pass read;
 - per unit, the decided value (`v`, its digest, and `value`);
-- per unit, `seen`: the digests of every value a deciding pass read or a publish displaced.
+- per unit, `seen`: the digests of every value a deciding pass read or a publish displaced;
+- per unit, only between a later pick's write-ahead and the publish that
+  completes it: that unit's own `rank`. The rule reads it in place of the
+  session's.
 
 `decide_setting` applies, in order:
 
@@ -155,6 +158,16 @@ The settings base, in `mirror-flags.json` under the session's `settings`, holds:
   `seen` and the base file is synced: a write-ahead. Without it, a crash
   between the copy writes and the base write could let a displaced value that
   the app still holds in memory read as new.
+- A first decision taken from a later pick is written ahead whole: its value,
+  its digest, and the rank the pass read, as that unit's own. The publish's
+  own writes destroy a later pick's evidence (each written copy keeps its
+  early mtime), so after a crash or a hold the pick must already be decided.
+  The rank is the unit's own because the session's rank is every unit's
+  activity mark: raising it for the model would hide another unit's activity
+  that the publish has not yet spread.
+- A write-ahead that changes nothing is not written and does not count as the
+  base moving, so a session held pass after pass does not make every full pass
+  refresh its snapshot.
 
 ## Invariants and how they are established
 
@@ -166,7 +179,7 @@ precisely.
 | Convergence | One pass with nothing written in between leaves every copy and the base on the decided value, and that value is one some copy held. |
 | Idempotence | A converged store decides itself and writes nothing. |
 | Newer never overwritten by older | The mirror writes a value over a copy only if one of these holds: a copy holding that value is at least as active; the value is a change no pass had seen; or the copy has had no activity since the base was decided. At a first decision, only a value that some pick produced may beat a more active copy. The model checks this against an independent record of which values picks produced, one the rule never reads. So a re-save of a value that ran never beats newer activity. |
-| No lost update, all or nothing | A publish writes only copies unchanged, in value and rank, since the read. A held session writes nothing and keeps its decided value and rank; only `seen` grows. |
+| No lost update, all or nothing | A publish writes only copies unchanged, in value and rank, since the read. A held session writes nothing and keeps its decided value and rank; only `seen` grows, except that a later pick written ahead stays decided. |
 | Keeps rank and mtime | The mirror never changes `lastActivityAt` or a file's mtime. |
 | Never undo a settled value | With no pick and no activity since a clean publish, no pass decides anything else, even when the app re-saves stale values. |
 | Intent wins | A single pick of a value no pass had seen is decided, even against a later turn elsewhere. |
@@ -178,7 +191,7 @@ precisely.
 | Exhaustive model check | `tests/mirror_settings_model.py`, explored by `tests/unit/test_mirror_settings_model.py` over three folders, every event and pass. The app has current memory (`honest`) or stale memory with parked folders | App with current memory: 13,952 states, every property holds. Stale memory with parked folders: 24,776 states (490,492 at three app events deep), and only "no stale resurrection" fails, the known limit; its trace is a turn in a folder whose memory predates the mirror's write. First decisions: all 5,832 three-folder stores (each value, rank 0 or 1, and each copy last written at its activity, as a later pick that never ran, or as a later re-save of a value that ran) keep every publish invariant in one pass, for the model and for units without transcript evidence; explorations from 30 of them break only the known limit. "Newer never overwritten" judges a first decision by a ghost record of which values picks produced, which the rule never reads (review round 1 found the earlier form restated the rule). Two mutants of the rule document the design: any-change-from-the-base breaks "never undo a settled value", and newest-activity-only breaks "intent wins" |
 | Differential | `tests/unit/test_mirror_settings_stateful.py`: a Hypothesis machine drives the real `Mirror` on real files in lockstep with the model: picks, turns (which the transcript on disk records), stale saves, switches, passes with writes between the read and the publish, cancellations, unreadable copies. It runs for the model unit and again for the place unit | For each unit, 100 random traces of up to 30 steps from random first-decision stores; after every step every file's value, `lastActivityAt` and mtime, and the settings base, equal the model's |
 | Properties | `tests/unit/test_sessions_mirror_settings.py`: random three-copy stores (model, effort, place, activity, write times, flags) | convergence to a value some copy held; idempotence; first decision = the most active copy's place and model (or the later pick); flags equal to the same store with uniform settings |
-| Examples and faults | same file | first decision, ties, later picks, a late re-save of a model that ran, the 60 s margin on both sides, a pick in a less active account, stale saves, a stale-memory turn (the known limit), a turn during the pass, a pick landing in a flag-only copy during the pass, a save between two writes (rollback), a crash after the write-ahead, an unreadable copy, cancellation, the switch, a dry run, the journal, diverged ids |
+| Examples and faults | same file | first decision, ties, later picks, a late re-save of a model that ran, the 60 s margin on both sides, a pick in a less active account, stale saves, a stale-memory turn (the known limit), a turn during the pass, a pick landing in a flag-only copy during the pass, a save between two writes (rollback), a crash after the write-ahead, a crash or hold after a later pick's write-ahead (and its own rank), transcript copies in other project folders, a project folder that cannot be searched, a transcript that appears or grows during the read, a FIFO, a held session's repeated write-ahead, an unreadable copy, cancellation, the switch, a dry run, the journal, diverged ids |
 | Mutation | 16 hand-written mutants of `decide_setting`, `_settle_settings` and the publish: each tier removed; later picks never, for every unit, or without the transcript; an unreadable transcript read as "never ran"; a zero settle margin; rank-only ties; mtimes never read; no rank or setting re-check; the setting re-check on flag-only copies; no write-ahead; `seen` without the values read; a frozen base rank | 15 killed by the example tests and the differential. The survivor, later picks for every unit, is equivalent: the transcript check reads the `model` field, so for effort and place it answers "ran" and the exception never fires |
 
 ## The rollout
@@ -221,6 +234,19 @@ After install:
   account.
 
 ## Review
+
+Round 3 re-reviewed #193 after round 2's fixes. It was by GPT-6.1 Sol on a Subfleet lane, with a shell. It requested changes; every finding has an executed reproduction:
+
+| Finding | Fix |
+|---|---|
+| **P1.** `os.path.lexists` swallows a permission error, so a project folder the mirror may not search was skipped. A transcript copy where opus ran then went unread, and a late re-save of opus beat newer Fable activity. | Each copy is looked up with `os.lstat`. Only "no such file" means no copy; any other error makes the evidence unknown, which reads as "ran". Regression: `test_a_folder_that_cannot_be_looked_up_makes_the_evidence_unknown`. |
+| **P2.** A transcript copy that appeared after the discovery and before the decision was missed the same way. | A second discovery runs after the reads. If any copy appeared, vanished or changed (inode, size, mtime), the evidence is unknown. Regression: `test_a_transcript_that_moves_during_the_read_makes_the_evidence_unknown`, for a copy that appears and for one that grows. |
+| **P3.** A session held pass after pass repeated a write-ahead that changed nothing, and each one counted as movement, refreshing every full pass. | The write-ahead is written, and counts as movement, only when it changes the base. Regression: `test_a_held_session_repeating_its_write_ahead_does_not_move_the_epoch`. |
+| **P3.** The twin did not model the later pick's write-ahead, so a held later pick left the twin undecided and the code decided. | The twin's held publish records a later pick decided, as the code does, and "hold keeps base" names that as its one exception. Regressions: the reviewer's trace on the twin (`test_a_held_later_pick_is_recorded_decided`) and in lockstep with the real mirror (`test_a_held_later_pick_matches_the_model`), each held by a turn and by a newer pick. |
+
+One more, found while fixing the last: the write-ahead raised the session's `rank`, which every unit reads as its activity mark. A model at a first decision beside an effort already decided (a base written before a unit existed has this shape) then lost the effort's newer activity after a crash or a hold: the next pass took the effort's base over it. The later pick now keeps its rank as its own. Regression: `test_a_later_pick_written_ahead_keeps_another_units_activity`, which fails on the round-3 head with `max` written over the newer `xhigh`.
+
+The reviewer also raised a plausible cost, unmeasured in the review: pooled discovery looks in every project folder for each session it reads, so the cost grows with sessions times project folders, with no cancellation checkpoint inside a scan. Measured on this machine (8,504 project folders, 2026-10-12): one discovery takes 31-45 ms warm and 0.8 s cold, and a read runs two. The scan is reached only by a session at a first decision whose copies disagree on the model, and only when some model is held solely by copies written after the last activity settled; it runs at most once per session per pass. Once the first full pass has written a base, only new sessions reach it. The loop over sessions checks for cancellation before each session, so one scan is the most a cancel waits.
 
 Round 2 reviewed the port to `release/217` (#193). It was by GPT-6.1 Sol on a Subfleet lane, with a shell. It requested changes, and executed and reproduced every finding:
 
