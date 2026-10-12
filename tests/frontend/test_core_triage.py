@@ -328,9 +328,13 @@ def test_the_toggle_finds_a_checkout_its_linked_worktrees_and_nothing_else(core_
     (fake / ".git").mkdir(parents=True)                 # no HEAD: not a git directory
     found = run_probe(core_probe, "git-checkout", repo, repo / "pkg", linked, linked / "pkg", plain, fake)
     key = os.path.realpath(repo / ".git")
-    assert found[0] == {"top": str(repo), "key": key} and found[1] == {"top": str(repo), "key": key}
+    # `top` is only reported by the probe (the daemon keys on `key`), and the app
+    # may spell the temporary folder as /var or /private/var: compare canonically.
+    canonical = [entry and {**entry, "top": os.path.realpath(entry["top"])} for entry in found]
+    top, linked_top = os.path.realpath(repo), os.path.realpath(linked)
+    assert canonical[0] == {"top": top, "key": key} and canonical[1] == {"top": top, "key": key}
     # A linked worktree is the same repository: one remembered choice covers both.
-    assert found[2] == {"top": str(linked), "key": key} and found[3]["key"] == key
+    assert canonical[2] == {"top": linked_top, "key": key} and canonical[3]["key"] == key
     assert found[4] is None and found[5] is None
 
 
