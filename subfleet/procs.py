@@ -1188,6 +1188,10 @@ def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals, *,
             with authorize() as allowed:
                 if not allowed:
                     return False
+                # Authorization can import receipts. Reconfirm after that I/O
+                # while publications remain excluded through the syscall.
+                if not same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
+                    return False
                 os.kill(recorded.pid, sig)
         else:
             os.kill(recorded.pid, sig)

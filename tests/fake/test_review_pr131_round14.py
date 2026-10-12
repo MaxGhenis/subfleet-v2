@@ -1,6 +1,7 @@
 """Round-14 adversarial inputs; all process observations and signals are fake."""
 import json
 from dataclasses import replace
+from contextlib import contextmanager
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -290,3 +291,21 @@ def test_unresolved_terminal_receipt_refuses_all_delivery(state_daemon, monkeypa
     pending = daemon.store.one("SELECT * FROM process_claim_receipt_pending WHERE attempt_id=?", (other["attempt_id"],))
     assert pending and pending["failures"] >= 2 and pending["retry_at"] > 0
     assert pending["last_error"] == ("unreadable" if availability == "read-outage" else "awaiting-child-identity")
+
+
+
+def test_identity_reused_during_claim_authorization_is_not_signalled(monkeypatch):
+    confirmed = []
+    @contextmanager
+    def authorize():
+        yield True
+    def same_process(*args):
+        confirmed.append(args)
+        return len(confirmed) == 1
+    delivered = []
+    monkeypatch.setattr(procs, "same_process", same_process)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append(pid))
+    assert not procs.signal_process(procs.ProcessIdentity(200, BOOT, "p200"), 15, authorize=authorize)
+    assert len(confirmed) == 2
+    assert delivered == []
