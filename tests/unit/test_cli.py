@@ -155,6 +155,22 @@ def test_why_prints_a_refusal_or_a_route_error_not_no_decision(daemon, capsys, a
     assert capsys.readouterr().out.splitlines() == expected
 
 
+@pytest.mark.parametrize("decision", [None, {"chosen_model": "astra", "chosen_lane": "codex-1"}])
+def test_why_prints_recorded_cut_off_attempt_with_or_without_routing(daemon, capsys, decision):
+    """D-SHUT1: the CLI keeps the daemon's attempt reason alongside routing."""
+    explanation = "Last attempt a1: Codex exited before its turn completed (last event: item.completed)"
+    daemon({"why": lambda request: {"queue": [f"Job: {JOB} is failed"],
+                                    "decision": decision, "attempt_explanation": explanation}})
+    assert run_cli(["why", JOB]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"Job: {JOB} is failed"
+    assert lines[-1] == explanation
+    assert lines.count(explanation) == 1
+    assert ("No decision recorded." in lines) == (decision is None)
+    if decision is not None:
+        assert any("astra on codex-1" in line for line in lines)
+
+
 def test_why_and_ping_reach_their_ops(daemon, capsys):
     """C-17.1 `why` and `ping` carry their arguments to the daemon."""
     server = daemon({

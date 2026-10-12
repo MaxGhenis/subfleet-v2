@@ -36,7 +36,12 @@ def test_zero_exit_cut_off_turn_cannot_publish_output(e2e, case):
     assert "Codex exited before its turn completed" in notice["text"]
     why = e2e.cli("why", identity)
     assert why.rc == 0, why
-    assert "Codex exited before its turn completed" in why.stdout
+    explanation = ("Last attempt a1: Codex exited before its turn completed "
+                   f"(last event: {evidence['last_event_type']})")
+    assert explanation in why.stdout
+    why_json = e2e.cli("why", identity, "--json")
+    assert why_json.rc == 0, why_json
+    assert json.loads(why_json.stdout)["attempt_explanation"] == explanation
     shown = e2e.cli("runs", "show", identity)
     assert shown.rc == 1, shown
     assert "No accepted result" in shown.stdout

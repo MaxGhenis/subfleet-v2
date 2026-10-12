@@ -3195,14 +3195,17 @@ class Daemon:
         last = self.store.one("SELECT seq,outcome_detail,evidence_json FROM attempts WHERE job_id=? "
                               "ORDER BY seq DESC LIMIT 1", (job["job_id"],))
         classification = json.loads(last["evidence_json"] or "{}").get("classification", {}) if last else {}
+        attempt_explanation = None
         if classification.get("turn_completed") is False and classification.get("rc") == 0:
             event_type = classification.get("last_event_type") or "none read"
-            lines.append(f"Last attempt a{last['seq']}: {last['outcome_detail']} (last event: {event_type})")
+            attempt_explanation = f"Last attempt a{last['seq']}: {last['outcome_detail']} (last event: {event_type})"
+            lines.append(attempt_explanation)
         disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
         if disk_reading is not None and (hold or {}).get("reason") != "disk":
             lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                "route_error": route_error, "refused": refused, "attempt_explanation": attempt_explanation,
+                "text": "\n".join(lines),
                 **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:

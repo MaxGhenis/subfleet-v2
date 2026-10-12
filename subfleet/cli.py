@@ -2164,6 +2164,9 @@ def cmd_why(args: argparse.Namespace) -> int:
         lines.append(f"Decision: none; this job's route could not be evaluated: {result['route_error']}")
     elif not result.get("refused"):
         lines.append("No decision recorded.")
+    # D-SHUT1: routing fields alone omit why the last attempt was rejected.
+    if result.get("attempt_explanation"):
+        lines.append(result["attempt_explanation"])
     out("\n".join(lines))
     return int(Exit.OK)
 
