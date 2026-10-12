@@ -1,4 +1,63 @@
-# Provider active-attempt cap (D-RT1), review round 2
+# Provider active-attempt cap (D-RT1), review round 3
+
+The missing attempt directory is a fake setup defect. A turn cannot reach the
+production quarantine paths before its directory is created:
+
+- `Daemon._launch` creates `attempt_dir(...)` before spawning the guardian,
+  recording `starting`, or arming the start-grace deadline. Cancellation before
+  that creation goes through `_unlaunched`, without a containment census.
+- `_process_attempt` handles `reserved` first and returns. Only a launched
+  `starting` attempt reaches the start-grace census; a late or absent
+  `start.json` therefore does not imply an absent attempt directory. The
+  running-attempt census and termination also follow launch.
+- Recovery uses that same `_process_attempt` worker. A recovered `reserved`
+  attempt outside `_pending_launches` goes through `_unlaunched` with
+  `reserved-no-launch`, rather than quarantine. Recovered `starting` and
+  `running` rows already passed directory creation in the previous daemon.
+- `_finalize` creates the directory before its containment census and the
+  `writers remain after exit receipt` quarantine.
+
+The provider-cap fake calls `_admit` and `_quarantine` directly, bypassing
+`_launch`. It now creates the attempt directory before quarantine, matching
+launch's setup. The same setup is applied to the generated schedule's
+quarantine action, which can select a turn. This allows `_resolve_quarantine`
+to publish a turn's `trees.json` receipt as it does for a launched attempt.
+The 24-case matrix and its provider-slot and wake-up assertions are retained.
+
+Round-3 validation:
+
+| Requested selection | Passed | Failed | Unrun |
+| --- | --- | --- | --- |
+| Quarantine retention matrix | 0 | 0 | 24 |
+| Remaining provider-cap fake cases | 0 | 0 | 36 |
+| `tests/fake/test_provider_cap_review_evidence.py` | 0 | 0 | 5 |
+| `tests/unit/test_provider_active_cap.py` | 0 | 0 | 46 |
+
+**0 pytest cases started; all 111 requested cases remain unrun.** Counts are
+statically expanded from the decorators, not pytest collection. Seven sequential
+foreground queue attempts each exited 75 (`already locked`): the matrix, the
+remaining fake cases, evidence and units, then one retry of each full file.
+There were zero lock holds and zero pytest processes started. Each queue wait
+was configured for 45 seconds; each complete command group had a 1100-second
+watchdog, below the 20-minute hold ceiling. Every task-specific
+`TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-r194f3-$$/` was cleaned with the required
+Python `shutil.rmtree` command. No detached runner or background build remains.
+The hub must rerun the three files; its results at `ab2c5a44c` describe the input
+head, not validation of this change. No additional suites or mutants ran here.
+
+Static checks pass: the changed test file parses and the named-file
+`git diff --check` is clean. Pinned dependencies were installed in this
+workspace; its environment imports pytest 9.1.1, Hypothesis 6.168.1 and Subfleet
+from this workspace. These checks do not establish a runtime test pass.
+
+Commit `ee4069d24` contains the fixture correction; the following documentation
+commit records this report. Commits use workspace-local metadata
+`.git-local/provider-cap.git` on `feat/provider-active-cap`, directly based on
+`ab2c5a44ccf1`, because the shared index lies outside the writable sandbox.
+Inspect with `git --git-dir=.git-local/provider-cap.git --work-tree=. log`.
+Only `tests/fake/test_provider_active_cap_fake.py` and this report are staged.
+
+## Review round 2 (historical report)
 
 The four host failures at `0c3a0d68a` exposed a missing admission wake-up.
 `_resolve_quarantine` already changes the attempt to `lost` (or `interrupted`
