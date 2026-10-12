@@ -156,6 +156,11 @@ HOLD_NOBODY = {"route", "approval", "uncertain", "workspace", "attempt-live", "l
                "machine-busy", "disk", "conversation-blocked", "message-settled"}
 #: C-6.9, C-6.11: holds that exist only in a pool with a count cap.
 CAPPED_ONLY = {"behind-older-job", "fleet-full", "slot-kept", "parent-cap"}
+#: C-6.10: holds a look can end on that are not a capacity verdict: a probe's turn or answer, a person's
+#: wait after a quarantined probe, a let-go retry behind an older job, a lease, a moved or failed route,
+#: the workspace, an earlier attempt still live. Every other hold of a look is one, and offers a row.
+NOT_A_VERDICT = {"probe-pending", "uncertain", "approval", "behind-older-job", "lease-held", "route-moved",
+                 "route", "workspace", "attempt-live"}
 LIVE = ("reserved", "starting", "running", "finalizing")
 
 
@@ -293,6 +298,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.looks: set[str] = set()                # jobs whose workspace this pass prepared: a look
         self.last_look: dict[str, dict] = {}        # job id -> the hold its last look reported
         self.decided: dict[str, object] = {}        # job id -> the decision this pass's look reached
+        self.offered: dict[str, object] = {}        # job id -> the decision its look offered as a row (C-6.10)
         self.last_verdict: dict[str, str] = {}      # job id -> the verdict C-6.10 last recorded or repeated
         self.quarantine = False                     # probe containment cannot be verified (C-5.5)
         self.passes = 0
@@ -355,7 +361,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert job["sandbox"] == "read-only", "the machine submits read-only jobs only"
             return job.get("worktree") or job["workdir"], None, None, []
 
-        real_pick, real_probe_choice = service._pick, service._probe_choice
+        real_pick, real_probe_choice, real_record = service._pick, service._probe_choice, service._record_verdict
 
         def pick(job, **options):
             decision = real_pick(job, **options)
@@ -368,6 +374,11 @@ class AdmissionMachine(RuleBasedStateMachine):
             decision, basis, ahead = real_probe_choice(job, *args)
             self.decided[job["job_id"]] = decision
             return decision, basis, ahead
+
+        def record_verdict(job_id, decision):
+            # Which looks offer a row is checked against what held them, not taken from here.
+            self.offered[job_id] = decision
+            return real_record(job_id, decision)
 
         def probe_census(record):
             return Containment(unverifiable=True) if self.quarantine else Containment()
@@ -394,6 +405,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         service._execute_probe = execute_probe
         service._pick = pick
         service._probe_choice = probe_choice
+        service._record_verdict = record_verdict
         service._probe_census = probe_census
         service.term_grace_s = 0
         for lane_id, meta in self.metadata.items():
@@ -657,7 +669,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         decisions = self.decision_counts()
         attempts = {row["attempt_id"] for row in self.store.list_attempts()}
         live_before = len(self.live())
-        self.looks, self.decided = set(), {}
+        self.looks, self.decided, self.offered = set(), {}, {}
         try:
             self.service._admit()
         except Exception as exc:
@@ -818,30 +830,37 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert job["state"] == "waiting" and job["next_check_at"] and parse(job["next_check_at"]) > now, \
                 f"C-6.10: {job_id} was looked at and left {job['state']} with next_check_at {job['next_check_at']!r}"
             decision, wait, hold = self.decided.get(job_id), waits.get(job_id), self.service._holds.get(job_id, {})
-            kind = wait_kind(wait) if wait and parse(wait["checked_at"]) == now else None
-            if kind not in ("verdict", "probe-wait"):
+            offered = self.offered.get(job_id)
+            if job["wait_reason"] == "capacity" and hold.get("reason") not in NOT_A_VERDICT:
+                # Held for capacity: no lane, the fleet, a slot kept (C-6.10's recording look).
+                assert offered is not None, \
+                    f"C-6.10: {job_id} was held for capacity ({hold}) and its verdict was never offered as a row"
+            if offered is None:
                 # Held on a lease, for a probe's turn, behind an older job, or on its route or its
                 # workspace: what holds the job is not a verdict on its route, nothing is recorded,
                 # and the verdict last recorded stands across the look (C-6.10).
                 assert counts[job_id] == decisions[job_id], \
-                    f"C-6.10: {job_id} added a decision row on a look held {hold} (wait {kind})"
-            elif decision is not None:
-                # Held for capacity (no lane, the fleet, a slot kept) or by its probe's answer.
-                verdict = scheduler.verdict_signature(decision)
-                assert wait["signature"] == ("probe-wait:" if kind == "probe-wait" else "") + verdict, \
-                    f"C-6.10: {job_id}'s wait is keyed on another verdict than its look reached ({hold})"
+                    f"C-6.10: {job_id} added a decision row on a look held {hold}"
+            else:
+                # Held for capacity, or by its probe's answer (`probe-wait`).
+                verdict = scheduler.verdict_signature(offered)
+                assert decision is not None and scheduler.verdict_signature(decision) == verdict, \
+                    f"C-6.10: {job_id} offered a verdict as a row that its look did not reach ({hold})"
+                assert wait and wait["signature"] in (verdict, "probe-wait:" + verdict), \
+                    f"C-6.10: {job_id}'s wait is keyed on another verdict than the one it offered ({hold})"
                 # Whatever kinds of wait came between: a lease, a probe's turn, a detour on its route
                 # or its workspace (until 2026-10-12 each of them made the next such look record again).
                 assert not (counts[job_id] > decisions[job_id] and self.last_verdict.get(job_id) == verdict), (
                     f"C-6.10: {job_id}'s look reached the verdict its last look reached "
-                    f"({decision.reason!r}) and added a decision row (hold {hold}, wait {kind})")
+                    f"({offered.reason!r}) and added a decision row (hold {hold})")
                 # C-11.5: "a waiting job still has the latest verdict it reached".
                 latest = self.store.one("SELECT decision_json FROM decisions WHERE job_id=? "
                                         "ORDER BY decision_id DESC LIMIT 1", (job_id,))
                 assert latest and scheduler.verdict_signature(json.loads(latest["decision_json"])) == verdict, (
-                    f"C-6.10, C-11.5: {job_id}'s look reached {decision.reason!r} (hold {hold}, wait {kind}) "
+                    f"C-6.10, C-11.5: {job_id}'s look reached {offered.reason!r} (hold {hold}) "
                     f"and its latest decision row is {'another verdict' if latest else 'missing'}")
-                event(f"verdict reached: {kind}, {'recorded' if counts[job_id] > decisions[job_id] else 'repeated'}")
+                event(f"verdict offered: {wait_kind(wait)}, "
+                      f"{'recorded' if counts[job_id] > decisions[job_id] else 'repeated'}")
                 self.last_verdict[job_id] = verdict
             if job["wait_reason"] != "capacity" or not wait or parse(wait["checked_at"]) != now:
                 continue

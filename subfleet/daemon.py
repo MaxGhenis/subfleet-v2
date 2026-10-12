@@ -5336,12 +5336,23 @@ class Daemon:
                   self._turn_check_errors, self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
-            # A job submitted after the read above, whose entry the other pass has
-            # just written, is not gone: asked again, by id.
+            # Asked again, by id: a job submitted after the read above is not gone.
+            # A pass clears a job that left the queue only when the job is its own
+            # kind's (C-26.9). Its entries are written by this pass alone, under its
+            # lock, so none is written between the read below and the clearing. One of
+            # the other kind it clears only once the job has ended, since then it never
+            # comes back. The other pass may be writing to a job it reads as gone, one
+            # whose attempt ended and sent it back to the queue. Review of #202: a turn
+            # pass found a detached job running, the job's retry recorded its verdict on
+            # the detached pass, the turn pass cleared every table of it, and the next
+            # look recorded the verdict again and backed off from 1 s.
             marks = ",".join("?" * len(gone))
-            gone -= {row["job_id"] for row in self.store.query(
-                f"SELECT job_id FROM jobs WHERE job_id IN ({marks}) AND state IN ('queued','waiting') "
-                "AND cancel_requested_at IS NULL", tuple(gone))}
+            rows = {row["job_id"]: row for row in self.store.query(
+                f"SELECT job_id,kind,state,cancel_requested_at FROM jobs WHERE job_id IN ({marks})", tuple(gone))}
+            gone = {job_id for job_id in gone
+                    if (row := rows.get(job_id)) is None or row["state"] in TERMINAL
+                    or (self._in_pass(row, kind) and not (row["state"] in ("queued", "waiting")
+                                                          and row["cancel_requested_at"] is None))}
         for table in tables:
             for job_id in gone:
                 table.pop(job_id, None)

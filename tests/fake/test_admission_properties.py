@@ -366,17 +366,50 @@ def test_c6_10_a_row_rolled_back_with_its_transaction_is_recorded_by_the_next_lo
 
 def test_c6_10_placing_the_job_starts_its_record_of_verdicts_again(fleet):
     """C-6.10: the record is "dropped when the job is placed or ends", and with it the verdict it last
-    recorded: the attempt's own row is the job's decision now (C-11.5), and a wait after it is a new one."""
+    recorded: the attempt's own row is the job's decision then (C-11.5), and a wait after the attempt is a
+    new one, whose first look records its verdict even when it is the one recorded before the attempt."""
     service, harness = fleet
     service.store.update_lane("claude-a", enabled=0)
     stuck = submit(service, harness, pinned_model="opus")
     service._admit()
-    assert stuck in service._recorded_verdicts
+    before = rows(service, stuck)
+    assert len(before) == 1 and stuck in service._recorded_verdicts
     service.store.update_lane("claude-a", enabled=1)
     due(service, stuck)
     service._admit()
     assert placed_on(service, stuck) == "claude-a"
     assert stuck not in service._recorded_verdicts and stuck not in service._capacity_waits
+    attempt = service.store.list_attempts(stuck)[-1]["attempt_id"]
+    with service.store.transaction("fixture.attempt_ended") as tx:   # it ends with a fault of its own, and is retried
+        tx.execute("UPDATE attempts SET state='failed',outcome_class='unknown' WHERE attempt_id=?", (attempt,))
+        tx.execute("UPDATE jobs SET state='queued' WHERE job_id=?", (stuck,))
+        tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (attempt, stuck))
+    service.store.update_lane("claude-a", enabled=0)
+    service._admit()
+    after = rows(service, stuck)
+    assert len(after) == 2
+    assert {scheduler.verdict_signature(json.loads(row["decision_json"])) for row in after} == \
+        {scheduler.verdict_signature(json.loads(before[0]["decision_json"]))}
+
+
+def test_c6_10_a_pass_clears_the_other_kinds_jobs_only_once_they_end(fleet):
+    """C-6.10, C-26.9 (review of #202): each pass cleared every table of each job it read as out of the
+    queue, whatever its kind. A turn pass could read a detached job as running, the detached pass could
+    then record the verdict of that job's retry, and the turn pass's clearing then dropped it: the next
+    look recorded it again and backed off from 1 s. A pass clears its own kind's jobs once they leave the
+    queue and the other kind's only once they have ended, which no write can follow."""
+    service, harness = fleet
+    service.store.update_lane("claude-a", enabled=0)
+    running, ended = (submit(service, harness, pinned_model="opus") for _ in range(2))
+    service._admit()
+    assert {running, ended} <= set(service._recorded_verdicts) & set(service._capacity_waits)
+    service.store.update_job(running, state="running")      # out of the queue while an attempt runs
+    service.store.update_job(ended, state="failed")
+    service._admit_pass({}, {"placed": 0}, kind="turn")
+    assert running in service._recorded_verdicts and running in service._capacity_waits
+    assert ended not in service._recorded_verdicts and ended not in service._capacity_waits
+    service._admit_pass({}, {"placed": 0}, kind="detached")
+    assert running not in service._recorded_verdicts and running not in service._capacity_waits
 
 
 # --- found, not fixed: strict xfails ----------------------------------------------------------
