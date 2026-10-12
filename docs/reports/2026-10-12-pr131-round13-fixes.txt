@@ -1,0 +1,125 @@
+PR #131 review 13 fix round. Base/checkpoint d284f15cf51d.
+
+Scope: assigned workspace only. Preserved the checkpoint's nine existing local
+commits (6eca3ea through 081da206), including one commit per original finding.
+The shared Git index is sandbox-read-only (index.lock: Operation not permitted).
+Commits therefore use the already-preserved .git-local metadata on the assigned
+feat/quarantine-self-resolve branch. No history was rewritten or remote used.
+
+Required invariants:
+- Ownership-check work depends on the current process table and matching indexed
+  claims, independently of finished history. Child receipt reads are a one-time
+  upgrade import; one kill reuses one ownership snapshot. New foreign revisions
+  suppress cached signal permission.
+- Dead lineage roots with empty groups are removed before applying the budget;
+  dead roots alone cannot turn an rc-0 run lost. Unresolved overflowing groups
+  continue to hold conservatively.
+- Status and notices contain a bounded SQL summary, never census/history payloads.
+- Census descendants, cwd, markers and lineage roots never widen signal targets.
+  Only original verified group members and recorded ownership can be signalled.
+
+Review evidence read in full from review-131-r13c-partial. Original review
+finding witnesses failed on d284f15cf: ownership 336,600 comparisons/301 receipt
+reads; dead-root churn lost rc125 with a native lease held; status 5,105,757 and
+4,952,453 bytes; history merge 11,049,808 comparisons; guidance absent. Review
+migration reproduction: pre-merge schema 7 lacks push_branch after upgrading.
+Confirmed review controls already passed at baseline, so they are preservation
+controls, not negative witnesses.
+
+Validation is in progress. The required test lock rejected 45-second and
+180-second queue waits. Each foreground test attempt has its own temporary
+directory and at most 19 minutes total, including its queue wait; the directory
+is removed with the requested Python shutil cleanup. Nothing runs detached.
+Synthetic measurements use disposable stores; foreign_cost.py is additionally
+patched to a fixed synthetic process table and handles the empty ledger.
+
+P1-1 ownership: preserved 6eca3ea/00a4fb8 plus e01fe8. A transactional
+PID/start projection retains terminal claims but reads only current matching
+incarnations; claims_by_pid bounds per-target comparisons. Child identities
+come from rows, with one restart-safe legacy receipt import. Import includes
+finished attempts whose child_pid was never filled, and a final census saves
+the child claim even if inspection never observed it running. One attempt kill
+reuses one ledger snapshot; a newer foreign revision only suppresses signals.
+EXPLAIN: json_each current candidates -> SEARCH claims PRIMARY KEY(pid,proc_start)
+-> SEARCH attempts primary key; active/quarantined branches use partial indexes.
+After inspect_cost.py TREE N 50 (seconds, all three timed calls):
+ finished     record_owned               contain
+        0     .029/.001/.001             .001/.001/.017
+      300     .004/.018/.007             .001/.001/.001
+    1,000     .036/.294/.001             .011/.011/.469
+   10,000     .001/.001/.001             .002/.002/.001
+Host scheduling noise affects wall time (load 34-256); no growth with finished
+history appears. The 10,000-row fixture includes 500,000 finished descendants.
+The one-time fixture construction/backfill cost is outside these timed calls.
+foreign_cost.py at 0/300/1,000 finished: .000/.000/.000 at each, rounded to 1 ms;
+10,000 is pending. This script's process snapshot is patched to the same 22-row
+synthetic table, so no host processes are read. Zero rows safely reports 0 MB.
+Before: review recorded 300 finished -> 4.6-5.2 s recording / 4.1-7.5 s census;
+1,000 -> 10.0-12.7 / 32-38 s. Its finding witness counted 336,600 comparisons and
+301 receipt reads. The after witness is queued; no pass count is claimed yet.
+
+P3-1 migration: preserved 19a32bcb. Step 8 repeats all five idempotent step-7
+push ADD COLUMNs before adding quarantine fields. mig.py uses actual source
+4c6a8a9c9 (release/217 schema 7), 73df73ff9 (pre-merge #131 schema 7), and the
+current tree. 7->8, 6->7->8 and pre-merge-7->8 all open successfully, retain
+existing jobs and push_branch='feat/x', add all quarantine/push fields, and
+EXPLAIN searches attempts_quarantine_due. Re-executed against d284f15cf: the
+first two paths pass; pre-merge 7 is marked 8 but SELECT push_branch fails.
+Three current-head migration paths pass; the baseline has 2 pass / 1 fail.
+
+Probe follow-up: discharge roots in-place as well as in SQL. record.update alone
+kept removed roots because absent keys were not deleted. A probe kill now shares
+one foreign snapshot, and supplies its recorded identities for PID/start lookup
+when the process table is unavailable. The three new fake probe regressions pin
+root deletion, terminal collision suppression during outages, and one ownership
+evaluation per kill. These extend P1-1/P1-2 and preserve signal targets.
+
+Round-12 property: original port unchanged (200 examples, 40 steps, 30-second
+rule deadline); only its single-owner foreign stub accepts the shared table.
+Saved review evidence contains a failure marker but no traceback/counterexample.
+Dedicated foreground rerun ended at 1,140.08 seconds without a pytest summary.
+Its process group was stopped and temporary directory cleaned, under 20 minutes.
+The cause of the original failure is therefore not yet identified; the probe
+fixes above are independently demonstrated defects, not an attribution of that
+unreported failure. No oracle or safety assertion was weakened.
+
+P1-2: preserved 5b320ea. A current table proves an absent/zombie/reused root
+identity gone, but the root is removed only if its recorded group is empty.
+Unverifiable starts/boots and reused nonempty groups still hold. Rechecks also
+discharge dead identity_history entries before applying the cap. Overflow is
+charged against unresolved observations. The 4,101/10,001 observation runs of
+overflow_q.py are still pending. Before: review's 4,101 run became lost rc125
+and retained the native lease after three paces and 30 days. The original
+negative witness is dead_lineage_roots_do_not_turn_a_long_successful_run_lost.
+
+P2-1: preserved 4549d03 plus f24a8ed. STATUS_ATTEMPTS projects reason (1,024
+characters), at most eight 256-character errors, unverifiable, total live PID
+count, and the first 16 integer PIDs in SQL. Every JSON access is json_valid
+guarded; legacy text is retained and a JSON census without a reason gets a
+generic reason, never a census-text fallback. Notices use the same summary.
+Before: two original status witnesses returned 5,105,757/4,952,453 bytes. The
+review measured 2,260,122 wire bytes per row at 4,096 PIDs + 4,096 history;
+three such rows exceed 4 MiB. Added the exact three-row worst-case witness.
+table_q.py and the three-row real-quarantine measurement are pending.
+
+P2-2: preserved a0d1f599. Ordered dictionaries replace list membership/removal
+in identity union, recent history, retained roots and provider/descendant
+records, preserving refresh order. Each table indexes its groups once so root
+pruning is linear rather than roots times table size. Before micro_q.py: 24.01,
+41.51,171.62 seconds merging 4,096 history with 300/1,000/4,096 PIDs, and 36.56
+seconds retaining 4,096 roots with 4,096 captures. Original negative witness
+counted 11,049,808 equality calls. micro_q.py after measurements are pending.
+
+P3-2: preserved 61ae814. Notice, why and submit conflict refusals include the
+next automatic recheck timestamp and the exact command
+subfleet kill <job> --confirm-dead. Text status has a Next check column. The
+quarantine notice remains bounded and exposes only the SQL summary. Before: the
+review's D-QC1 witness failed with missing notice/recheck/why guidance. Existing
+checkpoint tests additionally pin the exact time/command and status column,
+plus refusal guidance in the re-dispatch control. Head witnesses are queued.
+
+Commits added after the preserved checkpoint:
+e01fe8e01: preserve legacy terminal child claims and census child publication.
+f24a8ed56: prevent JSON census fallback in bounded summaries.
+ca83344f1: add the exact 3 x 4,096 PID/history status witness.
+dd0666e5c: probe snapshot/outage and in-place root deletion fixes; three tests.
