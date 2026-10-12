@@ -373,7 +373,11 @@ def model_clicks(probe, tmp_path, steps: list[dict], focused: str | None = "cv-1
     root.mkdir()
     data = {"root": str(root), "focused": focused, "baselined": baselined, "pending": pending or {}, "steps": steps,
             "detail": detail, "posted_detail": posted_detail}
-    return run_probe(probe, write_json(tmp_path / f"{uuid.uuid4().hex}.json", data))["steps"]
+    return model_run(probe, tmp_path, data)["steps"]
+
+
+def model_run(probe, tmp_path, data: dict) -> dict:
+    return run_probe(probe, write_json(tmp_path / f"{uuid.uuid4().hex}.json", data))
 
 
 def test_c29_9_a_click_for_the_focused_conversation_reasserts_it(notification_model_probe, tmp_path):
@@ -489,3 +493,40 @@ def test_c29_9_the_merged_userinfo_reads_back_as_both_targets(notification_model
         {"frontmost": {"request_id": "approval:7", "intent": {**APPROVAL, "conversation": "cv-1"}, "allowing": False}},
     ], detail=approval_detail())
     assert [o["shows"] for o in out] == [True, False]
+
+
+# The delegate itself, the one the model owns, as the notification center calls it
+# (ApprovalNotificationDelegate.respond and present): a later edit cannot drop the
+# forwarding to the model, the presentation decision or the Allow once action.
+
+def test_c29_9_the_delegate_hands_each_response_to_the_model(notification_model_probe, tmp_path):
+    allow = model_clicks(notification_model_probe, tmp_path,
+                         [{"deliver": {"action": "allow-once", "request_id": "approval:7", **ALLOWING}}],
+                         detail=approval_detail())
+    assert allow[-1]["focused"] == "cv-one"
+    assert [c["op"] for c in allow[-1]["calls"]] == ["approval.get", "approval.respond", "approval.list"]
+    click = model_clicks(notification_model_probe, tmp_path,
+                         [{"deliver": {"action": "default", "request_id": "approval:7", **ALLOWING}}],
+                         detail=approval_detail())
+    assert (click[-1]["focused"], click[-1]["calls"]) == ("cv-one", [])
+    dismissed = model_clicks(notification_model_probe, tmp_path,
+                             [{"deliver": {"action": "dismiss", "request_id": "approval:7", **ALLOWING}}],
+                             detail=approval_detail())
+    assert (dismissed[-1]["focused"], dismissed[-1]["calls"]) == ("cv-1", [])
+
+
+def test_c29_9_the_delegate_presents_a_banner_unless_its_conversation_is_focused(notification_model_probe, tmp_path):
+    out = model_clicks(notification_model_probe, tmp_path, [
+        {"present": {"request_id": "approval:7", **ALLOWING}},
+        {"present": {"request_id": "complete:m", "intent": {"kind": "completed", "subject": "m", "conversation": "cv-1"},
+                     "allowing": False}},
+    ], detail=approval_detail())
+    assert [o["shows"] for o in out] == [["banner", "list"], []]
+
+
+def test_c29_9_the_allow_once_category_is_release_217s(notification_model_probe, tmp_path):
+    root = tmp_path / "category"
+    root.mkdir()
+    category = model_run(notification_model_probe, tmp_path, {"root": str(root), "steps": []})["category"]
+    assert category == {"id": "org.maxghenis.subfleet.tool-approval", "actions": [
+        {"id": "org.maxghenis.subfleet.allow-once", "title": "Allow once", "foreground": True}]}

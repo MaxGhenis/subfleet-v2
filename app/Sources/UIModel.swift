@@ -87,7 +87,8 @@ final class UIModel: ObservableObject {
     private var availabilityChecks = 0
     /// What `lostDaemon` put in the status line, cleared when the daemon is back.
     private var lostProblem: String?
-    private lazy var notificationDelegate = ApprovalNotificationDelegate(
+    /// The notification center's delegate, the only one (C-29.9).
+    private(set) lazy var notificationDelegate = ApprovalNotificationDelegate(
         receive: { [weak self] action, requestID, userInfo in
             self?.handleNotification(action: action, requestID: requestID, userInfo: userInfo)
         },
