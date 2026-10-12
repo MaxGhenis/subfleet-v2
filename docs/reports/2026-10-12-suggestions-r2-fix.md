@@ -1,8 +1,8 @@
 # Suggested conversations: review r2b fixes
 
-Status: finish-lane fixture corrections implemented at `fa925a8a03df`; original
-failure reproductions and final suites are queued. Final results are recorded below
-as each foreground lock hold completes. All work is in the assigned workspace;
+Status: finish-lane fixture corrections committed as `ea791a03b`, on top of
+`fa925a8a03df`. **Local pytest: 0 tests executed.** Every original reproduction
+and final suite attempt timed out in the shared-lock queue before pytest started. All work is in the assigned workspace;
 no remotes, sub-agents, live-state writes, or live-process changes.
 
 ## Findings and production fixes inherited from the cut-off lane
@@ -47,7 +47,11 @@ workspace-local test metadata, and used for the original-file reproduction attem
    secret in its error. Other OS failures still fail the test. The full Unicode
    generator remains in place, and this input is now an explicit example.
 
-Neither failure shows a product secret leak. All full-value, forbidden-prefix,
+Source tracing of the saved minimal choices identifies test-fixture failures,
+not product output leaks. A separate workspace-owned filesystem probe confirmed
+errno 92 (`EILSEQ`) for the exact generated filename; it created no such folder.
+The requested pytest reproductions have not executed, so their tracebacks are
+still unverified locally. All full-value, forbidden-prefix,
 intact-marker, output-bound and recursive row/view/event/log/notice assertions
 remain in place.
 
@@ -80,8 +84,9 @@ OSError rename filenames, and an overlapping quoted assignment at brief
 submission. Every case checks the stored row, ordinary/by-id lists, watch feed,
 origin events, wire reply, and retry log. Separate regressions cover original
 arguments (single/multiple strings and mixed types), headers/reminders inside
-quoted values, and overlapping values with either quote style. Final execution
-results are pending below.
+quoted values, and overlapping values with either quote style. All of these regressions are **unrun locally** because no hold acquired the
+shared lock. They require hub execution on the finish commit; their presence is
+not reported as a passing verification.
 
 ## Validation
 
@@ -98,8 +103,65 @@ Python. Final holds have a 19-minute alarm, and a 30-second queue timeout. Earli
 original-test attempts timed out after 3, 8, 8, 2 and 2 minutes in the queue, all
 without reaching pytest. No detached runner or background build is used.
 
-Original-file reproductions: pending.
-Final per-file results: pending.
+Original-file reproductions: **0 executed**. Each original failing test was
+attempted alone with `--tb=long -x --hypothesis-show-statistics`; both final
+reproduction holds also exited 75 in the queue, without a pytest session. Saved
+original files were taken from `fa925a8a03df` and kept only in ignored workspace
+metadata. The diagnoses above combine saved Hypothesis choices, source tracing
+and the independent APFS filename check, not a claimed local pytest pass.
+Final per-file results at the finish commit: **0 passed, 0 failed, 0 skipped;
+23 files unrun**. Each file was attempted in a separate hold. Both original-test
+reproductions and all 23 final holds exited 75 before pytest. **0 generated
+Hypothesis examples ran locally.** All task-owned foreground runners have ended;
+temporary directories were removed with Python; no background build remains.
+Changed test files parse successfully and `git diff --check` passes.
+
+| File | Executed | Result |
+| --- | ---: | --- |
+| `tests/unit/test_suggestion_error_boundaries.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestions_review_boundaries.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestions_review_multiline.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestions_review_response.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestion_secret_properties.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestion_properties.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestions_r1b_adversarial.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggestions.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/fake/test_suggestions_fake.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/e2e/test_suggestions_e2e.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/e2e/test_suggestions_r1b_peer_e2e.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/frontend/test_core_suggestions.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/frontend/test_core_suggestions_r1b.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/frontend/test_core_protocol.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_conversation_handoff.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_conversation_handoff_briefs.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_sessions_handoff.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_sessions_handoff_excerpts.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggest_cli.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_suggest_hint.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_cli.py` | 0 | Unrun: lock queue, exit 75 |
+| `tests/unit/test_test_module_names.py` | 0 | Unrun: lock queue, exit 75 |
+
+Historical hub results at `fa925a8a0` (not validation of the finish commit):
+
+| Hub group | Result |
+| --- | --- |
+| Four new regression files | 1 failed, 33 passed |
+| Secret properties | 1 failed, 6 passed |
+| State-machine property | 1 passed |
+| Round-1b adversarial | 29 passed, 1 skipped |
+| Fake suggestions | 1 passed |
+| Both e2e files | 8 passed, 2 xfailed |
+| Frontend suggestions and protocol | 20 passed |
+| Handoff / CLI, module names, before-head regressions | No completion reported in the inspected log |
+
+Hub follow-up: run the 23 files above at the finish commit, including the two
+explicit former fixture failures and all new filename/overlap channel cases.
+Reproduce each original failure alone with the requested long traceback/statistics
+flags when a hold is available. No local pass is inferred from the host's older
+results. The existing peer e2e expected failures remain the documented C-25.6
+ancestry escape from the review; no rule change is made here.
+
 
 ## Commits
 
@@ -108,5 +170,6 @@ Inherited: `63b6b88b7` (review probes), `4e8771067` (boundary fixes), `f9cd7ac9d
 Finish-lane commits use workspace-local `.git-local` metadata on
 `feat/suggested-conversations`, with `fa925a8a03df` as the original parent because
 the shared Git index is outside the writable sandbox. Named files only; requested
-co-author trailer; shared checkout/history unchanged. Finish-lane commits and
-results will be recorded when complete.
+co-author trailer; shared checkout/history unchanged. First finish-lane commit: `ea791a03b` (fixtures, explicit examples, storage/wire/
+event/retry regressions and initial finish report). The final report is a separate
+commit. Both retain the requested co-author trailer.
