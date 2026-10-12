@@ -887,6 +887,14 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.10: job id -> the verdict (`scheduler.verdict_signature`) of the last
+        # decision row a look recorded for it while it waited (`_record_verdict`).
+        # Kept beside the wait record, not in it: the record is keyed on the wait's
+        # kind and is dropped when the wait becomes C-6.8's, C-6.12's or C-11.8's,
+        # and a look that reaches this verdict again adds no row whatever came
+        # between. Dropped when the job is placed or ends; a restart forgets it, as
+        # it forgets the records.
+        self._recorded_verdicts: dict[str, str] = {}
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
@@ -2073,6 +2081,9 @@ class Daemon:
                 args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
                 sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
@@ -4996,7 +5007,8 @@ class Daemon:
                 # else waits.
                 # C-6.10: this wait keeps its own clock and is never brought forward
                 # (a released lease must not re-probe the provider), but a probe that
-                # ends the same way adds no second decision row. The clock is
+                # ends the same way adds no second decision row, nor does one that
+                # reaches the verdict a wait of another kind recorded. The clock is
                 # `PROBE_RETRY_S` from the probe's reservation, not from its end: a
                 # probe its deadline stopped has used the whole of it, and its
                 # vehicle, which keeps the turn (C-6.9), is due on the next pass.
@@ -5009,15 +5021,15 @@ class Daemon:
                 reserved_at = (self._probe_record(holder) or record)["created_at"]
                 next_check = after(60) if quarantined else max(utcnow(), _later(reserved_at, PROBE_RETRY_S))
                 note["next_check_at"] = next_check
-                repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
-                                             {"reason": "probe-pending", **note}, expedite=False)
+                self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
+                                    {"reason": "probe-pending", **note}, expedite=False)
                 with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
                                             data={"model": pair[1], "class": outcome.cls.value,
                                                   "next_check_at": next_check}) as tx:
-                    if not repeat:
-                        self.store.add_decision(job["job_id"], decision)
+                    noted = self._record_verdict(job["job_id"], decision)
                     tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
                                ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
+                self._verdict_recorded(job["job_id"], noted)
                 return None, desktop
         return None, desktop
 
@@ -5113,6 +5125,11 @@ class Daemon:
         not be, or every released lease would re-probe the provider.
         `lane_wait` is whether this look evaluated the job's route and no lane
         would take it: only such a wait can be C-23.16's demand (`_reset_demand`).
+
+        `signature` carries the wait's kind (`lease-held:<keys>`, `probe-pending`,
+        `probe-wait:<verdict>`, ...), so a wait that changes kind starts its count
+        and its clock again. The count says nothing about the decision row: that is
+        the verdict's alone, whatever kind of wait came between (`_record_verdict`).
         """
         now = utcnow()
         wait = self._capacity_waits.get(job_id)
@@ -5131,6 +5148,30 @@ class Daemon:
             # A refreshed hold is a probe's or a moved route's, never a no-lane verdict (C-23.16 (a)).
             self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold),
                                             "lane_wait": False}
+
+    def _record_verdict(self, job_id: str, decision) -> str | None:
+        """C-6.10: add `decision` as the job's decision row unless its verdict
+        (`scheduler.verdict_signature`) is the one last recorded for the job while it
+        waited. Two looks record: one held for capacity (no lane admits the job, the
+        fleet is full, or its last slot is kept), and one whose probe ended without an
+        answer. A look held on a lease or for a probe's turn waits on that and records
+        nothing; its route's choice moves with the load on the lanes (`rank_key`'s
+        in-flight terms), not with what holds the job. So whatever kind of wait comes
+        between, a look that reaches the verdict last recorded adds no row.
+
+        Called inside the caller's transaction. Returns the verdict added, which the
+        caller notes (`_verdict_recorded`) only once that transaction has committed:
+        a row rolled back with it is added again by the next look, not skipped."""
+        verdict = scheduler.verdict_signature(decision)
+        if self._recorded_verdicts.get(job_id) == verdict:
+            return None
+        self.store.add_decision(job_id, decision)
+        return verdict
+
+    def _verdict_recorded(self, job_id: str, verdict: str | None) -> None:
+        """C-6.10: a row `_record_verdict` added has committed; looks reaching its verdict add none."""
+        if verdict is not None:
+            self._recorded_verdicts[job_id] = verdict
 
     @staticmethod
     def _turn_fences(read: Callable, folder: str, absent: OSError | None,
@@ -5291,16 +5332,27 @@ class Daemon:
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
                     self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
-        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
-                  self._pin_episodes, self._probe_misses)
+        tables = (self._capacity_waits, self._recorded_verdicts, self._route_deferrals, self._retry_verdicts,
+                  self._turn_check_errors, self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
-            # A job submitted after the read above, whose entry the other pass has
-            # just written, is not gone: asked again, by id.
+            # Asked again, by id: a job submitted after the read above is not gone.
+            # A pass clears a job that left the queue only when the job is its own
+            # kind's (C-26.9). Its entries are written by this pass alone, under its
+            # lock, so none is written between the read below and the clearing. One of
+            # the other kind it clears only once the job has ended, since then it never
+            # comes back. The other pass may be writing to a job it reads as gone, one
+            # whose attempt ended and sent it back to the queue. Review of #202: a turn
+            # pass found a detached job running, the job's retry recorded its verdict on
+            # the detached pass, the turn pass cleared every table of it, and the next
+            # look recorded the verdict again and backed off from 1 s.
             marks = ",".join("?" * len(gone))
-            gone -= {row["job_id"] for row in self.store.query(
-                f"SELECT job_id FROM jobs WHERE job_id IN ({marks}) AND state IN ('queued','waiting') "
-                "AND cancel_requested_at IS NULL", tuple(gone))}
+            rows = {row["job_id"]: row for row in self.store.query(
+                f"SELECT job_id,kind,state,cancel_requested_at FROM jobs WHERE job_id IN ({marks})", tuple(gone))}
+            gone = {job_id for job_id in gone
+                    if (row := rows.get(job_id)) is None or row["state"] in TERMINAL
+                    or (self._in_pass(row, kind) and not (row["state"] in ("queued", "waiting")
+                                                          and row["cancel_requested_at"] is None))}
         for table in tables:
             for job_id in gone:
                 table.pop(job_id, None)
@@ -5711,6 +5763,10 @@ class Daemon:
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
+                if extra_exclusions:
+                    # C-6.12: checked where the route is prepared, so a failure here counts
+                    # toward the deferral backoff instead of following a reset of it.
+                    self._merged_exclusions(job, extra_exclusions)
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
                 self._early_routes.pop(job["job_id"], None)
@@ -5722,15 +5778,21 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
+                current = self._job(job["job_id"])
+                if current["state"] in TERMINAL or current["cancel_requested_at"]:
+                    continue
+                if current["wait_reason"] in ("approval", "uncertain"):
+                    # C-4.1, C-6.11: preparing the route quarantined its probe, so the job now
+                    # waits on a person. It holds back nobody and says so on this pass too.
+                    holds[job["job_id"]] = {"reason": current["wait_reason"]}
+                    continue
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 # C-6.11: which probe, and whose turn it is when it is not this job's.
                 hold = holds[job["job_id"]] = {"reason": "probe-pending", **(probe_note or {})}
-                current = self._job(job["job_id"])
-                live = current["state"] not in TERMINAL and not current["cancel_requested_at"]
                 # A probe that ran set the job's clock itself (C-6.10), which is due
                 # at once when the probe used the whole of it.
                 clocked = "next_check_at" in hold or (current["next_check_at"] and current["next_check_at"] > utcnow())
-                if live and not clocked:
+                if not clocked:
                     # C-6.10: the route could not be prepared and nothing set a
                     # clock (the probe's slot is held, the lane changed hands, an
                     # older job has the turn at the probe). The job would otherwise
@@ -5749,9 +5811,9 @@ class Daemon:
                 elif clocked:
                     hold.setdefault("next_check_at", current["next_check_at"])
                     self._refresh_hold(job["job_id"], hold)
-                if live and kind == "detached" and hold.get("model") and current["wait_reason"] != "uncertain":
-                    # C-6.9: it waits on this probe, so it carries the next one; a job
-                    # whose probe was quarantined waits on an operator and holds nobody.
+                if kind == "detached" and hold.get("model"):
+                    # C-6.9: it waits on this probe, so it carries the next one (a job
+                    # whose probe was quarantined waits on an operator and left above).
                     probe_line.append((job["job_id"], hold["model"],
                                        self._probe_reach(roster, job, hold["model"], lanes, extra_exclusions)))
                 continue
@@ -5793,6 +5855,7 @@ class Daemon:
             route_exclusions = (*extra_exclusions, *rotation)
             rotated = (decision.chosen_lane, decision.chosen_model)
             status, route, last, probed = "moved", {"failed": False}, None, frozenset()
+            noted = None                    # C-6.10: the verdict a held look added, noted once committed
             for tries in range(1, ROUTE_TRIES + 1):
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
                 # check inside reads the answer without touching the registry. A
@@ -5861,7 +5924,7 @@ class Daemon:
                             status = "held"
                             break
                         if extra_exclusions:
-                            job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                            job["exclusions"] = self._merged_exclusions(job, extra_exclusions)
                             tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                         needs_probe = self._needs_probe(decision, job)
                         live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
@@ -5886,7 +5949,8 @@ class Daemon:
                             if not for_good:
                                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
-                            # is rechecked later each time and adds no decision row. On
+                            # is rechecked later each time and adds no decision row,
+                            # whichever kind of wait recorded that verdict. On
                             # 2026-09-20 three such jobs were each re-evaluated every
                             # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
                             # 709 MB store, and a daemon at a full core doing it.
@@ -5905,12 +5969,10 @@ class Daemon:
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
-                            rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
-                                lane_wait=not decision.chosen_lane)
+                            rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
+                                                           lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
-                            if not rechecks:
-                                self.store.add_decision(job["job_id"], decision)
+                            noted = self._record_verdict(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
                                        (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
@@ -6112,6 +6174,9 @@ class Daemon:
                                          kind: self._leases_seen.get(kind, frozenset()) | probed}
             if route["failed"]:
                 continue
+            if status == "held":
+                # C-6.10: the reserving transaction committed the row this held look added.
+                self._verdict_recorded(job["job_id"], noted)
             if status == "moved" and last is not None and last.error is not None:
                 self._unroutable(job, Unroutable(last.error), holds)     # C-6.12: named, backed off, warned
                 continue
@@ -6138,6 +6203,7 @@ class Daemon:
             tally["placed"] += 1
             tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)
+            self._recorded_verdicts.pop(job["job_id"], None)
             # C-6.10: taken after this pass's snapshot. If the attempt ends before
             # the next one, that is a release the next pass must still see.
             with self._admission_lock:
@@ -6319,6 +6385,18 @@ class Daemon:
                                      "AND released_at IS NOT NULL", odd)
             rows.sort(key=lambda row: row["closure_id"])
         return rows
+
+    @staticmethod
+    def _merged_exclusions(job: dict, extra: tuple[str, ...]) -> str:
+        """C-4.5, C-6.12: the job's exclusions with the lanes its attempts added, as stored.
+
+        A stored exclusion that is not a lane name (submit refuses one; an older row
+        may hold one) cannot be merged. That is this job's problem, never the pass's.
+        """
+        try:
+            return json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra)))
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
