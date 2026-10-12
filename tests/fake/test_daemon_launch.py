@@ -203,11 +203,13 @@ def test_ca_selection_is_shared_by_adapter_preflight_and_guardian(guarded_launch
     def select(*args, **kwargs):
         result = original_select(*args, **kwargs)
         selections.append(result)
+        if len(selections) == 1:
+            bundle.write_bytes(b"" if initially_valid else certificate)
         return result
     monkeypatch.setattr(daemon._provider_environment, "additions", select)
     def preflight(*args, **kwargs):
         result = fake_preflight(*args, **kwargs)
-        bundle.write_bytes(b"" if initially_valid else certificate)
+        bundle.write_bytes(certificate if initially_valid else b"")
         return result
     monkeypatch.setattr(guard, "preflight", preflight)
     adapter_envs = []
@@ -224,6 +226,7 @@ def test_ca_selection_is_shared_by_adapter_preflight_and_guardian(guarded_launch
     assert ca_values(adapter_envs[0]) == ca_values(seen[0]["env"]) == ca_values(calls[0][1]["env"]) == expected
     assert len(selections) == 1
     # Recovery after a restart deliberately selects against the current file.
+    bundle.write_bytes(b"" if initially_valid else certificate)
     recovery = daemon._relaunch_env(a["lane_id"])
     assert ca_values(recovery) == ({} if initially_valid else {"SSL_CERT_FILE": str(bundle)})
     assert len(selections) == 2
