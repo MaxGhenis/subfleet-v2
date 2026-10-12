@@ -38,7 +38,7 @@ def claude_classify(directory, rows, stderr="", tail=""):
     (directory / "stream.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows) + tail)
     (directory / "stderr").write_text(stderr)
     projects = directory / "projects"
-    launch = make_launch(directory, session_id="blank-result", projects_dir=projects,
+    launch = make_launch(directory, session_id="blank-result", model_id="claude-opus-5", projects_dir=projects,
                          identity=None, label=None)
     adapter = ClaudeAdapter(now=lambda: NOW, projects_dir=projects)
     outcome = adapter.classify(directory, launch, exit_info(0))
