@@ -130,8 +130,9 @@ def test_detach_waits_out_a_busy_volume_before_forcing(monkeypatch, tmp_path, bu
         return subprocess.CompletedProcess(argv, 1 if failed else 0, "",
                                            'hdiutil: couldn\'t eject "disk5" - Resource busy' if failed else "")
 
+    slept = []
     monkeypatch.setattr(subprocess, "run", run)
-    monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(time, "sleep", slept.append)
     if expect_error:
         with pytest.raises(AssertionError, match="Resource busy"):
             _detach(tmp_path)
@@ -141,3 +142,5 @@ def test_detach_waits_out_a_busy_volume_before_forcing(monkeypatch, tmp_path, bu
     assert ["-force" in argv for argv in calls] == [n == DETACH_TRIES for n in range(len(calls))]
     assert ("-force" in calls[-1]) == expect_force
     assert len(calls) == min(busy, DETACH_TRIES) + 1
+    # A pause follows every busy try before the forced one, and none follows the last.
+    assert slept == [DETACH_PAUSE_S] * min(busy, DETACH_TRIES)
