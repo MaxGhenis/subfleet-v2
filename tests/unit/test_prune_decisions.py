@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 from hypothesis import example, given, settings, strategies as st
 
-from subfleet import prune_decisions
+from subfleet import prune_decisions, store as store_module
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.offline import Offline
 from subfleet.prune_decisions import (PruneRefused, PruneReportUnsaved, PruneStopped,
@@ -1090,6 +1090,7 @@ def run_main(root: Path, outcome: str, save: tuple, as_json: bool,
     """`main` over `root` with `outcome` and `save` injected, its paths made relative."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(prune_decisions, "utc_now", lambda: CLOCK)
+        patch.setattr(store_module, "utc_now", lambda: CLOCK)
         free = 1 if outcome == "refused-for-space" else 1 << 50
         patch.setattr(prune_decisions.shutil, "disk_usage",
                       lambda path: types.SimpleNamespace(total=1 << 50, used=0, free=free))
