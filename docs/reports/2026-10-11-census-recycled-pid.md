@@ -98,17 +98,17 @@ were installed from the unchanged lockfile.
 | File | Starting head | Fixed head |
 |---|---:|---:|
 | unit/test_test_module_names.py | 1 failed | pending |
-| fake/test_writable_fanout.py | 20 passed, 5 failed; 3 pending after cap | pending |
+| fake/test_writable_fanout.py | 23 passed, 5 failed (combined holds) | pending |
 | fake/test_policy_sandbox.py | 23 passed, 1 failed | pending |
-| fake/test_admission_priority.py | pending | pending |
-| unit/test_census_survivors_review.py | pending | pending |
-| fake/test_review_r185_adversarial.py | pending | pending |
+| fake/test_admission_priority.py | 27 passed, 5 failed | pending |
+| unit/test_census_survivors_review.py | 9 passed, 5 failed | pending |
+| fake/test_review_r185_adversarial.py | 1 failed | pending |
 | unit/test_census_identity_uncertainty.py | 8 failed | pending |
 | fake/test_state_fixture_processes.py | 1 passed, 3 failed | pending |
 | unit/test_census_recycled_pid.py | 23 passed | pending |
 | fake/test_census_recycled_pid_daemon.py (previous name before) | 8 passed | pending |
-| fake/test_state_contract.py | pending | pending |
-| unit/test_procs.py | pending | pending |
+| fake/test_state_contract.py | 37 passed | pending |
+| unit/test_procs.py | 47 passed | pending |
 
 The Hypothesis generator now gives each root live, absent, zombie and recycled
 states, and always includes a genuinely recorded escaped survivor reparented to
@@ -124,8 +124,11 @@ init in its own session. Seven properties run 200 examples apiece. Invariants:
   source. Independent recorded survivors may extend the descendant source.
 
 The first full fanout batch reached its 1,100-second cap after 20 passes and
-five failures. Its progress order matches the five CI failures; a short rerun
-will collect their full assertions and cover the remaining three cases. Future
+five failures. Its progress order matches the five CI failures. The short rerun completed
+with four passes and those five failures, covering the remaining three cases
+and confirming each DID NOT RAISE assertion. The combined distinct coverage is
+23 passed and five failed over all 28 fanout items. The final missing-record
+fixture, using a consistent live identity, also reproduced all three failures. Future
 runs record each completed case in ignored local evidence. No interrupted
 pytest process remains alive after its hold. Syntax compilation and named-file
 Git diff checks passed.
