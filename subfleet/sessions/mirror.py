@@ -81,6 +81,23 @@ intact:
 * The transcript's last `custom-title` record is the newest intended name,
   account-agnostic and append-only, so it survives an index write the app skipped.
 
+Two rules date from 2026-10-10, when Max opened a six-week-old fork of a
+session for the session itself (`docs/reports/2026-10-10-mirror-stale-dates.md`):
+
+* `lastActivityAt`, the date a row shows, is written by the app only in the
+  folder where the session runs, and every other copy kept the date it was
+  copied with. That day 663 of the 999 unarchived rows in the loaded folder
+  showed a date more than an hour older than their session's newest copy,
+  the furthest by 61 days. The flag publish now raises a copy more than
+  `sessions.mirror_activity_lag_s` behind (`activity_targets`). The date
+  needs no merge base: a later one always wins, so the app's re-save of an
+  older date lowers one copy until the next pass and reaches no other.
+* A record's name is the app's id for a session, and one name can hold one
+  conversation in some folders and another in the rest (12 names that day;
+  how each came to be was not established). Both transcripts exist, so each
+  gets a row in every folder, with one title. The full pass reports those
+  ids (`_split_report`) and changes nothing about them.
+
 What v2 changes is only where state lives and how health is judged.
 
 The merge base moves out of `~/.claude/cc-mirror-state.json` and into the state
@@ -113,7 +130,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 from . import transcripts
 from .desktop import AppState, DesktopLog
@@ -188,6 +205,77 @@ PROJECTED = ("sessionId", "cliSessionId", "isArchived", "isStarred", "title",
 FLAG_FIELDS = ("cliSessionId", "isArchived", "isStarred", "title", "titleSource",
                "sessionSettings")
 FLAG_WRITES = ("isArchived", "isStarred", "title", "titleSource", "sessionSettings")
+#: The date a sidebar row shows. The app writes it only in the folder where the
+#: session runs, so every other folder's copy kept the date it was copied with
+#: (the 2026-10-10 report). The publish raises it and never lowers it; see
+#: `activity_targets`.
+ACTIVITY_FIELD = "lastActivityAt"
+#: `sessions.mirror_activity_lag_s`: how far behind its session's newest copy a
+#: copy's date may fall before the mirror raises it. Zero switches the sync off.
+#: Not every change: one raise rewrites the session's record in every other
+#: folder (133 files on 2026-10-10).
+DEFAULT_ACTIVITY_LAG_S = 3600.0
+#: How many sessions' dates one flag sync raises, furthest behind first. The
+#: publish has no cancellation point, so the backlog a first pass finds (750
+#: sessions and 94,383 copies on 2026-10-10) must not become one publish; the
+#: rest wait for the next pass and are counted in `activity_waiting`. Ten
+#: sessions are about 1,300 writes, 0.4 s at the 0.30 ms measured for one.
+ACTIVITY_SESSIONS_PER_PASS = 10
+#: A date more than this past the pass's own clock is no voice. The app writes
+#: its clock's now, so a later date is a bad record, and a raise is never
+#: undone: raised from, a bad date would sit in every folder and be raised
+#: again from each. The date sync therefore never spreads one. `_rank` still
+#: takes it for the latest when a new folder needs a record to copy, as it did
+#: before the sync existed.
+ACTIVITY_FUTURE_S = 300.0
+#: How many split ids the full pass's report lists by name.
+SPLIT_REPORT_LIMIT = 10
+
+
+#: Beyond JavaScript's safe integers a number is not a date the app wrote, and
+#: one millisecond before it is no longer a different number.
+SAFE_MS = 2 ** 53
+
+
+def _instant_ms(value: Any) -> bool:
+    """A date as the app writes it: a number within JavaScript's safe integers
+    (every one of the 410,585 records read on 2026-10-10 held an integer of
+    milliseconds). Compared, never converted: an integer of any size must not
+    raise here, and NaN and the infinities compare false."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return -SAFE_MS < value < SAFE_MS
+
+
+def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
+    """Which copies of one session get a later `lastActivityAt`: `{index: value}`.
+
+    `values` holds each copy's date as the pass read it. A copy more than
+    `lag_ms` behind the newest one is raised to one millisecond before the
+    newest. One millisecond short, so that the copy the app last ran the
+    session in stays the only newest one: `_rank` picks the record a new
+    folder is copied from by this date, and that copy alone holds the model
+    and folder the session last ran with. So the function never returns a
+    value at or above the newest it was given, never one below the copy's
+    own, and nothing once every copy is within `lag_ms`, for any numbers at
+    all. A copy whose date is not a number within JavaScript's safe integers
+    is no voice and is never written; `sync_flags` passes a date from the
+    future, or one not above zero, as None for the same treatment.
+    """
+    known = [value for value in values if _instant_ms(value)]
+    if not known or lag_ms <= 0:
+        return {}
+    newest = max(known)
+    lag = max(float(lag_ms), 1.0)       # a raise must move the copy: newest - 1 > its date
+    goal = newest - 1
+    # The last test is the promise itself. For integers it never decides: one
+    # before the newest is exact. For a negative float just above a power of
+    # two it does: `newest - 1` rounds onto the copy's own date there, and
+    # without the test the copy would be "raised" to itself on every pass
+    # (second review of #167; the dates a pass passes in are positive).
+    return {index: goal for index, value in enumerate(values)
+            if _instant_ms(value) and newest - value > lag and value < goal < newest}
+
 
 class _Cancelled(Exception):
     pass
@@ -566,24 +654,32 @@ class Pass:
     flags_held: int = 0
     #: Why, for the first few: `{"path", "reason"}`.
     held_by: list[dict[str, str]] | None = None
+    #: Sessions whose stale copies this pass decided to give a later date.
+    activity_synced: int = 0
+    #: Sessions with a stale copy that `ACTIVITY_SESSIONS_PER_PASS` left for a later pass.
+    activity_waiting: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
             "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned",
-            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by")}
+            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by",
+            "activity_synced", "activity_waiting")}
 
     @property
     def changed(self) -> bool:
         return any((self.added, self.repaired, self.revived, self.pruned,
-                    self.flag_synced, self.retitled, self.transcript_retitled))
+                    self.flag_synced, self.retitled, self.transcript_retitled,
+                    self.activity_synced))
 
     @property
     def summary(self) -> str:
         return (f"added {self.added}, repaired {self.repaired}, revived {self.revived}, "
                 f"pruned {self.pruned}, flag-synced {self.flag_synced}, "
                 f"retitled {self.retitled}, t-retitled {self.transcript_retitled}"
+                + (f", dates raised {self.activity_synced}" if self.activity_synced else "")
+                + (f", dates waiting {self.activity_waiting}" if self.activity_waiting else "")
                 + (f", flags held {self.flags_held}" if self.flags_held else ""))
 
 
@@ -599,6 +695,8 @@ class Options:
     restore: bool = True
     archive: str = ""
     ultracode_default: bool = True
+    #: Seconds a copy's `lastActivityAt` may trail its session's newest; 0 is off.
+    activity_lag_s: float = DEFAULT_ACTIVITY_LAG_S
 
 
 def load_config(path: Path | None = None) -> dict[str, Any]:
@@ -620,7 +718,8 @@ def options_from(policy: dict[str, Any], **overrides: Any) -> Options:
     settings = policy.get("sessions", {})
     config = load_config()
     values: dict[str, Any] = {
-        "ultracode_default": bool(settings.get("mirror_ultracode_default", True))}
+        "ultracode_default": bool(settings.get("mirror_ultracode_default", True)),
+        "activity_lag_s": float(settings.get("mirror_activity_lag_s", DEFAULT_ACTIVITY_LAG_S))}
     if isinstance(config.get("dead_home"), str):
         values["dead_home"] = config["dead_home"]
     if isinstance(config.get("archive"), str):
@@ -655,13 +754,129 @@ def _clock(value: datetime) -> str:
     return value.astimezone().strftime("%H:%M:%S")
 
 
+def _raised_at(exc: BaseException) -> str:
+    """` (mirror.py:1535 in _spread)`: the innermost frame of this module that
+    `exc` came through, or the innermost of all when it came through none.
+
+    The daemon's timer keeps an exception's type and nothing else, so the
+    pass's record is the one place that can say where. Read from the
+    traceback's frames: no source file is opened.
+    """
+    here = last = None
+    step = exc.__traceback__
+    while step is not None:
+        last = step
+        if step.tb_frame.f_code.co_filename == __file__:
+            here = step
+        step = step.tb_next
+    found = here or last
+    if found is None:
+        return ""
+    code = found.tb_frame.f_code
+    return f" ({os.path.basename(code.co_filename)}:{found.tb_lineno} in {code.co_name})"
+
+
+#: What `last_end` keeps of a full pass that is over (C-23.28).
+END_FIELDS = ("state", "error", "started_at", "finished_at", "stage")
+#: `last_end`'s state for a pass that recorded no end: the next pass to take
+#: the lock found its record still `running`.
+UNFINISHED = "unfinished"
+
+
+def _in_flight(record: dict[str, Any]) -> bool:
+    """A full pass's record as health reads it: started, and no finish on it."""
+    return record.get("state") == "running" and _instant(record.get("finished_at")) is None
+
+
+def _carried(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]:
+    """`(last_end, not_ok_passes, not_ok_since)` as the sidecar holds them.
+
+    No pass and a run of none from a sidecar without them, or with values
+    that are not theirs: one an earlier mirror wrote, or one edited by hand.
+    """
+    last, count, since = data.get("last_end"), data.get("not_ok_passes"), data.get("not_ok_since")
+    if (not isinstance(last, dict) or isinstance(count, bool) or not isinstance(count, int)
+            or count < 0):
+        return None, 0, None
+    return last, count, since if count and isinstance(since, str) else None
+
+
+def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]:
+    """The same three for a pass that has just taken the lock.
+
+    Every full pass before it is over, the one in the sidecar's `pass` among
+    them. That record says how its pass ended, and `last_end` is taken from
+    it; the sidecar's own three add how long the run of passes that did not
+    end `ok` is. Two records need more than that:
+
+    * One still `running`. Only the lock's holder writes `pass`, and the
+      caller holds the lock, so that pass is over and recorded no end: its
+      process died, or its end could not be written. It did not end `ok`,
+      and it joins the run.
+    * One that the three do not describe: written by a mirror that kept
+      none of them, or edited by hand. The record is then the whole run
+      that is known, so a failed one is a run of one.
+    """
+    last, count, since = _carried(data)
+    record = data.get("pass")
+    if not isinstance(record, dict) or not record:
+        return last, count, since
+    end = {key: record.get(key) for key in END_FIELDS}
+    start = record.get("started_at") if isinstance(record.get("started_at"), str) else None
+    if _in_flight(record):
+        return {**end, "state": UNFINISHED}, count + 1, since or start
+    if record.get("state") not in ("error", "cancelled"):
+        return end, 0, None
+    if last is None or not count or last.get("started_at") != record.get("started_at"):
+        return end, 1, start
+    return end, count, since or start
+
+
+def _how(last: dict[str, Any]) -> str:
+    """`failed: OSError: …`: how the pass `last_end` holds ended, for a status line."""
+    state, error, stage = last.get("state"), last.get("error"), last.get("stage")
+    if state == UNFINISHED:
+        return "recorded no end" + (f" (last stage: {stage})" if stage else "")
+    how = ("failed" if state == "error" else "was cancelled" if state == "cancelled"
+           else "did not end ok")
+    return how + (f": {error}" if error else "")
+
+
+def _since_ok(last_ok: Any) -> str:
+    return (f"no pass has ended ok since {last_ok}" if last_ok
+            else "no pass on record has ended ok")
+
+
 def _short(account: str, org: str) -> str:
     return f"{account[:8]}…/{org[:8]}…"
 
 
-def _rank(data: dict) -> Any:
-    return (data.get("lastActivityAt") or data.get("lastFocusedAt")
-            or data.get("createdAt") or 0)
+#: The dates a record is ranked by: the first of them it holds.
+RANK_FIELDS = ("lastActivityAt", "lastFocusedAt", "createdAt")
+
+
+def _rank(data: dict, fields: Sequence[str] = RANK_FIELDS) -> Any:
+    """How recent a record is: the first date it holds among `fields`, or 0.
+
+    The callers compare two ranks with `>`, and a record is whatever the file
+    held. A string, list or object in one of these fields used to be returned
+    as the rank, and the comparison raised TypeError out of the pass (second
+    review of #167). Every full pass then failed the same way and left the
+    sidecar at `running`, so the mirror stopped for every session while its
+    health read `running`. So only a number is a date here. Any other value
+    ranks as no date, as a missing field and a zero always did, and so does
+    NaN, which has no place in an order. A bool is not a number.
+
+    Not `_instant_ms`: that also refuses a number beyond JavaScript's safe
+    integers, and which record the numbers choose must not change. For
+    numbers this returns what `a or b or c or 0` returned.
+    """
+    for field in fields:
+        value = data.get(field)
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and value == value and value):
+            return value
+    return 0
 
 
 class _Journal:
@@ -785,6 +1000,22 @@ class Mirror:
         #: A published flag decision or copy write left standing this hot pass.
         self._flags_moved = False
         self._flags_active = False
+        #: The split-id report of the inventory the running pass took, until
+        #: that pass records it. Never kept: a process that wrote a report it
+        #: took earlier could put it over a later one of another process's.
+        self._splits: dict[str, Any] | None = None
+        #: The full pass that last recorded, and what `_over` read when it
+        #: first did: the passes that were over before it (`_record`).
+        self._began: tuple[Pass, tuple[dict[str, Any] | None, int, str | None]] | None = None
+        #: `<session> -> the flag syncs that chose its date raise and could not
+        #: publish it`, since it last went through. A sync takes the sessions
+        #: with the fewest first, so those that never publish take turns behind
+        #: the rest instead of holding the bound (second review of #167: with a
+        #: memory of one sync, two groups of ten alternated for ever). One
+        #: ledger for the process: the embedded hot worker shares it.
+        self._activity_tries: dict[str, int] = {}
+        #: The last transcript discovery listed every project directory.
+        self._stems_whole = True
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -924,6 +1155,7 @@ class Mirror:
         worker._account_orgs = dict(self._account_orgs)
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
+        worker._activity_tries = self._activity_tries      # shared, as the journal is
         worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
@@ -940,8 +1172,12 @@ class Mirror:
         if worker is None or options is None:
             return
         worker.now, worker.cancel = self.now, self.cancel
-        worker._run_hot_locked(options, spread=False)
-        self._hot_recorded = worker._hot_recorded
+        try:
+            worker._run_hot_locked(options, spread=False)
+        finally:
+            # Also when the helper raised: its record of that stands in the
+            # sidecar, and the next hot pass's sampling must know it does.
+            self._hot_recorded = worker._hot_recorded
         self._hot_services += 1
         if worker._flags_moved:
             # A no-op or held candidate does not invalidate a refresh. A base
@@ -967,19 +1203,54 @@ class Mirror:
 
     def _record(self, current: Pass, *, last_ok: str | None = None,
                 load_gap: dict[str, Any] | None = None) -> None:
+        """Write the full pass's record, and what was over before it (C-23.28).
+
+        `pass` holds one pass, and a pass writes its start before it does any
+        work, so a failed pass's record is gone as soon as the next pass
+        starts. Health then read that pass as in flight and said nothing of
+        the failures before it: on a fixture store on a 60 s interval, a
+        mirror whose every pass ran 40 s and then failed read `running`, with
+        no word of a failure, in 400 of 600 readings a second apart. So the
+        sidecar also keeps, beside `last_ok_at`:
+
+        * `last_end`: the last full pass that is over (`END_FIELDS`);
+        * `not_ok_passes`: how many passes in a row, that one the last of
+          them, are over and did not end `ok`;
+        * `not_ok_since`: when the first of those started.
+
+        A pass's start and its progress carry the three as the pass found
+        them. Its end replaces them. Both are worked out from what stood
+        when the pass first recorded, so an end that is written twice counts
+        once.
+        """
         if current.dry_run:
             return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
         previous = self.sidecar()
-        value = {key: previous[key] for key in ("hot", "load_gap") if key in previous}
+        if self._began is None or self._began[0] is not current:
+            self._began = (current, _over(previous))
+        last, count, since = self._began[1]
+        if current.state != "running":
+            failed = current.state != "ok"
+            last = {key: getattr(current, key) for key in END_FIELDS}
+            count, since = (count + 1, since or current.started_at) if failed else (0, None)
+        value = {key: previous[key] for key in ("hot", "load_gap", "splits") if key in previous}
         value.update({
             "pass": current.to_dict(),
             "last_ok_at": last_ok or previous.get("last_ok_at"),
+            "last_end": last,
+            "not_ok_passes": count,
+            "not_ok_since": since,
             "interval_s": self.policy.get("sessions", {}).get("mirror_interval_s", 60),
             "updated_at": _iso(self.now()),
         })
         if load_gap is not None:
             value["load_gap"] = load_gap
+        if self._splits is not None:
+            # Recorded once, by the pass that took the inventory, inside its
+            # lock: passes are ordered by that lock, so the latest report is
+            # the last one written, whatever any clock says.
+            value["splits"], self._splits = self._splits, None
         _write_json(self.sidecar_path, value)
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
@@ -1106,11 +1377,16 @@ class Mirror:
         """
         stems: dict[str, Path] = {}
         base = projects_dir()
+        # `_stems_whole` is False when a listing failed for a cause that may
+        # pass (EMFILE): what it hid is unknown, not absent. What the user may
+        # not read, the app cannot open either (`_permanent`).
+        self._stems_whole = True
         try:
             with os.scandir(base) as listing:
                 directories = sorted(item.path for item in listing
                                      if item.is_dir(follow_symlinks=False))
-        except OSError:
+        except OSError as exc:
+            self._stems_whole = isinstance(exc, FileNotFoundError) or _permanent(exc)
             return stems
         seen = set()
         for directory in directories:
@@ -1119,7 +1395,9 @@ class Mirror:
             seen.add(directory)
             try:
                 mtime = os.stat(directory).st_mtime_ns
-            except OSError:
+            except OSError as exc:
+                if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
+                    self._stems_whole = False
                 continue
             cached = self._stem_dirs.get(directory)
             if sweep or cached is None or cached[0] != mtime:
@@ -1133,7 +1411,14 @@ class Mirror:
                                     links.add(item.name[:-6])
                             elif sweep and item.name.endswith(".tmp-revive"):
                                 leftovers.append(item.path)
-                except OSError:
+                except OSError as exc:
+                    if not (isinstance(exc, FileNotFoundError) or _permanent(exc)):
+                        # Not kept as an empty listing: the directory's mtime
+                        # has not moved, so a kept one would hide its
+                        # transcripts until the next sweep.
+                        self._stems_whole = False
+                        self._stem_dirs.pop(directory, None)
+                        continue
                     found, links = {}, set()
                 _remove_leftovers(leftovers)
                 self._stem_dirs[directory] = (mtime, found, frozenset(links))
@@ -1312,18 +1597,25 @@ class Mirror:
     # --- writes into the store -----------------------------------------------
 
     def _journal_write(self, destination: Path, inode: int | None, identity: str,
-                       data: dict, kind: str) -> None:
-        """Journal a write, unless the app replaced the file before we looked."""
+                       data: dict, kind: str, *, flags: bool = True) -> None:
+        """Journal a write, unless the app replaced the file before we looked.
+
+        `flags` is False for an update that changed only the date. It leaves
+        every field a flag decision reads as it was, so it does not invalidate
+        the full pass's refresh: if it did, an app re-saving one old date could
+        hold every session's flags pass after pass (review of #167).
+        """
+        moved = kind == "updated" and flags
         try:
             info = os.stat(destination)
         except OSError:
             # A failed observation cannot prove the write no longer stands.
-            if kind == "updated":
+            if moved:
                 self._flags_moved = True
             return
         if inode is not None and info.st_ino != inode:
             return
-        if kind == "updated":
+        if moved:
             # Includes a write left standing when its put-back failed; an app
             # replacement rejected above is not one of our surviving writes.
             self._flags_moved = True
@@ -1618,6 +1910,23 @@ class Mirror:
         (the loaded one, or one where an earlier account's session still runs)
         can write back a value the mirror changed there, and the merge base
         reads that re-save as a user's change. See the 2026-09-24 report.
+
+        The same publish raises `lastActivityAt` on a copy that trails its
+        session's newest by more than `options.activity_lag_s`
+        (`activity_targets`), unless the session's flag decision is archived.
+        The raises are in the session's batch, so they are written or put
+        back with it. Two things differ from a flag. The date is not in the
+        merge base. And the pre-check does not hold a session whose date
+        moved: the write keeps the later of what the copy holds and what the
+        pass decided, and a copy that needs nothing after that is not
+        written. A sync raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions,
+        those chosen and not published the fewest times first. A date
+        more than `ACTIVITY_FUTURE_S` past this pass's clock, or not above
+        zero, is no voice: it is not raised and it is never the newest. A
+        write that changed only a date does not invalidate the full pass's
+        refresh (`_journal_write`).
+        The date's protocol is docs/formal/MirrorActivity.tla, with its twin
+        in tests/mirror_activity_model.py.
         """
         base_all = _load(self.flags_path)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
@@ -1643,6 +1952,10 @@ class Mirror:
         dirty: set[tuple[Path, str]] = set()
         originals: dict[tuple[Path, str], dict] = {}
         owners: dict[tuple[Path, str], str] = {}
+        lag_ms = options.activity_lag_s * 1000.0 if options.activity_lag_s > 0 else 0.0
+        horizon_ms = (self.now().timestamp() + ACTIVITY_FUTURE_S) * 1000.0
+        #: `(how far its stalest copy trails, session, [(folder, name, date)])`.
+        lagging: list[tuple[Any, str, list[tuple[Path, str, Any]]]] = []
 
         def writable(path: Path, name: str) -> dict:
             # Cached/interned snapshots are shared across accounts and passes.
@@ -1661,7 +1974,8 @@ class Mirror:
             return data.get("titleSource") or "auto"
 
         def active_of(data: dict) -> Any:
-            return data.get("lastActivityAt") or data.get("createdAt") or 0
+            # `max` compares these, so they are ranked as `_rank` ranks.
+            return _rank(data, ("lastActivityAt", "createdAt"))
 
         for identity, copies in groups.items():
             self._checkpoint(current)
@@ -1755,6 +2069,20 @@ class Mirror:
                 title = anchor
                 current.transcript_retitled += 1
 
+            # The date each row shows. A session archived everywhere is in no
+            # sidebar list, so its copies' dates are left as they are.
+            if lag_ms and not base["isArchived"]:
+                # A date from the future is no voice (`ACTIVITY_FUTURE_S`), nor
+                # is zero or less, which the app takes for no date.
+                dates = [value if _instant_ms(value) and 0 < value <= horizon_ms else None
+                         for value in (data.get(ACTIVITY_FIELD) for _p, _n, data in copies)]
+                raises = activity_targets(dates, lag_ms)
+                if raises:
+                    newest = max(value for value in dates if _instant_ms(value))
+                    lagging.append((newest - min(dates[index] for index in raises), identity,
+                                    [(copies[index][0], copies[index][1], value)
+                                     for index, value in raises.items()]))
+
             record = {"isArchived": base["isArchived"], "isStarred": base["isStarred"]}
             if title is not None:
                 record["title"] = title
@@ -1763,6 +2091,24 @@ class Mirror:
             if stamp is not None:
                 record["tmt"] = stamp
             fresh[identity] = record
+
+        # The dates join the same publish, a bounded number of sessions a pass
+        # (`ACTIVITY_SESSIONS_PER_PASS`): first those chosen and not published
+        # the fewest times, and among them the furthest behind. A session that
+        # needs no raise any more, or is gone, leaves the ledger.
+        tries = self._activity_tries
+        behind = {identity for _behind, identity, _targets in lagging}
+        for identity in [key for key in tries if key not in behind
+                         and (key in groups or complete)]:
+            del tries[identity]
+        lagging.sort(key=lambda item: (tries.get(item[1], 0), -item[0], item[1]))
+        chosen: set[str] = set()
+        for _behind, identity, targets in lagging[:ACTIVITY_SESSIONS_PER_PASS]:
+            for path, name, value in targets:
+                writable(path, name)[ACTIVITY_FIELD] = value
+            chosen.add(identity)
+            current.activity_synced += 1
+        current.activity_waiting += len(lagging[ACTIVITY_SESSIONS_PER_PASS:])
 
         if not options.dry_run:
             # Once writes start, finish the matching merge base. Cancellation
@@ -1794,10 +2140,23 @@ class Mirror:
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
-                    ready.append((target, body, before, resolved, expect))
+                    raised = resolved.get(ACTIVITY_FIELD)
+                    if raised != original.get(ACTIVITY_FIELD):
+                        # Never lowered: the app may have saved a later date
+                        # here since the pass read this copy, and that date is
+                        # not among the fields whose change holds the session.
+                        # And never over what is no date now, as at the decision.
+                        held_now = body.get(ACTIVITY_FIELD)
+                        if _instant_ms(held_now) and 0 < held_now < raised:
+                            body[ACTIVITY_FIELD] = raised
+                    if body == before:
+                        continue                # the app's own save already carries it
+                    flagged = any(body.get(key) != before.get(key) for key in FLAG_WRITES)
+                    ready.append((target, body, before, flagged, expect))
                 else:
-                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
-                    for target, body, before, resolved, expect in ready:
+                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...],
+                                        bool]] = []
+                    for target, body, before, flagged, expect in ready:
                         try:
                             self._forget(target)
                             inode = _write_json(target, body, keep_mtime=True, expect=expect,
@@ -1809,7 +2168,8 @@ class Mirror:
                             # check. Put back the copies already written, so the
                             # held merge base matches every file again (a copy
                             # changed since the mirror's write is left alone).
-                            for done, old, done_inode, done_expect, was in reversed(written):
+                            for (done, old, done_inode, done_expect, was,
+                                 done_flagged) in reversed(written):
                                 try:
                                     self._forget(done)
                                     back = _write_json(done, old, keep_mtime=True,
@@ -1818,7 +2178,7 @@ class Mirror:
                                     # The mirror's write stands: journal it.
                                     self._journal_write(done, done_inode, identity,
                                                         folder_files[done.parent][done.name],
-                                                        "updated")
+                                                        "updated", flags=done_flagged)
                                     continue
                                 if back is not None:
                                     self._journal_restamp(done, was, back)
@@ -1831,13 +2191,16 @@ class Mirror:
                             # This successful write cannot enter the rollback
                             # list without its signature. It may survive a later
                             # failed copy, even though no journal call sees it.
-                            self._flags_moved = True
+                            if flagged:
+                                self._flags_moved = True
                         if now_signature is not None and now_signature[1] == inode:
-                            written.append((target, before, inode, now_signature, expect))
+                            written.append((target, before, inode, now_signature, expect,
+                                            flagged))
                     else:
-                        for target, _before, inode, _signature, _was in written:
+                        for target, _before, inode, _signature, _was, was_flagged in written:
                             self._journal_write(target, inode, identity,
-                                                folder_files[target.parent][target.name], "updated")
+                                                folder_files[target.parent][target.name],
+                                                "updated", flags=was_flagged)
                     continue
                 held.add(identity)
             for identity in held:
@@ -1849,6 +2212,11 @@ class Mirror:
                     fresh.pop(identity, None)
             if retry is not None:
                 retry.update(held)
+            for identity in chosen:
+                if identity in held:
+                    tries[identity] = tries.get(identity, 0) + 1
+                else:
+                    tries.pop(identity, None)
             if fresh != base_all:
                 self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
                 # Synced like the records it describes: a base lost to a crash
@@ -1881,44 +2249,64 @@ class Mirror:
         that hangs is then visible as in flight rather than as silence, and
         `health` tolerates it for thirty minutes instead of guessing from a
         process listing.
+
+        A pass that took the lock ends its record however it ends, so that
+        only a pass in flight reads as one. Cancellation and OSError are
+        recorded here and returned. Any other exception is recorded by
+        `_record_raised` and raised again.
         """
         options = options or Options()
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run)
         lock = None
+        kept = None
         try:
-            lock = self._lock()
-            if lock is None:
+            try:
+                lock = self._lock()
+                if lock is None:
+                    current.state = "ok"
+                    current.finished_at = current.started_at
+                    current.error = "another pass holds the lock"
+                    return current           # deliberately without touching the sidecar
+                if options.dry_run:
+                    kept = self._borrow()
+                # Before anything that can raise: the record of how this pass
+                # ended must not carry an earlier pass's report.
+                self._splits = None                 # a pass's that never recorded
+                self.journal.refresh()
+                self._record(current)
+                self._pass_payloads = {}
+                self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
+                interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
+                self._hot_services = 0
+                self._hot_epoch = 0
+                if self._inventoried and interval > 0 and options.flag_sync:
+                    self._hot_worker = self._fork_hot()
+                    self._hot_options = options
+                    self._hot_due = time.monotonic() + interval
+                self._pass(current, options)
+                self._checkpoint(current, "complete")
                 current.state = "ok"
-                current.finished_at = current.started_at
-                current.error = "another pass holds the lock"
-                return current           # deliberately without touching the sidecar
-            self.journal.refresh()
-            self._record(current)
-            self._pass_payloads = {}
-            self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
-            interval = float(self.policy.get("sessions", {}).get("mirror_hot_interval_s", 2))
-            self._hot_services = 0
-            self._hot_epoch = 0
-            if self._inventoried and interval > 0 and options.flag_sync:
-                self._hot_worker = self._fork_hot()
-                self._hot_options = options
-                self._hot_due = time.monotonic() + interval
-            self._pass(current, options)
-            self._checkpoint(current, "complete")
-            current.state = "ok"
-            current.finished_at = _iso(self.now())
-            self._record(current, last_ok=current.finished_at, load_gap=self._settle(options))
-        except (_Cancelled, OSError) as exc:
-            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
-            current.error = f"{type(exc).__name__}: {exc}"
-            current.finished_at = _iso(self.now())
-            self._record(current, load_gap=self._settle(options))
+                current.finished_at = _iso(self.now())
+                self._record(current, last_ok=current.finished_at, load_gap=self._settle(options))
+            except (_Cancelled, OSError) as exc:
+                current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
+                current.error = f"{type(exc).__name__}: {exc}"
+                current.finished_at = _iso(self.now())
+                self._record(current, load_gap=self._settle(options))
+        except BaseException as exc:
+            # Whatever else ends a pass ends its record too, and is raised
+            # again (`_record_raised`). Only a pass that holds the lock writes.
+            if lock is not None:
+                self._record_raised(current, exc, options)
+            raise
         finally:
             if lock is not None:
                 # Only the pass that holds the lock owns the per-pass payloads.
                 self._pass_payloads = {}
                 self._hot_worker = None
                 self._hot_options = None
+                if kept is not None:
+                    self._give_back(kept)
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
@@ -1943,6 +2331,7 @@ class Mirror:
             return self.run_once(options)
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run, kind="hot")
         lock = None
+        kept = None
         try:
             lock = self._lock()
             if lock is None:
@@ -1950,9 +2339,13 @@ class Mirror:
                 current.finished_at = current.started_at
                 current.error = "another pass holds the lock"
                 return current
+            if options.dry_run:
+                kept = self._borrow()
             return self._run_hot_locked(options)
         finally:
             if lock is not None:
+                if kept is not None:
+                    self._give_back(kept)
                 try:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 finally:
@@ -1968,25 +2361,98 @@ class Mirror:
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run, kind="hot")
         self._flags_moved = False
         try:
-            self.journal.refresh()
-            self._pass_payloads = {}
-            # Sample starts so a slow hot read can be visible without rewriting
-            # the sidecar twice per idle tick. A recorded start always finishes.
-            self._record_hot(current, None)
-            self._hot(current, options, spread=spread)
-            current.stage = "complete"
-            current.state = "ok"
-        except (_Cancelled, OSError) as exc:
-            current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
-            current.error = f"{type(exc).__name__}: {exc}"
-        finally:
-            self._pass_payloads = {}
+            try:
+                self.journal.refresh()
+                self._pass_payloads = {}
+                # Sample starts so a slow hot read can be visible without rewriting
+                # the sidecar twice per idle tick. A recorded start always finishes.
+                self._record_hot(current, None)
+                self._hot(current, options, spread=spread)
+                current.stage = "complete"
+                current.state = "ok"
+            except (_Cancelled, OSError) as exc:
+                current.state = "cancelled" if isinstance(exc, _Cancelled) else "error"
+                current.error = f"{type(exc).__name__}: {exc}"
+            finally:
+                self._pass_payloads = {}
             current.finished_at = _iso(self.now())
             try:
                 self._record_hot(current, self._settle(options))
             except OSError:
                 pass
+        except BaseException as exc:
+            # As in `run_once`. Raised inside a full pass's checkpoint, it
+            # ends that pass too, which records its own end the same way.
+            self._record_raised(current, exc, options)
+            raise
         return current
+
+    def _record_raised(self, current: Pass, exc: BaseException, options: Options) -> None:
+        """Finish the record of a pass that an exception no pass expects is ending.
+
+        A pass expects cancellation and OSError, records either as its end
+        and returns. Anything else used to leave the record at `running`:
+        the daemon's timer ran the pass again on its interval, each run
+        wrote a new start before it failed the same way, and so health read
+        `running` after every pass and never reached the thirty-minute
+        `stalled` reading (46 passes a minute apart on a fixture store,
+        2026-10-10). The record now ends as `error`, or as `cancelled` for
+        an interrupt, with the exception's type, its message and where it
+        was raised.
+
+        The caller raises the exception again. The timer keeps only its
+        type, in a `timer.error` event and in `timers.<name>.last_error_type`
+        of `daemon.status`, and that is all the daemon's store learns of a
+        failed pass: a pass that returned would read there as a clean run.
+        No exception of this method's own takes its place. A report that
+        fails is left out of the record, and a record that cannot be
+        written is a note on the exception.
+        """
+        try:
+            current.state = "error" if isinstance(exc, Exception) else "cancelled"
+            current.error = f"{type(exc).__name__}: {exc}".rstrip() + _raised_at(exc)
+            current.finished_at = _iso(self.now())
+            try:
+                gap = self._settle(options)
+            except Exception:                   # noqa: BLE001 - `exc` is the one to raise
+                gap = None
+            if current.kind == "hot":
+                self._record_hot(current, gap)
+            else:
+                self._record(current, load_gap=gap)
+        except Exception as failed:             # noqa: BLE001 - as above
+            exc.add_note(f"the mirror's sidecar does not record this: {type(failed).__name__}")
+
+    def _borrow(self) -> dict[str, Any]:
+        """Before a dry run: put copies in place of everything a pass changes
+        on this instance, and return the originals for `_give_back`.
+
+        A dry run decides as a real pass does, so it reads the store into the
+        inventory, which makes each change it read no longer new to the next
+        hot pass, and it clears the retries it decided on. But it published
+        nothing. On an instance that passes again, the next real hot pass then
+        found no candidates (second review of #167), and a new instance's
+        first hot pass was no longer the full one. With the originals put
+        back, the instance is as the dry run found it: its retries, its
+        inventory and whether it has one, and the ledger of failed raises.
+
+        Called and undone inside the pass's lock. One level of copies is
+        enough: a pass replaces the values these hold (a folder's listing, a
+        cached entry) and changes none in place, except a payload's reference
+        count, so the payloads are copied too. The journal is shared: a dry
+        run adds no row to it and only reads its file again.
+        """
+        kept = dict(vars(self))
+        working = {name: type(value)(value) if type(value) in (dict, set, list) else value
+                   for name, value in kept.items()}
+        working["_payloads"] = {key: _Payload(row.value, row.size, row.refs)
+                                for key, row in kept["_payloads"].items()}
+        self.__dict__ = working             # in one step, as `_give_back` undoes it
+        return kept
+
+    def _give_back(self, kept: dict[str, Any]) -> None:
+        """After a dry run: the instance holds exactly what `_borrow` took."""
+        self.__dict__ = kept
 
     def _lock(self):
         path = self.dir / LOCK_NAME
@@ -2015,6 +2481,7 @@ class Mirror:
         if not folders and not kept and not failed:
             self._drop_folders(folders)
             self._inventoried = True            # an empty store is a complete inventory
+            self._splits = self._split_report({}, set(), {})
             return
         sweep = self._sweep_due()
         current.swept = sweep
@@ -2070,16 +2537,30 @@ class Mirror:
             return bool(identity) and identity in stems
 
         canonical: dict[str, tuple[Any, dict, str, Path]] = {}
+        #: `<record name> -> {conversation: the folders that hold it under that name}`.
+        bound: dict[str, dict[str, int]] = {}
+        shown: set[str] = set()                 # conversations with an unarchived copy
         for path, files in folder_files.items():
             for name, data in files.items():
                 self._checkpoint(current)
                 if not resolvable(data):
                     continue
                 identity = data["cliSessionId"]
+                holders = bound.setdefault(name, {})
+                holders[identity] = holders.get(identity, 0) + 1
+                if not data.get("isArchived"):
+                    shown.add(identity)
                 score = _rank(data)
                 if identity not in canonical or score > canonical[identity][0]:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
+        if self._stems_whole and not (unlisted or unknown or failed or self._unread):
+            # Only from every folder, every copy and every project directory: a
+            # folder that did not list this pass may hold the other half of a
+            # split, and a transcript the pass could not see makes its
+            # conversation look dead. A report without them would read as
+            # clean. The last whole report stands until then.
+            self._splits = self._split_report(bound, shown, canonical)
         # A new record this pass read before its transcript existed is no
         # longer fresh to the hot pass, so hand it over to the hot pass's retry.
         # Only records written within the retry window: to a cold pass every
@@ -2158,6 +2639,53 @@ class Mirror:
         self._stems = stems
         if sweep:
             self._last_sweep = time.monotonic()
+
+    def _split_report(self, bound: dict[str, dict[str, int]], shown: set[str],
+                      canonical: dict[str, tuple[Any, dict, str, Path]]) -> dict[str, Any]:
+        """The session ids that open different conversations under different logins.
+
+        A record's name is the app's id for a session. When the records of one
+        name hold one conversation in some folders and another in the rest,
+        and both transcripts exist, `_spread` gives each a row in every
+        folder, the second under a `local_<conversation>.json` name, with the
+        same title. `live` counts the ids of which two or more conversations
+        still have an unarchived copy: two rows a person can confuse. Counted
+        from this pass's inventory, before its flag sync, only from a whole
+        one, and recorded once, by this pass (`_pass`, `_record`). How a name
+        comes to hold two conversations is not this report's to say; it lists
+        what the store holds.
+        """
+        rows = []
+        for name, holders in bound.items():
+            if len(holders) < 2:
+                continue
+            conversations = []
+            for identity, folders in holders.items():
+                data = canonical[identity][1]
+                date = data.get(ACTIVITY_FIELD)
+                conversations.append({
+                    "id": identity, "folders": folders,
+                    "title": str(data.get("title") or ""),
+                    "archived": identity not in shown,
+                    "last_activity": (_iso(datetime.fromtimestamp(date / 1000, timezone.utc))
+                                      if _instant_ms(date) and 0 <= date < 1e14 else None)})
+            conversations.sort(key=lambda item: (item["last_activity"] or "", item["id"]),
+                               reverse=True)
+            rows.append({"name": name, "conversations": conversations,
+                         "live": sum(1 for item in conversations if not item["archived"]) > 1})
+        # Live ones first, each group newest first; the rest fill what room is left.
+        rows.sort(key=lambda row: (row["conversations"][0]["last_activity"] or "", row["name"]),
+                  reverse=True)
+        rows.sort(key=lambda row: not row["live"])
+        return {"count": len(rows), "live": sum(1 for row in rows if row["live"]),
+                "checked_at": _iso(self.now()), "sessions": rows[:SPLIT_REPORT_LIMIT]}
+
+    def splits(self) -> dict[str, Any]:
+        """The last full pass's split-id report, from the sidecar; read-only."""
+        value = self.sidecar().get("splits")
+        if not isinstance(value, dict):
+            return {"count": 0, "live": 0, "checked_at": None, "sessions": []}
+        return value
 
     def _flag_inventory(self, current: Pass, options: Options):
         """Refresh a full flag snapshot after embedded hot writes."""
@@ -2504,6 +3032,13 @@ class Mirror:
         pass finished inside `mirror_stall_min`, `stalled` otherwise. Log
         recency is never consulted: `--quiet` keeps a no-op pass silent, and
         reading the log as a heartbeat produced a false "stalled" on 2026-08-19.
+
+        A pass in flight says nothing of the passes before it, and its start
+        replaced the record of the last of them. What they were is read from
+        `last_end` and `not_ok_passes` (`_record`): the detail names the last
+        pass that did not end `ok`, and how many in a row, also while the
+        next pass is in flight, and the reply carries all three. They change
+        no reading's status.
         """
         instant = now or self.now()
         settings = self.policy.get("sessions", {})
@@ -2514,33 +3049,48 @@ class Mirror:
             return {"status": "absent", "sidecar": str(self.sidecar_path),
                     "age_min": None, "run_min": None, "detail":
                     "no pass recorded; the mirror has not run against this state root"}
+        # In flight: the passes before this one, as its start found them.
+        # Over: the run this record ends, held to the record itself.
+        flight = _in_flight(record)
+        last, count, since = _carried(data) if flight else _over(data)
+        last_ok = data.get("last_ok_at")
+        over = {"last_end": last, "not_ok_passes": count, "not_ok_since": since,
+                "last_ok_at": last_ok}
         started = _instant(record.get("started_at"))
         finished = _instant(record.get("finished_at"))
-        if record.get("state") == "running" and finished is None:
+        if flight:
             run_min = ((instant - started).total_seconds() / 60) if started else None
+            before = ""
+            if count == 1:
+                before = f"; the pass before it {_how(last)}"
+            elif count:
+                before = (f"; the {count} passes before it did not end ok, "
+                          f"and the last {_how(last)}; {_since_ok(last_ok)}")
             if run_min is not None and run_min <= hang:
                 return {"status": "running", "sidecar": str(self.sidecar_path),
-                        "age_min": None, "run_min": round(run_min, 1),
-                        "detail": f"a pass has been in flight for {run_min:.1f} min"}
+                        "age_min": None, "run_min": round(run_min, 1), **over,
+                        "detail": f"a pass has been in flight for {run_min:.1f} min" + before}
             return {"status": "stalled", "sidecar": str(self.sidecar_path),
                     "age_min": None,
-                    "run_min": round(run_min, 1) if run_min is not None else None,
+                    "run_min": round(run_min, 1) if run_min is not None else None, **over,
                     "detail": (f"run hung for {run_min:.1f} min" if run_min is not None
-                               else "a pass is in flight with no recorded start")}
+                               else "a pass is in flight with no recorded start") + before}
         reference = _instant(data.get("updated_at")) or finished
         age_min = ((instant - reference).total_seconds() / 60) if reference else None
         if record.get("state") in ("error", "cancelled"):
             return {"status": "stalled", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1) if age_min is not None else None,
-                    "run_min": None,
-                    "detail": f"last pass failed: {record.get('error')}"}
+                    "run_min": None, **over,
+                    "detail": f"last pass failed: {record.get('error')}"
+                              + (f"; {count} passes in a row did not end ok; {_since_ok(last_ok)}"
+                                 if count > 1 else "")}
         if age_min is not None and age_min <= stall:
             held = int(record.get("flags_held") or 0)
             causes = record.get("held_by") or []
             why = "; ".join(f"{item.get('path')}: {item.get('reason')}" for item in causes[:2])
             return {"status": "healthy", "sidecar": str(self.sidecar_path),
                     "age_min": round(age_min, 1), "run_min": None, "flags_held": held,
-                    "held_by": causes,
+                    "held_by": causes, **over,
                     "detail": f"last pass {age_min:.1f} min ago: "
                               f"{record.get('added', 0)} added, "
                               f"{record.get('repaired', 0)} repaired"
@@ -2548,7 +3098,7 @@ class Mirror:
                                  + (f" ({why})" if why else "") if held else "")}
         return {"status": "stalled", "sidecar": str(self.sidecar_path),
                 "age_min": round(age_min, 1) if age_min is not None else None,
-                "run_min": None,
+                "run_min": None, **over,
                 "detail": (f"sidecar idle {age_min:.1f} min, no pass in flight"
                            if age_min is not None else "sidecar records no pass time")}
 
@@ -2564,10 +3114,18 @@ def load_gap(root: str | Path, policy: dict[str, Any] | None = None) -> dict[str
     return Mirror(root, policy).load_gap()
 
 
+def splits(root: str | Path, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The session ids that open two conversations; read-only (`doctor`, `--status`)."""
+    return Mirror(root, policy).splits()
+
+
 def run_once(root: str | Path, policy: dict[str, Any] | None = None,
              options: Options | None = None, *, now=None) -> Pass:
     return Mirror(root, policy, now=now).run_once(options)
 
 
-__all__ = ["DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
-           "health", "load_gap", "options_from", "run_once", "slug", "store_dir"]
+__all__ = ["ACTIVITY_FIELD", "ACTIVITY_FUTURE_S", "ACTIVITY_SESSIONS_PER_PASS",
+           "DEFAULT_ACTIVITY_LAG_S", "SAFE_MS",
+           "DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
+           "activity_targets", "health", "load_gap", "options_from", "run_once", "slug",
+           "splits", "store_dir"]
