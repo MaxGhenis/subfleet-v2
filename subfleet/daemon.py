@@ -3190,6 +3190,14 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        # D-SHUT1: the routing walk alone cannot explain an rc-0 cut-off turn.
+        # Read the latest attempt's recorded verdict, without reclassifying it.
+        last = self.store.one("SELECT seq,outcome_detail,evidence_json FROM attempts WHERE job_id=? "
+                              "ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+        classification = json.loads(last["evidence_json"] or "{}").get("classification", {}) if last else {}
+        if classification.get("turn_completed") is False and classification.get("rc") == 0:
+            event_type = classification.get("last_event_type") or "none read"
+            lines.append(f"Last attempt a{last['seq']}: {last['outcome_detail']} (last event: {event_type})")
         disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
         if disk_reading is not None and (hold or {}).get("reason") != "disk":
             lines.append(render.disk_line(disk_reading))

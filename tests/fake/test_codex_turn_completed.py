@@ -49,6 +49,9 @@ def test_cut_off_attempt_is_never_accepted_or_exported(state_daemon, monkeypatch
                                            "cut-off-error": "error"}[case]
     notice, = daemon.store.list_notices()
     assert "Codex exited before its turn completed" in notice["text"]
+    why = daemon.dispatch("why", {"job_id": job_id})
+    assert "Codex exited before its turn completed" in why["text"]
+    assert f"last event: {evidence['last_event_type']}" in why["text"]
     # Force the export path too: it must refuse a job with no accepted attempt.
     daemon._export(job_id)
     assert out.read_bytes() == b"previous output\n"
@@ -70,6 +73,7 @@ def test_retry_uses_only_the_next_attempts_deliverable(state_daemon, monkeypatch
     waiting = daemon.store.get_job(job_id)
     assert (waiting["state"], waiting["accepted_attempt_id"]) == ("waiting", None)
     assert waiting["next_check_at"] is not None
+    assert "Codex exited before its turn completed" in daemon.dispatch("why", {"job_id": job_id})["text"]
     assert out.read_bytes() == b"previous output\n"
     assert b"before finishing" in (first_dir / "deliverable.md").read_bytes()
     daemon.store.update_job(job_id, next_check_at="2000-01-01T00:00:00Z")
@@ -86,6 +90,7 @@ def test_retry_uses_only_the_next_attempts_deliverable(state_daemon, monkeypatch
         assert job["accepted_attempt_id"] == second["attempt_id"]
         assert out.read_bytes() == (FIXTURES / "success" / "last.md").read_bytes()
         assert out.read_bytes() == (second_dir / "deliverable.md").read_bytes()
+        assert "Codex exited before its turn completed" not in daemon.dispatch("why", {"job_id": job_id})["text"]
     else:
         assert job["accepted_attempt_id"] is None
         assert (second_dir / "deliverable.md").read_bytes() == b""
