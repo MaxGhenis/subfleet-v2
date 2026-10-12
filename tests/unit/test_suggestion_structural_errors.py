@@ -182,3 +182,30 @@ def test_views_do_not_republish_legacy_free_form_errors():
         row["start_error"] = value
         assert suggestions.view(row)["start_error"] == "Exception: the suggestion operation failed"
         assert_secret_absent(suggestions.view(row), value)
+
+
+@pytest.mark.parametrize("kind", (KeyError, ValueError, OSError, UnicodeError, sqlite3.Error, UnrenderableFailure))
+@pytest.mark.parametrize("where", ("client", "caller"))
+def test_unexpected_cli_exceptions_cannot_escape_to_raw_rendering(kind, where):
+    value = "password='SECRET7-left\n右秘密-TAIL8'"
+    with fixture() as service, pytest.MonkeyPatch.context() as patch:
+        patch.setenv("SUBFLEET_HOME", str(service.root))
+        error = kind({"x": value})
+
+        def fail(*args, **kwargs):
+            raise error
+
+        patch.setattr(cli, "session_id", fail if where == "caller" else lambda: None)
+        patch.setattr(cli.Client, "call", fail)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            assert cli.cmd_suggest(cli.build_parser().parse_args(["suggest", "--list"])) in (1, 2)
+        assert_secret_absent(stream.getvalue(), value)
+
+
+def test_outer_cli_parser_does_not_echo_unknown_arguments(capsys):
+    value = "password='SECRET7-left\n右秘密-TAIL8'"
+    with pytest.raises(SystemExit) as caught:
+        cli.build_parser().parse_args(["suggest", "--unknown-option", value])
+    assert caught.value.code == 2
+    assert_secret_absent(capsys.readouterr().err, value)

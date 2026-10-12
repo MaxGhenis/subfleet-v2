@@ -26,6 +26,7 @@ Exit codes are the one table in C-17.3.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -147,6 +148,21 @@ def _uuid_arg(value: str) -> str:
 SUGGEST_TIMEOUT_S = 150.0
 
 
+
+def _suggest_cli_errors(handler):
+    @functools.wraps(handler)
+    def checked(args):
+        try:
+            return handler(args)
+        except Exception as exc:
+            # Includes unexpected client/result/path/caller failures, before
+            # main's general OSError renderer or Python's traceback can print it.
+            from .conversations.suggestions import error_code, error_fix, scrub_error
+            return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    return checked
+
+
+@_suggest_cli_errors
 def cmd_suggest(args: argparse.Namespace) -> int:
     """`subfleet suggest` (C-25.7): propose a separate conversation the owner starts in
     the Subfleet app with one click; or withdraw one this conversation or session
@@ -3023,8 +3039,21 @@ def _add_json(parser: argparse.ArgumentParser, *, nested: bool = False) -> None:
     parser.add_argument("--json", **kwargs)
 
 
+
+class _SuggestionErrorParser(argparse.ArgumentParser):
+    """Suggestion errors at both parser levels use fixed text, including unknown options."""
+    def parse_args(self, args=None, namespace=None):
+        values = list(sys.argv[1:] if args is None else args)
+        self._suggestion_context = "suggest" in values
+        return super().parse_args(values, namespace)
+
+    def error(self, message):
+        if getattr(self, "_suggestion_context", False) or self.prog.endswith(" suggest"):
+            self.exit(int(Exit.INVALID_INPUT), "subfleet suggest: invalid arguments; see subfleet suggest --help\n")
+        super().error(message)
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _SuggestionErrorParser(
         prog=PROG, description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-V", "--version", action="store_true",
@@ -3166,12 +3195,6 @@ def build_parser() -> argparse.ArgumentParser:
                     "the Subfleet app (in this conversation, and under Suggested) and starts it with one click; "
                     "the brief becomes the new conversation's first message, so make it self-contained. "
                     "Nothing starts until the owner does (C-25.7).")
-    def suggestion_argument_error(message):
-        # argparse diagnostics quote invalid caller values before our verb runs.
-        p_suggest.print_usage(sys.stderr)
-        p_suggest.exit(int(Exit.INVALID_INPUT), "subfleet suggest: invalid arguments; see subfleet suggest --help\n")
-
-    p_suggest.error = suggestion_argument_error
     p_suggest.add_argument("--title", help="what the new conversation is, at most 60 characters")
     p_suggest.add_argument("--tldr", help="one line on why it is worth doing, at most 300 characters")
     brief = p_suggest.add_mutually_exclusive_group()
