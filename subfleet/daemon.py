@@ -234,6 +234,27 @@ ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job
 #: it is next checked, which `render.quarantine_holds` shows; a live row carries
 #: nulls there. These are small columns of the few quarantined rows (69 rows and
 #: 41 KB on the live store on 2026-10-10), never `evidence_json`.
+QUARANTINE_PID_PREVIEW = 16
+QUARANTINE_ERROR_PREVIEW = 8
+
+
+def _quarantine_summary_sql(column: str = "quarantine_reason") -> str:
+    """Project bounded operator evidence in SQLite; never transfer the census."""
+    valid = f"CASE WHEN json_valid({column}) THEN {column} ELSE '{{}}' END"
+    return (
+        "json_object('reason',substr(COALESCE(json_extract(" + valid + ",'$.reason')," + column + ","
+        "'awaiting a verified-empty census'),1,1024),"
+        "'errors',json((SELECT json_group_array(message) FROM "
+        "(SELECT substr(value,1,256) AS message FROM json_each(" + valid + ",'$.errors') LIMIT "
+        + str(QUARANTINE_ERROR_PREVIEW) + "))),"
+        "'unverifiable',json(CASE WHEN json_extract(" + valid + ",'$.unverifiable') THEN 'true' ELSE 'false' END),"
+        "'live_pid_count',COALESCE(json_array_length(" + valid + ",'$.live_pids'),0),"
+        "'live_pids',json((SELECT json_group_array(value) FROM "
+        "(SELECT value FROM json_each(" + valid + ",'$.live_pids') WHERE type='integer' LIMIT "
+        + str(QUARANTINE_PID_PREVIEW) + "))))"
+    )
+
+
 STATUS_ATTEMPTS = (
     "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,"
     "finished_at,quarantine_reason,quarantine_recheck_at FROM ("
@@ -241,7 +262,7 @@ STATUS_ATTEMPTS = (
     "NULL AS finished_at,NULL AS quarantine_reason,NULL AS quarantine_recheck_at FROM attempts "
     "WHERE state IN ('reserved','starting','running','finalizing') "
     "UNION ALL SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,"
-    "finished_at,quarantine_reason,quarantine_recheck_at FROM attempts "
+    "finished_at," + _quarantine_summary_sql() + ",quarantine_recheck_at FROM attempts "
     "WHERE state='quarantined') ORDER BY reserved_at,seq,rowid")
 #: All nonterminal jobs (including queued/waiting turns), plus the jobs of the
 #: attempts above: even a cancelled job can have an uncontained attempt. Keep
@@ -7134,7 +7155,9 @@ class Daemon:
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
             # C-13.1, C-15.1: a quarantined retry names the attempt before it.
             earlier = self._earlier_attempt(tx, job, before=a["seq"])
-            self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + detail + earlier)
+            summary = self.store.one("SELECT " + _quarantine_summary_sql() + " AS summary FROM attempts WHERE attempt_id=?",
+                                     (a["attempt_id"],))["summary"]
+            self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + summary + earlier)
         self._notify()
 
     def _offer_quarantine_recheck(self) -> None:

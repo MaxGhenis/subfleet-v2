@@ -159,7 +159,9 @@ def quarantine_holds(view: Mapping[str, Any]) -> list[dict]:
             if evidence.get("unverifiable"):
                 reasons.append("census is unverifiable")
             if evidence.get("live_pids"):
-                reasons.append("live pids: " + ", ".join(map(str, evidence["live_pids"])))
+                count = evidence.get("live_pid_count", len(evidence["live_pids"]))
+                suffix = f" (first {len(evidence['live_pids'])} of {count})" if count > len(evidence["live_pids"]) else ""
+                reasons.append("live pids: " + ", ".join(map(str, evidence["live_pids"])) + suffix)
             raw = "; ".join(reasons)
         held.append({"job_id": a.get("job_id"), "attempt_id": a["attempt_id"], "age_s": seconds,
                      "reason": raw, "next_check_at": a.get("quarantine_recheck_at")})

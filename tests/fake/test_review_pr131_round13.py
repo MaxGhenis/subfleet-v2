@@ -61,7 +61,7 @@ def clone_quarantined(daemon, row, n):
 
 # --- item 3: the status reply ---------------------------------------------------
 
-@pytest.mark.parametrize("live_pids,rechecks,rows", [(300, 0, 40), (300, 14, 8)])
+@pytest.mark.parametrize("live_pids,rechecks,rows", [(300, 0, 40), (300, 14, 8), (4096, 1, 3)])
 def test_r13_finding_status_reply_stays_bounded_with_large_quarantines(state_daemon, monkeypatch,
                                                                        live_pids, rechecks, rows):
     """One attempt is quarantined through `_quarantine`, then rechecked through
@@ -95,6 +95,11 @@ def test_r13_finding_status_reply_stays_bounded_with_large_quarantines(state_dae
     print(f"\nR13 status: {rows} quarantined rows, {live_pids} live pids, history={rechecks > 0}: "
           f"reason {len(row['quarantine_reason']):,} B/row, quarantine_reason total {reasons:,} B, reply {size:,} B")
     assert size < D_ST2_BOUND, f"daemon.status reply {size:,} bytes with {rows} quarantined rows"
+    for row in result["attempts"]:
+        summary = json.loads(row["quarantine_reason"])
+        assert summary["live_pid_count"] == live_pids
+        assert len(summary["live_pids"]) <= dm.QUARANTINE_PID_PREVIEW
+        assert not {"identities", "lineage_roots", "identity_history"} & summary.keys()
 
 
 def test_r13_finding_recent_census_identities_is_not_quadratic(monkeypatch):
