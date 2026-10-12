@@ -2,8 +2,9 @@
 
 Base: `5c11d18e62fd`. Work is confined to the assigned workspace. The live switch remains off.
 
-Status: both fixes are implemented. HTTP fix commit: `80ebb4e22`. Test execution
-is pending because the shared lock has not yet admitted a run.
+Status: both fixes are implemented. HTTP fix commit: `80ebb4e22`; checker and
+clock fix commit: `22356d20f`. Test execution is pending because the shared lock
+has not yet admitted a run.
 
 Required work:
 
@@ -31,12 +32,13 @@ read reconciles them open. Only 2xx responses can directly confirm a reset.
 
 ## Execution
 
-The first two base regression commands each waited 300 seconds and exited 75
-without executing any tests. The second command used a workspace-local
+Three base regression commands each waited 300 seconds and exited 75
+without executing any tests (about fifteen minutes queued). The last two used a workspace-local
 `git archive` of `5c11d18e62fd`, with the same six regression assertions copied
 in. The run-only budget plugin checks and prints the imported production and
 checker paths, ensuring the base reproduction cannot import the edited head.
-It selects all five redirect cases and the exact delayed-claim world with FULL.
+Each selected all five redirect cases and the exact delayed-claim world with FULL.
+The bounded head regression attempt follows, using FULL and seed 179204.
 Each pytest hold has an 18-minute interrupt and 19-minute termination watchdog,
 and its own TMPDIR with the prescribed Python cleanup.
 
@@ -58,6 +60,10 @@ reset-shaped 409, and conflicting 429. The round-2 file checks each table row
 through real intent/claim/publication and the next evaluation at +60 seconds;
 its adapter checks exercise every integer status 100–699 through both returned
 responses and raised `HTTPError`, with six body shapes (7,200 requests).
+Explicit cases also verify deadline, cancellation and occupied-slot aborts,
+missing credentials at the consume boundary, and timeout, dropped-connection
+and unexpected exceptions after submission. The existing marker-after-claim
+regression is included in the targeted head command.
 
 ## Spend checker and timing
 
@@ -77,7 +83,7 @@ intent as a spend ten minutes after the first (source-traced; execution pending)
 The regression now lives in `test_reset_credit_claim_timing.py`; the archived
 base assertion is identical and remains in the copied round-2 file.
 
-The generated-world and round-1 property modules use a fixture that replaces
+The generated-world, round-1 and round-2 modules use a fixture that replaces
 only `subfleet.actions.time` with a fixed monotonic clock. Fake HTTP callbacks
 finish synchronously from the test's point of view, and no elapsed host commit
 time can expire their transport deadlines. Dedicated deadline/cancel regressions

@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 import urllib.error
 from datetime import timedelta
 
 import pytest
 
 from subfleet.adapters.codex import CodexAdapter, WHAM_RESET_CREDITS_CONSUME_URL
+from subfleet.actions import _bounded
 from subfleet.store import Store
+from tests.unit.test_reset_credit_properties import fake_transport_clock  # noqa: F401 (fixture)
 from tests.unit.test_reset_credit_review_r1 import GIFTS, Wham, _resets, posts, view_at
 from tests.unit.test_timers_reset_credits import NOW, lane as limited_lane, wants
 
@@ -89,3 +92,58 @@ def test_consume_adapter_classifies_every_http_status(body, raised):
                    or (status == 429 and error == "rate_limited")) and "windows_reset" not in body
         expected = "ok" if 200 <= status < 300 else "refused" if refusal else "unknown"
         assert answer["status"] == expected, (status, body, answer)
+
+
+@pytest.mark.parametrize("reason", ["deadline", "cancel", "occupied-slot"])
+def test_aborted_before_submission_has_no_provider_call(reason):
+    calls, cancel, guard = [], threading.Event(), threading.Lock()
+    if reason == "cancel":
+        cancel.set()
+    if reason == "occupied-slot":
+        guard.acquire()
+    try:
+        result = _bounded(lambda: calls.append("submitted"), cancel,
+                          -1 if reason == "deadline" else 60, guard)
+        assert result["status"] == "aborted-before-submission"
+        assert calls == []
+    finally:
+        if guard.locked():
+            guard.release()
+
+
+@pytest.mark.parametrize("error", [TimeoutError("timeout"), ConnectionResetError("dropped"), ValueError("unexpected")])
+def test_exception_after_submission_is_unknown_and_blocks(tmp_path, error):
+    with Store(tmp_path / "state.db") as store:
+        limited_lane(store, tmp_path, 1)
+        http = Wham(GIFTS, error)
+        resets = _resets(store, http)
+        first = resets.evaluate(view_at(store, NOW), now=NOW, demand=wants(store))
+        later = NOW + timedelta(seconds=60)
+        second = resets.evaluate(view_at(store, later), now=later, demand=wants(store))
+        assert (first["status"], second["status"], len(posts(http))) == ("unknown", "unsettled-action", 1)
+
+
+def test_missing_credential_at_consume_proves_no_submission(tmp_path, monkeypatch):
+    with Store(tmp_path / "state.db") as store:
+        target = limited_lane(store, tmp_path, 1)
+        auth = tmp_path / "codex-1" / "auth.json"
+        credential = auth.read_text()
+        http = Wham(GIFTS, (200, b'{"code":"reset","windows_reset":2}'))
+        resets = _resets(store, http)
+        claim = resets.actions.claim
+
+        def claim_then_remove_credential(*args, **kwargs):
+            claimed = claim(*args, **kwargs)
+            auth.unlink()
+            return claimed
+
+        monkeypatch.setattr(resets.actions, "claim", claim_then_remove_credential)
+        first = resets.evaluate(view_at(store, NOW), now=NOW, demand=wants(store))
+        assert first["status"] == "failed" and posts(http) == []
+        assert json.loads(store.get_action(first["action_id"])["result_json"])["status"] == "no-auth"
+        assert target.lane_id == "codex-1"
+        auth.write_text(credential)
+        monkeypatch.setattr(resets.actions, "claim", claim)
+        later = NOW + timedelta(seconds=60)
+        second = resets.evaluate(view_at(store, later), now=later, demand=wants(store))
+        assert second["status"] == "confirmed" and len(posts(http)) == 1
