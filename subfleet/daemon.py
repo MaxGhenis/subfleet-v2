@@ -5326,12 +5326,12 @@ class Daemon:
                 row_folder, row_absent = None, None
                 if job["kind"] != "turn" and job["in_place"] and job["sandbox"] == "workspace-write":
                     row_folder, row_absent = folders.present(derived or self._write_target(job, job["workdir"]))
+                job_folders = self._detached_folders(job) if job["kind"] != "turn" else []
                 if row_folder and self._fence_hold(
                         job, row_folder, holds, waiters, tier, models, lanes,
                         absent=row_absent, write_target=row_folder,
                         priority_waiters=priority_waiters if klass == "priority" else None):
                     continue
-                job_folders = self._detached_folders(job) if job["kind"] != "turn" else []
                 if any(self._fence_hold(job, folder, holds, waiters, tier, models, lanes, fold=fold,
                                         write_target=row_folder,
                                         priority_waiters=priority_waiters if klass == "priority" else None)
