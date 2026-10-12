@@ -1393,21 +1393,37 @@ class Mirror:
         keeps may be the older, so evidence from one alone could call a model
         that ran never-run (review of #193). Each is opened as a regular file
         only, never blocking (`transcripts.open_regular`): a FIFO there must
-        not hold the mirror's lock."""
-        paths = {stem} if stem is not None else set()
-        try:
-            with os.scandir(projects_dir()) as listing:
-                for item in listing:
-                    candidate = Path(item.path) / f"{identity}.jsonl"
-                    if os.path.lexists(candidate):
-                        paths.add(candidate)
-        except OSError:
-            return None
-        if not paths:
+        not hold the mirror's lock.
+
+        Missing evidence must never look like absent evidence (review round
+        3): a folder whose copy cannot be looked up (permission denied, say)
+        makes the answer unknown, and so does any copy that appears, vanishes
+        or changes between the discovery and a second one after the reads."""
+
+        def discover() -> dict[Path, tuple[int, int, int]] | None:
+            seen: dict[Path, tuple[int, int, int]] = {}
+            candidates = [stem] if stem is not None else []
+            try:
+                with os.scandir(projects_dir()) as listing:
+                    candidates += [Path(item.path) / f"{identity}.jsonl" for item in listing]
+            except OSError:
+                return None
+            for candidate in candidates:
+                try:
+                    info = os.lstat(candidate)
+                except (FileNotFoundError, NotADirectoryError):
+                    continue
+                except OSError:
+                    return None             # cannot tell whether a copy is there
+                seen[candidate] = (info.st_ino, info.st_size, info.st_mtime_ns)
+            return seen
+
+        before = discover()
+        if not before:
             return None
         found: set[str] = set()
         try:
-            for path in sorted(paths):
+            for path in sorted(before):
                 with transcripts.open_regular(path, "r", encoding="utf-8",
                                               errors="ignore") as stream:
                     for line in stream:
@@ -1424,6 +1440,8 @@ class Mirror:
                             found.add(_model_family(model))
         except OSError:
             return None
+        if discover() != before:
+            return None                     # a copy came, went or grew meanwhile
         return frozenset(found)
 
     # --- the inventory -------------------------------------------------------
@@ -2157,14 +2175,22 @@ class Mirror:
                 # holding only `settings.units.<unit>.seen`: every flag reader
                 # and the settings rule read that as no base (no flag keys, no
                 # `v`). A session held below keeps this base.
+                advanced = False
                 for identity, (displaced, later, rank) in ahead.items():
                     known = dict(base_all.get(identity) or {})
-                    known["settings"] = _seen_ahead(known.get("settings"), displaced,
-                                                    later=later, rank=rank)
-                    base_all[identity] = known
-                self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-                if _write_json(self.flags_path, base_all, sync=True) is not None:
-                    self._flags_moved = True    # a base advanced: older snapshots refresh
+                    settled_ahead = _seen_ahead(known.get("settings"), displaced,
+                                                later=later, rank=rank)
+                    if settled_ahead != known.get("settings"):
+                        known["settings"] = settled_ahead
+                        base_all[identity] = known
+                        advanced = True
+                # Only a base that changed is written and counts as movement: a
+                # session held pass after pass repeats the same write-ahead
+                # (review round 3), which must not refresh full passes forever.
+                if advanced:
+                    self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+                    if _write_json(self.flags_path, base_all, sync=True) is not None:
+                        self._flags_moved = True    # older snapshots refresh
             held: set[str] = set()
             batches: dict[str, list[tuple[Path, str]]] = {}
             for path, name in sorted(dirty, key=lambda item: (str(item[0]), item[1])):
