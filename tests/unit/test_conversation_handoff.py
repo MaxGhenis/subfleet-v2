@@ -56,6 +56,7 @@ class Daemon:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "user-home"))         # no real ~/.codex or ~/.claude
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(tmp_path / "user-home" / ".codex"))
     home = fx.claude_home(tmp_path, monkeypatch)
     workspace = tmp_path / "work"
     workspace.mkdir()
