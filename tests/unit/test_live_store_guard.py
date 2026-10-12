@@ -121,6 +121,9 @@ def test_guard_never_evaluates_default(monkeypatch, marker):
     ("catalog-build", "SUBFLEET_CODEX_APP_HOME"),
     ("catalog-session", "SUBFLEET_CODEX_APP_HOME"),
     ("service-source", "SUBFLEET_CODEX_APP_HOME"),
+    ("service-workspace-claude", "CLAUDE_CONFIG_DIR"),
+    ("service-workspace-codex", "SUBFLEET_CODEX_APP_HOME"),
+    ("service-app-executables", "SUBFLEET_PROVIDER_HOME"),
     ("timers-identity", "SUBFLEET_CODEX_APP_HOME"),
     ("daemon", "SUBFLEET_HOME"),
     ("importer", "SUBFLEET_HOME"),
@@ -137,6 +140,7 @@ def test_consumers_cannot_bypass_refusal(tmp_path, monkeypatch, consumer, variab
     # This is independent of the session baseline so mutations remain safe.
     monkeypatch.undo()
     monkeypatch.setenv("HOME", str(tmp_path / "fake-home"))
+    monkeypatch.setenv("SUBFLEET_DEV_APP_EXECUTABLE", str(tmp_path / "fake-app"))
     for name, relative in SAFE_HOME_PATHS.items():
         monkeypatch.setenv(name, str(tmp_path / "isolated" / relative))
     monkeypatch.delenv(variable)
@@ -150,6 +154,14 @@ def test_consumers_cannot_bypass_refusal(tmp_path, monkeypatch, consumer, variab
         "catalog-session": lambda: catalog.native_session("codex", "fake", home=None, root=tmp_path, lanes=[]),
         "service-source": lambda: service.ConversationService._codex_source(
             SimpleNamespace(daemon=SimpleNamespace(store=empty_store)), None, "fake", None),
+        "service-workspace-claude": lambda: service.ConversationService._check_workspace(
+            SimpleNamespace(root=tmp_path, daemon=SimpleNamespace(store=empty_store)),
+            "claude", str(tmp_path / "workspace"), {"permission": "accept-edits"}),
+        "service-workspace-codex": lambda: service.ConversationService._check_workspace(
+            SimpleNamespace(root=tmp_path, daemon=SimpleNamespace(store=empty_store)),
+            "claude", str(tmp_path / "workspace"), {"permission": "accept-edits"}),
+        "service-app-executables": lambda: service.ConversationService._app_executables(
+            SimpleNamespace(root=tmp_path)),
         "timers-identity": lambda: timers.Timers._identities(SimpleNamespace(store=empty_store)),
         "daemon": lambda: daemon.main([]),
         "importer": lambda: importer.main([]),

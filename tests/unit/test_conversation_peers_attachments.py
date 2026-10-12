@@ -538,6 +538,7 @@ def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(
     service.root = tmp_path
     assert service._app_executables() == (*APP_EXECUTABLES, dev)
     monkeypatch.setenv("HOME", str(tmp_path.parent))
+    monkeypatch.setenv("SUBFLEET_PROVIDER_HOME", str(tmp_path.parent))
     service.root = tmp_path.parent / ".subfleet"
     service.root.mkdir(exist_ok=True)
     assert service._app_executables() == APP_EXECUTABLES
