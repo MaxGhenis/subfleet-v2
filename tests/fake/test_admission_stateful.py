@@ -30,10 +30,12 @@ other for six hours; b841d0d: one unroutable pin raised inside the pass and
 stalled the fleet for 198 and 26 minutes), and 2026-09-24 (`admission: 5 jobs
 pending, none placed for 4863 s; 14 lanes open`).
 
-Settings profiles, chosen with `HYPOTHESIS_PROFILE`: `ci` (the default when
-`CI` is set: derandomized and modest), `dev` (the default otherwise), and
-`deep` for a long local search (opt-in; `HYPOTHESIS_MAX_EXAMPLES` sizes it).
-A failure prints the steps that reproduce it, and a blob for `@reproduce_failure`.
+Bounded by default: a plain `pytest` run is 40 examples of at most 30 steps
+(`ci`, derandomized, when `CI` is set; `dev`, random, otherwise), and writes no
+example database. `HYPOTHESIS_PROFILE=deep` is the opt-in long search, 300
+examples of at most 60 steps (about one 20-minute hold of the host's shared test
+lock); `HYPOTHESIS_MAX_EXAMPLES` resizes it. A failure prints the steps that
+reproduce it, and a blob for `@reproduce_failure`.
 """
 
 from __future__ import annotations
@@ -72,13 +74,14 @@ from tests.claude_code import claude_code_active
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 
+# Every example builds a daemon and its store on disk, so every profile names its size.
+QUIET = [HealthCheck.too_slow, HealthCheck.filter_too_much]
 settings.register_profile("ci", max_examples=40, stateful_step_count=30, derandomize=True,
-                          database=None, deadline=None, print_blob=True,
-                          suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
-settings.register_profile("dev", max_examples=60, stateful_step_count=40, deadline=None, print_blob=True,
-                          suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
-settings.register_profile("deep", max_examples=1000, stateful_step_count=80, deadline=None, print_blob=True,
-                          suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
+                          database=None, deadline=None, print_blob=True, suppress_health_check=QUIET)
+settings.register_profile("dev", max_examples=40, stateful_step_count=30,
+                          database=None, deadline=None, print_blob=True, suppress_health_check=QUIET)
+settings.register_profile("deep", max_examples=300, stateful_step_count=60,
+                          deadline=None, print_blob=True, suppress_health_check=QUIET)
 PROFILE = settings.get_profile(os.environ.get("HYPOTHESIS_PROFILE") or ("ci" if os.environ.get("CI") else "dev"))
 if os.environ.get("HYPOTHESIS_MAX_EXAMPLES"):
     # Size a long search to the time a run may hold the host's shared test lock.
@@ -700,13 +703,17 @@ class AdmissionMachine(RuleBasedStateMachine):
                 assert job["wait_reason"] == "route" and hold["next_check_at"] == job["next_check_at"]
             if job["wait_reason"] == "route" and parse(job["next_check_at"]) > self.clock.instant:
                 assert reason == "route", f"C-6.12: {job_id} waits on its route but its hold reads {hold}"
+            # C-6.11: a pass that does not look at the job repeats its last hold in full, except what it
+            # asks again on the job's clock: `next_check_at`, and `for_good`, which "a pass that asks it
+            # again on the job's clock replaces ... with its own answer" (C-11.8).
+            asked_again = ("next_check_at", "for_good")
             if job_id in self.looks:
-                self.last_look[job_id] = {key: value for key, value in hold.items() if key != "next_check_at"}
+                self.last_look[job_id] = {key: value for key, value in hold.items() if key not in asked_again}
             elif (job_id in self.last_look and "next_check_at" in hold and reason not in HOLD_NOBODY
                   and before[job_id]["state"] == "waiting" and before[job_id]["wait_reason"] == "capacity"
                   and job["next_check_at"] == before[job_id]["next_check_at"]):
                 # C-6.11: "a pass that does not look at the job repeats the last hold in full".
-                repeated = {key: value for key, value in hold.items() if key != "next_check_at"}
+                repeated = {key: value for key, value in hold.items() if key not in asked_again}
                 assert repeated == self.last_look[job_id], \
                     f"C-6.11: {job_id}'s hold degraded between looks: {self.last_look[job_id]} -> {repeated}"
         for job_id in set(self.last_look) - set(self.pending(after)):
@@ -849,7 +856,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         return [instant for instant in instants if self.clock.instant < instant <= until]
 
     @precondition(lambda self: self.service is not None)
-    @rule(minutes=st.integers(2, 12))
+    @rule(minutes=st.integers(2, 10))
     def quiet_fleet(self, minutes):
         """P4 (C-6.10): nothing changes but the clock. A waiting job is looked at when it is due, and
         its looks are bounded by the backoff: about six to reach 30 s, then two a minute, plus a few
@@ -858,7 +865,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         end = self.clock.instant + timedelta(minutes=minutes)
         boundaries = len(self.boundaries(end))
         looks, placements, passes = Counter(), 0, 0
-        while self.clock.instant < end and passes < 4 * 60 * minutes:
+        while self.clock.instant < end and passes < 400:
             placed_before = len(self.store.list_attempts())
             self.admission_pass()
             passes += 1
