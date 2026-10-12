@@ -128,6 +128,7 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("resume-codex",): ["resume"],
     ("notify",): ["ping"],
     ("ping",): ["ping"],
+    ("notices",): ["notices"],                         # C-15.8: v1's spelling, back
     ("run",): ["run"],
     ("lanes",): ["lanes"],
     ("enroll",): ["lanes", "enroll"],

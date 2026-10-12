@@ -404,12 +404,39 @@ def _model_ids(policy: Mapping[str, Any]) -> dict[str, str]:
     return index
 
 
-def _load_policy_models(state_root: Path) -> dict[str, str]:
+def _recorded_ids(policy: Mapping[str, Any]) -> dict[str, str]:
+    """A recorded model name to the provider model id it named (C-9.9, C-11.1).
+
+    For what v1 observed, never for what v2 will dispatch: usage scopes (a weekly
+    window, a cooldown) and a run's requested model. Unlike `_model_ids`, a
+    `retired` alias is never followed. Retirement moves new work to a successor,
+    but a Fable window still measured Fable's bucket and a Fable run still asked
+    for Fable (2026-09-27); neither becomes Opus's. The Claude buckets the adapter
+    itself names come first, as the live sensor reads them; any other name stays
+    unmapped rather than guessed at.
+    """
+    from .adapters.claude import SCOPED_MODEL_IDS
+    index: dict[str, str] = {}
+    for name, identifier in SCOPED_MODEL_IDS.items():
+        index[name.lower()] = identifier
+        index[identifier.lower()] = identifier
+    for short, model in (policy.get("models") or {}).items():
+        identifier = model.get("id")
+        if not identifier:
+            continue
+        index.setdefault(short.lower(), identifier)
+        index.setdefault(identifier.lower(), identifier)
+        if model.get("scope"):
+            index.setdefault(str(model["scope"]).lower(), identifier)
+    return index
+
+
+def _load_policy(state_root: Path) -> dict[str, Any]:
     """The state root's policy if the daemon has written one, else the default."""
     for candidate in (state_root / "policy.json", DEFAULT_POLICY_PATH):
         value = _read_json(candidate)
         if isinstance(value, dict) and value.get("models"):
-            return _model_ids(value)
+            return value
     return {}
 
 
@@ -818,7 +845,7 @@ def import_capacity_cache(writer: _Writer, report: StoreReport, *, v1_state: Pat
 # --- claude-oauth-raw.json ----------------------------------------------------
 
 def import_desktop_oauth(writer: _Writer, report: StoreReport, *, v1_state: Path,
-                         home: Path, models: Mapping[str, str], cursor: dict[str, Any],
+                         home: Path, recorded_ids: Mapping[str, str], cursor: dict[str, Any],
                          now: str) -> dict[str, Any]:
     """Manifest row `S/claude-oauth-raw.json`: the last desktop OAuth payload.
 
@@ -879,7 +906,7 @@ def import_desktop_oauth(writer: _Writer, report: StoreReport, *, v1_state: Path
         scoped.setdefault(key[len("seven_day_"):], _utc(window.get("resets_at")))
     for name, resets_at in sorted(scoped.items()):
         report.seen += 1
-        model_id = models.get(name.lower())
+        model_id = recorded_ids.get(name.lower())
         if model_id is None:
             report.skip("unmapped-scoped-model")
             report.note(f"payload scopes a limit to {name!r}, which no policy model "
@@ -1018,7 +1045,7 @@ def import_reset_policy(writer: _Writer, report: StoreReport, *, v1_state: Path,
 # --- D/cooldowns.json ---------------------------------------------------------
 
 def import_cooldowns(writer: _Writer, report: StoreReport, *, delegate_state: Path,
-                     home: Path, models: Mapping[str, str], cursor: dict[str, Any],
+                     home: Path, recorded_ids: Mapping[str, str], cursor: dict[str, Any],
                      now: str) -> dict[str, Any]:
     """Manifest row `D/cooldowns.json`: active cooldowns from the delegate.
 
@@ -1063,7 +1090,7 @@ def import_cooldowns(writer: _Writer, report: StoreReport, *, delegate_state: Pa
             if (_parse(until_at) or datetime.min.replace(tzinfo=timezone.utc)) <= (_parse(now) or datetime.now(timezone.utc)):
                 report.skip("expired")
                 continue
-            model_scope = "account" if scope == "*" else models.get(str(scope).lower(), str(scope))
+            model_scope = "account" if scope == "*" else recorded_ids.get(str(scope).lower(), str(scope))
             reported = writer.exists(
                 "SELECT 1 FROM readings WHERE lane_id=? AND resets_at=? AND label IN "
                 "('provider','stale-provider')", (lane_id, until_at))
@@ -1232,7 +1259,7 @@ def _artifact_paths(run_dir: Path, meta: Mapping[str, Any]) -> list[tuple[str, P
 
 
 def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_root: Path,
-                home: Path, models: Mapping[str, str], cursor: dict[str, Any],
+                home: Path, recorded_ids: Mapping[str, str], cursor: dict[str, Any],
                 now: str, limit: int | None = None) -> dict[str, Any]:
     """Manifest row `S/runs/`: the v1 ledger.
 
@@ -1323,7 +1350,7 @@ def import_runs(writer: _Writer, report: StoreReport, *, v1_state: Path, state_r
         served = meta.get("model") if isinstance(meta.get("model"), str) else None
         decision = meta.get("routing_decision") if isinstance(meta.get("routing_decision"), dict) else {}
         requested_short = decision.get("requested_model") or decision.get("model")
-        requested = models.get(str(requested_short).lower(), served) if requested_short else served
+        requested = recorded_ids.get(str(requested_short).lower(), served) if requested_short else served
         # C-3.3: the digests and the manifest file are written before the
         # transaction opens, never inside it.
         artifacts = [] if live else _prepare_artifacts(report, run_dir, meta, writer.dry_run)
@@ -1874,7 +1901,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
             _release_daemon_lock(lock)
             raise
     writer = _Writer(store, dry_run)
-    models = _load_policy_models(state_root)
+    policy = _load_policy(state_root)
+    models, recorded_ids = _model_ids(policy), _recorded_ids(policy)
     try:
         cursors = read_cursors(writer)
 
@@ -1905,19 +1933,19 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
             writer, entry, v1_state=v1_state, home=home,
             cursor=cursors.get("capacity-live-cache", {}), now=now))
         row("claude-oauth-raw", lambda entry: import_desktop_oauth(
-            writer, entry, v1_state=v1_state, home=home, models=models,
+            writer, entry, v1_state=v1_state, home=home, recorded_ids=recorded_ids,
             cursor=cursors.get("claude-oauth-raw", {}), now=now))
         row("keepalive", lambda entry: import_keepalive(
             writer, entry, v1_state=v1_state, home=home, models=models,
             cursor=cursors.get("keepalive", {})))
         row("cooldowns", lambda entry: import_cooldowns(
-            writer, entry, delegate_state=delegate_state, home=home, models=models,
+            writer, entry, delegate_state=delegate_state, home=home, recorded_ids=recorded_ids,
             cursor=cursors.get("cooldowns", {}), now=now))
         row("reset-policy", lambda entry: import_reset_policy(
             writer, entry, v1_state=v1_state, home=home,
             cursor=cursors.get("reset-policy", {})))
         row("runs", lambda entry: import_runs(
-            writer, entry, v1_state=v1_state, state_root=state_root, home=home, models=models,
+            writer, entry, v1_state=v1_state, state_root=state_root, home=home, recorded_ids=recorded_ids,
             cursor=cursors.get("runs", {}), now=now, limit=runs_limit))
         row("notices", lambda entry: import_notices(
             writer, entry, v1_state=v1_state, cursor=cursors.get("notices", {})))

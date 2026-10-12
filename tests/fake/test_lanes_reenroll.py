@@ -142,9 +142,9 @@ def test_read_only_operator_and_picker_do_not_refresh_cold_desktop_profile(core,
 
 def test_canonical_helper_preserves_suffix_and_retired_policy(core):
     daemon, _ = core
-    daemon.policy['retired']['claude-fable-5'] = 'fable'
-    current = daemon.policy['models']['fable']['id']
-    assert daemon.dispatch('operations', {'command': 'canonical-model', 'target': 'claude-fable-5[1m]'}) == {'model': current + '[1m]'}
+    current = daemon.policy['models']['opus']['id']
+    for retired in ('fable', 'claude-fable-5', 'claude-fable-5-1'):       # retired onto opus (2026-09-27)
+        assert daemon.dispatch('operations', {'command': 'canonical-model', 'target': retired + '[1m]'}) == {'model': current + '[1m]'}
     assert daemon.dispatch('operations', {'command': 'canonical-model', 'target': 'future-model[2m]'}) == {'model': 'future-model[2m]'}
 
 

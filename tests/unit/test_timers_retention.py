@@ -192,3 +192,33 @@ def test_cancel_after_filesystem_stage_preserves_rows_and_is_retryable(retained,
     resumed = retention.maintenance(store, root, max_jobs=0)
     assert resumed["pruned"] == ["a", "b"]
     assert resumed["bytes_after"] == 0
+
+
+def test_a_deadline_after_the_first_prune_reports_that_prune(retained, monkeypatch):
+    """C-8.4 (review of 19ecb52f): the daemon tells a pass that pruned from one that did
+    not by `pruned`, which a deadline after the first committed prune must still carry."""
+    from contextlib import contextmanager
+    store, root = retained
+    job(store, root, "a")
+    later = job(store, root, "b")
+    expired, real_transaction, real_time = threading.Event(), store.transaction, retention.time
+
+    class Clock:
+        def monotonic(self):
+            return real_time.monotonic() + (10 ** 6 if expired.is_set() else 0)
+
+        def __getattr__(self, name):
+            return getattr(real_time, name)
+
+    @contextmanager
+    def transaction(kind="state.changed", **options):
+        with real_transaction(kind, **options) as conn:
+            yield conn
+        if kind == "retention.pruned":
+            expired.set()
+    monkeypatch.setattr(store, "transaction", transaction)
+    monkeypatch.setattr(retention, "time", Clock())
+    result = retention.maintenance(store, root, max_jobs=0, deadline=real_time.monotonic() + 600)
+    assert result["interrupted"] == "deadline"
+    assert result["pruned"] == ["a"]
+    assert store.get_job("a") is None and store.get_job("b") is not None and later.exists()

@@ -136,3 +136,35 @@ def test_capacity_lane_order_is_codex_weekly_reset_waterfall():
             reading(lane_id="codex-2", utilization=0.6, resets_at="2026-09-06T00:00:00Z")]
     view = build_view(lanes, rows, attempts=[{"lane_id": "codex-2", "state": "running"}], now=NOW)
     assert [row["lane_id"] for row in view["lanes"]] == ["codex-2", "codex-1", "codex-3", "claude-1"]
+
+
+def test_desktop_login_is_parsed_only_when_the_file_changes(tmp_path, monkeypatch):
+    """C-10.3 every call looks at the file; only a changed file is parsed again, and a switch is seen at once."""
+    import os
+    from subfleet import capacity
+    path = tmp_path / ".claude.json"
+    path.write_text(json.dumps({"oauthAccount": {"emailAddress": "first@example.org"}}))
+    parses = []
+    real = capacity._login_email
+    monkeypatch.setattr(capacity, "_login_email", lambda text: parses.append(1) or real(text))
+    assert [read_desktop_account(path) for _ in range(5)] == ["first@example.org"] * 5
+    assert len(parses) == 1
+    # The hardest switch to see: rewritten in place, the same length, its mtime put back.
+    # Only the inode's change time moves, and that is part of what is compared.
+    before = os.stat(path)
+    path.write_text(json.dumps({"oauthAccount": {"emailAddress": "other@example.org"}}))
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = os.stat(path)
+    assert (after.st_ino, after.st_size, after.st_mtime_ns) == (before.st_ino, before.st_size, before.st_mtime_ns)
+    assert read_desktop_account(path) == "other@example.org" and len(parses) == 2
+    replacement = tmp_path / "next.json"
+    replacement.write_text(json.dumps({"oauthAccount": {"emailAddress": "third@example.org"}}))
+    replacement.replace(path)
+    assert read_desktop_account(path) == "third@example.org" and len(parses) == 3
+    path.unlink()
+    assert read_desktop_account(path) is None
+    path.write_text("not json")
+    assert read_desktop_account(path) is None
+    capacity.forget_desktop_account()
+    path.write_text(json.dumps({"oauthAccount": {"emailAddress": "third@example.org"}}))
+    assert read_desktop_account(path) == "third@example.org"

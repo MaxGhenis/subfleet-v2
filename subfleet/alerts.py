@@ -1,11 +1,17 @@
-"""Snapshot-based alert conditions and durable event latches (C-23.27, C-23.52)."""
+"""Snapshot-based alert conditions and durable event latches (C-23.27, C-23.52).
+
+An alert in force is shown by `subfleet status` and `status.json` (C-18.4),
+whatever else delivers it: a notice for `alerts.operator_session` when one is
+configured (C-15.8, C-18.1), and nothing more when none is.
+"""
 
 from __future__ import annotations
 
 import json
 import shlex
+import threading
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -110,40 +116,104 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
     return list(conditions.values())
 
 
+def operator_session(policy: Mapping[str, Any]) -> str | None:
+    """C-15.8: the session `alerts.operator_session` names, or None when it names none.
+
+    There is no default: a notice for a session id nobody holds is never read
+    (2026-10-03, 1,637 alerts parked for the literal `operator` since 9/19).
+    """
+    value = (policy.get("alerts") or {}).get("operator_session")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+#: C-18.4: the order `status` lists alerts in; an unknown severity sorts as `warn`.
+SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
+
+LATCH_QUERY = "SELECT data_json FROM events WHERE kind='alert-latch' ORDER BY event_id"
+
+
+def load_latches(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Each alert key's newest latch state, from `alert-latch` events in event order."""
+    latches: dict[str, dict[str, Any]] = {}
+    for event in rows:
+        try:
+            data = json.loads(event["data_json"])
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        key = data.get("key") or data.get("alert_key")
+        if isinstance(key, str):
+            state = data.get("latch") or data.get("state") or data
+            if isinstance(state, dict):
+                latches[key] = dict(state)
+        else:
+            # Importers may preserve the entire v1 alerts.json map in one
+            # event, or one row per v1 key. Both are append-only evidence.
+            states = data.get("latches", data)
+            if isinstance(states, dict):
+                for key, state in states.items():
+                    if isinstance(state, dict) and "active" in state:
+                        latches[key] = dict(state)
+    return latches
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def active_alerts(latches: Mapping[str, Mapping[str, Any]],
+                  current: Mapping[str, Mapping[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """C-18.4: every alert in force, as `status` and `status.json` show it.
+
+    An alert is in force while its latch is active: it fired and has not been
+    cleared, which an offline cycle never does (C-23.27). Its words are the
+    latest cycle's (`current`) when that cycle saw the condition, else the ones
+    it last fired with; a latch written before alerts kept their words shows
+    its key. `since` is when the latch last became active, null when that was
+    before latches recorded it.
+    """
+    rows = []
+    for key, state in latches.items():
+        if not state.get("active"):
+            continue
+        fresh = (current or {}).get(key) or {}
+        rows.append({"key": key,
+                     "severity": _text(fresh.get("severity")) or _text(state.get("severity")),
+                     "subject": _text(fresh.get("subject")) or _text(state.get("subject")) or key,
+                     "body": _text(fresh.get("body")) or _text(state.get("body")) or "",
+                     "home": _text(fresh.get("home")) or _text(state.get("home")),
+                     "since": _text(state.get("since")), "last_sent": _text(state.get("last_sent"))})
+    rows.sort(key=lambda row: (SEVERITY_ORDER.get(row["severity"] or "warn", 1),
+                               row["since"] or "", row["key"]))
+    return rows
+
+
 class Alerts:
-    """Persist latches in events; delivery is the daemon's ping notice callback."""
+    """Persist latches in events; delivery is the daemon's callback (C-15.8)."""
 
     def __init__(self, store: Any, policy: Mapping[str, Any], deliver: Callable[[dict[str, Any]], Any]):
         self.store, self.policy, self.deliver = store, policy, deliver
+        # `active` is read from request threads while a cycle writes; every
+        # change to the two maps below is made under this lock.
+        self._lock = threading.Lock()
         self.latches = self._load_latches()
+        self._current: dict[str, dict[str, Any]] = {}
 
     def _load_latches(self) -> dict[str, dict[str, Any]]:
-        latches: dict[str, dict[str, Any]] = {}
-        for event in self.store.query("SELECT data_json FROM events WHERE kind='alert-latch' ORDER BY event_id"):
-            try:
-                data = json.loads(event["data_json"])
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(data, dict):
-                continue
-            key = data.get("key") or data.get("alert_key")
-            if isinstance(key, str):
-                state = data.get("latch") or data.get("state") or data
-                if isinstance(state, dict):
-                    latches[key] = dict(state)
-            else:
-                # Importers may preserve the entire v1 alerts.json map in one
-                # event, or one row per v1 key. Both are append-only evidence.
-                states = data.get("latches", data)
-                if isinstance(states, dict):
-                    for key, state in states.items():
-                        if isinstance(state, dict) and "active" in state:
-                            latches[key] = dict(state)
-        return latches
+        return load_latches(self.store.query(LATCH_QUERY))
 
     def _persist(self, key: str, state: dict[str, Any]) -> None:
         self.store.add_event("alert-latch", data={"key": key, **state})
-        self.latches[key] = state
+        with self._lock:
+            self.latches[key] = state
+
+    def active(self) -> list[dict[str, Any]]:
+        """C-18.4: the alerts in force now (`active_alerts`)."""
+        with self._lock:
+            latches = {key: dict(state) for key, state in self.latches.items() if state.get("active")}
+            current = dict(self._current)
+        return active_alerts(latches, current)
 
     @staticmethod
     def _homes(key: str, state: Mapping[str, Any]) -> set[str]:
@@ -172,6 +242,8 @@ class Alerts:
 
         conditions = evaluate_conditions(snapshot, now=at)
         current = {condition["key"]: condition for condition in conditions}
+        with self._lock:
+            self._current = current
         active_homes = set().union(*(self._homes(key, value) for key, value in current.items())) if current else set()
         config = self.policy.get("alerts", {})
         interval = max(6.0, float(config.get("realert_hours", 6))) * 3600
@@ -186,10 +258,16 @@ class Alerts:
                 due = False
             state = {**previous, "active": True, "home": condition["home"],
                      "homes": sorted(self._homes(key, condition)), "recover": condition.get("recover", True)}
+            if not previous.get("active"):
+                state["since"] = timestamp(at)          # C-18.4
             if due:
                 if self.deliver(dict(condition)) is False:
                     continue
                 state["last_sent"] = timestamp(at)
+                # C-18.4: the words it fired with, for a `status` read before
+                # the next cycle sees the condition (or from the store, offline).
+                state.update(severity=condition["severity"], subject=condition["subject"],
+                             body=condition["body"])
                 sent.append(key)
             if state != previous:
                 self._persist(key, state)

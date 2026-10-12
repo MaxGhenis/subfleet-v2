@@ -33,6 +33,7 @@ from typing import Any, Sequence
 
 from ..contracts import Exit
 from ..ids import request_id as validate_request_id
+from ..policy import RETIRED_MODELS
 from . import handoff as handoff_module
 from . import mirror as mirror_module
 from . import nudge as nudge_module
@@ -58,6 +59,20 @@ def out(text: str = "") -> None:
 
 def note(text: str) -> None:
     print(text, file=sys.stderr, flush=True)
+
+
+def retire_models(args: argparse.Namespace, verb: str) -> None:
+    """C-17.2: `--to` and `--model` accept a retired model and use its successor.
+
+    The daemon's policy would resolve the shipped `retired` aliases on its own,
+    but only into the daemon's log, and an older policy that still lists the
+    model would dispatch it. Remapping here says so where the operator reads.
+    """
+    for attr, flag in (("target", "--to"), ("model", "--model")):
+        value = getattr(args, attr, None)
+        if value in RETIRED_MODELS:
+            setattr(args, attr, RETIRED_MODELS[value])
+            note(f"subfleet {verb}: {flag} {value} is retired; using {RETIRED_MODELS[value]}")
 
 
 def emit(value: Any) -> None:
@@ -538,6 +553,7 @@ def _mirror_list(args: argparse.Namespace, engine: "mirror_module.Mirror") -> in
 
 @_guard
 def cmd_handoff(args: argparse.Namespace) -> int:
+    retire_models(args, "handoff")
     cli = _cli()
     sessions = _sessions(args)
     policy = _policy(args)
@@ -763,6 +779,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if handler is None:
         return fail(Exit.INVALID_INPUT, f"sessions: unknown verb {verb!r}",
                     "one of " + ", ".join(sorted(HANDLERS)))
+    retire_models(args, f"sessions {verb}")
     return handler(args)
 
 

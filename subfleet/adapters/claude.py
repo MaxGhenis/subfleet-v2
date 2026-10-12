@@ -82,7 +82,7 @@ USAGE_TIMEOUT_S = 15.0
 #: windows the usage endpoint reports (C-9.9, C-11.7). An unknown name keeps its
 #: lower-cased display name as scope; the scheduler ignores scopes it has no model for.
 SCOPED_MODEL_IDS = {"fable": "claude-fable-5-1", "opus": "claude-opus-5-5",
-                    "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001"}
+                    "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-4-5-20251001"}
 # Claude Code 2.1.278's own limit labels identify this as the Fable bucket,
 # distinct from the all-model seven_day window (verified 2026-09-20).
 SCOPED_RATE_LIMITS = {

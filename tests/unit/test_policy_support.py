@@ -29,7 +29,13 @@ def test_default_policy_exact_models_and_caps():
     """C-11.1, C-6.4: routing data keeps the plan model map and bounded default caps."""
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy["models"]["astra"] == {"provider": "codex", "id": "gpt-6-astra", "effort": "ultra"}
-    assert policy["models"]["fable"]["scope"] == "fable"
+    assert policy["models"]["opus"]["id"] == "claude-opus-5-5"
+    # Fable retired 2026-09-27: no model entry, every spelling an alias of opus, no reserve.
+    assert "fable" not in policy["models"]
+    assert {alias: policy["retired"][alias] for alias in ("fable", "claude-fable-5", "claude-fable-5-1")} \
+        == dict.fromkeys(("fable", "claude-fable-5", "claude-fable-5-1"), "opus")
+    assert all(policy["chains"][task] == ["opus"] * 4 for task in ("authored-prose", "strategy", "adjudication"))
+    assert policy["reserve"]["models"] == []
     assert policy["caps"]["max_active_attempts"] == 4
     assert policy["caps"]["max_in_flight_per_lane"] == 2
     assert policy["caps"]["max_wall_s"] == 21600

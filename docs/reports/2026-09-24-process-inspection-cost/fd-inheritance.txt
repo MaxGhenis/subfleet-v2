@@ -1,0 +1,13 @@
+# tools/probe_fd_inheritance.py --seconds 4 (each setting stopped at its 200-spawn cap), three runs
+2026-09-27T04:20:59Z
+load averages: 27.28 24.62 34.86
+close_fds=False posix_spawn_available=True baseline_fds=['0', '1', '2', '3', '4'] spawns=200 inherited=60 pipes_made=974290
+close_fds=True posix_spawn_available=True baseline_fds=['0', '1', '2', '3', '4'] spawns=200 inherited=0 pipes_made=1044847
+2026-09-27T04:21:03Z
+load averages: 29.02 25.02 34.94
+close_fds=False posix_spawn_available=True baseline_fds=['0', '1', '2', '3', '4'] spawns=200 inherited=64 pipes_made=964677
+close_fds=True posix_spawn_available=True baseline_fds=['0', '1', '2', '3', '4'] spawns=200 inherited=0 pipes_made=1215903
+2026-09-27T04:21:07Z
+load averages: 30.06 25.30 34.98
+close_fds=False posix_spawn_available=True baseline_fds=['0', '1', '2', '3', '4'] spawns=200 inherited=51 pipes_made=1039296
+close_fds=True posix_spawn_available=True baseline_fds=['0', '1', '2', '3', '4'] spawns=200 inherited=0 pipes_made=1046281

@@ -37,22 +37,22 @@
       "astra"
     ],
     "authored-prose": [
-      "fable",
-      "fable",
-      "fable",
-      "fable"
+      "opus",
+      "opus",
+      "opus",
+      "opus"
     ],
     "strategy": [
-      "fable",
-      "fable",
-      "fable",
-      "fable"
+      "opus",
+      "opus",
+      "opus",
+      "opus"
     ],
     "adjudication": [
-      "fable",
-      "fable",
-      "fable",
-      "fable"
+      "opus",
+      "opus",
+      "opus",
+      "opus"
     ]
   },
   "fallback": "upward-only",
@@ -61,12 +61,6 @@
     "*": "read-only"
   },
   "models": {
-    "fable": {
-      "provider": "claude",
-      "id": "claude-fable-5-1",
-      "priority": 4,
-      "scope": "fable"
-    },
     "opus": {
       "provider": "claude",
       "id": "claude-opus-5-5",
@@ -74,7 +68,7 @@
     },
     "sonnet": {
       "provider": "claude",
-      "id": "claude-sonnet-5",
+      "id": "claude-sonnet-5-5",
       "priority": 2
     },
     "haiku": {
@@ -94,7 +88,9 @@
   },
   "retired": {
     "sol": "astra",
-    "claude-fable-5": "fable"
+    "fable": "opus",
+    "claude-fable-5": "opus",
+    "claude-fable-5-1": "opus"
   },
   "desktop_login": "never",
   "caps": {
@@ -115,6 +111,11 @@
     "enabled": true,
     "headroom_floor_pct": 15,
     "min_interval_min": 30
+  },
+  "host_pressure": {
+    "enabled": false,
+    "compressor_max_gib": 40,
+    "sample_s": 15
   },
   "timers": {
     "probe_interval_s": 60,
@@ -153,9 +154,7 @@
     }
   },
   "reserve": {
-    "models": [
-      "fable"
-    ],
+    "models": [],
     "cap_ratio": 2.0,
     "min_slack": 0.05,
     "usage_spacing_s": 3

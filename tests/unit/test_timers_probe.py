@@ -153,8 +153,9 @@ def test_revoked_token_stays_latched_until_auth_epoch_changes(rig):
 
 
 @pytest.mark.parametrize("busy", ["lease", "attempt", "desktop"])
-def test_busy_or_desktop_lane_does_not_probe(rig, busy):
-    """C-18.1, C-10.3: occupied and protected desktop lanes send no monitoring request."""
+def test_busy_or_desktop_lane_probe(rig, busy):
+    """C-18.1, C-18.3, C-10.3: a protected desktop lane sends no monitoring request; an occupied Codex
+    lane is read beside its work and holds nothing (`tests/unit/test_timers_busy_read.py`)."""
     timer, store, _, adapter, enroll = rig
     lane = enroll(desktop=busy == "desktop")
     if busy == "lease":
@@ -164,9 +165,15 @@ def test_busy_or_desktop_lane_does_not_probe(rig, busy):
                       state="running", workdir=str(timer.root), prompt_path="/prompt", sandbox="read-only")
         store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id=lane.lane_id,
                           model_requested="gpt-6-astra", state="running")
+    before = store.list_leases()
     timer.probe_cycle()
-    assert adapter.calls == []
-    assert store.list_readings(lane.lane_id) == []
+    assert store.list_leases() == before
+    if busy == "desktop":
+        assert adapter.calls == []
+        assert store.list_readings(lane.lane_id) == []
+    else:
+        assert adapter.calls == [lane.lane_id]
+        assert [row["label"] for row in store.list_readings(lane.lane_id)] == ["provider"]
 
 
 def test_probe_lane_reservation_covers_verdict_publication(rig, monkeypatch):
