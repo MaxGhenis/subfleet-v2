@@ -262,13 +262,16 @@ class ConversationService:
         try:
             response = protocol.ok(req.id, self.handle(req.op, req.args, peer, client_gone=gone))
         except ConversationError as exc:
-            response = protocol.fail(req.id, exc.code, f"{exc.reason}: {exc}", exc.fix)
+            response = protocol.fail(req.id, exc.code, suggestions.scrub_error(f"{exc.reason}: {exc}"),
+                                     suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (protocol.ProtocolError, AdapterError) as exc:
-            response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
+            response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc),
+                                     suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (ValueError, TypeError, KeyError) as exc:
-            response = protocol.fail(req.id, 2, f"invalid arguments: {exc}")
+            response = protocol.fail(req.id, 2, suggestions.scrub_error(f"invalid arguments: {exc}"))
         except Exception as exc:
-            self.log.error("conversation op %s failed: %s: %s", req.op, type(exc).__name__, exc)
+            self.log.error("%s", suggestions.scrub_error(
+                f"conversation op {req.op} failed: {type(exc).__name__}: {exc}"))
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         descriptors.send_reply(conn, write_lock, response, end_stream=getattr(self.daemon, "_end_stream", None))
 
@@ -625,7 +628,9 @@ class ConversationService:
                                                  kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
             return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
         except ConversationError as exc:
-            return {"ok": False, "reason": f"{exc.reason}: {exc}", "fix": exc.fix, "workspace": workspace}
+            return {"ok": False, "reason": suggestions.scrub_error(f"{exc.reason}: {exc}"),
+                    "fix": suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None,
+                    "workspace": workspace}
 
     def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
                             kind: str, allow_main: bool, planned: bool = False) -> str:
@@ -650,9 +655,10 @@ class ConversationService:
                     existing = existing.parent
                 validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
             except AdapterError as exc:
-                raise ConversationError("protected-branch", str(exc), code=exc.code, fix=exc.fix) from exc
+                raise ConversationError("protected-branch", suggestions.scrub_error(exc), code=exc.code,
+                                        fix=suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None) from exc
             except SalvageError as exc:
-                raise ConversationError("git-unavailable", f"could not inspect {workspace}: {exc}", code=1,
+                raise ConversationError("git-unavailable", suggestions.scrub_error(f"could not inspect {workspace}: {exc}"), code=1,
                                         fix="try again") from exc
         return workspace
 
@@ -661,7 +667,7 @@ class ConversationService:
         try:
             return git_toplevel(directory, timeout_s=self._git_timeout_s())
         except SalvageError as exc:
-            raise ConversationError("git-unavailable", f"could not inspect {directory}: {exc}", code=1,
+            raise ConversationError("git-unavailable", suggestions.scrub_error(f"could not inspect {directory}: {exc}"), code=1,
                                     fix="try again") from exc
 
     def _git_timeout_s(self, key: str = "workspace_git_timeout_s") -> float:
@@ -687,7 +693,7 @@ class ConversationService:
                 return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
                                       errors="backslashreplace", timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
-                raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
+                raise ConversationError("worktree-failed", suggestions.scrub_error(f"git {argv[0]} did not finish: {exc}"), code=1,
                                         fix="repeat conversation.create with the same request_id") from exc
 
         adopted = False
@@ -707,10 +713,10 @@ class ConversationService:
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
             made = git(*argv, cap=self._git_timeout_s("worktree_add_timeout_s"))
             if made.returncode:
-                # Scrubbed whole before its tail is cut (C-25.5): a hook's output is the
-                # repository's to choose, and a cut could leave half a secret unrecognized.
-                said = session_handoff.scrub_secrets(made.stderr, strip_reminders=True)[0].strip()
-                raise ConversationError("worktree-failed", said[-300:] or "git worktree add failed",
+                # C-25.5: redact the complete hook output before folding or cutting;
+                # keep whole markers in the bounded diagnostic as in every Start error.
+                said = suggestions.scrubbed_line(made.stderr, 300)
+                raise ConversationError("worktree-failed", said or "git worktree add failed",
                                         code=1, fix="repeat conversation.create with the same request_id")
             os.chmod(target, 0o700)
         base = git("rev-parse", "--verify", "HEAD", cwd=target)
@@ -1079,7 +1085,8 @@ class ConversationService:
         except ConversationError as exc:
             # C-25.5: what git, a hook or a folder check said reaches the person only
             # scrubbed, as `start_error` does (`_finish_start`).
-            raise ConversationError(exc.reason, suggestions.scrub_error(exc), code=exc.code, fix=exc.fix) from None
+            raise ConversationError(suggestions.scrubbed_line(exc.reason), suggestions.scrub_error(exc), code=exc.code,
+                                    fix=suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None) from None
 
     def _start_fields(self, row: dict, args: dict) -> dict:
         """The conversation a start makes, checked as `conversation.create` checks one,
@@ -1142,7 +1149,7 @@ class ConversationService:
             reason = exc.reason if isinstance(exc, ConversationError) else type(exc).__name__
             if not self._closed:
                 with contextlib.suppress(Exception):
-                    self.suggestions.note_error(sid, f"{reason}: {exc}")
+                    self.suggestions.note_error(sid, suggestions.scrub_error(f"{reason}: {exc}"))
             raise
         if not created:
             self.suggestions.finish(sid, mid)       # accepted by a start cut short after it
@@ -1207,8 +1214,8 @@ class ConversationService:
                     self.log.info("finished the start of suggestion %s a person claimed earlier", sid)
         except Exception as exc:
             if not self._closed:
-                self.log.warning("finishing the start of suggestion %s failed (try %d): %s", sid, tries,
-                                 suggestions.scrub_error(f"{type(exc).__name__}: {exc}"))
+                self.log.warning("%s", suggestions.scrub_error(
+                    f"finishing the start of suggestion {sid} failed (try {tries}): {type(exc).__name__}: {exc}"))
         finally:
             with self._lock:
                 # The n-th try failing waits 2, 4, 8, ... s, at most DEFER_MAX_S (C-25.7).
@@ -2119,10 +2126,11 @@ class ConversationService:
             except Exception as exc:
                 if self._closed:
                     # close() overtook the step (its store now refuses): no failure of the step's own.
-                    self.log.info("conversation tick step %s stopped: the service closed (%s: %s)", step.__name__,
-                                  type(exc).__name__, exc)
+                    self.log.info("%s", suggestions.scrub_error(
+                        f"conversation tick step {step.__name__} stopped: the service closed ({type(exc).__name__}: {exc})"))
                     return
-                self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
+                self.log.error("%s", suggestions.scrub_error(
+                    f"conversation tick step {step.__name__} failed: {type(exc).__name__}: {exc}"))
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
 

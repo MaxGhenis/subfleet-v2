@@ -32,11 +32,13 @@ in a table added as the wake tables are (`CREATE TABLE IF NOT EXISTS`, no
 numbered step): the store's schema stays 2, so every retained build still opens
 the store, and one that predates the table ignores it.
 
-Title, summary and brief are scrubbed once, when the suggestion is created
+Title, summary and brief are scrubbed when the suggestion is created
 (C-25.5, the handoff scrubber C-23.14): what the card shows is what Start sends.
 A folder path, caller session or calling job the scrubber would change is refused,
-every error a start records, logs or returns is scrubbed whole, then cut to
-ERROR_MAX characters (`scrub_error`), and a Start's `decided_by` is scrubbed the
+every error a suggestion records, logs or returns is scrubbed whole, including
+quoted multiline Unicode values, before whitespace folding; the folded form is
+scrubbed again before a marker-safe cut to ERROR_MAX characters (`scrub_error`).
+A Start's `decided_by` is scrubbed the
 same way (`scrubbed_line`). No cut, of these or of a title, summary or listed
 brief, splits what scrubbing put in (`bounded`): no suggestion field or event
 holds a value the scrubber recognizes.
@@ -50,7 +52,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from ..sessions.handoff import scrub_secrets
+from ..sessions.handoff import REDACTION_MARKERS, scrub_secrets
 from .store import EVENT_ROW_MAX, ConversationError, new_id, utcnow
 
 #: C-25.7: the shapes `suggestion.create` takes, in characters (title, summary)
@@ -139,29 +141,46 @@ def scratch_name(suggestion_id: str) -> str:
 
 def holds_secret(text: str) -> bool:
     """Whether the C-25.5 scrubber would change `text`: a value no suggestion field holds."""
-    clean, count = scrub_secrets(text, strip_reminders=True)
+    clean, count = scrub_secrets(text, strip_reminders=True, whole=True)
     return count > 0 or clean != text
 
 
 def bounded(clean: str, limit: int, mark: str = "") -> str:
     """`clean`, already scrubbed whole, within `limit` characters: its first ones,
-    then `mark` when it was cut. A cut can split what scrubbing put in (`api_key=`
-    and half of `[REDACTED]`), leaving text the scrubber recognizes again; such a
-    cut moves back a word at a time until it leaves none (C-25.5)."""
+    then `mark` when it was cut. Retreat to the beginning of any redaction marker
+    crossing the character cut. If that leaves a sensitive assignment fragment,
+    retreat a word at a time, preserving whole markers at each new cut (C-25.5)."""
+    if limit <= 0:
+        return ""
     if len(clean) <= limit:
         return clean
-    cut = clean[:limit - len(mark)]
-    while cut and holds_secret(cut + mark):
+    end = max(0, limit - len(mark))
+    while end:
+        for marker in REDACTION_MARKERS:
+            start = clean.rfind(marker, 0, end + len(marker) - 1)
+            if 0 <= start < end < start + len(marker):
+                end = start
+        cut = clean[:end]
+        if not holds_secret(cut + mark):
+            break
         words = cut.rstrip()
-        cut = words[:len(words) - len(words.split()[-1])] if words.split() else ""
-    return cut + mark
+        end = len(words) - len(words.split()[-1]) if words.split() else 0
+    return clean[:end] + mark[:limit]
+
+
+def _scrub_line(text: str) -> tuple[str, int]:
+    """Scrub raw text before folding; scrub any shapes folding creates too."""
+    clean, count = scrub_secrets(text, strip_reminders=True, whole=True)
+    clean, folded_count = scrub_secrets(" ".join(clean.split()), strip_reminders=True, whole=True)
+    return clean, count + folded_count
 
 
 def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
     """`text` scrubbed whole (C-25.5) first, so no secret is cut into a fragment the
-    rules no longer know, then one line of at most `limit` characters (`bounded`)."""
-    clean, _ = scrub_secrets(text, strip_reminders=True)
-    return bounded(" ".join(clean.split()), limit, "…")
+    rules no longer know, then folded and scrubbed again, then a marker-safe cut
+    to at most `limit` characters (`bounded`)."""
+    clean, _ = _scrub_line(text)
+    return bounded(clean, limit, "…")
 
 
 def scrub_error(error: Any) -> str:
@@ -189,45 +208,43 @@ def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | No
                                 "message, so the brief cannot be its first", code=1)
 
 
-def _line(value: Any, name: str, limit: int) -> str:
-    """One line of text: white space collapsed, 1 to `limit` characters."""
+def _line(value: Any, name: str, limit: int) -> tuple[str, int]:
+    """Admit the original length; scrub before folding, then bound the clean line."""
     if not isinstance(value, str) or not value.strip():
         raise ConversationError(f"bad-{name}", f"{name} must be 1 to {limit} characters")
-    text = " ".join(value.split())
-    if len(text) > limit:
-        raise ConversationError(f"bad-{name}", f"{name} must be 1 to {limit} characters (it is {len(text)})")
-    return text
+    clean, count = _scrub_line(value)
+    original_length = len(" ".join(value.split()))
+    if original_length > limit:
+        raise ConversationError(f"bad-{name}", f"{name} must be 1 to {limit} characters (it is {original_length})")
+    clean = bounded(clean, limit)
+    if not clean.strip():
+        raise ConversationError(f"bad-{name}", f"nothing of the {name} is left once secrets are removed")
+    return clean, count
 
 
 def normalize(title: Any, tldr: Any, brief: Any) -> tuple[dict, int]:
     """The suggestion's words as they are kept and shown, and how many secret-shaped
     values scrubbing replaced (C-25.5). Lengths are checked before and after."""
-    title, tldr = _line(title, "title", TITLE_MAX), _line(tldr, "tldr", TLDR_MAX)
+    title, title_count = _line(title, "title", TITLE_MAX)
+    tldr, tldr_count = _line(tldr, "tldr", TLDR_MAX)
     if not isinstance(brief, str) or not brief.strip():
         raise ConversationError("bad-brief", "the brief must say what the new conversation should do")
     # As a message's text is read back (C-24.3, `message_text`): the brief kept, shown
     # and sent is the same text, so the first message is exactly the brief.
+    clean, count = scrub_secrets(brief, strip_reminders=True, whole=True)
     brief = brief.replace("\r\n", "\n").replace("\r", "\n")
+    clean = clean.replace("\r\n", "\n").replace("\r", "\n")
     if len(brief.encode("utf-8")) > BRIEF_MAX_BYTES:
         raise ConversationError("bad-brief", f"the brief must be at most {BRIEF_MAX_BYTES} bytes of UTF-8 "
                                 f"(it is {len(brief.encode('utf-8'))})", fix="shorten it, or point it at a file")
-    scrubbed = 0
-    out: dict[str, str] = {}
-    for name, text, limit in (("title", title, TITLE_MAX), ("tldr", tldr, TLDR_MAX)):
-        clean, count = scrub_secrets(text, strip_reminders=True)
-        clean = bounded(" ".join(clean.split()), limit)
-        if not clean.strip():
-            raise ConversationError(f"bad-{name}", f"nothing of the {name} is left once secrets are removed")
-        out[name] = clean
-        scrubbed += count
-    clean, count = scrub_secrets(brief, strip_reminders=True, whole=True)
+    out: dict[str, str] = {"title": title, "tldr": tldr}
     if not clean.strip():
         raise ConversationError("bad-brief", "nothing of the brief is left once secrets are removed")
     if len(clean.encode("utf-8")) > BRIEF_MAX_BYTES:
         raise ConversationError("bad-brief", f"the brief is over {BRIEF_MAX_BYTES} bytes once secrets are masked",
                                 fix="shorten it")
     out["brief"] = clean
-    return out, scrubbed + count
+    return out, title_count + tldr_count + count
 
 
 def digest(*, words: dict, origin: str | None, creator_session: str | None, workspace: str | None,

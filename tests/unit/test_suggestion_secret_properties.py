@@ -27,13 +27,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import hypothesis.strategies as st
-from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import HealthCheck, assume, example, given, settings
 
 from subfleet.conversations import suggestions
 from subfleet.conversations.peers import Verdict
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
-from subfleet.sessions.handoff import scrub_secrets
+from subfleet.sessions.handoff import REDACTION_MARKERS, scrub_secrets
 from tests.unit.test_conversation_service import SETTINGS, FakeDaemon
 
 PERSON, AGENT = 1, 2
@@ -46,7 +46,16 @@ def _tail(least: int, alphabet: str = ALNUM) -> st.SearchStrategy[str]:
     return st.text(alphabet, min_size=least, max_size=least + 24)
 
 
-#: One secret of each family the scrubber recognizes.
+#: Quoted values with arbitrary Unicode and whitespace, including line breaks.
+whitespace = st.sampled_from([" ", "\n", "\t", "\r", "\r\n", "\u2003", "\u2028", "\u2029"])
+unicode_words = st.text(st.characters(blacklist_categories=("Cs",), blacklist_characters="\"'\\\x00"), max_size=24)
+quoted_values = st.tuples(unicode_words, whitespace, unicode_words).map(
+                             lambda p: "SECRET7-" + "".join(p) + "-右秘密-TAIL8")
+quoted_secrets = st.tuples(st.sampled_from(["password", "token", "client_secret", "credentials"]),
+                           st.sampled_from(['"', "'"]), quoted_values).map(
+                               lambda p: p[0] + "=" + p[1] + p[2] + p[1])
+
+#: Every recognized family, including assignments beyond the old line boundary.
 secrets = st.one_of(
     st.tuples(st.sampled_from(["sk-ant-api03-", "sk-proj-", "sk-", "ghp_", "gho_", "github_pat_", "glpat-", "xoxb-",
                                "npm_", "hf_", "sk_live_", "rk_test_"]), _tail(16)).map("".join),
@@ -56,10 +65,11 @@ secrets = st.one_of(
     _tail(8).map(lambda t: "Bearer " + t),
     _tail(6).map(lambda t: "https://agent:" + t + "@example.test/repo"),
     _tail(8).map(lambda t: "api_key=" + t),
+    quoted_secrets,
 )
-separators = st.sampled_from([" ", "\n", "\t", " (", "] ", ", ", "\r\n"])
-#: Words around it: lowercase prose, never a token character run next to the secret.
-padding = st.text(string.ascii_lowercase + " .:\n", max_size=1200)
+separators = st.sampled_from([" ", "\n", "\t", " (", "] ", ", ", "\r\n", "\u2003", "\u2028"])
+#: Unicode prose and whitespace around each credential.
+padding = st.text(string.ascii_lowercase + "界右🧪éα .:\n\r\t\u2003\u2028", max_size=1200)
 
 
 def said(before: str, left: str, secret: str, right: str, after: str) -> str:
@@ -70,7 +80,7 @@ def recognized(value) -> list[str]:
     """Every string in `value` (any JSON shape) the scrubber would change."""
     found = []
     if isinstance(value, str):
-        clean, count = scrub_secrets(value, strip_reminders=True)
+        clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
         if count or clean != value:
             found.append(value)
     elif isinstance(value, dict):
@@ -82,14 +92,46 @@ def recognized(value) -> list[str]:
     return found
 
 
+TOKEN_PREFIXES = ("sk-ant-api03-", "sk-proj-", "sk-", "ghp_", "gho_", "github_pat_", "glpat-", "xoxb-",
+                  "npm_", "hf_", "sk_live_", "rk_test_", "AKIA", "AIza", "eyJ", "Bearer ",
+                  "https://agent:", "api_key=")
+
+
+def assert_secret_absent(value, secret: str) -> None:
+    """Check full values, token fragments past the fixed prefix, and whole markers."""
+    if isinstance(value, dict):
+        for item in value.values():
+            assert_secret_absent(item, secret)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            assert_secret_absent(item, secret)
+    elif isinstance(value, str):
+        assert secret not in value and " ".join(secret.split()) not in value
+        prefix = next((p for p in TOKEN_PREFIXES if secret.startswith(p)), None)
+        if prefix is not None:
+            # Absence of this shortest forbidden prefix excludes every longer one.
+            assert secret[:len(prefix) + 1] not in value
+        else:
+            # These sentinels sit inside the generated assignment's value on
+            # opposite sides of its arbitrary Unicode/whitespace contents.
+            assert "SECRET7-" not in value and "TAIL8" not in value
+        for marker in REDACTION_MARKERS:
+            for end in range(1, len(marker)):
+                assert not value.endswith((marker[:end], marker[:end] + "…")), value[-60:]
+        assert not recognized(value)
+
+
 @given(before=padding, left=separators, secret=secrets, right=separators, after=padding)
+@example(before="界" * 493, left=" ", secret="ghp_" + "A" * 36, right=" ", after="end")
+@example(before="", left="", secret='password="SECRET7-left\n右秘密-TAIL8"', right="", after="")
 @settings(max_examples=500, deadline=None)
 def test_c25_5_a_starts_error_is_scrubbed_whole_then_bounded(before, left, secret, right, after):
     text = said(before, left, secret, right, after)
-    assert scrub_secrets(text, strip_reminders=True)[1] > 0          # the scrubber knows it
+    assert scrub_secrets(text, strip_reminders=True, whole=True)[1] > 0
     error = suggestions.scrub_error(text)
     assert secret not in error and not recognized(error)
     assert len(error) <= suggestions.ERROR_MAX and "\n" not in error and error
+    assert_secret_absent(error, secret)
 
 
 #: Each value a suggestion keeps or shows only within a bound, and the bound.
@@ -130,6 +172,31 @@ def test_c25_5_no_cut_leaves_text_the_scrubber_recognizes(secret, left, back, wh
     value = kept(where, text)
     assert secret not in value and not recognized(value), value[-40:]
     assert len(value) <= limit and (where == "preview" or "\n" not in value)
+    assert_secret_absent(value, secret)
+
+
+@given(secret=quoted_secrets, before=st.text("界🧪éα ", max_size=4), after=st.text("右🧪éα ", max_size=4))
+@settings(max_examples=100, deadline=None)
+def test_quoted_unicode_values_are_scrubbed_in_raw_text_before_folding(secret, before, after):
+    raw = before + " " + secret + " " + after
+    clean = scrub_secrets(raw, strip_reminders=True, whole=True)[0]
+    assert_secret_absent(clean, secret)
+    for where in CUTS:
+        # Keep the submitted title/summary within their original input bound.
+        if where in ("title", "tldr") and len(" ".join(raw.split())) > CUTS[where]:
+            continue
+        assert_secret_absent(kept(where, raw), secret)
+
+
+@given(marker=st.sampled_from(REDACTION_MARKERS), prefix=st.text("界右🧪éα ", max_size=40),
+       inside=st.integers(1, 30), mark=st.sampled_from(["", "…"]))
+@settings(max_examples=100, deadline=None)
+def test_character_bounds_keep_all_scrubber_markers_whole(marker, prefix, inside, mark):
+    inside = 1 + (inside - 1) % (len(marker) - 1)
+    limit = len(prefix) + inside + len(mark)
+    shown = suggestions.bounded(prefix + marker + " tail", limit, mark)
+    assert len(shown) <= limit
+    assert "[" not in shown.replace(marker, "")
 
 
 class Captured(logging.Handler):
@@ -235,9 +302,11 @@ def test_c25_5_what_a_failing_checkout_hook_says_never_reaches_a_suggestion_fiel
         assert service.suggestions.get(sid)["start_error"].startswith("worktree-failed: ")
         shown = everything_shown(service, sid, cid, error)
         assert secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
+        assert_secret_absent(shown, secret)
         service._resume_start(sid, 1, service.clock())
         shown = everything_shown(service, sid, cid, error)
         assert service.captured.lines and secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
+        assert_secret_absent(shown, secret)
         assert len(error) <= suggestions.ERROR_MAX
         # Unless the daemon's retry adopted the worktree the failed add left and finished.
         assert all(len(r["start_error"] or "") <= suggestions.ERROR_MAX for r in shown["row"])
@@ -292,6 +361,7 @@ def test_c25_5_any_start_failure_is_scrubbed_wherever_it_happens(before, left, s
         shown = everything_shown(service, sid, cid, error)
         assert secret not in json.dumps(shown) and not recognized(shown), recognized(shown)
         assert len(error) <= suggestions.ERROR_MAX
+        assert_secret_absent(shown, secret)
 
 
 #: What each field a caller names is refused as when the scrubber would change it.
@@ -317,6 +387,7 @@ def test_c25_5_a_folder_session_or_job_shaped_like_a_secret_is_refused_and_makes
         except ConversationError as exc:
             assert exc.reason == REFUSED_AS[which], exc
             assert secret not in str(exc)
+            assert_secret_absent(str(exc), secret)
         else:
             raise AssertionError("a secret-shaped " + which + " was accepted")
         assert service.store.query("SELECT * FROM suggestions") == []

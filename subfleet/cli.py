@@ -151,6 +151,7 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     """`subfleet suggest` (C-25.7): propose a separate conversation the owner starts in
     the Subfleet app with one click; or withdraw one this conversation or session
     made, list them, and, from a terminal, start or dismiss one."""
+    from .conversations.suggestions import scrub_error, scrubbed_line
     caller = {"session_id": session_id(), "calling_job": os.environ.get("SUBFLEET_TURN_JOB") or None}
     if args.withdraw:
         op, payload = "suggestion.withdraw", {"suggestion_id": args.withdraw, **caller}
@@ -178,8 +179,11 @@ def cmd_suggest(args: argparse.Namespace) -> int:
             else:
                 brief = sys.stdin.read()
         except (OSError, UnicodeDecodeError) as exc:
-            return fail(Exit.INVALID_INPUT, f"cannot read the brief: {exc}")
-        workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
+            return fail(Exit.INVALID_INPUT, scrub_error(f"cannot read the brief: {exc}"))
+        try:
+            workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
+        except OSError as exc:
+            return fail(Exit.OPERATIONAL, scrub_error(f"cannot resolve the workspace: {exc}"))
         op, payload = "suggestion.create", {
             "request_id": args.request_id or str(uuid.uuid4()), "title": args.title, "tldr": args.tldr,
             "brief": brief, "workspace": workspace, "worktree": bool(args.worktree), "provider": args.provider,
@@ -190,9 +194,11 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         if protocol.UNKNOWN_OP in str(exc):
             return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is older than this CLI and has no suggestions",
                         RESTART_DAEMON)
-        return fail(exc.code, str(exc), exc.fix)
+        return fail(exc.code, scrub_error(exc), scrubbed_line(exc.fix) if exc.fix is not None else None)
     except DaemonUnavailable as exc:
-        return fail(Exit.DAEMON_UNAVAILABLE, str(exc), exc.fix)
+        return fail(Exit.DAEMON_UNAVAILABLE, scrub_error(exc), scrubbed_line(exc.fix) if exc.fix is not None else None)
+    except ProtocolError as exc:
+        return fail(exc.code, scrub_error(exc), scrubbed_line(exc.fix) if exc.fix is not None else None)
     if args.json:
         emit(result)
         return 0
