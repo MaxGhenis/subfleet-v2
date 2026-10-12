@@ -21,11 +21,16 @@ Fix round 1 has executed tests. The initial unchanged-head run selected all six 
 | Check | Executed | Result |
 | --- | ---: | --- |
 | Initial unchanged-head `test_approval_resolution.py` | 32 | 12 failed, 20 passed; property interrupted |
+| Standard CPython 3.14.7 pre-fix run, history deferred | 182 | 14 failed, 168 passed; interrupted during Codex setup |
 | Complete pre-fix comparison on standard CPython 3.14.7 | pending | queued under the shared lock |
 | `release/217` comparison, all six files | pending | not started |
 | Fixed head, all six files and complete history property | pending | not started |
 
 The history property retains 500 generated examples plus the explicit formerly exempt history. The initial run began generation but did not finish; its partial example count was not instrumented and is not claimed. Complete property runs will have Hypothesis statistics and a local counter of calls to the unchanged test body. No test has been weakened, deleted or reduced in example count.
+
+The standard pre-fix run reproduced all 14 failures, including both real-relay restart cases, in 252.99 seconds. Its completed-file counts were: approval resolution 20 passed / 12 failed (history deferred), turn replay 31 passed / 2 failed, Claude driver 61 passed, approval commit 6 passed, turn runner 50 passed. Codex setup was interrupted before its first completed test; this run is partial and the complete six-file comparison is queued. Output was buffered until input reached the terminal, so later polls send a harmless newline and complete runs will supersede these partial counts.
+
+Commit `cfb97426d` makes each history copy a closed, fully initialized empty database into its own private state root, avoiding repeated schema DDL. The actual per-history store, file publication, transactions, generated operations and assertions remain real and unchanged. AST comparison confirms all 53 assertions and the property's decorators are identical to `ca4a53677`: 500 generated examples plus the explicit case, with no exemption. The local validation probe also interrupts a running pytest after 18 minutes, leaving cleanup time within the required hold cap; interrupted runs are never reported as completed validation.
 
 On `release/217`, answer synchronization queued a response and left the driver pending when a later cancel arrived. At `ca4a53677`, startup-recorded answers are already applied before the cancel, but approval reconstruction writes spurious `approval-needed` and `running` changes. Fix-round commit `02f52e131` checks for pending approvals inside `ConversationStore.add_approvals`' transaction before moving the message to `approval-needed`. New requests still publish their pending state atomically. Complete before/after runtime validation is in progress.
 
