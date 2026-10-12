@@ -296,6 +296,9 @@ def response_reason(message: Any) -> str | None:
             return reason
     if message in tuple("unknown op '" + op + "'" for op in SUGGESTION_OPS):
         return "unknown-op"
+    from ..protocol import REFUSAL_MESSAGES
+    if message == REFUSAL_MESSAGES["unknown-op"]:
+        return "unknown-op"
     return None
 
 
@@ -425,6 +428,24 @@ def _event_body(row: dict) -> str:
     if len(body.encode()) > EVENT_ROW_MAX:
         body = json.dumps(view(row), separators=(",", ":"), ensure_ascii=False)
     return body
+
+
+def event_view(data: Any) -> dict:
+    """Replay retained events through today's diagnostic vocabulary (C-25.7).
+
+    Keep the recorded state and admitted content, rather than replacing an old
+    event with the current row. Unknown diagnostic fields cannot be republished.
+    """
+    if not isinstance(data, dict):
+        return {}
+    fields = ("suggestion_id", "state", "title", "tldr", "brief", "brief_truncated", "brief_chars",
+              "origin_conversation_id", "origin_message_id", "creator_session", "workspace", "worktree",
+              "workspace_kind", "repository", "provider", "model", "decided_by", "decided_at", "start_error",
+              "started_conversation_id", "started_message_id", "created_at", "updated_at")
+    shown = {key: data[key] for key in fields if key in data}
+    if "start_error" in shown:
+        shown["start_error"] = stored_error(shown["start_error"])
+    return shown
 
 
 def _changed(tx: sqlite3.Connection, row: dict) -> None:

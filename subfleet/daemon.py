@@ -8047,9 +8047,9 @@ class Daemon:
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone))
         except (protocol.ProtocolError, AdapterError) as exc:
-            response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
+            response = protocol.refuse(req.id, exc, reason="refused-args")
         except (ValueError, TypeError, KeyError) as exc:
-            response = protocol.fail(req.id, 2, f"invalid arguments: {exc}")
+            response = protocol.refuse(req.id, exc)
         except Exception as exc:
             self.log.error("request %s failed: %s", req.op, type(exc).__name__)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
@@ -8060,17 +8060,16 @@ class Daemon:
         """One framed line as a request, or None after answering why it is not one."""
         try:
             if line is descriptors.OVERSIZED:
-                raise protocol.ProtocolError("request exceeds 1 MiB")
+                raise protocol.request_error("request-size")
             return protocol.decode_request(line)
         except (protocol.ProtocolError, ValueError, RecursionError) as exc:
             # C-16.7: a malformed line is answered, never left to end the reader:
             # ValueError covers bad UTF-8 and an integer past
             # sys.int_max_str_digits, RecursionError nesting that parses but is
-            # too deep to render in an error message (as #55 on main).
-            message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
-                       else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
-                       else f"malformed request: {exc}")
-            if not send_reply(conn, write_lock, protocol.fail("", 2, message), end_stream=self._end_stream):
+            # too deep to encode (#55). Only fixed templates reach the wire.
+            reason = ("bad-encoding" if isinstance(exc, UnicodeDecodeError) else
+                      "nested-request" if isinstance(exc, RecursionError) else "malformed-request")
+            if not send_reply(conn, write_lock, protocol.refuse("", exc, reason=reason), end_stream=self._end_stream):
                 raise OSError("the reply to an undecodable request failed part way")
             return None
 
@@ -8223,15 +8222,15 @@ class Daemon:
             self._readers.add(reader)
         try:
             reader.start()
-        except RuntimeError as exc:               # no thread could start
+        except RuntimeError:                     # no thread could start
             with self._connection_lock:
                 self._readers.discard(reader)
                 self._connections.discard(conn)
             # Nothing was read, so the answer is busy, and the client may try again.
             # Logged through the refusal count (1st, 2nd, 4th ...), not once per
             # connection: out of threads, every client would add a line.
-            self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})",
-                         f"connection no reader thread could start for ({exc})")
+            self._refuse(conn, "the daemon is busy: it could not start a thread for this connection",
+                         "connection no reader thread could start for")
 
     def _read_connection(self, conn: socket.socket) -> None:
         try:

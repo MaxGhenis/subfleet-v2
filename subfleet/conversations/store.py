@@ -1636,8 +1636,12 @@ class ConversationStore:
             size += len(row["data_json"]) + 64
             if out and size > max_bytes:
                 break
+            data = json.loads(row["data_json"])
+            if row["kind"] == "suggestion":
+                from .suggestions import event_view
+                data = event_view(data)
             out.append({"seq": row["seq"], "message_id": row["message_id"], "kind": row["kind"], "ts": row["ts"],
-                        "data": json.loads(row["data_json"])})
+                        "data": data})
             nxt = row["seq"]
         return {"events": out, "next": nxt, "reset": reset, "floor": floor}
 

@@ -287,12 +287,11 @@ class ConversationService:
                 response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
                                          suggestions.error_fix(exc))
             else:
-                response = protocol.fail(req.id, exc.code, suggestions.scrubbed_line(str(exc)),
-                                         suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
+                response = protocol.refuse(req.id, exc, reason="refused-args")
         except (ValueError, TypeError, KeyError) as exc:
             message = (suggestions.scrub_error(exc, prefix="invalid arguments: ")
                        if req.op in suggestions.SUGGESTION_OPS else
-                       suggestions.scrubbed_line(f"invalid arguments: {exc}"))
+                       protocol.REFUSAL_MESSAGES["invalid-args"])
             response = protocol.fail(req.id, 2, message)
         except Exception as exc:
             self.log.error("%s", suggestions.scrub_error(exc))
