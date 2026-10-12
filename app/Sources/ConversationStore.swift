@@ -500,7 +500,8 @@ struct NotificationTarget: Equatable {
     /// posted because its conversation was not on screen (D-24): another
     /// conversation, for which the window shows at most a sidebar badge (a
     /// count of waiting approvals, a turn no longer running), or the focused
-    /// one while the main window was closed, miniaturized or covered. It shows
+    /// one while the app was inactive, the main window closed, miniaturized,
+    /// covered or not key, or its display asleep. It shows
     /// as it would with the app in the background, unless its conversation is
     /// on screen by now (`ConversationStoreState.onScreenConversationID`).
     func showsWhileFrontmost(onScreenConversationID: String?) -> Bool {
@@ -572,11 +573,18 @@ struct ConversationStoreState: Equatable {
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
     var pendingApprovals: [String: Int] = [:]
+    /// Pending approvals per conversation as the feed last reported them. An
+    /// approval is announced when the feed's count rises over this, never over
+    /// `pendingApprovals`, which `conversation.list` and `approval.list` answers
+    /// also write: one of those landing before the feed's row would hide the
+    /// rise. At the baseline a conversation the feed has not reported starts from
+    /// the count the list gave (`markBaselined`).
+    private(set) var feedPendingApprovals: [String: Int] = [:]
     var watchCursor = 0
     /// Live messages per conversation, from the watch feed (read from seq 0 at launch).
     var liveMessages: [String: Set<String>] = [:]
-    /// The first drain of the watch feed after launch posts nothing.
-    var watchBaselined = false
+    /// The first drain of the watch feed after launch posts nothing (`markBaselined`).
+    private(set) var watchBaselined = false
     var notifications: [NotificationIntent] = []
     private(set) var notified: Set<String> = []
     var searchQuery = ""
@@ -770,7 +778,8 @@ struct ConversationStoreState: Equatable {
         for change in page.changes.sorted(by: { $0.seq < $1.seq }) where change.seq > watchCursor {
             applied += 1
             let cid = change.conversation_id
-            let before = pendingApprovals[cid] ?? 0
+            let before = feedPendingApprovals[cid] ?? 0
+            feedPendingApprovals[cid] = change.pending_approvals
             pendingApprovals[cid] = change.pending_approvals
             if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
                 if MessageState.live.contains(state) { liveMessages[cid, default: []].insert(mid) }
@@ -806,8 +815,19 @@ struct ConversationStoreState: Equatable {
             watchCursor = max(watchCursor, change.seq)
         }
         watchCursor = max(watchCursor, page.next)
-        if page.changes.isEmpty { watchBaselined = true }
+        if page.changes.isEmpty { markBaselined() }
         return .applied(applied)
+    }
+
+    /// The feed has its baseline: what it reports from now on is news. A
+    /// conversation it has not reported yet starts from the list's count, so its
+    /// first row announces an approval only if the count rose past that.
+    mutating func markBaselined() {
+        guard !watchBaselined else { return }
+        watchBaselined = true
+        for (cid, count) in pendingApprovals where feedPendingApprovals[cid] == nil {
+            feedPendingApprovals[cid] = count
+        }
     }
 
     private mutating func notify(_ change: ConversationChange, pendingBefore: Int) {

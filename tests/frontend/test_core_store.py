@@ -3,12 +3,14 @@ C-26.8, C-29.6, C-29.9, C-29.11).
 
 Notifications (D-24, C-29.9, ledger P-13): a turn that completes, fails, needs
 approval or becomes delivery-unknown posts one once the feed has its baseline,
-unless its conversation is on screen: focused, with the app active and its main
-window visible. Until 2026-09-30 the rule was "not focused", and the focus
+unless its conversation is on screen: focused, with the app active, its main
+window visible and holding the key window, and its display awake in a session
+on the console. Until 2026-10-12 the rule was "not focused", and the focus
 stays set while the app is in the background or its window is closed, so the
 commonest case (send a message, switch to another app, wait) never notified.
-The on-screen flag is UIModel's reading of AppKit; the probe sets it with an
-`on_screen` step.
+The on-screen flag is UIModel's reading of AppKit and CoreGraphics; the probe
+sets it with an `on_screen` step. An approval is a rise in the feed's own count
+of the conversation's pending approvals, which list answers never move.
 """
 
 from __future__ import annotations
@@ -232,12 +234,24 @@ NOTIFYING = {"complete": ("completed", "complete", "Turn completed"), "failed": 
              "delivery-unknown": ("delivery-unknown", "delivery-unknown", "Delivery unknown")}
 
 
+def listed(counts: dict[str, int]) -> dict:
+    """A `conversation.list` answer: each conversation with its pending approvals."""
+    return {"list": {"conversations": [
+        {"conversation_id": cid, "provider": "claude", "native_session_id": None, "title": cid, "workspace": "/w",
+         "workspace_kind": "in-place", "allow_main": False, "lane_id": None,
+         "settings": {"model": "opus", "effort": None, "fast": False, "permission": "ask", "auto_continue": True},
+         "origin": "new", "handoff_from": None, "blocked_by": None, "created_at": "2026-10-12T00:00:00.000Z",
+         "updated_at": "2026-10-12T00:00:00.000Z", "last_message": None, "pending_approvals": count, "active": False}
+        for cid, count in counts.items()]}}
+
+
 @st.composite
 def feeds(draw) -> list[dict]:
     """Steps as the app meets them: pages whose rows mostly move the cursor on
     (some repeat an old sequence number or fall behind it), empty pages (the
-    first is the baseline), a superseded page now and then, and changes of focus
-    and of what is on screen."""
+    first is the baseline), a superseded page now and then, changes of focus
+    and of what is on screen, and `conversation.list` answers, whose counts may
+    run ahead of the feed's (the approval is recorded, its row not yet read)."""
     steps: list[dict] = []
     top = 0
     # A conversation's count mostly stays as it was, so a row also announces its
@@ -256,11 +270,19 @@ def feeds(draw) -> list[dict]:
         offsets = draw(st.permutations(range(-3, 6)))[:n]
         return [row(top + o) for o in offsets if top + o > 0]
 
-    # Mostly a conversation open from the start, on screen or not.
+    def listing() -> dict:
+        cids = draw(st.lists(st.sampled_from(FEED_CIDS), unique=True, max_size=3))
+        return listed({cid: draw(st.sampled_from([counts.get(cid, 0), counts.get(cid, 0) + 1, 0])) for cid in cids})
+
+    # The app lists before it drains the feed; mostly a conversation open from
+    # the start, on screen or not.
+    if draw(st.booleans()):
+        steps.append(listing())
     steps.append({"focus": draw(st.sampled_from([*FEED_CIDS, None]))})
     steps.append({"on_screen": draw(st.booleans())})
     for _ in range(draw(st.integers(0, 16))):
-        kind = draw(st.sampled_from(["page"] * 6 + ["empty"] * 3 + ["superseded"] + ["focus"] * 2 + ["screen"] * 3))
+        kind = draw(st.sampled_from(["page"] * 6 + ["empty"] * 3 + ["superseded"] + ["focus"] * 2 + ["screen"] * 3
+                                    + ["list"] * 2))
         if kind == "page":
             changes = rows(draw(st.integers(1, 4)))
             top = max([top, *(c["seq"] for c in changes)]) + draw(st.sampled_from([0, 0, 0, 1]))
@@ -273,6 +295,8 @@ def feeds(draw) -> list[dict]:
             steps.append({"watch": {"changes": rows(draw(st.integers(0, 2))), "next": top + 3, "superseded": True}})
         elif kind == "focus":
             steps.append({"focus": draw(st.sampled_from([*FEED_CIDS, None]))})
+        elif kind == "list":
+            steps.append(listing())
         else:
             steps.append({"on_screen": draw(st.booleans())})
     return steps
@@ -283,22 +307,28 @@ def expected_notifications(steps: list[dict]) -> dict:
     announces something (the conversation's pending approvals rose, or its
     message completed, failed or became delivery-unknown) is posted, once per
     identifier, if and only if the feed had its baseline and the row's
-    conversation was not on screen as the row was read. Returns what is posted,
+    conversation was not on screen as the row was read. The rise is over the
+    feed's own last count for the conversation; one the feed has not reported
+    starts, at the baseline, from the last list's count. Returns what is posted,
     the conversation on screen at the end, and for the statistics how many were
     posted for the focused conversation and how many held back because it was on
     screen."""
     cursor, baselined, focused, on_screen = 0, False, None, False
-    pending: dict[str, int] = {}
+    listed_counts: dict[str, int] = {}     # what the list and the feed last said (`pendingApprovals`)
+    feed: dict[str, int] = {}              # what the feed last said
     posted: list[tuple] = []
     focused_posted = held_back = 0
     for step in steps:
+        for conversation in step.get("list", {}).get("conversations", []):
+            listed_counts[conversation["conversation_id"]] = conversation["pending_approvals"]
         page = step.get("watch")
         live = page is not None and not page.get("superseded")
         for row in sorted(page["changes"], key=lambda r: r["seq"]) if live else []:
             if row["seq"] <= cursor:
                 continue
             cid = row["conversation_id"]
-            before, pending[cid] = pending.get(cid, 0), row["pending_approvals"]
+            before = feed.get(cid, 0)
+            feed[cid] = listed_counts[cid] = row["pending_approvals"]
             cursor = row["seq"]
             if row["pending_approvals"] > before:
                 announced = ("approval", f"approval:{row['seq']}", "Approval needed")
@@ -316,7 +346,10 @@ def expected_notifications(steps: list[dict]) -> dict:
             focused_posted += cid == focused
         if live:
             cursor = max(cursor, page["next"])
-            baselined = baselined or not page["changes"]
+            if not page["changes"] and not baselined:
+                baselined = True
+                for cid, count in listed_counts.items():
+                    feed.setdefault(cid, count)
         # The probe applies a step's focus and on-screen change after its page.
         focused = step["focus"] if "focus" in step else focused
         on_screen = step["on_screen"] if "on_screen" in step else on_screen
@@ -328,7 +361,7 @@ def posted_by(out: dict) -> list[tuple]:
     return [(n["kind"], n["id"], n["conversation"], n["title"]) for n in out["notifications"]]
 
 
-PROPERTY = settings(max_examples=150, deadline=None, derandomize=True,
+PROPERTY = settings(max_examples=250, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 
 
@@ -356,6 +389,13 @@ PINNED = [
           feed_row(3, "cv-1", "m-3", "delivery-unknown"), feed_row(4, "cv-1", None, None, 1))],
     [{"focus": "cv-1"}, {"on_screen": True}, feed_page(), {"focus": "cv-2"},
      feed_page(feed_row(1, "cv-2", "m-1", "complete"), feed_row(2, "cv-1", "m-2", "complete"))],
+    # Review of 244940d7: a list (or the stale-approvals read) that lands before
+    # the feed's row hid the rise, since both counted in one place.
+    [listed({"cv-1": 0}), {"focus": "cv-1"}, {"on_screen": False}, feed_page(), listed({"cv-1": 1}),
+     feed_page(feed_row(1, "cv-1", None, None, 1))],
+    # A count the list gave before the baseline is no news when the feed repeats it.
+    [listed({"cv-2": 1}), feed_page(), feed_page(feed_row(1, "cv-2", "m-1", "running", 1)),
+     feed_page(feed_row(2, "cv-2", None, None, 2))],
 ]
 
 

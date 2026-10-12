@@ -175,7 +175,7 @@ final class UIModel: ObservableObject {
         // A navigation while the baseline was loading keeps its focus.
         baseline.focus(state.focusedConversationID)
         state = baseline
-        state.watchBaselined = true
+        state.markBaselined()
         // The copy was taken before the drain; read what is on screen now.
         noteOnScreen()
         startWatchLoop()
@@ -492,24 +492,35 @@ final class UIModel: ObservableObject {
         didSet { noteOnScreen() }
     }
     private var onScreenObservers: [NSObjectProtocol] = []
-    /// The displays sleep, or the login session is switched away (NSWorkspace
-    /// says so): nothing is on screen, whatever the window reports.
-    private var screensAsleep = false
-    private var sessionInactive = false
 
     /// Reads from AppKit whether the focused conversation is on screen: the
     /// app is active, the main window is visible (neither closed nor
     /// miniaturized nor wholly covered: `occlusionState`) and the key window
-    /// is it or a window attached to it, and the displays are awake in an
-    /// active session. The focus alone stays set while the person works in
+    /// is it or a window attached to it, and its display is awake in a session
+    /// on the console. The focus alone stays set while the person works in
     /// another app or has closed the window, where its conversation's turns
     /// must notify like any other's.
     private func noteOnScreen() {
         let visible = mainWindow.map {
-            $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0)
+            $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0) && shown($0)
         } ?? false
-        let onScreen = NSApp?.isActive == true && visible && !screensAsleep && !sessionInactive
+        let onScreen = NSApp?.isActive == true && visible
         if state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
+    }
+
+    /// Whether the display showing `window` is awake (CoreGraphics: an asleep
+    /// display "is therefore not drawable") and this login session is on the
+    /// console, not switched out for another user's (`CGSessionCopyCurrentDictionary`,
+    /// whose `kCGSessionOnConsoleKey` is the string below). Read each time rather
+    /// than kept from NSWorkspace's notifications, so a missed wake cannot leave
+    /// the conversation counted off screen.
+    private func shown(_ window: NSWindow) -> Bool {
+        let number = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        guard CGDisplayIsAsleep(number.map { CGDirectDisplayID($0.uint32Value) } ?? CGMainDisplayID()) == 0 else {
+            return false
+        }
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        return session?["kCGSSessionOnConsoleKey"] as? Bool ?? true
     }
 
     /// Whether the key window is `window` or one attached to it (a sheet, or a
@@ -537,8 +548,8 @@ final class UIModel: ObservableObject {
     /// window becomes or stops being key or is miniaturized, restored, closed,
     /// covered or uncovered, and as the displays sleep or wake and the session
     /// is switched away or back. The two decisions that use it (`fold(watch:)`
-    /// and the delegate's `willPresent`) read AppKit again as well, so a
-    /// window change these do not report cannot make them wrong.
+    /// and the delegate's `willPresent`) read it all again as well, so a change
+    /// these do not report cannot make them wrong.
     private func observeOnScreen() {
         let names: [Notification.Name] = [
             NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
@@ -558,20 +569,9 @@ final class UIModel: ObservableObject {
         ]
         onScreenObservers += workspace.map { name in
             NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.noteSession(name) }
+                Task { @MainActor in self?.noteOnScreen() }
             }
         }
-    }
-
-    private func noteSession(_ name: Notification.Name) {
-        switch name {
-        case NSWorkspace.screensDidSleepNotification: screensAsleep = true
-        case NSWorkspace.screensDidWakeNotification: screensAsleep = false
-        case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true
-        case NSWorkspace.sessionDidBecomeActiveNotification: sessionInactive = false
-        default: break
-        }
-        noteOnScreen()
     }
 
     // MARK: Changes
