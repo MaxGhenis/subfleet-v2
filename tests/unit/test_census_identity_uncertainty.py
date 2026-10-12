@@ -9,7 +9,8 @@ from tests.unit.test_procs import BOOT_A
 
 @pytest.mark.parametrize("boot,began", [(None, None), (BOOT_A, None), (None, start())])
 def test_incomplete_recorded_identity_is_unknown(monkeypatch, boot, began):
-    install(monkeypatch, {42: (1, 42, "Ss", start())})
+    live = procs.ProcessIdentity(42, BOOT_A, start())
+    monkeypatch.setattr(procs, "identity", lambda _: live)
     assert procs.liveness(42, boot, began) == "unknown"
     assert not procs.same_process(42, boot, began)
     # Observed absence proves death independently of the missing record.
