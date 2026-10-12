@@ -4,7 +4,8 @@ Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
 `add_decision` each time a routing verdict left a job waiting). The latest-row
 readers need only two rows per job, but retention archives and the store's
-history method read all rows. No foreign key in schema 7 points at `decisions`. #16 stopped the repeats — a wait
+history method read all rows. No foreign key in schema 7 points at `decisions`.
+#16 stopped the repeats — a wait
 that reaches the verdict it reached last time adds no row (C-6.10) — and this
 module is the one-off operator pass that gives back the space the rows already
 written take. The dry run measures how many of them a store holds.

@@ -95,7 +95,7 @@ def _readers(root):
         service = _service(store, root)
         offline = Offline(root)
         answers = {}
-        for job in store.list_jobs(last=0):
+        for job in store.list_jobs():
             job_id = job['job_id']
             raw = tuple(tuple(row) if row else None for row in (
                 store.connection.execute(WHY, (job_id,)).fetchone(),
@@ -118,8 +118,8 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         before = _readers(root)
         with Store(root / 'state.sqlite3', read_only=True) as store:
             planned = pruning.plan(store.connection)
-            all_rows = {row['decision_id']: row for row in store.query('SELECT * FROM decisions')}
-            states = {job['job_id']: job['state'] for job in store.list_jobs(last=0)}
+            all_rows = {row['decision_id']: row for row in store.query('SELECT * FROM decisions ORDER BY decision_id')}
+            states = {job['job_id']: job['state'] for job in store.list_jobs()}
             # Independently derive the keep set from the stated contract.
             expected = set()
             for job_id, state in states.items():
