@@ -205,3 +205,11 @@ def test_codex_keeps_existing_nonempty_utf8_byte_payloads(tmp_path, text, source
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
     assert outcome.cls is OutcomeClass.OK
     assert CodexAdapter().deliverable(tmp_path, launch, outcome) == text.encode()
+
+
+@pytest.mark.parametrize("text", ("\u00a0", "\u2009"), ids=("nbsp", "thin-space"))
+def test_claude_keeps_existing_unicode_whitespace_rejection(tmp_path, text):
+    adapter, launch, outcome = claude_classify(tmp_path, [{"type": "result", "is_error": False, "result": text}])
+    assert outcome.cls is OutcomeClass.UNKNOWN
+    assert adapter.deliverable(tmp_path, launch, outcome) is None
+    assert outcome.closure is None
