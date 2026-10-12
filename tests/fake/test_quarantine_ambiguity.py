@@ -19,8 +19,7 @@ def test_late_child_receipt_suppresses_a_cached_kill(state_daemon, monkeypatch, 
     ours, _ = running(daemon, harness, 200, 201)
     other, directory = running(daemon, harness, 100, 101)
     daemon.store.update_attempt(other["attempt_id"], state=foreign_state, evidence_json="{}")
-    (directory / "start.json").write_text(json.dumps({"child_identity": {
-        "pid": 101, "boot_id": BOOT, "proc_start": "p101"}}))
+    (directory / "start.json").write_text("{}")
     script_table(monkeypatch, {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201")}, markers="")
     foreign = daemon._foreign_ownership(ours, procs.snapshot())
     target = procs.ProcessIdentity(200, BOOT, "p200")
@@ -338,7 +337,8 @@ def test_no_signal_to_an_identity_claimed_by_another_attempt(
                                     killed_by=None, quarantine_reason=None)
     daemon.store.update_attempt(other["attempt_id"], guardian_pid=100, pgid=100,
                                 boot_id=BOOT, proc_start="p100")
-    (directory / "start.json").write_text("{}")
+    (directory / "start.json").write_text(json.dumps({"child_identity": {
+        "pid": 101, "boot_id": BOOT, "proc_start": "p101"}}))
     rows = {pid: (1 if pid == 200 else 200, 200, "S", f"p{pid}")
             for pid in range(200, 206)}
     script_table(monkeypatch, rows, markers="")
