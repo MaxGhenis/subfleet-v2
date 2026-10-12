@@ -315,6 +315,8 @@ class World:
         assert authority is not None and self.signal_checks.get(authority.pid) == (BOOT, authority.start), (
             "S2 unconfirmed signal identity", pid, self.rows(), self.trace)
         self.signals.append((pid, p.start, int(sig)))
+        if not via_group:
+            self.after("signal")
 
     def signal_group(self, pgid, sig):
         assert pgid == 100, ("S2 stray group signal", pgid)
@@ -325,6 +327,7 @@ class World:
             if p.pgid == pgid and not p.zombie:
                 self.signal(p.pid, sig, via_group=True)
         self.after("signal_group")
+        self.after("signal")
 
 
 class ProcessWorldMachine(RuleBasedStateMachine):
@@ -552,7 +555,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
             self.world.fork(100, 200)
             if scenario == "owned-without-shape":
                 self.world.omit_shapes = True
-                self.world.hooks.append(("signal_group", 1, lambda: self.world.change("setsid", 200)))
+                self.world.hooks.append(("signal", 1, lambda: self.world.change("setsid", 200)))
             else:
                 # The initial table proved group ownership. A later marker
                 # bracket observes its escape and overwrites the census shape.
@@ -571,7 +574,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
                 self.world.processes[200].marked = source == "marker"
                 self.world.processes[200].cwd = source == "cwd"
             # A child may handle SIGTERM and escape before its first SIGKILL.
-            self.world.hooks.append(("signal_group", 1, lambda: self.world.change("setsid", 200)))
+            self.world.hooks.append(("signal", 1, lambda: self.world.change("setsid", 200)))
             self.kill(consumer)
             assert self.world.processes[200].pgid == 200
             assert any(pid == 200 and sig == 9 for pid, _, sig in self.world.signals) == complete_member

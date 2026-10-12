@@ -6695,7 +6695,7 @@ class Daemon:
 
     def _refresh_process_claim_receipts(self, attempt_id: str, *,
                                        candidates: tuple[tuple[str, str, int], ...] | None = None) -> None:
-        """Retry at most 64 due imports; unreadable/empty receipts stay pending.
+        """Retry at most eight due imports; unreadable/empty receipts stay pending.
 
         One immediate retry covers a publication in flight. Repeated failures
         back off to at most 60 seconds, without ever discarding their claims.
@@ -6706,7 +6706,7 @@ class Daemon:
                 if candidates is not None else self.store.query(
             "SELECT a.attempt_id,a.job_id,a.seq FROM process_claim_receipt_pending p "
             "CROSS JOIN attempts a ON a.attempt_id=p.attempt_id "
-            "WHERE p.retry_at<=? AND p.attempt_id<>? ORDER BY p.retry_at,p.attempt_id LIMIT 64",
+            "WHERE p.retry_at<=? AND p.attempt_id<>? ORDER BY p.retry_at,p.attempt_id LIMIT 8",
             (time.time(), attempt_id)))
         for row in rows:
             start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json")
@@ -6885,6 +6885,8 @@ class Daemon:
     def _unambiguous_signal_group(self, attempt_id: str, leader: procs.ProcessIdentity | None,
                                   census: procs.Containment, evidence: dict,
                                   foreign: procs.ForeignOwnership | None = None) -> bool:
+        # A census predicate only: group membership is not stable through a
+        # syscall. Dispatch uses verified individual identities instead.
         foreign = foreign if foreign is not None else self._foreign_ownership({"attempt_id": attempt_id})
         # killpg delivers to every member. A failed census cannot certify that
         # none overlaps another attempt's claims. With no competing claims,

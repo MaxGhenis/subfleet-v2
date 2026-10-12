@@ -1,5 +1,6 @@
 """Round-14 adversarial inputs; all process observations and signals are fake."""
 import json
+from dataclasses import replace
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -227,7 +228,7 @@ def test_publication_serializes_with_authorized_syscall(state_daemon, monkeypatc
     # entry so the dispatch must take its sidecar, even after indexing succeeds.
     _receipt(directory / "start.json", {"child_identity": {"pid": 101, "boot_id": BOOT, "proc_start": "p101"}})
     daemon._refresh_process_claim_receipts(ours["attempt_id"], candidates=foreign.receipt_candidates)
-    foreign = __import__("dataclasses").replace(foreign, generation=daemon.store.one(
+    foreign = replace(foreign, generation=daemon.store.one(
         "SELECT generation FROM process_claim_clock WHERE singleton=1")["generation"])
     attempted, finished = threading.Event(), threading.Event()
     target = {"pid": 200, "boot_id": BOOT, "proc_start": "p200"}
@@ -258,3 +259,30 @@ def test_publication_serializes_with_authorized_syscall(state_daemon, monkeypatc
             publisher.join(timeout=5)
     assert delivered == [200]
     assert finished.is_set() and not publisher.is_alive()
+
+
+@pytest.mark.parametrize("availability", ["empty", "read-outage"])
+def test_unresolved_terminal_receipt_refuses_all_delivery(state_daemon, monkeypatch, availability):
+    daemon, harness = state_daemon
+    ours, _ = running(daemon, harness, 200, 201)
+    other, directory = running(daemon, harness, 100, 101)
+    daemon.store.update_attempt(other["attempt_id"], state="succeeded", evidence_json="{}")
+    receipt = directory / "start.json"
+    receipt.write_text("{}")
+    read = daemon._read_json
+    if availability == "read-outage":
+        monkeypatch.setattr(daemon, "_read_json", lambda path: None if path == receipt else read(path))
+    rows = {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201")}
+    script_table(monkeypatch, rows)
+    daemon._record_owned(ours, procs.snapshot())
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
+    delivered = []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pgid, sig: delivered.append(pgid))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(ours)
+    assert delivered == []
+    pending = daemon.store.one("SELECT * FROM process_claim_receipt_pending WHERE attempt_id=?", (other["attempt_id"],))
+    assert pending and pending["failures"] >= 2 and pending["retry_at"] > 0
+    assert pending["last_error"] == ("unreadable" if availability == "read-outage" else "awaiting-child-identity")

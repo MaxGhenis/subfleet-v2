@@ -16,7 +16,7 @@ with log_path.open("w") as output:
          "uv", "run", "pytest", "-q", "-o", "junit_family=legacy",
          "--junitxml", str(xml_path), *sys.argv[2:]],
         stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+        env={**os.environ, "PYTHONPATH": str(Path.cwd())})
     try:
         result = child.wait(timeout=1100)
     except subprocess.TimeoutExpired:

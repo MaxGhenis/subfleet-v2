@@ -88,8 +88,8 @@ def test_partial_table_delivers_individually_without_competing_claims(
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(partial, boot_id=BOOT))
     monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
     monkeypatch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
-    delivered, groups = [], []
-    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append(pid))
+    delivered, groups, protocol = [], [], []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: (delivered.append(pid), protocol.append((pid, int(sig)))))
     def group_signal(pgid, sig):
         groups.append(int(sig))
         delivered.extend(pid for pid, row in rows.items() if row[1] == pgid)
@@ -104,6 +104,9 @@ def test_partial_table_delivers_individually_without_competing_claims(
         # Preserve TERM-before-KILL for all initial owned members; delivery
         # must not widen to members that join after this census.
         assert all(pid in delivered for pid in (200, 201, 202))
+        for pid in (200, 201, 202):
+            signals = [sig for target, sig in protocol if target == pid]
+            assert 15 in signals and 9 in signals and signals.index(15) < signals.index(9)
 
 
 def test_ambiguous_guardian_does_not_authenticate_new_ownership(state_daemon, monkeypatch):
