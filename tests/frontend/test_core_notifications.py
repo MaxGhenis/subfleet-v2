@@ -4,11 +4,11 @@ A notification the app posts carries its conversation and its kind. Clicking it
 opens the main window on that conversation, and an approval's brings the
 conversation's oldest waiting card into view. One that arrives while the app is
 frontmost shows as it would in the background, unless its conversation is on
-screen by then: focused, with the main window visible. Until 2026-10-12 the
-delegate was set after launch ended and had no `willPresent`, so the click
-that launched the app never reached it, and a notification that arrived while
-the app was frontmost was never shown. Which notifications are posted at all
-is D-24's rule, tested in test_core_store.py.
+screen by then: focused, with the main window visible and holding the key
+window (D-24). Until 2026-10-12 the delegate was set after launch ended and had
+no `willPresent`, so the click that launched the app never reached it, and a
+notification that arrived while the app was frontmost was never shown. Which
+notifications are posted at all is D-24's rule, tested in test_core_store.py.
 
 What the app's delegate reads from a delivered notification is Foundation code
 (`NotificationTarget`), probed here: through the real daemon's feed, for every
@@ -494,12 +494,13 @@ def test_c29_9_every_response_but_a_dismissal_opens_its_conversation(notificatio
 def test_c29_9_the_merged_userinfo_reads_back_as_both_targets(notification_model_probe, tmp_path):
     """What post() puts on an allowable approval's notification still opens its
     conversation and kind: one arriving while frontmost for another conversation
-    shows, and one for the focused conversation does not."""
+    shows. So does one for the focused conversation here: the probe's model has
+    no main window, so nothing is on screen (D-24, `UIModel.onScreenConversationID`)."""
     out = model_clicks(notification_model_probe, tmp_path, [
         {"frontmost": {"request_id": "approval:7", **ALLOWING}},
         {"frontmost": {"request_id": "approval:7", "intent": {**APPROVAL, "conversation": "cv-1"}, "allowing": False}},
     ], detail=approval_detail())
-    assert [o["shows"] for o in out] == [True, False]
+    assert [o["shows"] for o in out] == [True, True]
 
 
 # The delegate itself, the one the model owns, as the notification center calls it
@@ -522,13 +523,15 @@ def test_c29_9_the_delegate_hands_each_response_to_the_model(notification_model_
     assert (dismissed[-1]["focused"], dismissed[-1]["calls"]) == ("cv-1", [])
 
 
-def test_c29_9_the_delegate_presents_a_banner_unless_its_conversation_is_focused(notification_model_probe, tmp_path):
+def test_c29_9_the_delegate_presents_a_banner_unless_its_conversation_is_on_screen(notification_model_probe, tmp_path):
+    """The probe's model has no main window, so nothing is on screen: the focused
+    conversation's notification shows as a banner too (D-24)."""
     out = model_clicks(notification_model_probe, tmp_path, [
         {"present": {"request_id": "approval:7", **ALLOWING}},
         {"present": {"request_id": "complete:m", "intent": {"kind": "completed", "subject": "m", "conversation": "cv-1"},
                      "allowing": False}},
     ], detail=approval_detail())
-    assert [o["shows"] for o in out] == [["banner", "list"], []]
+    assert [o["shows"] for o in out] == [["banner", "list"], ["banner", "list"]]
 
 
 def test_c29_9_the_allow_once_category_is_release_217s(notification_model_probe, tmp_path):

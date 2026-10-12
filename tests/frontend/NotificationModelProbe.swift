@@ -98,7 +98,7 @@ final class NotificationProbeClient: DaemonCalling, @unchecked Sendable {
         let input = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
         var state = ConversationStoreState()
         if let focused = input["focused"]?.string { state.focus(focused) }
-        if input["baselined"]?.bool ?? true { state.watchBaselined = true }
+        if input["baselined"]?.bool ?? true { state.markBaselined() }
         for (conversation, count) in input["pending"]?.object ?? [:] { state.pendingApprovals[conversation] = count.int ?? 0 }
         // A key given as null is absent.
         func given(_ key: String) -> JSONValue? { input[key].flatMap { $0 == .null ? nil : $0 } }
