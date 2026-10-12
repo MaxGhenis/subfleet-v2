@@ -497,12 +497,14 @@ struct NotificationTarget: Equatable {
     }
 
     /// Whether it shows when it arrives while the app is frontmost. It was
-    /// posted because its conversation was not the one open (D-24), where the
-    /// window shows at most a sidebar badge for it (a count of waiting
-    /// approvals, a turn no longer running): it shows as it would with the app
-    /// in the background, unless the person has opened that conversation since.
-    func showsWhileFrontmost(focusedConversationID: String?) -> Bool {
-        conversationID != focusedConversationID
+    /// posted because its conversation was not on screen (D-24): another
+    /// conversation, for which the window shows at most a sidebar badge (a
+    /// count of waiting approvals, a turn no longer running), or the focused
+    /// one while the main window was closed, miniaturized or covered. It shows
+    /// as it would with the app in the background, unless its conversation is
+    /// on screen by now (`ConversationStoreState.onScreenConversationID`).
+    func showsWhileFrontmost(onScreenConversationID: String?) -> Bool {
+        conversationID != onScreenConversationID
     }
 }
 
@@ -560,6 +562,13 @@ struct ConversationStoreState: Equatable {
     /// Policy defaults published by `models.list`, never inferred from catalog order.
     var modelDefaults: [String: String] = [:]
     var focusedConversationID: String?
+    /// Whether the focused conversation is on screen: the app is active, its
+    /// main window is visible (not closed, miniaturized or covered) and holds
+    /// the key window, and the displays are awake. UIModel keeps it from AppKit. The focus stays set while the app is in the
+    /// background or its window is closed, so it alone does not say what the
+    /// person can see (D-24). False until UIModel says otherwise: a conversation
+    /// not known to be on screen notifies.
+    var focusedOnScreen = false
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
     var pendingApprovals: [String: Int] = [:]
@@ -580,6 +589,9 @@ struct ConversationStoreState: Equatable {
 
     var focusedConversation: Conversation? { focusedConversationID.flatMap(conversation) }
     var focusedTimeline: Timeline? { focusedConversationID.flatMap { timelines[$0] } }
+    /// The conversation the person can see now: the focused one while it is on
+    /// screen. Every other conversation notifies (D-24).
+    var onScreenConversationID: String? { focusedOnScreen ? focusedConversationID : nil }
 
     func conversation(_ id: String) -> Conversation? { conversations.first { $0.conversation_id == id } }
 
@@ -749,7 +761,8 @@ struct ConversationStoreState: Equatable {
     }
 
     /// The global change feed (D-24): approval counts, message states, and
-    /// notifications for conversations that are not focused.
+    /// notifications for conversations that are not on screen, once the feed
+    /// has its baseline.
     @discardableResult
     mutating func apply(watch page: WatchPage) -> WatchResult {
         if page.superseded == true { return .superseded }
@@ -787,7 +800,7 @@ struct ConversationStoreState: Equatable {
                                                 state_reason: change.state_reason, steered_into: change.steered_into))
                 timelines[cid] = timeline
             }
-            if watchBaselined && cid != focusedConversationID {
+            if watchBaselined && cid != onScreenConversationID {
                 notify(change, pendingBefore: before)
             }
             watchCursor = max(watchCursor, change.seq)
