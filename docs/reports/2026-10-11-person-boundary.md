@@ -120,11 +120,11 @@ Before is a `git archive` of `be7afd599` with this branch's two unit test files 
 
 | Regression | Test | Before (`be7afd599`) | After |
 |---|---|---|---|
-| An orphan (parent launchd) with a PTY and no markers is refused for every person-only op | `test_a_terminal_without_subfleet_ancestry_is_not_a_person[orphan]` and `test_every_person_only_op_refuses_a_terminal_caller_with_exit_7_naming_the_app[orphan-*]` (11 ops) | RESULT_ORPHAN_BEFORE | RESULT_ORPHAN_AFTER |
-| Its forked terminal child is refused | `…[orphans-child]` and `…[orphans-child-*]` | RESULT_CHILD_BEFORE | RESULT_CHILD_AFTER |
-| A terminal with no Subfleet ancestry (an SSH login, a Terminal window) is refused | `…[ssh-login]`, `…[terminal-window]` and their `-*` cases, plus `test_neither_a_terminal_nor_a_headless_agent_is_a_person` | RESULT_TERM_BEFORE | RESULT_TERM_AFTER |
-| The app's executable is still accepted, and so is the development build on a development root | `test_the_app_is_still_a_person_whatever_its_ancestry_and_terminal` (4), `test_every_person_only_op_lets_the_app_past_its_person_check` (11), `test_the_development_build_is_the_app_only_on_a_development_state_root` | RESULT_APP_BEFORE | RESULT_APP_AFTER |
-| The marker and guardian vetoes are unchanged | `test_the_marker_and_guardian_vetoes_are_unchanged_and_bind_the_app_too` (24), `test_another_state_roots_marker_is_not_a_veto`, `test_an_unidentified_or_uninspectable_caller_is_refused` | RESULT_VETO_BEFORE | RESULT_VETO_AFTER |
+| An orphan (parent launchd) with a PTY and no markers is refused for every person-only op | `test_a_terminal_without_subfleet_ancestry_is_not_a_person[orphan]` and `test_every_person_only_op_refuses_a_terminal_caller_with_exit_7_naming_the_app[orphan-*]` (11 ops) | 12 failed | 12 passed |
+| Its forked terminal child is refused | `…[orphans-child]` and `…[orphans-child-*]` | 12 failed | 12 passed |
+| A terminal with no Subfleet ancestry (an SSH login, a Terminal window) is refused | `…[ssh-login]`, `…[terminal-window]` and their `-*` cases, plus `test_neither_a_terminal_nor_a_headless_agent_is_a_person` | 25 failed | 25 passed |
+| The app's executable is still accepted, and so is the development build on a development root | `test_the_app_is_still_a_person_whatever_its_ancestry_and_terminal` (4), `test_every_person_only_op_lets_the_app_past_its_person_check` (11), `test_the_development_build_is_the_app_only_on_a_development_state_root` | 15 passed, 1 failed (the development-build test, on the base's refusal wording "only the Subfleet app or a terminal may do this", which this PR changes) | 16 passed |
+| The marker and guardian vetoes are unchanged | `test_the_marker_and_guardian_vetoes_are_unchanged_and_bind_the_app_too` (24), `test_another_state_roots_marker_is_not_a_veto`, `test_an_unidentified_or_uninspectable_caller_is_refused` | 25 passed, 1 failed (`test_an_unidentified_or_uninspectable_caller_is_refused`: the base accepted an unidentified caller with a terminal, `Verdict(person=True, reason='a terminal (ttys001)')`, the defect itself; all 24 veto cases passed) | 26 passed |
 
 The 11 person-only ops on this base are:
 
@@ -152,21 +152,31 @@ Hypothesis generates the ancestry chains:
 
 | Property | Examples | Before | After |
 |---|---|---|---|
-| Accepted if and only if the caller's image is the app (or the known development build) and no process in the chain is a guardian or carries a marker | 2,000 | PROP1_BEFORE | PROP1_AFTER |
-| Giving any process a terminal, or taking one away, never changes the verdict | 1,000 | PROP2_BEFORE | PROP2_AFTER |
-| A guardian or marker on any one process refuses the caller, whoever it is | 1,000 | PROP3_BEFORE | PROP3_AFTER |
+| Accepted if and only if the caller's image is the app (or the known development build) and no process in the chain is a guardian or carries a marker | 2,000 | failed (shrunk counterexample below) | 2,000 passed (368 invalid) |
+| Giving any process a terminal, or taking one away, never changes the verdict | 1,000 | failed (shrunk counterexample below) | 1,000 passed (186 invalid) |
+| A guardian or marker on any one process refuses the caller, whoever it is | 1,000 | 1,000 passed (239 invalid) | 1,000 passed (245 invalid) |
 
-PROP_COUNTEREXAMPLE
+On the base, Hypothesis shrank both failures to a caller that is not the app and has a terminal:
+
+- The first property failed with a four-process chain. The caller (pid 2) holds `ttys000`, its ancestors have no terminal or marker, and its image is the development build while no development build is known (`dev_known=False`), so it is not the app. The base judged it `Verdict(person=True, reason='a terminal (ttys000)')`; the property expects `person=False`.
+- The second failed with a single process `Proc(pid=2, ppid=2, tty='ttys000')`: with `ttys000` the base said `person=True`, and with every terminal replaced by `??` it said `person=False`. Giving a terminal changed the verdict.
+
+The veto property passed on the base, as it should: the vetoes are unchanged.
 
 ### The end-to-end path, checked from inside a lane
 
-`test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check` compiles the stand-in and has it connect to a test socket. The server reads the caller with the real `LOCAL_PEERPID` and `proc_pidpath`, then judges it with only the ancestry faked marker-free. The stand-in is recognised as the app, with its path's spaces kept, and a Python client on the same socket gets "this needs the Subfleet app". RESULT_DEVAPP
+`test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check` compiles the stand-in and has it connect to a test socket. The server reads the caller with the real `LOCAL_PEERPID` and `proc_pidpath`, then judges it with only the ancestry faked marker-free. The stand-in is recognised as the app, with its path's spaces kept, and a Python client on the same socket gets "this needs the Subfleet app". Passed at the head, on the hub's host. On the base it cannot run: `tests.e2e.dev_app` is new in this PR (ImportError).
 
-`test_the_end_to_end_person_is_never_skipped_for_the_wrong_reason` checks the three outcomes of `as_person` when no stand-in is named: it fails, fails with the compile error, or skips only for no compiler. RESULT_NOSKIP
+`test_the_end_to_end_person_is_never_skipped_for_the_wrong_reason` checks the three outcomes of `as_person` when no stand-in is named: it fails, fails with the compile error, or skips only for no compiler. Passed at the head. On the base it cannot run: `tests.e2e.dev_app` is new in this PR (ImportError).
 
 ### Runs
 
-TEST_RUNS
+The hub ran both files on the host (`git archive` copies, one pytest per hold of the shared suite lock):
+
+- 2026-10-12 08:48Z (`~/reviews/subfleet-hub/host-runs/run-191-tests.log`). At f2b22573d, `tests/unit/test_person_boundary.py` 97 passed and `tests/unit/test_conversation_peers_attachments.py` 44 passed. With both files copied onto be7afd599, the first file failed and the second gave 1 failed, 43 passed.
+- 2026-10-12 13:05Z, verbose with statistics (`~/reviews/subfleet-hub/host-runs/run-191-verbose.log`, outputs in `out-191v/`). At f2b22573d both files gave 141 passed. On be7afd599 they gave 57 failed, 84 passed. The tables above come from this run.
+
+The end-to-end person and terminal checks under `tests/e2e/` need a caller outside any Subfleet lane; CI runs them.
 
 ## Not changed, and what is left
 
