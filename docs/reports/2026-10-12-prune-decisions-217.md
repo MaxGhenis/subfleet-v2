@@ -91,7 +91,7 @@ exact table contents, arbitrary WAL/SHM sidecars, and shell metacharacters in
 paths. Also kept its report-save differential property (`max_examples=30`,
 two explicit examples) and all its unit scenarios. The port also repeats the audit kind/count proof
 after `--vacuum`; a new regression removes the appended audit rows between
-the first proof and the rebuild proof and requires a restore-bearing failure. The PR's partition and
+the first proof and the rebuild proof and requires a failure naming the backup to restore. The PR's partition and
 unfinished-job coverage were example tests; the port adds generated coverage.
 
 Initial combined run: **57 passed, 3 failed in 948.26 s (15:48)**. Failures
@@ -111,20 +111,30 @@ under `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`:
 | `tests/unit/test_prune_decisions.py` | 48 | Passed |
 | `tests/unit/test_prune_217.py` | 9 | Passed |
 | `tests/unit/test_test_module_names.py` | 1 | Passed |
-| `tests/unit/test_prune_restore.py` | 4 | Fresh separate run pending |
+| `tests/unit/test_prune_restore.py` | 4 | Passed |
 
-The four restore cases are queued as the next foreground process with their
-own lock hold. Every invocation uses a unique
+Fresh restore run: **4 passed in 18.79 s**, with its own foreground process
+and lock hold. Final total: **62 passed, 0 failed** across the two fresh runs.
+Every invocation uses a unique
 `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-prune217-$$/` and the required
 `python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$TMPDIR"`
-cleanup. The successful core hold was below 20 minutes. `git diff --check`
-passes. No implementation file was edited during the fresh run.
+cleanup. Both successful holds were below 20 minutes. `git diff --check`
+passes. No implementation file was edited during either fresh run.
+
+The exact pytest selections, each prefixed with the required lock hold, were:
+
+```sh
+uv run pytest -q tests/unit/test_prune_decisions.py tests/unit/test_prune_217.py tests/unit/test_test_module_names.py
+uv run pytest -q tests/unit/test_prune_restore.py
+```
 
 Dependency preparation initially failed because PyPI DNS was unavailable.
 Copied the required cached wheels into the workspace cache and installed
 fully offline (`uv sync --frozen --offline`), including the lockfile's
 pytest 9.1.1 and Hypothesis 6.168.1, using CPython 3.14.7 with free threading.
 The global cache was read only; no caller checkout or live state was used.
+The copied workspace dependency cache was removed after validation; dependency
+files and test artifacts are not committed.
 
 Unrun: the full repository suite, full retention/Git archive round trips, and
 any dry run or apply against a live store. No `~/.subfleet` or
