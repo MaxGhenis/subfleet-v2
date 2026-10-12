@@ -63,14 +63,21 @@ int main(int argc, char **argv) {
 '''
 
 
+NO_COMPILER = "no C compiler to build the development app's stand-in"
+
+
+def compiler() -> str | None:
+    return shutil.which("cc") or shutil.which("clang")
+
+
 def build(directory: Path) -> Path | None:
     """Compile the stand-in under `directory`; None when there is no C compiler."""
-    compiler = shutil.which("cc") or shutil.which("clang")
-    if not compiler:
+    compiler_path = compiler()
+    if not compiler_path:
         return None
     target = directory / "Subfleet Dev.app" / "Contents" / "MacOS" / "Subfleet Dev"
     target.parent.mkdir(parents=True, exist_ok=True)
-    built = subprocess.run([compiler, "-O1", "-Wall", "-Werror", "-x", "c", "-", "-o", str(target)],
+    built = subprocess.run([compiler_path, "-O1", "-Wall", "-Werror", "-x", "c", "-", "-o", str(target)],
                            input=SOURCE, capture_output=True, text=True, timeout=120)
     if built.returncode:
         raise RuntimeError(f"the development app's stand-in did not compile: {built.stderr}")

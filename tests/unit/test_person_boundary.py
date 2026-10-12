@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import types
 import uuid
 from pathlib import Path
 
@@ -212,11 +214,11 @@ def test_the_development_build_is_the_app_only_on_a_development_state_root(svc, 
     with_process_table(monkeypatch, (Proc(10, 1, "??", f"{DEV} HOME=/Users/m"),), DEV)
     assert svc._person(10, "answering an approval").reason == "the Subfleet app"
     monkeypatch.setenv("HOME", str(tmp_path))
-    svc.root = tmp_path / ".subfleet"
-    svc.root.mkdir(exist_ok=True)
+    (tmp_path / ".subfleet").mkdir(exist_ok=True)
+    monkeypatch.setattr(svc, "root", tmp_path / ".subfleet")       # restored before `svc` closes
     with pytest.raises(ConversationError) as refused:
         svc._person(10, "answering an approval")
-    assert refused.value.code == 7
+    assert refused.value.code == 7 and "this needs the Subfleet app" in str(refused.value)
 
 
 # --- property: only the app, and never under a veto ---------------------------------------
@@ -343,7 +345,27 @@ def test_the_end_to_end_tests_development_app_is_the_app_to_the_real_peer_check(
         shutil.rmtree(sock_dir, ignore_errors=True)
     assert as_app == {"ok": True, "reason": "the Subfleet app"}, (as_app, verdicts)
     assert json.loads(python.stdout) == {"ok": False, "reason": "this needs the Subfleet app"}, python
-    assert verdicts[0][1] == str(app) and " " in verdicts[0][1]      # the kernel's path, spaces kept
+    kernel_path = verdicts[0][1]
+    assert kernel_path and os.path.realpath(kernel_path) == str(app) and " " in kernel_path   # spaces kept
+
+
+def test_the_end_to_end_person_is_never_skipped_for_the_wrong_reason(monkeypatch):
+    """The e2e person is the stand-in the `e2e` fixture names to every daemon it starts
+    (tests/e2e/conftest.py). Without it `as_person` skips only on a host with no C
+    compiler; a stand-in that did not compile, or a harness made without the fixture
+    (another module's own `E2E(...)`), fails, so a person test cannot pass by skipping."""
+    from tests.e2e import dev_app, test_conversations
+    monkeypatch.setattr(test_conversations, "IN_A_SUBFLEET_ATTEMPT", False)
+    harness = types.SimpleNamespace(env={}, root=Path("/nonexistent-sf-pb1"), no_person=None)
+    conv = test_conversations.Conversations(harness)
+    with pytest.raises(pytest.fail.Exception, match="not told of the development app"):
+        conv.as_person("approval.get", approval_id="a-1")
+    harness.no_person = "the development app's stand-in did not compile: cc: error"
+    with pytest.raises(pytest.fail.Exception, match="did not compile"):
+        conv.as_person("approval.get", approval_id="a-1")
+    harness.no_person = dev_app.NO_COMPILER
+    with pytest.raises(pytest.skip.Exception, match="no C compiler"):
+        conv.as_person("approval.get", approval_id="a-1")
 
 
 def test_the_module_says_a_terminal_is_not_a_person():

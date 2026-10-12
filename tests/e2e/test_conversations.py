@@ -2,10 +2,10 @@
 with the fake interactive providers on PATH (C-24 to C-30, design §4 to §11).
 
 Person-only operations (C-25.6) are sent from the development app (D-21): a
-small native client compiled once per session and named to each daemon by
-`SUBFLEET_DEV_APP_EXECUTABLE`, so the daemon's real peer check decides them;
-nothing here stubs the check. A terminal is not a person (D-PB1, 2026-10-11):
-the same request from `script(1)`'s terminal is refused.
+small native client compiled once per session, which the `e2e` fixture names to
+each daemon by `SUBFLEET_DEV_APP_EXECUTABLE`, so the daemon's real peer check
+decides them; nothing here stubs the check. A terminal is not a person (D-PB1,
+2026-10-11): the same request from `script(1)`'s terminal is refused.
 """
 
 from __future__ import annotations
@@ -74,7 +74,14 @@ class Conversations:
                         "run this test outside Subfleet (CI runs it)")
         app = self.e2e.env.get(development_app.ENV)
         if not app:
-            pytest.skip("no C compiler to build the development app's stand-in")
+            # The `e2e` fixture names the stand-in to every daemon it starts
+            # (tests/e2e/conftest.py). Only a host with no C compiler may skip; a stand-in
+            # that did not compile, or a harness made some other way, is a test fault.
+            why = getattr(self.e2e, "no_person", None)
+            if why == development_app.NO_COMPILER:
+                pytest.skip(why)
+            pytest.fail(why or "this daemon was not told of the development app (D-21): make the harness with "
+                        f"the e2e fixture, which names the stand-in in {development_app.ENV}")
         return development_app.request(app, self.e2e.root / "daemon.sock",
                                        {"v": 1, "id": "p", "op": op, "args": args})
 
@@ -152,18 +159,15 @@ class Conversations:
         return [json.loads(row["stdin"]) for row in log if "stdin" in row and row.get("pid") in turns]
 
 
-@pytest.fixture(scope="session")
-def dev_app(tmp_path_factory) -> Path | None:
-    """The development app's stand-in (`tests/e2e/dev_app.py`), compiled once."""
-    return development_app.build(tmp_path_factory.mktemp("dev-app"))
-
-
-@pytest.fixture(autouse=True)
-def person_is_the_development_app(request, dev_app):
-    """Every daemon a test here starts treats `dev_app` as the app (D-21): it runs on a
-    state root under /tmp, never ~/.subfleet, so only this name widens anything."""
-    if dev_app is not None and "e2e" in request.fixturenames:
-        request.getfixturevalue("e2e").env[development_app.ENV] = str(dev_app)
+def test_every_e2e_harness_names_the_development_app_to_its_daemon(e2e, dev_app):
+    """C-25.6, D-21: the `e2e` fixture names the compiled stand-in to every daemon it
+    starts, so any module's `Conversations(e2e).as_person` has a person (D-PB1: a
+    terminal is not one). Only a host with no C compiler goes without."""
+    if dev_app == development_app.NO_COMPILER:
+        pytest.skip(dev_app)
+    assert isinstance(dev_app, Path), dev_app                       # it compiled
+    assert e2e.env[development_app.ENV] == str(dev_app) and e2e.no_person is None
+    assert dev_app.is_file() and " " in str(dev_app)                 # a path with spaces, as the build's
 
 
 @pytest.fixture
