@@ -61,6 +61,6 @@ with tempfile.TemporaryDirectory(prefix="sf-r131f14-mutation-", dir=os.environ["
         raise ValueError(mode)
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv"), "UV_NO_SYNC": "1"}
     result = subprocess.run([sys.executable, str(ROOT / "tools/review_pr131_r14_locked.py"),
-                             str(tree / "mutation.log"), "tests/fake/test_review_pr131_round14.py", "-k", target],
+                             str(tree / "mutation.log"), "tests/fake/test_review_pr131_round14.py", "--tb=short", "--show-capture=no", "-k", target],
                             cwd=tree, env=env)
     sys.exit(result.returncode)

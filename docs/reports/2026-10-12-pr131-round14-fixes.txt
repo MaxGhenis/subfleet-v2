@@ -1,0 +1,141 @@
+PR #131 round 14 fixes, 2026-10-12
+Base: deb8c5b25baf1a49cddf0c223cd47d67926884fd.
+
+Commits on feat/quarantine-self-resolve in workspace-local .git-local:
+8d7b6a7e7 Keep quarantine delivery within verified individual targets
+86ffea7ec Serialize claim authorization at delivery and retain incomplete imports
+b0ba1c670 Retry deferred fixture reservations and cover dispatch serialization
+0b99d0b4f Preserve bounded receipt checks and model individual dispatch interleavings
+3c6bfb8e4 Keep reservation retry clocks consistent with capacity evaluation
+c4b2a5c06 Upgrade receipt retry metadata in one transaction
+e96dc118b Witness legacy receipt recovery through interrupted schema upgrade
+
+The shared Git metadata is outside the writable workspace. Local metadata
+uses the original object store read-only; the assigned checkout remains at
+its detached base. The hub must carry the local commits. No history rewrite,
+remote access, push, sub-agent, live store or unrelated live process operation occurred.
+Each commit has the requested Co-Authored-By trailer. Only named files staged.
+
+P1-1: dispatch sends TERM and KILL to verified individual identities from the
+first census/persisted ownership cap. It never uses killpg. An unchanged
+leader cannot prove that the group's current members are unclaimed: a claimed
+process can join after any census. Individual dispatch cannot reach that new
+member. Later censuses/revisions may suppress permission, never enlarge it.
+The retained group predicate is a census check used by regression witnesses;
+it is not a signal dispatch authorization.
+
+P1-2: signal_process finishes scalar identity/group reads before entering its
+authorization context. The final claim check and syscall share the Store's
+writer lock; every daemon indexed claim mutation uses that lock. Pending
+start.json publications also share sidecar flock locks with guardian._receipt.
+The locks remain held through os.kill, without a SQL transaction spanning I/O.
+A concurrent publisher therefore completes before the final authorization or
+after delivery. Noncooperating legacy/missing receipts cannot be proven closed:
+unresolved foreign receipt work refuses all delivery. A cached foreign claim
+revision can only reject the first census's targets. Attempts and probes use
+this same boundary. Added two concurrent-publisher witnesses at the syscall.
+
+P1-3: missing, empty and unreadable receipts keep durable pending entries,
+including terminal attempts and legacy child_pid=None cases. Ordinary ownership
+checks read at most eight due receipts, preserving the unchanged round-13
+receipt-read budget by construction; its regression rerun remains unrun. There is one immediate retry; further failures back off from one
+second to a 60-second ceiling. failures, retry_at and last_error record the
+clear pending state. A kill checks at most 64 pending publications; overflow
+refuses delivery. Work is read from the indexed queue, without repeated scans
+of finished history. Enumeration and completed import have separate durable
+bits; seeded is set only when all pending work has resolved. Upgrade resets
+old completion once and adds retry metadata in one transaction. The upgrade
+witness interrupts that transaction and checks rollback and recovered claims.
+
+P2/P7: reserve submits once, then makes at most four real admission passes for
+documented workspace deferrals on that same job. It advances the fixture's
+clock to the due retry and keeps fixture capacity readings current. Routing,
+retry timestamps and due checks share that clock. Unexpected/persistent holds
+raise an assertion with job, hold, leases and readings instead of IndexError.
+Constructor failure closes daemon/fixture, undoes patches and cleans its
+TemporaryDirectory. Real Git/reservation checks and safety deadlines remain.
+The controlled timeout is evidence of harness fragility, not attribution of
+the exact host run's unidentified admission hold.
+
+Assertion preservation: AST comparisons against deb8c5b25 confirm every
+assertion in the process-world (52), isolation (15), detached-writer (47),
+ported/original r12 ownership (15 each), round-11 (31), and round-13 (39) files
+is unchanged. Signal spies only accept the new authorization keyword. The
+partial-table witness now requires individual delivery plus TERM-before-KILL
+for every initial owned member, retaining its foreign-claim exclusions. World
+escape transitions occur after individual dispatch as well as group delivery;
+all safety/liveness oracles, deadlines and original default settings remain.
+Only the requested reduced run overrides examples/steps via existing env vars.
+
+Executed baseline: original round-14 file at deb8c5b25, 6 failed / 2 passed,
+414.73 s. Failures: group entrant parent=1; scalar receipt/indexed publication;
+terminal late/read-outage receipt; failed startup import. The parent=201 and
+original IndexError reproduction are passing controls, not negative witnesses.
+All process reads/signals were fake.
+
+First head probe run: 17 passed / 1 failed, plus module-name check 1 passed,
+242.02 s. The remaining failure was fixture clock skew: a refreshed reading
+was future-dated for real-time capacity evaluation, causing probe-pending.
+3c6bfb8e4 synchronizes the clocks. Corrected round-14 rerun: 18 passed,
+195.87 s, including attempt/probe variants, constructor cleanup, bounded
+reservation diagnostics, publisher serialization and unresolved-receipt refusal.
+
+Recorded executions: 38 passed / 7 failed across three completed holds,
+including baseline and superseded-head runs. Completed hold pytest times:
+414.73 s, 242.02 s, 195.87 s. Only the corrected head results below count as
+the final focused validation; baseline/superseded failures are stated above.
+
+Per-file validation (unrun counts from source parametrizations, not collection):
+file                                                 passed failed unrun
+fake/test_review_pr131_round14.py                         18      0     0
+unit/test_test_module_names.py                            1      0     0
+fake/test_review_pr131_round13.py                         0      0    16
+fake/test_review_pr131_round13_probes.py                  0      0     3
+fake/test_quarantine_self_resolve.py                     0      0    13
+fake/test_quarantine_ambiguity.py                        0      0    26
+fake/test_quarantine_review_fixes.py                     0      0    38
+fake/test_review_pr131_round12_ownership.py               0      0    18
+fake/test_review_pr131_round12_signal_authority.py        0      0     4
+fake/test_r12orig_ownership.py                            0      0    18
+fake/test_r12orig_signal_authority.py                     0      0     4
+fake/test_quarantine_process_world.py                    0      0    18
+unit/test_quarantine_receipt_retry.py                    0      0     2
+unit/test_quarantine_migration.py                        0      0     2
+unit/test_quarantine_pacing_store.py                     0      0     1
+
+Also unrun: full fake/test_state_contract.py (37), full isolation (9),
+detached-writer (49), round-11 (54), original liveness (41), other full
+identity/isolation/liveness/real-process suites and benchmarks. Their relevant
+fixture/helper paths were exercised by the focused probes; whole-file tests
+are not counted as run. The full-size process world is unrun too. Its requested
+reduced hold was seed=13114, pool=1, 5 examples/8 steps, deadline unchanged at
+30,000 ms; it expired before pytest started. No examples were discarded.
+
+Mutation verification: tools/review_pr131_r14_mutations.py creates isolated
+source copies, reverting each P1 independently, and requests its own locked
+pytest hold. Group delivery selects the entrant witness (4 attempt/probe
+cases); removing post-confirmation authorization selects scalar publication
+(4 cases); forgetting receipt work/completing incomplete imports selects late,
+read-outage and startup witnesses (3 cases). Every mutant was generated, but
+all three lock requests exited 75 before pytest. These mutations are UNRUN;
+no mutation detection is claimed. Source checkout/history remain untouched.
+
+Lock outcomes: 12 requests expired before pytest (11 x 45 s, 1 x 300 s),
+including the regressions, reduced world and mutations. The final five
+regression requests were separately held/queued for self-resolve, ambiguity,
+review-fix, both original/ported r12 ownership/signal files, and r13 plus
+migration/receipt checks. The hub must run those outstanding validations.
+
+Final static checks: changed Python files parse; git diff --check passes;
+current test module basenames are unique. The report/runner-output commit is
+listed in the final response. The assigned shared HEAD remains deb8c5b25.
+The disposable baseline tree and assertion-comparison file were cleaned.
+No task runner or build remains.
+
+Every actual pytest invocation ran foreground, alone, under its own shared
+lock hold with a separate task TMPDIR and 1100-second outer watchdog. Holds
+were below 20 minutes; no calmer-load wait occurred while holding the lock.
+TMPDIR cleanup used the requested Python shutil.rmtree command. Dependencies
+came from the readable local uv cache into the ignored workspace environment;
+UV_NO_SYNC=1 and workspace-local UV_CACHE_DIR kept default cache writes out.
+No logs, XML/JSON evidence, environments or bundles were staged.
