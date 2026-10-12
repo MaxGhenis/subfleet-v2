@@ -158,6 +158,23 @@ def test_revoked_token_stays_latched_until_auth_epoch_changes(rig):
     assert store.get_lane(lane.lane_id).enabled
 
 
+@pytest.mark.parametrize("content", [b"", b"{", b"[]", b"null", b'"text"', b"42", b'{"last_refresh": "\x80"}'],
+                         ids=["empty", "torn", "list", "null", "string", "number", "not-utf-8"])
+def test_an_unreadable_auth_json_is_read_with_the_lane_epoch_and_fails_no_cycle(rig, content):
+    """C-23.47, C-18.1: an `auth.json` that is not a JSON object has no `last_refresh`, so the lane's
+    enrolled epoch stands for it, as for a missing file. Before, `[]` (or a string or a number)
+    raised AttributeError out of `_epoch`, which caught only OSError, ValueError and TypeError,
+    and the cycle re-raised it once every lane's holder was released: every cycle failed while
+    one lane's file was so, and that lane was never read."""
+    timer, store, clock, adapter, enroll = rig
+    lane, other = enroll(), enroll("codex-2")
+    (Path(lane.home) / "auth.json").write_bytes(content)
+    timer.probe_cycle()
+    assert sorted(adapter.calls) == [lane.lane_id, other.lane_id]
+    assert timer._epoch(lane) == lane.credential.epoch
+    assert not store.list_leases()
+
+
 @pytest.mark.parametrize("busy", ["lease", "attempt", "desktop"])
 def test_busy_or_desktop_lane_probe(rig, busy):
     """C-18.1, C-18.3, C-10.3: a protected desktop lane sends no monitoring request; an occupied Codex

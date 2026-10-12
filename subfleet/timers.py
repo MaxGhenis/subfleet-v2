@@ -519,9 +519,11 @@ class Timers:
         try:
             # Only a regular file, never waiting in open(): Timers.stop() waits for this worker.
             raw = json.loads(read_regular(Path(lane.home or lane.credential.ref).expanduser() / 'auth.json'))
-            return raw.get('last_refresh', lane.credential.epoch)
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, RecursionError):
             return lane.credential.epoch
+        # A file that is not an object (`[]`, `null`) has no refresh either. Its `.get`
+        # raised AttributeError, which failed every cycle and left this lane unread.
+        return raw.get('last_refresh', lane.credential.epoch) if isinstance(raw, dict) else lane.credential.epoch
 
     def _identities(self):
         # Binding order, not lane-number lexicography, defines canonical identity.

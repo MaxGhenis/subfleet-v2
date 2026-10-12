@@ -6,6 +6,7 @@ import os
 import sys
 from types import ModuleType, SimpleNamespace
 
+from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet import daemon as module
@@ -49,6 +50,47 @@ def test_c6_5_api_key_home_is_refused_without_exposing_its_value(tmp_path):
     assert error.value.code == 7
     assert secret not in str(error.value)
     assert "subscription" in error.value.fix
+
+
+_JSON_VALUES = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | st.text(max_size=8),
+    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(
+        st.sampled_from(["OPENAI_API_KEY", "auth_mode", "tokens", "last_refresh"]) | st.text(max_size=6),
+        inner | st.sampled_from(["api_key", "apikey", "chatgpt", ""]), max_size=3),
+    max_leaves=10)
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(content=st.one_of(st.binary(max_size=48), _JSON_VALUES.map(lambda value: json.dumps(value).encode())))
+def test_property_a_codex_home_is_accepted_or_refused_and_nothing_else(tmp_path, content):
+    """C-10.2, C-6.12 for all inputs: whatever a Codex home's `auth.json` holds, `_validate_home`
+    returns (a JSON object with no API key) or raises AdapterError, code 7 with a fix, which every
+    caller handles (tests/fake/test_admission_probe_errors.py). Before, an unparsable file raised
+    JSONDecodeError and one that is not an object AttributeError, out of the admission pass. The
+    API-key rule is the old one, and no refusal carries the file's contents, even as its context."""
+    (tmp_path / "auth.json").write_bytes(content)
+    try:
+        auth = json.loads(content)
+    except (ValueError, RecursionError):
+        auth = None
+    refused = (not isinstance(auth, dict) or bool(auth.get("OPENAI_API_KEY"))
+               or auth.get("auth_mode") in ("api_key", "apikey"))
+    try:
+        Daemon._validate_home(lane(tmp_path))
+    except AdapterError as error:
+        assert refused
+        assert error.code == 7 and error.fix
+        assert error.__cause__ is None and error.__context__ is None
+    else:
+        assert not refused
+
+
+@pytest.mark.parametrize("home", ["missing", "directory"])
+def test_c10_2_a_codex_home_with_no_auth_json_file_is_not_refused(tmp_path, home):
+    """C-10.2: no regular file there is still not a refusal, as before (`is_file()`'s answer)."""
+    if home == "directory":
+        (tmp_path / "auth.json").mkdir()
+    Daemon._validate_home(lane(tmp_path))
 
 
 def test_c5_8_failed_identity_initialization_releases_flock(tmp_path, monkeypatch):
