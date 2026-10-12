@@ -430,6 +430,9 @@ class ForeignOwnership:
 
     generation: int | None = field(default=None, compare=False)
     signal_candidates: frozenset[int] | None = field(default=None, compare=False, repr=False)
+    # Missing active launch receipts can appear after a cached census. They
+    # may suppress delivery, but never enlarge its signal candidates.
+    receipt_candidates: tuple[tuple[str, str, int], ...] = field(default=(), repr=False, compare=False)
     claims_by_pid: dict[int, tuple[ProcessIdentity, ...]] = field(init=False, compare=False, repr=False)
 
     def __post_init__(self):

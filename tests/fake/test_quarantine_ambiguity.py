@@ -13,6 +13,24 @@ from tests.fake.test_state_contract import state_daemon  # noqa: F401
 REAL_SAME_PROCESS = procs.same_process
 
 
+@pytest.mark.parametrize("foreign_state", ["running", "quarantined"])
+def test_late_child_receipt_suppresses_a_cached_kill(state_daemon, monkeypatch, foreign_state):
+    daemon, harness = state_daemon
+    ours, _ = running(daemon, harness, 200, 201)
+    other, directory = running(daemon, harness, 100, 101)
+    daemon.store.update_attempt(other["attempt_id"], state=foreign_state, evidence_json="{}")
+    (directory / "start.json").write_text("{}")
+    script_table(monkeypatch, {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201")}, markers="")
+    foreign = daemon._foreign_ownership(ours, procs.snapshot())
+    target = procs.ProcessIdentity(200, BOOT, "p200")
+    census = procs.Containment(identities={200: target}, group_pids=frozenset({200}))
+    assert daemon._unambiguous_signal_identity(ours["attempt_id"], target, census, {}, foreign)
+    (directory / "start.json").write_text(json.dumps({"child_identity": {
+        "pid": 200, "boot_id": BOOT, "proc_start": "p200"}}))
+    assert not daemon._unambiguous_signal_identity(ours["attempt_id"], target, census, {}, foreign)
+    assert not daemon._unambiguous_signal_group(ours["attempt_id"], target, census, {}, foreign)
+
+
 @pytest.mark.parametrize("foreign_state", ["running", "finalizing", "quarantined", "succeeded"])
 @pytest.mark.parametrize("table_outage", [False, True])
 def test_late_child_receipt_blocks_signals_after_startup_import(

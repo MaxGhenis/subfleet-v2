@@ -6698,22 +6698,24 @@ class Daemon:
             tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1")
             tx.execute("DELETE FROM process_claim_receipt_pending")
 
-    def _refresh_process_claim_receipts(self, attempt_id: str) -> None:
+    def _refresh_process_claim_receipts(self, attempt_id: str, *,
+                                       candidates: tuple[tuple[str, str, int], ...] | None = None) -> None:
         """Index late child publications before taking a signal snapshot.
 
         Active attempts without a publication are retried. Finished attempts
         are read only from the changed-receipt queue, never from retained
         history. A receipt imported here also advances the claim revision.
         """
-        rows = self.store.query(
+        rows = ([dict(attempt_id=aid, job_id=job, seq=seq) for aid, job, seq in candidates]
+                if candidates is not None else self.store.query(
             "SELECT attempt_id,job_id,seq FROM attempts WHERE "
             "state IN ('reserved','starting','running','finalizing') AND attempt_id<>? "
             "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL "
             "UNION SELECT attempt_id,job_id,seq FROM attempts WHERE state='quarantined' AND attempt_id<>? "
             "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL "
             "UNION SELECT a.attempt_id,a.job_id,a.seq FROM process_claim_receipt_pending p "
-            "JOIN attempts a USING(attempt_id) WHERE a.attempt_id<>?",
-            (attempt_id, attempt_id, attempt_id))
+            "CROSS JOIN attempts a ON a.attempt_id=p.attempt_id WHERE p.attempt_id<>?",
+            (attempt_id, attempt_id, attempt_id)))
         for row in rows:
             start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json") or {}
             child = start.get("child_identity")
@@ -6742,10 +6744,10 @@ class Daemon:
         self._refresh_process_claim_receipts(a["attempt_id"])
         generation = self.store.one("SELECT generation FROM process_claim_clock WHERE singleton=1")["generation"]
         active = self.store.query(
-            "SELECT attempt_id,guardian_pid,pgid,boot_id,proc_start,"
+            "SELECT attempt_id,job_id,seq,guardian_pid,pgid,boot_id,proc_start,"
             "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END AS child_identity "
             "FROM attempts WHERE state IN ('reserved','starting','running','finalizing') AND attempt_id<>? "
-            "UNION ALL SELECT attempt_id,guardian_pid,pgid,boot_id,proc_start,"
+            "UNION ALL SELECT attempt_id,job_id,seq,guardian_pid,pgid,boot_id,proc_start,"
             "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END "
             "FROM attempts WHERE state='quarantined' AND attempt_id<>?",
             (a["attempt_id"], a["attempt_id"]))
@@ -6800,7 +6802,9 @@ class Daemon:
         return procs.ForeignOwnership(tuple(identities), tuple(groups), tuple(launches),
                                       tuple(claims), tuple(collisions), generation,
                                       frozenset(pid for pid, row in table.rows.items() if table.live(pid))
-                                      if table is not None else None)
+                                      if table is not None else None,
+                                      receipt_candidates=tuple((row["attempt_id"], row["job_id"], row["seq"])
+                                                               for row in active if not _json_object(row.get("child_identity"))))
 
     def _unambiguous_signal_identity(self, attempt_id: str, ident: procs.ProcessIdentity,
                                      census: procs.Containment, evidence: dict,
@@ -6813,6 +6817,15 @@ class Daemon:
                 "SELECT 1 FROM process_claim_revisions WHERE generation>? AND attempt_id<>? LIMIT 1",
                 (foreign.generation, attempt_id)):
             return False
+        if foreign.receipt_candidates:
+            # A guardian may publish between the first census and delivery,
+            # before its paced store update. Index only those pending launch
+            # receipts; their revision can only suppress this cached kill.
+            self._refresh_process_claim_receipts(attempt_id, candidates=foreign.receipt_candidates)
+            if foreign.generation is not None and self.store.one(
+                    "SELECT 1 FROM process_claim_revisions WHERE generation>? AND attempt_id<>? LIMIT 1",
+                    (foreign.generation, attempt_id)):
+                return False
         if (foreign.claimed(ident)
                 or any(procs.identities_overlap(procs.ProcessIdentity(**value), ident)
                        for value in evidence.get("ambiguous_identities", []))
