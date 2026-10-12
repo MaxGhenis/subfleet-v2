@@ -40,7 +40,8 @@ What it guarantees:
   attempt-less rows under both orderings remain. The whole-store backup and
   gzip row backup preserve the original history for recovery.
 * **Recoverable.** A real pass writes two backups before the first DELETE: a
-  `VACUUM INTO` copy of the whole store, verified with `PRAGMA integrity_check`,
+  `VACUUM INTO` copy of the whole store, verified with `PRAGMA integrity_check`
+  and every table's row count and content digest against the planning snapshot,
   and every row it is about to delete as gzipped JSON lines, re-read and checked
   against the count and digest recorded while writing.
 * **Proven, not asserted.** Every other table is counted and digested before and
@@ -372,6 +373,30 @@ def _restore_fix(copy_path: str | None) -> str:
     return RESTORE_RECIPE.format(copy_path=shlex.quote(copy_path))
 
 
+def _require_schema_tables(database: Path) -> None:
+    """Refuse missing expected tables using only a read-only source connection.
+
+    Apply the build's schema to an in-memory database to obtain its table names,
+    never to the source. Extra tables remain covered by the content proofs.
+    """
+    expected = sqlite3.connect(":memory:")
+    source = None
+    try:
+        source = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+        expected.row_factory = source.row_factory = sqlite3.Row
+        expected.executescript(Path(__file__).with_name("store_schema.sql").read_text())
+        missing = sorted(set(_tables(expected)) - set(_tables(source)))
+        if missing:
+            raise PruneRefused(
+                f"prune decisions: schema {SCHEMA_VERSION} store is missing expected tables: "
+                + ", ".join(missing),
+                "nothing has been deleted or repaired; investigate the store before pruning")
+    finally:
+        if source is not None:
+            source.close()
+        expected.close()
+
+
 def _hold_daemon_lock(state_root: Path) -> int | None:
     """Take `daemon.lock` for the whole pass, as `importer._hold_daemon_lock` does.
 
@@ -660,8 +685,9 @@ def _backup_dir(path: Path) -> None:
         candidate.mkdir(mode=0o700)
 
 
-def _copy_store(conn: sqlite3.Connection, destination: Path) -> dict[str, Any]:
-    """`VACUUM INTO` a whole copy of the store, then `PRAGMA integrity_check` it.
+def _copy_store(conn: sqlite3.Connection, destination: Path,
+                expected: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Copy the store and prove all table contents match the planning snapshot.
 
     The copy is the restore path, and it is taken the way `docs/migration.md`
     prescribes for a store upgrade. `VACUUM INTO` writes a defragmented,
@@ -672,17 +698,26 @@ def _copy_store(conn: sqlite3.Connection, destination: Path) -> dict[str, Any]:
     os.chmod(destination, 0o600)
     check = sqlite3.connect(destination.resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        result = check.execute("PRAGMA integrity_check").fetchall()
+        integrity = [row[0] for row in check.execute("PRAGMA integrity_check").fetchall()]
+        if integrity != ["ok"]:
+            raise PruneVerificationError(
+                f"prune decisions: the backup copy {destination} fails integrity_check: "
+                f"{'; '.join(integrity)}",
+                "nothing has been deleted; investigate the store before pruning")
+        check.row_factory = sqlite3.Row
+        copied = {table: _digest(check.execute(f'SELECT * FROM "{table}"'))
+                  for table in _tables(check)}
+        changed = sorted(table for table in set(expected) | set(copied)
+                         if expected.get(table) != copied.get(table))
+        if changed:
+            raise PruneVerificationError(
+                f"prune decisions: the backup copy {destination} differs from the planning "
+                f"snapshot in tables: {', '.join(changed)}",
+                "nothing has been deleted; the backup is not trustworthy")
     finally:
         check.close()
-    integrity = [row[0] for row in result]
-    if integrity != ["ok"]:
-        raise PruneVerificationError(
-            f"prune decisions: the backup copy {destination} fails integrity_check: "
-            f"{'; '.join(integrity)}",
-            "nothing has been deleted; investigate the store before pruning")
     return {"path": str(destination), "bytes": destination.stat().st_size,
-            "integrity_check": "ok"}
+            "integrity_check": "ok", "fingerprints": copied, "verified": True}
 
 
 def _backup_rows(conn: sqlite3.Connection, ids: Sequence[int], destination: Path,
@@ -798,11 +833,13 @@ def prune(state_root: str | Path, *, apply: bool = False, confirm: bool = False,
             f"so the copy it offers to restore from would already be a {changed} store", fix)
     lock = _hold_daemon_lock(state_root) if apply else None
     try:
-        # C-3.4: the writing pass opens the store the daemon's way (WAL,
-        # synchronous=FULL, foreign_keys=ON, and the C-3.5 refusal of a schema
-        # this build does not know); a dry run opens it read-only like every
+        # C-3.4: use the daemon's writer pragmas and version refusal, but apply
+        # no schema DDL before copying and fingerprinting the original store.
+        # A dry run opens it read-only like every
         # other reader, so it cannot write even by mistake.
-        store = Store(database) if apply else Store(database, read_only=True)
+        if apply:
+            _require_schema_tables(database)
+        store = Store(database, initialize=False) if apply else Store(database, read_only=True)
     except BaseException:
         _release_daemon_lock(lock)
         raise
@@ -867,7 +904,7 @@ def _unsaved(report: PruneReport, state_root: Path) -> tuple[str, str]:
 
 def _pass(store: Store, report: PruneReport, *, database: Path, state_root: Path,
           backups: Path, apply: bool, vacuum: bool, batch_size: int) -> None:
-    """One pass. A dry run reads everything from one snapshot of the store.
+    """One pass. Planning reads everything from one snapshot of the store.
 
     A real pass holds `daemon.lock` from before its first read, so nothing else
     writes while it plans. A dry run takes no lock, and a daemon that is running
@@ -879,16 +916,13 @@ def _pass(store: Store, report: PruneReport, *, database: Path, state_root: Path
     its check and its fingerprints agree with each other; rows written after
     that instant are simply not in the report.
     """
-    if apply:
-        _pass_body(store, report, database=database, state_root=state_root, backups=backups,
-                   apply=apply, vacuum=vacuum, batch_size=batch_size)
-        return
     store.connection.execute("BEGIN")
     try:
         _pass_body(store, report, database=database, state_root=state_root, backups=backups,
                    apply=apply, vacuum=vacuum, batch_size=batch_size)
     finally:
-        store.connection.execute("ROLLBACK")
+        if store.connection.in_transaction:
+            store.connection.execute("ROLLBACK")
 
 
 def _pass_body(store: Store, report: PruneReport, *, database: Path, state_root: Path,
@@ -904,14 +938,20 @@ def _pass_body(store: Store, report: PruneReport, *, database: Path, state_root:
     before = _fingerprints(conn)
     events_max = conn.execute("SELECT COALESCE(MAX(event_id),0) AS top FROM events").fetchone()["top"]
     events_before = _digest(conn.execute("SELECT * FROM events WHERE event_id<=?", (events_max,)))
+    decisions_before = _digest(conn.execute("SELECT * FROM decisions"))
     kept_before = _digest_ids(conn, sorted(planned.keep), batch_size)
     reader_jobs = [row["job_id"] for row in conn.execute(
         "SELECT job_id FROM jobs UNION SELECT job_id FROM decisions ORDER BY job_id")]
     readers_before = _reader_bytes(conn, reader_jobs)
-    report.fingerprints = {"before": {**before, "events": events_before,
+    snapshot = {**before, "events": events_before, "decisions": decisions_before}
+    report.fingerprints = {"before": {**snapshot,
                                       "decisions-kept": kept_before}}
     report.space = _space(database, state_root, backups,
                           reclaimable=planned.delete_bytes, vacuum=vacuum)
+    if apply:
+        # VACUUM INTO cannot run inside the planning read transaction. Keep its
+        # fingerprints as the baseline; the daemon lock still excludes its writer.
+        conn.execute("ROLLBACK")
     if not planned.delete:
         # Idempotence: a second pass finds the keep set is everything there is.
         # `--vacuum` belongs on the pass that deletes — rebuilding a database
@@ -936,7 +976,7 @@ def _pass_body(store: Store, report: PruneReport, *, database: Path, state_root:
                                "move it aside, or pass --backup-dir")
     # One at a time, so a failure between them still leaves the report naming
     # the copy that was taken.
-    report.backups["copy"] = _copy_store(conn, copy_path)
+    report.backups["copy"] = _copy_store(conn, copy_path, snapshot)
     report.backups["rows"] = _backup_rows(conn, planned.delete, rows_path, batch_size)
 
     busy = False
@@ -1073,6 +1113,8 @@ def _verify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
     if jobs_after != len(planned.jobs):
         mismatches.append(f"{jobs_after} jobs have decisions, not {len(planned.jobs)}")
     report.fingerprints["after"] = fingerprints
+    # Capture every audit payload before VACUUM, including the new prune rows.
+    report.fingerprints["after"]["events-all"] = _digest(conn.execute("SELECT * FROM events"))
     report.verification = {**found, "events_added": added, "ok": not mismatches}
     if mismatches:
         raise PruneVerificationError(
@@ -1089,8 +1131,9 @@ def _reverify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
     `VACUUM` rewrites every page, so `PRAGMA integrity_check` on its own would
     only say the new file is well formed, not that it holds the same rows. The
     fingerprints, the retained-row digest, and both latest-row readers are
-    taken again and compared against the same
-    before-values `_verify` used.
+    compared against the same before-values `_verify` used. All event bytes,
+    including the newly committed audit payloads, must match the post-delete
+    digest as well.
     """
     mismatches, found, fingerprints = _invariants(
         conn, planned=planned, before=before, events_max=events_max,
@@ -1099,8 +1142,15 @@ def _reverify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
     if added != ({PRUNE_KIND: report.batches} if report.batches else {}):
         mismatches.append(f"events gained {added or 'nothing'}, not {report.batches} "
                           f"{PRUNE_KIND} rows")
+    events_all = _digest(conn.execute("SELECT * FROM events"))
+    events_after_delete = report.fingerprints["after"]["events-all"]
+    if events_all != events_after_delete:
+        mismatches.append(f"events changed after the delete: {events_after_delete} -> {events_all}")
+    fingerprints["events-all"] = events_all
     report.fingerprints["after_vacuum"] = fingerprints
-    report.verification["after_vacuum"] = {**found, "events_added": added, "ok": not mismatches}
+    report.verification["after_vacuum"] = {
+        **found, "events_added": added, "events_identical": events_all == events_after_delete,
+        "ok": not mismatches}
     report.verification["integrity_check_after_vacuum"] = found["integrity_check"]
     if mismatches:
         raise PruneVerificationError(

@@ -1,5 +1,6 @@
 """PR #192 review probes; every input is a disposable store."""
 
+import contextlib
 import errno
 import gzip
 import json
@@ -174,3 +175,165 @@ def test_after_vacuum_changed_prune_audit_payload_is_rejected(tmp_path, monkeypa
         print("changed-audit:", [row for row in snapshot(tmp_path)["events"]
                                 if row[2] == pruning.PRUNE_KIND],
               "after-vacuum-ok:", report.verification["after_vacuum"]["ok"])
+
+
+def test_whole_backup_matches_every_planning_fingerprint_before_delete(tmp_path, monkeypatch):
+    """The verified copy is content-equal to the planning snapshot before DELETE."""
+    seed(tmp_path)
+    before = snapshot(tmp_path)
+    original_copy = pruning._copy_store
+    begin = Store.transaction
+    verified = []
+
+    def copy(conn, destination, expected):
+        record = original_copy(conn, destination, expected)
+        assert set(record["fingerprints"]) == set(before)
+        assert record["fingerprints"] == expected
+        assert record["fingerprints"]["decisions"]["rows"] == 4
+        assert record["verified"] is True
+        verified.append(record)
+        return record
+
+    def transaction(self, kind, **kwargs):
+        if kind == pruning.PRUNE_KIND:
+            assert len(verified) == 1
+        return begin(self, kind, **kwargs)
+
+    monkeypatch.setattr(pruning, "_copy_store", copy)
+    monkeypatch.setattr(Store, "transaction", transaction)
+    report = pruning.prune(tmp_path, apply=True, confirm=True)
+    expected = {name: value for name, value in report.fingerprints["before"].items()
+                if name != "decisions-kept"}
+    assert report.backups["copy"]["fingerprints"] == expected
+    assert report.deleted == 3
+
+
+@pytest.mark.parametrize("table,fault", [
+    ("decisions", "content"), ("events", "content"),
+    ("service_notices", "content"), ("extra_evidence", "content"),
+    ("extra_evidence", "count"), ("extra_evidence", "missing"),
+    ("unexpected_evidence", "added"),
+])
+def test_whole_backup_detects_all_table_content_and_inventory_drift(
+        tmp_path, monkeypatch, table, fault):
+    """The whole-copy proof covers retained rows, audit rows and extra tables."""
+    seed(tmp_path)
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        conn.execute("CREATE TABLE extra_evidence (payload BLOB)")
+        conn.execute("INSERT INTO extra_evidence VALUES (X'00FF')")
+        conn.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                     "VALUES ('synthetic','original','surfaced','2026-10-01T00:00:00Z')")
+    before = snapshot(tmp_path)
+    connect = pruning.sqlite3.connect
+    begin = Store.transaction
+    deletes = []
+
+    def transaction(self, kind, **kwargs):
+        if kind == pruning.PRUNE_KIND:
+            deletes.append(kind)
+        return begin(self, kind, **kwargs)
+
+    def damaged_connect(database, *args, **kwargs):
+        if "/backups/state-" in str(database):
+            from urllib.parse import unquote, urlsplit
+
+            with contextlib.closing(connect(unquote(urlsplit(str(database)).path))) as backup:
+                if fault == "missing":
+                    backup.execute(f'DROP TABLE "{table}"')
+                elif fault == "added":
+                    backup.execute(f'CREATE TABLE "{table}" (payload TEXT)')
+                elif fault == "count":
+                    backup.execute(f'DELETE FROM "{table}"')
+                elif table == "decisions":
+                    backup.execute("UPDATE decisions SET decision_json=' {\"note\":\"3\"} '")
+                elif table == "events":
+                    backup.execute("UPDATE events SET data_json=' {\"changed\":true} '")
+                elif table == "service_notices":
+                    backup.execute("UPDATE service_notices SET text='altered'")
+                else:
+                    backup.execute("UPDATE extra_evidence SET payload=X'FF00'")
+                backup.commit()
+                assert backup.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+        return connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(Store, "transaction", transaction)
+    monkeypatch.setattr(pruning.sqlite3, "connect", damaged_connect)
+    with pytest.raises(pruning.PruneVerificationError, match="differs from the planning snapshot") as stopped:
+        pruning.prune(tmp_path, apply=True, confirm=True)
+    assert table in str(stopped.value)
+    assert stopped.value.report.deleted == stopped.value.report.batches == 0
+    assert deletes == []
+    assert snapshot(tmp_path) == before
+
+
+def test_whole_backup_is_compared_to_planning_snapshot_not_later_source(tmp_path, monkeypatch):
+    """Even a copy matching a later source mutation must fail before DELETE."""
+    seed(tmp_path)
+    original = pruning._copy_store
+
+    def drift(conn, destination, expected):
+        conn.execute("UPDATE decisions SET decision_json=? WHERE decision_id=4",
+                     ('{"policy_hash":"hash","note":"X"}',))
+        return original(conn, destination, expected)
+
+    monkeypatch.setattr(pruning, "_copy_store", drift)
+    with pytest.raises(pruning.PruneVerificationError, match="snapshot.*decisions") as stopped:
+        pruning.prune(tmp_path, apply=True, confirm=True)
+    assert stopped.value.report.deleted == stopped.value.report.batches == 0
+    assert len(snapshot(tmp_path)["decisions"]) == 4
+
+
+def test_apply_plans_in_one_snapshot_without_repairing_indexes(tmp_path, monkeypatch):
+    """No source DDL precedes the original baseline or whole-store backup."""
+    seed(tmp_path)
+    with sqlite3.connect(tmp_path / "state.sqlite3") as conn:
+        index = conn.execute("SELECT name FROM sqlite_master WHERE type='index' "
+                             "AND sql IS NOT NULL ORDER BY name LIMIT 1").fetchone()[0]
+        conn.execute(f'DROP INDEX "{index}"')
+    original_plan = pruning.plan
+    original_fingerprints = pruning._fingerprints
+    baseline_seen = []
+
+    def plan(conn):
+        assert conn.in_transaction
+        return original_plan(conn)
+
+    def fingerprints(conn):
+        if not baseline_seen:
+            assert conn.in_transaction
+        baseline_seen.append(True)
+        return original_fingerprints(conn)
+
+    monkeypatch.setattr(pruning, "plan", plan)
+    monkeypatch.setattr(pruning, "_fingerprints", fingerprints)
+    report = pruning.prune(tmp_path, apply=True, confirm=True)
+    for database in (tmp_path / "state.sqlite3", report.backups["copy"]["path"]):
+        with sqlite3.connect(database) as conn:
+            assert conn.execute("SELECT 1 FROM sqlite_master WHERE name=?", (index,)).fetchone() is None
+
+
+@pytest.mark.parametrize("fault", ["bytes", "deleted-count"])
+def test_after_vacuum_compares_prune_audit_bytes_and_records_failure(
+        tmp_path, monkeypatch, fault):
+    """Changed audit bytes fail the full-table proof even at unchanged counts."""
+    seed(tmp_path)
+    original = pruning._reverify
+
+    def change(conn, report, **kwargs):
+        original_payload = conn.execute("SELECT data_json FROM events WHERE event_id>?",
+                                        (kwargs["events_max"],)).fetchone()[0]
+        payload = " " + original_payload if fault == "bytes" else '{"deleted":0}'
+        conn.execute("UPDATE events SET data_json=? WHERE event_id>?",
+                     (payload, kwargs["events_max"]))
+        return original(conn, report, **kwargs)
+
+    monkeypatch.setattr(pruning, "_reverify", change)
+    with pytest.raises(pruning.PruneVerificationError, match="events changed after the delete") as stopped:
+        pruning.prune(tmp_path, apply=True, confirm=True, vacuum=True)
+    report = stopped.value.report
+    assert report.verification["after_vacuum"]["events_identical"] is False
+    assert report.verification["after_vacuum"]["ok"] is False
+    assert report.fingerprints["after"]["events-all"]["rows"] == report.fingerprints["after_vacuum"]["events-all"]["rows"]
+    assert report.backups["copy"]["path"] in stopped.value.fix
+    with open(report.path) as saved:
+        assert json.load(saved)["verification"]["after_vacuum"]["ok"] is False
