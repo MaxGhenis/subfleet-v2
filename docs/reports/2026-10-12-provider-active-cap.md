@@ -50,7 +50,7 @@ The final attempted batch, for the hub to rerun under its own shared-lock hold:
 export TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-provider-cap-$$/
 mkdir -p "$TMPDIR"
 /usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock uv run pytest -q \
-  tests/unit/test_provider_active_cap.py tests/fake/test_provider_active_cap.py \
+  tests/unit/test_provider_active_cap.py tests/fake/test_provider_active_cap_fake.py \
   tests/unit/test_policy.py tests/unit/test_scheduler.py \
   tests/unit/test_scheduler_turns.py tests/fake/test_admission_lease_waiters.py \
   tests/fake/test_route_view.py tests/fake/test_admission_visibility.py
