@@ -8,8 +8,8 @@ Two independent defenses now cover implicit personal paths:
   Each target is nonexistent beneath a session temporary directory. The
   per-test fixture keeps its own base, test overrides win, and undo restores
   the session values. Session teardown removes the temporary base.
-- `subfleet/home_paths.py` refuses personal fallbacks while
-  `SUBFLEET_UNDER_PYTEST` or `PYTEST_CURRENT_TEST` is present, naming the
+- `subfleet/home_paths.py` refuses personal fallbacks for live pytest sessions
+  and standalone `SUBFLEET_UNDER_PYTEST` / `PYTEST_CURRENT_TEST` markers, naming the
   required override. The session marker is installed by the first configure hook
   and survives fixture teardown until unconfigure, covering collection and configure as well as test calls. Desktop
   store/log, transcripts, notifications, Claude config/MCP/settings/login,
@@ -271,7 +271,9 @@ counts are historical evidence, not validation of this round's new commit.
   as hp`. Seven unregistered spellings and two registered spellings exercise
   the same checker used for production files.
 
-### Captured environment copies
+### Captured environment copies (superseded by round 3)
+
+The round-three fix below replaces this lifecycle choice and its regression.
 
 Restoring `os.environ` cannot mutate a dictionary copied earlier by
 `daemon_env` or a child's inherited environment. These snapshots deliberately
@@ -379,3 +381,123 @@ Only named source/test/report files were staged; no logs, JSON evidence or
 bundles were staged. Both commits include the requested co-author trailer.
 All task-owned runners and cache preparation commands have ended; no detached
 runner or background build remains.
+
+## Round 3 fixes (reviewed head `e54e4cab4e4a`)
+
+Read the full round-three review, its executed merge probes, regression and
+parity scripts, and the merged-path audit. This round addresses all three
+findings on the assigned merged head:
+
+- Host credential discovery and Git execution both resolve
+  `SUBFLEET_HOST_HOME` and `SUBFLEET_HOST_CONFIG` through `home_path`.
+  Configure and the per-test fixture install nonexistent locations from
+  `SAFE_HOME_PATHS`, independently of removable HOME/XDG patches. Missing or
+  empty locations refuse access during pytest. Git/SSH execution drops
+  `SSH_AUTH_SOCK` during pytest; system/global Git configuration stays disabled.
+  Explicit fixture credential configurations remain available.
+- `SUBFLEET_RESET_INHIBIT` is now registered, replaced at configure, restored
+  safely by fixture undo, and guarded at importer selection. An inherited hold
+  cannot be read or copied into the state. An explicit hold retains precedence;
+  an explicit provider home still locates its default hold when no environment
+  override is supplied. Production #179 override behavior is preserved.
+- Configure binds the marker to `SUBFLEET_PYTEST_SESSION`, the session temporary
+  directory. `under_pytest()` checks that directory before accepting a captured
+  session marker. Unconfigure removes it, so an ordinary child using an old
+  `daemon_env()` dictionary resolves production Codex/login homes again. A copied
+  `PYTEST_CURRENT_TEST` cannot revive an expired session. Active children retain
+  the guard, and the E2E harness explicitly propagates the session lifetime.
+
+The directory lifetime was chosen so `daemon_env()` can keep passing isolation
+to children during collection, test calls and teardown. Stripping the marker
+at capture would expose active children. Cleanup also restores the parent's
+marker, lifetime, all registered paths and removed helper to their exact prior
+values, including absent and empty values. Bare markers used by standalone
+test harnesses continue to guard defaults.
+
+### Round 3 regression evidence and parity
+
+The three reviewer inputs are committed in
+`tests/unit/test_live_store_guard_round3.py`. The first test separately checks
+credential discovery and the intercepted agent-bearing launch; the captured
+environment input separately retains and removes path overrides.
+
+Before changing production code, **all five direct regression inputs failed
+on `e54e4cab4e4a`**, at their intended assertions: personal helper settings,
+ambient SSH socket, inherited hold read, and two stale-marker children. At the
+fixed head, those inputs pass, alongside additional empty/missing refusals,
+explicit test overrides, capture during test calls, and active-child guards.
+These are direct calls to the committed tests, not pytest runner results.
+
+| Direct validation | Passed |
+| --- | ---: |
+| New round-three regression cases | 22 |
+| Existing exact parent restoration / expired-child cases | 3 |
+| Actual registry coverage check, including all new variables | 1 |
+| Existing unregistered import-spelling checks | 7 |
+| E2E child with all registered paths and a live session lifetime | 1 |
+| Test-module basename uniqueness | 1 |
+| **Total direct regression cases** | **35** |
+
+The registry check confirms **18 guarded path variables**, including both host
+credential locations and the reset hold. Seven changed Python files parse;
+named-file whitespace checks pass. An initial direct E2E invocation supplied an
+unresolved Darwin TMPDIR spelling; the harness invocation was corrected to use
+the resolved temporary path and the complete 34-case isolation replay passed.
+
+Reused the reviewer's parity script without changing its comparisons, from an
+ignored workspace-local copy. Against actual local `origin/release/217`,
+`bd4c2cc8f23c8605b8dfac73c09f2fcf60b45266`, **21 cases / 672 unique outcomes
+match**: 525 resolver/default outcomes and 147 importer path configurations.
+This includes empty, absolute, relative and tilde reset overrides, explicit
+home and explicit hold precedence. A separate replay of the actual release
+host credential and environment functions also passed **5 cases / 10
+byte-identical outcomes**, including absent/empty HOME/XDG, spaces, relative
+XDG and a fake agent socket. No credential helper or transport was executed.
+
+### Round 3 pytest status
+
+The requested groups use separate foreground lock acquisitions, one pytest
+process per hold, the prescribed `sf-r198f3-<pid>/` TMPDIR and a fake HOME.
+Each queue wait is bounded at 50 seconds. The foreground supervisor interrupts
+at 1,090 seconds and finishes termination within 1,115 seconds, keeping any
+hold below twenty minutes. Temporary directories are removed with the required
+Python `shutil.rmtree` command after the runner ends.
+
+| Requested group | Pytest cases executed | Status |
+| --- | ---: | --- |
+| Reviewed-head round-three regression baseline | 0 | Shared lock, exit 75 |
+| Both live-store guard files and module names | 0 | Shared lock, exit 75 |
+| `tests/unit/test_importer.py` | 0 | Shared lock, exit 75 |
+| All 21 `tests/unit/test_host_push*.py` files | 0 | Shared lock, exit 75 |
+| `tests/unit/test_cli.py` | 0 | Shared lock, exit 75 |
+| Eight reset-credit files listed below | 0 | Shared lock, exit 75 |
+
+Reset-credit selection: `test_reset_credit_claim_timing.py`,
+`test_reset_credit_demand.py`, `test_reset_credit_properties.py`,
+`test_reset_credit_review_r1.py`, `test_reset_credit_review_r2.py`,
+`test_reset_credit_review_r3.py`, `test_reset_credit_review_r3_mutants.py`,
+and `test_timers_reset_credits.py`, all under `tests/unit/`.
+
+**0 pytest cases executed in round 3.** All six acquisitions exited 75 before
+pytest startup, after 50.3–50.5 seconds each; no suite-lock hold was acquired.
+All 34 requested files remain unrun for the hub. Historical hub counts elsewhere in this
+report do not validate this head. Offline dev dependencies and workspace entry
+points are installed only in ignored `.venv`. Logs, copied probe scripts and
+JSON evidence remain ignored under `.uv-cache`; none is staged.
+
+### Round 3 delivery
+
+- `8053545a0`: commit the reviewer-input regression tests before the fix.
+- `cc95f0aef`: isolate host credentials and reset holds, expire captured markers,
+  propagate the E2E session lifetime, and extend regressions.
+- The following documentation commit records the completed results.
+
+The shared Git metadata is outside the writable sandbox. As authorized, commits
+are on `fix/test-live-store-guard` in workspace-local `.git-local`, based on the
+assigned `e54e4cab4e4a`. Inspect with
+`git --git-dir=.git-local --work-tree=. log`. Only named source, test and report
+files are staged; all commits carry the requested co-author trailer. The caller
+checkout, shared metadata and existing history are unchanged. No remote or
+sub-agent was used, and nothing was pushed.
+All task-owned runners and preparation commands have ended; nothing remains
+detached or running.
