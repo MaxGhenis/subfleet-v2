@@ -155,6 +155,11 @@ class TurnRunner:
         self.batch_bytes = 0
         self.last_flush = clock()
         self.served: dict[str, Any] = {}
+        # Answers already durable when this runner was built belong to replay.
+        # Answers recorded later are live commands, even during the first read.
+        self._replay_answers = {row["provider_request_id"] for row in self.store.query(
+            "SELECT provider_request_id FROM approvals WHERE attempt_id=? AND state='answered'",
+            (self.attempt_id,))}
         self.stop_at: float | None = None
         self.ended_at: float | None = None
         self.escalated: set[str] = set()
@@ -440,18 +445,21 @@ class TurnRunner:
                 self._apply(self.driver.interrupt())
             elif command[0] == "respond":
                 _, request_id, decision, message, answers = command
-                try:
-                    if isinstance(self.driver, ClaudeTurn):
-                        step = self.driver.respond(request_id, decision, message, answers=answers)
-                    else:
-                        step = self.driver.respond(request_id, decision, message)
-                except ValueError as exc:
-                    if self.log:
-                        self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id, exc)
-                    continue
-                self._apply(step)
+                self._respond(request_id, decision, message, answers)
             elif command[0] == "steer":
                 self._steer(command[1])
+
+    def _respond(self, request_id: str, decision: str, message: str | None, answers: dict | None) -> None:
+        try:
+            if isinstance(self.driver, ClaudeTurn):
+                step = self.driver.respond(request_id, decision, message, answers=answers)
+            else:
+                step = self.driver.respond(request_id, decision, message)
+        except ValueError as exc:
+            if self.log:
+                self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id, exc)
+            return
+        self._apply(step)
 
     def _restore_steers(self) -> None:
         """Prime written commands before stdout replay, and defer unwritten ones.
@@ -554,15 +562,26 @@ class TurnRunner:
             self._discarding_steers = False
 
     def _sync_answers(self) -> None:
-        """Replay: an approval a person already answered is answered again in the
-        driver; its frame is already in the relay log and is not sent twice."""
+        """Restore recorded answers before the next replayed stdout line.
+
+        A written reply needs only driver state; a missing reply is rebuilt under
+        the usual relay and terminal-outcome guards. Live answers stay queued,
+        including the first runner's initial read before it catches up.
+        """
         for request_id in list(getattr(self.driver, "pending", {})):
             row = self.store.one("SELECT decision_json FROM approvals WHERE attempt_id=? AND provider_request_id=? "
                                  "AND state='answered'", (self.attempt_id, request_id))
             if row and row["decision_json"]:
                 decision = json.loads(row["decision_json"])
-                self.commands.put(("respond", request_id, decision.get("decision"), decision.get("message"),
-                                   decision.get("answers")))
+                if not self.replay_caught_up and request_id in self._replay_answers:
+                    if self.sent.get(f"approval:{request_id}") == "written":
+                        self._apply(self.driver.restore_answer(request_id, decision.get("decision")), send=False)
+                    else:
+                        self._respond(request_id, decision.get("decision"), decision.get("message"),
+                                      decision.get("answers"))
+                else:
+                    self.respond(request_id, decision.get("decision"), decision.get("message"),
+                                 decision.get("answers"))
 
     # --- applying a driver step ------------------------------------------------
 

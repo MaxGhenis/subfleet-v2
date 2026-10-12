@@ -445,12 +445,14 @@ def test_terminal_failure_wins_over_zero_rc_and_leftover_deliverable(tmp_path, m
     ('{"type":"turn.completed"}\n', OutcomeClass.UNKNOWN),
 ])
 def test_zero_rc_without_deliverable(tmp_path, stream, expected):
-    """C-9.2 C-12.6 An unfinished turn retries; a completed empty turn stays unknown."""
+    """C-9.2 C-12.6 An unfinished turn retries; a completed empty turn stays unknown,
+    and a completion frame cannot manufacture a deliverable."""
     launch = _launch(tmp_path)
     Path(launch.raw_stream_path).write_text(stream)
     (tmp_path / "last.md").write_bytes(b"")
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
     assert outcome.cls == expected
+    assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
     assert outcome.evidence["rc"] == 0
 
 

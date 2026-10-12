@@ -285,10 +285,10 @@ def test_a_stream_disconnect_is_transient(adapter, tmp_path):
 
 
 def test_an_empty_deliverable_with_rc_zero_is_unknown(adapter, tmp_path):
-    """C-12.6 rc 0 with nothing delivered is `unknown`, not `ok` — and the readings
-    the sensor produced survive the failure."""
-    _e, _l, outcome = _classify(adapter, tmp_path, "empty-result-rc0")
+    """C-12.6: empty success is unknown in the adapter; provider readings survive."""
+    _e, launch, outcome = _classify(adapter, tmp_path, "empty-result-rc0")
     assert outcome.cls is OutcomeClass.UNKNOWN
+    assert adapter.deliverable(Path(launch.stdout_path).parent, launch, outcome) is None
     assert len(outcome.readings) == 2
     assert all(r.label is ReadingLabel.PROVIDER for r in outcome.readings)
 
