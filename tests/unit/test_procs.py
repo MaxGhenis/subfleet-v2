@@ -219,7 +219,8 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities={
+        42: procs.ProcessIdentity(42, "100", START)})
     # 50 kept the group after reparenting to launchd; 60 is its child in a new group.
     assert result.group_pids == {42, 43, 50}
     assert result.descendant_pids == {42, 43}
@@ -306,7 +307,8 @@ def test_c5_12_a_census_that_finds_nothing_needs_no_boot_identity(monkeypatch):
     result = procs.containment(42, 42, None, "job/a1")
     assert result.unverifiable and result.live_pids == {42, 43}
     assert sorted(result.errors) == ["identity inspection unavailable for pid 42",
-                                     "identity inspection unavailable for pid 43"]
+                                     "identity inspection unavailable for pid 43",
+                                     "recorded identity unavailable for pid 42"]
 
 
 def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(monkeypatch):
@@ -562,6 +564,7 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
 
     Final review of PR #37, 2026-09-26: reading the boot identity before checking the pid is live survived every
     test (mutant M22)."""
+    states = iter(["S", ""])
     def read(argv, *, empty_ok=False):
         if os.path.basename(argv[0]) == "sysctl":
             raise procs.InspectionError("unavailable")
@@ -570,9 +573,9 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
         if "pid=,command=" in argv:
             return "77 provider SUBFLEET_ATTEMPT=job/a1\n"
         if "stat=" in argv:
-            return "S"                                          # alive when the marker scan looked
+            return next(states)  # alive during marker scan, absent at identity capture
         if "lstart=" in argv:
-            return ""                                           # gone by the identity read
+            return ""
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
     result = procs.containment(42, 42, None, "job/a1")
