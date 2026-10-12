@@ -199,6 +199,186 @@ def test_c6_12_a_stored_exclusion_that_is_not_a_lane_name_is_its_jobs_problem(ro
         service._merged_exclusions(service.store.get_job(stuck), ("codex-1",))
 
 
+# --- fixed after: one verdict, one row, whatever kind of wait came between (C-6.10) ----------------
+
+def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(routing_state):  # noqa: F811
+    """C-6.10 (P4): "a recheck that reaches the verdict it reached last time adds no decision row". A
+    terra job whose output path another job holds waits `lease-held` while the fleet has room and
+    `slot-kept` while it does not: an older job waiting for its own output path keeps the last slot
+    (C-6.9, which also says it holds no job back). Each slot-kept look reaches one verdict. The wait was
+    keyed on its kind as well as its verdict, so each return to `slot-kept` recorded that verdict again:
+    three rows for three alternations. A lease look records nothing (what holds the job is the lease), and
+    the row now follows the verdict last recorded. The count still follows the wait's kind (C-6.10 gives
+    the lease wait its own doubling), so each alternation starts it again."""
+    service, harness = routing_state
+    service.policy["caps"]["max_active_attempts"] = 3
+    service.store.put_lane(lane("codex-2", "codex"))
+    for lane_id in ("codex-1", "codex-2"):
+        measured(service, lane_id)
+    kept_out, out = str(harness.root / "kept.md"), str(harness.root / "report.md")
+    keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
+    job = submit(service, harness, pinned_model="terra", out_path=out)
+    assert service.store.acquire_lease(f"out:{kept_out}", "another-job")
+    assert service.store.acquire_lease(f"out:{out}", "another-job")
+    fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
+    service._admit()                                        # both lease-held; the two fillers start: 2 live
+    assert service._holds[job]["reason"] == "lease-held" and rows(service, job) == []
+    for _ in range(3):
+        due(service, keeper), due(service, job)
+        service._admit()                                    # 2 live: the cap less the slot kept for `keeper`
+        assert service._holds[job]["reason"] == "slot-kept" and service._holds[job]["kept_for"] == keeper
+        assert service._capacity_waits[job]["rechecks"] == 0
+        end(service, fillers.pop())
+        fillers.append(submit(service, harness, pinned_model="terra", tier="hard"))
+        due(service, keeper), due(service, job)
+        service._admit()                                    # 1 live at its look; the new filler starts after
+        assert service._holds[job]["reason"] == "lease-held"
+        assert service._capacity_waits[job]["rechecks"] == 0
+    signatures = {scheduler.verdict_signature(json.loads(row["decision_json"])) for row in rows(service, job)}
+    assert len(signatures) == 1
+    assert len(rows(service, job)) == 1
+
+
+def test_c6_10_neither_a_probes_turn_nor_its_answer_records_a_verdict_again(routing_state, monkeypatch):  # noqa: F811
+    """C-6.10: "a probe that ends the same way adds no second decision row", and nor does any look that
+    reaches the verdict last recorded. A job that must probe (C-11.4) is held for the slot an older lease
+    waiter keeps (C-6.9) with one verdict, then for its probe's slot (another holder has `slot:0`), then
+    by an inconclusive probe of the same lane. Each kind of wait was keyed apart, so each return to a
+    verdict-keyed kind recorded the verdict again: four rows here. Each kind still keeps its own count."""
+    from subfleet import daemon as daemon_module
+    service, harness = routing_state
+    service.policy["caps"]["max_active_attempts"] = 3
+    measured(service, "codex-1")
+    kept_out = str(harness.root / "kept.md")
+    keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
+    assert service.store.acquire_lease(f"out:{kept_out}", "another-job")
+    fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
+    service._admit()                                        # `keeper` waits on its path; 2 live
+    assert [placed_on(service, filler) for filler in fillers] == ["codex-1", "codex-1"]
+    probing = submit(service, harness, pinned_model="terra")
+    real = daemon_module.scheduler.probe_required
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required",
+                        lambda decision, job: bool(decision.chosen_lane) if job["job_id"] == probing
+                        else real(decision, job))
+    answers = []
+    service._execute_probe = lambda job, lane_row, model, holder: Outcome(answers.pop(0), "fixture",
+                                                                          {"rc": 0, "signal": None})
+
+    def look(answer=None, held=None):
+        if answer:
+            answers.append(answer)
+        if held:
+            assert service.store.acquire_lease("lane:codex-1:slot:0", held)
+        due(service, keeper), due(service, probing)
+        service._admit()
+        if held:
+            service.store.release_leases(held)
+        return service._holds[probing], service._capacity_waits[probing]
+
+    hold, wait = look(OutcomeClass.OK)                      # probed, admitted; the last slot is kept
+    assert hold["reason"] == "slot-kept" and hold["kept_for"] == keeper
+    first = rows(service, probing)
+    assert len(first) == 1
+    verdict = scheduler.verdict_signature(json.loads(first[0]["decision_json"]))
+    hold, wait = look(held="another-job/a1")               # its probe's slot is held: no verdict of its own
+    assert (hold["reason"], wait["signature"]) == ("probe-pending", "probe-pending") and "behind" not in hold
+    hold, wait = look(OutcomeClass.OK)
+    assert hold["reason"] == "slot-kept" and (wait["signature"], wait["rechecks"]) == (verdict, 0)
+    hold, wait = look(OutcomeClass.UNKNOWN)                 # the probe says nothing: its own 60 s wait
+    assert (hold["reason"], wait["signature"]) == ("probe-pending", "probe-wait:" + verdict)
+    hold, wait = look(OutcomeClass.UNKNOWN)
+    assert wait["rechecks"] == 1
+    hold, wait = look(OutcomeClass.OK)
+    assert hold["reason"] == "slot-kept" and (wait["signature"], wait["rechecks"]) == (verdict, 0)
+    assert rows(service, probing) == first
+
+
+@pytest.mark.parametrize("detour", ["workspace", "route"])
+def test_c6_10_a_verdict_recorded_before_a_detour_is_not_recorded_again_after_it(fleet, detour):
+    """C-6.10: a wait that becomes C-6.8's (its workspace) or C-6.12's (its route) loses its record and
+    keeps that clock. The record also held whether the verdict had been recorded, so the first look after
+    the detour, which reached the verdict it reached before, recorded it again. What was recorded is kept
+    beside the record now, for as long as the job waits."""
+    import errno
+    service, harness = fleet
+    service.store.update_lane("claude-a", enabled=0)        # no Claude lane: an Opus job has no candidate
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert len(rows(service, stuck)) == 1
+    label = service._holds[stuck]["reason"]                 # `disabled`: what keeps it out of every lane
+    due(service, stuck)
+    if detour == "workspace":
+        real = service._workspace
+
+        def failing(job):
+            raise OSError(errno.EAGAIN, "resource temporarily unavailable")
+        service._workspace = failing
+    else:
+        real = service._pick
+
+        def failing(job, **options):
+            raise ValueError("injected: bad reset clock")    # C-6.12: not the job's, so it waits on `route`
+        service._pick = failing
+    service._admit()
+    assert service.store.get_job(stuck)["wait_reason"] == detour and stuck not in service._capacity_waits
+    if detour == "workspace":
+        service._workspace = real
+    else:
+        service._pick = real
+    due(service, stuck)
+    service._admit()
+    assert service.store.get_job(stuck)["wait_reason"] == "capacity" and service._holds[stuck]["reason"] == label
+    assert len(rows(service, stuck)) == 1
+
+
+def test_c6_10_a_row_rolled_back_with_its_transaction_is_recorded_by_the_next_look(fleet, monkeypatch):
+    """C-6.10, C-11.5: what was recorded is noted only once the transaction that recorded it commits. A
+    waiting job's verdict changes, and a store error after its row (the pass's, C-5.10) rolls the row
+    back. The row followed the count, which that look had already moved on, so the next look at the new
+    verdict counted a repeat and recorded nothing: the job kept a verdict it no longer reached."""
+    import sqlite3
+    service, harness = fleet
+    service.store.update_lane("claude-a", enabled=0)
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert len(rows(service, stuck)) == 1
+    service.store.put_lane(lane("claude-b"))                 # the verdict changes: a lane appears, closed
+    closed(service, "claude-b")
+    real = service.store.add_decision
+
+    def fails_after(job_id, decision, attempt_id=None):
+        real(job_id, decision, attempt_id)
+        raise sqlite3.OperationalError("injected: disk I/O error")
+    monkeypatch.setattr(service.store, "add_decision", fails_after)
+    due(service, stuck)
+    with pytest.raises(sqlite3.OperationalError):
+        service._admit()
+    assert len(rows(service, stuck)) == 1                   # rolled back
+    monkeypatch.setattr(service.store, "add_decision", real)
+    due(service, stuck)
+    service._admit()
+    assert service._capacity_waits[stuck]["rechecks"] == 1  # the count went on; the row is not skipped
+    recorded = rows(service, stuck)
+    assert len(recorded) == 2
+    assert scheduler.verdict_signature(json.loads(recorded[-1]["decision_json"])) == \
+        service._capacity_waits[stuck]["signature"]
+
+
+def test_c6_10_placing_the_job_starts_its_record_of_verdicts_again(fleet):
+    """C-6.10: the record is "dropped when the job is placed or ends", and with it the verdict it last
+    recorded: the attempt's own row is the job's decision now (C-11.5), and a wait after it is a new one."""
+    service, harness = fleet
+    service.store.update_lane("claude-a", enabled=0)
+    stuck = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert stuck in service._recorded_verdicts
+    service.store.update_lane("claude-a", enabled=1)
+    due(service, stuck)
+    service._admit()
+    assert placed_on(service, stuck) == "claude-a"
+    assert stuck not in service._recorded_verdicts and stuck not in service._capacity_waits
+
+
 # --- found, not fixed: strict xfails ----------------------------------------------------------
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="C-6.9: a capacity waiter held behind an older job is not a "
@@ -243,41 +423,6 @@ def test_c6_12_a_retry_that_let_its_pin_go_is_not_passed_by_a_younger_competitor
     service._admit()
     assert service._retry_verdicts[retry][1] is False and service._holds[retry]["behind"] == older
     assert not placed_on(service, younger)
-
-
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="C-6.10: the wait is keyed on its kind as well as its verdict, so a "
-                   "job that alternates between lease-held and slot-kept records one verdict again on "
-                   "every alternation (not fixed here: the probe-pending key has no decision to key on)")
-def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(routing_state):  # noqa: F811
-    """C-6.10 (P4): "a recheck that reaches the verdict it reached last time adds no decision row". A
-    terra job whose output path another job holds waits `lease-held` while the fleet has room and
-    `slot-kept` while it does not: an older job waiting for its own output path keeps the last slot
-    (C-6.9, which also says it holds no job back). Every look chooses one lane with one verdict; each
-    return to `slot-kept` records it again."""
-    service, harness = routing_state
-    service.policy["caps"]["max_active_attempts"] = 3
-    service.store.put_lane(lane("codex-2", "codex"))
-    for lane_id in ("codex-1", "codex-2"):
-        measured(service, lane_id)
-    kept_out, out = str(harness.root / "kept.md"), str(harness.root / "report.md")
-    keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
-    job = submit(service, harness, pinned_model="terra", out_path=out)
-    assert service.store.acquire_lease(f"out:{kept_out}", "another-job")
-    assert service.store.acquire_lease(f"out:{out}", "another-job")
-    fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
-    service._admit()                                        # both lease-held; the two fillers start: 2 live
-    for _ in range(3):
-        due(service, keeper), due(service, job)
-        service._admit()                                    # 2 live: the cap less the slot kept for `keeper`
-        assert service._holds[job]["reason"] == "slot-kept" and service._holds[job]["kept_for"] == keeper
-        end(service, fillers.pop())
-        fillers.append(submit(service, harness, pinned_model="terra", tier="hard"))
-        due(service, keeper), due(service, job)
-        service._admit()                                    # 1 live at its look; the new filler starts after
-        assert service._holds[job]["reason"] == "lease-held"
-    signatures = {scheduler.verdict_signature(json.loads(row["decision_json"])) for row in rows(service, job)}
-    assert len(signatures) == 1
-    assert len(rows(service, job)) == 1
 
 
 def test_c6_9_a_slot_is_not_kept_for_a_job_no_lane_can_admit(routing_state):  # noqa: F811

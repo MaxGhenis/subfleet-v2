@@ -19,8 +19,11 @@ against the code that produced it:
   take is placed within a bounded number of passes unless an older job that
   competes with it can never be placed, and the fleet stays within its caps.
 - P4 recheck cost (C-6.10): a look that repeats its verdict adds no decision
-  row and sets a later clock, so a quiet fleet looks at a waiting job a bounded
-  number of times however long it waits.
+  row, whatever kinds of wait came between, and the job's latest row is the
+  verdict its latest look held for capacity or by a probe's answer reached
+  (C-11.5); a look held on a lease or for a probe's turn adds none. Every look
+  sets a later clock, so a quiet fleet looks at a waiting job a bounded number
+  of times however long it waits.
 
 Incidents: 2026-09-20 (034d3d3: the `standard` tier held behind an Opus head on
 `reserve:fable:unmeasured` beside eleven free Fable lanes for three hours;
@@ -287,7 +290,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.looks: set[str] = set()                # jobs whose workspace this pass prepared: a look
         self.last_look: dict[str, dict] = {}        # job id -> the hold its last look reported
         self.decided: dict[str, object] = {}        # job id -> the decision this pass's look reached
-        self.last_verdict: dict[str, str] = {}      # job id -> C-6.10's verdict at its last look
+        self.last_verdict: dict[str, str] = {}      # job id -> the verdict C-6.10 last recorded or repeated
         self.quarantine = False                     # probe containment cannot be verified (C-5.5)
         self.passes = 0
         # `ids` too: job ids carry a timestamp, and a derandomized run should name its jobs alike.
@@ -349,12 +352,19 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert job["sandbox"] == "read-only", "the machine submits read-only jobs only"
             return job.get("worktree") or job["workdir"], None, None, []
 
-        real_pick = service._pick
+        real_pick, real_probe_choice = service._pick, service._probe_choice
 
         def pick(job, **options):
             decision = real_pick(job, **options)
             self.decided[job["job_id"]] = decision
             return decision
+
+        def probe_choice(job, *args):
+            # The decision `_prepare_route` goes on with. A rotation that finds no lane of the
+            # model is evaluated (`pick`) and set aside (C-11.4), so it is not the last `pick`.
+            decision, basis, ahead = real_probe_choice(job, *args)
+            self.decided[job["job_id"]] = decision
+            return decision, basis, ahead
 
         def probe_census(record):
             return Containment(unverifiable=True) if self.quarantine else Containment()
@@ -380,6 +390,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         service._workspace = workspace
         service._execute_probe = execute_probe
         service._pick = pick
+        service._probe_choice = probe_choice
         service._probe_census = probe_census
         service.term_grace_s = 0
         for lane_id, meta in self.metadata.items():
@@ -799,22 +810,32 @@ class AdmissionMachine(RuleBasedStateMachine):
             job = after[job_id]
             assert job["state"] == "waiting" and job["next_check_at"] and parse(job["next_check_at"]) > now, \
                 f"C-6.10: {job_id} was looked at and left {job['state']} with next_check_at {job['next_check_at']!r}"
-            decision, wait = self.decided.get(job_id), waits.get(job_id)
-            if decision is None or self.service._holds.get(job_id, {}).get("reason") in ("route", "workspace"):
-                # A look that ended on its route or its workspace reached no capacity verdict (C-6.12, C-6.8).
-                self.last_verdict.pop(job_id, None)
-            else:
-                verdict, kind = scheduler.verdict_signature(decision), wait_kind(wait)
-                last = self.last_verdict.get(job_id)
-                if counts[job_id] > decisions[job_id] and last and last[0] == verdict:
-                    if last[1] != kind:
-                        # KNOWN_WAIT_KIND_RESETS: xfailed in test_admission_properties.py.
-                        event("known C-6.10 violation: a wait of another kind re-records the verdict")
-                    else:
-                        raise AssertionError(
-                            f"C-6.10: {job_id}'s look reached the verdict its last look reached "
-                            f"({decision.reason!r}) and added a decision row (hold {self.service._holds.get(job_id)})")
-                self.last_verdict[job_id] = (verdict, kind)
+            decision, wait, hold = self.decided.get(job_id), waits.get(job_id), self.service._holds.get(job_id, {})
+            kind = wait_kind(wait) if wait and parse(wait["checked_at"]) == now else None
+            if kind not in ("verdict", "probe-wait"):
+                # Held on a lease, for a probe's turn, behind an older job, or on its route or its
+                # workspace: what holds the job is not a verdict on its route, nothing is recorded,
+                # and the verdict last recorded stands across the look (C-6.10).
+                assert counts[job_id] == decisions[job_id], \
+                    f"C-6.10: {job_id} added a decision row on a look held {hold} (wait {kind})"
+            elif decision is not None:
+                # Held for capacity (no lane, the fleet, a slot kept) or by its probe's answer.
+                verdict = scheduler.verdict_signature(decision)
+                assert wait["signature"] == ("probe-wait:" if kind == "probe-wait" else "") + verdict, \
+                    f"C-6.10: {job_id}'s wait is keyed on another verdict than its look reached ({hold})"
+                # Whatever kinds of wait came between: a lease, a probe's turn, a detour on its route
+                # or its workspace (until 2026-10-12 each of them made the next such look record again).
+                assert not (counts[job_id] > decisions[job_id] and self.last_verdict.get(job_id) == verdict), (
+                    f"C-6.10: {job_id}'s look reached the verdict its last look reached "
+                    f"({decision.reason!r}) and added a decision row (hold {hold}, wait {kind})")
+                # C-11.5: "a waiting job still has the latest verdict it reached".
+                latest = self.store.one("SELECT decision_json FROM decisions WHERE job_id=? "
+                                        "ORDER BY decision_id DESC LIMIT 1", (job_id,))
+                assert latest and scheduler.verdict_signature(json.loads(latest["decision_json"])) == verdict, (
+                    f"C-6.10, C-11.5: {job_id}'s look reached {decision.reason!r} (hold {hold}, wait {kind}) "
+                    f"and its latest decision row is {'another verdict' if latest else 'missing'}")
+                event(f"verdict reached: {kind}, {'recorded' if counts[job_id] > decisions[job_id] else 'repeated'}")
+                self.last_verdict[job_id] = verdict
             if job["wait_reason"] != "capacity" or not wait or parse(wait["checked_at"]) != now:
                 continue
             if wait["rechecks"]:

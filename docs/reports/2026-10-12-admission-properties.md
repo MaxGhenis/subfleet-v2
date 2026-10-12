@@ -65,9 +65,11 @@ drains the queue under fair capacity (P3), and one lets a quiet fleet sit for mi
 At teardown it checks C-15.1: every notice agrees with its job row.
 
 The checks compute what the contract says from the job rows (the chain a pinned job walks, the lane
-a pin names), not by calling the functions under test. The two exceptions each keep a counterexample
-out of the search that is pinned as an `xfail` in `tests/fake/test_admission_properties.py`. Each is
-recorded as a Hypothesis `event`, so `--hypothesis-show-statistics` shows how often it happens.
+a pin names), not by calling the functions under test. Two exceptions kept a counterexample out of
+the search, each pinned as an `xfail` in `tests/fake/test_admission_properties.py`. P2 does not count
+a waiter held behind an older job as holding anyone back (finding 5). P4 recorded a wait of another
+kind that recorded a verdict again as a Hypothesis `event` instead of a failure (finding 7); that
+exception came out with finding 7's fix, and P4 now asserts it.
 
 Settings profiles (`HYPOTHESIS_PROFILE`):
 
@@ -146,6 +148,18 @@ from hiding behind the marker. The fix that makes one pass must remove its marke
    It waits `lease-held` while the fleet has room and `slot-kept` while it does not. The
    `probe-pending` path never has the decision in hand, so keying on the verdict alone is not a small
    change.
+   **Fixed in a follow-up** (C-6.10, amended the same day). The count stays keyed on the wait's
+   kind; the row no longer follows it. A look held for capacity or by its probe's answer records its
+   verdict only when it is not the one last recorded for the job. That verdict is kept beside the wait
+   record (`Daemon._recorded_verdicts`), so it also outlives a detour through `workspace`, `route` or
+   `pin-unadmittable`, which drop the record, and it is noted only once its row commits. The
+   probe-pending path still records nothing, and neither does a lease wait: what holds those jobs is
+   not their route, and their route's choice moves with the load on the lanes. Recording every look
+   would have added rows. In the regression scenario the lease looks choose codex-1 with one attempt
+   in flight and the slot-kept looks choose codex-2 with two, so recording each look's verdict gives
+   six rows where the old key gave three and the fix gives one. The scenario is a regression test now.
+   A second one walks a job that must probe through a kept slot, its probe's held slot and two
+   inconclusive probes with one verdict: four rows before the fix, one after.
 8. **A slot kept for a job that can never use it starves its tier** (P3). C-6.9's slot-keeping (a
    passer leaves `max_active_attempts` minus one) is unconditional, and so is "holds back the later
    jobs of its tier that compete with it, and no others". At a cap of 1 the two disagree: an Opus job

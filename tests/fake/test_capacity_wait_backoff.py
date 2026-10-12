@@ -204,10 +204,10 @@ def test_c6_10_a_placed_or_finished_job_leaves_no_wait_record(fleet):
     service, harness = fleet
     stuck = submit(service, harness, pinned_model="opus")
     service._admit()
-    assert stuck in service._capacity_waits
+    assert stuck in service._capacity_waits and stuck in service._recorded_verdicts
     service.kill(__import__("subfleet.protocol", fromlist=["KillArgs"]).KillArgs(stuck))
     service._admit()
-    assert stuck not in service._capacity_waits
+    assert stuck not in service._capacity_waits and stuck not in service._recorded_verdicts
 
 
 # --- review of cb83e1b --------------------------------------------------------------------------
