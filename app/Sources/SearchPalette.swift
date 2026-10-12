@@ -634,6 +634,7 @@ extension ConversationStoreState {
         var unfiltered = self
         unfiltered.searchQuery = ""
         unfiltered.providerFilter = nil
+        unfiltered.showArchived = false
         var prompts: [String: String] = [:]
         for item in (catalog?.items ?? []) + sessions {
             if prompts[item.id] == nil, let prompt = item.first_prompt { prompts[item.id] = prompt }

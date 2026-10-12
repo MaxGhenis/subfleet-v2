@@ -65,9 +65,13 @@ from .turn import (
 #: (design §5). It is not the conversation store's schema (`store.SCHEMA_VERSION`,
 #: C-26.14), and an added op is a capability, not a new version.
 CONVERSATION_SCHEMA = 1
+#: C-25.2: `conversation.archive`, and `conversation.list` honouring `include_archived`
+#: for conversations (it always did for the catalog's archived Codex sessions).
+ARCHIVE_CAPABILITY = "archive.v1"
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY, suggestions.CAPABILITY)
+                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY, suggestions.CAPABILITY,
+                ARCHIVE_CAPABILITY)
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -82,7 +86,7 @@ FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "co
                       "conversation.create", "conversation.handoff", "workspace.check",
                       "suggestion.create", "suggestion.start"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
-                         "message.steer", "suggestion.start", "suggestion.dismiss"})
+                         "message.steer", "suggestion.start", "suggestion.dismiss", "conversation.archive"})
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
@@ -431,7 +435,11 @@ class ConversationService:
     def op_conversation_list(self, args, peer) -> dict:
         from .catalog import activity_times
         activity = activity_times(self.root)
-        rows = self.store.list_conversations(provider=args.get("provider"), limit=None)
+        # C-25.2: archived conversations (and the catalog's archived Codex sessions) are
+        # left out unless asked for; each view says whether it is (`archived_at`).
+        include_archived = args.get("include_archived") is True
+        rows = self.store.list_conversations(provider=args.get("provider"), limit=None,
+                                             include_archived=include_archived)
         for row in rows:
             row["last_activity"] = self._last_activity(row, activity)
         rows.sort(key=lambda c: c["last_activity"], reverse=True)
@@ -440,12 +448,15 @@ class ConversationService:
         out = {"conversations": conversations}
         if args.get("include_catalog", True):
             from .catalog import read_catalog, refresh_running
+            # An archived conversation's session too, listed or not: it is still a
+            # conversation, never a session of its own (C-24.13).
             bound = {(c["provider"], c["native_session_id"]) for c in conversations if c["native_session_id"]}
+            bound |= self.store.archived_natives()
             # D-23: the catalog is read as it is; a missing or old one is reported,
             # and the control loop's next run replaces it. Nothing here scans.
             catalog = read_catalog(self.root, query=args.get("query"), exclude=bound,
                                    limit=int(args.get("limit") or 200), before=args.get("before"),
-                                   include_archived=bool(args.get("include_archived")),
+                                   include_archived=include_archived,
                                    stale_after_s=self._catalog_stale_after_s())
             catalog["refreshing"] = bool(refresh_running(self.root))
             live = set(catalog.pop("live_elsewhere", ()))
@@ -463,7 +474,7 @@ class ConversationService:
         return {**{k: conversation.get(k) for k in ("conversation_id", "provider", "native_session_id", "title", "title_source",
                                                     "workspace", "workspace_kind", "worktree", "allow_main", "lane_id",
                                                     "settings", "origin", "handoff_from", "legacy_hold", "created_at",
-                                                    "updated_at")},
+                                                    "updated_at", "archived_at")},
                 "last_activity": conversation.get("last_activity") or conversation.get("updated_at"),
                 # C-30.4: the legacy import's hold is its own column, so no outcome
                 # lifts it, but to a client it is a block like any other (the app
@@ -742,6 +753,32 @@ class ConversationService:
         return {"conversation": self._view_live(self.store.rename_conversation(
             args["conversation_id"], args.get("title")))}
 
+    def op_conversation_archive(self, args, peer) -> dict:
+        """C-25.2, C-25.6: hide a conversation from `conversation.list` (`archived`,
+        the default) or show it again (`archived: false`). Its messages, events and
+        session are untouched (`store.archive_conversation`). A person's: an agent's own
+        conversation has the agent's running message while it acts, which archiving
+        refuses, so any conversation an agent could archive is another's, and archiving
+        that would hide it from the person (a block waiting on them included) and hold
+        its wakes."""
+        self._person(peer, "archiving a conversation")
+        archived = args.get("archived", True)
+        if not isinstance(archived, bool):
+            raise ConversationError("bad-args", "archived must be true or false")
+        cid = args["conversation_id"]
+        with self._lock:
+            handing_off = cid in self._handing_off
+        if handing_off and archived:
+            # A handoff of it under way. One that begins after this look either finds
+            # the source's pending messages, which the store refuses to archive past
+            # (and its fence too), or has none to put back (C-30.3).
+            raise ConversationError("handoff-running", "a handoff of this conversation has not finished", code=7,
+                                    fix="archive it once the handoff ends")
+        conversation = self.store.archive_conversation(cid, archived=archived)
+        if not archived:
+            self.daemon._notify()                   # wakes that waited behind the archive may go now
+        return {"conversation": self._view_live(conversation)}
+
     def op_conversation_unblock(self, args, peer) -> dict:
         verdict = self._person(peer, "unblocking an unfinished turn")
         conversation = self.store.conversation(args["conversation_id"])
@@ -851,7 +888,8 @@ class ConversationService:
     def op_message_submit(self, args, peer) -> dict:
         conversation = self.store.conversation(args["conversation_id"])
         if conversation.get("archived_at"):
-            raise ConversationError("archived", "the conversation is archived")
+            # Checked again in the transaction that would accept it (`submit_message`).
+            raise ConversationError("archived", "the conversation is archived", code=7, fix="unarchive it, then send")
         if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
             raise ConversationError("worktree-missing", "the conversation's worktree was not created",
                                     fix="repeat conversation.create with the same request_id")

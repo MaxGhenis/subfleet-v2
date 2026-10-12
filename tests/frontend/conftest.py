@@ -21,6 +21,8 @@ needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun
 CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSearch.swift")
 # Suggested conversations: the Suggested section and the timeline's card (C-29.14).
 CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSuggestions.swift")
+# Sidebar triage (unread, pinned, archived) and the new conversation's Worktree toggle.
+CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeTriage.swift")
 
 
 @pytest.fixture(scope="session")

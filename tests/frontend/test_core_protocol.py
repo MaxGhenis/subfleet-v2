@@ -145,6 +145,9 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     finally:
         harness.daemon.store = main_store
     assert results["conversation.runs"]["runs"][0]["lane_id"] == "codex-2"
+    # A person's archive of a conversation with no open message (`archive.v1`).
+    results["conversation.archive"] = harness.call("conversation.archive", conversation_id=runs_cid)
+    assert results["conversation.archive"]["conversation"]["archived_at"]
     # Unblock and resolve need their blocked states, set as the daemon sets them.
     harness.store.update_conversation(cid, blocked_by="unfinished-turn")
     results["conversation.unblock"] = harness.call("conversation.unblock", conversation_id=cid, choice="continue",

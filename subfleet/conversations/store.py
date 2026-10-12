@@ -984,9 +984,60 @@ class ConversationStore:
             return None
         return {"blocked_by": row["blocked_by"], "legacy_hold": row["legacy_hold"]}
 
-    def list_conversations(self, *, provider: str | None = None, limit: int | None = 200) -> list[dict]:
-        sql = "SELECT * FROM conversations WHERE archived_at IS NULL"
-        params: list[Any] = []
+    def archive_conversation(self, conversation_id: str, *, archived: bool) -> dict:
+        """C-25.2: set (`archived`) or clear a conversation's `archived_at`, in one
+        transaction that writes nothing else but its feed row. Archiving is refused
+        (exit 7) while the conversation holds a message that is not terminal: the
+        dispatcher and the wake engine leave an archived conversation alone, so a
+        queued or live message there would never settle; `submit_message` refuses a
+        queued one in its own transaction, so neither can slip past the other. Also
+        refused while a handoff's fence stands (it may put the source's messages back
+        in the queue) and while a suggestion's Start is making the conversation
+        (its brief is still to come, C-25.7). Archiving an archived conversation
+        keeps its first `archived_at`; unarchiving one that is not archived changes
+        nothing. Neither moves `updated_at`: where a conversation sorts is its
+        activity, which archiving is not."""
+        if not isinstance(archived, bool):
+            raise ConversationError("bad-args", "archived must be true or false")
+        with self.transaction() as tx:
+            row = tx.execute("SELECT archived_at, blocked_by FROM conversations WHERE conversation_id=?",
+                             (conversation_id,)).fetchone()
+            if row is None:
+                raise ConversationError("unknown-conversation", f"no conversation {conversation_id}")
+            if archived and row["archived_at"] is None:
+                terminal = ",".join("?" * len(TERMINAL_STATES))
+                live = tx.execute(f"SELECT state FROM messages WHERE conversation_id=? AND state NOT IN ({terminal}) "
+                                  "ORDER BY seq LIMIT 1", (conversation_id, *TERMINAL_STATES)).fetchone()
+                if live is not None:
+                    raise ConversationError("conversation-active", f"a message of the conversation is {live['state']}",
+                                            code=7, fix="let its turn finish, or stop it, then archive")
+                if (row["blocked_by"] or "").startswith("handoff:"):
+                    raise ConversationError("handoff-running", "a handoff of this conversation has not finished",
+                                            code=7, fix="archive it once the handoff ends")
+                from .suggestions import STARTING
+                if tx.execute("SELECT 1 FROM suggestions WHERE started_conversation_id=? AND state=?",
+                              (conversation_id, STARTING)).fetchone():
+                    raise ConversationError("conversation-starting", "the conversation is being started from a "
+                                            "suggestion", code=7, fix="archive it once it has started")
+                tx.execute("UPDATE conversations SET archived_at=? WHERE conversation_id=?", (utcnow(), conversation_id))
+                self._change(tx, conversation_id, None, None)
+            elif not archived and row["archived_at"] is not None:
+                tx.execute("UPDATE conversations SET archived_at=NULL WHERE conversation_id=?", (conversation_id,))
+                self._change(tx, conversation_id, None, None)
+        return self.conversation(conversation_id)
+
+    def archived_natives(self) -> set[tuple[str, str]]:
+        """(provider, native session id) of every archived conversation: the catalog
+        never lists one as a session of its own (C-24.13, C-30.1), which opening would
+        bring back as the archived conversation."""
+        return {(row["provider"], row["native_session_id"]) for row in self.query(
+            "SELECT provider, native_session_id FROM conversations "
+            "WHERE archived_at IS NOT NULL AND native_session_id IS NOT NULL") if row["native_session_id"]}
+
+    def list_conversations(self, *, provider: str | None = None, limit: int | None = 200,
+                           include_archived: bool = False) -> list[dict]:
+        sql = "SELECT * FROM conversations WHERE (? OR archived_at IS NULL)"
+        params: list[Any] = [int(bool(include_archived))]
         if provider:
             sql += " AND provider=?"
             params.append(provider)
@@ -1050,6 +1101,13 @@ class ConversationStore:
             if wake_claim is not None:
                 from .wakes import claim
                 claim(tx, conversation_id, message_id, wake_claim, accepted_at=now)
+            if state == QUEUED and tx.execute("SELECT archived_at FROM conversations WHERE conversation_id=?",
+                                              (conversation_id,)).fetchone()["archived_at"]:
+                # C-25.2: nothing dispatches in an archived conversation, so a queued
+                # message there would wait for ever; `archive_conversation` checks the
+                # other way round in its own transaction. A tombstone is born settled.
+                raise ConversationError("archived", "the conversation is archived", code=7,
+                                        fix="unarchive it, then send")
             last = tx.execute("SELECT message_id FROM messages WHERE conversation_id=? AND origin='person' "
                               "ORDER BY seq DESC LIMIT 1", (conversation_id,)).fetchone()
             if origin == "person" and (last["message_id"] if last else None) != after_message_id:

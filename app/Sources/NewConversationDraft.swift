@@ -16,6 +16,19 @@ struct NewConversationDraft: Codable, Equatable {
     var checkedWorkspace: String?
     var checkedPermission: String?
     var checkedProvider: String?
+    /// The `workspace_kind` the folder check was for: a worktree skips the in-place
+    /// checks (a checkout on main), so a check of one kind never starts the other.
+    var checkedKind: String?
+    /// The git repository holding `workspace` (`GitCheckout.key`) when it was last
+    /// looked at, or nil when it is in none; only for `repositoryWorkspace`.
+    var repository: String?
+    var repositoryWorkspace: String?
+    /// The Worktree toggle: the person's pick, or the repository's remembered one.
+    /// Missing (nil) in older saved drafts and until a repository is found.
+    var worktree: Bool?
+    /// The repository `worktree` belongs to; nil for a pick carried over from a
+    /// refused create, which the first repository found takes.
+    var worktreeRepository: String?
     /// A transport failure is provisional; keep the folder and allow a recheck.
     var workspaceCheckTransient: Bool?
     /// Stable across a crash between journal writes and clearing the composer.
@@ -46,6 +59,38 @@ struct NewConversationDraft: Codable, Equatable {
     var canStart: Bool {
         canSend && workspaceCheck?.ok == true && resolvedWorkspace == checkedWorkspace
             && settings.permission == checkedPermission && provider == checkedProvider
+            && workspaceKind == (checkedKind ?? "in-place")
+    }
+
+    /// The chosen folder is in a git checkout: the Worktree toggle shows. A scratch
+    /// folder never is (the daemon refuses a worktree there).
+    var showsWorktreeToggle: Bool {
+        workspace != nil && repository != nil && repositoryWorkspace == workspace
+    }
+
+    /// What Start asks `conversation.create` for: a worktree only of a git checkout,
+    /// with the toggle on; otherwise the folder itself.
+    var workspaceKind: String { showsWorktreeToggle && worktree == true ? "worktree" : "in-place" }
+
+    /// The folder's repository was looked for (nil: it is in none). A pick made in
+    /// another repository gives way to this one's remembered choice, off when there
+    /// is none; one made in this repository (a subfolder changed) stays.
+    mutating func noteRepository(_ repository: String?, for workspace: String?, remembered: Bool?) {
+        guard workspace == self.workspace else { return }
+        self.repository = repository
+        repositoryWorkspace = workspace
+        guard let repository else { return }
+        if worktree == nil || (worktreeRepository != nil && worktreeRepository != repository) {
+            worktree = remembered ?? false
+        }
+        worktreeRepository = repository
+    }
+
+    /// The person flips the toggle; the folder must be checked again for that kind.
+    mutating func pickWorktree(_ on: Bool) {
+        worktree = on
+        worktreeRepository = repository
+        invalidateWorkspaceCheck()
     }
 
     var startResolution: String {
@@ -57,16 +102,19 @@ struct NewConversationDraft: Codable, Equatable {
         checkedWorkspace = nil
         checkedPermission = nil
         checkedProvider = nil
+        checkedKind = nil
         workspaceCheckTransient = nil
     }
 
     mutating func applyWorkspaceCheck(_ result: WorkspaceCheckResult, workspace: String, provider: String, permission: String,
-                                      transient: Bool = false) {
-        guard workspace == resolvedWorkspace, provider == self.provider, permission == settings.permission else { return }
+                                      kind: String = "in-place", transient: Bool = false) {
+        guard workspace == resolvedWorkspace, provider == self.provider, permission == settings.permission,
+              kind == workspaceKind else { return }
         workspaceCheck = result
         checkedWorkspace = workspace
         checkedPermission = permission
         checkedProvider = provider
+        checkedKind = kind
         workspaceCheckTransient = transient
     }
 
@@ -103,9 +151,12 @@ struct NewConversationDraft: Codable, Equatable {
     }
 
     /// A restored draft is editable even if the app quit during a journal write.
+    /// Its folder is looked at again, so a checkout made or removed meanwhile counts.
     mutating func restore() {
         isSubmitting = false
         isPresented = false
         invalidateWorkspaceCheck()
+        repository = nil
+        repositoryWorkspace = nil
     }
 }

@@ -169,9 +169,11 @@ struct SidebarView: View {
     private var sections: [SidebarSection] {
         let sections = model.state.sidebar()
         guard model.state.grouping == .recency else { return sections }
-        let recent = sections.filter { ["Today", "Yesterday"].contains($0.title) }
-        let earlier = sections.filter { !["Today", "Yesterday"].contains($0.title) }.flatMap(\.entries)
-        return recent + (earlier.isEmpty ? [] : [SidebarSection(id: "earlier", title: "Earlier", entries: earlier)])
+        let lead = sections.filter(\.leads)
+        let dated = sections.filter { !$0.leads }
+        let recent = dated.filter { ["Today", "Yesterday"].contains($0.title) }
+        let earlier = dated.filter { !["Today", "Yesterday"].contains($0.title) }.flatMap(\.entries)
+        return lead + recent + (earlier.isEmpty ? [] : [SidebarSection(id: "earlier", title: "Earlier", entries: earlier)])
     }
 
     var body: some View {
@@ -191,9 +193,12 @@ struct SidebarView: View {
                 Menu {
                     Button("Recent") { model.setGrouping(.recency) }
                     Button("Workspace") { model.setGrouping(.workspace) }
+                    Divider()
+                    Toggle("Unread first", isOn: Binding(get: { model.state.marks.unreadFirst }, set: model.setUnreadFirst))
                 } label: {
                     Text(model.state.grouping == .recency ? "Recent" : "Workspace")
-                }.menuStyle(.borderlessButton).fixedSize().help("Group conversations by date or workspace")
+                }.menuStyle(.borderlessButton).fixedSize()
+                    .help("Group conversations by date or workspace; list unread ones first")
                 Spacer()
                 Menu {
                     Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "" }, set: {
@@ -203,9 +208,13 @@ struct SidebarView: View {
                         Text("Claude").tag("claude")
                         Text("Codex").tag("codex")
                     }
+                    if model.canArchive {
+                        Divider()
+                        Toggle("Archived", isOn: Binding(get: { model.state.showArchived }, set: model.setShowArchived))
+                    }
                 } label: {
-                    Label(model.state.providerFilter?.capitalized ?? "All providers", systemImage: "line.3.horizontal.decrease")
-                }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
+                    Label(filterWords, systemImage: model.state.showArchived ? "archivebox" : "line.3.horizontal.decrease")
+                }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter conversations")
             }.windowFont(.heading).foregroundColor(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
             List(selection: $selection) {
                 // C-29.14: every suggestion waiting on the person, with or without an origin.
@@ -234,6 +243,11 @@ struct SidebarView: View {
                             .tag("failed:" + draft.id).help(draft.failure.message)
                     }
                 }
+                if model.state.showArchived && sections.isEmpty {
+                    Text("No archived conversations").windowFont(.sidebar).foregroundStyle(Theme.text.tertiary.color)
+                        .tag(nil as String?)
+                        .selectionDisabled()
+                }
                 ForEach(sections) { section in
                     Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
                         .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
@@ -248,6 +262,12 @@ struct SidebarView: View {
                         .tag(entry.id).help(entry.title + "\n" + entry.subtitle)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
+                        .contextMenu {
+                            if let id = entry.conversationID {
+                                ConversationTriageMenu(model: model, conversationID: id, pinned: entry.pinned,
+                                                       unread: entry.unread, archived: entry.archived)
+                            }
+                        }
                     }
                 }
             }
@@ -263,6 +283,36 @@ struct SidebarView: View {
         .foregroundStyle(Theme.text.primary.color)
         .background(Theme.surface.sidebar.color)
     }
+
+    private var filterWords: String {
+        if model.state.showArchived {
+            return model.state.providerFilter.map { "Archived · " + $0.capitalized } ?? "Archived"
+        }
+        return model.state.providerFilter?.capitalized ?? "All providers"
+    }
+}
+
+/// Pin, read and archive for one conversation: the sidebar row's context menu and the
+/// header's (archive only where the daemon serves it, C-25.1).
+struct ConversationTriageMenu: View {
+    @ObservedObject var model: UIModel
+    let conversationID: String
+    let pinned: Bool
+    var unread = false
+    let archived: Bool
+
+    var body: some View {
+        if !archived {
+            Button(pinned ? "Unpin" : "Pin") { model.setPinned(conversationID, !pinned) }
+        }
+        if unread {
+            Button("Mark as read") { model.markRead(conversationID) }
+        }
+        if model.canArchive {
+            Divider()
+            Button(archived ? "Unarchive" : "Archive") { model.archive(conversationID, archived: !archived) }
+        }
+    }
 }
 
 struct SidebarRow: View {
@@ -272,7 +322,12 @@ struct SidebarRow: View {
 
     var body: some View {
         HStack(spacing: Theme.space.inset) {
+            if entry.unread {
+                Circle().fill(Theme.accent).frame(width: 7, height: 7)
+                    .help("New since you last looked").accessibilityLabel("Unread")
+            }
             Text(entry.title).windowFont(.sidebar).lineLimit(1)
+                .fontWeight(entry.unread ? .semibold : nil)
             Spacer(minLength: Theme.space.step)
             if entry.pendingApprovals > 0 {
                 Button(action: showApprovals) {
@@ -418,6 +473,19 @@ struct ConversationView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14).padding(.top, 6)
             }
+            if conversation.isArchived {
+                HStack(spacing: 6) {
+                    Image(systemName: "archivebox").foregroundStyle(Theme.text.secondary.color)
+                    Text("This conversation is archived. Unarchive it to send a message.")
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if model.canArchive {
+                        Button("Unarchive") { model.archive(conversation.conversation_id, archived: false) }
+                            .controlSize(.small)
+                    }
+                }
+                .padding(.horizontal, 14).padding(.top, 6)
+            }
             ComposerView(model: model, conversation: conversation)
         }
         .foregroundStyle(Theme.text.primary.color)
@@ -504,14 +572,36 @@ struct ConversationView: View {
     private var header: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.state.conversationTitle(conversation)).windowFont(.title).lineLimit(1)
-                    .contextMenu {
-                        Button("Rename…") {
-                            renamedTitle = model.state.conversationTitle(conversation)
-                            renaming = true
+                HStack(spacing: 6) {
+                    Text(model.state.conversationTitle(conversation)).windowFont(.title).lineLimit(1)
+                        .contextMenu {
+                            Button("Rename…") {
+                                renamedTitle = model.state.conversationTitle(conversation)
+                                renaming = true
+                            }
+                            Divider()
+                            ConversationTriageMenu(model: model, conversationID: conversation.conversation_id,
+                                                   pinned: model.state.marks.isPinned(conversation.conversation_id),
+                                                   archived: conversation.isArchived)
                         }
+                    if conversation.isArchived {
+                        Label("Archived", systemImage: "archivebox").windowFont(.heading)
+                            .foregroundStyle(Theme.text.secondary.color)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Theme.surface.raised.color))
                     }
-                Text(abbreviatedPath(conversation.workspace)).windowFont(.heading).foregroundStyle(Theme.text.secondary.color).lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    Text(abbreviatedPath(conversation.worktreeSource ?? conversation.workspace))
+                        .foregroundStyle(Theme.text.secondary.color).lineLimit(1)
+                    if let branch = conversation.worktreeBranch {
+                        // C-24.1: a worktree conversation works on its own branch, cut from the folder above.
+                        Label(branch, systemImage: "arrow.triangle.branch").lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(Theme.text.secondary.color)
+                            .help("Works in its own worktree, \(abbreviatedPath(conversation.workspace)), on branch \(branch)")
+                            .accessibilityLabel("Worktree branch \(branch)")
+                    }
+                }.windowFont(.heading)
             }
             Spacer()
             Button {

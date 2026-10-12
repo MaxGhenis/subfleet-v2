@@ -124,6 +124,8 @@ enum Ops {
     static let conversationHandoff = DaemonOperation<ConversationHandoffArgs, ConversationHandoffResult>(
         name: "conversation.handoff", minimumTimeout: 120)
     static let conversationWake = DaemonOperation<ConversationWakeArgs, ConversationWakeResult>(name: "conversation.wake")
+    /// A person's (C-25.6): hide a conversation from the list, or show it again (`archive.v1`).
+    static let conversationArchive = DaemonOperation<ConversationArchiveArgs, ConversationResult>(name: "conversation.archive")
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
@@ -135,7 +137,7 @@ enum Ops {
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
         conversationHandoff.name, workspaceCheck.name, conversationWake.name,
         suggestionCreate.name, suggestionList.name, suggestionStart.name, suggestionDismiss.name,
-        suggestionWithdraw.name,
+        suggestionWithdraw.name, conversationArchive.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
@@ -282,8 +284,24 @@ struct Conversation: Codable, Equatable, Identifiable {
     /// A Claude session another live process (the Claude app, a terminal) holds;
     /// its turns and Subfleet's share one transcript (from the catalog run).
     var live_elsewhere: Bool?
+    /// When a person archived it (`archive.v1`); nil while it is not archived, and
+    /// from older daemons, which list no archived conversation.
+    var archived_at: String? = nil
 
     var id: String { conversation_id }
+    var isArchived: Bool { archived_at != nil }
+
+    /// A worktree conversation's branch (`worktree.branch`, cut by `conversation.create`).
+    var worktreeBranch: String? { worktreeField("branch") }
+    /// The folder the person picked, which the worktree was cut from (`worktree.source`).
+    var worktreeSource: String? { worktreeField("source") }
+
+    private func worktreeField(_ key: String) -> String? {
+        guard case .object(let record)? = worktree, case .string(let value)? = record[key], !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
 
     var lastActivityDate: Date? {
         [updated_at, last_activity].compactMap { $0 }.compactMap(parseTimestamp).max()
@@ -543,6 +561,12 @@ struct ConversationSettingsArgs: Codable, Equatable {
     var allow_main: Bool?
 }
 
+/// `conversation.archive` (`archive.v1`): `archived` false shows it again.
+struct ConversationArchiveArgs: Codable, Equatable {
+    var conversation_id: String
+    var archived: Bool
+}
+
 struct ConversationRenameArgs: Codable, Equatable {
     var conversation_id: String
     var title: String
@@ -586,6 +610,9 @@ let diffCapability = "diff.v1"
 
 /// `message.steer` and the `steering`/`steered` states (C-24.9, C-25.2).
 let steerCapability = "steer.v1"
+
+/// `conversation.archive`, and `conversation.list` honouring `include_archived` (C-25.2).
+let archiveCapability = "archive.v1"
 
 struct TurnDiffArgs: Codable, Equatable {
     var message_id: String
