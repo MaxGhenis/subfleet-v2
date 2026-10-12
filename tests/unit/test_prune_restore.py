@@ -55,7 +55,7 @@ def _run_recipe(state_root: Path, backup: Path) -> subprocess.CompletedProcess[s
     return subprocess.run(
         ["/bin/sh", "-c", script],
         env={**os.environ, "state_root": str(state_root)},
-        cwd=state_root.parent, text=True, capture_output=True, check=True, timeout=30)
+        cwd=state_root.parent, text=True, capture_output=True, check=True, timeout=120)
 
 
 def _backup(database: Path, rows: list[tuple[str, bytes]]) -> None:

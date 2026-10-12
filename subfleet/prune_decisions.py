@@ -335,8 +335,9 @@ def _schema_version(database: Path) -> int:
     `schema.migrated` and `schema.applied` event per step, and it does so before
     this pass could take its `VACUUM INTO` copy or its before-fingerprints. So
     the version is read first, here, and a store this build would migrate is
-    refused instead. 0 means the store has no `schema_version` table at all,
-    which `Store` refuses on its own terms.
+    refused instead. 0 means no version has been recorded, including a missing
+    `schema_version` table. A writing `Store` would initialize it, so this pass
+    refuses that case before opening the writer too.
     """
     conn = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
     try:
@@ -779,16 +780,20 @@ def prune(state_root: str | Path, *, apply: bool = False, confirm: bool = False,
                          now or utc_now())
     version = _schema_version(database)
     report.schema = {"store": version, "build": SCHEMA_VERSION}
-    if apply and 0 < version < SCHEMA_VERSION:
+    if apply and version < SCHEMA_VERSION:
         # A dry run only records the mismatch: it opens the store read-only, and
         # `Store` migrates nothing on that path, so its plan is still the plan.
+        operation = "initialize" if version == 0 else "migrate"
+        changed = "initialized" if version == 0 else "migrated"
+        fix = (f"pass --state-root for an initialized schema {SCHEMA_VERSION} store; "
+               "this pass does not initialize databases" if version == 0 else
+               "subfleet daemon start, then subfleet daemon stop: the daemon opens the store for "
+               "writing and migrates it (C-3.1), and this pass then finds the schema it expects")
         raise PruneRefused(
             f"prune decisions: the store is at schema {version} and this build at "
-            f"{SCHEMA_VERSION}; opening it for writing would migrate it — writing "
+            f"{SCHEMA_VERSION}; opening it for writing would {operation} it — writing "
             f"schema_version and events rows — before this pass could copy or fingerprint it, "
-            f"so the copy it offers to restore from would already be a migrated store",
-            "subfleet daemon start, then subfleet daemon stop: the daemon opens the store for "
-            "writing and migrates it (C-3.1), and this pass then finds the schema it expects")
+            f"so the copy it offers to restore from would already be a {changed} store", fix)
     lock = _hold_daemon_lock(state_root) if apply else None
     try:
         # C-3.4: the writing pass opens the store the daemon's way (WAL,

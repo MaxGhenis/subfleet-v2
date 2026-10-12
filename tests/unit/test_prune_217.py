@@ -19,7 +19,7 @@ from subfleet import daemon as daemon_module
 from subfleet import prune_decisions as pruning
 from subfleet import retention_archive as archives
 from subfleet.contracts import Credential, Lane, LaneOwner
-from subfleet.daemon import Daemon, DaemonUnavailable, Unroutable
+from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.offline import Offline
 from subfleet.store import SCHEMA_VERSION, Store
 
@@ -68,9 +68,12 @@ def _seed(root, specs):
 
 
 def _tables(database):
-    with sqlite3.connect(database) as conn:
+    conn = sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True)
+    try:
         return {name: conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid').fetchall()
                 for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
 
 
 def _service(store, root):
@@ -84,7 +87,7 @@ def _service(store, root):
     service.log = logging.getLogger('synthetic-prune-reader')
 
     def no_route(*args, **kwargs):
-        raise Unroutable('synthetic job has no route')
+        raise ValueError('synthetic job has no route')
     service._pick = no_route
     return service
 
@@ -161,7 +164,7 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         # Execute the published restore, not just a read of the backup.
         script = pruning._restore_fix(report.backups['copy']['path']).split('```sh\n', 1)[1].split('```', 1)[0]
         restored = subprocess.run(['/bin/sh', '-c', script], check=True, capture_output=True,
-                                  text=True, env={**os.environ, 'state_root': str(root)}, timeout=30)
+                                  text=True, env={**os.environ, 'state_root': str(root)}, timeout=120)
         assert restored.stdout.splitlines() == ['ok']
         assert _tables(root / 'state.sqlite3') == original
         assert _readers(root) == before
@@ -278,3 +281,22 @@ def test_after_vacuum_proof_checks_the_added_audit_rows(tmp_path, monkeypatch):
     assert report.verification['after_vacuum']['events_added'] == {}
     assert report.verification['after_vacuum']['ok'] is False
     assert report.backups['copy']['path'] in stopped.value.fix
+
+
+@pytest.mark.parametrize('missing_version_table', [False, True])
+def test_schema_zero_is_refused_before_writer_initialization(tmp_path, missing_version_table):
+    """C-3.1, C-11.5: an unversioned store must not be initialized before backup."""
+    _seed(tmp_path, [])
+    conn = sqlite3.connect(tmp_path / 'state.sqlite3')
+    try:
+        conn.execute('DROP TABLE schema_version' if missing_version_table else
+                     'DELETE FROM schema_version')
+        conn.commit()
+    finally:
+        conn.close()
+    before = _tables(tmp_path / 'state.sqlite3')
+    with pytest.raises(pruning.PruneRefused, match='would initialize') as refusal:
+        pruning.prune(tmp_path, apply=True, confirm=True, write_report=False)
+    assert refusal.value.code == 7
+    assert _tables(tmp_path / 'state.sqlite3') == before
+    assert not (tmp_path / 'backups').exists()

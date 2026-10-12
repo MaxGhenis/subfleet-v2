@@ -38,6 +38,8 @@ calls the actual `Daemon._why_job` with fixed admission context and actual
   build. The PR's older-schema refusal now exercises version 6 against build 7,
   before a writing `Store` can migrate it. Its newer-schema refusal remains.
   The dry run can inspect an older initialized store without migrating it.
+  Added a refusal for schema 0 before `Store` could initialize tables, tested
+  with both absent and empty version metadata and exact before/after tables.
 - **No inbound decision foreign keys:** inspected `store_schema.sql` and
   `store.py` migrations and added `PRAGMA foreign_key_list` introspection for
   every schema-7 table. No foreign key targets `decisions`. The schema has no
@@ -87,6 +89,15 @@ two explicit examples) and all its unit scenarios. The port also repeats the aud
 after `--vacuum`; a new regression removes the appended audit rows between
 the first proof and the rebuild proof and requires a restore-bearing failure. The PR's partition and
 unfinished-job coverage were example tests; the port adds generated coverage.
+
+Initial combined run: **57 passed, 3 failed in 948.26 s (15:48)**. Failures
+were a restore shell subprocess exceeding 30 seconds, the generated reader
+fixture raising `Unroutable` instead of an exception this line's `why` catches,
+and the new audit regression running against a module imported before the
+in-flight edit. Fixed the fixture to use a caught `ValueError`, closed snapshot
+connections explicitly before restore, increased the restore subprocess bound
+to 120 seconds, and scheduled fresh processes. The two schema-0 cases extend
+the final scope to 62 cases.
 
 Validation is in progress: one foreground pytest command covers the three
 prune test modules and `tests/unit/test_test_module_names.py`, under
