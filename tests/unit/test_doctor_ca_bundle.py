@@ -111,4 +111,3 @@ def test_doctor_codex_uses_shipped_policy_before_state_root_exists(tmp_path, bun
     monkeypatch.setattr(doctor.subprocess, "run", run)
     assert doctor.check_provider("codex", root=tmp_path / "absent")["status"] == doctor.PASS
     assert seen == [{"SSL_CERT_FILE": "/etc/ssl/cert.pem"}]
-
