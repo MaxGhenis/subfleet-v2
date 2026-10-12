@@ -347,7 +347,9 @@ def waiter_class(job: Any, tier: str) -> str:
 def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     """The models a job could run on, exactly as `evaluate` builds its chain (C-11.2).
 
-    A pin is that one model; a task is its chain from the job's tier upward. None
+    A pin is that one model; a task is its chain from the job's tier upward, and a
+    lane-pinned task only the first model of it that the job may run on, which is
+    all `evaluate` walks for a pinned job (`pin_provider` names its provider). None
     means "cannot tell" (a lane pin with no model), which admission treats as
     competing with everything.
     """
@@ -359,7 +361,10 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            return frozenset(flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default)))
+            chain = flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default))
+            if job.get("pinned_lane"):
+                chain = mcp_chain(policy, chain, job)[:1]
+            return frozenset(chain)
     except (PolicyError, ValueError, KeyError):
         pass
     return None
