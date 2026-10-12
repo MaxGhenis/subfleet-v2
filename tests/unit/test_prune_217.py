@@ -260,3 +260,21 @@ def test_audit_kind_is_readable_and_does_not_change_job_answers(tmp_path):
                    and isinstance(json.loads(row['data_json']), dict) for row in added)
         assert not [row for row in store.list_events('job-0') if row['kind'] == 'decisions.pruned']
     assert _readers(tmp_path) == before
+
+
+def test_after_vacuum_proof_checks_the_added_audit_rows(tmp_path, monkeypatch):
+    """C-3.2, C-11.5: a rebuild must retain the audit batch counts proved after deletion."""
+    _seed(tmp_path, [])
+    original = pruning._reverify
+
+    def lose_audit(conn, report, **kwargs):
+        conn.execute('DELETE FROM events WHERE event_id>?', (kwargs['events_max'],))
+        return original(conn, report, **kwargs)
+
+    monkeypatch.setattr(pruning, '_reverify', lose_audit)
+    with pytest.raises(pruning.PruneVerificationError, match='events gained nothing') as stopped:
+        pruning.prune(tmp_path, apply=True, confirm=True, vacuum=True, write_report=False)
+    report = stopped.value.report
+    assert report.verification['after_vacuum']['events_added'] == {}
+    assert report.verification['after_vacuum']['ok'] is False
+    assert report.backups['copy']['path'] in stopped.value.fix

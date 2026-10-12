@@ -83,7 +83,9 @@ including the original decisions table, must then match exactly.
 Kept the PR's existing Hypothesis restore property (`max_examples=30`) for
 exact table contents, arbitrary WAL/SHM sidecars, and shell metacharacters in
 paths. Also kept its report-save differential property (`max_examples=30`,
-two explicit examples) and all its unit scenarios. The PR's partition and
+two explicit examples) and all its unit scenarios. The port also repeats the audit kind/count proof
+after `--vacuum`; a new regression removes the appended audit rows between
+the first proof and the rebuild proof and requires a restore-bearing failure. The PR's partition and
 unfinished-job coverage were example tests; the port adds generated coverage.
 
 Validation is in progress: one foreground pytest command covers the three

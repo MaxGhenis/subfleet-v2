@@ -1037,6 +1037,13 @@ def _invariants(conn: sqlite3.Connection, *, planned: Plan, before: dict[str, di
     return mismatches, found, {**after, "events": events_after, "decisions-kept": kept_after}
 
 
+
+def _added_events(conn: sqlite3.Connection, events_max: int) -> dict[str, int]:
+    """Audit kinds and counts added since the pass's before-snapshot."""
+    return {row["kind"]: row["n"] for row in conn.execute(
+        "SELECT kind, COUNT(*) AS n FROM events WHERE event_id>? GROUP BY kind", (events_max,))}
+
+
 def _verify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
             before: dict[str, dict[str, Any]], events_max: int,
             events_before: dict[str, Any], kept_before: dict[str, Any],
@@ -1051,9 +1058,7 @@ def _verify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
     mismatches, found, fingerprints = _invariants(
         conn, planned=planned, before=before, events_max=events_max,
         events_before=events_before, kept_before=kept_before, readers_before=readers_before)
-    new_events = conn.execute("SELECT kind, COUNT(*) AS n FROM events WHERE event_id>?"
-                              " GROUP BY kind", (events_max,)).fetchall()
-    added = {row["kind"]: row["n"] for row in new_events}
+    added = _added_events(conn, events_max)
     if added != ({PRUNE_KIND: report.batches} if report.batches else {}):
         mismatches.append(f"events gained {added or 'nothing'}, not {report.batches} "
                           f"{PRUNE_KIND} rows")
@@ -1083,8 +1088,12 @@ def _reverify(conn: sqlite3.Connection, report: PruneReport, *, planned: Plan,
     mismatches, found, fingerprints = _invariants(
         conn, planned=planned, before=before, events_max=events_max,
         events_before=events_before, kept_before=kept_before, readers_before=readers_before)
+    added = _added_events(conn, events_max)
+    if added != ({PRUNE_KIND: report.batches} if report.batches else {}):
+        mismatches.append(f"events gained {added or 'nothing'}, not {report.batches} "
+                          f"{PRUNE_KIND} rows")
     report.fingerprints["after_vacuum"] = fingerprints
-    report.verification["after_vacuum"] = {**found, "ok": not mismatches}
+    report.verification["after_vacuum"] = {**found, "events_added": added, "ok": not mismatches}
     report.verification["integrity_check_after_vacuum"] = found["integrity_check"]
     if mismatches:
         raise PruneVerificationError(
