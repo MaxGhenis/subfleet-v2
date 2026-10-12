@@ -556,17 +556,17 @@ it advertises, for its Allow once action (C-29.9). Clicking it, or choosing
 Allow once, opens the main window on that conversation, and an approval's
 brings the conversation's oldest waiting card into view (C-27.5) while one
 still waits. A response that comes before the app has its first conversation
-list and feed baseline (the click that launched the app) waits for them, and
-is dropped if the person opens something else or starts a conversation
-meanwhile; with the daemon's endpoint refused there is nothing to open. A
-click that replaces the focused conversation closes an approval request open
-in it, so an answer never goes to a conversation the window no longer shows.
-The model's notification delegate, the only one, is set before launch ends,
-as the system requires for the click that launched the app to reach it. While
-the app is frontmost the system shows a notification only if the app asks. The app asks for every one whose conversation is still not the
-one open: the window shows at most a sidebar badge for it (a count of waiting
-approvals, a turn no longer running), and each kind is something the person
-acts on.
+list and feed baseline (the click that launched the app) waits for them, and is
+dropped if the person opens something else or starts a conversation meanwhile;
+with the daemon's endpoint refused there is nothing to open. A click that
+replaces the focused conversation closes an approval request open in it, so an
+answer never goes to a conversation the window no longer shows. The model's
+notification delegate, the only one, is set before launch ends, as the system
+requires for the click that launched the app to reach it. While the app is
+frontmost the system shows a notification only if the app asks. The app asks
+for every one whose conversation is still not the one open: the window shows at
+most a sidebar badge for it (a count of waiting approvals, a turn no longer
+running), and each kind is something the person acts on.
 
 **D-25. Changes are shown per turn and per conversation.** At the start and
 end of each writable turn (any permission but `read-only`) in a workspace that
