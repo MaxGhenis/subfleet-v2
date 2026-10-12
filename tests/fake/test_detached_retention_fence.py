@@ -398,6 +398,7 @@ def test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence(tmp_path, shape)
         Workspaces(daemon, patch, real=False)
         tree = str(harness.root / "worktrees" / "retired")
         nested, fence = tree + "/vendor/lib", folders.exclusive_key(tree)
+        Path(nested).mkdir(parents=True)
 
         def add(job_id, folder, **values):
             daemon.store.add_job(job_id=job_id, request_id=job_id, payload_digest=job_id, kind="dispatch",
