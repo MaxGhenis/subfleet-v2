@@ -191,3 +191,41 @@ Code commits in this round:
   matrix, large-stream input, and explicit completion in generic fake receipts.
 - `95562749e`: accepted-result rendering and CLI/fake/e2e caller assertions.
 - `642aa40da`: durable retry deadlines and restart/ordinary-wait regressions.
+
+## Fix round 2
+
+The hub's three fake failures were overstrict expectations, not acceptance
+failures. Fresh rc-1 attempts without `turn.completed` retain the adapter's
+existing `unknown` class. The 48-case matrix now expects that class while
+continuing to forbid acceptance and export; cached `ok` verdicts without
+completion still become `transient`. No classifier or contract change was
+needed. Commit: `eb80c3f82`.
+
+The three e2e failures came from CLI rendering: `_why_job()` already included
+the cut-off explanation in `text`, but `cmd_why()` reconstructed its output
+from queue and routing fields and discarded that line. The response now
+carries `attempt_explanation`, which the CLI prints alongside routing. The
+e2e assertion remains a requirement and now checks attempt a1, its last event,
+and text/JSON agreement. Unit regressions cover a routing decision and no
+decision; fake coverage also checks that a successful retry clears the
+explanation. Commit: `1586baa84`.
+
+Validation used one foreground pytest command per shared-lock hold:
+
+| Files | Result |
+| --- | --- |
+| `tests/fake/test_codex_turn_completed_fake.py` | **60 passed**, 578.35 seconds |
+| `tests/e2e/test_codex_turn_completed_e2e.py`, `tests/e2e/test_notice_job_state.py` | **Unrun**: lock acquisition timed out after 120 seconds, exit 75 |
+| `tests/unit/test_codex_turn_completed.py`, `tests/unit/test_test_module_names.py`, `tests/unit/test_cli.py` | **Unrun**: lock acquisition timed out after 120 seconds, exit 75 |
+
+The successful hold, including environment setup and cleanup, finished within
+20 minutes. Both unsuccessful holds ended before pytest started. Each hold
+used its own `sf-r195f2-$$` temporary directory and the prescribed Python
+cleanup. No runner remains. The hub must run the unrun checks. All five edited
+Python files parse, and `git diff --check` passes.
+
+Commits use workspace-local `.git-local` metadata on
+`fix/codex-turn-completed`, based on assigned head `6fbf871696d2`, because the
+sandbox denies writes to the shared Git index and refs. The original `.git`
+pointer and caller's checkout remain untouched. Only named source, test and
+report files are staged; no logs or JSON evidence are committed.
