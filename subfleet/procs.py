@@ -226,6 +226,15 @@ class ProcessTable:
     _reading: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
     _reading_seconds: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
+    _groups: dict[int, frozenset[int]] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        groups: dict[int, set[int]] = {}
+        for pid, row in self.rows.items():
+            if not row[2].startswith("Z"):
+                groups.setdefault(row[1], set()).add(pid)
+        object.__setattr__(self, "_groups", {pgid: frozenset(pids) for pgid, pids in groups.items()})
+
     def boot(self) -> str:
         """The boot identity of every row; `InspectionError` when it cannot be read."""
         if self.boot_id is not None:
@@ -335,7 +344,7 @@ class ProcessTable:
     def group(self, pgid: int | None) -> frozenset[int]:
         if not pgid or pgid <= 0:
             return frozenset()
-        return frozenset(pid for pid, row in self.rows.items() if row[1] == pgid and self.live(pid))
+        return self._groups.get(pgid, frozenset())
 
 
     def descendants(self, roots: Sequence[int], *, excluded: Sequence[int] = ()) -> frozenset[int]:
@@ -763,7 +772,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     proven_roots = set()
     genuine_descendants = ()
     resolved_roots = tuple(known for known in lineage_roots if seen.root_resolved(known)) if seen is not None else ()
-    lineage_roots = tuple(known for known in lineage_roots if known not in set(resolved_roots))
+    resolved_set = set(resolved_roots)
+    lineage_roots = tuple(known for known in lineage_roots if known not in resolved_set)
     resolved_identities = tuple(known for values in (recorded or {}).values()
                                 for known in ([values] if isinstance(values, ProcessIdentity) else values)
                                 if seen.identity_gone(known)) if seen is not None else ()

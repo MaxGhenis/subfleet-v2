@@ -90,17 +90,15 @@ def _json_object(raw: str | None) -> dict:
 
 def _identity_union(*sources: dict) -> dict[int, list[procs.ProcessIdentity]]:
     """Retain every distinct observation of a PID, in observation order."""
-    recorded: dict[int, list[procs.ProcessIdentity]] = {}
+    recorded: dict[int, dict[procs.ProcessIdentity, None]] = {}
     for source in sources:
         for pid, values in source.items():
             for value in values if isinstance(values, list) else [values]:
                 ident = procs.ProcessIdentity(**value)
                 if ident.pid != int(pid):
                     raise ValueError("recorded process identity disagrees with its pid")
-                records = recorded.setdefault(ident.pid, [])
-                if ident not in records:
-                    records.append(ident)
-    return recorded
+                recorded.setdefault(ident.pid, {})[ident] = None
+    return {pid: list(records) for pid, records in recorded.items()}
 
 
 def _identity_history(*sources: dict) -> dict[str, list[dict]]:
@@ -124,16 +122,16 @@ def _local_process_records(evidence: dict) -> dict[int, list[procs.ProcessIdenti
 
 def _recent_census_identities(*sources: dict) -> tuple[dict[str, list[dict]], str | None]:
     """Bound the quarantine's duplicated identity history as well as its roots."""
-    recent = []
+    recent = {}
     for source in sources:
         for records in _identity_union(source).values():
             for ident in records:
-                if ident in recent:
-                    recent.remove(ident)
-                recent.append(ident)
-    overflow = recent[-1].boot_id if len(recent) > LINEAGE_ROOT_LIMIT else None
+                recent.pop(ident, None)
+                recent[ident] = None
+    ordered = list(recent)
+    overflow = ordered[-1].boot_id if len(ordered) > LINEAGE_ROOT_LIMIT else None
     history: dict[str, list[dict]] = {}
-    for ident in recent[-LINEAGE_ROOT_LIMIT:]:
+    for ident in ordered[-LINEAGE_ROOT_LIMIT:]:
         history.setdefault(str(ident.pid), []).append(dataclasses.asdict(ident))
     return history, overflow
 
@@ -156,37 +154,37 @@ def _retain_lineage(evidence: dict, census: dict) -> dict:
                  for ident in records)
     result = {**evidence, "lineage_boot_ids": sorted(boots)} if boots else dict(evidence)
     resolved = {procs.CensusRoot(**value) for value in census.get("resolved_lineage_roots", [])}
-    roots = [value for value in result.get("lineage_roots", []) if procs.CensusRoot(**value) not in resolved]
+    roots = {procs.CensusRoot(**value): value for value in result.get("lineage_roots", [])
+             if procs.CensusRoot(**value) not in resolved}
     result.pop("lineage_roots", None)
-    captured = list(census.get("lineage_roots", []))
+    captured = {procs.CensusRoot(**value): value for value in census.get("lineage_roots", [])}
     # Receipts from older censuses already carried identity and group shapes.
     for pid, value in census.get("identities", {}).items():
         shape = census.get("shapes", {}).get(str(pid), {})
         if shape.get("pgid"):
             root = {**value, "pgid": shape["pgid"]}
-            if root not in captured:
-                captured.append(root)
-    for root in captured:
-        if root in roots:
-            roots.remove(root)
-        roots.append(root)
-    if len(roots) > LINEAGE_ROOT_LIMIT:
-        # A discarded observation's groups/descendants cannot be disproved
-        # later. Keep a conservative overflow hold until a proven reboot.
-        result["lineage_overflow_boot"] = roots[-1]["boot_id"]
-        roots = roots[-LINEAGE_ROOT_LIMIT:]
-    if roots:
-        result["lineage_roots"] = roots
+            captured.setdefault(procs.CensusRoot(**root), root)
+    for key, root in captured.items():
+        roots.pop(key, None)
+        roots[key] = root
+    ordered = list(roots.values())
+    if len(ordered) > LINEAGE_ROOT_LIMIT:
+        # Only unresolved observations consume the budget. An actually
+        # discarded unresolved group still holds until a proved reboot.
+        result["lineage_overflow_boot"] = ordered[-1]["boot_id"]
+        ordered = ordered[-LINEAGE_ROOT_LIMIT:]
+    if ordered:
+        result["lineage_roots"] = ordered
     for key in ("provider_identities", "descendant_identities", "ambiguous_identities"):
-        records = list(result.get(key, []))
-        for ident in census.get(key, []):
-            if ident in records:
-                records.remove(ident)
-            records.append(ident)
+        records = {procs.ProcessIdentity(**value): value for value in result.get(key, [])}
+        for value in census.get(key, []):
+            ident = procs.ProcessIdentity(**value)
+            records.pop(ident, None)
+            records[ident] = value
         if records:
-            # A collision must survive restart and disappearance of the other
-            # attempt's history. Dropping it could restore stale signal authority.
-            result[key] = records if key == "ambiguous_identities" else records[-LINEAGE_ROOT_LIMIT:]
+            ordered_records = list(records.values())
+            # Collision holds must survive restart and disappearing foreign history.
+            result[key] = ordered_records if key == "ambiguous_identities" else ordered_records[-LINEAGE_ROOT_LIMIT:]
     return result
 
 #: "not asked yet", distinct from "asked, and there was no answer".
