@@ -80,6 +80,9 @@ def test_resolved_detached_cwd_survives_retention_for_the_entire_lease(tmp_path,
     """Review lines 11–30: swap before admission, then retire with no provider."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         tree, nested, outside, job = setup(daemon, harness, writable)
+        submitted_target = daemon._submitted(job).get("write_target")
+        if writable:
+            assert submitted_target == str(outside)
         swap(outside, nested)
         daemon._admit()
         assert _live(daemon, job), daemon._holds
@@ -94,11 +97,15 @@ def test_resolved_detached_cwd_survives_retention_for_the_entire_lease(tmp_path,
         assert "retired" not in result["pruned"] and nested.is_dir(), result
         assert folders.turn_holds(daemon.store.query, str(nested), (folders.READER,))
         if writable:
-            # C-6.5 still contends only on the write target recorded at submission.
-            assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?",
-                                    (folders.exclusive_key(str(outside)),))["holder"] == job
+            # C-6.5/C-8.4: #141 spells the submitted target again at reservation.
+            # The replacement symlink resolves to nested, so its exclusive lease
+            # names nested too; the lifetime reader row does not choose that key.
+            assert daemon._submitted(job)["write_target"] == submitted_target
+            writer = daemon.store.one("SELECT holder FROM leases WHERE lease_key=?",
+                                      (folders.exclusive_key(str(nested)),))
+            assert writer is not None and writer["holder"] == job
             assert daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?",
-                                    (folders.exclusive_key(str(nested)),)) is None
+                                    (folders.exclusive_key(submitted_target),)) is None
         _end(daemon, job)
         assert not daemon.store.list_leases(job)
         # The cwd row is released with the protecting job, allowing reclamation.
