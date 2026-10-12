@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shutil
 import uuid
 
 import hypothesis
@@ -456,12 +457,25 @@ def claude_row(op: tuple) -> str:
                        "session_id": "s", "num_turns": 1, "duration_ms": 1, "total_cost_usd": 0, "usage": {}})
 
 
+@pytest.fixture(scope="module")
+def empty_approval_store(tmp_path_factory):
+    """A closed, empty schema; each history copies it into its own real store.
+
+    Schema creation is outside this property's approval/replay contract. Avoid
+    repeating its many durable DDL commits for every generated history, while
+    keeping each history's transactions and file publication unchanged.
+    """
+    store = ConversationStore(tmp_path_factory.mktemp("approval-schema"))
+    store.close()
+    return store.path
+
+
 @hypothesis.settings(max_examples=500, deadline=None,
                      suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
 @hypothesis.example(history=([("ask", "r1"), ("answer", "r1", "allow"),
                               ("cancel", "r1"), ("end", "eof")], True))
 @hypothesis.given(histories())
-def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory, history):
+def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory, empty_approval_store, history):
     """C-27.1, C-27.3, C-29.9: for any interleaving of requests, answers, provider
     cancels and an end, then possibly a replay, and the service's settlement: no
     commit shows an approval resolved without its event (or the reverse), a pending
@@ -470,7 +484,10 @@ def test_no_commit_shows_an_unresolved_approval_for_any_history(tmp_path_factory
     and a replay writes nothing."""
     ops, replay = history
     tmp = tmp_path_factory.mktemp("h")
-    store = ConversationStore(tmp / "state")
+    state = tmp / "state"
+    state.mkdir(mode=0o700)
+    shutil.copy2(empty_approval_store, state / "conversations.sqlite3")
+    store = ConversationStore(state)
     try:
         cid, mid = running_message(store, "claude")
         runner = runner_for(store, tmp, "claude", cid, mid)
