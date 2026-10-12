@@ -241,9 +241,10 @@ def status(view: Mapping[str, Any]) -> str:
     held = quarantine_holds({**view, "now": snapshot["now"]})
     if held:
         lines.extend(["", "Quarantined attempts (older than one recheck pace)",
-                      _table(["Job", "Attempt", "Age", "Still held because"],
+                      _table(["Job", "Attempt", "Age", "Next check", "Still held because"],
                              [[a["job_id"] or "unknown", a["attempt_id"],
-                               f"{a['age_s']:.0f}s" if a["age_s"] is not None else "unknown", a["reason"]] for a in held])])
+                               f"{a['age_s']:.0f}s" if a["age_s"] is not None else "unknown",
+                               a.get("next_check_at") or "next pass", a["reason"]] for a in held])])
     return "\n".join(lines)
 
 

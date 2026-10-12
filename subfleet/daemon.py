@@ -236,6 +236,11 @@ QUARANTINE_PID_PREVIEW = 16
 QUARANTINE_ERROR_PREVIEW = 8
 
 
+def _quarantine_guidance(job_id: str, when: str | None) -> str:
+    next_check = f"at {when}" if when else "on the next daemon pass"
+    return f"next automatic recheck {next_check}; recheck now with subfleet kill {job_id} --confirm-dead"
+
+
 def _quarantine_summary_sql(column: str = "quarantine_reason") -> str:
     """Project bounded operator evidence in SQLite; never transfer the census."""
     valid = f"CASE WHEN json_valid({column}) THEN {column} ELSE '{{}}' END"
@@ -2833,6 +2838,12 @@ class Daemon:
             return False
         return True
 
+    def _quarantine_holder_guidance(self, holder: str) -> str:
+        row = self.store.one(
+            "SELECT job_id,quarantine_recheck_at FROM attempts WHERE state='quarantined' "
+            "AND (attempt_id=? OR job_id=?) ORDER BY seq LIMIT 1", (holder, holder))
+        return _quarantine_guidance(row["job_id"], row["quarantine_recheck_at"]) if row else "wait for its owner"
+
     def _validate_conflicts(self, job: dict, cleared: frozenset[str] = frozenset(),
                             write_target: str | None = None,
                             output_claim: resource_leases.OutputClaim | None = None) -> None:
@@ -2863,16 +2874,19 @@ class Daemon:
             if output_claim is None:
                 assert not self.store._holds_writer(), "output identity must be prepared outside the transaction"
                 output_claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"], census=True)
-            if output_claim.holds(self.store.query):
-                raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine")
+            holders = output_claim.holds(self.store.query)
+            if holders:
+                guidance = self._quarantine_holder_guidance(holders[0][1])
+                raise AdapterError("output path is held by another job", fix="use a different -o path; " + guidance)
             if output_claim.live_jobs(self.store.query):
                 raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner")
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
                 for folder in {job["workdir"], write_target or job["workdir"]}:
-                    if self.store.one("SELECT * FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),)):
-                        raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                    lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),))
+                    if lease:
+                        raise AdapterError("worktree has a lease", fix=self._quarantine_holder_guidance(lease["holder"]))
                     # C-6.5, C-24.5: a writable conversation turn holds its folder with a
                     # row of its own (one live after its job ended, while its attempt is
                     # quarantined, too); a detached writer never joins it there.
@@ -3270,6 +3284,14 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        quarantines = self.store.query("SELECT attempt_id,job_id,quarantine_recheck_at,"
+                                       + _quarantine_summary_sql() + " AS quarantine_reason FROM attempts "
+                                       "WHERE state='quarantined' AND job_id=? ORDER BY seq", (job["job_id"],))
+        for held in quarantines:
+            summary = _json_object(held["quarantine_reason"])
+            lines.append(f"Quarantined {held['attempt_id']}: {summary.get('reason', 'writers remain')}; "
+                         + _quarantine_guidance(held["job_id"], held["quarantine_recheck_at"]))
+        standing["quarantines"] = quarantines
         disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
         if disk_reading is not None and (hold or {}).get("reason") != "disk":
             lines.append(render.disk_line(disk_reading))
@@ -7153,9 +7175,10 @@ class Daemon:
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
             # C-13.1, C-15.1: a quarantined retry names the attempt before it.
             earlier = self._earlier_attempt(tx, job, before=a["seq"])
-            summary = self.store.one("SELECT " + _quarantine_summary_sql() + " AS summary FROM attempts WHERE attempt_id=?",
-                                     (a["attempt_id"],))["summary"]
-            self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + summary + earlier)
+            held = self.store.one("SELECT " + _quarantine_summary_sql() + " AS summary,quarantine_recheck_at FROM attempts WHERE attempt_id=?",
+                                  (a["attempt_id"],))
+            self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + held["summary"]
+                         + "; " + _quarantine_guidance(a["job_id"], held["quarantine_recheck_at"]) + earlier)
         self._notify()
 
     def _offer_quarantine_recheck(self) -> None:

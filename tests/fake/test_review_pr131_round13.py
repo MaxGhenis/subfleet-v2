@@ -237,8 +237,9 @@ def test_r13_finding_d_qc1_caller_is_told_when_the_recheck_happens(state_daemon,
     when = actual["quarantine_recheck_at"]
     print(f"\nR13 D-QC1: next recheck {when}; notice mentions it: {when in notice}; "
           f"why mentions quarantine: {'quarantin' in why}; why text: {why.splitlines()[:3]}")
-    assert when in notice or "recheck" in notice.lower(), notice[:400]
-    assert "quarantin" in why.lower(), why
+    command = f"subfleet kill {job_id} --confirm-dead"
+    assert when in notice and command in notice, notice[:400]
+    assert "quarantin" in why.lower() and when in why and command in why, why
 
 
 def test_r13_check_d_pr1_recycled_group_hold_is_paced_and_only_status_tells(state_daemon, monkeypatch):
@@ -321,8 +322,11 @@ def test_r13_check_redispatch_to_a_quarantined_out_path_is_accepted_after_self_r
                  markers=f"42099 w SUBFLEET_ATTEMPT={a['attempt_id']}\n")
     a = daemon.store.get_attempt(a["attempt_id"])
     daemon._quarantine(a, daemon._contain(a), "writers remain after exit receipt")
-    with pytest.raises(AdapterError, match="output path is held"):
+    with pytest.raises(AdapterError, match="output path is held") as refusal:
         daemon.dispatch("submit", harness.submit_args(out_path=out))
+    next_check = daemon.store.get_attempt(a["attempt_id"])["quarantine_recheck_at"]
+    assert next_check in str(refusal.value)
+    assert f"subfleet kill {job_a} --confirm-dead" in str(refusal.value)
     script_table(monkeypatch, {})
     clock.advance()
     daemon._recheck_quarantines()
