@@ -2,7 +2,56 @@
 
 Branch `feat/app-worktree-and-triage`, stacked on PR #181 (`feat/suggested-conversations` at 9787fe323). Max asked for both on 2026-10-11 ("sure"); they are items 7 and 1 of `~/reviews/subfleet-2110/one-place/inventory.md`.
 
-Status: BLOCKED on verification. The prescribed pytest command waited about an hour without acquiring the required shared suite lock; it was interrupted before pytest started. Development and core Swift compilations also timed out. No test pass is claimed. The assigned checkout uses workspace-local `.git-local` metadata on `feat/app-worktree-and-triage`, since the shared Git index is outside the writable workspace. No remotes were contacted.
+Status: review round 1 fixes implemented directly on `b3b5f56e269b`, without newer #181 commits. Verification results for this round are recorded below. Commits are on `feat/app-worktree-and-triage` in workspace-local `build/fix1-metadata`; the shared Git index is outside the writable workspace. Inspect with `git --git-dir=build/fix1-metadata log`. No Git remotes were contacted.
+
+## Review round 1 (2026-10-12)
+
+Read the full review at `~/reviews/subfleet-2110/one-place/p1-build/review-r1-full.md`, its probe file, and the supplied host log `~/reviews/subfleet-hub/host-runs/run-189-r1probes.log`. The four probes are copied verbatim into `tests/unit/test_review_pr189_r1.py`, with a unique test-module basename.
+
+- **P1: archive wins over recovery.** `restore_after_handoff` checks `archived_at` inside the same `BEGIN IMMEDIATE` transaction that would requeue messages. An archived source refuses recovery with exit 7 `archived` and an instruction to unarchive and retry. Its cancelled messages stay terminal, with their rows, text, binding and history intact. This also covers older unfenced handoffs. Recovery does not silently undo an accepted archive. Contract clauses C-24.13/C-25.2 and C-30.3 state the rule; the service recovery path documents the refusal.
+- **P2: remote archive state reaches existing focused rows.** `changes_after` enriches rows with current `archived` and `archived_at`, as it already does with titles. The Swift watch fold updates cached conversations before a filtered list can retain the focused row. An explicit false clears archive on unarchive; absent fields from an older daemon preserve cached archive state. Conversation-level feed changes trigger a list refresh. The timeline stays open, the active sidebar hides the archived row, and local pin/read marks survive. C-29.9/C-29.15 describe the wire and app behavior.
+- **Tests:** the existing two-connection transaction test now covers archive/submit and archive/recovery in both write orders. Exhaustive enumeration adds all 40 valid orders of archive, handoff start, failure/settlement, recovery and submit, each with and without a durable fence: **80 cases, 400 operation steps defined**. Recovery may precede settlement. Every step checks terminal-only archived messages, every accepted message's text, preserved events and the accepted archive timestamp. A real handoff retry test verifies refusal followed by successful unarchive/retry and text movement. A new Swift core test uses real daemon list/watch answers and the existing `CoreProbeTriage.swift` harness to inspect focused archive state, active sidebar visibility, pins, read marks and remote unarchive, plus compatibility with an older feed.
+- **Swift cleanup:** extracted the branch's existing compiler timeout cleanup into `tests/frontend/swift.py::run_swift` so the single `app/build.sh` attempt and core probes use the same task-owned process-group kill/reap behavior. `app/build.sh` itself is unchanged.
+
+### Round 1 validation
+
+| Validation | Executed | Result |
+|---|---:|---|
+| Supplied host baseline at `b3b5f56e269b`, all four reviewer probes | 4 | **2 passed, 2 failed**, in 30.49 s. Both requested probes failed: archived handoff recovery left a queued message, and the remote archive left an active Swift sidebar entry. This is supplied host evidence, not a local rerun. |
+| Local baseline probes (two attempts before product edits) | 0 | Both exited 75 before pytest started: required shared lock occupied. |
+| Archive unit tests and both existing 60-example properties | 0 tests / 0 examples | Not run: shared lock. |
+| Archive/submit and archive/recovery transaction orders | 0 of 4 | Not run: shared lock. |
+| Exhaustive handoff/archive/submit enumeration | 0 of 80 cases / 0 of 400 steps | Not run: shared lock. Defined cases cover both fence variants and all valid total orders. |
+| Existing handoff, handoff briefs and dispatch-race files, including the new unarchive/retry case | 0 | Not run: shared lock. |
+| Test-module basename check | 0 | Not run: shared lock. The reviewer file is copied verbatim under `tests/unit/test_review_pr189_r1.py`. |
+| Head reviewer probes | 0 | Not run: shared lock; no head pass or failure count can be claimed. |
+| Swift core triage/protocol tests and reviewer probe | 0 | One head core-suite attempt exited 75 before pytest or Swift compilation started. |
+| Guard-removal mutation | 0 | Removed only the new `restore_after_handoff` archive guard for a bounded foreground attempt. The lock command exited 75 before pytest started. The exact original source was restored in `finally` and verified present; no mutant is committed. |
+| `app/build.sh --dev build/fix1-dev` | 1 attempt, 0 completed builds | Timed out after 540 s, without diagnostics; `run_swift` killed the task-owned process group and reaped its direct child. Staging directories and its private temporary directory were removed with Python. No app bundle or compiler runner remains. No retry. |
+| `uv sync --locked` | 1 | Passed; dependencies installed only in this workspace. |
+| Python AST parsing of changed product/test Python files and the copied probes | 7 files | Passed. |
+| `sh -n app/build.sh` | 1 | Passed. |
+| `git diff --check` | 1 | Passed. |
+
+**Local pytest total: 0 executed.** Seven foreground shared-lock attempts were made: two baseline, one P1 suite, one head Python suite, one head core suite, one mutation, and one final Python suite. Six used a 45-second acquisition timeout; the final attempt allowed 120 seconds. All exited 75 before acquiring the lock, so no hold ran and no tests ran. Each had its own `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-r189f1-<slice>-$$/`, cleaned with the requested Python `shutil.rmtree` command. No runner was detached or left running, and no lock was broken, replaced or bypassed.
+
+The Python suites requested `tests/unit/test_conversation_archive.py`, `test_conversation_archive_properties.py`, `test_conversation_archive_transactions.py`, `test_conversation_handoff.py`, `test_conversation_handoff_briefs.py`, `test_conversation_handoff_dispatch_races.py`, `test_test_module_names.py`, and the copied reviewer file (excluding its Swift remote-archive case in the Python slices). The head core attempt requested `tests/frontend/test_core_triage.py`, `test_core_protocol.py`, and all four copied reviewer probes in one process.
+
+The mutation attempt selected the full transaction/enumeration file, `test_archived_handoff_recovery_keeps_the_message_until_unarchive`, and `test_handoff_retry_cannot_requeue_a_message_in_an_archived_source`. Those tests are intended to detect removal of the guard, including archive-first recovery on separate connections and unfenced failure/archive/recovery orders. **Which tests actually fail under the mutation is unverified**, because pytest never started. The hub must run the head suites and mutation on the host to establish passing head probes, executed enumeration cases and observed mutant failures.
+
+The full repository suite and visual screenshots were not run. No local baseline failure or head pass is inferred from static inspection. The build timeout is not evidence of a source-level compiler failure.
+
+
+### Round 1 commits
+
+- `ab3f926fe` — retain the reviewer probes verbatim.
+- `746d491c9` — transactional archive/recovery refusal, contract, exhaustive and two-connection cases, real unarchive/retry test.
+- `01726d1b8` — current archive state on the feed, Swift fold/list refresh, core regression test and contract.
+- `af7e748c9` — reuse compiler cleanup for bounded app builds.
+
+Only named source, test, contract and report files are committed. Build artifacts, dependency caches, temporary data and evidence logs are ignored and unstaged. No sub-agents, live stores, app windows, shared metadata writes, history rewrites, newer #181 merges or remote operations were used.
+
+The sections below retain the earlier implementation and validation record through `b3b5f56e269b`; their earlier unrun counts are separate from this fix round.
 
 ## What the inventory said, checked against the code
 
