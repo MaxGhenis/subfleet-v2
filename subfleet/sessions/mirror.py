@@ -81,6 +81,23 @@ intact:
 * The transcript's last `custom-title` record is the newest intended name,
   account-agnostic and append-only, so it survives an index write the app skipped.
 
+Two rules date from 2026-10-10, when Max opened a six-week-old fork of a
+session for the session itself (`docs/reports/2026-10-10-mirror-stale-dates.md`):
+
+* `lastActivityAt`, the date a row shows, is written by the app only in the
+  folder where the session runs, and every other copy kept the date it was
+  copied with. That day 663 of the 999 unarchived rows in the loaded folder
+  showed a date more than an hour older than their session's newest copy,
+  the furthest by 61 days. The flag publish now raises a copy more than
+  `sessions.mirror_activity_lag_s` behind (`activity_targets`). The date
+  needs no merge base: a later one always wins, so the app's re-save of an
+  older date lowers one copy until the next pass and reaches no other.
+* A record's name is the app's id for a session, and one name can hold one
+  conversation in some folders and another in the rest (12 names that day;
+  how each came to be was not established). Both transcripts exist, so each
+  gets a row in every folder, with one title. The full pass reports those
+  ids (`_split_report`) and changes nothing about them.
+
 What v2 changes is only where state lives and how health is judged.
 
 The merge base moves out of `~/.claude/cc-mirror-state.json` and into the state
@@ -113,7 +130,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 from . import transcripts
 from .desktop import AppState, DesktopLog
@@ -188,6 +205,115 @@ PROJECTED = ("sessionId", "cliSessionId", "isArchived", "isStarred", "title",
 FLAG_FIELDS = ("cliSessionId", "isArchived", "isStarred", "title", "titleSource",
                "sessionSettings")
 FLAG_WRITES = ("isArchived", "isStarred", "title", "titleSource", "sessionSettings")
+#: The date a sidebar row shows. The app writes it only in the folder where the
+#: session runs, so every other folder's copy kept the date it was copied with
+#: (the 2026-10-10 report). The publish raises it and never lowers it; see
+#: `activity_targets`.
+ACTIVITY_FIELD = "lastActivityAt"
+#: `sessions.mirror_activity_lag_s`: how far behind its session's newest copy a
+#: copy's date may fall before the mirror raises it. Zero switches the sync off.
+#: Not every change: one raise rewrites the session's record in every other
+#: folder (133 files on 2026-10-10).
+DEFAULT_ACTIVITY_LAG_S = 3600.0
+#: How many sessions' dates one flag sync raises, furthest behind first. The
+#: publish has no cancellation point, so the backlog a first pass finds (750
+#: sessions and 94,383 copies on 2026-10-10) must not become one publish; the
+#: rest wait for the next pass and are counted in `activity_waiting`. Ten
+#: sessions are about 1,300 writes, 0.4 s at the 0.30 ms measured for one.
+ACTIVITY_SESSIONS_PER_PASS = 10
+#: A date more than this past the pass's own clock is no voice. The app writes
+#: its clock's now, so a later date is a bad record, and a raise is never
+#: undone: raised from, a bad date would sit in every folder and be raised
+#: again from each. The date sync therefore never spreads one. `_rank` still
+#: takes it for the latest when a new folder needs a record to copy, as it did
+#: before the sync existed.
+ACTIVITY_FUTURE_S = 300.0
+#: How many split ids the full pass's report lists by name.
+SPLIT_REPORT_LIMIT = 10
+
+
+#: Beyond JavaScript's safe integers a number is not a date the app wrote, and
+#: one millisecond before it is no longer a different number.
+SAFE_MS = 2 ** 53
+
+
+def _instant_ms(value: Any) -> bool:
+    """A date as the app writes it: a number within JavaScript's safe integers
+    (every one of the 410,585 records read on 2026-10-10 held an integer of
+    milliseconds). Compared, never converted: an integer of any size must not
+    raise here, and NaN and the infinities compare false."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return -SAFE_MS < value < SAFE_MS
+
+
+def activity_targets(values: Sequence[Any], lag_ms: float) -> dict[int, Any]:
+    """Which copies of one session get a later `lastActivityAt`: `{index: value}`.
+
+    `values` holds each copy's date as the pass read it. A copy more than
+    `lag_ms` behind the newest one is raised to one millisecond before the
+    newest. One millisecond short, so that the copy the app last ran the
+    session in stays the only newest one: `_rank` picks the record a new
+    folder is copied from by this date, and that copy alone holds the model
+    and folder the session last ran with. So the function never returns a
+    value at or above the newest it was given, never one below the copy's
+    own, and nothing once every copy is within `lag_ms`, for any numbers at
+    all. A copy whose date is not a number within JavaScript's safe integers
+    is no voice and is never written; `sync_flags` passes a date from the
+    future, or one not above zero, as None for the same treatment.
+    """
+    known = [value for value in values if _instant_ms(value)]
+    if not known or lag_ms <= 0:
+        return {}
+    newest = max(known)
+    lag = max(float(lag_ms), 1.0)       # a raise must move the copy: newest - 1 > its date
+    goal = newest - 1
+    # The last test is the promise itself. For integers it never decides: one
+    # before the newest is exact. For a negative float just above a power of
+    # two it does: `newest - 1` rounds onto the copy's own date there, and
+    # without the test the copy would be "raised" to itself on every pass
+    # (second review of #167; the dates a pass passes in are positive).
+    return {index: goal for index, value in enumerate(values)
+            if _instant_ms(value) and newest - value > lag and value < goal < newest}
+
+
+def take_turns(behind: dict[str, Any], since: dict[str, int], turn: int,
+               bound: int) -> list[str]:
+    """Which of the sessions `behind` one flag sync raises, at most `bound`.
+
+    `behind` is `<session> -> how far its stalest copy trails`. First come,
+    first served. `since` says when each started waiting: twice the number of
+    the sync that first saw it behind. A session a sync takes goes to the
+    back, with twice that sync's number plus one, behind every session that
+    was already waiting and before any that arrives later; whether its raise
+    was then published does not matter. Sessions that started waiting
+    together go furthest behind first. `since` is updated in place.
+
+    So a session waits only for those that were waiting before it: with `r`
+    of them, it is taken within `r // bound + 1` syncs that consider it,
+    whatever arrives, fails or succeeds meanwhile. Three rounds of review
+    found a schedule that starved a session under each rule that looked at
+    outcomes (furthest behind first; yield after a failure; count failures).
+    """
+    for identity in behind:
+        since.setdefault(identity, 2 * turn)
+    taken = sorted(behind, key=lambda identity: (since[identity], -behind[identity],
+                                                 identity))[:bound]
+    for identity in taken:
+        since[identity] = 2 * turn + 1
+    return taken
+
+
+class _Turns:
+    """Whose date is raised next: the sync count and `take_turns`' `since`.
+
+    One for the process. The hot pass a full pass runs at its checkpoints
+    shares its parent's, as it shares the journal."""
+
+    def __init__(self) -> None:
+        self.turn = 0
+        self.since: dict[str, int] = {}
+
 
 class _Cancelled(Exception):
     pass
@@ -424,6 +550,23 @@ def _remove_leftovers(paths: Iterable[str]) -> None:
             pass
 
 
+def _no_transcript(exc: OSError) -> bool:
+    """The error says there is no transcript here that anyone could open: it
+    is gone, or the app, which runs as the same user and opens the same path,
+    is refused as the mirror is. Anything else may pass, and leaves the entry
+    unknown."""
+    return isinstance(exc, FileNotFoundError) or _permanent(exc)
+
+
+def _regular(path: str | Path) -> bool | None:
+    """Whether `path` is a regular file, following links: None when a failure
+    that may pass (EMFILE, EIO) leaves it unknown."""
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except OSError as exc:
+        return False if _no_transcript(exc) else None
+
+
 def _stat_signature(info: os.stat_result) -> tuple[int, ...]:
     return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
 
@@ -566,24 +709,32 @@ class Pass:
     flags_held: int = 0
     #: Why, for the first few: `{"path", "reason"}`.
     held_by: list[dict[str, str]] | None = None
+    #: Sessions whose stale copies this pass decided to give a later date.
+    activity_synced: int = 0
+    #: Sessions with a stale copy that `ACTIVITY_SESSIONS_PER_PASS` left for a later pass.
+    activity_waiting: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
             "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned",
-            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by")}
+            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by",
+            "activity_synced", "activity_waiting")}
 
     @property
     def changed(self) -> bool:
         return any((self.added, self.repaired, self.revived, self.pruned,
-                    self.flag_synced, self.retitled, self.transcript_retitled))
+                    self.flag_synced, self.retitled, self.transcript_retitled,
+                    self.activity_synced))
 
     @property
     def summary(self) -> str:
         return (f"added {self.added}, repaired {self.repaired}, revived {self.revived}, "
                 f"pruned {self.pruned}, flag-synced {self.flag_synced}, "
                 f"retitled {self.retitled}, t-retitled {self.transcript_retitled}"
+                + (f", dates raised {self.activity_synced}" if self.activity_synced else "")
+                + (f", dates waiting {self.activity_waiting}" if self.activity_waiting else "")
                 + (f", flags held {self.flags_held}" if self.flags_held else ""))
 
 
@@ -599,6 +750,8 @@ class Options:
     restore: bool = True
     archive: str = ""
     ultracode_default: bool = True
+    #: Seconds a copy's `lastActivityAt` may trail its session's newest; 0 is off.
+    activity_lag_s: float = DEFAULT_ACTIVITY_LAG_S
 
 
 def load_config(path: Path | None = None) -> dict[str, Any]:
@@ -620,7 +773,8 @@ def options_from(policy: dict[str, Any], **overrides: Any) -> Options:
     settings = policy.get("sessions", {})
     config = load_config()
     values: dict[str, Any] = {
-        "ultracode_default": bool(settings.get("mirror_ultracode_default", True))}
+        "ultracode_default": bool(settings.get("mirror_ultracode_default", True)),
+        "activity_lag_s": float(settings.get("mirror_activity_lag_s", DEFAULT_ACTIVITY_LAG_S))}
     if isinstance(config.get("dead_home"), str):
         values["dead_home"] = config["dead_home"]
     if isinstance(config.get("archive"), str):
@@ -785,6 +939,14 @@ class Mirror:
         #: A published flag decision or copy write left standing this hot pass.
         self._flags_moved = False
         self._flags_active = False
+        #: The split-id report of the inventory the running pass took, until
+        #: that pass records it. Never kept: a process that wrote a report it
+        #: took earlier could put it over a later one of another process's.
+        self._splits: dict[str, Any] | None = None
+        #: The queue for the bound on date raises (`take_turns`).
+        self._activity_turns = _Turns()
+        #: The last transcript discovery listed every project directory.
+        self._stems_whole = True
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -924,6 +1086,7 @@ class Mirror:
         worker._account_orgs = dict(self._account_orgs)
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
+        worker._activity_turns = self._activity_turns      # shared, as the journal is
         worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
@@ -971,7 +1134,7 @@ class Mirror:
             return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
         previous = self.sidecar()
-        value = {key: previous[key] for key in ("hot", "load_gap") if key in previous}
+        value = {key: previous[key] for key in ("hot", "load_gap", "splits") if key in previous}
         value.update({
             "pass": current.to_dict(),
             "last_ok_at": last_ok or previous.get("last_ok_at"),
@@ -980,7 +1143,15 @@ class Mirror:
         })
         if load_gap is not None:
             value["load_gap"] = load_gap
+        pending = self._splits
+        if pending is not None:
+            # Recorded once, by the pass that took the inventory, inside its
+            # lock: passes are ordered by that lock, so the latest report is
+            # the last one written, whatever any clock says.
+            value["splits"] = pending
         _write_json(self.sidecar_path, value)
+        if pending is not None:
+            self._splits = None                 # only once it is on disk
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
         """The hot pass's own block; never the heartbeat C-23.28 judges by."""
@@ -1106,11 +1277,18 @@ class Mirror:
         """
         stems: dict[str, Path] = {}
         base = projects_dir()
+        # `_stems_whole` is False when something here could not be looked at:
+        # what it hid is unknown, not absent. A directory that will not list
+        # is unknown whatever the cause, since a transcript is opened by its
+        # name, not found by a listing. Only one entry that the app could not
+        # open either (`_regular`) is known to be no transcript.
+        self._stems_whole = True
         try:
             with os.scandir(base) as listing:
                 directories = sorted(item.path for item in listing
                                      if item.is_dir(follow_symlinks=False))
-        except OSError:
+        except OSError as exc:
+            self._stems_whole = isinstance(exc, FileNotFoundError)
             return stems
         seen = set()
         for directory in directories:
@@ -1119,29 +1297,58 @@ class Mirror:
             seen.add(directory)
             try:
                 mtime = os.stat(directory).st_mtime_ns
-            except OSError:
+            except OSError as exc:
+                if not isinstance(exc, FileNotFoundError):
+                    self._stems_whole = False
                 continue
             cached = self._stem_dirs.get(directory)
             if sweep or cached is None or cached[0] != mtime:
-                found, links, leftovers = {}, set(), []
+                found, links, leftovers, unsure = {}, set(), [], False
                 try:
                     with os.scandir(directory) as listing:
                         for item in listing:
-                            if item.name.endswith(".jsonl") and item.is_file():
-                                found[item.name[:-6]] = Path(item.path)
-                                if item.is_symlink():
-                                    links.add(item.name[:-6])
+                            if item.name.endswith(".jsonl"):
+                                # One entry at a time: a link whose target may
+                                # not be read made `is_file` raise, and the
+                                # whole directory's transcripts were dropped
+                                # with it (third review of #167).
+                                try:
+                                    regular, link = item.is_file(), item.is_symlink()
+                                except OSError as exc:
+                                    unsure = unsure or not _no_transcript(exc)
+                                    continue
+                                if regular:
+                                    found[item.name[:-6]] = Path(item.path)
+                                    if link:
+                                        links.add(item.name[:-6])
                             elif sweep and item.name.endswith(".tmp-revive"):
                                 leftovers.append(item.path)
-                except OSError:
-                    found, links = {}, set()
+                except OSError as exc:
+                    # Never kept as an empty listing: the directory's mtime has
+                    # not moved, so a kept one would hide its transcripts until
+                    # the next sweep. The last good listing, if any, stands.
+                    if not isinstance(exc, FileNotFoundError):
+                        self._stems_whole = False
+                    continue
                 _remove_leftovers(leftovers)
-                self._stem_dirs[directory] = (mtime, found, frozenset(links))
+                if unsure:
+                    self._stems_whole = False
+                    self._stem_dirs.pop(directory, None)     # look again next pass
+                else:
+                    self._stem_dirs[directory] = (mtime, found, frozenset(links))
                 stems.update(found)
                 continue
             listed, links = cached[1], cached[2]
-            stems.update(listed if not links else
-                         {stem: path for stem, path in listed.items() if stem not in links or path.is_file()})
+            for stem, path in listed.items():
+                if stem in links:
+                    # `Path.is_file` answers False for any error at all; a link
+                    # that cannot be looked at just now is unknown.
+                    regular = _regular(path)
+                    if regular is None:
+                        self._stems_whole = False
+                    if not regular:
+                        continue
+                stems[stem] = path
         for directory in list(self._stem_dirs):
             if directory not in seen:
                 del self._stem_dirs[directory]
@@ -1312,18 +1519,25 @@ class Mirror:
     # --- writes into the store -----------------------------------------------
 
     def _journal_write(self, destination: Path, inode: int | None, identity: str,
-                       data: dict, kind: str) -> None:
-        """Journal a write, unless the app replaced the file before we looked."""
+                       data: dict, kind: str, *, flags: bool = True) -> None:
+        """Journal a write, unless the app replaced the file before we looked.
+
+        `flags` is False for an update that changed only the date. It leaves
+        every field a flag decision reads as it was, so it does not invalidate
+        the full pass's refresh: if it did, an app re-saving one old date could
+        hold every session's flags pass after pass (review of #167).
+        """
+        moved = kind == "updated" and flags
         try:
             info = os.stat(destination)
         except OSError:
             # A failed observation cannot prove the write no longer stands.
-            if kind == "updated":
+            if moved:
                 self._flags_moved = True
             return
         if inode is not None and info.st_ino != inode:
             return
-        if kind == "updated":
+        if moved:
             # Includes a write left standing when its put-back failed; an app
             # replacement rejected above is not one of our surviving writes.
             self._flags_moved = True
@@ -1618,6 +1832,23 @@ class Mirror:
         (the loaded one, or one where an earlier account's session still runs)
         can write back a value the mirror changed there, and the merge base
         reads that re-save as a user's change. See the 2026-09-24 report.
+
+        The same publish raises `lastActivityAt` on a copy that trails its
+        session's newest by more than `options.activity_lag_s`
+        (`activity_targets`), unless the session's flag decision is archived.
+        The raises are in the session's batch, so they are written or put
+        back with it. Two things differ from a flag. The date is not in the
+        merge base. And the pre-check does not hold a session whose date
+        moved: the write keeps the later of what the copy holds and what the
+        pass decided, and a copy that needs nothing after that is not
+        written. A sync raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions,
+        first come first served (`take_turns`). A date
+        more than `ACTIVITY_FUTURE_S` past this pass's clock, or not above
+        zero, is no voice: it is not raised and it is never the newest. A
+        write that changed only a date does not invalidate the full pass's
+        refresh (`_journal_write`).
+        The date's protocol is docs/formal/MirrorActivity.tla, with its twin
+        in tests/mirror_activity_model.py.
         """
         base_all = _load(self.flags_path)
         groups: dict[str, list[tuple[Path, str, dict]]] = {}
@@ -1643,6 +1874,12 @@ class Mirror:
         dirty: set[tuple[Path, str]] = set()
         originals: dict[tuple[Path, str], dict] = {}
         owners: dict[tuple[Path, str], str] = {}
+        lag_ms = options.activity_lag_s * 1000.0 if options.activity_lag_s > 0 else 0.0
+        horizon_ms = (self.now().timestamp() + ACTIVITY_FUTURE_S) * 1000.0
+        #: The sessions this sync decided, as against those it held undecided.
+        reached: set[str] = set()
+        #: `(how far its stalest copy trails, session, [(folder, name, date)])`.
+        lagging: list[tuple[Any, str, list[tuple[Path, str, Any]]]] = []
 
         def writable(path: Path, name: str) -> dict:
             # Cached/interned snapshots are shared across accounts and passes.
@@ -1755,6 +1992,21 @@ class Mirror:
                 title = anchor
                 current.transcript_retitled += 1
 
+            # The date each row shows. A session archived everywhere is in no
+            # sidebar list, so its copies' dates are left as they are.
+            reached.add(identity)
+            if lag_ms and not base["isArchived"]:
+                # A date from the future is no voice (`ACTIVITY_FUTURE_S`), nor
+                # is zero or less, which the app takes for no date.
+                dates = [value if _instant_ms(value) and 0 < value <= horizon_ms else None
+                         for value in (data.get(ACTIVITY_FIELD) for _p, _n, data in copies)]
+                raises = activity_targets(dates, lag_ms)
+                if raises:
+                    newest = max(value for value in dates if _instant_ms(value))
+                    lagging.append((newest - min(dates[index] for index in raises), identity,
+                                    [(copies[index][0], copies[index][1], value)
+                                     for index, value in raises.items()]))
+
             record = {"isArchived": base["isArchived"], "isStarred": base["isStarred"]}
             if title is not None:
                 record["title"] = title
@@ -1763,6 +2015,31 @@ class Mirror:
             if stamp is not None:
                 record["tmt"] = stamp
             fresh[identity] = record
+
+        # The dates join the same publish, a bounded number of sessions a sync
+        # (`ACTIVITY_SESSIONS_PER_PASS`), first come first served (`take_turns`).
+        turns = self._activity_turns
+        behind = {identity: lag for lag, identity, _targets in lagging}
+        since = turns.since
+        if options.dry_run:
+            since = dict(since)                 # a preview takes no one's turn
+        else:
+            turns.turn += 1
+            # A session that needs no raise any more, or is gone, stops waiting,
+            # and starts again from the back if it falls behind later. Only one
+            # this sync decided: a session held before its decision (a copy
+            # that could not be read) is not known to need none, and dropping
+            # it put it first again (third review of #167).
+            for identity in [key for key in since if key not in behind and (
+                    key in reached or (complete and key not in groups))]:
+                del since[identity]
+        taken = set(take_turns(behind, since, turns.turn, ACTIVITY_SESSIONS_PER_PASS))
+        for _lag, identity, targets in lagging:
+            if identity in taken:
+                for path, name, value in targets:
+                    writable(path, name)[ACTIVITY_FIELD] = value
+                current.activity_synced += 1
+        current.activity_waiting += len(lagging) - len(taken)
 
         if not options.dry_run:
             # Once writes start, finish the matching merge base. Cancellation
@@ -1794,10 +2071,23 @@ class Mirror:
                     for key in FLAG_WRITES:
                         if key in resolved:
                             body[key] = resolved[key]
-                    ready.append((target, body, before, resolved, expect))
+                    raised = resolved.get(ACTIVITY_FIELD)
+                    if raised != original.get(ACTIVITY_FIELD):
+                        # Never lowered: the app may have saved a later date
+                        # here since the pass read this copy, and that date is
+                        # not among the fields whose change holds the session.
+                        # And never over what is no date now, as at the decision.
+                        held_now = body.get(ACTIVITY_FIELD)
+                        if _instant_ms(held_now) and 0 < held_now < raised:
+                            body[ACTIVITY_FIELD] = raised
+                    if body == before:
+                        continue                # the app's own save already carries it
+                    flagged = any(body.get(key) != before.get(key) for key in FLAG_WRITES)
+                    ready.append((target, body, before, flagged, expect))
                 else:
-                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...]]] = []
-                    for target, body, before, resolved, expect in ready:
+                    written: list[tuple[Path, dict, int, tuple[int, ...], tuple[int, ...],
+                                        bool]] = []
+                    for target, body, before, flagged, expect in ready:
                         try:
                             self._forget(target)
                             inode = _write_json(target, body, keep_mtime=True, expect=expect,
@@ -1809,7 +2099,8 @@ class Mirror:
                             # check. Put back the copies already written, so the
                             # held merge base matches every file again (a copy
                             # changed since the mirror's write is left alone).
-                            for done, old, done_inode, done_expect, was in reversed(written):
+                            for (done, old, done_inode, done_expect, was,
+                                 done_flagged) in reversed(written):
                                 try:
                                     self._forget(done)
                                     back = _write_json(done, old, keep_mtime=True,
@@ -1818,7 +2109,7 @@ class Mirror:
                                     # The mirror's write stands: journal it.
                                     self._journal_write(done, done_inode, identity,
                                                         folder_files[done.parent][done.name],
-                                                        "updated")
+                                                        "updated", flags=done_flagged)
                                     continue
                                 if back is not None:
                                     self._journal_restamp(done, was, back)
@@ -1831,13 +2122,16 @@ class Mirror:
                             # This successful write cannot enter the rollback
                             # list without its signature. It may survive a later
                             # failed copy, even though no journal call sees it.
-                            self._flags_moved = True
+                            if flagged:
+                                self._flags_moved = True
                         if now_signature is not None and now_signature[1] == inode:
-                            written.append((target, before, inode, now_signature, expect))
+                            written.append((target, before, inode, now_signature, expect,
+                                            flagged))
                     else:
-                        for target, _before, inode, _signature, _was in written:
+                        for target, _before, inode, _signature, _was, was_flagged in written:
                             self._journal_write(target, inode, identity,
-                                                folder_files[target.parent][target.name], "updated")
+                                                folder_files[target.parent][target.name],
+                                                "updated", flags=was_flagged)
                     continue
                 held.add(identity)
             for identity in held:
@@ -1893,6 +2187,7 @@ class Mirror:
                 current.error = "another pass holds the lock"
                 return current           # deliberately without touching the sidecar
             self.journal.refresh()
+            self._splits = None                 # a dry run's, or a pass's that never recorded
             self._record(current)
             self._pass_payloads = {}
             self._progress_due = time.monotonic() + PROGRESS_INTERVAL_S
@@ -2015,6 +2310,8 @@ class Mirror:
         if not folders and not kept and not failed:
             self._drop_folders(folders)
             self._inventoried = True            # an empty store is a complete inventory
+            self._splits = self._split_report({}, set(), {})
+            self._activity_turns.since.clear()  # and no session is left waiting
             return
         sweep = self._sweep_due()
         current.swept = sweep
@@ -2070,16 +2367,30 @@ class Mirror:
             return bool(identity) and identity in stems
 
         canonical: dict[str, tuple[Any, dict, str, Path]] = {}
+        #: `<record name> -> {conversation: the folders that hold it under that name}`.
+        bound: dict[str, dict[str, int]] = {}
+        shown: set[str] = set()                 # conversations with an unarchived copy
         for path, files in folder_files.items():
             for name, data in files.items():
                 self._checkpoint(current)
                 if not resolvable(data):
                     continue
                 identity = data["cliSessionId"]
+                holders = bound.setdefault(name, {})
+                holders[identity] = holders.get(identity, 0) + 1
+                if not data.get("isArchived"):
+                    shown.add(identity)
                 score = _rank(data)
                 if identity not in canonical or score > canonical[identity][0]:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
+        if self._stems_whole and not (unlisted or unknown or failed or self._unread):
+            # Only from every folder, every copy and every project directory: a
+            # folder that did not list this pass may hold the other half of a
+            # split, and a transcript the pass could not see makes its
+            # conversation look dead. A report without them would read as
+            # clean. The last whole report stands until then.
+            self._splits = self._split_report(bound, shown, canonical)
         # A new record this pass read before its transcript existed is no
         # longer fresh to the hot pass, so hand it over to the hot pass's retry.
         # Only records written within the retry window: to a cold pass every
@@ -2158,6 +2469,53 @@ class Mirror:
         self._stems = stems
         if sweep:
             self._last_sweep = time.monotonic()
+
+    def _split_report(self, bound: dict[str, dict[str, int]], shown: set[str],
+                      canonical: dict[str, tuple[Any, dict, str, Path]]) -> dict[str, Any]:
+        """The session ids that open different conversations under different logins.
+
+        A record's name is the app's id for a session. When the records of one
+        name hold one conversation in some folders and another in the rest,
+        and both transcripts exist, `_spread` gives each a row in every
+        folder, the second under a `local_<conversation>.json` name, with the
+        same title. `live` counts the ids of which two or more conversations
+        still have an unarchived copy: two rows a person can confuse. Counted
+        from this pass's inventory, before its flag sync, only from a whole
+        one, and recorded once, by this pass (`_pass`, `_record`). How a name
+        comes to hold two conversations is not this report's to say; it lists
+        what the store holds.
+        """
+        rows = []
+        for name, holders in bound.items():
+            if len(holders) < 2:
+                continue
+            conversations = []
+            for identity, folders in holders.items():
+                data = canonical[identity][1]
+                date = data.get(ACTIVITY_FIELD)
+                conversations.append({
+                    "id": identity, "folders": folders,
+                    "title": str(data.get("title") or ""),
+                    "archived": identity not in shown,
+                    "last_activity": (_iso(datetime.fromtimestamp(date / 1000, timezone.utc))
+                                      if _instant_ms(date) and 0 <= date < 1e14 else None)})
+            conversations.sort(key=lambda item: (item["last_activity"] or "", item["id"]),
+                               reverse=True)
+            rows.append({"name": name, "conversations": conversations,
+                         "live": sum(1 for item in conversations if not item["archived"]) > 1})
+        # Live ones first, each group newest first; the rest fill what room is left.
+        rows.sort(key=lambda row: (row["conversations"][0]["last_activity"] or "", row["name"]),
+                  reverse=True)
+        rows.sort(key=lambda row: not row["live"])
+        return {"count": len(rows), "live": sum(1 for row in rows if row["live"]),
+                "checked_at": _iso(self.now()), "sessions": rows[:SPLIT_REPORT_LIMIT]}
+
+    def splits(self) -> dict[str, Any]:
+        """The last full pass's split-id report, from the sidecar; read-only."""
+        value = self.sidecar().get("splits")
+        if not isinstance(value, dict):
+            return {"count": 0, "live": 0, "checked_at": None, "sessions": []}
+        return value
 
     def _flag_inventory(self, current: Pass, options: Options):
         """Refresh a full flag snapshot after embedded hot writes."""
@@ -2564,10 +2922,18 @@ def load_gap(root: str | Path, policy: dict[str, Any] | None = None) -> dict[str
     return Mirror(root, policy).load_gap()
 
 
+def splits(root: str | Path, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The session ids that open two conversations; read-only (`doctor`, `--status`)."""
+    return Mirror(root, policy).splits()
+
+
 def run_once(root: str | Path, policy: dict[str, Any] | None = None,
              options: Options | None = None, *, now=None) -> Pass:
     return Mirror(root, policy, now=now).run_once(options)
 
 
-__all__ = ["DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
-           "health", "load_gap", "options_from", "run_once", "slug", "store_dir"]
+__all__ = ["ACTIVITY_FIELD", "ACTIVITY_FUTURE_S", "ACTIVITY_SESSIONS_PER_PASS",
+           "DEFAULT_ACTIVITY_LAG_S", "SAFE_MS", "take_turns",
+           "DEFAULT_HANG_MIN", "DEFAULT_STALL_MIN", "Mirror", "Options", "Pass",
+           "activity_targets", "health", "load_gap", "options_from", "run_once", "slug",
+           "splits", "store_dir"]
