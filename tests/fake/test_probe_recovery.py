@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import daemon as daemon_module, procs
 from subfleet.contracts import Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
@@ -106,7 +108,7 @@ def test_c5_probe_quarantine_keeps_lease_and_never_signals_unowned_escape(routin
     def forbidden(*args, **kwargs):
         raise AssertionError("an unowned process must not be signalled")
     monkeypatch.setattr(procs, "signal_group", forbidden)
-    monkeypatch.setattr(procs, "signal_process", forbidden)
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(forbidden))
     service._recover_probes()
     assert service.store.list_leases(record["holder"])
     assert service.store.get_job(job_id)["wait_reason"] == "uncertain"

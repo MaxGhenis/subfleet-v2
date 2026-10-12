@@ -5,6 +5,8 @@ import json
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import procs
 from tests.fake.test_review_pr131_probes import BOOT, script_table
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
@@ -138,8 +140,8 @@ def test_foreign_exclusion_keeps_owned_writers_and_never_signals_parent(state_da
     signals = []
     monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kwargs:
                         signals.append(("group", pgid)) or True)
-    monkeypatch.setattr(procs, "signal_process", lambda identity, sig, **kwargs:
-                        signals.append(("pid", identity.pid)) or True)
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(lambda identity, sig, **kwargs:
+                        signals.append(("pid", identity.pid)) or True))
     daemon.term_grace_s = daemon.kill_settle_s = 0
     before = {lease["lease_key"] for lease in daemon.store.list_leases()
               if lease["holder"] in {child["job_id"], child["attempt_id"]}}

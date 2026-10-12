@@ -14,6 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import daemon as daemon_module
 from subfleet.contracts import (
     Attestation, AttestationResult, Credential, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -77,7 +79,7 @@ def daemon(tmp_path, monkeypatch):
     # No real process is signalled or inspected: the leader is gone, signals succeed.
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
     monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
-    monkeypatch.setattr(daemon_module.procs, "signal_process", lambda *args, **kwargs: True)
+    monkeypatch.setattr(daemon_module.procs, "signal_process", authorized_signal_stub(lambda *args, **kwargs: True))
     yield core
     core.store.close()
 

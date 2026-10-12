@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import procs
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import BOOT, script_table
@@ -16,7 +18,7 @@ def forbid_signals(monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("retained census evidence cannot authorize signals")
     monkeypatch.setattr(procs, "signal_group", refuse)
-    monkeypatch.setattr(procs, "signal_process", refuse)
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(refuse))
 
 
 def capture_failed_group(monkeypatch, daemon, harness, clock, operator, source):

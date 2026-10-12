@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import procs
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import BOOT, script_table
@@ -40,7 +42,7 @@ def test_failed_confirmation_group_holds_until_verified_empty_without_signals(
         raise AssertionError("conservative census evidence must never authorize signals")
 
     monkeypatch.setattr(procs, "signal_group", refuse_signal)
-    monkeypatch.setattr(procs, "signal_process", refuse_signal)
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(refuse_signal))
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
     assert actual["state"] == "quarantined" and leases

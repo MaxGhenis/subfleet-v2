@@ -39,6 +39,8 @@ from types import SimpleNamespace
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import daemon as daemon_module
 from subfleet.contracts import Credential, Lane, LaneOwner, attempt_dir
 from subfleet.daemon import DEFERRED, LIVE_ATTEMPTS, Daemon, worker_retry_delay
@@ -57,7 +59,7 @@ def world(tmp_path, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
-    monkeypatch.setattr(daemon_module.procs, "signal_process", lambda *args, **kwargs: True)
+    monkeypatch.setattr(daemon_module.procs, "signal_process", authorized_signal_stub(lambda *args, **kwargs: True))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
     root = tmp_path / "state"
     root.mkdir()

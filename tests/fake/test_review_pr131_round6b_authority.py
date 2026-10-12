@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import procs
 from tests.fake.test_quarantine_detached_writers import running
 from tests.fake.test_review_pr131_probes import BOOT, script_table
@@ -58,7 +60,7 @@ def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
     monkeypatch.setattr(procs, "same_process", lambda pid, *args, **kwargs: pid in {100, 200})
     signalled_groups, signalled_members = [], []
     monkeypatch.setattr(procs, "signal_group", lambda group, *args, **kwargs: signalled_groups.append(group))
-    monkeypatch.setattr(procs, "signal_process", lambda ident, *args, **kwargs: signalled_members.append(ident.pid))
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(lambda ident, *args, **kwargs: signalled_members.append(ident.pid)))
     daemon.term_grace_s = daemon.kill_settle_s = 0
     if consumer == "probe":
         assert not daemon._contain_probe(record)

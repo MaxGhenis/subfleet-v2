@@ -8,6 +8,8 @@ import json
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import daemon as dm, procs
 from subfleet.disk import DiskAdmission, GB
 from tests.fake.test_admission_disk import enable, fake_clock, placed, stamp, submit
@@ -92,8 +94,8 @@ def test_kill_holds_colliding_writer_and_signals_only_unambiguous_identity(state
     sent = []
     monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kwargs:
                         sent.append(("group", pgid)) or False)
-    monkeypatch.setattr(procs, "signal_process", lambda known, sig, **kwargs:
-                        sent.append(("pid", known.pid)) or True)
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(lambda known, sig, **kwargs:
+                        sent.append(("pid", known.pid)) or True))
     daemon.term_grace_s = daemon.kill_settle_s = 0
     daemon._kill_attempt(ours)
     assert (("pid", 202) in sent) is not same_start, sent

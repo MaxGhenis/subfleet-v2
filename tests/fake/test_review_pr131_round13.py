@@ -12,6 +12,8 @@ import time
 
 import pytest
 
+from tests.signal_stubs import authorized_signal_stub
+
 from subfleet import daemon as dm, procs, protocol
 from subfleet.daemon import Daemon
 from tests.fake.test_review_pr131_probes import BOOT, NEXT_BOOT, script_table
@@ -179,7 +181,7 @@ def test_r13_finding_dead_lineage_roots_do_not_turn_a_long_successful_run_lost(s
 def _record_signals(monkeypatch):
     sent = []
     monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kw: sent.append(("group", pgid, int(sig))) or False)
-    monkeypatch.setattr(procs, "signal_process", lambda ident, sig, **kwargs: sent.append(("pid", ident.pid, int(sig))) or False)
+    monkeypatch.setattr(procs, "signal_process", authorized_signal_stub(lambda ident, sig, **kwargs: sent.append(("pid", ident.pid, int(sig))) or False))
     return sent
 
 
