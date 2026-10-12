@@ -2124,9 +2124,14 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
     roster_dir = Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)
                       if roster_dir is V1_ROSTER_DIR else roster_dir).expanduser()
     from .home_paths import provider_home
+    explicit_home = home is not None
     home = Path(home).expanduser() if home is not None else provider_home()
     if v1_reset_hold is None:
-        v1_reset_hold = os.environ.get("SUBFLEET_RESET_INHIBIT") or home / V1_RESET_HOLD
+        if explicit_home and not os.environ.get("SUBFLEET_RESET_INHIBIT"):
+            # An explicit provider home also explicitly locates its default hold.
+            v1_reset_hold = home / V1_RESET_HOLD
+        else:
+            v1_reset_hold = home_path("SUBFLEET_RESET_INHIBIT", lambda: home / V1_RESET_HOLD)
     v1_reset_hold = Path(v1_reset_hold).expanduser()
     now = now or utc_now()
     if _looks_like_v1_root(state_root):

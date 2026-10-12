@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 
 from . import folders, retention_fs as rfs
 from .adapters.base import AdapterError
+from .home_paths import home_path, under_pytest
 from .policy import DISK_DEFAULTS, push_settings
 
 TIMEOUT_S = 60
@@ -352,6 +353,10 @@ def _environment() -> dict[str, str]:
     # Only the host process's identity/credential locations survive. No lane
     # launch environment, GIT_* overrides, askpass, proxy, or Python variables.
     env = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK") if key in os.environ}
+    if under_pytest():
+        home, xdg = _credential_paths()
+        env.update(HOME=str(home), XDG_CONFIG_HOME=str(xdg))
+        env.pop("SSH_AUTH_SOCK", None)
     env.update(LC_ALL="C", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                GIT_TERMINAL_PROMPT="0", GIT_NO_REPLACE_OBJECTS="1")
     return env
@@ -499,10 +504,19 @@ class _Blobs:
             self.size = None
 
 
+def _credential_paths() -> tuple[Path, Path]:
+    """Separate test credential locations from removable HOME/XDG patches."""
+    home = Path(home_path("SUBFLEET_HOST_HOME", lambda: os.environ.get("HOME", "/nonexistent"),
+                          test_only=True))
+    xdg = Path(home_path("SUBFLEET_HOST_CONFIG",
+                         lambda: os.environ.get("XDG_CONFIG_HOME", str(home / ".config")),
+                         test_only=True))
+    return home, xdg
+
+
 def host_credentials(repo: Path) -> tuple[str, ...]:
     """Read direct host credential settings only, ignoring global includes."""
-    home = Path(os.environ.get("HOME", "/nonexistent"))
-    xdg = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
+    home, xdg = _credential_paths()
     settings = []
     for path in (xdg / "git/config", home / ".gitconfig"):
         if not path.is_file():

@@ -19,7 +19,7 @@ from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.claude_mcp import global_config_path
 from subfleet.guard.preflight import _state_root
 from subfleet.sessions import desktop, mirror, revive, transcripts
-from subfleet.home_paths import KEYCHAIN_READERS, PYTEST_MARKER, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
+from subfleet.home_paths import KEYCHAIN_READERS, PYTEST_MARKER, PYTEST_SESSION, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
 from tests.conftest import pytest_configure, pytest_unconfigure
 
 REPO = Path(__file__).resolve().parents[2]
@@ -54,6 +54,9 @@ RESOLVERS += [
         ("SUBFLEET_DELEGATE_STATE", importer.DELEGATE_STATE, "legacy-delegate"),
         ("SUBFLEET_V1_ROSTER_DIR", importer.V1_ROSTER_DIR, "legacy-roster"),
         ("SUBFLEET_V1_LAUNCH_AGENTS", lanes_transfer.LAUNCH_AGENTS, "legacy-agents"),
+        ("SUBFLEET_HOST_HOME", Path("/nonexistent"), "host-home"),
+        ("SUBFLEET_HOST_CONFIG", Path("/nonexistent"), "host-config"),
+        ("SUBFLEET_RESET_INHIBIT", Path("/nonexistent"), "reset-hold"),
     ]
 ]
 
@@ -412,6 +415,7 @@ def test_e2e_child_has_every_guard_variable(tmp_path, monkeypatch):
     harness = E2E(tmp_path)
     assert set(SAFE_HOME_PATHS) <= harness.env.keys()
     assert harness.env[PYTEST_MARKER] == "1"
+    assert harness.env[PYTEST_SESSION] == os.environ[PYTEST_SESSION]
     for name in SAFE_HOME_PATHS:
         assert Path(harness.env[name]).is_relative_to(tmp_path)
     source = '''
@@ -620,11 +624,11 @@ def test_doctor_default_plist_is_isolated(monkeypatch):
 
 
 @pytest.mark.parametrize("prior", ["missing", "empty", "configured"])
-def test_unconfigure_restores_environment_and_keeps_captured_child_isolated(tmp_path, monkeypatch, prior):
-    """Review's daemon_env snapshot remains a test child; new work uses fresh env."""
+def test_unconfigure_restores_environment_and_expires_captured_child(tmp_path, monkeypatch, prior):
+    """The review's copied daemon_env becomes ordinary after session cleanup."""
     from types import SimpleNamespace
     config = SimpleNamespace()
-    tracked = (PYTEST_MARKER, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+    tracked = (PYTEST_MARKER, PYTEST_SESSION, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     with monkeypatch.context() as phase:
         phase.delenv("PYTEST_CURRENT_TEST", raising=False)
         fake_home = tmp_path / "fake-home"
@@ -650,6 +654,7 @@ def test_unconfigure_restores_environment_and_keeps_captured_child_isolated(tmp_
         pytest_unconfigure(config)  # repeated cleanup must not restore a second time
         assert {name: os.environ.get(name) for name in tracked} == original
         assert captured[PYTEST_MARKER] == "1"
+        assert captured[PYTEST_SESSION] == str(base)
         assert all(name in captured for name in SAFE_HOME_PATHS)
         captured["PYTHONPATH"] = str(REPO)
         probe = '''
@@ -658,9 +663,10 @@ from pathlib import Path
 import os
 assert os.environ[home_paths.PYTEST_MARKER] == "1"
 assert not Path(os.environ["SUBFLEET_DESKTOP_LOGIN"]).parent.exists()
-assert home_paths.desktop_login_path() == Path(os.environ["SUBFLEET_DESKTOP_LOGIN"])
-assert home_paths.codex_app_home() == Path(os.environ["SUBFLEET_CODEX_APP_HOME"])
-assert capacity.read_desktop_account() is None
+assert not home_paths.under_pytest()
+assert home_paths.desktop_login_path() == Path.home() / ".claude.json"
+assert home_paths.codex_app_home() == Path.home() / ".codex"
+assert capacity.read_desktop_account() == "fixture@example.test"
 '''
         result = subprocess.run([sys.executable, "-c", probe], env=captured,
                                 capture_output=True, text=True, timeout=30)

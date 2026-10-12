@@ -7,6 +7,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 PYTEST_MARKER = "SUBFLEET_UNDER_PYTEST"
+# Session descendants keep isolation only while this temporary directory lives.
+PYTEST_SESSION = "SUBFLEET_PYTEST_SESSION"
 # An inherited helper may query the person's dedicated keychain. Tests must
 # explicitly install their own stand-in instead of inheriting this executable.
 SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET",)
@@ -29,6 +31,9 @@ SAFE_HOME_PATHS = {
     "SUBFLEET_V1_LAUNCH_AGENTS": "legacy/agents",
     "SUBFLEET_LAUNCHD_PLIST": "agents/com.subfleet.daemon.plist",
     "SUBFLEET_AGENT_SECRET": "bin/agent-secret",
+    "SUBFLEET_HOST_HOME": "host-home",
+    "SUBFLEET_HOST_CONFIG": "host-config",
+    "SUBFLEET_RESET_INHIBIT": "legacy/no-reset.json",
 }
 
 
@@ -44,7 +49,13 @@ KEYCHAIN_READERS = {
 
 
 def under_pytest() -> bool:
-    return PYTEST_MARKER in os.environ or "PYTEST_CURRENT_TEST" in os.environ
+    if PYTEST_MARKER in os.environ:
+        session = os.environ.get(PYTEST_SESSION)
+        # Bare markers remain useful for standalone test harnesses. Configured
+        # sessions always supply a lifetime, including in captured child envs.
+        # A copied PYTEST_CURRENT_TEST must not revive an expired session either.
+        return session is None or Path(session).is_dir()
+    return "PYTEST_CURRENT_TEST" in os.environ
 
 
 def home_path(variable: str, default: Callable[[], str | Path], *,
@@ -56,7 +67,9 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     and the mirror rewrote the person's live Claude session copies. Session
     environment isolation is the first defense; the session marker covers
     configure, collection and teardown, when PYTEST_CURRENT_TEST is absent.
-    Either marker makes a missing override refuse the fallback before access.
+    A live session marker or a standalone test marker makes a missing override
+    refuse the fallback before access. Cleanup expires captured session markers,
+    including copied PYTEST_CURRENT_TEST values, by removing their directory.
     test_only supplies an isolation seam for defaults that historically had no
     environment override, preserving their behavior outside pytest. Optional
     expansion applies only to overrides, never to an already constructed default;

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.home_paths import PYTEST_MARKER, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
+from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
@@ -35,10 +35,12 @@ def pytest_configure(config):
     when individual tests undo their patches; restore it only at unconfigure.
     """
     config._subfleet_original_home_env = {
-        name: os.environ.get(name) for name in (PYTEST_MARKER, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+        name: os.environ.get(name)
+        for name in (PYTEST_MARKER, PYTEST_SESSION, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     }
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
     os.environ[PYTEST_MARKER] = "1"
+    os.environ[PYTEST_SESSION] = str(base)
     for name in SAFE_ENV_REMOVALS:
         os.environ.pop(name, None)
     config._subfleet_safe_home_base = base
@@ -47,8 +49,7 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    # Captured child environments deliberately retain isolation. An in-process
-    # caller starting ordinary work afterward must capture a fresh environment.
+    # Removing the session directory also expires already captured child markers.
     original = getattr(config, "_subfleet_original_home_env", None)
     if original is not None:
         for name, value in original.items():
