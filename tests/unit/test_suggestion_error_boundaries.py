@@ -9,7 +9,7 @@ import threading
 from contextlib import redirect_stderr
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 import hypothesis.strategies as st
 
 from subfleet import cli, protocol
@@ -25,6 +25,10 @@ from tests.unit.test_suggestion_secret_properties import (
 def reply(service, op="suggestion.start", args=None):
     class Connection:
         sent = b""
+
+        def getpeername(self):
+            # Read-only ops check that the requesting client is still present.
+            return "fixture-client"
 
         def sendall(self, data):
             self.sent += data
@@ -42,6 +46,8 @@ SUGGESTION_OPS = ("suggestion.create", "suggestion.list", "suggestion.start",
 
 @given(before=padding, left=separators, secret=secrets, right=separators, after=padding,
        error_type=st.sampled_from(ERROR_TYPES), op=st.sampled_from(SUGGESTION_OPS))
+@example(before="", left=" ", secret="AKIA" + "0" * 16, right=" ", after="",
+         error_type=ConversationError, op="suggestion.list")
 @settings(max_examples=160, deadline=None)
 def test_all_suggestion_responder_errors_and_notice_fields_are_scrubbed(
         before, left, secret, right, after, error_type, op):
@@ -162,16 +168,18 @@ def test_overlapping_quoted_assignments_cannot_hide_an_inner_secret(quote, key):
     assert_secret_absent(suggestions.scrub_error(key + "=" + quote + "public " + secret), secret)
 
 
-@pytest.mark.parametrize("kind", ["key", "multiple strings", "mixed arguments", "filename"])
+@pytest.mark.parametrize("kind", ["key", "multiple strings", "mixed arguments", "filename", "filenames"])
 def test_exception_quoting_cannot_hide_a_sensitive_assignment(kind):
     secret = "password='SECRET7-left\n右秘密-TAIL8'"
     text = 'failure said "ok" ' + secret
     error = (KeyError(text) if kind == "key" else ValueError("failure", text) if kind == "multiple strings" else
-             TypeError(5, text) if kind == "mixed arguments" else OSError(5, "failure", text))
+             TypeError(5, text) if kind == "mixed arguments" else
+             OSError(5, "failure", text, None, text) if kind == "filenames" else OSError(5, "failure", text))
     assert_secret_absent(suggestions.scrub_error(error, prefix="failure: "), secret)
 
 
-def test_key_error_quoting_is_safe_in_storage_wire_events_and_retry_logs():
+@pytest.mark.parametrize("kind", ["key", "filename", "filenames", "overlapping"])
+def test_exception_values_are_safe_in_storage_wire_events_and_retry_logs(kind):
     secret = "password='SECRET7-left\n右秘密-TAIL8'"
     with fixture() as service:
         cid, job = origin_turn(service)
@@ -181,13 +189,20 @@ def test_key_error_quoting_is_safe_in_storage_wire_events_and_retry_logs():
         }, AGENT)["suggestion"]
         sid = row["suggestion_id"]
 
+        text = 'failure said "ok" ' + secret
+        error = (OSError(5, "failure", text) if kind == "filename" else
+                 OSError(5, "failure", text, None, text) if kind == "filenames" else
+                 KeyError("password='public " + secret) if kind == "overlapping" else KeyError(text))
+
         def fail(**kwargs):
-            raise KeyError('failure said "ok" ' + secret)
+            raise error
 
         service.store.submit_message = fail
         response = reply(service, args={"suggestion_id": sid})
-        assert response["ok"] is False and response["error"]["code"] == 2
+        assert response["ok"] is False and response["error"]["code"] == (1 if isinstance(error, OSError) else 2)
         service._resume_start(sid, 1, service.clock())
         shown = everything_shown(service, sid, cid, response["error"]["message"])
         shown["response"] = response
         assert_secret_absent(shown, secret)
+        assert service.suggestions.get(sid)["state"] == suggestions.STARTING
+        assert service.captured.lines and any("finishing the start" in line for line in service.captured.lines)

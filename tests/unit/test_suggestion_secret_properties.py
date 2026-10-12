@@ -14,6 +14,7 @@ within ERROR_MAX.
 from __future__ import annotations
 
 import collections
+import errno
 import json
 import logging
 import os
@@ -370,6 +371,7 @@ REFUSED_AS = {"workspace": "bad-workspace", "session_id": "bad-session-id", "cal
 
 @given(secret=secrets.filter(lambda s: "/" not in s and "\n" not in s and "\x00" not in s),
        which=st.sampled_from(sorted(REFUSED_AS)))
+@example(secret='password="SECRET7- \U0002ee5e-右秘密-TAIL8"', which="workspace")
 @settings(max_examples=100, deadline=None)
 def test_c25_5_a_folder_session_or_job_shaped_like_a_secret_is_refused_and_makes_nothing(secret, which):
     """The row keeps the folder, the caller's session and its job as stated: one the
@@ -378,7 +380,13 @@ def test_c25_5_a_folder_session_or_job_shaped_like_a_secret_is_refused_and_makes
         args = {"request_id": str(uuid.uuid4()), "title": "Fixture", "tldr": "Fixture", "brief": "Fixture brief"}
         if which == "workspace":
             folder = service.folder / ("work " + secret)
-            folder.mkdir()
+            try:
+                folder.mkdir()
+            except OSError as exc:
+                # APFS rejects some Unicode scalars as filenames. Still send
+                # that path: the service must refuse it without publishing it.
+                if exc.errno != errno.EILSEQ:
+                    raise
             args["workspace"] = str(folder)
         else:
             args[which] = which.split("_")[0] + " " + secret
