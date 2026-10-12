@@ -497,12 +497,15 @@ struct NotificationTarget: Equatable {
     }
 
     /// Whether it shows when it arrives while the app is frontmost. It was
-    /// posted because its conversation was not the one open (D-24), where the
-    /// window shows at most a sidebar badge for it (a count of waiting
-    /// approvals, a turn no longer running): it shows as it would with the app
-    /// in the background, unless the person has opened that conversation since.
-    func showsWhileFrontmost(focusedConversationID: String?) -> Bool {
-        conversationID != focusedConversationID
+    /// posted because its conversation was not on screen (D-24): another
+    /// conversation, for which the window shows at most a sidebar badge (a
+    /// count of waiting approvals, a turn no longer running), or the focused
+    /// one while the app was inactive, the main window closed, miniaturized,
+    /// covered or not key, or its display asleep. It shows
+    /// as it would with the app in the background, unless its conversation is
+    /// on screen by now (`ConversationStoreState.onScreenConversationID`).
+    func showsWhileFrontmost(onScreenConversationID: String?) -> Bool {
+        conversationID != onScreenConversationID
     }
 }
 
@@ -560,14 +563,28 @@ struct ConversationStoreState: Equatable {
     /// Policy defaults published by `models.list`, never inferred from catalog order.
     var modelDefaults: [String: String] = [:]
     var focusedConversationID: String?
+    /// Whether the focused conversation is on screen: the app is active, its
+    /// main window is visible (not closed, miniaturized or covered) and holds
+    /// the key window, and the displays are awake. UIModel keeps it from AppKit. The focus stays set while the app is in the
+    /// background or its window is closed, so it alone does not say what the
+    /// person can see (D-24). False until UIModel says otherwise: a conversation
+    /// not known to be on screen notifies.
+    var focusedOnScreen = false
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
     var pendingApprovals: [String: Int] = [:]
+    /// Pending approvals per conversation as the feed last reported them. An
+    /// approval is announced when the feed's count rises over this, never over
+    /// `pendingApprovals`, which `conversation.list` and `approval.list` answers
+    /// also write: one of those landing before the feed's row would hide the
+    /// rise. At the baseline a conversation the feed has not reported starts from
+    /// the count the list gave (`markBaselined`).
+    private(set) var feedPendingApprovals: [String: Int] = [:]
     var watchCursor = 0
     /// Live messages per conversation, from the watch feed (read from seq 0 at launch).
     var liveMessages: [String: Set<String>] = [:]
-    /// The first drain of the watch feed after launch posts nothing.
-    var watchBaselined = false
+    /// The first drain of the watch feed after launch posts nothing (`markBaselined`).
+    private(set) var watchBaselined = false
     var notifications: [NotificationIntent] = []
     private(set) var notified: Set<String> = []
     var searchQuery = ""
@@ -580,6 +597,9 @@ struct ConversationStoreState: Equatable {
 
     var focusedConversation: Conversation? { focusedConversationID.flatMap(conversation) }
     var focusedTimeline: Timeline? { focusedConversationID.flatMap { timelines[$0] } }
+    /// The conversation the person can see now: the focused one while it is on
+    /// screen. Every other conversation notifies (D-24).
+    var onScreenConversationID: String? { focusedOnScreen ? focusedConversationID : nil }
 
     func conversation(_ id: String) -> Conversation? { conversations.first { $0.conversation_id == id } }
 
@@ -749,7 +769,8 @@ struct ConversationStoreState: Equatable {
     }
 
     /// The global change feed (D-24): approval counts, message states, and
-    /// notifications for conversations that are not focused.
+    /// notifications for conversations that are not on screen, once the feed
+    /// has its baseline.
     @discardableResult
     mutating func apply(watch page: WatchPage) -> WatchResult {
         if page.superseded == true { return .superseded }
@@ -757,7 +778,8 @@ struct ConversationStoreState: Equatable {
         for change in page.changes.sorted(by: { $0.seq < $1.seq }) where change.seq > watchCursor {
             applied += 1
             let cid = change.conversation_id
-            let before = pendingApprovals[cid] ?? 0
+            let before = feedPendingApprovals[cid] ?? 0
+            feedPendingApprovals[cid] = change.pending_approvals
             pendingApprovals[cid] = change.pending_approvals
             if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
                 if MessageState.live.contains(state) { liveMessages[cid, default: []].insert(mid) }
@@ -787,14 +809,25 @@ struct ConversationStoreState: Equatable {
                                                 state_reason: change.state_reason, steered_into: change.steered_into))
                 timelines[cid] = timeline
             }
-            if watchBaselined && cid != focusedConversationID {
+            if watchBaselined && cid != onScreenConversationID {
                 notify(change, pendingBefore: before)
             }
             watchCursor = max(watchCursor, change.seq)
         }
         watchCursor = max(watchCursor, page.next)
-        if page.changes.isEmpty { watchBaselined = true }
+        if page.changes.isEmpty { markBaselined() }
         return .applied(applied)
+    }
+
+    /// The feed has its baseline: what it reports from now on is news. A
+    /// conversation it has not reported yet starts from the list's count, so its
+    /// first row announces an approval only if the count rose past that.
+    mutating func markBaselined() {
+        guard !watchBaselined else { return }
+        watchBaselined = true
+        for (cid, count) in pendingApprovals where feedPendingApprovals[cid] == nil {
+            feedPendingApprovals[cid] = count
+        }
     }
 
     private mutating func notify(_ change: ConversationChange, pendingBefore: Int) {
