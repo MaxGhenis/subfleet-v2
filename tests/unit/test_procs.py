@@ -219,8 +219,7 @@ def test_containment_group_and_walk_share_one_snapshot(monkeypatch):
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1", recorded_identities={
-        42: procs.ProcessIdentity(42, "100", START)})
+    result = procs.containment(42, 42, None, "job/a1")
     # 50 kept the group after reparenting to launchd; 60 is its child in a new group.
     assert result.group_pids == {42, 43, 50}
     assert result.descendant_pids == {42, 43}
@@ -266,7 +265,8 @@ def test_c5_12_a_census_is_two_ps_reads_however_many_processes_it_finds(monkeypa
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities={
+        42: procs.ProcessIdentity(42, "100", START)})
     assert result.group_pids == set(range(42, 63)) and not result.unverifiable
     assert result.identities[50] == procs.ProcessIdentity(50, "100", START)
     assert [os.path.basename(argv[0]) for argv in reads if os.path.basename(argv[0]) == "ps"] == ["ps", "ps"]
