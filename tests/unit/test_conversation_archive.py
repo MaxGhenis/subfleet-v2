@@ -37,8 +37,8 @@ def archive(svc, cid: str, archived: bool = True, *, peer=PERSON) -> dict:
 
 
 def listed(svc, **args) -> list[str]:
-    return [c["conversation_id"] for c in svc.handle("conversation.list", {"include_catalog": False, **args},
-                                                     None)["conversations"]]
+    return [c["conversation_id"] for c in svc.handle("conversation.list", {"include_catalog": False, "limit": 1000,
+                                                                           **args}, None)["conversations"]]
 
 
 def row(svc, cid: str) -> dict:
@@ -148,7 +148,7 @@ def test_archive_is_refused_while_a_message_is_open(people, state):
     settle(svc, submit(svc, cid))
     mid = submit(svc, cid, after=svc.store.messages(cid)[-1]["message_id"])
     if state != "queued":
-        svc.store.set_state(mid, state)
+        svc.store.set_state(mid, state, reason="readmit:capacity" if state == "waiting" else None)
     held = messages_and_events(svc, cid)
     error = refused("conversation-active", 7, archive, svc, cid)
     assert state in str(error) and error.fix
@@ -232,7 +232,7 @@ def test_a_tombstone_is_still_written_into_an_archived_conversation(people):
     assert receipt["state"] == "cancelled" and svc.store.message(mid)["state"] == "cancelled"
 
 
-def test_an_archived_conversation_is_never_dispatched_and_unarchive_wakes_the_loop(people):
+def test_unarchive_wakes_the_control_loop(people):
     svc = people
     cid = conversation(svc)
     archive(svc, cid)
