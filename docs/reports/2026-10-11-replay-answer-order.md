@@ -22,13 +22,15 @@ Fix round 1 has executed tests. The initial unchanged-head run selected all six 
 | --- | ---: | --- |
 | Initial unchanged-head `test_approval_resolution.py` | 32 | 12 failed, 20 passed; property interrupted |
 | Standard CPython 3.14.7 pre-fix run, history deferred | 182 | 14 failed, 168 passed; interrupted during Codex setup |
-| Complete pre-fix comparison on standard CPython 3.14.7 | pending | queued under the shared lock |
+| Complete pre-fix comparison on standard CPython 3.14.7 | 267 | 14 failed, 253 passed in 149.51 s |
 | `release/217` comparison, all six files | pending | not started |
 | Fixed head, all six files and complete history property | pending | not started |
 
 The history property retains 500 generated examples plus the explicit formerly exempt history. The initial run began generation but did not finish; its partial example count was not instrumented and is not claimed. Complete property runs will have Hypothesis statistics and a local counter of calls to the unchanged test body. No test has been weakened, deleted or reduced in example count.
 
 The standard pre-fix run reproduced all 14 failures, including both real-relay restart cases, in 252.99 seconds. Its completed-file counts were: approval resolution 20 passed / 12 failed (history deferred), turn replay 31 passed / 2 failed, Claude driver 61 passed, approval commit 6 passed, turn runner 50 passed. Codex setup was interrupted before its first completed test; this run is partial and the complete six-file comparison is queued. Output was buffered until input reached the terminal, so later polls send a harmless newline and complete runs will supersede these partial counts.
+
+The complete pre-fix rerun supersedes those partial results: **14 failed, 253 passed in 149.51 seconds**. Per file: approval resolution **21 passed / 12 failed**, turn replay **31 passed / 2 failed**, Claude driver **61 passed**, approval commit **6 passed**, turn runner **76 passed**, Codex driver **58 passed**. Its four original files reproduce the supplied host count exactly: **14 failed, 119 passed**. The history property reports **500 passing generated examples**, **0 failing**, **73 invalid generation attempts**, plus the passing explicit case; the unchanged test body's instrumented call count is **501**. The generated phase took 58.55 seconds, and the complete hold stayed below 20 minutes. The identical test files are now queued against the archived `release/217` implementation.
 
 Commit `cfb97426d` makes each history copy a closed, fully initialized empty database into its own private state root, avoiding repeated schema DDL. The actual per-history store, file publication, transactions, generated operations and assertions remain real and unchanged. AST comparison confirms all 53 assertions and the property's decorators are identical to `ca4a53677`: 500 generated examples plus the explicit case, with no exemption. The local validation probe also interrupts a running pytest after 18 minutes, leaving cleanup time within the required hold cap; interrupted runs are never reported as completed validation.
 
