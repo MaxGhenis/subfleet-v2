@@ -17,7 +17,8 @@ from subfleet.ramp import PlacementRamp
 def test_shipped_policy_preserves_pre_ramp_raw_hash_and_disabled_defaults():
     # A daemon without policy.json copies these bytes, whose hash enters every
     # admission decision even when the ramp is absent or disabled (C-6.18 R6).
-    # release/217's bytes after #179 added `reset_credits`; this PR leaves them unchanged.
+    # release/217's bytes after #190 added `providers.codex.ca_bundle` and #179 turned
+    # `reset_credits` off; this PR leaves them unchanged.
     before = "29e76475f03eb5f27b7ca83a0a321e1d296c4701a6fd33733b104d5d7844d2a2"
     assert "ramp" not in json.loads(DEFAULT_POLICY_PATH.read_bytes())["admission"]
     assert policy_hash(DEFAULT_POLICY_PATH) == before
