@@ -696,7 +696,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
 
 
 def _state_root() -> str:
-    return os.path.expanduser(os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
+    from ..home_paths import home_path
+    return os.path.expanduser(str(home_path("SUBFLEET_HOME", lambda: "~/.subfleet",
+                                           accept_empty=True)))
 
 
 def _scratch_root(state_root: str | Path | None = None) -> str:

@@ -201,8 +201,8 @@ def claude_dir() -> Path:
 
     Every test points this at its own tree; nothing here ever writes.
     """
-    override = os.environ.get("SUBFLEET_CLAUDE_DIR")
-    return Path(override).expanduser() if override else Path.home() / ".claude"
+    from ..home_paths import home_path
+    return Path(home_path("SUBFLEET_CLAUDE_DIR", lambda: Path.home() / ".claude")).expanduser()
 
 
 def projects_dir() -> Path:

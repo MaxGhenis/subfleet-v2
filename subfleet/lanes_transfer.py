@@ -512,7 +512,8 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         raise TransferError(f"unknown lane {lane_id}", Exit.INVALID_INPUT,
                             "subfleet lanes list")
     roster_dir = Path(roster_dir) if roster_dir else V1_ROSTER_DIR
-    home = Path(home) if home else Path.home()
+    from .home_paths import provider_home
+    home = Path(home) if home else provider_home()
     plan = TransferPlan(lane_id, row["provider"], row["account_key"], row["owner"], to_owner)
     if to_owner == "v1":
         plan.blocker = _rollback_blocker(store, lane_id)

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import descriptors, protocol
+from ..home_paths import codex_app_home, home_path
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
@@ -1636,7 +1637,7 @@ class ConversationService:
             homes = [(Path(r["home"]), r["lane_id"]) for r in lanes if r["lane_id"] == conversation["lane_id"]]
         else:
             allowed = [(Path(r["home"]).expanduser().resolve(), r["lane_id"]) for r in lanes]
-            allowed.append(((Path.home() / ".codex").resolve(), None))
+            allowed.append((codex_app_home().resolve(), None))
             if home:
                 wanted = Path(str(home)).expanduser().resolve()
                 homes = [pair for pair in allowed if pair[0] == wanted]
@@ -1768,7 +1769,8 @@ class ConversationService:
         writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
-        protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
+        protected = [self.root, Path(home_path("CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude",
+                                              test_only=True)), codex_app_home()]
         protected += [Path(row["home"]) for row in self.daemon.store.lane_rows() if row.get("home")]
         # Both sides spelled one way (`folders.spelling`): on a case-insensitive volume
         # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed

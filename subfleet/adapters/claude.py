@@ -1287,7 +1287,9 @@ class ClaudeAdapter(Adapter):
         config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
             "CLAUDE_CONFIG_DIR"
         )
-        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        from ..home_paths import home_path
+        base = Path(config).expanduser() if config else Path(home_path(
+            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude")).expanduser()
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:

@@ -2034,7 +2034,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
     v1_state = Path(v1_state).expanduser()
     delegate_state = Path(delegate_state).expanduser()
     roster_dir = Path(roster_dir).expanduser()
-    home = Path(home).expanduser() if home is not None else Path.home()
+    from .home_paths import provider_home
+    home = Path(home).expanduser() if home is not None else provider_home()
     now = now or utc_now()
     if _looks_like_v1_root(state_root):
         # A pass would put daemon.lock, state.sqlite3 and its report in the v1
@@ -2208,7 +2209,7 @@ def main(argv: list[str] | None = None) -> int:
     """`python -m subfleet.importer [--dry-run] [--legacy-cockpit]`; the CLI keeps its own verbs."""
     parser = argparse.ArgumentParser(prog="subfleet.importer",
                                      description="import v1 state per docs/migration.md")
-    parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME") or "~/.subfleet")
+    parser.add_argument("--state-root", default=None)
     parser.add_argument("--v1-state", default=str(V1_STATE))
     parser.add_argument("--delegate-state", default=str(DELEGATE_STATE))
     parser.add_argument("--roster-dir", default=str(V1_ROSTER_DIR))
@@ -2230,6 +2231,9 @@ def main(argv: list[str] | None = None) -> int:
                              "(default: $SUBFLEET_CLAUDE_DIR or ~/.claude)")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
+    if args.state_root is None:
+        from .home_paths import home_path
+        args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet")
     projects = Path(args.claude_dir).expanduser() / "projects" if args.claude_dir else None
     if args.cockpit_retired and not args.legacy_cockpit:
         parser.error("--cockpit-retired goes with --legacy-cockpit")

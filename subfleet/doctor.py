@@ -351,8 +351,9 @@ def check_never_rules(settings: Path | None = None) -> dict[str, Any]:
     v2 never writes this entry — it belongs to the guard, not to subfleet — so
     the honest report when the file cannot be read is `unknown`, not a failure.
     """
-    path = (settings if settings is not None
-            else Path("~/.claude/settings.json").expanduser())
+    from .home_paths import home_path
+    path = (settings if settings is not None else Path(home_path(
+        "SUBFLEET_CLAUDE_SETTINGS", lambda: "~/.claude/settings.json", test_only=True)).expanduser())
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:

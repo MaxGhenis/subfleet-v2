@@ -8,7 +8,9 @@ call adapter methods on fixture directories directly.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +23,39 @@ from subfleet.contracts import (
 TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "claude"
 FAKE_CLAUDE = TESTS / "bin" / "claude"
+
+# C-23.28: these process-wide values survive a test's monkeypatch.undo().
+# Fixed production paths get test-only seams; existing overrides retain theirs.
+SAFE_HOME_PATHS = {
+    "SUBFLEET_SESSION_STORE": "claude-code-sessions",
+    "SUBFLEET_DESKTOP_LOG": "logs/main.log",
+    "SUBFLEET_CLAUDE_DIR": "claude",
+    "SUBFLEET_HOME": "state",
+    "CLAUDE_CONFIG_DIR": "claude-config",
+    "SUBFLEET_CLAUDE_SETTINGS": "claude/settings.json",
+    "SUBFLEET_CODEX_APP_HOME": "codex",
+    "SUBFLEET_DESKTOP_LOGIN": "claude.json",
+    "SUBFLEET_PROVIDER_HOME": "providers",
+}
+
+
+def pytest_configure(config):
+    """Install safe baselines before collection, independently of monkeypatch.
+
+    The 2026-10-12 mirror incident undid an autouse fixture's patches and wrote
+    to the real desktop store. Never restore the developer's environment during
+    this pytest process, including when individual tests undo their patches.
+    """
+    base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
+    config._subfleet_safe_home_base = base
+    os.environ.update({name: str(base / relative)
+                       for name, relative in SAFE_HOME_PATHS.items()})
+
+
+def pytest_unconfigure(config):
+    base = getattr(config, "_subfleet_safe_home_base", None)
+    if base is not None:
+        shutil.rmtree(base, ignore_errors=True)
 
 #: The instant every fixture-driven assertion is pinned to. Matches `NOW_ISO` in
 #: `tests/fixtures/claude/make_fixtures.py`; all experiment-0 reset epochs are later,
@@ -218,13 +253,13 @@ def no_desktop_store(tmp_path_factory, monkeypatch):
     The sidebar mirror copies into the store, reads the log, and reads
     `~/.claude` (its saved options and the transcripts), and a daemon under test
     runs the mirror on a 2 s timer, so no test may reach any of them by
-    accident (C-23.28). All three point at paths that do not exist; a test that
-    wants one says where it is, and its `setenv` wins.
+    accident (C-23.28). All personal paths point at paths that do not exist; a
+    test that wants one says where it is, and its `setenv` wins. Undoing these
+    patches restores the session's safe baseline, never the person's values.
     """
     base = tmp_path_factory.mktemp("desktop")
-    monkeypatch.setenv("SUBFLEET_SESSION_STORE", str(base / "claude-code-sessions"))
-    monkeypatch.setenv("SUBFLEET_DESKTOP_LOG", str(base / "logs" / "main.log"))
-    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(base / "claude"))
+    for name, relative in SAFE_HOME_PATHS.items():
+        monkeypatch.setenv(name, str(base / relative))
 
 
 #: C-6.13: a machine with nothing to do, which no guard holds anything for.
