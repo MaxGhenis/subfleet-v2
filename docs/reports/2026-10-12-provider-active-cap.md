@@ -1,4 +1,78 @@
-# Provider active-attempt cap (D-RT1), review round 1
+# Provider active-attempt cap (D-RT1), review round 2
+
+The four host failures at `0c3a0d68a` exposed a missing admission wake-up.
+`_resolve_quarantine` already changes the attempt to `lost` (or `interrupted`
+for cancellation) and releases its remaining leases, so the provider count is
+correctly freed. However, `_quarantine` releases lane leases before the waiter
+arrives, and a read-only detached attempt has no other lease to release. The
+waiter's next admission pass therefore sees no freed lease and skips its
+backed-off capacity wait. The original test expectation agrees with C-6.4a:
+verified containment or operator release frees the provider slot.
+
+`d02a971ce` fixes that wake-up. Each pool keeps its own set of counted quarantine
+attempt IDs under the admission lock. A quarantine absent from that set on the
+next pass is freed capacity, including a recorded verified-empty census while
+its attempt state is still `quarantined`. Both pools then use the existing
+capacity-wait expedition rule, preserving a probe's own retry clock. No new
+containment worker is introduced: confirmed containment and forced release
+continue through `_resolve_quarantine`; the census-only regression exercises
+the recorded-evidence rule directly.
+
+The regression now crosses both source pools and both waiting pools, with
+live, unverifiable and empty censuses and confirmed-dead versus force-release
+resolution: 24 cases, formerly six. It verifies that an unsuccessful
+confirmation still holds the slot, that resolution changes the attempt state,
+and that a waiter resumes with no attempt lease left to release. Four additional
+cases cover a recorded verified-empty census in each waiting pool after live
+or unverifiable evidence. The admission clock is fixed so an expired one-second
+recheck cannot conceal the missing wake-up. C-6.4a and C-6.10 document it.
+
+Round-2 validation:
+
+| Requested suite | Passed | Failed | Unrun cases |
+| --- | --- | --- | --- |
+| `tests/fake/test_provider_active_cap_fake.py` | 0 | 0 | 60 |
+| `tests/fake/test_provider_cap_review_evidence.py` | 0 | 0 | 5 |
+| `tests/unit/test_provider_active_cap.py` | 0 | 0 | 46 |
+
+**0 pytest cases started; all 111 requested cases remain unrun.** The counts
+are statically expanded from the test decorators, not pytest collection.
+Each file was attempted twice, separately and sequentially. All six lock queue
+attempts exited 75 (`already locked`): zero lock holds and zero pytest processes
+started. Each queue window was bounded to 45 seconds (270 seconds configured
+across six attempts); a foreground process-group watchdog bounded every whole
+invocation to 1100 seconds, below the 20-minute hold ceiling. Each task-specific
+`TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-r194f2-$$/` was cleaned with the required
+Python `shutil.rmtree` command. No detached runner or background build remains.
+
+Static checks pass: both changed Python files parse; `git diff --check` is
+clean; the corrected local environment imports pytest 9.1.1 and Hypothesis
+6.168.1 and imports Subfleet from this workspace. The pinned dependency files
+were copied read-only from the caller's installed dependencies into local
+virtual environments without contacting a remote. The final retries used the
+matching Python 3.14 free-threaded interpreter, via
+`UV_PROJECT_ENVIRONMENT="$PWD/.git-local/test-venv" UV_NO_SYNC=1 UV_OFFLINE=1`
+and workspace-local `UV_CACHE_DIR`. This is environment validation, not a test
+pass. The initial Python 3.12 environment did not load the installed Hypothesis
+native module and was replaced for the retries; no suite started in it.
+
+The hub must execute the three requested files at the new head. The new
+regressions, both properties' examples, additional admission/scheduler suites
+and the mutants were not run in this round. The host results at `0c3a0d68a`
+remain evidence about the input head, not validation of this fix.
+
+Commits: `d02a971ce` contains the daemon fix, deterministic regressions and
+contract clarification; the following documentation commit records this report.
+
+Git commits use workspace-local metadata `.git-local/provider-cap.git` on
+`feat/provider-active-cap`, based directly on `0c3a0d68a26c`, because the shared
+Git index is outside the writable sandbox. Inspect with
+`git --git-dir=.git-local/provider-cap.git --work-tree=. log --oneline`.
+Only `subfleet/daemon.py`, `tests/fake/test_provider_active_cap_fake.py`,
+`docs/acceptance-contract.md` and this report are staged. The shipped policy,
+caller checkout, live installation and network remotes are untouched.
+
+## Review round 1 (historical report)
 
 Both P2 fixes are implemented and committed. The shared test lock has blocked
 local runtime validation; the exact outcomes below distinguish static checks
