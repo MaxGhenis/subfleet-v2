@@ -8,6 +8,7 @@ from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.codex import CodexAdapter
 from subfleet.contracts import OutcomeClass
 from tests.conftest import NOW, exit_info, make_launch
+from tests.unit.test_claude_attest import _assistant_row, _write_transcript
 from tests.unit.test_codex_adapter import _events, _exit
 
 
@@ -17,9 +18,9 @@ CLAUDE_SHAPES = ("missing-result", "missing-text", "null", "empty", "whitespace"
 CLI_CASES = (
     ("none", "", OutcomeClass.UNKNOWN),
     ("auth", "organization has disabled Claude subscription access; invalid_api_key", OutcomeClass.AUTH_DEAD),
-    ("version", "Update Claude Code to use this model; Codex CLI must be upgraded", OutcomeClass.CLI_TOO_OLD),
+    ("version", "Update Claude Code to use this model; update Codex", OutcomeClass.CLI_TOO_OLD),
     ("quota", "You've hit your usage limit.", OutcomeClass.LIMITED),
-    ("credits", "out of usage credits", OutcomeClass.LIMITED),
+    ("credits", "out of usage credits; out of credits", OutcomeClass.LIMITED),
     ("transient", "internal server error; stream disconnected", OutcomeClass.TRANSIENT),
 )
 
@@ -155,3 +156,39 @@ def test_codex_rc_zero_blank_last_file_uses_agent_fallback(tmp_path, last, compl
     assert outcome.detail == "Codex completed with a deliverable"
     assert outcome.evidence["admission"] == "deliverable with exit 0"
     assert CodexAdapter().deliverable(tmp_path, launch, outcome) == b"Finished."
+
+
+@pytest.mark.parametrize("shape", CLAUDE_SHAPES)
+@pytest.mark.parametrize("text", (" \t\n ", "Transcript deliverable longer than whitespace."))
+def test_claude_rc_zero_blank_result_keeps_transcript_preference(tmp_path, shape, text):
+    _write_transcript(tmp_path / "projects", "blank-result", [_assistant_row("blank-result", "claude-opus-5", text)])
+    adapter, launch, outcome = claude_classify(tmp_path, claude_rows(shape))
+    eligible = shape not in ("missing-result", "error-empty", "error-whitespace") and bool(text.strip())
+    assert outcome.cls is (OutcomeClass.OK if eligible else OutcomeClass.UNKNOWN)
+    assert (adapter.deliverable(tmp_path, launch, outcome) is not None) == bool(text.strip())
+    assert outcome.closure is None
+
+
+@pytest.mark.parametrize("agent", CODEX_AGENT_SHAPES)
+@pytest.mark.parametrize("completed", (False, True))
+def test_codex_rc_zero_blank_agent_keeps_nonblank_last_file(tmp_path, agent, completed):
+    launch = _events(tmp_path, *codex_rows(agent, completed))
+    (tmp_path / "last.md").write_text("Captured deliverable.")
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    assert outcome.cls is OutcomeClass.OK
+    assert outcome.detail == "Codex completed with a deliverable"
+    assert outcome.evidence["admission"] == "deliverable with exit 0"
+
+
+@pytest.mark.parametrize("last", BLANKS, ids=("missing-last", "empty-last", "whitespace-last"))
+@pytest.mark.parametrize("final", ("", " \t\n "))
+def test_codex_rc_zero_last_blank_agent_cannot_accept_earlier_text(tmp_path, last, final):
+    launch = _events(tmp_path,
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "Earlier progress."}},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": final}},
+        {"type": "turn.completed"})
+    if last is not None:
+        (tmp_path / "last.md").write_text(last)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    assert outcome.cls is OutcomeClass.UNKNOWN
+    assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
