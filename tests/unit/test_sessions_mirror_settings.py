@@ -839,3 +839,155 @@ def test_seen_is_never_trimmed(world):
     app_writes(path(store, 0), at=T0 + HOUR, model="claude-model-0")   # an old value, re-saved
     running.run_once()
     assert models(store) == [FABLE] * 3
+
+
+# --- review round 3 -------------------------------------------------------------
+
+def test_a_folder_that_cannot_be_looked_up_makes_the_evidence_unknown(world):
+    """Finding 1. A project folder the mirror may not search can hold a copy
+    of the transcript where opus ran; skipping it made a late re-save of opus
+    read as a pick, over newer Fable activity. The evidence is unknown."""
+    running, store = world
+    home = Path(os.environ["SUBFLEET_CLAUDE_DIR"])
+    locked = fx.transcript(home, ONE, [*fx.completed(),
+                                       fx.assistant_text("ran", uuid="o1", model=OPUS)],
+                           cwd="/Users/fixture/locked").parent
+    seed(store, 0, model=OPUS, activity=T0, written=T0 + 3 * HOUR)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    seed(store, 2, model=FABLE, activity=T0 + HOUR)
+    locked.chmod(0)
+    try:
+        assert mirror.Mirror.transcript_models(ONE) is None
+        running.run_once()
+    finally:
+        locked.chmod(0o700)
+    assert models(store) == [FABLE] * 3
+
+
+@pytest.mark.parametrize("race", ["appears", "grows"])
+def test_a_transcript_that_moves_during_the_read_makes_the_evidence_unknown(
+        world, monkeypatch, race):
+    """Finding 2. A copy that appears after the discovery (or one that grows
+    while it is read) can hold the run that makes a late model no pick. A
+    second discovery after the reads tells; any difference is unknown."""
+    running, store = world
+    home = Path(os.environ["SUBFLEET_CLAUDE_DIR"])
+    ran_opus = [*fx.completed(), fx.assistant_text("ran", uuid="o1", model=OPUS)]
+    late = home / "projects" / fx.project_slug("/Users/fixture/zzz-late") / f"{ONE}.jsonl"
+    seed(store, 0, model=OPUS, activity=T0, written=T0 + 3 * HOUR)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    seed(store, 2, model=FABLE, activity=T0 + HOUR)
+    real_open, real_models = mirror.transcripts.open_regular, mirror.Mirror.transcript_models
+    reading: list[str] = []
+    raced: list[str] = []
+
+    def racing_open(target, *args, **kwargs):
+        if reading and not raced:
+            raced.append(str(target))
+            if race == "appears":
+                fx.transcript(home, ONE, ran_opus, cwd="/Users/fixture/zzz-late")
+            else:
+                with open(target, "a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(ran_opus[-1]) + "\n")
+        return real_open(target, *args, **kwargs)
+
+    def observed(identity, stem=None):
+        reading.append(identity)
+        try:
+            return real_models(identity, stem)
+        finally:
+            reading.pop()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.transcripts, "open_regular", racing_open)
+        patch.setattr(mirror.Mirror, "transcript_models", staticmethod(observed))
+        assert mirror.Mirror.transcript_models(ONE) is None
+        assert raced, "the race ran inside the read"
+        raced.clear()
+        late.unlink(missing_ok=True)            # back to the store before the race
+        running.run_once()
+        assert raced, "the pass read the transcript"
+    assert models(store) == [FABLE] * 3
+
+
+def test_a_held_session_repeating_its_write_ahead_does_not_move_the_epoch(world, monkeypatch):
+    """Finding 3. A session held pass after pass repeats a write-ahead that
+    changes nothing. Reporting it as movement made every full pass refresh
+    its snapshot; the base and the epoch stay."""
+    running, store = world
+    seed(store, 0, model=OPUS, activity=T0)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    seed(store, 2, model=FABLE, activity=T0 + HOUR)
+    running.run_once()
+    assert models(store) == [FABLE] * 3
+    app_writes(path(store, 0), at=T0 + 2 * HOUR, model=OPUS)   # a stale save: seen, no activity
+    real_load, real_sync = mirror._load, mirror.Mirror.sync_flags
+    moved: list[bool] = []
+    bases: list[bytes] = []
+
+    def unreadable_at_publish(target, *args, strict=False, **kwargs):
+        if strict and Path(target) == path(store, 0):
+            raise OSError(5, "Input/output error")
+        return real_load(target, *args, strict=strict, **kwargs)
+
+    def observed(engine, *args, **kwargs):
+        engine._flags_moved = False
+        try:
+            return real_sync(engine, *args, **kwargs)
+        finally:
+            moved.append(engine._flags_moved)
+            bases.append(running.flags_path.read_bytes())
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_load", unreadable_at_publish)
+        patch.setattr(mirror.Mirror, "sync_flags", observed)
+        for _attempt in range(2):
+            assert running.run_once().flags_held >= 1
+    assert moved == [False, False]
+    assert bases[0] == bases[1]
+    assert models(store) == [OPUS, FABLE, FABLE], "held: nothing written"
+
+
+def test_a_later_pick_written_ahead_keeps_another_units_activity(world, monkeypatch):
+    """The write-ahead records a later pick at the rank its pass read, as that
+    unit's own: advancing the session's rank would hide activity another unit
+    has not yet published. Here the model has no decision while effort has
+    one, as in a base written before a unit existed."""
+    running, store = world
+
+    def digest(fields: dict) -> str:
+        return mirror._unit_digest(fields)
+
+    def decided(fields: dict, *others: dict) -> dict:
+        return {"v": digest(fields), "value": fields,
+                "seen": [digest(item) for item in (fields, *others)]}
+
+    running.flags_path.parent.mkdir(parents=True, exist_ok=True)
+    mirror._write_json(running.flags_path, {ONE: {"settings": {"rank": T0, "units": {
+        "model": {"seen": [digest({"model": FABLE})]},
+        "effort": decided({"effort": "max"}, {"effort": "xhigh"}),
+        "place": decided(ROOT)}}}})
+    seed(store, 0, model=FABLE, activity=T0 + HOUR, effort="xhigh")   # newer effort, ran
+    seed(store, 1, model=FABLE, activity=T0, effort="max")
+    seed(store, 2, model=OPUS, activity=T0, written=T0 + 3 * HOUR, effort="max")   # a pick
+    real = mirror._write_json
+
+    def crash_on_the_first_copy(target, value, **kwargs):
+        if Path(target).name.startswith("local_"):
+            raise KeyboardInterrupt("power loss")
+        return real(target, value, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_write_json", crash_on_the_first_copy)
+        with pytest.raises(KeyboardInterrupt):
+            running.run_once()
+    ahead = settled(running)
+    assert ahead["rank"] == T0, "the session's rank stays"
+    assert ahead["units"]["model"]["rank"] == T0 + HOUR
+    assert ahead["units"]["model"]["value"] == {"model": OPUS}
+    restarted = mirror.Mirror(running.root, fx.policy(**ONE_TRANSACTION), now=lambda: fx.NOW)
+    restarted.run_once()
+    assert models(store) == [OPUS] * 3, "the pick stands"
+    assert [read(store, i)["effort"] for i in range(3)] == ["xhigh"] * 3, "so does the activity"
+    after = settled(restarted)
+    assert after["rank"] == T0 + HOUR and "rank" not in after["units"]["model"]

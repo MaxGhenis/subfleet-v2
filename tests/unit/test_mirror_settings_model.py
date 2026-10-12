@@ -171,6 +171,29 @@ def test_a_late_save_of_a_value_that_ran_never_beats_newer_activity():
     assert model.pass_decide(unpicked, picked=True).decided == 1
 
 
+@pytest.mark.parametrize("race, next_decision", [
+    (lambda s: model.turn(s, 0, limit=10), 0),      # the turn after the pick spreads
+    (lambda s: model.pick(s, 2, limit=10), 2),      # so does a newer pick
+])
+def test_a_held_later_pick_is_recorded_decided(race, next_decision):
+    """C-23.28, review round 3 of #193: the code writes a later pick ahead,
+    because the publish's own writes destroy its evidence. Held by a copy
+    that moved, the base keeps the pick decided at the rank the pass read;
+    the next pass then weighs what moved against it."""
+    root = first_root((0, 0, 1), (0, 1, 0), (ON_TIME, ON_TIME, PICK))
+    decided = model.pass_decide(root, picked=True)
+    assert (decided.decided, decided.later) == (1, True)
+    moved = race(decided)
+    assert model.held(moved)
+    after = model.pass_publish(moved, honest=False)
+    assert after.base == model.Base(1, 1, frozenset({0, 1}))
+    assert after.value == moved.value, "a hold writes nothing"
+    assert model.check_step(moved, "pass_publish", after, picked=True, honest=False) == []
+    assert model.pass_decide(after, picked=True).decided == next_decision
+    stalled = model.pass_publish(model.save(decided, 0, limit=10), honest=False)
+    assert set(stalled.value) == {1}, "a save that moves no rank holds nothing"
+
+
 def test_the_first_decision_property_is_not_the_rule_restated():
     """C-23.28, review round 1: "newer never overwritten" judges a first decision
     by the ghost of which values picks produced, which the rule never reads.

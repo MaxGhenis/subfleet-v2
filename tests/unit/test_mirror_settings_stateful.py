@@ -195,7 +195,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         after_events = self.state
         self.state = model.pass_publish(
             model.replace(after_events, phase=model.DECIDED, snap=decided.snap,
-                          decided=decided.decided), honest=False)
+                          decided=decided.decided, later=decided.later), honest=False)
 
     @rule()
     def pass_cancelled_before_publish(self):
@@ -265,7 +265,9 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         else:
             assert unit["v"] == digest(state.base.v)
             assert unit["value"] == fields_of(self.unit, state.base.v)
-            assert recorded["rank"] == rank_ms(state.base.rank)
+            # A later pick written ahead carries its own rank; the full base
+            # has the session's.
+            assert unit.get("rank", recorded.get("rank")) == rank_ms(state.base.rank)
 
 
 class PlaceAgainstModel(MirrorAgainstModel):
@@ -275,6 +277,21 @@ class PlaceAgainstModel(MirrorAgainstModel):
 class _Always:
     def is_set(self) -> bool:
         return True
+
+
+@pytest.mark.parametrize("events, spreads", [(["turn_0"], 0), (["pick_2"], 2)])
+def test_a_held_later_pick_matches_the_model(tmp_path, monkeypatch, events, spreads):
+    """Review round 3 of #193: a later pick written ahead, then held by a copy
+    that moved mid-pass. The real base records the pick decided, as the
+    model does, and the next pass agrees with it too."""
+    machine = MirrorAgainstModel(tmp_path, monkeypatch)
+    machine.seed(value=(0, 0, 1), rank=(0, 1, 0), kinds=("on-time", "on-time", "pick"))
+    machine.pass_with_writes_between_read_and_publish(events=events)
+    assert machine.state.base == model.Base(1, 1, frozenset({0, 1}))
+    machine.files_and_base_match_the_model()
+    machine.full_pass()
+    machine.files_and_base_match_the_model()
+    assert set(machine.state.value) == {spreads}
 
 
 @pytest.mark.parametrize("machine", [MirrorAgainstModel, PlaceAgainstModel],

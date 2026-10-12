@@ -849,7 +849,9 @@ def _seen_ahead(settings: Any, displaced: dict[str, set[str]], *,
     """A settings base for the write-ahead before a publish: `displaced` added
     to each unit's `seen`, and nothing else changed, except that each unit in
     `later` (a first decision taken from a later pick) is recorded decided,
-    with the session's `rank`."""
+    with `rank` as its own. The session's `rank` stays: another unit decided
+    at it must still see activity since (the full base drops the unit's own
+    rank)."""
     record = dict(settings) if isinstance(settings, dict) else {}
     units = dict(record.get("units")) if isinstance(record.get("units"), dict) else {}
     for unit in set(displaced) | set(later or ()):
@@ -857,11 +859,11 @@ def _seen_ahead(settings: Any, displaced: dict[str, set[str]], *,
         add = sorted(displaced.get(unit) or ())
         if later and unit in later:
             entry["v"], entry["value"] = later[unit]["v"], later[unit]["value"]
+            if rank is not None:
+                entry["rank"] = rank
             add.append(later[unit]["v"])
         entry["seen"] = _remember(_seen_list(entry.get("seen")), add)
         units[unit] = entry
-    if later and rank is not None:
-        record["rank"] = rank
     record["units"] = units
     return record
 
@@ -1917,10 +1919,13 @@ class Mirror:
             stored = prior.get("value") if isinstance(prior.get("value"), dict) else None
             if known is not None and (stored is None or _unit_digest(stored) != known):
                 known = None                    # a base it cannot write back: start over
+            # A unit's own rank, from a later pick written ahead, else the session's.
+            since = next((int(item) for item in (prior.get("rank"), old.get("rank"))
+                          if isinstance(item, (int, float)) and not isinstance(item, bool)), 0)
             decided, rule = decide_setting(
                 [SettingCopy(digest, rank, stamp)
                  for digest, rank, stamp in zip(digests, ranks, stamps)],
-                {"v": known, "seen": seen, "rank": old.get("rank")} if known else None,
+                {"v": known, "seen": seen, "rank": since} if known else None,
                 ran=ran(values, digests) if unit == PICK_EVIDENCE_UNIT else None)
             value = values[digests.index(decided)] if decided in digests else stored
             assert value is not None and _unit_digest(value) == decided
@@ -2020,7 +2025,8 @@ class Mirror:
         #: Copies this pass writes a setting into: their rank is re-checked too.
         setting_dirty: set[tuple[Path, str]] = set()
         #: Per session: the values each unit's publish will displace, the
-        #: units decided from a later pick, and the session's rank. They are
+        #: units decided from a later pick, and the rank they are decided at
+        #: (the session's, as this pass read it). They are
         #: written into the settings base before any copy is, so a crash
         #: between the writes and the base can neither make a displaced value
         #: read as new when the app's memory saves it back, nor lose a later

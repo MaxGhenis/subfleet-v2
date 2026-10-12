@@ -36,9 +36,11 @@ re-reads a copy the mirror writes, so no memory is ever stale.
 
 A pass is `pass_decide` (read every copy, decide), then `pass_publish`: the
 pre-check holds the session if a copy it would write changed value or rank
-since the read (nothing written; the base keeps `v` and `rank`, and `seen`
-gains the values the publish would have displaced, the code's write-ahead);
-otherwise every differing copy gets the decided value and the base advances.
+since the read. A hold writes no copy, and leaves the base as the code's
+write-ahead left it: `seen` gains the values the publish would have
+displaced, and `v` and `rank` stay, except that a first decision taken from a
+later pick is recorded decided (its evidence may not survive). Otherwise
+every differing copy gets the decided value and the base advances.
 The write-level interleavings inside a publish (rollbacks) are the flag
 protocol's, shared code checked by `mirror_flags_model.py`. A pass can be
 cancelled before it publishes.
@@ -73,6 +75,9 @@ class State:
     phase: str = IDLE
     snap: tuple[tuple[int, int, int], ...] | None = None   # (value, rank, stamp) as read
     decided: int | None = None
+    #: Whether `decided` came from the later tier (a first decision taken from
+    #: a later pick), which the code's write-ahead records before publishing.
+    later: bool = False
     #: Ghost: the value a clean publish converged every copy to, while no
     #: pick and no activity has happened since.
     settled: int | None = None
@@ -129,12 +134,14 @@ def later_only(snap, ran: frozenset[int]) -> list[int]:
             and all(stamp > last for other, _r2, stamp in snap if other == value)]
 
 
-def decide(snap, base: Base | None, *, ran: frozenset[int] | None) -> int:
-    """`decide_setting`: agree, later, first, new, activity, base. `ran` is the
-    transcript for the unit that has one (the model), else None."""
+def decide_rule(snap, base: Base | None, *,
+                ran: frozenset[int] | None) -> tuple[int, str]:
+    """`decide_setting`: (value, rule), the rule one of agree, later, first,
+    new, activity, base. `ran` is the transcript for the unit that has one
+    (the model), else None."""
     values = {value for value, _r, _s in snap}
     if len(values) == 1:
-        return snap[0][0]
+        return snap[0][0], "agree"
 
     def activity(item):
         return (item[1], item[2])
@@ -144,15 +151,19 @@ def decide(snap, base: Base | None, *, ran: frozenset[int] | None) -> int:
         if ran is not None:
             later = later_only(snap, ran)
             if later:
-                return _best(snap, later, lambda item: item[2])
-        return _best(snap, everyone, activity)
+                return _best(snap, later, lambda item: item[2]), "later"
+        return _best(snap, everyone, activity), "first"
     new = [index for index, (value, _r, _s) in enumerate(snap) if value not in base.seen]
     if new:
-        return _best(snap, new, activity)
+        return _best(snap, new, activity), "new"
     active = [index for index, (_v, rank, _s) in enumerate(snap) if rank > base.rank]
     if active:
-        return _best(snap, active, activity)
-    return base.v
+        return _best(snap, active, activity), "activity"
+    return base.v, "base"
+
+
+def decide(snap, base: Base | None, *, ran: frozenset[int] | None) -> int:
+    return decide_rule(snap, base, ran=ran)[0]
 
 
 # --- actions ---------------------------------------------------------------------
@@ -209,7 +220,11 @@ def pass_decide(state: State, *, picked: bool,
         return None
     snap = tuple(zip(state.value, state.rank, state.stamp))
     ran = (state.ran if transcript is None else transcript) if picked else None
-    return replace(state, phase=DECIDED, snap=snap, decided=decide(snap, state.base, ran=ran))
+    decided = decide(snap, state.base, ran=ran)
+    # The code writes ahead only a later pick (a mutant `decide` keeps this).
+    value, rule = decide_rule(snap, state.base, ran=ran)
+    return replace(state, phase=DECIDED, snap=snap, decided=decided,
+                   later=rule == "later" and value == decided)
 
 
 def dirty(state: State) -> tuple[int, ...]:
@@ -223,7 +238,7 @@ def held(state: State) -> bool:
 
 
 def _idle(state: State) -> State:
-    return replace(state, phase=IDLE, snap=None, decided=None)
+    return replace(state, phase=IDLE, snap=None, decided=None, later=False)
 
 
 def pass_publish(state: State, *, honest: bool) -> State | None:
@@ -234,8 +249,14 @@ def pass_publish(state: State, *, honest: bool) -> State | None:
     displaced = frozenset(state.snap[a][0] for a in dirty(state))
     seen = (old.seen if old is not None else frozenset()) | displaced
     if held(state):
+        # The write-ahead, which reaches the base before the pre-check holds:
+        # the displaced values join `seen`, and a later pick is recorded
+        # decided, so a crash or a hold after it cannot lose the pick.
         base = old
-        if old is not None or displaced:
+        if state.later:
+            base = Base(state.decided, max(rank for _v, rank, _s in state.snap),
+                        seen | {state.decided})
+        elif old is not None or displaced:
             base = Base(old.v if old else None, old.rank if old else 0, seen)
         return replace(_idle(state), base=base)
     value, mem, stale = list(state.value), list(state.mem), set(state.stale)
@@ -336,8 +357,13 @@ def check_step(before: State, label: str, after: State, *, picked: bool,
         if held(before):
             if wrote:
                 broken.append("hold-writes-nothing")
-            if before.base is not None and (after.base.v, after.base.rank) != \
-                    (before.base.v, before.base.rank):
+            # A hold keeps the base, except that a later pick is recorded
+            # decided (intended: the write-ahead keeps the pick).
+            kept = (after.base.v, after.base.rank) == (before.decided, max(
+                rank for _v, rank, _s in before.snap)) if before.later else \
+                before.base is None or (after.base.v, after.base.rank) == \
+                (before.base.v, before.base.rank)
+            if not kept:
                 broken.append("hold-keeps-base")
             if before.base is not None and not before.base.seen <= after.base.seen:
                 broken.append("seen-only-grows")
