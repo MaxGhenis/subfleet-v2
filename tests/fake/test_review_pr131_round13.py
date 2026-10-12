@@ -415,3 +415,21 @@ def test_r13_finding_status_guard_accepts_legacy_plain_text(state_daemon, monkey
     summary = json.loads(shown["quarantine_reason"])
     assert summary["reason"] == "legacy hold" and summary["live_pid_count"] == 0
     assert summary["live_pids"] == []
+
+
+def test_r13_finding_legacy_finished_child_claim_is_imported_once(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    _, a, adir = reserve(daemon, harness)
+    child = {"pid": 202, "boot_id": BOOT, "proc_start": "child-start"}
+    (adir / "start.json").write_text(json.dumps({"child_identity": child}))
+    daemon.store.update_attempt(a["attempt_id"], state="succeeded", child_pid=None)
+    with daemon.store.transaction("fixture.legacy.import") as tx:
+        tx.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
+    daemon._seed_process_claim_receipts()
+    script_table(monkeypatch, {202: (1, 202, "Ss", "child-start")})
+    foreign = daemon._foreign_ownership({"attempt_id": "another"}, procs.snapshot())
+    assert foreign.claimed(procs.ProcessIdentity(**child))
+    assert not foreign.identities
+    monkeypatch.setattr(daemon, "_read_json", lambda path: pytest.fail("receipt import repeated"))
+    daemon._seed_process_claim_receipts()
+    assert daemon._foreign_ownership({"attempt_id": "another"}, procs.snapshot()).claimed(procs.ProcessIdentity(**child))

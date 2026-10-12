@@ -6676,8 +6676,7 @@ class Daemon:
             return
         rows = self.store.query(
             "SELECT attempt_id,job_id,seq FROM attempts WHERE "
-            "(child_pid IS NOT NULL OR state IN ('reserved','starting','running','finalizing','quarantined')) "
-            "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL")
+            "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL")
         for row in rows:
             start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json") or {}
             child = start.get("child_identity")
@@ -6692,6 +6691,7 @@ class Daemon:
                                (json.dumps(evidence), row["attempt_id"]))
         with self.store.transaction("attempt.process_claim_imported", audit=False) as tx:
             tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1")
+
 
     def _foreign_ownership(self, a: dict, table=_UNSET) -> procs.ForeignOwnership:
         """Indexed claims for current incarnations; terminal history grants no exclusion.
@@ -6837,7 +6837,7 @@ class Daemon:
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         start = self._read_json(adir / "start.json") or {}
         child_pid = a.get("child_pid") or start.get("child_pid")
-        child = start.get("child_identity")
+        child = evidence.get("child_identity") or start.get("child_identity")
         guardian = {}
         if a.get("guardian_pid") and a.get("boot_id") and a.get("proc_start"):
             guardian = {str(a["guardian_pid"]): {"pid": a["guardian_pid"], "boot_id": a["boot_id"],
@@ -6897,10 +6897,13 @@ class Daemon:
             actual = self.store.get_attempt(a["attempt_id"])
             previous = json.loads(actual["evidence_json"] or "{}")
             retained = _retain_lineage(self._prune_foreign_lineage(previous, foreign), census.to_dict())
+            if child:
+                retained["child_identity"] = child
             if retained != previous:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                            (json.dumps(retained), a["attempt_id"]))
         return census
+
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
