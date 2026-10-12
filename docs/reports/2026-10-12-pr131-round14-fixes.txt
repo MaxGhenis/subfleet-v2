@@ -148,3 +148,112 @@ TMPDIR cleanup used the requested Python shutil.rmtree command. Dependencies
 came from the readable local uv cache into the ignored workspace environment;
 UV_NO_SYNC=1 and workspace-local UV_CACHE_DIR kept default cache writes out.
 No logs, XML/JSON evidence, environments or bundles were staged.
+
+Round 15, 2026-10-12 (base dbc8b726d)
+===================================
+
+Commits in workspace-local .git-local, branch feat/quarantine-self-resolve:
+842259569 Restore scalar-confirmed guardian delivery and current kill fixtures
+5d48a63b4 Keep fake signal delivery inside the authorization context
+0ed5392a2 Scope complete receipt setup to the collision liveness property
+The final report commit is listed in the handoff. Shared Git metadata is outside
+the writable workspace; the assigned shared checkout remains at dbc8b726d.
+The hub must carry these local commits, not just the unchanged shared HEAD.
+
+Cause: this was not one blanket rejection of the new authorize keyword.
+The host world failures actually delivered TERM and KILL to child 200, but
+omitted guardian 100. Production _kill_attempt -> _contain -> leader_live
+confirms the stored guardian with same_process. With the guardian table start
+missing, neither census.identities nor group_identities contains that guardian.
+Only the complete child enters owned. The individual delivery loop therefore
+never calls _signal_owned or authorize for guardian 100: no authorization check
+refused it. Removing group delivery in round 14 exposed this omitted target.
+_contain_probe already explicitly retained its scalar-confirmed guardian.
+
+The production fix mirrors that probe path: inside the existing leader_live
+AND signal_allowed guard, add the recorded guardian identity to owned before
+persisting authority and dispatching individual signals. No new group member
+is authorized. _signal_owned -> procs.signal_process still obtains the claim
+context after scalar reads, checks its allowed value, reconfirms identity after
+receipt I/O, and keeps publication excluded through os.kill. The round-14
+claim, group-entrant and receipt refusal checks are unchanged.
+
+The ambiguity failure has a different, fixture-only cause. Every generated
+example cleared the foreign attempt's evidence and wrote an empty start.json.
+Source-level reconstruction of the host's empty-claims example is:
+_kill_attempt -> _signal_owned -> real procs.signal_process -> authorize ->
+_signal_claim_authority. _foreign_ownership retains that foreign receipt in
+receipt_candidates. Its refresh still finds no child_identity. After sidecar
+and store locking, _signal_claim_authority yields False at its unresolved
+foreign-child check, and signal_process returns without os.kill. This is the
+required round-14 safety refusal, not a dropped authorize call. The liveness
+property now supplies the foreign launch's known child 101 before applying
+the generated claims. All original signal-exclusion and owned-survivor
+assertions remain intact; separate late/empty receipt safety fixtures remain
+empty and unchanged. The third commit corrects an initially overbroad patch
+location; final-head changes affect only the named liveness property.
+
+The state-contract failure was the incompatible lambda described by the host:
+dispatch(kill) -> _kill_attempt -> _signal_owned -> lambda(identity, sig), with
+authorize rejected as a keyword before any context could return a value.
+That test now keeps real signal_process and fakes only getpgid/kill; killpg
+fails explicitly. Its expected protocol is individual TERM/KILL, including the
+recorded guardian and owned child, not the obsolete group protocol.
+
+Audited all tests for signal_process, _signal_owned and variadic lambdas.
+All 17 remaining signal_process stand-ins now use authorized_signal_stub:
+enter authorize(), return False on denial, and execute the fake delivery while
+the context is still active. Forbidden-delivery callbacks are retained.
+Two new unit cases check denial and authorization lifetime. Three new round-15
+cases cover a scalar-confirmed guardian absent from the census identities,
+plus foreign-claimed and ambiguous guardian controls, with real authorization.
+The clear case should fail at dbc8b726d by the missing guardian delivery and
+pass with this one-line fix; that differential is pending execution.
+
+Validation status: all test runs below remain UNRUN pending the shared lock.
+Dynamic tracing was attempted but never entered pytest; the call-path analysis
+above uses the committed source and the supplied host failure outputs, not a
+claimed new runtime trace. The host's prior passes are not head validations.
+
+Requested file                                   round-15 passed/failed/status
+fake/test_review_pr131_round15.py                 0 / 0 / UNRUN (3 cases)
+unit/test_signal_stubs.py                         0 / 0 / UNRUN (2 cases)
+fake/test_quarantine_ambiguity.py                 0 / 0 / UNRUN
+fake/test_state_contract.py                       0 / 0 / UNRUN
+fake/test_quarantine_process_world.py             0 / 0 / UNRUN
+fake/test_r12orig_liveness.py                     0 / 0 / UNRUN (world node)
+fake/test_review_pr131_round12_liveness.py         0 / 0 / UNRUN (world node)
+fake/test_review_pr131_round14.py                 0 / 0 / UNRUN
+fake/test_review_pr131_round13.py                 0 / 0 / UNRUN
+fake/test_review_pr131_round13_probes.py           0 / 0 / UNRUN
+fake/test_quarantine_self_resolve.py              0 / 0 / UNRUN
+
+Other changed stand-in files, each 0 passed / 0 failed / UNRUN:
+fake/test_probe_recovery.py, fake/test_quarantine_attempt_isolation.py,
+fake/test_quarantine_detached_writers.py, fake/test_r12orig_ownership.py,
+fake/test_review_pr131_round11.py, fake/test_review_pr131_round12_ownership.py,
+fake/test_review_pr131_round6.py, fake/test_review_pr131_round6b.py,
+fake/test_review_pr131_round6b_authority.py, unit/test_daemon_settle.py,
+unit/test_inspection_pacing_properties.py. No broader/full-size suite is claimed.
+
+The opt-in plugin tests.review_pr131_r15_bounds preserves every assertion and
+sets ordinary properties to 8 examples, state machines to 5 examples/8 steps,
+database=None, and derandomize=True. Runs request seed 13115 and pooled worlds;
+SF_WORLD_EXAMPLES=5 and SF_WORLD_STEPS=8 also bound TestProcessWorld explicitly.
+Both nominal 200-example r12 world nodes use that reduced budget in this run.
+Storage is under each task TMPDIR, not a worktree .hypothesis directory.
+
+Mutation templates group, confirmation and receipts all parse at final code.
+Their runtime detection and the deb8c5b25 round-14 witness differential are
+UNRUN, not claimed caught. The dbc8b726d guardian differential is UNRUN too.
+Every requested execution uses the existing foreground locked runner, a fresh
+task TMPDIR, one pytest per lock hold, and its 1100-second outer watchdog.
+No calmer-load wait occurs while holding the lock. Lock failures are reported
+as exit 75, never as passed tests or detected mutations.
+
+Static validation: all test modules and daemon.py parse; the stand-in AST audit
+finds exactly 17 authorization wrappers; git diff --check passes. Only named
+files are staged. Dependencies were copied read-only from the caller's venv
+into the ignored workspace venv; bytecode writes and pytest caches are disabled
+for execution attempts. No source, state, process or Git history in the caller's
+checkout is modified. No remote, sub-agent or live application operation occurs.
