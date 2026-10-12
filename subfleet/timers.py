@@ -1223,6 +1223,7 @@ class Timers:
             spaced = self._spaced_until(touch)
             entry = {'lane_id': row['lane_id'], 'home': row.get('home') or row.get('credential_ref'),
                      'weekly_clock': row.get('weekly_clock'),
+                     'clock_read_at': (row.get('clock_evidence') or {}).get('observed_at'),
                      'resets_at': min((r['resets_at'] for r in weekly if r.get('resets_at')), default=None),
                      'last_touch': {key: touch.get(key) for key in ('at', 'status', 'mode', 'requested_at')} if touch else None,
                      'next_touch_at': iso(spaced) if spaced else None}
@@ -1278,6 +1279,26 @@ class Timers:
         row['in_flight'] = 0
         return self.touch_block(row)
 
+    def _worked_since(self, lane_id, read_at):
+        """C-18.7: why a touch planned on a clock read idle at `read_at` must not run now, or None.
+
+        `_clock_state`'s rule for `touched`, judged under the reservation on the
+        attempts as they stand: work that sent a request (`_last_work`) no more
+        than the tolerance before that read, or at any time after it, may have
+        started the clock, and the plan, a view, cannot have seen work that
+        began and ended after it. An entry with no read has no evidence the
+        clock is idle (`unmeasured`); only an operator's named lane is touched
+        without it.
+        """
+        if not read_at:
+            return 'unmeasured'
+        since = instant(read_at) - timedelta(seconds=CLOCK_UNSTARTED_TOLERANCE_S)
+        rows = [row for row in self.store.query(
+                    'SELECT * FROM attempts WHERE lane_id=? AND started_at IS NOT NULL', (lane_id,))
+                if instant(row['started_at']) >= since]
+        last = self._last_work(rows).get(lane_id)
+        return f'started:attempt:{last}' if last else None
+
     def _touch_lane(self, lane, entry, *, mode, request_id, wait_s):
         """C-18.7: one supervised touch: reserve, one tiny turn, re-probe.
 
@@ -1321,6 +1342,12 @@ class Timers:
             if entry.get('reason') != 'forced' and self._spaced_until(previous):
                 # Another touch of this lane finished while this one waited.
                 item['record']['status'] = 'skipped-spaced'
+                return item
+            worked = None if entry.get('reason') == 'forced' else self._worked_since(lane.lane_id, entry.get('clock_read_at'))
+            if worked:
+                # A short job won the lane after the plan, sent its request, and
+                # left before this touch held it: that request was the first.
+                item['record'].update(status='skipped-' + worked.split(':', 1)[0], detail=worked)
                 return item
             model = touch_model(self.policy)
             record = {'lane_id': lane.lane_id, 'at': iso(self.now()), 'mode': mode, 'model': model['id'],

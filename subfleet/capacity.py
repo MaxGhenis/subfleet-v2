@@ -349,6 +349,8 @@ def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TT
 
 #: C-9.7: the window keys that are not a bare minute count.
 _WINDOW_MINUTES = {key: minutes for minutes, key in WINDOW_KEYS.items()}
+#: C-18.7: the weekly clock's length; only this window's reset is C-11.3's rank.
+WEEK_S = _WINDOW_MINUTES["seven_day"] * 60
 
 
 def window_seconds(window: Any) -> int | None:
@@ -376,15 +378,24 @@ def clock_unstarted(readings: Iterable[Any], *, now: str | datetime,
     A Codex weekly window starts at its first real request after a reset, not at
     the reset. Until then the usage endpoint reports it at 0% with a reset that
     slides to (the instant it was asked + the window's length) on every read, so
-    each idle day moves that lane's next reset a day later. Every account-wide
-    window at least `CLOCK_WINDOW_MIN_S` long must be a fresh `provider` reading
-    at exactly 0% whose `resets_at` lies within `tolerance_s` of `observed_at`
-    plus its length. A long window that is stale, unread, or has no reset says
-    nothing, so the answer is None: this reads evidence and never infers it.
+    each idle day moves that lane's next reset a day later. The account-wide
+    weekly window (`WEEK_S` long, by any key) must be read, and it and every
+    other account-wide window at least `CLOCK_WINDOW_MIN_S` long must be a fresh
+    `provider` reading at exactly 0% whose `resets_at` lies within `tolerance_s`
+    of `observed_at` plus its length. A long window that is stale, unread, or
+    has no reset says nothing, so the answer is None: this reads evidence and
+    never infers it. A day-long or two-week window alone is not the weekly
+    clock. Any fresh account-wide `provider` reading that shows use, a
+    five-hour one included, means a request was metered, so the clock runs
+    whatever the weekly reading still shows (review of d04f1d08).
     """
     instant = _time(now)
+    rows = [_row(item) for item in readings]
+    if any(row.get("scope") == "account" and row.get("utilization")
+           and fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s) for row in rows):
+        return None
     found = []
-    for row in long_windows(readings):
+    for row in long_windows(rows):
         length = window_seconds(row["window"])
         if not fresh_provider(row, now=instant, reading_ttl_s=reading_ttl_s) or not row.get("resets_at"):
             return None
@@ -395,7 +406,7 @@ def clock_unstarted(readings: Iterable[Any], *, now: str | datetime,
             return None
         found.append({"window": row["window"], "observed_at": row["observed_at"],
                       "resets_at": row["resets_at"], "offset_s": offset})
-    return found[0] if found else None
+    return next((item for item in found if window_seconds(item["window"]) == WEEK_S), None)
 
 
 def _display_order(lane: Mapping[str, Any], *, now: datetime, reading_ttl_s: int) -> tuple:

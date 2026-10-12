@@ -732,15 +732,17 @@ def touch_model(policy: Mapping[str, Any]) -> dict[str, Any]:
     """C-18.7: the model a weekly-clock touch runs, with its short name.
 
     `timers.touch_model` when it names a Codex model other than Spark, else
-    Luna: the policy's `luna` when it has one, else Luna's id. `load_policy`
-    refuses any other value, so the fallback only covers an unvalidated map.
+    Luna: the policy's `luna` when it has one, else Luna's id. Neither is read
+    through `retired`: `load_policy` refuses a retired `timers.touch_model`, but
+    it validates only a setting that is present, and a retired `luna` could
+    mean any model (`astra` at `ultra` effort; review of d04f1d08).
     """
     models = policy.get("models") or {}
     wanted = (policy.get("timers") or {}).get("touch_model") or CLOCK_TOUCH_MODEL
     for name in (wanted, CLOCK_TOUCH_MODEL):
         try:
-            short = resolve_model(policy, name, note=False)
-        except (PolicyError, KeyError, TypeError):
+            short = resolve_model({"models": models, "retired": {}}, name, note=False)
+        except (PolicyError, KeyError, TypeError, AttributeError):
             continue
         model = models.get(short) or {}
         if model.get("provider") == "codex" and "spark" not in f"{short} {model.get('id')}".lower():

@@ -1,7 +1,9 @@
 """C-18.7 invariants, stated over every input Hypothesis can build.
 
-- Detection never calls a clock unstarted when an account-wide weekly window
-  shows any use, nor on evidence that is stale, unread, or not the provider's.
+- Detection never calls a clock unstarted when any fresh account-wide window
+  shows use, nor without the weekly window read, nor on long-window evidence
+  that is stale, unread, or not the provider's.
+- No touch runs on a clock work reached after the plan read it idle.
 - Whatever holds, closes or occupies a lane (an operator's hold, including one
   only its `lane.held` event still shows, an `auth-dead` or other closure on
   the account or the touch model, a disabled, desktop or v1 lane, a job's or
@@ -59,28 +61,51 @@ def as_row(now, spec):
             "resets_at": iso(observed + timedelta(seconds=length + spec["offset_s"])) if spec["resets"] else None}
 
 
+def disqualified(rows, now):
+    """A reading that rules an unstarted clock out whatever else is read: fresh account-wide use
+    in any window, or an account-wide long window that is not fresh provider evidence at 0%
+    sliding a window ahead."""
+    for row in rows:
+        if row["scope"] != "account":
+            continue
+        fresh = capacity.fresh_provider(row, now=now)
+        if fresh and row["utilization"] != 0:
+            return True
+        if capacity.window_seconds(row["window"]) >= 86400:
+            if not fresh or not row["resets_at"] or row["utilization"] != 0:
+                return True
+            length = capacity.window_seconds(row["window"])
+            drift = (capacity._time(row["resets_at"]) - capacity._time(row["observed_at"])).total_seconds() - length
+            if abs(drift) > CLOCK_UNSTARTED_TOLERANCE_S:
+                return True
+    return False
+
+
 @settings(max_examples=500, deadline=None)
 @given(specs=st.lists(READING, max_size=6), extra=READING)
 def test_property_detection_is_false_on_any_lane_with_nonzero_use(specs, extra):
-    """C-18.7: an unstarted verdict needs every account-wide long window fresh from the
-    provider at exactly 0% with a reset sliding a window ahead, and at least one such
-    window. Once a long window disqualifies the lane, no further reading makes it
-    unstarted (only a lane with no long window read yet can become so)."""
+    """C-18.7: an unstarted verdict needs the account-wide weekly window read, it and every
+    other account-wide long window fresh from the provider at exactly 0% with a reset sliding
+    a window ahead, and no fresh account-wide use in any window. The verdict names the weekly
+    window. Once a reading disqualifies the lane, no further reading makes it unstarted (a
+    lane not yet disqualified, a lone day-long window, say, can become so)."""
     now = Clock()()
     rows = [as_row(now, spec) for spec in specs]
     found = capacity.clock_unstarted(rows, now=now)
     weekly = capacity.long_windows(rows)
     if found is not None:
-        assert weekly
+        assert capacity.window_seconds(found["window"]) == capacity.WEEK_S
+        assert not disqualified(rows, now)
         for row in weekly:
             assert row["utilization"] == 0 and row["label"] == "provider" and row["resets_at"]
             assert capacity.fresh_provider(row, now=now)
-            length = capacity.window_seconds(row["window"])
-            drift = (capacity._time(row["resets_at"]) - capacity._time(row["observed_at"])).total_seconds() - length
-            assert abs(drift) <= CLOCK_UNSTARTED_TOLERANCE_S
-    used = any(row["utilization"] != 0 for row in weekly)
+    else:
+        assert disqualified(rows, now) or not any(
+            capacity.window_seconds(row["window"]) == capacity.WEEK_S for row in weekly)
+    used = any(row["scope"] == "account" and row["utilization"] != 0 and capacity.fresh_provider(row, now=now)
+               for row in rows)
     assert not (used and found is not None)
-    if found is None and weekly:
+    if disqualified(rows, now):
         assert capacity.clock_unstarted([*rows, as_row(now, extra)], now=now) is None
 
 
@@ -218,6 +243,55 @@ def test_property_no_touch_ever_runs_on_a_held_closed_or_occupied_lane(condition
         assert store.list_jobs() == jobs and store.list_leases() == leases and not timer.active_holders
         assert wham.consumed == []
         assert all(record.get("status") != "touching" for record in timer.touches.values())
+
+
+# --- no touch on a clock work reached after the plan -------------------------------
+
+#: How an attempt ended: (rc, native session). C-23.19: rc 5 or 127 with no provider
+#: session sent no request; every other started attempt did.
+SENT = {"session": (0, "thread"), "no-session": (0, None), "rc5-session": (5, "thread"),
+        "rc5": (5, None), "rc127": (127, None)}
+WORK = st.fixed_dictionaries({
+    "offset_s": st.integers(-3 * CLOCK_UNSTARTED_TOLERANCE_S, 3 * CLOCK_UNSTARTED_TOLERANCE_S),
+    "sent": st.sampled_from(sorted(SENT)),
+})
+
+
+@PROPERTY
+@given(work=st.lists(WORK, max_size=3), mode=st.sampled_from(["auto", "operator"]))
+def test_property_no_touch_runs_on_a_clock_work_reached_after_the_plan(work, mode):
+    """C-18.7: the plan reads a clock idle at `clock_read_at`; a job that wins the lane after
+    the plan, sends a request, and leaves before the touch holds the lane stops the touch under
+    its reservation (`skipped-started`), as does one that started within the tolerance before
+    the read. Work that sent no request, or ran earlier, stops nothing, so a free lane is
+    still touched; and an operator who names the lane touches it whatever ran."""
+    with make_rig() as (timer, store, clock, wham, enroll, turns):
+        lane = enroll("codex-1")
+        timer._persist(lane, {**wham.probe_status(lane, {}), "probed_at": iso(clock())})
+        [entry] = [item for item in timer.touch_plan(timer.snapshot()) if item["action"] == "touch"]
+        read_at = capacity._time(entry["clock_read_at"])
+        for n, spec in enumerate(work):
+            rc, session = SENT[spec["sent"]]
+            store.add_job(job_id=f"job-{n}", request_id=f"request-{n}", payload_digest="digest", kind="dispatch",
+                          state="succeeded" if rc == 0 else "failed", workdir="/work", prompt_path="/prompt",
+                          sandbox="read-only")
+            store.add_attempt(attempt_id=f"job-{n}/a1", job_id=f"job-{n}", seq=1, lane_id=lane.lane_id, rc=rc,
+                              model_requested=CLOCK_TOUCH_MODEL_ID, state="succeeded" if rc == 0 else "failed",
+                              started_at=iso(read_at + timedelta(seconds=spec["offset_s"])),
+                              native_session_id=session)
+        clock.advance(3 * CLOCK_UNSTARTED_TOLERANCE_S + 1)        # every attempt has ended
+        blocked = any(spec["offset_s"] >= -CLOCK_UNSTARTED_TOLERANCE_S and spec["sent"] not in ("rc5", "rc127")
+                      for spec in work)
+        item = timer._touch_lane(lane, entry, mode=mode, request_id="r-1", wait_s=0)
+        timer._publish_touch(item, mode)
+        assert bool(turns) is not blocked, (work, item["record"])
+        if blocked:
+            assert item["record"]["status"] == "skipped-started", item["record"]
+            assert item["record"]["detail"].startswith("started:attempt:")
+            forced = timer._touch_lane(lane, {**entry, "reason": "forced"}, mode="operator", request_id="r-2", wait_s=0)
+            timer._publish_touch(forced, "operator")
+            assert len(turns) == 1 and forced["record"]["status"] == "ok"
+        assert store.list_leases() == [] and not timer.active_holders and wham.consumed == []
 
 
 # --- spacing ----------------------------------------------------------------------

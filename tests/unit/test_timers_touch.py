@@ -149,14 +149,33 @@ def test_a_window_at_zero_with_a_sliding_reset_has_not_started(offset_s):
     assert abs(evidence["offset_s"] - offset_s) < 1
 
 
-def test_detection_reads_dataclass_readings_and_any_long_window_key():
-    """C-9.7, C-18.7: a window is classified by its length, so a 14-day minute key counts too."""
+def test_detection_reads_dataclass_readings_and_classifies_windows_by_length():
+    """C-9.7, C-18.7: the weekly window is the one a week long, by any key; a day-long or
+    two-week window alone is no weekly clock, and beside the weekly one it must agree."""
     now = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
     reading = Reading("codex-4", "account", "seven_day", 0.0, iso(now + WEEK), ReadingLabel.PROVIDER, "wham", iso(now))
     assert capacity.clock_unstarted([reading], now=now)
-    assert capacity.clock_unstarted([weekly(now, window="20160")], now=now)
+    assert capacity.clock_unstarted([weekly(now, window="10080")], now=now)["window"] == "10080"
+    for other in ("1440", "20160"):
+        assert capacity.clock_unstarted([weekly(now, window=other)], now=now) is None
+        found = capacity.clock_unstarted([weekly(now, window=other), weekly(now)], now=now)
+        assert found and found["window"] == "seven_day"
+        assert capacity.clock_unstarted([weekly(now, window=other, offset_s=-7200), weekly(now)], now=now) is None
     assert capacity.window_seconds("admission") is None
-    assert capacity.window_seconds("seven_day") == 604800
+    assert capacity.window_seconds("seven_day") == capacity.WEEK_S == 604800
+
+
+@pytest.mark.parametrize("window", ["five_hour", "60", "1440"])
+def test_any_fresh_account_use_means_the_clock_runs(window):
+    """C-18.7: a request metered in any account-wide window (a five-hour one included) started
+    the weekly clock, whatever the weekly reading still shows; a stale or model-scoped reading
+    says nothing about the account."""
+    now = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
+    assert capacity.clock_unstarted([weekly(now), weekly(now, window=window, utilization=.01)], now=now) is None
+    if capacity.window_seconds(window) < 86400:     # a stale long window says nothing either way
+        assert capacity.clock_unstarted([weekly(now), weekly(now, window=window, utilization=.01, age_s=121)], now=now)
+    assert capacity.clock_unstarted([weekly(now), weekly(now, window=window, utilization=.5,
+                                                         scope=CLOCK_TOUCH_MODEL_ID)], now=now)
 
 
 @pytest.mark.parametrize("change", [
@@ -770,6 +789,27 @@ def test_a_hold_recorded_after_the_plan_stops_the_touch_before_its_turn(rig):
     assert item["holder"] and item["record"]["status"] == "skipped-operator-hold"
     timer._publish_touch(item, "operator")
     assert turns == [] and touches(store) == [] and store.list_leases() == [] and not timer.active_holders
+
+
+def test_the_plan_names_when_it_read_the_clock_and_a_touch_without_a_read_is_refused(rig):
+    """C-18.7: each plan entry carries `clock_read_at`, the read that showed the clock idle,
+    which the reservation's recheck of the attempts starts from; an unforced entry without
+    one has no evidence and runs no turn, and a named lane needs none."""
+    timer, store, clock, wham, enroll, turns, notices, _ = rig
+    lane = enroll()
+    timer._persist(lane, {**wham.probe_status(lane, {}), "probed_at": iso(clock())})
+    view = timer.snapshot()
+    [entry] = timer.touch_plan(view)
+    row = next(row for row in view["lanes"] if row["lane_id"] == lane.lane_id)
+    assert entry["action"] == "touch" and entry["clock_read_at"] == row["clock_evidence"]["observed_at"]
+    bare = {"lane_id": lane.lane_id, "reason": "not-started", "weekly_clock": "not-started"}
+    item = timer._touch_lane(lane, bare, mode="auto", request_id=None, wait_s=0)
+    assert item["record"]["status"] == "skipped-unmeasured" and item["holder"]
+    timer._publish_touch(item, "auto")
+    assert turns == [] and store.list_leases() == []
+    forced = timer._touch_lane(lane, {**bare, "reason": "forced"}, mode="operator", request_id="r", wait_s=0)
+    timer._publish_touch(forced, "operator")
+    assert len(turns) == 1 and forced["record"]["status"] == "ok"
 
 
 def test_a_limit_recorded_after_the_plan_stops_the_touch_before_its_turn(rig):

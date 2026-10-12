@@ -1,0 +1,73 @@
+{
+  "verdict": "changes_requested",
+  "head": "d04f1d0830d703204d2d283ba9d62127cdc1baa4",
+  "base": "4c6a8a9c9",
+  "findings": [
+    {
+      "severity": "P2",
+      "location": "subfleet/capacity.py:367",
+      "description": "The detector accepts any account window of at least one day and ignores shorter-window use. Executed probe cycles with fresh 0% 1440-minute/reset+1-day and 20160-minute/reset+14-day readings each ran a touch despite having no weekly evidence. A fresh seven_day=0% plus five_hour=1% also ran a touch, violating the requested nonzero-use exclusion.",
+      "reproduced": true,
+      "tests": [
+        "tests/unit/test_review182_detection.py::test_nonweekly_window_never_starts_weekly_touch[1440]",
+        "tests/unit/test_review182_detection.py::test_nonweekly_window_never_starts_weekly_touch[20160]",
+        "tests/unit/test_review182_detection.py::test_nonzero_short_window_use_never_starts_weekly_touch"
+      ]
+    },
+    {
+      "severity": "P2",
+      "location": "subfleet/timers.py:1319",
+      "description": "An unforced touch rechecks eligibility and touch spacing after reserving, but never checks work that began after planning. Executed a not-started plan, then inserted a successful Luna job that opened the clock and finished before _claim acquired the lane. The operator pass still ran another touch because the completed attempt was absent from the busy check.",
+      "reproduced": true,
+      "tests": [
+        "tests/unit/test_review182_detection.py::test_finished_job_between_plan_and_reservation_is_not_touched"
+      ]
+    },
+    {
+      "severity": "P2",
+      "location": "subfleet/policy.py:742",
+      "description": "The implicit Luna default resolves through retired aliases. Executed load_policy on a valid policy without models.luna or timers.touch_model and with retired.luna=astra; touch_model returned gpt-6-astra at ultra effort instead of the promised gpt-6-luna fallback. The explicit retired-alias validation does not run when the setting is absent.",
+      "reproduced": true,
+      "tests": [
+        "tests/unit/test_review182_detection.py::test_implicit_retired_luna_uses_fixed_default_id"
+      ]
+    }
+  ],
+  "changes": [
+    "Added five isolated defect reproductions, marked strict xfail so the review evidence does not fail ordinary test runs; --runxfail exposes the actual failures.",
+    "Added five passing reservation-state and lane-release checks.",
+    "No production code or store schema changes."
+  ],
+  "validation": [
+    {
+      "command": ".venv/bin/python -m pytest -q --runxfail tests/unit/test_review182_detection.py tests/unit/test_review182_holds.py",
+      "result": "5 failed, 5 passed in 9.75s; all five failures are the recorded defect assertions"
+    },
+    {
+      "command": ".venv/bin/python -m pytest -q tests/unit/test_review182_detection.py tests/unit/test_review182_holds.py",
+      "result": "5 passed, 5 xfailed in 12.28s"
+    },
+    {
+      "command": ".venv/bin/python -m pytest -q tests/unit/test_timers_touch.py tests/unit/test_timers_touch_properties.py tests/unit/test_cli_lanes_touch.py tests/fake/test_lanes_touch_daemon.py tests/e2e/test_lanes_touch.py tests/unit/test_codex_adapter.py tests/unit/test_status_json.py",
+      "result": "271 passed, 2 skipped, 1 failed in 955.03s. The guard-preflight-refusal test received quarantined instead of refused and repeated alone. The sandbox denies /bin/ps with PermissionError (Operation not permitted); the actual containment census reports group, descendant and marker enumeration unavailable, with no live pids. Both end-to-end tests skip because process inspection is unavailable."
+    },
+    {
+      "command": "git diff --check origin/release/217...d04f1d0830d703204d2d283ba9d62127cdc1baa4",
+      "result": "passed"
+    },
+    {
+      "command": "Run the existing guard-preflight-refusal test with only a verified-empty process census injected",
+      "result": "1 passed in 16.19s; real missing-overlay preflight refused with exit 7, with no guardian/provider launch, no probe directory and no lease. Base release/217 already quarantines timer launch exceptions when process inspection is unavailable."
+    },
+    {
+      "command": "Compare contract clause heading identifiers and store/schema paths against origin/release/217",
+      "result": "C-18.7 is the sole added clause heading; no duplicate clause headings and no store/schema diff"
+    }
+  ],
+  "isolation": "Temporary stores and fake adapters only; no real Codex or provider calls, no access to ~/.subfleet or ~/.local/share/subfleet, no GitHub write or push.",
+  "commit": {
+    "branch": "feat/lanes-touch-217",
+    "status": "blocked",
+    "reason": "git add failed creating /Users/maxghenis/subfleet-v2/.git/worktrees/lanes-touch-217/index.lock: Operation not permitted. Git metadata is outside the permitted workspace. The three review files remain uncommitted."
+  }
+}
