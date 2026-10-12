@@ -36,6 +36,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from .process_claims import receipt_claim_lock
+
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from . import resource_leases
@@ -4369,7 +4371,7 @@ class Daemon:
             self._save_probe(record)  # Authority precedes every signal, including recovery.
             for ident in owned.values():
                 if signal_allowed(ident):
-                    procs.signal_process(ident, signal.SIGTERM)
+                    self._signal_owned(record["holder"], ident, signal.SIGTERM, census, record, foreign)
             deadline = time.monotonic() + self.term_grace_s
             while not census.verified_empty and time.monotonic() < deadline:
                 time.sleep(.05)
@@ -4377,12 +4379,12 @@ class Daemon:
             if not census.verified_empty:
                 for ident in owned.values():
                     if signal_allowed(ident):
-                        procs.signal_process(ident, signal.SIGKILL)
+                        self._signal_owned(record["holder"], ident, signal.SIGKILL, census, record, foreign)
                 # A failed census cannot erase recorded ownership. Each
                 # individual signal still requires a fresh full identity.
                 for target in census.live_pids | (owned.keys() if census.unverifiable else set()):
                     if target in owned and signal_allowed(owned[target]):
-                        procs.signal_process(owned[target], signal.SIGKILL)
+                        self._signal_owned(record["holder"], owned[target], signal.SIGKILL, census, record, foreign)
                 time.sleep(.05)
                 census = self._probe_census(record, foreign_ownership=foreign)
         record.update(state="contained" if census.verified_empty else "quarantined",
@@ -6672,53 +6674,43 @@ class Daemon:
         return True
 
     def _seed_process_claim_receipts(self) -> None:
-        """Import legacy child identities once, before this daemon can signal.
+        """Enumerate legacy work once; complete only after every import resolves.
 
-        Receipt I/O stays out of ownership checks. The durable completion bit
-        permits restart after an interrupted import, without losing old claims.
+        An interrupted/unreadable import remains durable and is retried from
+        the indexed queue, rather than scanning terminal history on restart.
         """
-        if self.store.one("SELECT seeded FROM process_claim_receipts WHERE singleton=1")["seeded"]:
+        state = self.store.one("SELECT seeded,enumerated FROM process_claim_receipts WHERE singleton=1")
+        if state["seeded"]:
             return
-        rows = self.store.query(
-            "SELECT attempt_id,job_id,seq FROM attempts WHERE "
-            "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL")
-        for row in rows:
-            start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json") or {}
-            child = start.get("child_identity")
-            if not child:
-                continue
-            with self.store.transaction("attempt.process_claim_import", audit=False) as tx:
-                actual = self.store.get_attempt(row["attempt_id"])
-                evidence = _json_object(actual.get("evidence_json"))
-                if "child_identity" not in evidence:
-                    evidence["child_identity"] = child
-                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
-                               (json.dumps(evidence), row["attempt_id"]))
+        if not state["enumerated"]:
+            with self.store.transaction("attempt.process_claim_enumerated", audit=False) as tx:
+                tx.execute("INSERT OR IGNORE INTO process_claim_receipt_pending(attempt_id) "
+                           "SELECT attempt_id FROM attempts WHERE "
+                           "CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL")
+                tx.execute("UPDATE process_claim_receipts SET enumerated=1 WHERE singleton=1")
+        self._refresh_process_claim_receipts("")
         with self.store.transaction("attempt.process_claim_imported", audit=False) as tx:
-            tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1")
-            tx.execute("DELETE FROM process_claim_receipt_pending")
+            tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1 "
+                       "AND NOT EXISTS(SELECT 1 FROM process_claim_receipt_pending)")
 
     def _refresh_process_claim_receipts(self, attempt_id: str, *,
                                        candidates: tuple[tuple[str, str, int], ...] | None = None) -> None:
-        """Index late child publications before taking a signal snapshot.
+        """Retry at most 64 due imports; unreadable/empty receipts stay pending.
 
-        Active attempts without a publication are retried. Finished attempts
-        are read only from the changed-receipt queue, never from retained
-        history. A receipt imported here also advances the claim revision.
+        One immediate retry covers a publication in flight. Repeated failures
+        back off to at most 60 seconds, without ever discarding their claims.
+        Signal authorization may force the first census's candidate reads;
+        unresolved work then refuses delivery, including legacy publishers.
         """
         rows = ([dict(attempt_id=aid, job_id=job, seq=seq) for aid, job, seq in candidates]
                 if candidates is not None else self.store.query(
-            "SELECT attempt_id,job_id,seq FROM attempts WHERE "
-            "state IN ('reserved','starting','running','finalizing') AND attempt_id<>? "
-            "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL "
-            "UNION SELECT attempt_id,job_id,seq FROM attempts WHERE state='quarantined' AND attempt_id<>? "
-            "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL "
-            "UNION SELECT a.attempt_id,a.job_id,a.seq FROM process_claim_receipt_pending p "
-            "CROSS JOIN attempts a ON a.attempt_id=p.attempt_id WHERE p.attempt_id<>?",
-            (attempt_id, attempt_id, attempt_id)))
+            "SELECT a.attempt_id,a.job_id,a.seq FROM process_claim_receipt_pending p "
+            "CROSS JOIN attempts a ON a.attempt_id=p.attempt_id "
+            "WHERE p.retry_at<=? AND p.attempt_id<>? ORDER BY p.retry_at,p.attempt_id LIMIT 64",
+            (time.time(), attempt_id)))
         for row in rows:
-            start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json") or {}
-            child = start.get("child_identity")
+            start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json")
+            child = start.get("child_identity") if isinstance(start, dict) else None
             with self.store.transaction("attempt.process_claim_refresh", audit=False) as tx:
                 actual = self.store.get_attempt(row["attempt_id"])
                 if actual is None:
@@ -6728,7 +6720,16 @@ class Daemon:
                     evidence["child_identity"] = child
                     tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                                (json.dumps(evidence), row["attempt_id"]))
-                tx.execute("DELETE FROM process_claim_receipt_pending WHERE attempt_id=?", (row["attempt_id"],))
+                if evidence.get("child_identity"):
+                    tx.execute("DELETE FROM process_claim_receipt_pending WHERE attempt_id=?", (row["attempt_id"],))
+                else:
+                    tx.execute("INSERT OR IGNORE INTO process_claim_receipt_pending(attempt_id) VALUES(?)", (row["attempt_id"],))
+                    pending = self.store.one("SELECT failures FROM process_claim_receipt_pending WHERE attempt_id=?", (row["attempt_id"],))
+                    failures = pending["failures"] + 1
+                    delay = 0 if failures == 1 else min(60, 2 ** min(failures - 2, 6))
+                    tx.execute("UPDATE process_claim_receipt_pending SET failures=?,retry_at=?,last_error=? WHERE attempt_id=?",
+                               (failures, time.time() + delay,
+                                "unreadable" if start is None else "awaiting-child-identity", row["attempt_id"]))
 
     def _foreign_ownership(self, a: dict, table=_UNSET) -> procs.ForeignOwnership:
         """Indexed claims for current incarnations; terminal history grants no exclusion.
@@ -6804,7 +6805,10 @@ class Daemon:
                                       frozenset(pid for pid, row in table.rows.items() if table.live(pid))
                                       if table is not None else None,
                                       receipt_candidates=tuple((row["attempt_id"], row["job_id"], row["seq"])
-                                                               for row in active if not _json_object(row.get("child_identity"))))
+                                          for row in self.store.query(
+                                              "SELECT a.attempt_id,a.job_id,a.seq FROM process_claim_receipt_pending p "
+                                              "CROSS JOIN attempts a ON a.attempt_id=p.attempt_id WHERE p.attempt_id<>? LIMIT 65",
+                                              (a["attempt_id"],))))
 
     def _unambiguous_signal_identity(self, attempt_id: str, ident: procs.ProcessIdentity,
                                      census: procs.Containment, evidence: dict,
@@ -6821,6 +6825,8 @@ class Daemon:
             # A guardian may publish between the first census and delivery,
             # before its paced store update. Index only those pending launch
             # receipts; their revision can only suppress this cached kill.
+            if len(foreign.receipt_candidates) > 64:
+                return False
             self._refresh_process_claim_receipts(attempt_id, candidates=foreign.receipt_candidates)
             if foreign.generation is not None and self.store.one(
                     "SELECT 1 FROM process_claim_revisions WHERE generation>? AND attempt_id<>? LIMIT 1",
@@ -6844,6 +6850,37 @@ class Daemon:
             except procs.InspectionError:
                 return False
         return True
+
+    @contextlib.contextmanager
+    def _signal_claim_authority(self, attempt_id, ident, census, evidence, foreign):
+        """Authorize after scalar confirmation, through the signal syscall.
+
+        Indexed publications share the store lock; guardian publications share
+        receipt sidecar locks. A legacy/missing publication cannot be proven
+        closed, so an unresolved foreign receipt refuses delivery altogether.
+        These checks can only suppress the first census's target permission.
+        """
+        if len(foreign.receipt_candidates) > 64:
+            yield False
+            return
+        with self.store.claim_dispatch(), contextlib.ExitStack() as locks:
+            for aid, job, seq in sorted(foreign.receipt_candidates):
+                path = attempt_dir(self.root, job, seq) / "start.json"
+                if not locks.enter_context(receipt_claim_lock(path)):
+                    yield False
+                    return
+            allowed = self._unambiguous_signal_identity(attempt_id, ident, census, evidence, foreign)
+            if allowed:
+                for aid, job, seq in foreign.receipt_candidates:
+                    actual = self.store.get_attempt(aid)
+                    if actual is not None and not _json_object(actual.get("evidence_json")).get("child_identity"):
+                        allowed = False
+                        break
+            yield allowed
+
+    def _signal_owned(self, attempt_id, ident, sig, census, evidence, foreign):
+        return procs.signal_process(ident, sig, authorize=lambda: self._signal_claim_authority(
+            attempt_id, ident, census, evidence, foreign))
 
     def _unambiguous_signal_group(self, attempt_id: str, leader: procs.ProcessIdentity | None,
                                   census: procs.Containment, evidence: dict,
@@ -7208,7 +7245,7 @@ class Daemon:
         # leader. Individual delivery preserves this kill's first target cap.
         for ident in owned.values():
             if signal_allowed(ident):
-                procs.signal_process(ident, signal.SIGTERM)
+                self._signal_owned(a["attempt_id"], ident, signal.SIGTERM, census, evidence, foreign)
         deadline = time.monotonic() + self.term_grace_s
         while not census.verified_empty and time.monotonic() < deadline:
             if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
@@ -7218,13 +7255,13 @@ class Daemon:
         if escalated:
             for ident in owned.values():
                 if signal_allowed(ident):
-                    procs.signal_process(ident, signal.SIGKILL)
+                    self._signal_owned(a["attempt_id"], ident, signal.SIGKILL, census, evidence, foreign)
         census = self._contain(a, foreign_ownership=foreign)
         # Inspection outages retain both leases and previously recorded signal
         # targets; signal_process independently reconfirms every full identity.
         for pid in census.live_pids | (owned.keys() if census.unverifiable else set()):
             if pid in owned and signal_allowed(owned[pid]):
-                procs.signal_process(owned[pid], signal.SIGKILL)
+                self._signal_owned(a["attempt_id"], owned[pid], signal.SIGKILL, census, evidence, foreign)
         # Signalled processes leave the process table only when the kernel has
         # finished tearing them down, and under load that takes longer than one
         # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).

@@ -50,15 +50,28 @@ BEGIN
 END;
 
 -- One restart-safe import of legacy child launch receipts into attempt rows.
-CREATE TABLE IF NOT EXISTS process_claim_receipts (singleton INTEGER PRIMARY KEY CHECK(singleton=1), seeded INTEGER NOT NULL);
-INSERT OR IGNORE INTO process_claim_receipts VALUES(1,0);
+CREATE TABLE IF NOT EXISTS process_claim_receipts (singleton INTEGER PRIMARY KEY CHECK(singleton=1), seeded INTEGER NOT NULL, enumerated INTEGER NOT NULL DEFAULT 0);
+INSERT OR IGNORE INTO process_claim_receipts(singleton,seeded) VALUES(1,0);
 
 -- A receipt can arrive after the startup import. Remember changed attempts
 -- whose child publication still needs importing, including a just-finished
 -- legacy attempt. This queue avoids rescanning retained terminal history.
 CREATE TABLE IF NOT EXISTS process_claim_receipt_pending (
-  attempt_id TEXT PRIMARY KEY REFERENCES attempts(attempt_id) ON DELETE CASCADE
+  attempt_id TEXT PRIMARY KEY REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+  failures INTEGER NOT NULL DEFAULT 0,
+  retry_at REAL NOT NULL DEFAULT 0,
+  last_error TEXT
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS process_claim_receipt_due ON process_claim_receipt_pending(retry_at,attempt_id);
+CREATE TRIGGER IF NOT EXISTS process_claim_receipt_added AFTER INSERT ON attempts
+BEGIN
+  INSERT OR IGNORE INTO process_claim_receipt_pending(attempt_id) VALUES(NEW.attempt_id);
+END;
+CREATE TRIGGER IF NOT EXISTS process_claim_receipt_resolved AFTER UPDATE OF evidence_json ON attempts
+WHEN CASE WHEN json_valid(NEW.evidence_json) THEN json_extract(NEW.evidence_json,'$.child_identity') END IS NOT NULL
+BEGIN
+  DELETE FROM process_claim_receipt_pending WHERE attempt_id=NEW.attempt_id;
+END;
 CREATE TRIGGER IF NOT EXISTS process_claim_receipt_changed
 AFTER UPDATE OF evidence_json,state,child_pid ON attempts
 WHEN CASE WHEN json_valid(NEW.evidence_json) THEN json_extract(NEW.evidence_json,'$.child_identity') END IS NULL
@@ -66,5 +79,5 @@ WHEN CASE WHEN json_valid(NEW.evidence_json) THEN json_extract(NEW.evidence_json
        OR (OLD.state IN ('reserved','starting','running','finalizing','quarantined')
            AND NEW.state NOT IN ('reserved','starting','running','finalizing','quarantined')))
 BEGIN
-  INSERT OR IGNORE INTO process_claim_receipt_pending VALUES(NEW.attempt_id);
+  INSERT OR IGNORE INTO process_claim_receipt_pending(attempt_id) VALUES(NEW.attempt_id);
 END;

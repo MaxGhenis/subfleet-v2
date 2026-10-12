@@ -6,7 +6,7 @@ only pid sets and start identities may become durable evidence.
 
 from __future__ import annotations
 
-from typing import Callable, Sequence
+from typing import Callable, ContextManager, Sequence
 
 import fcntl
 import os
@@ -1173,14 +1173,24 @@ def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
         return False
 
 
-def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals) -> bool:
+def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals, *,
+                   authorize: Callable[[], ContextManager[bool]] | None = None) -> bool:
     """Signal a survivor only with previously recorded ownership (C-5.6)."""
     if recorded.pid <= 1 or recorded.pid == os.getpid():
         return False
     if not same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
         return False
     try:
-        os.kill(recorded.pid, sig)
+        if authorize is not None:
+            # Finish scalar reads before entering the claim-publication gate.
+            # Group membership grants no authority to signal other members.
+            os.getpgid(recorded.pid)
+            with authorize() as allowed:
+                if not allowed:
+                    return False
+                os.kill(recorded.pid, sig)
+        else:
+            os.kill(recorded.pid, sig)
         return True
     except (ProcessLookupError, PermissionError):
         return False

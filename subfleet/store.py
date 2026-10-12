@@ -282,6 +282,18 @@ class Store:
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempt_process_claims'").fetchone()
                 receipt_queue_present = self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='process_claim_receipt_pending'").fetchone()
+                if receipt_queue_present:
+                    # The receipt queue predates retry bookkeeping. Preserve
+                    # its work and re-enumerate legacy imports once on upgrade.
+                    columns = {row["name"] for row in self.connection.execute(
+                        "PRAGMA table_info(process_claim_receipt_pending)")}
+                    if "retry_at" not in columns:
+                        self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN failures INTEGER NOT NULL DEFAULT 0")
+                        self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN retry_at REAL NOT NULL DEFAULT 0")
+                        self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN last_error TEXT")
+                        self.connection.execute("ALTER TABLE process_claim_receipts ADD COLUMN enumerated INTEGER NOT NULL DEFAULT 0")
+                        self.connection.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
+                        self.connection.execute("DROP TRIGGER IF EXISTS process_claim_receipt_changed")
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
                 schema += "\n" + Path(__file__).with_name("store_process_claims.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
@@ -341,6 +353,16 @@ class Store:
     @property
     def conn(self) -> sqlite3.Connection:
         return self.connection
+
+    @contextmanager
+    def claim_dispatch(self):
+        """Serialize final signal authorization with every store mutation.
+
+        No SQL transaction spans process/file I/O. The daemon is the sole
+        writable owner; its transaction lock excludes other publisher threads.
+        """
+        with self._lock:
+            yield
 
     @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,

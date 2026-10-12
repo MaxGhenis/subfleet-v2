@@ -14,6 +14,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .process_claims import receipt_claim_lock
 from .procs import InspectionError, boot_id, pipe_above_stdio, proc_start
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
@@ -90,7 +91,12 @@ def atomic_publish(path: str | Path, data: bytes) -> None:
 
 
 def _receipt(path: Path, value: dict) -> None:
-    atomic_publish(path, (json.dumps(value, sort_keys=True) + "\n").encode())
+    data = (json.dumps(value, sort_keys=True) + "\n").encode()
+    if path.name == "start.json":
+        with receipt_claim_lock(path, blocking=True):
+            atomic_publish(path, data)
+    else:
+        atomic_publish(path, data)
 
 
 def _utc() -> str:
