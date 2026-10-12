@@ -74,6 +74,10 @@ _UNSET = object()
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 
+#: C-8.5: keep a finished checkout through seven failed completion writes;
+#: the eighth failure settles the job instead of retrying ownership forever.
+PUSH_WORKSPACE_STORE_MAX_FAILURES = 8
+
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
 #: C-5.11: what a tick reads of every live attempt, in one statement: where its
@@ -850,6 +854,7 @@ class Daemon:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
         self._push_workspaces: dict[str, Future] = {}
         self._push_workspace_store_errors: dict[str, sqlite3.Error] = {}
+        self._push_workspace_store_failures: dict[str, int] = {}
         self._push_unused_workspaces: set[str] = set()
         self._push_preparation_offered = False
         # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
@@ -4011,11 +4016,30 @@ class Daemon:
         return isinstance(exc, sqlite3.OperationalError) and str(exc) in (
             "database is locked", "database table is locked", "database schema is locked")
 
+    @classmethod
+    def _push_workspace_store_transient(cls, exc: sqlite3.Error) -> bool:
+        """Retry resource/locking faults and explicit write-side I/O failures.
+
+        Do not mask IOERR's extended code: checksum and filesystem corruption
+        share its primary code, and unknown I/O faults are not known to recover.
+        PROTOCOL is WAL transaction-start contention; FULL can recover when
+        space (or the database page quota) becomes available after rollback.
+        """
+        if cls._push_workspace_store_busy(exc):
+            return True
+        code = getattr(exc, "sqlite_errorcode", None)
+        if code is not None:
+            return (code & 0xff) in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_PROTOCOL) or code in (
+                sqlite3.SQLITE_IOERR_WRITE, sqlite3.SQLITE_IOERR_FSYNC,
+                sqlite3.SQLITE_IOERR_DIR_FSYNC, sqlite3.SQLITE_IOERR_TRUNCATE)
+        return isinstance(exc, sqlite3.OperationalError) and str(exc) == "database or disk is full"
+
     def _finish_push_workspace(self, job: dict, future: Future | None) -> bool | None:
         """Apply completion: True is owned, False settled, None needs a later pass.
 
-        Busy writes retain the construction result. Permanent store failures
-        retain their cause until this job's failure and notice commit together.
+        Transient writes retain the construction result for a bounded number
+        of failures. Permanent or exhausted failures retain their cause until
+        this job's failure and notice commit together.
         """
         job_id = job["job_id"]
         try:
@@ -4041,16 +4065,22 @@ class Daemon:
                     if ready and current["worktree"] != destination:
                         tx.execute("UPDATE jobs SET worktree=? WHERE job_id=?", (destination, job_id))
         except sqlite3.Error as exc:
-            if self._push_workspace_store_busy(exc):
-                return None
+            if job_id not in self._push_workspace_store_errors and self._push_workspace_store_transient(exc):
+                count = self._push_workspace_store_failures.get(job_id, 0) + 1
+                self._push_workspace_store_failures[job_id] = count
+                if count < PUSH_WORKSPACE_STORE_MAX_FAILURES:
+                    return None
             self._push_workspace_store_errors[job_id] = exc
             try:
-                self._fail_queued(job, f"workspace completion could not be recorded: {type(exc).__name__}: {exc}",
+                count = self._push_workspace_store_failures.get(job_id, 0)
+                tail = f" after {count} completion write failures" if count else ""
+                self._fail_queued(job, f"workspace completion could not be recorded{tail}: {type(exc).__name__}: {exc}",
                                   kind="job.workspace_failed")
             except sqlite3.Error:
                 return None
             ready = False
         self._push_workspace_store_errors.pop(job_id, None)
+        self._push_workspace_store_failures.pop(job_id, None)
         if not ready:
             self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         return ready
@@ -4058,8 +4088,8 @@ class Daemon:
     def _reap_push_workspaces(self, holds: dict[str, dict]) -> set[str]:
         """Consume finished builds before a job's pin or other hold can hide them.
 
-        Record ownership before readiness, retrying busy writes without losing
-        the result or stopping other placements. Only then release the slot.
+        Record ownership before readiness, retrying transient writes within
+        their budget without stopping other placements. Then release the slot.
         """
         skipped: set[str] = set()
         for job_id in dict.fromkeys((*self._push_workspaces, *self._push_workspace_store_errors)):
@@ -4070,11 +4100,13 @@ class Daemon:
             if not job or job["state"] in TERMINAL or job["cancel_requested_at"]:
                 if future is not None and not future.done() and not future.cancel():
                     self._push_workspace_store_errors.pop(job_id, None)
+                    self._push_workspace_store_failures.pop(job_id, None)
                     continue  # The running worker still owns the build slot.
                 self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
                 self._push_workspaces.pop(job_id, None)
                 self._push_workspace_store_errors.pop(job_id, None)
+                self._push_workspace_store_failures.pop(job_id, None)
                 continue
             ready = self._finish_push_workspace(job, future)
             if ready is None:
@@ -5030,6 +5062,7 @@ class Daemon:
                 if job_id not in pending and (future.done() or future.cancel()):
                     self._push_workspaces.pop(job_id, None)
                     self._push_workspace_store_errors.pop(job_id, None)
+                    self._push_workspace_store_failures.pop(job_id, None)
                     self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)

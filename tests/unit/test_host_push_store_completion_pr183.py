@@ -134,6 +134,7 @@ def run_interleavings(root, count, steps, patch):
     core.root, core.store, core.pushes = root, Rows(count), ManualExecutor()
     core._push_workspaces, core._push_unused_workspaces = {}, set()
     core._push_workspace_store_errors = {}
+    core._push_workspace_store_failures = {}
     core._push_preparation_offered = False
     core._capacity_waits = {}
     core._notify = lambda: None
@@ -198,6 +199,7 @@ def run_interleavings(root, count, steps, patch):
             core.pushes.drain()
             core._push_workspaces, core._push_unused_workspaces = {}, set()
             core._push_workspace_store_errors = {}
+            core._push_workspace_store_failures = {}
             core._push_preparation_offered = False
         elif action == "crash":
             # An offered but not yet started build disappears on process loss;
@@ -205,6 +207,7 @@ def run_interleavings(root, count, steps, patch):
             core.pushes.pending.clear()
             core._push_workspaces, core._push_unused_workspaces = {}, set()
             core._push_workspace_store_errors = {}
+            core._push_workspace_store_failures = {}
             core._push_preparation_offered = False
         elif action == "turn":
             before = dict(core._push_workspaces)

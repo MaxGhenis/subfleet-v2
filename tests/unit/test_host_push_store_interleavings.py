@@ -12,7 +12,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from subfleet import host_push
-from subfleet.daemon import Daemon
+from subfleet.daemon import Daemon, PUSH_WORKSPACE_STORE_MAX_FAILURES
 from subfleet.retention_archive import owned_worktree
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Launch, attempt_dir
@@ -69,6 +69,7 @@ def busy_interleavings(root, count, steps, patch):
     core.root, core.store, core.pushes = root, BusyRows(count), ManualExecutor()
     core._push_workspaces, core._push_unused_workspaces = {}, set()
     core._push_workspace_store_errors = {}
+    core._push_workspace_store_failures = {}
     core._push_preparation_offered = False
     core._capacity_waits = {}
     core._notify = lambda: None
@@ -77,9 +78,22 @@ def busy_interleavings(root, count, steps, patch):
     pinned = set()
     plain_placements = 0
     passes = 0
+    settled_failures = set()
+
+    def fail_queued(job, detail, *, kind):
+        # The small table has no production notice schema. Exercise the same
+        # atomic state/audit boundary here; real-Store tests check the notice.
+        job_id = job["job_id"]
+        assert core._push_workspace_store_failures[job_id] == PUSH_WORKSPACE_STORE_MAX_FAILURES
+        assert "after 8 completion write failures" in detail
+        with core.store.transaction(kind, job_id=job_id) as tx:
+            tx.execute("UPDATE jobs SET state='failed' WHERE job_id=?", (job_id,))
+        settled_failures.add(job_id)
+
+    core._fail_queued = fail_queued
 
     def cancel(job_id):
-        if core.store.list_attempts(job_id):
+        if core.store.list_attempts(job_id) or core.store.job(job_id)["state"] in {"failed", "cancelled"}:
             return
         try:
             with core.store.transaction("job.cancelled", job_id=job_id) as tx:
@@ -158,6 +172,7 @@ def busy_interleavings(root, count, steps, patch):
                     core.pushes.pending.clear()
                 core._push_workspaces, core._push_unused_workspaces = {}, set()
                 core._push_workspace_store_errors = {}
+                core._push_workspace_store_failures = {}
                 core._push_preparation_offered = False
             for index in range(count):
                 job_id = str(index)
@@ -180,7 +195,10 @@ def busy_interleavings(root, count, steps, patch):
         for index in range(count):
             job_id = str(index)
             job = core.store.job(job_id)
-            if job["state"] != "cancelled":
+            if job["state"] == "failed":
+                assert job_id in settled_failures, "job failed before its completion budget was exhausted"
+                assert core.store.list_attempts(job_id) == []
+            elif job["state"] != "cancelled":
                 assert core.store.list_attempts(job_id), "recovery never placed a live job"
             destination = root / "worktrees" / job_id
             if destination.exists():
@@ -191,6 +209,7 @@ def busy_interleavings(root, count, steps, patch):
         assert all(built.count(str(index)) <= 1 for index in range(count)), "checkout built twice"
         assert core._push_workspaces == {}
         assert core._push_workspace_store_errors == {}
+        assert core._push_workspace_store_failures == {}
     finally:
         core.pushes.drain()
         core.store.connection.close()
@@ -516,6 +535,11 @@ def test_generated_busy_completions_leave_real_detached_admission_live(queued_ad
             if row["state"] == "cancelled":
                 assert not destination.exists()
                 assert core.store.list_attempts(job) == []
+            elif row["state"] == "failed":
+                assert not destination.exists()
+                assert core.store.list_attempts(job) == []
+                assert len(notices(core, job)) == 1
+                assert "after 8 completion write failures" in notices(core, job)[0]
             else:
                 assert placed(core, job)
                 assert row["worktree"] == str(destination)
