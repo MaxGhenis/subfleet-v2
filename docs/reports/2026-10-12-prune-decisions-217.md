@@ -103,11 +103,28 @@ connections explicitly before restore, increased the restore subprocess bound
 to 120 seconds, and scheduled fresh processes. The two schema-0 cases extend
 the final scope to 62 cases.
 
-Validation is in progress: one foreground pytest command covers the three
-prune test modules and `tests/unit/test_test_module_names.py`, under
-`/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`, with a unique
-`TMPDIR` and the required Python cleanup. Final counts will be recorded after
-it completes. `git diff --check` passes.
+Fresh core run: **58 passed in 35.77 s**, in a separate foreground process
+under `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`:
+
+| Module | Cases | Result |
+| --- | ---: | --- |
+| `tests/unit/test_prune_decisions.py` | 48 | Passed |
+| `tests/unit/test_prune_217.py` | 9 | Passed |
+| `tests/unit/test_test_module_names.py` | 1 | Passed |
+| `tests/unit/test_prune_restore.py` | 4 | Fresh separate run pending |
+
+The four restore cases are queued as the next foreground process with their
+own lock hold. Every invocation uses a unique
+`TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-prune217-$$/` and the required
+`python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$TMPDIR"`
+cleanup. The successful core hold was below 20 minutes. `git diff --check`
+passes. No implementation file was edited during the fresh run.
+
+Dependency preparation initially failed because PyPI DNS was unavailable.
+Copied the required cached wheels into the workspace cache and installed
+fully offline (`uv sync --frozen --offline`), including the lockfile's
+pytest 9.1.1 and Hypothesis 6.168.1, using CPython 3.14.7 with free threading.
+The global cache was read only; no caller checkout or live state was used.
 
 Unrun: the full repository suite, full retention/Git archive round trips, and
 any dry run or apply against a live store. No `~/.subfleet` or
