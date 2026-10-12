@@ -61,6 +61,11 @@ LIMIT = 10_000
 EVENTS = ("pick_0", "pick_1", "pick_2", "load_0", "load_1", "load_2",
           "turn_0", "turn_1", "turn_2", "save_0", "save_1", "save_2")
 KINDS = ("on-time", "pick", "re-save")
+#: Each run_once is one transaction, as in the model: no inline hot service
+#: inside it (release/217 serves a hot pass at a full pass's checkpoints
+#: once `mirror_hot_interval_s` elapses, which a slow host reaches mid-step).
+#: `test_sessions_mirror_settings.py` tests that service on its own.
+ONE_TRANSACTION = {"mirror_hot_interval_s": 0}
 
 
 def fields_of(unit: str, value: int) -> dict[str, str]:
@@ -90,7 +95,7 @@ class MirrorAgainstModel(RuleBasedStateMachine):
         self.root.mkdir()
         ticks = itertools.count()
         self.running = mirror.Mirror(
-            self.root, fx.policy(), now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
+            self.root, fx.policy(**ONE_TRANSACTION), now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
         self.state: model.State | None = None
 
     @property

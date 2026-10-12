@@ -199,6 +199,15 @@ every session is at its first decision, as after install), at 2026-09-27 02:55Z.
 - 12 decided worktree directories no longer exist. The app's worktree recovery handles that on resume, as it already does in the account whose copy is newest.
 - `ids_diverged` is 12, with "Partner" the one open session.
 
+**The live store was converged early, by accident (2026-10-12, 11:18-11:21Z).**
+
+- **What happened.** A regression test written for round 2 called `monkeypatch.undo()` mid-test. That also undid the environment variables pointing the mirror at the test's directories. The `run_hot()` that followed then ran this branch's code (head f0a81b23c) against the real desktop store and transcripts.
+- **What it wrote.** It used the test's empty flag base and the test's own lock, not the daemon's. It rewrote 55,279 existing copies across 635 session files, 28,567 of them copies of open sessions, and placed 134 new copies for 2 sessions. No other journal records the burst; it was found from ctimes that postdate the kept mtimes.
+- **What can't be known.** No image of the store from before 11:18Z exists (the only local snapshot is 11:49Z), so neither the earlier values nor a revert is available.
+- **Settings.** It decided them with this rule at a first decision, which is the rollout this report plans. The account switch at 11:24Z and the reboot at 11:42Z reloaded the app from the converged files, so no stale app memory remains from it.
+- **Flags.** With an empty base, flags followed the bootstrap rule: archived anywhere and starred anywhere win, and a manual title wins. That differs from the real merge base only for a change still in flight: an unarchive, an unstar or a title change made in one account and not yet propagated. The app's log shows none on 2026-10-12 before 11:18Z. The candidates from 2026-10-11 (an unarchive of `local_302b9284…`, an unstar and a retitle of "Partner", six auto titles) had no copy rewritten in the burst.
+- **The fix.** The test now uses a scoped patch context and asserts that the store is its own before the hot pass. Local runs also set the store and transcript variables to empty scratch directories, so an undo could only fall back to those.
+
 After install:
 - **Relaunch the desktop app once the first full pass has finished.** The
   running app holds the loaded folder's records in memory from before the
@@ -213,7 +222,20 @@ After install:
 
 ## Review
 
-One independent adversarial review, by Opus 5.5 on a Subfleet lane, requested changes. Its findings and their fixes:
+Round 2 reviewed the port to `release/217` (#193). It was by GPT-6.1 Sol on a Subfleet lane, with a shell. It requested changes, and executed and reproduced every finding:
+
+| Finding | Fix |
+|---|---|
+| **P1.** A hot pass that advanced only a settings base, with every copy already agreeing, did not move `release/217`'s hot epoch. A full pass holding an older snapshot then published the older value, and a stale save spread it. | The decision fingerprint that marks a base as moved now includes the settings record, and a successful write-ahead marks movement. Regression: `test_a_settings_only_hot_publication_refreshes_the_full_pass`. |
+| **P1.** A session that resumed elsewhere leaves transcripts in two project folders, and the inventory keeps one. An older copy without the opus turns made a re-save of opus look never-run, so a pick. | `transcript_models` pools every copy of the transcript across project folders. Any unreadable copy reads as "ran". |
+| **P1.** A FIFO where a transcript belongs blocked the plain `open()` while the mirror held its lock. | Transcripts are opened with `transcripts.open_regular`, which never blocks. A FIFO reads as no evidence. |
+| **P2.** A crash between a later pick's copy writes erased the pick: each written copy keeps its early mtime, so the evidence no longer held on restart. | A first decision taken from a later pick is written ahead whole: value, digest and rank. |
+| **P2.** `seen` was capped at 64. An evicted value read as new, so a parked memory could spread it over newer activity. The twin had no cap. | `seen` is never trimmed. |
+| **P3.** C-23.28 said diverged files are "never rewritten" and that the model "was picked after" the last activity. | The ids are left unchanged, and each id's copies converge among themselves. The text describes the write-time and transcript evidence. |
+
+Round 2's serial run, 91 minutes on a loaded lane, also showed that a slow host reaches `release/217`'s inline hot service inside a full pass. The tests that model one transaction per pass now set `mirror_hot_interval_s` to 0, and the inline service has its own deterministic test.
+
+Round 1, on #49, was by Opus 5.5 on a Subfleet lane. It requested changes. Its findings and their fixes:
 
 | Finding | Fix |
 |---|---|
@@ -263,7 +285,8 @@ sidebar. That predates this change and is a separate follow-up.
   which leaves no record. Both are misses, never a stale value winning; after
   the first decision the rule's "new" and "activity" steps apply as usual.
 - **Crash windows narrow, not closed.** The write-ahead covers a crash
-  between the copy writes and the base write. As in the flag protocol, an app
+  between the copy writes and the base write: displaced values are marked
+  seen, and a later pick is recorded decided. As in the flag protocol, an app
   rename in the instant between the mirror's last check and its own rename is
   overwritten.
 - **Parked sessions and mirrored copies.** The bundle shows that when a

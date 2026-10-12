@@ -37,6 +37,10 @@ WORKTREE = {"cwd": TREE, "originCwd": REPO, "worktreePath": TREE,
             "worktreeName": "brave-kilby-0c68b4", "branch": "claude/brave-kilby-0c68b4",
             "sourceBranch": "main", "gitAnchors": [{"gitRoot": REPO}]}
 ROOT = {"cwd": REPO, "originCwd": REPO}
+#: Each run_once below is one transaction: no inline hot service inside it,
+#: which a slow host would otherwise reach mid-test. The service has its own
+#: test (`test_a_settings_only_hot_publication_refreshes_the_full_pass`).
+ONE_TRANSACTION = {"mirror_hot_interval_s": 0}
 
 
 @pytest.fixture
@@ -49,7 +53,7 @@ def world(tmp_path, monkeypatch):
     root = tmp_path / "state"
     root.mkdir()
     ticks = itertools.count()
-    running = mirror.Mirror(root, fx.policy(),
+    running = mirror.Mirror(root, fx.policy(**ONE_TRANSACTION),
                             now=lambda: fx.NOW + timedelta(seconds=next(ticks)))
     return running, store
 
@@ -453,7 +457,7 @@ def test_a_crash_after_the_write_ahead_keeps_what_it_displaced_seen(world, monke
     assert models(store) == [OPUS, OPUS, FABLE], "B written, then the crash"
     unit = settled(running)["units"]["model"]
     assert mirror._unit_digest({"model": NEXT}) in unit["seen"] and "v" not in unit
-    restarted = mirror.Mirror(running.root, fx.policy(), now=lambda: fx.NOW)
+    restarted = mirror.Mirror(running.root, fx.policy(**ONE_TRANSACTION), now=lambda: fx.NOW)
     restarted.run_once()
     assert models(store) == [OPUS] * 3
     app_writes(path(store, 1), at=T0 + 2 * HOUR, model=NEXT)    # B's stale memory
@@ -591,7 +595,7 @@ def build(tmp_path, monkeypatch, copies, *, uniform: bool = False):
              **({} if uniform else extra))
     root = tmp_path / "state"
     root.mkdir(exist_ok=True)
-    return store, mirror.Mirror(root, fx.policy(), now=lambda: fx.NOW)
+    return store, mirror.Mirror(root, fx.policy(**ONE_TRANSACTION), now=lambda: fx.NOW)
 
 
 PROPERTY = settings(max_examples=60, deadline=None, database=None,
@@ -683,3 +687,155 @@ def test_settings_never_change_what_flag_sync_decides(tmp_path_factory, monkeypa
                     if key not in ("settings", "tmt")}      # tmt: this world's transcript mtime
             results.append((flags, base))
     assert results[0] == results[1]
+
+
+# --- review of #193 (GPT-6.1 Sol, 2026-10-12): each finding, reproduced ------------
+
+def test_a_settings_only_hot_publication_refreshes_the_full_pass(tmp_path, monkeypatch):
+    """Finding 1. A full pass holds Fable copies in its snapshot; both copies
+    switch to opus; an inline hot pass at its next checkpoint publishes the
+    opus base without writing a copy (they already agree). That base change
+    must make the full pass refresh its snapshot, or it publishes Fable from
+    it, and a stale Fable save then spreads with no activity at all."""
+    from subfleet.sessions import desktop
+    home = fx.claude_home(tmp_path, monkeypatch)
+    store = fx.desktop_store(tmp_path, monkeypatch)
+    log = tmp_path / "app.log"
+    log.write_text("")
+    monkeypatch.setenv(desktop.LOG_ENV, str(log))
+    paths = [fx.index_entry(store, account, org, ONE, model=FABLE, last_activity=1000,
+                            settings={"ultracode": True})
+             for account, org in (("account-a", "org-a"), ("account-b", "org-b"))]
+    dummy = fx.index_entry(store, "account-c", "org-c", "zzz-other", settings={"ultracode": True})
+    root = tmp_path / "state"
+    root.mkdir()
+    running = mirror.Mirror(root, fx.policy(mirror_hot_interval_s=2), now=lambda: fx.NOW)
+    assert running.run_once().state == "ok"
+
+    def unit():
+        return mirror._load(running.flags_path)[ONE]["settings"]["units"]["model"]["value"]
+
+    def switch(target, value):
+        data = json.loads(target.read_text())
+        data["model"] = value
+        temporary = target.with_name(target.name + ".tmp")
+        temporary.write_text(json.dumps(data))
+        temporary.replace(target)
+
+    assert unit() == {"model": FABLE}
+    clock = [0.0]
+    scan, inventory = running._scan, running._flag_inventory
+    state = {"started": False, "edited": False, "refreshing": False}
+
+    def refreshing(current, options):
+        state["refreshing"] = True
+        try:
+            return inventory(current, options)
+        finally:
+            state["refreshing"] = False
+
+    def scanning(path, current, **kwargs):
+        result = scan(path, current, **kwargs)
+        if path == paths[0].parent and not state["refreshing"] and not state["started"]:
+            state["started"] = True
+            clock[0] += 3                       # the next checkpoint serves a no-op hot pass
+        if path == paths[1].parent and state["refreshing"] and not state["edited"]:
+            state["edited"] = True
+            for target in paths:
+                switch(target, OPUS)            # while the refresh holds Fable
+            clock[0] += 3
+        return result
+
+    # A scoped context, never `monkeypatch.undo()`: undoing every patch also
+    # undoes the store and transcript paths, and the hot pass below then ran
+    # against the operator's real desktop store (2026-10-12, 11:18-11:21Z).
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror.time, "monotonic", lambda: clock[0])
+        patch.setattr(running, "_scan", scanning)
+        patch.setattr(running, "_flag_inventory", refreshing)
+        assert running.run_once().state == "ok"
+    assert mirror.store_dir() == store, "still the test's own store"
+    assert state["edited"] and dummy.exists()
+    assert unit() == {"model": OPUS}, "the full pass refreshed instead of publishing Fable"
+    assert [json.loads(p.read_text())["model"] for p in paths] == [OPUS, OPUS]
+    switch(paths[0], FABLE)                     # a stale save, no activity
+    assert running.run_hot().state == "ok"
+    assert [json.loads(p.read_text())["model"] for p in paths] == [OPUS, OPUS]
+
+
+def test_every_copy_of_the_transcript_is_evidence(world):
+    """Finding 2. A session that resumed elsewhere leaves transcripts in two
+    project folders; the inventory keeps one. Opus ran in the other, so a
+    late re-save of opus is no pick, and the newer Fable activity stands."""
+    running, store = world
+    home = Path(os.environ["SUBFLEET_CLAUDE_DIR"])
+    fx.transcript(home, ONE, [*fx.completed(), fx.assistant_text("ran", uuid="o1", model=OPUS)],
+                  cwd="/Users/fixture/aaa-elsewhere")
+    seed(store, 0, model=OPUS, activity=T0, written=T0 + 3 * HOUR)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    seed(store, 2, model=FABLE, activity=T0 + HOUR)
+    assert mirror.Mirror.transcript_models(ONE) >= {OPUS, FABLE}
+    running.run_once()
+    assert models(store) == [FABLE] * 3
+
+
+def test_a_fifo_where_a_transcript_belongs_never_blocks_the_mirror(world, tmp_path):
+    """Finding 3. A FIFO named like a transcript made a plain open() wait for a
+    writer while the mirror held its lock. It reads as no evidence ("ran")."""
+    running, store = world
+    home = Path(os.environ["SUBFLEET_CLAUDE_DIR"])
+    fifo_dir = home / "projects" / "-Users-fixture-fifo"
+    fifo_dir.mkdir(parents=True)
+    os.mkfifo(fifo_dir / f"{ONE}.jsonl")
+    assert mirror.Mirror.transcript_models(ONE) is None
+    seed(store, 0, model=FABLE, activity=T0 + HOUR)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    seed(store, 2, model=OPUS, activity=T0, written=T0 + 3 * HOUR)
+    running.run_once()
+    assert models(store) == [FABLE] * 3, "no evidence it never ran: the most active copy"
+
+
+def test_a_crash_mid_publish_keeps_a_later_pick(world, monkeypatch):
+    """Finding 4. The publish's own writes destroy a later pick's evidence (a
+    written copy keeps its early mtime), so the decision is written ahead
+    whole: after a crash between two copy writes, the pick still stands."""
+    running, store = world
+    seed(store, 0, model=FABLE, activity=T0)
+    seed(store, 1, model=FABLE, activity=T0 + HOUR)
+    seed(store, 2, model=OPUS, activity=T0, written=T0 + 3 * HOUR)    # never ran: a pick
+    real = mirror._write_json
+    copies = itertools.count()
+
+    def crash_on_the_second_copy(target, value, **kwargs):
+        if Path(target).name.startswith("local_") and next(copies) == 1:
+            raise KeyboardInterrupt("power loss")
+        return real(target, value, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mirror, "_write_json", crash_on_the_second_copy)
+        with pytest.raises(KeyboardInterrupt):
+            running.run_once()
+    assert models(store) == [OPUS, FABLE, OPUS], "A written, then the crash"
+    unit = settled(running)["units"]["model"]
+    assert unit["value"] == {"model": OPUS}, "the later pick was written ahead"
+    restarted = mirror.Mirror(running.root, fx.policy(**ONE_TRANSACTION), now=lambda: fx.NOW)
+    restarted.run_once()
+    assert models(store) == [OPUS] * 3
+
+
+def test_seen_is_never_trimmed(world):
+    """Finding 5. A value dropped from `seen` reads as new, so a memory still
+    holding it (a parked session's) spread it over newer activity. A long
+    history keeps every value."""
+    assert len(mirror._remember([], [f"{n:016x}" for n in range(500)])) == 500
+    running, store = world
+    everywhere(store, FABLE)
+    running.run_once()
+    base = mirror._load(running.flags_path)
+    unit = base[ONE]["settings"]["units"]["model"]
+    stale = mirror._unit_digest({"model": "claude-model-0"})
+    unit["seen"] = [stale, *[f"{n:016x}" for n in range(200)], *unit["seen"]]
+    mirror._write_json(running.flags_path, base)
+    app_writes(path(store, 0), at=T0 + HOUR, model="claude-model-0")   # an old value, re-saved
+    running.run_once()
+    assert models(store) == [FABLE] * 3
