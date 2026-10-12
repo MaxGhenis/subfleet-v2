@@ -16,7 +16,9 @@
 //   `attach` has seen that approval, also when a reset makes the card again);
 //   `approval.resolved` answers or withdraws it;
 //   `turn.completed` records the outcome and withdraws what is still pending
-//   (the driver withdraws pending requests when a turn ends without an event).
+//   (the daemon writes `approval.resolved {withdrawn}` for each request a turn's
+//   end withdraws, ahead of it, and for one a provider that exited without a
+//   result left pending, which has no `turn.completed`; C-27.3).
 // - `steer.delivered` (on the host turn, `data.message_id` the steered message,
 //   C-24.9) marks where the provider read a steered message: its bubble, drawn in
 //   send order until then, is anchored there, once, and reads "Read".
