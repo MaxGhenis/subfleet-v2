@@ -304,7 +304,7 @@ any hold below twenty minutes. `shutil.rmtree` cleanup followed release. Dev
 dependencies were installed offline from copies of the local cache into the
 ignored workspace virtualenv. No network remote or personal store was used.
 
-**60 direct cases passed**, separate from pytest execution:
+**60 direct baseline cases passed**, separate from pytest execution:
 
 - 32 registry, undo, keychain, helper/plist and environment-lifecycle regressions;
 - 7 existing agent-secret credential cases, including both helper sources,
@@ -324,7 +324,8 @@ Each mutation changes one function's code in memory and restores it afterward.
 | Drop unconfigure environment restoration | `test_unconfigure_restores_environment_and_keeps_captured_child_isolated` | 3 expected environment-equality failures | Unrun: shared lock |
 | Revert import/attribute resolution | `test_registry_rejects_unregistered_import_spellings`, `test_registry_counts_registered_import_spellings` | 8 expected assertion failures; direct spelling still passes | Unrun: shared lock |
 
-These are direct mutation detections, not claims of failing pytest runs. A replay
+These are direct mutation detections, not claims of failing pytest runs.
+The 21 parity cases also remained passing with the unconfigure mutant. A replay
 harness initially reused case directories; it was corrected to use a fresh
 directory for every invocation, and cleanup mutation failures were confirmed
 at the environment-restoration assertion. Production source mutations never
@@ -365,7 +366,9 @@ updated path audit.
 
 - `67ba0c1b9`: native keychain protection, guarded plist/helper paths,
   environment restoration and qualified/aliased registry regressions.
-- The following documentation commit updates this report and the access audit.
+- `2cabd3838`: updates this report and the access audit.
+- The final documentation cleanup removes a trailing blank line and clarifies
+  the baseline count; no source or test behavior changes.
 
 The shared Git index rejected `index.lock` with `Operation not permitted`.
 As authorized, both coherent steps are committed on `fix/test-live-store-guard`
@@ -376,4 +379,3 @@ Only named source/test/report files were staged; no logs, JSON evidence or
 bundles were staged. Both commits include the requested co-author trailer.
 All task-owned runners and cache preparation commands have ended; no detached
 runner or background build remains.
-
