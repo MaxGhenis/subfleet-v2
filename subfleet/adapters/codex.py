@@ -556,8 +556,11 @@ class CodexAdapter(Adapter):
         session_id = launch.native_session_id
         failures = []
         answered, read = False, 0
+        turn_completed, last_event_type = False, None
         for event in _events(_stream_path(attempt_dir, launch)):
             read += 1
+            last_event_type = event.get("type")
+            turn_completed = turn_completed or last_event_type == "turn.completed"
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
                 session_id = event["thread_id"]
             if event.get("type") in ("turn.failed", "error"):
@@ -571,7 +574,8 @@ class CodexAdapter(Adapter):
         # writable attempt to have answered).
         evidence = {"rc": exit_info.rc, "signal": exit_info.signal,
                     "authentication": None, "admission": None, "quota": None,
-                    "model_answered": answered if read else None}
+                    "model_answered": answered if read else None,
+                    "turn_completed": turn_completed, "last_event_type": last_event_type}
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
@@ -583,7 +587,7 @@ class CodexAdapter(Adapter):
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
         terminal = any(event.get("type") == "turn.failed" for event in failures)
-        if exit_info.rc == 0 and not terminal and not exit_info.spawn_error:
+        if exit_info.rc == 0 and turn_completed and not terminal and not exit_info.spawn_error:
             if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
                 evidence["admission"] = "deliverable with exit 0"
                 return result(OutcomeClass.OK, "Codex completed with a deliverable")
@@ -624,6 +628,11 @@ class CodexAdapter(Adapter):
                               source, json.dumps(event, ensure_ascii=False) if event else text)
             evidence.update(scope=scope, clock_source=source.value, resets_at=until)
             return result(OutcomeClass.LIMITED, "Codex subscription limit reached", closure)
+        # Exit 0 and even last.md can survive a cut-off turn (C-9.2, D-SHUT1).
+        # Keep terminal failures and the signal classes above as before.
+        if exit_info.rc == 0 and not turn_completed and not terminal and not exit_info.spawn_error:
+            evidence["admission"] = failures[-1] if failures else "exit 0 without turn.completed"
+            return result(OutcomeClass.TRANSIENT, "Codex exited before its turn completed")
         for event, text in signals:
             if TRANSIENT_RE.search(text):
                 evidence["admission"] = event or text
