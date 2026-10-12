@@ -6773,6 +6773,11 @@ class Daemon:
         # scalar confirmation still permits C-5.4's original-group protocol,
         # even when a table start column or an unrelated census source failed.
         if census.unverifiable:
+            if foreign.generation is not None and self.store.one(
+                    "SELECT 1 FROM attempt_process_claims WHERE attempt_id<? "
+                    "UNION ALL SELECT 1 FROM attempt_process_claims WHERE attempt_id>? LIMIT 1",
+                    (attempt_id, attempt_id)):
+                return False
             if foreign.claims or foreign.identities or foreign.groups or foreign.launches or foreign.collisions:
                 return False
         return (leader is not None and not census.ambiguous_identities

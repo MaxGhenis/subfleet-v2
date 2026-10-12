@@ -413,7 +413,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         # Real cross-attempt claims use the separate ambiguity signal property;
         # the kernel S2 and non-vacuous K1 oracles below remain unchanged.
         self.patch.setattr(type(self.daemon), "_foreign_ownership",
-                           lambda daemon, attempt: procs.ForeignOwnership())
+                           lambda daemon, attempt, table=None: procs.ForeignOwnership())
         # The probe fixture is seeded once from the attempt's current recorded
         # evidence and independent oracle, so both consumers start with equal
         # inputs. Subsequent ownership and census observations stay separate.

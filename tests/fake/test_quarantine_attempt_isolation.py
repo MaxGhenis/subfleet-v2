@@ -14,7 +14,9 @@ def running(daemon, harness, guardian, provider, **kwargs):
     job_id, attempt, adir = reserve(daemon, harness, **kwargs)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=guardian,
                                 child_pid=provider, pgid=guardian, boot_id=BOOT,
-                                proc_start=f"p{guardian}")
+                                proc_start=f"p{guardian}",
+                                evidence_json=json.dumps({"child_identity": {
+                                    "pid": provider, "boot_id": BOOT, "proc_start": f"p{provider}"}}))
     (adir / "start.json").write_text(json.dumps({
         "guardian_pid": guardian, "pgid": guardian, "boot_id": BOOT,
         "proc_start": f"p{guardian}", "child_pid": provider,
