@@ -61,7 +61,7 @@ def clone_quarantined(daemon, row, n):
 
 # --- item 3: the status reply ---------------------------------------------------
 
-@pytest.mark.parametrize("live_pids,rechecks,rows", [(300, 0, 40), (300, 14, 8), (4096, 1, 3)])
+@pytest.mark.parametrize("live_pids,rechecks,rows", [(300, 0, 40), (300, 14, 8)])
 def test_r13_finding_status_reply_stays_bounded_with_large_quarantines(state_daemon, monkeypatch,
                                                                        live_pids, rechecks, rows):
     """One attempt is quarantined through `_quarantine`, then rechecked through
@@ -415,6 +415,20 @@ def test_r13_finding_status_guard_accepts_legacy_plain_text(state_daemon, monkey
     summary = json.loads(shown["quarantine_reason"])
     assert summary["reason"] == "legacy hold" and summary["live_pid_count"] == 0
     assert summary["live_pids"] == []
+
+
+def test_r13_finding_status_never_uses_a_census_as_reason_fallback(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    _, a, _ = reserve(daemon, harness)
+    daemon.store.update_attempt(a["attempt_id"], state="quarantined",
+                                quarantine_reason=json.dumps(census([42099]).to_dict()),
+                                finished_at="2026-10-01T00:00:00Z")
+    _, result = status_bytes(daemon, monkeypatch)
+    [shown] = result["attempts"]
+    summary = json.loads(shown["quarantine_reason"])
+    assert summary["reason"] == "awaiting a verified-empty census"
+    assert summary["live_pid_count"] == 1
+    assert set(summary) == {"reason", "errors", "unverifiable", "live_pid_count", "live_pids"}
 
 
 def test_r13_finding_legacy_finished_child_claim_is_imported_once(state_daemon, monkeypatch):

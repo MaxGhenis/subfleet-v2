@@ -245,7 +245,8 @@ def _quarantine_summary_sql(column: str = "quarantine_reason") -> str:
     """Project bounded operator evidence in SQLite; never transfer the census."""
     valid = f"CASE WHEN json_valid({column}) THEN {column} ELSE '{{}}' END"
     return (
-        "json_object('reason',substr(COALESCE(json_extract(" + valid + ",'$.reason')," + column + ","
+        "json_object('reason',substr(COALESCE(json_extract(" + valid + ",'$.reason'),"
+        "CASE WHEN NOT json_valid(" + column + ") THEN " + column + " END,"
         "'awaiting a verified-empty census'),1,1024),"
         "'errors',json((SELECT json_group_array(message) FROM "
         "(SELECT substr(value,1,256) AS message FROM json_each(" + valid + ",'$.errors') LIMIT "
@@ -6692,7 +6693,6 @@ class Daemon:
         with self.store.transaction("attempt.process_claim_imported", audit=False) as tx:
             tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1")
 
-
     def _foreign_ownership(self, a: dict, table=_UNSET) -> procs.ForeignOwnership:
         """Indexed claims for current incarnations; terminal history grants no exclusion.
 
@@ -6903,7 +6903,6 @@ class Daemon:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                            (json.dumps(retained), a["attempt_id"]))
         return census
-
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
