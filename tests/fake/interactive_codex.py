@@ -15,6 +15,7 @@ Each turn picks its behaviour with a `[fake:<scenario>]` directive in its text:
 
     (none)            streamed text, then `completed`
     approval          asks to run a command; accept runs it, decline says so, cancel interrupts
+    approval-exit     asks to run a command, then exits while the request is pending
     slow              streams until `turn/interrupt`, then `interrupted`
     limit             a full rate-limit window and a `usageLimitExceeded` failure
     exit-after-ack    `turn/started`, then exits
@@ -300,7 +301,8 @@ class Server:
     scenario_steer_refuse = scenario_steer
     scenario_steer_unanswered = scenario_steer
 
-    def scenario_approval(self, thread_id, turn_id, reply):
+    def request_approval(self, thread_id, turn_id) -> tuple[dict, int]:
+        """A command item and its approval request; returns the item and the request id."""
         item_id = f"cmd-{uuid.uuid4().hex[:8]}"
         command = "echo approved-by-person"
         self.tool_used = True
@@ -311,6 +313,15 @@ class Server:
         self.send({"id": request_id, "method": "item/commandExecution/requestApproval", "params": {
             "threadId": thread_id, "turnId": turn_id, "itemId": item_id, "startedAtMs": now_ms(),
             "command": command, "cwd": self.thread["cwd"], "reason": "fake: asks every time"}})
+        return item, request_id
+
+    def scenario_approval_exit(self, thread_id, turn_id, reply):
+        """The process ends while its request waits for the person: no `turn/completed` (C-27.3)."""
+        self.request_approval(thread_id, turn_id)
+        return 1
+
+    def scenario_approval(self, thread_id, turn_id, reply):
+        item, request_id = self.request_approval(thread_id, turn_id)
         while True:
             if self.interrupted():
                 self.notify("serverRequest/resolved", {"threadId": thread_id, "requestId": request_id})

@@ -383,7 +383,7 @@ def test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place(state_
     daemon, harness = state_daemon
     workdir = committed_package(daemon, harness)
     monkeypatch.setattr(module.scheduler, "probe_required", lambda decision, job: False)
-    monkeypatch.setattr(daemon, "_guard_override", lambda *args: "hooks={}")
+    monkeypatch.setattr(daemon, "_guard_override", lambda *args, **kwargs: "hooks={}")
     real = subprocess.Popen
 
     class Guardian:

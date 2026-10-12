@@ -37,7 +37,7 @@ from subfleet.conversations.claude_turn import ClaudeTurn
 from subfleet.conversations.codex_turn import CodexTurn
 from subfleet.conversations.peers import Verdict, peer_pid
 from subfleet.conversations.service import ConversationService
-from subfleet.conversations.turn import APPROVAL_NEEDED, RUNNING, TurnSpec
+from subfleet.conversations.turn import RUNNING, TurnSpec
 from subfleet.daemon import busy_answer
 
 REPO = Path(__file__).resolve().parents[2]
@@ -129,34 +129,49 @@ class Attempt:
             self.offset += len(line) + 1
 
     def respond(self, request_id: str, decision: str, message: str | None = None, answers: dict | None = None) -> None:
+        """A person's answer as `approval.respond` makes it: recorded in the store, then
+        handed to the driver."""
+        row = self.store.one("SELECT approval_id FROM approvals WHERE attempt_id=? AND provider_request_id=? "
+                             "AND state='pending'", (self.attempt_id, request_id))
+        if row:
+            self.store.answer_approval(row["approval_id"], {"decision": decision, "message": message,
+                                                            "answers": answers})
         if isinstance(self.driver, ClaudeTurn):
             step = self.driver.respond(request_id, decision, message, answers=answers)
         else:
             step = self.driver.respond(request_id, decision, message)
         self._apply(step)
 
+    def eof(self) -> None:
+        """The provider's stdout ended (its process exited), as the runner applies it."""
+        self._apply(self.driver.eof(self.offset))
+
     def _apply(self, step) -> None:
-        """runner.TurnRunner._apply, without the relay."""
+        """runner.TurnRunner._apply and `_flush`, without the relay, then the settlement
+        `ConversationService._on_outcome` makes when the turn has an outcome."""
         batch = [("command" if e.source.startswith("cmd:") else "stdout", e.source, 0, e.kind, e.data)
                  for e in step.events]
-        if batch:
+        if step.approvals:
+            # C-27.1: the approvals, the batch announcing them and approval-needed in one
+            # commit. No driver step carries both an approval and `accepted`.
+            self.store.add_approvals(
+                message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
+                approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind, "request": a.request,
+                            "display": a.summary, "options": a.options} for a in step.approvals],
+                events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq, expect=("running", "starting"))
+        if (batch and not step.approvals) or step.resolved:
+            # C-27.3: a withdrawal commits with its `approval.resolved` and the batch.
             self.store.append_events(conversation_id=self.cid, message_id=self.mid, attempt_id=self.attempt_id,
-                                     events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq)
+                                     events=[] if step.approvals else batch, stdout_offset=self.offset,
+                                     stdin_seq=self.stdin_seq, resolved=step.resolved,
+                                     resume=self.driver.outcome is None)
         self.stdin_seq += len(step.frames)
         for event in step.events:
             if event.kind == "accepted":
                 self.store.set_state(self.mid, RUNNING, expect=("queued", "waiting", "starting"))
-        for approval in step.approvals:
-            self.store.add_approval(message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
-                                    provider_request_id=approval.provider_request_id, kind=approval.kind,
-                                    request=approval.request, display=approval.summary, options=approval.options)
-            self.store.set_state(self.mid, APPROVAL_NEEDED, expect=("running", "starting"))
-        if step.resolved:
-            self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
-            if not self.store.approvals(message_id=self.mid) and self.driver.outcome is None:
-                self.store.set_state(self.mid, RUNNING, expect=("approval-needed",))
         if step.outcome is not None:
             state = step.outcome.state
+            self.store.withdraw_approvals(attempt_id=self.attempt_id)
             self.store.set_state(self.mid, state, reason=step.outcome.reason,
                                  expect=("running", "approval-needed", "starting", "waiting", "queued"),
                                  served={"lane_id": "claude-1", "model": step.outcome.served_model})

@@ -1560,6 +1560,12 @@ class ConversationService:
         decision = args.get("decision")
         if decision not in approval["options"]:
             raise ConversationError("bad-decision", f"{decision!r} is not offered here")
+        answers = args.get("answers")
+        if decision == "answer" and not (isinstance(answers, dict) and answers):
+            # Refused here, not by the driver after the answer is recorded (and its
+            # `approval.resolved` written, C-27.3): the card would read answered while
+            # the provider still waited on it (C-27.2).
+            raise ConversationError("bad-answer", "an answer needs the chosen answers")
         runner = self.runners.get(approval["attempt_id"])
         if runner is None or runner.driver.outcome is not None:
             raise ConversationError("turn-ended", "the turn that asked has ended")
@@ -2462,7 +2468,7 @@ class ConversationService:
             if holder.startswith(folders.RETENTION):
                 tree = key[len(folders.EXCLUSIVE):]
                 kind = "job directory" if tree == str(self.daemon.root / "jobs" / str(job_id)) else "worktree"
-                if folder and tree != folder:
+                if folder and folders.fold(tree) != folders.fold(folder):
                     return f"retention is removing a finished job's {kind} that this folder is in ({tree})"
                 return f"retention is removing a finished job's {kind} in this folder ({tree})"
             job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
