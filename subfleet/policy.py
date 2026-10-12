@@ -20,6 +20,12 @@ from .contracts import (
 )
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
+CODEX_CA_BUNDLE = "/etc/ssl/cert.pem"
+
+
+def codex_ca_bundle(policy: Mapping[str, Any]) -> str | None:
+    """C-10.8: an omitted setting uses the system PEM bundle; null opts out."""
+    return policy.get("providers", {}).get("codex", {}).get("ca_bundle", CODEX_CA_BUNDLE)
 
 # C-8.5: host credential use is opt-in both in policy and on each job.
 PUSH_DEFAULTS = {"enabled": False, "allowed_remotes": [], "protected": [],
@@ -603,6 +609,20 @@ def load_policy(path: str | Path) -> dict[str, Any]:
              f"{' + '.join(HANDOFF_BRIEF_SECTIONS)} is {brief:,} characters; the assembled brief is "
              f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
+
+    # C-10.8: validate the setting's shape here, availability at launch. An
+    # unavailable bundle must leave native trust usable, rather than refuse work.
+    providers = value.get("providers", {})
+    if not isinstance(providers, dict):
+        fail("providers", "must be an object")
+    codex = providers.get("codex", {})
+    if not isinstance(codex, dict):
+        fail("providers.codex", "must be an object")
+    bundle = codex.get("ca_bundle", CODEX_CA_BUNDLE)
+    if bundle is not None and (not isinstance(bundle, str) or not bundle.strip()
+                               or "\0" in bundle or not Path(bundle).is_absolute()):
+        fail("providers.codex.ca_bundle", "must be an absolute PEM bundle path or null")
+    value["providers"] = {**providers, "codex": {**codex, "ca_bundle": bundle}}
 
     # `network` (d260): whether a writable Codex job's shell reaches the network.
     network = value.get("network", {})

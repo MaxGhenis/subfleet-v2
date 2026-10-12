@@ -53,6 +53,7 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
+from .provider_env import ProviderEnvironment
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
@@ -751,6 +752,7 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
+        self._provider_environment = ProviderEnvironment(self.policy, log=self.log)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
@@ -2885,9 +2887,18 @@ class Daemon:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
+    def _credential_environment(self, lane: Lane) -> dict[str, str]:
+        return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
+
+    def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
+        return self._provider_environment.assemble(
+            launch.env_add,
+            (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"))
+
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
-                        state_root: Path | None = None, full: bool = False):
+                        state_root: Path | None = None, full: bool = False,
+                        env: dict[str, str] | None = None):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
@@ -2906,6 +2917,8 @@ class Daemon:
             raise AdapterError("Codex guard preflight is not installed", code=7,
                                fix="install the Codex adapter and reviewed guard files") from None
         options = {"state_root": state_root} if state_root is not None else {}
+        if env is not None:
+            options["env"] = env
         result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
@@ -4607,7 +4620,7 @@ class Daemon:
         directory = Path(record["directory"])
         adapter = get_adapter(lane.provider)
         self._validate_home(lane)
-        credential_env = resolve_credential(lane.credential)
+        credential_env = self._credential_environment(lane)
         prompt = directory / "prompt.md"
         self._publish("probe-prompt", prompt, b"Reply with exactly OK. Do not use tools.\n")
         spec = self._spec(job, kind="probe", workdir=str(directory), prompt_path=str(prompt),
@@ -4616,13 +4629,12 @@ class Daemon:
                                       model["id"], model.get("effort"), prompt,
                                       self._guard_override(adapter, lane, str(directory),
                                                            self._guard_recorder(lane, str(directory), directory),
-                                                           self.root))
+                                                           self.root,
+                                                           env=self._provider_environment.assemble(credential_env)))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
-        env = {**os.environ, **launch.env_add}
-        for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
-            env.pop(key, None)
+        env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
@@ -6625,16 +6637,18 @@ class Daemon:
                 else:
                     validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
-            credential_env = resolve_credential(lane.credential)
+            credential_env = self._credential_environment(lane)
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
-                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root)
+                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
+                env=self._provider_environment.assemble(credential_env))
             resume = None
             if turn_block is not None:
                 guard = None
                 if lane.provider == "codex":
                     guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
-                                                 self.root, full=True)
+                                                 self.root, full=True,
+                                                 env=self._provider_environment.assemble(credential_env))
                 launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -6685,10 +6699,7 @@ class Daemon:
         safe_launch.pop("env_add")
         self._publish("launch", adir / "launch.json", json_bytes(safe_launch))
         self._publish("lane-log", adir / "lane.log", b"")
-        env = dict(os.environ)
-        env.update(launch.env_add)
-        for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
-            env.pop(key, None)
+        env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
         env.update(self._push_environment(job))
         # The package path is explicit: provider cwd is deliberately unrelated
@@ -7217,7 +7228,7 @@ class Daemon:
             env.update(resolve_credential(lane.credential))
         except (AdapterError, OSError, subprocess.SubprocessError) as exc:
             self.log.debug("credential unavailable for %s: %s", lane_id, type(exc).__name__)
-        return env
+        return self._provider_environment.additions(lane.provider, env)
 
     def _saved_launch(self, a: dict) -> Launch:
         if a["attempt_id"] in self._launches:
