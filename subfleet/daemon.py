@@ -2760,8 +2760,8 @@ class Daemon:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
-        return self._provider_environment.build(
-            lane.provider, launch.env_add,
+        return self._provider_environment.assemble(
+            launch.env_add,
             (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"))
 
     @staticmethod
@@ -4266,7 +4266,7 @@ class Daemon:
                                       self._guard_override(adapter, lane, str(directory),
                                                            self._guard_recorder(lane, str(directory), directory),
                                                            self.root,
-                                                           env=self._provider_environment.build(lane.provider, credential_env)))
+                                                           env=self._provider_environment.assemble(credential_env)))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
@@ -6157,14 +6157,14 @@ class Daemon:
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.build(lane.provider, credential_env))
+                env=self._provider_environment.assemble(credential_env))
             resume = None
             if turn_block is not None:
                 guard = None
                 if lane.provider == "codex":
                     guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
                                                  self.root, full=True,
-                                                 env=self._provider_environment.build(lane.provider, credential_env))
+                                                 env=self._provider_environment.assemble(credential_env))
                 launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}

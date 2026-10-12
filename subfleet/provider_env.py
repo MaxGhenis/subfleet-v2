@@ -92,7 +92,20 @@ class ProviderEnvironment:
               environ: Mapping[str, str] | None = None) -> dict[str, str]:
         """The environment passed to a guardian or a preflight subprocess."""
         environ = os.environ if environ is None else environ
-        result = {**environ, **self.additions(provider, env_add, environ=environ)}
+        return self.assemble(self.additions(provider, env_add, environ=environ),
+                             env_remove, environ=environ)
+
+    @staticmethod
+    def assemble(env_add: Mapping[str, str] | None = None,
+                 env_remove: Iterable[str] = (), *,
+                 environ: Mapping[str, str] | None = None) -> dict[str, str]:
+        """Merge already-selected additions without selecting or validating again.
+
+        A launch selects with ``additions`` once, then uses that result for
+        adapter inspection, preflight and its guardian. Recovery selects anew.
+        """
+        environ = os.environ if environ is None else environ
+        result = {**environ, **(env_add or {})}
         for key in env_remove:
             result.pop(key, None)
         return result
