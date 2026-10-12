@@ -288,12 +288,14 @@ class Store:
                     columns = {row["name"] for row in self.connection.execute(
                         "PRAGMA table_info(process_claim_receipt_pending)")}
                     if "retry_at" not in columns:
+                        self.connection.execute("BEGIN IMMEDIATE")
                         self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN failures INTEGER NOT NULL DEFAULT 0")
                         self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN retry_at REAL NOT NULL DEFAULT 0")
                         self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN last_error TEXT")
                         self.connection.execute("ALTER TABLE process_claim_receipts ADD COLUMN enumerated INTEGER NOT NULL DEFAULT 0")
                         self.connection.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
                         self.connection.execute("DROP TRIGGER IF EXISTS process_claim_receipt_changed")
+                        self.connection.commit()
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
                 schema += "\n" + Path(__file__).with_name("store_process_claims.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
