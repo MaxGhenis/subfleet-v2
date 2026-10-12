@@ -900,6 +900,7 @@ class Daemon:
         self.policy_digest = policy_hash(policy_path)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._seed_process_claim_receipts()
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
@@ -6664,6 +6665,33 @@ class Daemon:
         else:
             self._lost(a)
         return True
+
+    def _seed_process_claim_receipts(self) -> None:
+        """Import legacy child identities once, before this daemon can signal.
+
+        Receipt I/O stays out of ownership checks. The durable completion bit
+        permits restart after an interrupted import, without losing old claims.
+        """
+        if self.store.one("SELECT seeded FROM process_claim_receipts WHERE singleton=1")["seeded"]:
+            return
+        rows = self.store.query(
+            "SELECT attempt_id,job_id,seq FROM attempts WHERE "
+            "(child_pid IS NOT NULL OR state IN ('reserved','starting','running','finalizing','quarantined')) "
+            "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL")
+        for row in rows:
+            start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json") or {}
+            child = start.get("child_identity")
+            if not child:
+                continue
+            with self.store.transaction("attempt.process_claim_import", audit=False) as tx:
+                actual = self.store.get_attempt(row["attempt_id"])
+                evidence = _json_object(actual.get("evidence_json"))
+                if "child_identity" not in evidence:
+                    evidence["child_identity"] = child
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (json.dumps(evidence), row["attempt_id"]))
+        with self.store.transaction("attempt.process_claim_imported", audit=False) as tx:
+            tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1")
 
     def _foreign_ownership(self, a: dict, table=_UNSET) -> procs.ForeignOwnership:
         """Indexed claims for current incarnations; terminal history grants no exclusion.

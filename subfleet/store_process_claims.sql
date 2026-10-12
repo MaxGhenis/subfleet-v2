@@ -48,3 +48,7 @@ BEGIN
   INSERT OR REPLACE INTO process_claim_revisions
     SELECT OLD.attempt_id,generation FROM process_claim_clock WHERE singleton=1;
 END;
+
+-- One restart-safe import of legacy child launch receipts into attempt rows.
+CREATE TABLE IF NOT EXISTS process_claim_receipts (singleton INTEGER PRIMARY KEY CHECK(singleton=1), seeded INTEGER NOT NULL);
+INSERT OR IGNORE INTO process_claim_receipts VALUES(1,0);

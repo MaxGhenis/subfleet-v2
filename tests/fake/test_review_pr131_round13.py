@@ -240,6 +240,9 @@ def test_r13_finding_d_qc1_caller_is_told_when_the_recheck_happens(state_daemon,
     command = f"subfleet kill {job_id} --confirm-dead"
     assert when in notice and command in notice, notice[:400]
     assert "quarantin" in why.lower() and when in why and command in why, why
+    daemon.store.update_attempt(a["attempt_id"], finished_at="2026-10-01T00:00:00Z")
+    _, status = status_bytes(daemon, monkeypatch)
+    assert "Next check" in status["text"] and when in status["text"]
 
 
 def test_r13_check_d_pr1_recycled_group_hold_is_paced_and_only_status_tells(state_daemon, monkeypatch):
@@ -325,8 +328,8 @@ def test_r13_check_redispatch_to_a_quarantined_out_path_is_accepted_after_self_r
     with pytest.raises(AdapterError, match="output path is held") as refusal:
         daemon.dispatch("submit", harness.submit_args(out_path=out))
     next_check = daemon.store.get_attempt(a["attempt_id"])["quarantine_recheck_at"]
-    assert next_check in str(refusal.value)
-    assert f"subfleet kill {job_a} --confirm-dead" in str(refusal.value)
+    assert next_check in refusal.value.fix
+    assert f"subfleet kill {job_a} --confirm-dead" in refusal.value.fix
     script_table(monkeypatch, {})
     clock.advance()
     daemon._recheck_quarantines()

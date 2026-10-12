@@ -31,3 +31,17 @@ def test_schema_6_quarantine_pace_migrates_additively_and_reopens(tmp_path):
         assert store.get_attempt("old/a1")["quarantine_recheck_at"] == "2026-10-05T12:10:00.000000Z"
         assert store.get_attempt("old/a1")["quarantine_notice_pending"] == 1
         assert len(store.list_leases()) == 1
+
+
+def test_premerge_schema_7_adds_push_columns_without_losing_quarantine(tmp_path):
+    path = tmp_path / "premerge.sqlite3"
+    with Store(path) as store:
+        with store.transaction("fixture.premerge") as tx:
+            for column in ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error"):
+                tx.execute(f"ALTER TABLE jobs DROP COLUMN {column}")
+            tx.execute("UPDATE schema_version SET version=7")
+    for _ in range(2):
+        with Store(path) as store:
+            store.query("SELECT push_branch,push_remote,push_default_branch,push_sha,push_error FROM jobs")
+            assert store.one("SELECT MAX(version) AS v FROM schema_version")["v"] == 8
+            assert {"quarantine_recheck_at", "quarantine_notice_pending"} <= store._columns["attempts"]
