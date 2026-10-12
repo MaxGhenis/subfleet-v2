@@ -717,15 +717,16 @@ def test_replay_primes_steer_fates_without_emitting_input():
     assert [f.tag for f in end.frames] == ["close"]
 
 
-def test_cancel_turn_approval_also_cancels_queued_steers():
+@pytest.mark.parametrize("restore", [False, True], ids=["live-answer", "written-answer-replay"])
+def test_cancel_turn_approval_also_cancels_queued_steers(restore):
     turn = steer_running()
     turn.steer(STEER, "queued")
     turn.steer_written(STEER)
     turn.feed(line(type="control_request", request_id="approve", request={
         "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo wait"}}), 5)
-    step = turn.respond("approve", "cancel-turn")
-    assert [f.tag for f in step.frames] == ["approval:approve", "interrupt"]
-    assert json.loads(step.frames[1].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
+    step = (turn.restore_answer("approve", "cancel-turn") if restore else turn.respond("approve", "cancel-turn"))
+    assert [f.tag for f in step.frames] == (["interrupt"] if restore else ["approval:approve", "interrupt"])
+    assert json.loads(step.frames[-1].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
 
 
 # --- the unseen-steer watchdog and the held result (steer review, 2026-09-28) -------------
