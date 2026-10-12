@@ -7,9 +7,19 @@ import AppKit
 import SwiftUI
 
 #if !SUBFLEET_VIEW_TEST
+@MainActor
 final class SubfleetAppDelegate: NSObject, NSApplicationDelegate {
     /// Set by the window scene once SwiftUI has an `openWindow` action.
     static var openMain: (() -> Void)?
+    /// The app's one model: the windows bind to it, and a notification's click
+    /// reaches it, the window open or not.
+    let model = UIModel()
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before launch ends, as the system requires for the click that
+        // launched the app to be delivered (C-29.9).
+        model.registerNotifications()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -28,7 +38,6 @@ final class SubfleetAppDelegate: NSObject, NSApplicationDelegate {
 struct SubfleetApp: App {
     @NSApplicationDelegateAdaptor(SubfleetAppDelegate.self) private var delegate
     @StateObject private var store = QuotaStore()
-    @StateObject private var model = UIModel()
     /// The ⌘K palette (C-29.12), here so the menu reaches it.
     @StateObject private var palette = SearchPaletteModel()
     /// C-29.13: View > Bigger, Smaller and Actual size.
@@ -40,7 +49,7 @@ struct SubfleetApp: App {
 
     var body: some Scene {
         Window("Subfleet", id: "main") {
-            MainWindow(model: model, palette: palette)
+            MainWindow(model: delegate.model, palette: palette)
                 .frame(minWidth: 860, minHeight: 560)
                 .background(OpenMainRegistrar())
         }
@@ -49,11 +58,11 @@ struct SubfleetApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New conversation") {
                     SubfleetAppDelegate.openMain?()
-                    model.openNewDraft()
+                    delegate.model.openNewDraft()
                 }.keyboardShortcut("n")
                 Button("Search…") {
                     SubfleetAppDelegate.openMain?()
-                    palette.toggle(model)
+                    palette.toggle(delegate.model)
                 }.keyboardShortcut("k")
             }
             TextSizeCommands(scale: $textScale)
