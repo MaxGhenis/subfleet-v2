@@ -386,3 +386,32 @@ def test_r13_finding_inspection_cost_does_not_grow_with_terminal_history(state_d
     print(f"\nR13 inspection: {comparisons[0]:,} identity comparisons, {reads[0]} receipt reads, {elapsed:.2f} s "
           f"for one _record_owned with 300 finished attempts")
     assert comparisons[0] < 5_000 and reads[0] < 10, (comparisons[0], reads[0], elapsed)
+
+
+def test_r13_finding_a_new_foreign_claim_can_only_suppress_cached_signal_authority(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    _, ours, _ = _running(daemon, harness)
+    _, other, _ = reserve(daemon, harness)
+    script_table(monkeypatch, {100: (1, 100, "Ss", "guardian"),
+                             202: (1, 202, "S", "writer")})
+    target = procs.ProcessIdentity(202, BOOT, "writer")
+    foreign = daemon._foreign_ownership(ours, procs.snapshot())
+    observed = procs.Containment(identities={202: target}, group_pids=frozenset({202}))
+    assert daemon._unambiguous_signal_identity(ours["attempt_id"], target, observed, {}, foreign)
+    daemon.store.update_attempt(other["attempt_id"], state="succeeded", evidence_json=json.dumps(
+        {"owned_identity_history": {"202": [dataclasses.asdict(target)]}}))
+    assert not daemon._unambiguous_signal_identity(ours["attempt_id"], target, observed, {}, foreign)
+    refreshed = daemon._foreign_ownership(ours, procs.snapshot())
+    assert refreshed.claimed(target) and not refreshed.identities
+
+
+def test_r13_finding_status_guard_accepts_legacy_plain_text(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    _, a, _ = reserve(daemon, harness)
+    daemon.store.update_attempt(a["attempt_id"], state="quarantined", quarantine_reason="legacy hold",
+                                finished_at="2026-10-01T00:00:00Z")
+    _, result = status_bytes(daemon, monkeypatch)
+    [shown] = result["attempts"]
+    summary = json.loads(shown["quarantine_reason"])
+    assert summary["reason"] == "legacy hold" and summary["live_pid_count"] == 0
+    assert summary["live_pids"] == []
