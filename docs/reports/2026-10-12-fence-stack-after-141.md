@@ -407,3 +407,105 @@ Static validation passed: AST syntax for the production daemon/folder modules
 and all three changed test files; no conflict markers; one C-8.4 clause;
 `git diff --check`. Production Python files have no diff. All fix commits have
 the required `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
+
+## #142 review r2e fixes
+
+This round starts at `f04e7e34c71842513c74514e669aaafd102181fe` and addresses
+findings 1, 2 and 5 of
+`~/reviews/subfleet-2110/fence-stack-merge/review-140-142-r2e-full.md`.
+The original merge/fix-round account and its validation above remain historical.
+Only `subfleet/daemon.py`, `tests/fake/test_detached_retention_fence.py` and this
+report are changed.
+
+The shared Git index is outside the writable workspace: `git add` failed with
+`index.lock: Operation not permitted`. This round therefore uses workspace-local
+`.git-local` metadata, with read-only object alternates and branch
+`fix/admission-detached-nested-fence`. The original `.git` pointer is unchanged.
+Inspect or transfer these commits with `git --git-dir=.git-local`; there is no
+fetch, push, history rewrite or caller-worktree write.
+
+The reviewer's three executed detached rediscovery safety inputs are ported to
+`tests/fake/test_detached_retention_fence.py`. Their real submission/Git setup
+moves the tree after validation but before submitted-folder lookup. They check
+an external `core.worktree` target, nine looks after a rediscovery timeout, and a
+case alias while the canonical tree is quarantined. The timeout test also
+requires every look to remain `waiting` / `lease-held` without workspace
+deferrals; the external-target test checks the hold folder, `retiring` and the
+own-key exclusion from `blocked`.
+
+Commits so far: `e82fff0a8` ports the three review regressions; `0d26a850a`
+checks recorded/current detached fences on rediscovery failure and adds the
+unfenced-timeout control. A held fence takes precedence over workspace failure,
+with legacy fold, priority, blocked-key and wakeup handling preserved. No fence
+means the original C-6.8 retry/failure path still applies.
+
+The unchanged production code at `f04e7e34c` reproduced **3 failed, 66 deselected**
+(229.63 s pytest; 462.70 s complete runner). Failures are exactly the review's
+safety assertions: `_workspace` ran once for `External` and the quarantined
+`rETIRED` alias, and the ninth timed-out look failed the fenced writer. The
+production SHA-256 was
+`ca5d8e3b1f78ab4eb2a00019040d398ac84a235973c1edcf5c04d4305de04cb5`.
+A preceding 180-second acquisition attempt started zero tests (lockf exit 75,
+182.74 s complete runner); the successful retry allowed 600 s for acquisition.
+
+`355ccbdf4` adds the early detached row-subject check. One `folders.present`
+answer for the rediscovered/recorded in-place target is reused by the early
+look, reservation and own-key classification; absent names use #141's
+`folders.retiring(..., folded=True)` comparison. The source tuples' independent
+legacy NFC fold remains unchanged. `aa55196b9` keeps detached-folder discovery
+before the added hold, preserving the queue fixture's mid-pass fence release.
+The queue fixture now creates `worktrees/retired/vendor/lib` before inserting
+synthetic jobs; the lease and `queued_behind` assertions are unchanged.
+
+Static AST comparisons confirm `_row_folder`, `_rediscovered`, `_write_target`,
+`_detached_folders`, `_turn_fences` and `_launch` are unchanged. In particular,
+validated push jobs still skip Git rediscovery and retain the validated top.
+
+The isolated timeout/control hold could not acquire the lock (exit 75,
+184.78 s complete runner; zero tests). An initial six-case target hold was
+cancelled while acquiring the lock to preserve folder-discovery ordering
+(exit 124, 178.06 s complete runner; zero tests). Its replacement allows 600 s
+for acquisition.
+
+Fixed targeted run: **6 passed, 64 deselected** in 181.36 s. This includes the
+three original safety regressions, the unfenced-timeout control and both queue
+shapes. The case-alias probe ran on this case-insensitive volume without skips.
+This run's production bytes match `aa55196b9`. Its complete runner took
+721.34 s, including acquisition and cleanup. `763d67d02` commits the fixture
+correction. `15773afcc` then covers the combined timeout/absent-alias path:
+recorded row subjects are spelled and compared with the same absence rule on
+rediscovery failure as on a successful look. The timeout regression now has
+present and quarantined-alias variants; the full detached module has 71 cases.
+
+Before the combined-case extension, removing the detached rediscovery-error
+fallback while keeping the row-subject fix yielded **1 failed, 69 deselected**
+in 60.62 s (243.20 s complete runner). The original timeout regression caught
+it by failing the fenced writer on the ninth look. The source was restored.
+A subsequent final-tree mutation acquisition was cancelled before tests to
+verify the preceding commit had finished; the committed daemon and restored
+working bytes were checked equal before restarting.
+
+Further validation is recorded below as each hold completes.
+
+The fix lane was cut off by the host's forced restart at 20:05Z on 2026-10-12, during the final-tree mutation run above. Its working tree then held that mutation (the detached rediscovery-error fallback removed from `subfleet/daemon.py`); the hub discarded it and kept only this report. The committed daemon at `15773afcc` contains the fallback. The final-tree mutation and the full detached module were not run in this round; the hub's host run covers them.
+
+### Open inherited follow-ups (outside this PR)
+
+Both remain open, as requested. Line references are the reviewer's references
+against `f04e7e34c`, rather than shifted lines after these fixes.
+
+- **Writer keys for one Git tree:** review finding 3, `daemon.py:5367`, `:5380`
+  (`:5290` on #140). Replacing A with a symlink to B/sub can let writers reserve
+  `worktree:B/sub` and `worktree:B` for one tree; replacing A/sub with a symlink
+  to B can leave the first writer leasing A while its provider runs in B.
+  The current Git top needs validation against the exclusive target at row
+  preparation, outside the store transaction, while preserving `core.worktree`
+  splits and validated push metadata.
+- **Path replacement after reservation:** review finding 4, `daemon.py:6436`,
+  `:6439`, `:6466` (`:6332`, `:6359` on #140). Capture a verified directory
+  identity and open handle alongside `run_folder` at `:5378`, persist it with
+  evidence at `:5817`, verify before restoring launch cwd at `:6436` and at the
+  final `_launch_dir` boundary at `:6466`, and carry the binding through guardian
+  handoff (`:6537`, `:6551`) and both provider spawns (`guardian.py:161`, `:178`).
+  A single `realpath` / `stat` check leaves a check-to-use race. Neither inherited
+  pathname case is changed or claimed fixed here.
