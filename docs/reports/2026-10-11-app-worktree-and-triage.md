@@ -2,7 +2,7 @@
 
 Branch `feat/app-worktree-and-triage`, stacked on PR #181 (`feat/suggested-conversations` at 9787fe323). Max asked for both on 2026-10-11 ("sure"); they are items 7 and 1 of `~/reviews/subfleet-2110/one-place/inventory.md`.
 
-Status: DRAFT, written while the tests run. The sections below marked PENDING are filled in at the end.
+Status: verification in progress. The assigned checkout uses workspace-local `.git-local` metadata on `feat/app-worktree-and-triage`, since the shared Git index is outside the writable workspace. No remotes were contacted.
 
 ## What the inventory said, checked against the code
 
@@ -35,16 +35,37 @@ What the inventory missed, found while verifying:
 
 ## Changes
 
-PENDING: file:line list.
+The original implementation is retained; the inventory verification and decisions above still stand.
+
+| File:line | Change |
+|---|---|
+| `subfleet/protocol.py:32`, `subfleet/conversations/service.py:70`, `:89`, `:756` | Archive op, `archive.v1`, person-only authorization and control-loop notification on unarchive. |
+| `subfleet/conversations/store.py:987`, `:1104` | Archive's open-message check and submit's archived check are inside their own write transactions; archive preserves activity timestamps and writes one feed row. |
+| `subfleet/conversations/service.py:435`, `subfleet/conversations/store.py:1029` | List filtering, `include_archived` and suppression of archived conversations' native catalog rows. |
+| `app/Sources/Protocol.swift:289`, `:295`, `:615` | Archive wire fields/capability and worktree branch/source accessors. |
+| `app/Sources/SidebarTriage.swift:13`, `:91` | Persisted read/pin marks, feed sequence floor and Pinned/Unread section ordering. |
+| `app/Sources/ConversationStore.swift:483`, `:699`, `:792`, `:826`, `:953` | Feed-based unread state, archived-only sidebar view, sections and search outside Archived. |
+| `app/Sources/UIModel.swift:194`, `:228`, `:665`, `:867` | Archive/list actions, mark/pin persistence and worktree selection/remembering. |
+| `app/Sources/UIWindow.swift:197`, `:303`, `:476`, `:584`, `:595` | Sidebar filters/actions/unread dots, archived composer notice and header branch/actions. |
+| `app/Sources/NewConversationDraft.swift:28`, `:73`, `app/Sources/NewConversationWorkspace.swift:62`, `:97`, `app/Sources/UINewConversation.swift:33` | Journaled worktree choice, checks/create kind, discovery by common git directory and toggle. |
+| `tests/frontend/test_core_triage.py:102`, `tests/frontend/CoreProbeTriage.swift:102` | Nine core scenarios for archive, unread, pins, draft persistence, common-directory defaults and real daemon requests. |
+| `tests/frontend/test_visual_triage.py:36`, `tests/frontend/TriageSnapshotProbe.swift:152` | Offscreen light/dark rendering of sidebar sections, Archived and New conversation with Worktree. |
+| `tests/unit/test_conversation_archive_properties.py:13` | Added 60-example Hypothesis property with real messages/events, full row round-trip, one feed row per transition and idempotent repeats. |
+| `tests/unit/test_conversation_archive_transactions.py:18`, `:96` | Added two-connection submit/archive interleavings in both orders and queued/waiting archived dispatch checks. |
+| `tests/frontend/swift.py:59`, `app/build.sh:82` | Kill/reap compiler children on interrupted probes; use Python directory cleanup for development builds. |
+
+Contract clauses C-24.13, C-25.2, C-25.6, C-29.15 and C-29.16 and the desktop op ledger were added by the previous lane and remain binding.
 
 ## Tests
 
-PENDING: counts.
+Verification is in progress. The requested baseline command for `tests/unit/test_conversation_archive.py` is queued on `/private/tmp/claude-501/subfleet-suites.lock`; no pytest result is claimed yet. Dependencies were installed with `uv sync --locked`. Python compilation of both new test modules and the frontend helper, and `sh -n app/build.sh`, passed.
+
+Development build attempt: `app/build.sh --dev build/triage-dev` did not finish within 900 seconds. Its process group was terminated and reaped, and its temporary directory was cleaned with Python. No bundle was produced.
 
 ## Screenshots
 
-PENDING.
+The repository screenshot test has not run yet.
 
 ## Not run
 
-PENDING.
+The daemon suites, Swift core tests and visual harness are still awaiting verification. The full repository suite and installed-app launch are outside this focused validation pass.
