@@ -94,7 +94,11 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
     # C-5.7: restart-safe census pace and a turn's release notification outbox.
-    8: ("ALTER TABLE attempts ADD COLUMN quarantine_recheck_at TEXT NOT NULL DEFAULT ''",
+    # Pre-merge #131 also wrote version 7, with quarantine rather than push
+    # columns. Repeat step 7's idempotent ADDs before recording version 8.
+    8: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
+             ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")) +
+       ("ALTER TABLE attempts ADD COLUMN quarantine_recheck_at TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE attempts ADD COLUMN quarantine_notice_pending INTEGER NOT NULL DEFAULT 0"),
 }
 

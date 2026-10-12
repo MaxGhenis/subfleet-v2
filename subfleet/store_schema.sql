@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 7 (host push authorization and audit).
+-- subfleet v2 store schema, version 8 (host push and quarantine recheck pacing).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
