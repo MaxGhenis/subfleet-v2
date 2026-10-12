@@ -4317,7 +4317,7 @@ class Daemon:
     def _save_probe(self, record: dict) -> None:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
-    def _probe_census(self, record: dict):
+    def _probe_census(self, record: dict, *, foreign_ownership: procs.ForeignOwnership | None = None):
         guardian = (procs.ProcessIdentity(record["guardian_pid"], record["boot_id"], record["proc_start"])
                     if all(record.get(key) for key in ("guardian_pid", "boot_id", "proc_start")) else None)
         census = procs.containment(record.get("pgid"), record.get("guardian_pid"),
@@ -4328,7 +4328,9 @@ class Daemon:
                                        record.get("owned_identities", {})).values() for ident in values),
                                    ambiguous_identities=tuple(procs.ProcessIdentity(**value)
                                        for value in record.get("ambiguous_identities", [])),
-                                   foreign_ownership=self._foreign_ownership({"attempt_id": record["holder"]}),
+                                   foreign_ownership=foreign_ownership if foreign_ownership is not None else
+                                   lambda table: self._foreign_ownership(
+                                       {**record, "attempt_id": record["holder"], "evidence_json": json.dumps(record)}, table),
                                    launch_boot_id=record.get("boot_id"), guardian_identity=guardian,
                                    workdir=record["directory"],
                                    lineage_roots=tuple(procs.CensusRoot(**value)
@@ -4336,20 +4338,23 @@ class Daemon:
                                    lineage_overflow_boot=record.get("lineage_overflow_boot"))
         retained = _retain_lineage(record, census.to_dict())
         if retained != record:
+            record.clear()
             record.update(retained)
             self._save_probe(record)
         return census
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
-        census = self._probe_census(record)
+        foreign = self._foreign_ownership(
+            {**record, "attempt_id": record["holder"], "evidence_json": json.dumps(record)})
+        census = self._probe_census(record, foreign_ownership=foreign)
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
         pid = record.get("guardian_pid")
         leader_live = pid and procs.same_process(pid, record.get("boot_id"), record.get("proc_start"))
         leader = (procs.ProcessIdentity(pid, record.get("boot_id"), record.get("proc_start")) if pid else None)
         def signal_allowed(ident):
-            return self._unambiguous_signal_identity(record["holder"], ident, census, record)
+            return self._unambiguous_signal_identity(record["holder"], ident, census, record, foreign)
 
         if leader_live and signal_allowed(leader):
             owned.update({p: ident for p, ident in census.identities.items()
@@ -4363,15 +4368,15 @@ class Daemon:
         if not census.verified_empty and record.get("state") != "quarantined":
             record["state"] = "containing"
             self._save_probe(record)  # Authority precedes every signal, including recovery.
-            if leader_live and self._unambiguous_signal_group(record["holder"], leader, census, record):
+            if leader_live and self._unambiguous_signal_group(record["holder"], leader, census, record, foreign):
                 procs.signal_group(record["pgid"], signal.SIGTERM,
                                    boot_id=record["boot_id"], proc_start=record["proc_start"])
             deadline = time.monotonic() + self.term_grace_s
             while not census.verified_empty and time.monotonic() < deadline:
                 time.sleep(.05)
-                census = self._probe_census(record)
+                census = self._probe_census(record, foreign_ownership=foreign)
             if not census.verified_empty:
-                if leader_live and self._unambiguous_signal_group(record["holder"], leader, census, record):
+                if leader_live and self._unambiguous_signal_group(record["holder"], leader, census, record, foreign):
                     procs.signal_group(record["pgid"], signal.SIGKILL,
                                        boot_id=record["boot_id"], proc_start=record["proc_start"])
                 # A failed census cannot erase recorded ownership. Each
@@ -4380,7 +4385,7 @@ class Daemon:
                     if target in owned and signal_allowed(owned[target]):
                         procs.signal_process(owned[target], signal.SIGKILL)
                 time.sleep(.05)
-                census = self._probe_census(record)
+                census = self._probe_census(record, foreign_ownership=foreign)
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
         self._save_probe(record)
