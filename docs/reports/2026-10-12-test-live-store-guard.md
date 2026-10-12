@@ -11,7 +11,7 @@ Two independent defenses now cover implicit personal paths:
 - `subfleet/home_paths.py` refuses personal fallbacks while
   `SUBFLEET_UNDER_PYTEST` or `PYTEST_CURRENT_TEST` is present, naming the
   required override. The session marker is installed by the first configure hook
-  and survives teardown, covering collection and configure as well as test calls. Desktop
+  and survives fixture teardown until unconfigure, covering collection and configure as well as test calls. Desktop
   store/log, transcripts, notifications, Claude config/MCP/settings/login,
   Codex desktop catalog/auth readers, and legacy provider discovery use it.
   C-23.28 gains one incident-dated sentence specifying both defenses.
@@ -242,3 +242,138 @@ report/audit are committed on `fix/test-live-store-guard` in ignored workspace-l
 two named report files are staged. The caller checkout, shared metadata and
 existing history remain unchanged. All commits carry the required co-author
 trailer. No logs, JSON evidence, dependency files or bundles are staged.
+
+
+## Round 2 fixes (reviewed head `0f9eae1a0b3c`)
+
+The complete external review was read. The earlier production parity and hub
+counts are historical evidence, not validation of this round's new commit.
+
+- Every native credential reader now builds its command through the keychain
+  guard, including the default desktop profile reader after `undo()`, home
+  OAuth fallback, subscription-plan reads, and daemon credential resolution.
+  Either marker refuses native security reads without an explicit test runner
+  or executable stand-in. The default adapter runner is distinguished from an
+  explicitly injected runner, so replacing a captured backend cannot silently
+  authorize a personal read. All four readers are in `KEYCHAIN_READERS`.
+- The registry now contains fifteen isolated paths. The launchd installer and
+  doctor share a guarded plist resolver; the optional `~/bin/agent-secret`
+  lookup is guarded before its existence check. An inherited
+  `CLAUDE_LANE_AGENT_SECRET` is removed for the session; explicit test helpers
+  remain available. Both remaining review accesses are guarded rather than
+  justified as harmless reads, because one writes a plist and the other can
+  execute a credential helper.
+- Configure saves each replaced or removed environment entry, including
+  absence and empty values. Unconfigure restores those exact values, removes
+  additions, deletes the temporary base, and tolerates repeated cleanup.
+- Registry inspection resolves module imports, module-qualified attributes,
+  aliases and relative imports, including `from .home_paths import home_path
+  as hp`. Seven unregistered spellings and two registered spellings exercise
+  the same checker used for production files.
+
+### Captured environment copies
+
+Restoring `os.environ` cannot mutate a dictionary copied earlier by
+`daemon_env` or a child's inherited environment. These snapshots deliberately
+retain the marker and safe paths after cleanup. They remain test environments;
+using one after cleanup still refuses missing overrides and cannot fall back to
+personal stores. Removing its marker alone would be unsafe, since other test
+variables remain in the snapshot.
+
+An ordinary child started after unconfigure must obtain a fresh environment
+(e.g. call `daemon_env` again). No change to `cli.daemon_env` is needed: it must
+propagate isolation to children started during the session. No liveness check
+expires markers in surviving test descendants. The regression replays the
+review's capture-before/unconfigure/use-after input, verifies the captured
+child stays isolated, and verifies a fresh ordinary child reads the fixture
+login and production defaults under fake HOME. Missing, empty and preexisting
+values all restore exactly.
+
+### Round 2 validation
+
+**0 pytest cases executed in round 2.** Eight foreground acquisitions,
+including a final guard/module-name retry after offline dev dependencies were
+installed, each queued for at most 55 seconds and exited 75 (`already locked`)
+before pytest began. No suite-lock hold was acquired. All 26 requested files
+below and all three pytest mutation selections remain unrun for the hub.
+
+Each attempt used the prescribed shared lock, `uv run pytest -q`, its own
+`sf-r198f2-<pid>/` TMPDIR and fake HOME. The foreground supervisor would interrupt
+a runner at 1,090 seconds and finish termination within 1,120 seconds, keeping
+any hold below twenty minutes. `shutil.rmtree` cleanup followed release. Dev
+dependencies were installed offline from copies of the local cache into the
+ignored workspace virtualenv. No network remote or personal store was used.
+
+**60 direct cases passed**, separate from pytest execution:
+
+- 32 registry, undo, keychain, helper/plist and environment-lifecycle regressions;
+- 7 existing agent-secret credential cases, including both helper sources,
+  failed-helper refusal and native provider command construction with recording
+  runners;
+- 21 production-parity cases, **420 matching resolver outcomes**, with markers
+  removed and fake HOME. The eleven frozen resolver sources also parse and are
+  unchanged from the reviewed head.
+
+The executed direct regressions use the committed test functions. Recording
+backends make the keychain mutations safe; no native credential command runs.
+Each mutation changes one function's code in memory and restores it afterward.
+
+| Mutation | Direct regression functions | Direct result | Pytest result |
+| --- | --- | --- | --- |
+| Remove native keychain refusal | `test_keychain_after_undo_never_requests_native_command`, `test_every_keychain_reader_refuses_default_backend` | 12 expected assertion failures | Unrun: shared lock |
+| Drop unconfigure environment restoration | `test_unconfigure_restores_environment_and_keeps_captured_child_isolated` | 3 expected environment-equality failures | Unrun: shared lock |
+| Revert import/attribute resolution | `test_registry_rejects_unregistered_import_spellings`, `test_registry_counts_registered_import_spellings` | 8 expected assertion failures; direct spelling still passes | Unrun: shared lock |
+
+These are direct mutation detections, not claims of failing pytest runs. A replay
+harness initially reused case directories; it was corrected to use a fresh
+directory for every invocation, and cleanup mutation failures were confirmed
+at the environment-restoration assertion. Production source mutations never
+went to disk. Nine changed Python files parse and named-file `git diff --check`
+passes. The complete keychain grep has 83 individually classified hits in the
+updated path audit.
+
+| Requested file | Pytest cases executed | Status |
+| --- | ---: | --- |
+| `tests/e2e/test_notice_job_state.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_agent_secret_credentials.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_claude_adapter.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_claude_identity.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_claude_usage.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_cli.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_codex_adapter.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_codex_probe.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_codex_shim.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_codex_turn.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_conversation_handoff_briefs.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_conversation_redact.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_daemon_fifo_reads.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_daemon_verbs.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_doctor.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_doctor_identity.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_gate_replay.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_live_store_guard.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_operator_notices.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_policy_support.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_sessions_handoff.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_soak_tools.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_test_module_names.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_timers_alerts.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_timers_probe.py` | 0 | Unrun: shared lock |
+| `tests/unit/test_unadmittable_pin.py` | 0 | Unrun: shared lock |
+
+### Round 2 delivery
+
+- `67ba0c1b9`: native keychain protection, guarded plist/helper paths,
+  environment restoration and qualified/aliased registry regressions.
+- The following documentation commit updates this report and the access audit.
+
+The shared Git index rejected `index.lock` with `Operation not permitted`.
+As authorized, both coherent steps are committed on `fix/test-live-store-guard`
+in ignored workspace-local `.git-local`, based on assigned `0f9eae1a0b3c`.
+Inspect with `git --git-dir=.git-local --work-tree=. log`. Shared Git metadata,
+the caller's checkout, existing history and remote branches were untouched.
+Only named source/test/report files were staged; no logs, JSON evidence or
+bundles were staged. Both commits include the requested co-author trailer.
+All task-owned runners and cache preparation commands have ended; no detached
+runner or background build remains.
+

@@ -1,8 +1,8 @@
-# Round 1 personal-path audit
+# Personal-path and keychain audit
 
 Command: `git grep -n "Path.home()\|expanduser\|Application Support\|\.claude\|\.codex\|\.subfleet" subfleet/`
 
-235 remaining hits, individually classified below. The legacy defaults retain release/217 import-time values but are guarded at use; provider discovery and all desktop/session defaults use the guard. No `~/.subfleet-v1` default remains. Explicit caller paths retain precedence. Launch-agent installation and the optional ~/bin credential executable are outside desktop/session/account stores; they are identified separately.
+Round 1 snapshot at `0f9eae1a0`: 235 hits, individually classified below. The round 2 changes and complete keychain search follow this historical table. The legacy defaults retain release/217 import-time values but are guarded at use; provider discovery and all desktop/session defaults use the guard. No `~/.subfleet-v1` default remains. Explicit caller paths retain precedence. Launch-agent installation and the optional ~/bin credential executable are outside desktop/session/account stores; they are identified separately.
 
 | Hit | Source | Why safe |
 | --- | --- | --- |
@@ -241,3 +241,118 @@ Command: `git grep -n "Path.home()\|expanduser\|Application Support\|\.claude\|\
 | `subfleet/timers.py:451` | `self.store.add_event('timer.claude-cards', data=summary)` | Literal label, error text, or name component; no implicit personal path access at this hit. |
 | `subfleet/timers.py:478` | `raw = json.loads(read_regular(Path(lane.home or lane.credential.ref).expanduser() / 'auth.json'))` | Explicit argument, enrolled lane/credential, workspace/output, or policy/configuration value; no implicit personal default. |
 | `subfleet/timers.py:506` | `from .adapters.codex import _identity, _read_auth` | Module/symbol or provider executable reference; not a personal store path. |
+
+
+## Round 2 access decisions
+
+Both launchd plist accesses now use `cli.launchd_plist_path()` and the registered
+`SUBFLEET_LAUNCHD_PLIST` test seam. `cmd_daemon_install` can write the plist, so
+read-only justification would be insufficient. Doctor's default read uses the
+same resolver; an explicitly supplied plist still wins.
+
+The optional `~/bin/agent-secret` lookup now uses the registered
+`SUBFLEET_AGENT_SECRET` seam before `is_file()`. A discovered helper is an
+executable credential reader, so this is guarded too. Configure removes an
+inherited `CLAUDE_LANE_AGENT_SECRET` and restores it at unconfigure. A test can
+explicitly install its own helper, executable or runner stand-in.
+
+The four actual keychain readers are registered in `KEYCHAIN_READERS`:
+`_keychain_blob`, `ClaudeAdapter._resolve_keychain_token`,
+`ClaudeAdapter._plan_from_keychain`, and `resolve_credential`. All construct
+commands through `credentials.keychain_command`. Under either pytest marker,
+native `security` and `/usr/bin/security` commands require an explicit runner
+stand-in; the captured native runner does not grant permission. Fixture undo
+cannot remove this check. Desktop/home probes report unavailable and optional
+plan reads return no plan when blocked; mandatory credential reads refuse.
+
+Command: `git grep -n "security\b\|keychain\|find-generic-password" -- subfleet/`
+
+85 current hits, individually classified below. No other native keychain execution site was found.
+
+| Hit | Source | Classification |
+| --- | --- | --- |
+| `subfleet/adapters/claude.py:70` | `#: The keychain item name pattern v1 established and v2 keeps (C-10.1).` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:96` | `#: The keychain item the Claude desktop app keeps its own login in — the same item` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:97` | `#: v1's &#96;claude.keychain_credentials&#96; reads, and read-only here (C-10.3).` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:371` | `#: Claude Code on macOS keeps a config directory's login in the keychain, not in` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:377` | `def keychain_service_for_home(home: str \| Path) -> str:` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:382` | `def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str \| None:` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:383` | `"""One targeted keychain read of a login blob; None when absent or unreadable.` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:385` | `from ..credentials import keychain_command` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:387` | `done = (runner or subprocess.run)(keychain_command(service, security_bin, runner=runner),` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:399` | `&#96;.credentials.json&#96; or, on macOS, its keychain item. None when there is none."""` | Explicit home credential file; fallback calls the guarded _keychain_blob reader. |
+| `subfleet/adapters/claude.py:407` | `text = _keychain_blob(keychain_service_for_home(path))` | Explicit home credential file; fallback calls the guarded _keychain_blob reader. |
+| `subfleet/adapters/claude.py:532` | `security_bin: str = "security",` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:558` | `def _resolve_keychain_token(self, ref: str) -> str:` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:559` | `"""One targeted keychain item read. The value is returned to the caller and` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:561` | `from ..credentials import keychain_command` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:564` | `keychain_command(ref, self._security_bin, runner=self._credential_runner),` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:569` | `f"claude: could not read the keychain item {ref}",` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:575` | `f"claude: no keychain token for {ref}",` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:579` | `f"it as the keychain item {ref}"` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:585` | `f"claude: the keychain item {ref} is empty", code=5,` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:600` | `def _plan_from_keychain(self, ref: str) -> str \| None:` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:603` | `from ..credentials import keychain_command` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:606` | `keychain_command(ref, self._security_bin, runner=self._credential_runner),` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/adapters/claude.py:634` | `if credential.kind == "keychain-token":` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:635` | `return {"CLAUDE_CODE_OAUTH_TOKEN": self._resolve_keychain_token(credential.ref)}` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:639` | `fix="a Claude lane is either kind 'keychain-token' or kind 'home'",` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:648` | `A keychain or environment lane already has it under` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:650` | `own &#96;.credentials.json&#96; or, on macOS, in that directory's keychain item` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:651` | `(&#96;keychain_service_for_home&#96;), both the provider CLI's store and only ever` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:777` | `kind="keychain-token")` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:782` | `The keychain item is read, never written, and a missing or unreadable one` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:789` | `return ProfileResult(PROFILE_UNAVAILABLE, detail=f"keychain: {error.code}")` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:795` | `if credential.kind == "keychain-token" and credential.ref.startswith(KEYCHAIN_PREFIX):` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:804` | `file to find the desktop login). A keychain-token lane has no such file of` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/claude.py:881` | `f"as the keychain item {credential.ref}"` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:908` | `"name the keychain item claude-quota-<email>, or point the lane at a "` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:914` | `self._plan_from_keychain(credential.ref)` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:915` | `if credential.kind == "keychain-token" else None` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:920` | `# the keychain item's name are not. That is the whole lesson of the` | Dispatches to a registered guarded credential reader; does not execute an additional keychain command. |
+| `subfleet/adapters/claude.py:2118` | `"keychain_service_for_home",` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/adapters/codex.py:56` | `# The provider's safety refusals. "This content was flagged for possible cybersecurity risk` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/capacity.py:139` | `app's own keychain credential — never from &#96;~/.claude.json&#96;, which is carried` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/cli.py:2857` | `profile endpoint, asked with the desktop app's own keychain item, says who` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/contracts.py:319` | `ref: str                # keychain item, home directory, or environment variable name` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/contracts.py:320` | `kind: str               # "keychain-token" \| "home" \| "env"` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/credentials.py:17` | `def keychain_command(reference: str, security_bin: str = "security", *,` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:19` | `"""Keep v1's dedicated agent keychain when its helper is installed.` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:22` | `in the login keychain. Hosts without the helper retain the native backend.` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:24` | `# Provider-owned desktop/home OAuth blobs stay in their native keychain.` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:35` | `# A reference or fake HOME does not isolate macOS's login keychain. Fixture` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:39` | `and security_bin in ("security", "/usr/bin/security")):` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:40` | `raise AdapterError("refusing personal keychain read under pytest", code=7,` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:42` | `return [security_bin, "find-generic-password", "-s", reference, "-w"]` | Central command builder; helper path is isolated and native keychain fallback is refused under pytest. |
+| `subfleet/credentials.py:56` | `if credential.kind != "keychain-token" or credential.provider != "claude":` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/credentials.py:59` | `result = (runner or subprocess.run)(keychain_command(credential.ref, runner=runner),` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/credentials.py:62` | `raise AdapterError("could not resolve lane keychain credential", code=7,` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/credentials.py:65` | `raise AdapterError("could not resolve lane keychain credential", code=7,` | Registered credential reader; command construction uses the pytest keychain guard. |
+| `subfleet/daemon.py:629` | `# means the Claude adapter's keychain reader; a harness that must not` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/daemon.py:970` | `or a &#96;claude-quota-<email>&#96; keychain item. The adapter's enrol turn decides` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/daemon.py:979` | `"claude-quota-<email> keychain item)", Exit.INVALID_INPUT)` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/daemon.py:986` | `credential = Credential("claude", text, "keychain-token")` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/daemon.py:1641` | `keychain item it has no reason to read. &#96;~/.claude.json&#96; rides along as` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/daemon.py:3593` | `# Provider/keychain errors can contain secrets; log the error` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/daemon.py:8288` | `def _keychain_read(argv) -> bool:` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8289` | `"""Whether &#96;argv&#96; is one of the two reads &#96;credentials.keychain_command&#96; builds:` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8290` | `&#96;<agent-secret> get <reference>&#96; or &#96;security find-generic-password -s <reference> -w&#96;."""` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8292` | `return len(argv) >= 2 and ((argv[1] == "get" and len(argv) == 3) or argv[1] == "find-generic-password")` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8296` | `"""C-10.2: the adapter's runner during a re-enrollment. The keychain reads that` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8297` | `resolve a keychain-token credential and its plan stay with &#96;original&#96;; every other` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8300` | `keychain-token re-enrollment raise before its turn ("_enrollment_turn() missing 2` | Classifies/routes commands already built by guarded readers; no independent native credential command. |
+| `subfleet/daemon.py:8305` | `if _keychain_read(argv):` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/home_paths.py:10` | `# An inherited helper may query the person's dedicated keychain. Tests must` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/home_paths.py:35` | `# Every credential command execution must go through credentials.keychain_command.` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/home_paths.py:37` | `# permission to query the person's login keychain.` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/home_paths.py:39` | `"subfleet.adapters.claude._keychain_blob",` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/home_paths.py:40` | `"subfleet.adapters.claude.ClaudeAdapter._resolve_keychain_token",` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/home_paths.py:41` | `"subfleet.adapters.claude.ClaudeAdapter._plan_from_keychain",` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/importer.py:655` | `# C-10.1: the credential reference is a keychain item name, &#96;claude-quota-<email>&#96;` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/importer.py:659` | `enrol(next_claude_id(), "claude", f"claude:{key}", str(reference), "keychain-token",` | Passes an explicit legacy credential reference to enrollment; reads use the guarded adapter. |
+| `subfleet/sessions/handoff.py:13` | `a credential-reading pattern — &#96;agent-secret get&#96;, a keychain read, &#96;env&#96; or` | Credential-output suppression or redaction; no keychain command executes. |
+| `subfleet/sessions/handoff.py:133` | `#: Suppression beats redaction here because the value a keychain read returns has` | Credential-output suppression or redaction; no keychain command executes. |
+| `subfleet/sessions/handoff.py:148` | `r"\bsecurity\s+(?:dump-keychain\|find-generic-password\|find-internet-password)\b",` | Credential-output suppression or redaction; no keychain command executes. |
+| `subfleet/sessions/handoff.py:647` | `if "agent-secret" in name.casefold() or "keychain" in name.casefold():` | Credential-output suppression or redaction; no keychain command executes. |
+| `subfleet/store_schema.sql:18` | `credential_kind TEXT NOT NULL CHECK (credential_kind IN ('keychain-token','home','env')),` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
+| `subfleet/timers.py:649` | `# C-23.47 for Claude homes: the CLI refreshes its own keychain` | Reference, registry entry, declaration, comment, error text or documentation; no additional credential execution. |
