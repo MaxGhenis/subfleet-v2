@@ -191,7 +191,7 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
-EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
+EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "provider-cap", "provider-slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
                             "lane-proving", "disk"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
@@ -1268,6 +1268,13 @@ class Daemon:
         # `status.json` lays the same leases over the timer's snapshot (C-18.1).
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
         view = self.timers.enrich_view(view, rows["timers"])
+        provider_counts = scheduler.provider_live(view) if self.policy.get("providers") else {}
+        provider_caps = [{"provider": provider, "live": provider_counts.get(provider, 0),
+                          "max_active_attempts": limit, "key": f"providers.{provider}.max_active_attempts"}
+                         for provider in sorted(self.policy.get("providers") or {})
+                         if (limit := scheduler.provider_cap(self.policy, provider)) is not None]
+        if provider_caps:
+            view["provider_caps"] = provider_caps
         # C-6.14: then each lane's pilot, at the view's clock, as `_route_rows` lays them.
         turns = {row["job_id"] for row in view.get("jobs", ()) if row.get("kind") == "turn"}
         attempts = [{**row, "kind": "turn" if row.get("job_id") in turns else "detached"}
@@ -5105,8 +5112,17 @@ class Daemon:
             # closed, its checkout leased) would otherwise keep every later one
             # waiting while lanes were free. A lease keeps its FIFO below, capped or
             # not, and a job waiting for one holds no later job back (`ahead`).
-            scope = scheduler.hold_scope(self.policy, job)
+            scope = scheduler.hold_scope(self.policy, job, roster=roster)
             family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
+            # A mixed-provider job may still take an uncapped provider while a
+            # capped provider waits. Defer only this provider's FIFO check until
+            # routing chooses a provider; existing fleet/lane/family FIFO stays.
+            provider_only = (bool(self.policy.get("providers")) and scope == "pool"
+                             and policy_cap(self.policy["caps"], "max_active_attempts_per_parent") is None
+                             and (all(turn_cap(self.policy.get("conversations"), key) is None for key in
+                                      ("max_active_turns", "turn_slots_per_lane")) if pool == "turn" else
+                                  all(policy_cap(self.policy["caps"], key) is None for key in
+                                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))))
 
             own_here: list[frozenset[str]] = []
 
@@ -5123,6 +5139,13 @@ class Daemon:
                 job has run (review of PR #72)."""
                 return not (waiter[3] and waiter[3] & own_leases())
 
+            def competes_with(waiter, models, lanes):
+                if provider_only:
+                    shared = (scheduler.demand_providers(self.policy, models, lanes, roster) &
+                              scheduler.demand_providers(self.policy, waiter[1], waiter[2], roster))
+                    return any(scheduler.provider_cap(self.policy, provider) is not None for provider in shared)
+                return scheduler.competes(models, waiter[1], lanes, waiter[2], policy=self.policy, roster=roster)
+
             def ahead(models, lanes):
                 """The oldest waiter this job may not pass (C-6.9), or None: only one
                 waiting for a slot. A waiter on a lease waits for no slot this job
@@ -5134,15 +5157,34 @@ class Daemon:
                 waited for the other until `max_wall_s`)."""
                 if scope is None:
                     return None
+                if provider_only and len(scheduler.demand_providers(self.policy, models, lanes, roster)) > 1:
+                    return None
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
-                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and competes_with(waiter, models, lanes)
                              and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
             behind = ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
                                         {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                older_hold = holds.get(behind, {})
+                if older_hold.get("key", "").startswith("providers."):
+                    holds[job["job_id"]].update({key: older_hold[key] for key in
+                                                ("provider", "live", "max_active_attempts", "key")})
+                elif behind and provider_only:
+                    older = next(waiter for waiter in older_waiters(tier) if waiter[0] == behind)
+                    shared = (scheduler.demand_providers(self.policy, models, lanes, roster) &
+                              scheduler.demand_providers(self.policy, older[1], older[2], roster))
+                    provider = next(provider for provider in sorted(shared)
+                                    if scheduler.provider_cap(self.policy, provider) is not None)
+                    count = self.store.one(
+                        "SELECT count(*) n FROM attempts a JOIN lanes l USING(lane_id) "
+                        "WHERE a.state IN ('reserved','starting','running','finalizing') AND l.provider=?",
+                        (provider,))["n"]
+                    holds[job["job_id"]].update(provider=provider, live=count,
+                                               max_active_attempts=scheduler.provider_cap(self.policy, provider),
+                                               key=f"providers.{provider}.max_active_attempts")
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -5487,7 +5529,29 @@ class Daemon:
                         kept = [waiter for waiter in older_waiters(tier) if blocks(waiter)]
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
-                        if not decision.chosen_lane or at_limit:
+                        provider_hold = None
+                        provider_at_limit = False
+                        provider_kept = []
+                        provider_behind = None
+                        if decision.chosen_lane:
+                            provider = self.policy["models"][decision.chosen_model]["provider"]
+                            provider_limit = scheduler.provider_cap(self.policy, provider)
+                            if provider_limit is not None:
+                                # C-6.4: both pools share this count. Check inside the
+                                # reserving transaction, before taking ANY lease.
+                                provider_count = tx.execute(
+                                    "SELECT count(*) FROM attempts a JOIN lanes l USING(lane_id) "
+                                    "WHERE a.state IN ('reserved','starting','running','finalizing') "
+                                    "AND l.provider=?", (provider,)).fetchone()[0]
+                                provider_kept = [waiter for waiter in kept if provider in
+                                                 scheduler.demand_providers(self.policy, waiter[1], waiter[2], roster)]
+                                if provider_only:
+                                    provider_behind = next((waiter[0] for waiter in provider_kept if not waiter[3]), None)
+                                provider_at_limit = provider_count >= provider_limit - bool(provider_kept)
+                                provider_hold = {"provider": provider, "live": provider_count,
+                                                 "max_active_attempts": provider_limit,
+                                                 "key": f"providers.{provider}.max_active_attempts"}
+                        if not decision.chosen_lane or at_limit or provider_at_limit or provider_behind:
                             # C-11.8: a job every lane refuses for a reason no wait ends
                             # (the pinned lane turned so since this pass's check) waits
                             # for no slot, so it holds no later job back (C-6.9).
@@ -5506,18 +5570,35 @@ class Daemon:
                             else:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
-                                label = "fleet-full" if saturated[pool] else "slot-kept"
+                                label = ("behind-older-job" if provider_behind else
+                                         "provider-cap" if provider_at_limit and provider_hold["live"] >=
+                                         provider_hold["max_active_attempts"] else
+                                         "provider-slot-kept" if provider_at_limit else
+                                         "fleet-full" if saturated[pool] else "slot-kept")
                             hold = {"reason": label, **({"for_good": for_good} if for_good else {}),
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if label == "provider-cap" and provider_hold is None:
+                                provider_hold = next(row["provider_cap"] for evaluation in decision.evaluations
+                                                     for row in evaluation["rejections"]
+                                                     if row.get("provider_cap") and row["provider_cap"]["live"] >=
+                                                     row["provider_cap"]["max_active_attempts"])
+                            if label in ("provider-cap", "provider-slot-kept"):
+                                hold.update(provider_hold)
+                            if label == "provider-slot-kept":
+                                hold.update(kept_for=provider_kept[0][0], tier=tier)
+                            if provider_behind:
+                                hold.update(provider_hold, behind=provider_behind, tier=tier)
                             if kind == "turn" and not decision.chosen_lane:
                                 # C-24.4, C-29.11: what each lane said, for the message's
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
-                            rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
+                            signature = f"{scheduler.verdict_signature(decision)}:{at_limit or provider_at_limit}"
+                            if provider_behind:
+                                signature += f":behind:{provider_behind}"
+                            rechecks = self._capacity_wait(job["job_id"], signature, hold)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
