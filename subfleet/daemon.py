@@ -6696,6 +6696,37 @@ class Daemon:
                                (json.dumps(evidence), row["attempt_id"]))
         with self.store.transaction("attempt.process_claim_imported", audit=False) as tx:
             tx.execute("UPDATE process_claim_receipts SET seeded=1 WHERE singleton=1")
+            tx.execute("DELETE FROM process_claim_receipt_pending")
+
+    def _refresh_process_claim_receipts(self, attempt_id: str) -> None:
+        """Index late child publications before taking a signal snapshot.
+
+        Active attempts without a publication are retried. Finished attempts
+        are read only from the changed-receipt queue, never from retained
+        history. A receipt imported here also advances the claim revision.
+        """
+        rows = self.store.query(
+            "SELECT attempt_id,job_id,seq FROM attempts WHERE "
+            "state IN ('reserved','starting','running','finalizing') AND attempt_id<>? "
+            "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL "
+            "UNION SELECT attempt_id,job_id,seq FROM attempts WHERE state='quarantined' AND attempt_id<>? "
+            "AND CASE WHEN json_valid(evidence_json) THEN json_extract(evidence_json,'$.child_identity') END IS NULL "
+            "UNION SELECT a.attempt_id,a.job_id,a.seq FROM process_claim_receipt_pending p "
+            "JOIN attempts a USING(attempt_id) WHERE a.attempt_id<>?",
+            (attempt_id, attempt_id, attempt_id))
+        for row in rows:
+            start = self._read_json(attempt_dir(self.root, row["job_id"], row["seq"]) / "start.json") or {}
+            child = start.get("child_identity")
+            with self.store.transaction("attempt.process_claim_refresh", audit=False) as tx:
+                actual = self.store.get_attempt(row["attempt_id"])
+                if actual is None:
+                    continue
+                evidence = _json_object(actual.get("evidence_json"))
+                if child and not evidence.get("child_identity"):
+                    evidence["child_identity"] = child
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (json.dumps(evidence), row["attempt_id"]))
+                tx.execute("DELETE FROM process_claim_receipt_pending WHERE attempt_id=?", (row["attempt_id"],))
 
     def _foreign_ownership(self, a: dict, table=_UNSET) -> procs.ForeignOwnership:
         """Indexed claims for current incarnations; terminal history grants no exclusion.
@@ -6708,6 +6739,7 @@ class Daemon:
                 table = procs.snapshot()
             except procs.InspectionError:
                 table = None
+        self._refresh_process_claim_receipts(a["attempt_id"])
         generation = self.store.one("SELECT generation FROM process_claim_clock WHERE singleton=1")["generation"]
         active = self.store.query(
             "SELECT attempt_id,guardian_pid,pgid,boot_id,proc_start,"

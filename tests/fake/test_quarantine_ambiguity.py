@@ -13,6 +13,44 @@ from tests.fake.test_state_contract import state_daemon  # noqa: F401
 REAL_SAME_PROCESS = procs.same_process
 
 
+@pytest.mark.parametrize("foreign_state", ["running", "finalizing", "quarantined", "succeeded"])
+@pytest.mark.parametrize("table_outage", [False, True])
+def test_late_child_receipt_blocks_signals_after_startup_import(
+        state_daemon, monkeypatch, foreign_state, table_outage):
+    daemon, harness = state_daemon
+    ours, _ = running(daemon, harness, 200, 201)
+    other, directory = running(daemon, harness, 100, 101)
+    rows = {200: (1, 200, "S", "p200"), 201: (200, 200, "S", "p201")}
+    script_table(monkeypatch, rows, markers="")
+    daemon._record_owned(ours, procs.snapshot())
+    daemon.store.update_attempt(other["attempt_id"], evidence_json="{}")
+    (directory / "start.json").write_text("{}")
+    assert not daemon._foreign_ownership(ours, procs.snapshot()).claimed(
+        procs.ProcessIdentity(200, BOOT, "p200"))
+    child = {"pid": 200, "boot_id": BOOT, "proc_start": "p200"}
+    (directory / "start.json").write_text(json.dumps({"child_identity": child}))
+    daemon.store.update_attempt(other["attempt_id"], state=foreign_state)
+    if table_outage:
+        def unavailable():
+            raise procs.InspectionError("scripted table outage")
+        monkeypatch.setattr(procs, "snapshot", unavailable)
+    monkeypatch.setattr(procs, "same_process", REAL_SAME_PROCESS)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
+    delivered = []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pgid, sig:
+                        delivered.extend(pid for pid, row in rows.items() if row[1] == pgid))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(ours)
+    assert 200 not in delivered
+    evidence = json.loads(daemon.store.get_attempt(other["attempt_id"])["evidence_json"])
+    assert evidence["child_identity"] == child
+    assert not daemon.store.one("SELECT 1 FROM process_claim_receipt_pending WHERE attempt_id=?",
+                                (other["attempt_id"],))
+    monkeypatch.setattr(daemon, "_read_json", lambda path: pytest.fail("indexed receipt read again"))
+    assert daemon._foreign_ownership(ours, None).claimed(procs.ProcessIdentity(**child))
+
+
 @pytest.mark.parametrize("foreign_claim", [False, True])
 def test_partial_table_keeps_group_protocol_only_without_competing_claims(
         state_daemon, monkeypatch, foreign_claim):

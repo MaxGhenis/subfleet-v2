@@ -280,6 +280,8 @@ class Store:
                     migrated_from, version = version, SCHEMA_VERSION
                 claims_present = self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempt_process_claims'").fetchone()
+                receipt_queue_present = self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='process_claim_receipt_pending'").fetchone()
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
                 schema += "\n" + Path(__file__).with_name("store_process_claims.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
@@ -292,6 +294,10 @@ class Store:
                 if not claims_present:
                     # One upgrade backfill, never a read/inspection-time ledger scan.
                     self.connection.execute("UPDATE attempts SET evidence_json=evidence_json")
+                if not receipt_queue_present:
+                    # Repair late legacy publications missed by the old startup
+                    # bit once, before the upgraded daemon accepts signal work.
+                    self.connection.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
                 if not version:
                     self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utc_now()))
                 if not version or migrated_from is not None:

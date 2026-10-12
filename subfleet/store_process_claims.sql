@@ -52,3 +52,19 @@ END;
 -- One restart-safe import of legacy child launch receipts into attempt rows.
 CREATE TABLE IF NOT EXISTS process_claim_receipts (singleton INTEGER PRIMARY KEY CHECK(singleton=1), seeded INTEGER NOT NULL);
 INSERT OR IGNORE INTO process_claim_receipts VALUES(1,0);
+
+-- A receipt can arrive after the startup import. Remember changed attempts
+-- whose child publication still needs importing, including a just-finished
+-- legacy attempt. This queue avoids rescanning retained terminal history.
+CREATE TABLE IF NOT EXISTS process_claim_receipt_pending (
+  attempt_id TEXT PRIMARY KEY REFERENCES attempts(attempt_id) ON DELETE CASCADE
+) WITHOUT ROWID;
+CREATE TRIGGER IF NOT EXISTS process_claim_receipt_changed
+AFTER UPDATE OF evidence_json,state,child_pid ON attempts
+WHEN CASE WHEN json_valid(NEW.evidence_json) THEN json_extract(NEW.evidence_json,'$.child_identity') END IS NULL
+  AND (CASE WHEN json_valid(OLD.evidence_json) THEN json_extract(OLD.evidence_json,'$.child_identity') END IS NOT NULL
+       OR (OLD.state IN ('reserved','starting','running','finalizing','quarantined')
+           AND NEW.state NOT IN ('reserved','starting','running','finalizing','quarantined')))
+BEGIN
+  INSERT OR IGNORE INTO process_claim_receipt_pending VALUES(NEW.attempt_id);
+END;
