@@ -507,9 +507,12 @@ class _Writer:
     def event(self, kind: str, *, data: Mapping[str, Any] | None = None, **keys: Any) -> None:
         """Append one `events` row inside the caller's transaction (C-3.2).
 
-        `Store.add_event` opens its own transaction, which then logs a second row
-        of the same kind; an import that writes thousands of `tickle` rows needs
-        exactly one row per fact. Outside a transaction the connection is in
+        `Store.add_event` opens a transaction of its own (a savepoint inside the
+        caller's) for every row; an import that writes thousands of `tickle`
+        rows writes each one directly instead. Either way a fact is one row:
+        the store does not audit an event insert (C-3.2), though before
+        2026-10-12 `add_event` also left an empty row of the same kind beside
+        each one. Outside a transaction the connection is in
         autocommit (`isolation_level=None`, `synchronous=FULL`), so the row is
         durable on return either way.
         """
