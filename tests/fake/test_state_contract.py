@@ -37,11 +37,15 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
-    # C-5.12 running inspection uses the shared table and liveness directly.
-    # State-only defaults must stay absent without asking about host processes.
-    monkeypatch.setattr(daemon_module.procs, "snapshot",
-                        lambda: daemon_module.procs.ProcessTable({}, "unit-test-boot"))
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    # All process reads share a synthetic table. The caller running a registry
+    # fixture is live; unlisted guardians are absent. Keep real three-way
+    # liveness so tests overriding identity can exercise writer protection.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda:
+                        daemon_module.procs.ProcessTable({
+                            os.getpid(): (1, os.getpgrp(), "S", "unit-test-start")
+                        }, "unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "identity",
+                        lambda pid: daemon_module.procs.snapshot().identity(pid))
     monkeypatch.setattr(daemon_module.procs, "group_members", lambda *args: {})
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
