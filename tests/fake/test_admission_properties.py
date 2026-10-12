@@ -301,18 +301,17 @@ def test_c6_9_a_slot_kept_for_a_job_that_can_never_use_it_does_not_starve_its_ti
                    "says nothing about the slot a probe takes)")
 def test_c6_9_a_job_that_must_probe_is_not_held_by_the_attempt_on_slot_0(routing_state):  # noqa: F811
     """P3 (C-11.4, C-11.7a): the head of its class has an admissible lane with a free slot on every
-    pass and is never placed. claude-r is measured (two slots); a Fable job runs there on slot 0. An
+    pass and is never placed. claude-r is measured (two slots); a Sonnet job runs there on slot 0. An
     authorized Opus job, which must probe first, chooses claude-r on every look, but `_prepare_route`
-    only ever leases `lane:claude-r:slot:0` for its probe, so it waits `probe-pending` until the Fable
-    attempt ends (up to `max_wall_s`). With the Fable attempt on slot 1 instead it is probed and placed
+    only ever leases `lane:claude-r:slot:0` for its probe, so it waits `probe-pending` until the Sonnet
+    attempt ends (up to `max_wall_s`). With the Sonnet attempt on slot 1 instead it is probed and placed
     at once."""
     service, harness = routing_state
-    service.policy["reserve"]["models"] = ["fable"]
     service.store.put_lane(lane("claude-r"))
     measured(service, "claude-r")
     service._execute_probe = lambda job, lane_row, model, holder: Outcome(OutcomeClass.OK, "admitted",
                                                                           {"rc": 0, "signal": None})
-    first = submit(service, harness, pinned_lane="claude-r", pinned_model="fable")
+    first = submit(service, harness, pinned_lane="claude-r", pinned_model="sonnet")
     service._admit()
     assert placed_on(service, first) == "claude-r"
     probing = submit(service, harness, pinned_lane="claude-r", pinned_model="opus", unmeasured_reserve_reason=REASON)

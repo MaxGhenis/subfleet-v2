@@ -85,6 +85,7 @@ if os.environ.get("HYPOTHESIS_NO_SHRINK"):
 
 START = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
 TIERS = (None, "trivial", "easy", "standard", "hard")
+#: `fable` is retired onto `opus` (2026-09-27): a pin to it exercises the alias.
 MODELS = ("fable", "opus", "sonnet", "haiku", "astra", "terra")
 TASKS = ("review", "sweep", "authored-prose")
 NAMES = ("a@example.invalid", "b@example.invalid", "shared@example.invalid")
@@ -110,7 +111,7 @@ JOB = st.fixed_dictionaries({
 })
 #: One change in capacity, as (kind, lane index, details).
 CAPACITY = st.one_of(
-    st.tuples(st.just("reading"), st.integers(0, 7), st.sampled_from(("account", "fable", "model")),
+    st.tuples(st.just("reading"), st.integers(0, 7), st.sampled_from(("account", "reserved", "model")),
               st.sampled_from(("seven_day", "five_hour")), st.sampled_from((0.0, 0.2, 0.6, 0.9, 1.0)),
               st.sampled_from((0, 30, 119, 121, 900)), st.none() | st.sampled_from((20, 3600, 86400)),
               st.sampled_from(("oauth-usage", "wham"))),
@@ -405,14 +406,15 @@ class AdmissionMachine(RuleBasedStateMachine):
                 capacity=st.lists(CAPACITY, max_size=4), queue=st.lists(JOB, max_size=6),
                 probe=st.sampled_from(PROBE_MODES))
     def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe):
-        """A fleet (its caps, the Fable reserve on or off, lanes whose names may collide), the
+        """A fleet (its caps, the reserve (C-11.7) on or off, lanes whose names may collide), the
         capacity it starts with, and a queue submitted before the first pass sees any of it."""
         self.root = self.tmp / "state"
         self.root.mkdir()
         self.harness = Harness(self.root)
         policy = json.loads((self.root / "policy.json").read_text())
         policy["caps"].update(max_active_attempts=cap, max_in_flight_per_lane=per_lane)
-        policy["reserve"]["models"] = ["fable"] if reserve else []
+        # C-11.7 reserved Fable until its retirement; the rule is the same for any model, so Opus here.
+        policy["reserve"]["models"] = ["opus"] if reserve else []
         (self.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         self.service = self.start()
         self.probe_mode = probe
@@ -493,7 +495,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         if kind == "reading":
             # A usage sensor reports (C-9.1), perhaps already stale (reading_ttl_s is 120 s).
             scope, window, utilization, age, resets_in, source = rest
-            scope = {"account": "account", "fable": self.policy["models"]["fable"]["id"]}.get(scope, ids[0])
+            scope = {"account": "account", "reserved": self.policy["models"]["opus"]["id"]}.get(scope, ids[0])
             self.store.add_reading(Reading(lane_id, scope, window, utilization,
                                            self.clock.iso(resets_in) if resets_in else None,
                                            ReadingLabel.PROVIDER, source, self.clock.iso(-age)))
@@ -844,7 +846,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         return max(1, min(30, step, (end - now).total_seconds()))
 
     def fair(self) -> None:
-        """Every lane enabled, open, measured with room, and the Fable reserve slack; every sensor sound."""
+        """Every lane enabled, open, measured with room, and the reserve slack; every sensor sound."""
         self.faults.clear()
         self.workspace_faults.clear()
         self.probe_mode, self.quarantine = "ok", False
