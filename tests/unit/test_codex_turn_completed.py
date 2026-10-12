@@ -122,9 +122,10 @@ def test_stream_after_reader_boundaries_and_large_output_keeps_completion(tmp_pa
 ])
 @pytest.mark.parametrize("complete", [False, True])
 def test_authentication_admission_quota_precedence(tmp_path, auth, admission, deliverable, complete):
-    """I3: with completion, authentication > successful/refused admission > quota.
-
-    Without completion the refusal and quota signals still beat the new fallback.
+    """I3: a completed turn with a deliverable is verified success, which recovered
+    authentication, admission and quota text does not undo (C-9.2, #186). Otherwise
+    authentication > refused admission > quota, and these signals still beat the
+    no-completion fallback.
     """
     events = [{"type": "error", "message": "quota exceeded"}]
     if admission:
@@ -136,10 +137,10 @@ def test_authentication_admission_quota_precedence(tmp_path, auth, admission, de
     if complete:
         events.append(COMPLETED)
     outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, *events), _exit(0))
-    expected = (OutcomeClass.AUTH_DEAD if auth else OutcomeClass.OK if complete and deliverable
+    expected = (OutcomeClass.OK if complete and deliverable else OutcomeClass.AUTH_DEAD if auth
                 else OutcomeClass.CONTENT_FILTER if admission else OutcomeClass.LIMITED)
     assert outcome.cls == expected
-    assert (outcome.evidence["authentication"] is not None) == auth
+    assert (outcome.evidence["authentication"] is not None) == (auth and expected != OutcomeClass.OK)
     assert (outcome.evidence["quota"] is not None) == (expected == OutcomeClass.LIMITED)
 
 
