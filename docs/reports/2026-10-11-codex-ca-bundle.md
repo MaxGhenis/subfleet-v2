@@ -79,20 +79,30 @@ were `test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone` and
 `test_daemon_lock_row_passes_against_a_live_daemon`: denied process-identity
 inspection produced `unknown` instead of a stale/live verdict.
 
-The six recording-provider process cases remain queued for the shared suite
-lock. The six guarded fake-daemon cases skipped because their fixture requires
-real boot identity; its existing skip protects ownership checks.
+The supplemental six recording-provider process cases produced no results:
+their locked batch was canceled after a prolonged wait for the shared suite
+lock (exit 130). They are **unrun**, not counted as passing. The six guarded
+fake-daemon cases skipped because their fixture requires real boot identity;
+its existing skip protects ownership checks.
 The narrower provider process tests exercise the real credential and launch
 builders and child-tool inheritance without fabricating guardian ownership.
 
-Python syntax and Git whitespace checks have passed. Pytest uses one process at a time under
+Completed pytest totals: **389 passed, 6 failed, 6 skipped**. All 51 new unit and
+guard CA cases passed; the property case ran 200 examples. The six failures are
+the existing process-inspection cases named above. Provider/tool inheritance
+tests still need execution on a host with the required permissions and an
+available suite lock.
+
+Python syntax checks passed for all ten changed Python scripts; Git whitespace
+checks passed. Pytest uses one process at a time under
 `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock`, with a fresh
 `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-cab-$$/` and Python `shutil.rmtree`
 cleanup. Dependencies were installed with `uv sync --frozen` in this workspace.
 
-The full repository suite and live Codex/Claude TLS probes were not run. The
-guarded daemon/guardian/provider/tool tests need rerunning on a host where
-macOS process-identity inspection is permitted.
+The full repository suite and live Codex/Claude TLS probes were not run. Rerun
+`tests/fake/test_codex_ca_bundle_fake.py` and
+`tests/unit/test_codex_ca_bundle_provider.py` with the same lock and temp-dir
+rules on a host where macOS process-identity inspection is permitted.
 
 ## Commit delivery
 
@@ -103,11 +113,12 @@ Commits use isolated local Git storage on `fix/codex-ca-bundle`, with the origin
 base as their parent and the required co-author trailer. No history was rewritten
 and no Git remote was contacted.
 
-Implementation: `5509f1741152594526065e11e899f3cdc836c1ca`.
-Standalone preflight policy and contract numbering:
-`ce6707c0fe8555c076298f37e91b99f140a4d48a`.
+The commit series includes the implementation, standalone preflight alignment,
+doctor defaults, recording-provider coverage, and validation reports. Every
+commit carries `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-The final commit series will be exported as
-`docs/reports/2026-10-11-codex-ca-bundle.bundle`; the bundle is a separate
-delivery artifact and is ignored by the repository. The original linked worktree
-HEAD remains at the base because the sandbox forbids updating it.
+The final series is exported as
+`docs/reports/2026-10-11-codex-ca-bundle.bundle`, verified with `git bundle verify`.
+The bundle is a separate delivery artifact and is ignored by the repository.
+The original linked worktree HEAD remains at the base because the sandbox
+forbids updating it; use the bundle for the committed delivery head.
