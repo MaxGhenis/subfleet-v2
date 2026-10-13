@@ -199,8 +199,10 @@ def model_answered(event: object) -> bool:
 
 
 def _stream_path(attempt_dir: Path, launch: Launch) -> Path:
+    # An empty frozen stream is still authoritative evidence of no events.
+    # Only an absent artifact permits fallback to legacy stdout.
     for path in (launch.raw_stream_path, str(attempt_dir / "stream.jsonl"), launch.stdout_path):
-        if path and Path(path).is_file() and Path(path).stat().st_size:
+        if path and Path(path).is_file():
             return Path(path)
     return attempt_dir / "stdout"
 
