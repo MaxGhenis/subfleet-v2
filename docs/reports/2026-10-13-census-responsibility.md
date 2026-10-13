@@ -195,6 +195,13 @@ child of a member read as gone was born before that read and appears on the next
 listing. A nonempty read retains the guardian immediately; eight rounds of
 continuous births raise InspectionError and cannot release it. Synthetic races
 and a real, barrier-controlled four-generation fork-and-exit chain cover this.
+The exact real chain body also ran as a standalone native probe without ps:
+root 34078 retained final member 34727, then returned only after that member
+was killed under its recorded kernel unique id. The root was reaped and its
+scratch directory removed. Restoring the original one-pass scan inside an
+otherwise identical task-owned probe made root 92118 return while member 92275
+was still live and now self-responsible. That member was stopped under its
+kernel unique id too. These native probes do not replace the locked pytest run.
 
 P3-1 polls at 0.1 s through the configured exit settle window, then backs off to
 2 s. P3-2 drops terminal quarantined guardians from `_children`; the next spawn
@@ -216,7 +223,10 @@ P3-6 retries full/ENOMEM argument reads up to an in-process KERN_ARGMAX read,
 with conservative failure at that ceiling. On this host both SC_ARG_MAX and
 KERN_ARGMAX are 1,048,576 bytes. A buffer still full there remains unverifiable;
 C-5.5 now states the residual oversized-area limitation rather than allowing a
-partial marker read to release an attempt.
+partial marker read to release an attempt. A task-owned Python with a 1,048,000-byte
+environment reproduced a 1,048,576-byte full read; a 1,114,112-byte allocation
+was refused with EINVAL (22). The production reader raised InspectionError as
+required. That process was killed and reaped.
 
 A task-owned Homebrew framework Python 3.14.7 probe reproduced the initial
 `bin/python3.14` path changing to `Resources/Python.app/Contents/MacOS/Python`.
