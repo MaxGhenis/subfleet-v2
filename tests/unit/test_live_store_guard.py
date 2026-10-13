@@ -19,7 +19,10 @@ from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.claude_mcp import global_config_path
 from subfleet.guard.preflight import _state_root
 from subfleet.sessions import desktop, mirror, revive, transcripts
-from subfleet.home_paths import KEYCHAIN_READERS, PYTEST_MARKER, PYTEST_SESSION, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
+from subfleet.home_paths import (
+    KEYCHAIN_READERS, PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS,
+)
 from tests.conftest import pytest_configure, pytest_unconfigure
 
 REPO = Path(__file__).resolve().parents[2]
@@ -416,6 +419,7 @@ def test_e2e_child_has_every_guard_variable(tmp_path, monkeypatch):
     assert set(SAFE_HOME_PATHS) <= harness.env.keys()
     assert harness.env[PYTEST_MARKER] == "1"
     assert harness.env[PYTEST_SESSION] == os.environ[PYTEST_SESSION]
+    assert harness.env[PYTEST_SESSION_ID] == os.environ[PYTEST_SESSION_ID]
     for name in SAFE_HOME_PATHS:
         assert Path(harness.env[name]).is_relative_to(tmp_path)
     source = '''
@@ -628,7 +632,8 @@ def test_unconfigure_restores_environment_and_expires_captured_child(tmp_path, m
     """The review's copied daemon_env becomes ordinary after session cleanup."""
     from types import SimpleNamespace
     config = SimpleNamespace()
-    tracked = (PYTEST_MARKER, PYTEST_SESSION, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+    tracked = (PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+               *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     with monkeypatch.context() as phase:
         phase.delenv("PYTEST_CURRENT_TEST", raising=False)
         fake_home = tmp_path / "fake-home"

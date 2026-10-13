@@ -18,7 +18,7 @@ from typing import NamedTuple
 
 import pytest
 
-from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, SAFE_HOME_PATHS
+from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, SAFE_HOME_PATHS
 from tests.fake.profile import derived_identity as claude_identity
 
 REPO = Path(__file__).resolve().parents[2]
@@ -125,8 +125,9 @@ class E2E:
                     if not key.startswith(("SUBFLEET_", "CLAUDE", "CODEX", "ANTHROPIC", "GIT_"))}
         self.env.update({name: str(user_home / "isolated" / relative)
                          for name, relative in SAFE_HOME_PATHS.items()})
-        if PYTEST_SESSION in os.environ:
-            self.env[PYTEST_SESSION] = os.environ[PYTEST_SESSION]
+        for name in (PYTEST_SESSION, PYTEST_SESSION_ID):
+            if name in os.environ:
+                self.env[name] = os.environ[name]
         self.env.update({
             PYTEST_MARKER: "1",
             "HOME": str(user_home), "SUBFLEET_HOME": str(self.root),

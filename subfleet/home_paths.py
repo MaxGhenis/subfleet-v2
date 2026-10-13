@@ -7,8 +7,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 PYTEST_MARKER = "SUBFLEET_UNDER_PYTEST"
-# Session descendants keep isolation only while this temporary directory lives.
+# Session descendants keep isolation only while this exact sentinel lives.
 PYTEST_SESSION = "SUBFLEET_PYTEST_SESSION"
+PYTEST_SESSION_ID = "SUBFLEET_PYTEST_SESSION_ID"
+PYTEST_SENTINEL = ".pytest-session"
 # An inherited helper may query the person's dedicated keychain. Tests must
 # explicitly install their own stand-in instead of inheriting this executable.
 SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET",)
@@ -54,7 +56,18 @@ def under_pytest() -> bool:
         # Bare markers remain useful for standalone test harnesses. Configured
         # sessions always supply a lifetime, including in captured child envs.
         # A copied PYTEST_CURRENT_TEST must not revive an expired session either.
-        return session is None or Path(session).is_dir()
+        if session is None:
+            return True
+        identity = os.environ.get(PYTEST_SESSION_ID)
+        if not identity:
+            return False
+        try:
+            with (Path(session) / PYTEST_SENTINEL).open(encoding="ascii") as sentinel:
+                found = os.fstat(sentinel.fileno())
+                token = sentinel.read(65)
+                return identity == f"{found.st_dev}:{found.st_ino}:{token}"
+        except (OSError, UnicodeError, ValueError):
+            return False
     return "PYTEST_CURRENT_TEST" in os.environ
 
 
@@ -69,7 +82,8 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     configure, collection and teardown, when PYTEST_CURRENT_TEST is absent.
     A live session marker or a standalone test marker makes a missing override
     refuse the fallback before access. Cleanup expires captured session markers,
-    including copied PYTEST_CURRENT_TEST values, by removing their directory.
+    including copied PYTEST_CURRENT_TEST values, by deleting their sentinel.
+    Recreating a store directory cannot recreate that sentinel's identity.
     test_only supplies an isolation seam for defaults that historically had no
     environment override, preserving their behavior outside pytest. Optional
     expansion applies only to overrides, never to an already constructed default;

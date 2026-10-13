@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -16,7 +17,10 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, SAFE_ENV_REMOVALS, SAFE_HOME_PATHS
+from subfleet.home_paths import (
+    PYTEST_MARKER, PYTEST_SENTINEL, PYTEST_SESSION, PYTEST_SESSION_ID,
+    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS,
+)
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
@@ -36,11 +40,17 @@ def pytest_configure(config):
     """
     config._subfleet_original_home_env = {
         name: os.environ.get(name)
-        for name in (PYTEST_MARKER, PYTEST_SESSION, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+        for name in (PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+                     *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     }
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
+    token = secrets.token_hex(32)
+    with (base / PYTEST_SENTINEL).open("x", encoding="ascii") as sentinel:
+        sentinel.write(token)
+        found = os.fstat(sentinel.fileno())
     os.environ[PYTEST_MARKER] = "1"
     os.environ[PYTEST_SESSION] = str(base)
+    os.environ[PYTEST_SESSION_ID] = f"{found.st_dev}:{found.st_ino}:{token}"
     for name in SAFE_ENV_REMOVALS:
         os.environ.pop(name, None)
     config._subfleet_safe_home_base = base
@@ -49,7 +59,10 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    # Removing the session directory also expires already captured child markers.
+    # Expire captured children even if store directories survive or are recreated.
+    base = getattr(config, "_subfleet_safe_home_base", None)
+    if base is not None:
+        (base / PYTEST_SENTINEL).unlink(missing_ok=True)
     original = getattr(config, "_subfleet_original_home_env", None)
     if original is not None:
         for name, value in original.items():
@@ -58,7 +71,6 @@ def pytest_unconfigure(config):
             else:
                 os.environ[name] = value
         del config._subfleet_original_home_env
-    base = getattr(config, "_subfleet_safe_home_base", None)
     if base is not None:
         shutil.rmtree(base, ignore_errors=True)
 
