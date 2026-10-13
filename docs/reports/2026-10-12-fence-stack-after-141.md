@@ -595,3 +595,30 @@ module as a standalone suite, and both inherited pathname follow-up groups.
 Every requested suite group and mutation was run. A portable, unstaged
 `docs/reports/pr142-fix-r3.bundle` carries this round's workspace-local history.
 No logs, JSON evidence or bundles enter any commit.
+
+## Review r4: equal source aliases with different presence answers
+
+Assigned base: `34f671cb642918f105a2a451f2edece153707f37`; the checkout was clean.
+The reviewer bundle was fetched locally into `refs/remotes/r4/*` in
+workspace-local `.git-local`, and its equal-alias probe was read there. Commits
+use `fix/admission-detached-nested-fence` in that metadata because the shared
+Git index is outside this sandbox's writable roots. The original `.git` pointer
+is unchanged. No caller-worktree writes, network Git remotes, sub-agents,
+operational-state changes or live process actions were used.
+
+The probe is ported into `tests/fake/test_detached_retention_fence.py`: both
+reader/allocated-writer shapes, early/reservation boundaries, and stub/real
+workspace preparation. Real submission records an absent case alias; a symlink
+replacement gives the job a different current workdir. Its lookup returns the
+same absent alias, then restores the tree before the recorded-source lookup
+succeeds. The helper must retain that first absence when it deduplicates the
+equal source strings.
+
+Baseline production bytes are unchanged from `34f671cb6` (daemon SHA-256
+`55acf7f2726ecb38119221f1a4327ac3f88853a50b4400c94ef4efffb951f92e`). The
+ported eight cases produced **6 failed, 2 passed, 81 deselected** in 11.37 s
+(67.59 s including lock acquisition and cleanup). All six failures are the
+reviewed safety assertions: early readers and writers prepare under the fence,
+and reservation-time allocated writers become live under it, with both
+preparations. The two reservation-time reader controls pass. No setup failures
+or skips occurred. The hold's TMPDIR was removed and its absence checked.

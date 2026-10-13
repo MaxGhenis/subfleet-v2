@@ -1323,3 +1323,109 @@ def test_detached_row_presence_answer_survives_workspace_until_reservation(tmp_p
             assert daemon._holds[job]["reason"] == "workspace"
             assert daemon._workspace_deferrals[job] == 1
             assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,)) is None
+
+
+@pytest.mark.parametrize("shape", ["read-only", "allocated-writer"])
+@pytest.mark.parametrize("boundary", ["early", "reservation"])
+@pytest.mark.parametrize("preparation", ["stub", "real"])
+def test_equal_alias_keeps_both_source_absence_answers(tmp_path, shape, boundary, preparation):
+    """Equal source strings must retain the current lookup's absence answer.
+
+    The recorded lookup succeeds after restoration between the two lookups.
+    Failed at 34f671cb6 for both preparations: early readers and writers prepare
+    under the fence, and reservation-time writers run while it is still held.
+    """
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        relative = Path(nested).relative_to(tree)
+        alias = str(Path(tree).with_name("rETIRED") / relative)
+        if not Path(alias).is_dir():
+            pytest.skip("requires a case-insensitive filesystem")
+        quarantine = Path(tree).with_name("retired-quarantine")
+        outside_root = tmp_path / "outside"
+        outside = outside_root / relative
+        checkout(outside)
+        outside = folders.canonical(outside)
+        key = folders.exclusive_key(tree)
+        real_head, real_canonical = daemon_module.git_head, folders.canonical
+        moved, redirected = [], []
+
+        def head_then_quarantine(workdir, *args, **kwargs):
+            answer = real_head(workdir, *args, **kwargs)
+            if str(workdir) == alias and not moved:
+                Path(tree).rename(quarantine)
+                moved.append(True)
+            return answer
+
+        def canonical_then_redirect(name):
+            answer = real_canonical(name)
+            if str(name) == alias and moved and not redirected:
+                # Submit records an absent source alias, then the separately
+                # spelled job workdir follows a replacement into another tree.
+                assert answer == alias
+                Path(tree).symlink_to(outside_root, target_is_directory=True)
+                redirected.append(True)
+            return answer
+
+        with pytest.MonkeyPatch.context() as submission:
+            submission.setattr(daemon_module, "git_head", head_then_quarantine)
+            submission.setattr(folders, "canonical", canonical_then_redirect)
+            job = submit(daemon, harness, workdir=alias, in_place=False,
+                         sandbox="read-only" if shape == "read-only" else "workspace-write",
+                         caller_session=None)
+        assert moved and redirected
+        assert daemon._submitted(job)["folder"] == alias
+        assert daemon._job(job)["workdir"] == outside
+
+        # Current and recorded names differ, but now resolve to the same absent
+        # alias. The second lookup sees the tree restored with canonical case.
+        Path(tree).unlink()
+        Path(outside).rename(Path(outside).with_name("lib-aside"))
+        Path(outside).symlink_to(alias, target_is_directory=True)
+        real_present = folders.present
+        answers, restored = [], []
+
+        def present_then_restore(name):
+            answer = real_present(name)
+            if str(name) in (outside, alias):
+                answers.append((str(name), answer[0], answer[1] is not None))
+            if str(name) == outside and not restored:
+                assert answer[0] == alias and answer[1] is not None, answer
+                quarantine.rename(tree)
+                if boundary == "early":
+                    assert daemon.store.acquire_lease(key, "retention:retired")
+                restored.append(True)
+            return answer
+
+        workspaces = Workspaces(daemon, patch, real=preparation == "real")
+        real_sources = daemon._detached_folders
+        source_tuples = []
+
+        def sources(row, **kwargs):
+            answer = real_sources(row, **kwargs)
+            source_tuples.append([(name, legacy, error is not None)
+                                  for name, legacy, error in answer])
+            return answer
+
+        def workspace_then_fence(row):
+            answer = workspaces(row)
+            assert daemon.store.acquire_lease(key, "retention:retired")
+            Path(tree).rename(quarantine)
+            return answer
+
+        patch.setattr(folders, "present", present_then_restore)
+        patch.setattr(daemon, "_detached_folders", sources)
+        if boundary == "reservation":
+            patch.setattr(daemon, "_workspace", workspace_then_fence)
+        daemon._admit()
+        observed = {"shape": shape, "boundary": boundary, "preparation": preparation,
+                    "answers": answers, "source_tuples": source_tuples,
+                    "prepared": workspaces.calls, "state": daemon._job(job)["state"],
+                    "live": _live(daemon, job), "hold": daemon._holds.get(job),
+                    "fence": daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))}
+        assert observed["fence"]["holder"] == "retention:retired", observed
+        assert workspaces.calls == ([] if boundary == "early" else [job]), observed
+        assert not _live(daemon, job), observed
+        assert observed["hold"]["retiring"] == [key], observed
