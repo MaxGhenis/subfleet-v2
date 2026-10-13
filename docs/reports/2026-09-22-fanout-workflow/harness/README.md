@@ -77,8 +77,9 @@ shown job id, request id and digest. The fake reproduces both show shapes.
 The crash probe kills the launcher and helper while a fake CLI retains the
 inherited lock. Acquisition returns exit 75 and `LOCKED` within an explicit
 budget (default/max 5 seconds, shortened with
-`SUBFLEET_FANOUT_LOCK_WAIT_S`). `launcher_pid` names the last launcher; a
-surviving child may be the actual holder. After that child exits, the same
+`SUBFLEET_FANOUT_LOCK_WAIT_S`). In round 7 the line named only the last
+launcher; since round 8 it names the launcher, helper and CLI child, each
+with whether it is alive. After that child exits, the same
 lock inode can be acquired and the saved evidence recovered.
 
 `replay.py` ships the reviewer's independent sequential oracle: seed 12505,
@@ -113,6 +114,63 @@ Both validator calls should exit 1 (six failures, then one failure).
 `FANOUT_REPLAY_CASE=perturbations` runs all 24 added histories without the
 original 64. Every added history captures actual attempted digests separately
 from the helper's snapshots and compares them against registry records.
+
+Round 8 adds regressions for review r7's four findings and three nits;
+`FANOUT_TEST_FILTER='round 8'` selects all of them, and
+`FANOUT_TEST_FILTER='round 8 finding'` selects the finding checks only.
+
+- **Refused re-send.** The CLI re-sends after a lost answer. When HEAD or
+  policy moved in between, the refused re-send names the job the first send
+  created. `resend-moved-c` reproduces the reviewer's real-CLI row exactly:
+  `{"outcome": "refused", "rc": 2, "error": "request id already used with a
+  different payload by job job-c"}`. `resend-invalid-c` gives the
+  `; job X carries request id R` form. Both must be adopted on creation-label
+  proof. The same refusal naming an older state's job must stay `REFUSED`.
+- **Model as written.** The fake now refuses a model outside the CLI's
+  `MODEL_CHOICES`, read from the repository's `subfleet/cli.py`.
+  `FAKE_POLICY_RETIRE=astra:sol61` is a daemon policy that retires `astra`;
+  `astra` and `sol` must still be submitted as written.
+- **`LOCKED` names holders.** The launcher and helper are killed while a CLI
+  child keeps the lock. Steps 0, 1 and 2 must name all three pids, with only
+  the CLI alive. Crafted records cover `reused`, a round-7 bare pid and an
+  unreadable record.
+- **Preview no longer gates snapshots.** Down, malformed and incomplete
+  previews still leave unpinned jobs and pins the daemon recorded as written
+  provable; only `sol`, which the daemon rewrote, stays uncertain. A hung
+  preview (`FAKE_POLICY_PROOF=hang`) is asked once per invocation. A deleted
+  snapshot file is named in `LOOKUP_UNKNOWN`. This replaces round 6's
+  "unavailable policy proof leaves recovery uncertain across relaunch".
+- **Nits.** An invalid `SUBFLEET_FANOUT_LOCK_WAIT_S` falls back to 5 s.
+  Recoveries by an older helper are named, with "install between batches",
+  rather than silently unknown. The round-7 report section must cite
+  `c230d1d8e`, `f3e042953` and `c6975725`.
+
+**Upgrading:** install a new helper between batches. A state folder started
+by the `8d074a715` (round 6) helper has snapshots and recovery records with
+no creation mark. This helper cannot re-prove them, and reports them
+`OUTCOME_UNKNOWN` with the reason. Finish such a batch with the helper that
+started it.
+
+`FANOUT_REPLAY_CASE=resend` runs only round 8's 16 concurrent re-send
+histories (seed 12508). Eight are adopted (this state created the job) and
+eight stay refused (an older state did). The registry's creation labels are
+the oracle, as for round 7.
+
+On a shared host at load 50 to 100, the harness allows 240 s per step and up
+to 120 s per barrier. An overlapping invocation can find the lock held past
+its 5 s budget; it then prints `LOCKED` and exits 75 having written nothing.
+The drivers check that, relaunch it as a caller would, and print how many
+there were.
+
+To run round 8's checks against the round-7 workflow (exit 1 is expected):
+
+```sh
+FANOUT_TMP=$(mktemp -d)
+git show 2911cef62:.claude/workflows/subfleet-fanout.js > "$FANOUT_TMP/baseline.js"
+env -u PYTHONPATH FANOUT_TEST_FILTER='round 8' bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs "$FANOUT_TMP/baseline.js"
+env -u PYTHONPATH FANOUT_TEST_FILTER='randomized concurrent' FANOUT_REPLAY_CASE=resend bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs "$FANOUT_TMP/baseline.js"
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$FANOUT_TMP"
+```
 
 To select only the four reviewer regression checks:
 
@@ -173,6 +231,14 @@ python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "
 - `failed-a`: a finishes failed with rc 1, exit 1.
 - `unknown-id`: wait returns no rows, exit 2.
 - `no-name`: wait rows omit names.
+- `unknown-a`: a's answer is lost on the first run (the job is committed).
+- `resend-moved`, `resend-moved-c`: every entry, or only c, commits on the
+  first send, loses the answer, and is re-sent with HEAD or policy moved
+  (`FAKE_RESEND_MOVES=head|policy|none`, default `head`). A different payload
+  is refused naming the job that holds the request id; an equal one comes
+  back `existing` with `requeried`.
+- `resend-invalid-c`: c's re-send fails validation, so the CLI appends
+  `; job job-c carries request id rq-…-3` to the refusal.
 
 The fake replays the CLI's row shapes at this PR's base `81d58fe9`.
 It rejects a run without `-d`. Rendered commands and the dispatcher prompt
@@ -190,8 +256,10 @@ The fake's `run --dry-run --json` returns a non-creating placement preview;
 `policy-one`. The helper's fake Git and the registry use the same commit.
 `FAKE_SUBMIT_HEAD` and `FAKE_SUBMIT_POLICY` override only daemon-observed
 submission values, leaving the snapshot/preview untouched.
-`FAKE_POLICY_PROOF=down|bad|missing` tests unavailable, malformed or incomplete
-policy previews. `FAKE_CAPTURE_ATTEMPT=<path>` records prompt hashes read by
+`FAKE_POLICY_PROOF=down|bad|missing|hang` tests unavailable, malformed,
+incomplete or hung (30 s) policy previews. `FAKE_POLICY_RETIRE=old:new`
+retires a model in the daemon policy that both the preview and the batch
+resolve with. `FAKE_CAPTURE_ATTEMPT=<path>` records prompt hashes read by
 the submitting fake, independently of helper snapshots. All these files stay
 in the validator's temporary fixture directory.
 `FAKE_CAPTURE_PAYLOADS=<path>` captures each actual attempted payload's digest

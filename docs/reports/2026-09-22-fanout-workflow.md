@@ -582,10 +582,13 @@ daemon changes were used.
 
 Read `review-r6.md` and `review-r6-full.txt` from the review archive. The two
 medium findings reproduce at the exact requested `8d074a715f29` checkpoint.
-Local `main` (`eef8d3d9b`) and the checkpoint both record the canonical payload
-digest, its HEAD/policy inputs, and creation-time batch metadata. Online
-`runs show --json` returns that metadata beside `job`; offline show omits it
-but the daemon-written `manifest.json` beside `prompt.md` retains it.
+`origin/main` (`c230d1d8e`), `origin/release/217` (`f3e042953`) and the
+installed 2.1.11 build it contains (`c6975725`) all record the canonical
+payload digest, its HEAD/policy inputs, and creation-time batch metadata
+(`Daemon.submit`). Online `runs show --json` returns that metadata beside
+`job`; offline show omits it but the daemon-written `manifest.json` beside
+`prompt.md` retains it. (Round 8 corrected this citation, which first named a
+stale local `main`; the facts were rechecked at all three commits.)
 
 1. **Recovery identity, resolved with option (b).** Each numbered invocation
    stages an exclusive manifest with a fresh UUID in its batch label. The
@@ -687,6 +690,181 @@ pointer. Commits therefore use workspace-local `.git-local` metadata on
 report sources are staged; no logs, JSON evidence or bundles. Temporary
 fixtures use the prescribed Python `shutil.rmtree` cleanup. No real jobs,
 network remotes, sub-agents, live workflow edits or caller-checkout writes.
+
+## Round 8: refused re-sends, models as written, lock holders, 2026-10-13
+
+I read `review-r7.md` from the review archive. It found one medium and three
+low findings, plus three nits, at `2911cef62`. Each has a regression that
+fails on the exact `2911cef62` workflow and passes at this round's head.
+I read the mechanisms below this session in `c230d1d8e` (`origin/main`),
+`f3e042953` (`origin/release/217`) and `c6975725` (the installed 2.1.11
+build, which `f3e042953` contains). The cited code is the same on all three.
+
+1. **A refused re-send of this invocation's own job (medium): resolved.**
+   - **How it happens:** after a lost answer, `client.py call_settled` sends
+     the same request again. A refused re-send under a supplied request id
+     goes to `_settle_refused_submit`. That looks the id up and lets the
+     refusal stand, naming the job that holds the id. The daemon's C-6.2
+     conflict text already names it; any other refusal gets `; job X carries
+     request id R` appended. When HEAD or the loaded policy moved between the
+     two sends, the named job is the one the first send just created.
+   - **Change:** `named_holder` reads both forms. The second counts only when
+     R is the entry's own request id. Any row without a job id that names a
+     holder makes that job a candidate, and the entry keeps that invocation's
+     snapshot. `recover_candidates` (formerly `recover_unknown`) now also
+     looks up refused entries that name a holder.
+   - **Proof:** it adopts only on round 7's proof: the job's recorded creation
+     label must be one of this entry's snapshots, then the stable fields,
+     stored prompt bytes and a digest recomputed from the daemon-recorded
+     HEAD and policy must match. Otherwise the entry stays `REFUSED`, and
+     `LOOKUP_UNKNOWN … stays REFUSED` says why.
+   - **Unchanged:** an older state's job never carries this state's labels,
+     so round 6's protections hold.
+   - **Fake:** `resend-moved-c` commits on the first send and re-sends with
+     HEAD or policy moved. The fake's row is exactly the reviewer's real-CLI
+     row: `refused`, rc 2, `request id already used with a different payload
+     by job job-c`.
+2. **The canonical model tied the batch to `MODEL_CHOICES` (low):
+   resolved.**
+   - The staged manifest keeps each model as the caller wrote it. Only the
+     snapshot takes the preview's canonical name (`model_source: preview`).
+     `cmd_run_batch` checks a batch model against the CLI's fixed
+     `MODEL_CHOICES` (via `BATCH_CHOICES`), and `Daemon.submit` digests the
+     model it resolves either way.
+   - The fake now enforces the repository's `MODEL_CHOICES`. With
+     `FAKE_POLICY_RETIRE=astra:sol61` (a daemon policy that retires `astra`),
+     `astra` and `sol` are submitted as written, recorded as `sol61`, and
+     recovered.
+3. **`LOCKED` named a dead launcher (low): resolved.**
+   - **What is recorded:** the lock file is now JSON naming the launcher and
+     its child (the helper, or step 0's shell), each with its spawn time.
+     The helper writes `<key>.lock.cli` around every CLI child that inherits
+     the lock (preview, `run --batch`, `wait`) and removes it when that child
+     exits. A new launcher clears a stale record after acquiring the lock.
+   - **What `LOCKED` prints:** `LOCKED lock=… wait_s=… launcher_pid=P
+     launcher=dead helper_pid=Q helper=dead cli_pid=R cli=alive`.
+   - **How liveness is judged:** `kill(pid, 0)`, then `ps -o etime=` to
+     compare the process's start with the recorded spawn time. A live pid
+     that started more than 2 s after its spawn time is reported `reused`.
+   - A round-7 bare-pid record is still named, and the dispatcher prompt now
+     says which pids are holders.
+4. **The preview gated every snapshot (low): resolved.**
+   - **Snapshots:** one is kept whenever the staged prompt exists. The
+     preview runs once per model per invocation, and a failure is cached, so
+     a hung daemon costs one 15 s timeout rather than one per job. HEAD is
+     read once per workdir, and is diagnostic only.
+   - **Which pins need the preview:** an unpinned job, or a pin the daemon
+     recorded as written (for example `opus`), is proven by the creation
+     label, prompt bytes and recomputed digest alone. Only a pin the daemon
+     rewrote (an alias such as `sol`) needs the canonical name. Without it,
+     the entry stays uncertain, and the message names the failed preview.
+     This goes slightly further than the review's "only pinned ones need the
+     canonical model": an unchanged pin still compares equal to what was
+     staged, so nothing is accepted that the label and digest do not already
+     prove.
+   - **Missing snapshots:** `LOOKUP_UNKNOWN` now says when a snapshot is
+     missing, naming the creating invocation's log and the reason (recorded
+     under `_missing` in the identity file, or "the invocation's snapshot
+     file is missing or unreadable").
+   - **Shipped check:** "round 6: unavailable policy proof leaves recovery
+     uncertain across relaunch" is replaced by "round 8 finding 4:
+     unavailable policy proof leaves only rewritten pins uncertain across
+     relaunch". Across down, malformed and incomplete previews, it covers
+     unpinned jobs, `opus` and `sol`, and counts the preview calls.
+
+**Nits.**
+
+- **Upgrade, documented and reported:** the `8d074a715` helper's snapshots and
+  recovery rows carry no creation mark, and its jobs' labels have no unique
+  part, so they cannot be re-proved. The README and this report say to
+  install between batches. A relaunch now prints, on each such
+  `OUTCOME_UNKNOWN`, the job the older helper recovered and "install between
+  batches", instead of a bare unknown.
+- **Lock wait value:** an invalid or NaN `SUBFLEET_FANOUT_LOCK_WAIT_S` falls
+  back to 5 s, and a negative one waits 0 s.
+- **Citation:** the round-7 section cites `c230d1d8e`, `f3e042953` and
+  `c6975725` in place of a stale local `main` (`eef8d3d9b`).
+
+**Updated state machine.** Round 7's rows stand except where noted:
+
+| State or evidence | Transition and proof rule |
+|---|---|
+| Waiting for the per-key lock | Reads no mutable workflow state. Acquires within five seconds or reports `LOCKED`/exit 75 with each recorded holder pid (launcher, helper, CLI child) as alive, dead or reused. An invalid wait setting means 5 s. |
+| Holding the lock | Records launcher and helper in the lock file and each lock-inheriting CLI child in `<key>.lock.cli` while it runs; clears a stale CLI record on acquisition. |
+| Reserved invocation | Numbered log, exclusive prompt snapshots and a unique creation label precede the batch call. Models are staged as written. A snapshot is kept for every entry whose staged prompt exists, with the preview's canonical pin when available; a failed preview is cached for the invocation; a missing snapshot's reason is recorded. |
+| Successful response | Keeps the explicitly returned id across retries and relaunch. |
+| Unknown or missing response | Keeps the invocation snapshot and uncertainty; later refusals/not-sent attempts cannot settle it. |
+| Refused row naming the holder of its own request id | **New.** The named job becomes a candidate and this invocation's snapshot is kept. Adopted only on the creation-label proof below; otherwise stays `REFUSED` with `LOOKUP_UNKNOWN … stays REFUSED`. Never triggers a retry. |
+| Refused row without a holder | Terminal `REFUSED` as before, unless an earlier unknown makes the entry uncertain. |
+| Candidate with a different/missing creation mark | Unknown entries: `LOOKUP_UNKNOWN` and `OUTCOME_UNKNOWN`. Refused entries: `REFUSED`. The message says whether the creating invocation's snapshot is missing or the job came from another invocation. |
+| Candidate with this invocation's creation mark | Requires exact request id/job metadata, stable manifest fields (a rewritten pin compares with the preview's canonical name, an unchanged pin with the model as written), stored prompt SHA-256 and a recomputed digest using daemon-recorded HEAD/policy. Only then writes recovery evidence and adopts the id. |
+| Relaunch | Replays snapshots, holder candidates and recovery records. Records from an older helper without a creation mark stay unknown, and the line names them and says to install between batches. |
+
+**Validation.** Everything was fake. Fake Subfleet and Git were first in
+`PATH`, `SUBFLEET_HOME` and `ZDOTDIR` were empty temporary directories, and
+`PYTHONPATH` was unset. The shared host ran at load 30 to 145 throughout.
+
+- **The starting head, before any change, on the unchanged harness.** At
+  load about 98 it failed three checks on timing alone: the lock probe's 10 s
+  readiness wait, a concurrent peer that hit the 5 s lock budget and printed
+  `LOCKED`, and a 60 s per-step timeout. Every logic check it reached passed.
+  The harness now allows 240 s per step and up to 120 s per barrier. The
+  drivers check that a `LOCKED` peer wrote nothing, then relaunch it after
+  its peers exit, as a caller would.
+- **Round 8's checks on the exact `2911cef62` workflow: 1 passed, 13 failed.**
+  The 13 failures cover every finding and both code nits. Finding 1 shows
+  the reviewer's row (`REFUSED name=c … by job job-c`, `JOBS=2`). The
+  older-state control keeps its `REFUSED` outcome there and fails only on the
+  diagnostic lines it now expects. The one pass is the citation check, which
+  reads only this report.
+- **Round 8's concurrent re-send histories on `2911cef62`: fail** at the first
+  history, with c `REFUSED`.
+- **Round 8's checks at this head: 14 passed, 0 failed,** in the full run
+  below. An earlier filtered run also passed, before two late robustness
+  edits: unknown entries are now looked up before refused ones, and a
+  malformed snapshot field can no longer raise inside settlement. In that
+  run the hung preview cost one 15 s timeout (step 1 took 23 s at load 90),
+  where `2911cef62` makes one call per job.
+- **Sequential oracle, seed 12505: 20,000 histories and 113,703 transitions,
+  passed.** That is the same random stream as before. Odd-numbered
+  invocations' refused rows now name a holder. The oracle checks that this
+  makes the job a candidate without changing any settlement: 5,841 checks
+  with a named candidate.
+- **Expanded harness at this head: 68 checks passed, 0 failed.** That is the
+  54 earlier checks, unchanged, plus 14 round-8 checks, one of which rewrites
+  round 6's preview check. The run took 2 h 26 min at load 60 to 145.
+  Both synchronized-submission refusers found the lock held past 5 s,
+  printed `LOCKED` having written nothing, and were checked by relaunch.
+- **Concurrent drivers, in the same run: all passed.**
+  - Seed 12506: 64 histories, 128 overlapping invocations and 123 immutable
+    submission logs.
+  - Seed 12507: 24 HEAD, policy and alias histories, with 48 invocations.
+  - Seed 12508: 16 re-send histories, with 32 invocations; 8 were adopted and
+    8 stayed refused.
+  - 32 of these overlapping invocations hit `LOCKED` and passed on relaunch.
+    So at this load the drivers exercised both waiting for the lock and
+    `LOCKED` then relaunch.
+  - A separate run of the 16 re-send histories alone also passed; all 16
+    followers hit `LOCKED` there.
+- **Static checks:** Python AST parsing of the rendered helper, lock runner
+  and replay driver, `bash -n` on the fake, and `git diff --check` all pass.
+  A direct check of the runner's `status` gave `alive` for a live child,
+  `reused` for a live pid recorded with an older spawn time, and `dead` for
+  an exited child.
+
+Run the complete validator with the command in the harness README. Select
+round 8 with `FANOUT_TEST_FILTER='round 8'`, its concurrent histories with
+`FANOUT_TEST_FILTER='randomized concurrent' FANOUT_REPLAY_CASE=resend`; the
+README has the baseline commands.
+
+This round could write the shared Git metadata. The branch is checked out in
+the caller's worktree, so the commits are on this job's detached HEAD.
+Subfleet keeps them under `refs/subfleet-salvage/`, and moving them onto
+`docs/fanout-workflow-measured` is the caller's step. Only named
+workflow, harness and report sources are staged; no logs, JSON evidence or
+bundles. Temporary fixtures are removed with Python's `shutil.rmtree`. No
+real jobs, network remotes, sub-agents, live workflow edits or writes to the
+caller's checkout were used.
 
 ## Live check of the shipped commands, 2026-10-04
 
