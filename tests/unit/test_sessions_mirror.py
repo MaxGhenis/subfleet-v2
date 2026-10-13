@@ -493,8 +493,11 @@ def test_prune_keeps_one_dead_copy_in_the_dead_home(world, tmp_path):
     quiet `mirror_dead_days` keeps one copy, the home folder's. (v1's reason
     for leaving it off, that the app prunes dead copies itself on load, is
     refuted for app 2.9939.2: its load deletes nothing.) Removal also needs
-    the app's loaded folder known, so the app's log names one."""
-    _home, store, _root = world
+    the app's loaded folder known, so the app's log names one; and the
+    session's project directory listed without its transcript, so it is
+    known to be dead (review r2 N2)."""
+    home, store, _root = world
+    (home / "projects" / fx.project_slug()).mkdir(parents=True, exist_ok=True)
     for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)):
         fx.index_entry(store, account, org, ONE)        # no transcript: dead
     running = engine(world)

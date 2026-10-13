@@ -123,6 +123,16 @@ class Event:
 
 
 @dataclass(frozen=True)
+class Replay:
+    """What `DesktopLog.replay` read: the events, oldest first, and the logs
+    it could not read. History with a gap is not the history: a registry
+    that folded it could never fold the missing file's events afterwards."""
+
+    events: list[Event]
+    unread: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AppState:
     """The app's latest session-folder load, as far as its log says."""
 
@@ -327,7 +337,7 @@ class DesktopLog:
         events, self._events = self._events, []
         return events
 
-    def replay(self) -> list[Event]:
+    def replay(self) -> Replay:
         """Every load and logout in the rotated logs and the live one, oldest first.
 
         The app keeps `main.log` and its rotations `main1.log` (newest) to
@@ -336,9 +346,11 @@ class DesktopLog:
         learning which folders the app settles in needs every gap between
         loads, so this reads them all, in order, with a fresh reader (each
         file calibrated to the zone it was written in). It leaves this
-        reader's own position alone.
+        reader's own position alone. A log that cannot be read is named in
+        `unread` (review r2 N8); a live log that is not there yet is not.
         """
         reader = DesktopLog(self.path, store=self._store, tz=self.tz)
+        unread: list[str] = []
         for path in rotated_paths(self.path) + [self.path]:
             try:
                 size = os.stat(path).st_size
@@ -349,9 +361,14 @@ class DesktopLog:
                         break
                     reader._consume(data)
                 reader._consume(b"", final=True)
-            except OSError:
+            except FileNotFoundError:
+                if path != self.path:
+                    unread.append(os.fspath(path))  # rotated away while read
                 continue
-        return reader.drain()
+            except OSError:
+                unread.append(os.fspath(path))
+                continue
+        return Replay(reader.drain(), tuple(unread))
 
 
 def rotated_paths(path: Path) -> list[Path]:
@@ -369,4 +386,5 @@ def rotated_paths(path: Path) -> list[Path]:
     return [item for _number, item in sorted(found, reverse=True)]
 
 
-__all__ = ["AppState", "DesktopLog", "Event", "LOG_ENV", "Load", "log_path", "rotated_paths"]
+__all__ = ["AppState", "DesktopLog", "Event", "LOG_ENV", "Load", "Replay", "log_path",
+           "rotated_paths"]

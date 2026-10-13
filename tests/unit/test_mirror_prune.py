@@ -20,6 +20,8 @@ from __future__ import annotations
 import errno
 import json
 import os
+import shutil
+import stat
 import tempfile
 from datetime import timezone
 from pathlib import Path
@@ -116,10 +118,16 @@ def options(**changes) -> mirror.Options:
 
 def put(world, session: str, folders, *, archived: bool = False, starred: bool = False,
         days: float = 1.0, written: float | None = None, openable: bool = True,
-        title: str = "a session") -> None:
-    """Copies of one session, quiet `days`, last written `written` days ago."""
+        project: bool = True, title: str = "a session") -> None:
+    """Copies of one session, quiet `days`, last written `written` days ago.
+
+    A session that is not `openable` has no transcript; its project
+    directory is there all the same (as for 120 of the 126 dead sessions on
+    2026-10-13) unless `project` is false."""
     if openable:
         fx.transcript(world.home, session, fx.completed())
+    elif project:
+        (world.home / "projects" / fx.project_slug()).mkdir(parents=True, exist_ok=True)
     for account, org in folders:
         path = fx.index_entry(world.store, account, org, session, archived=archived,
                               starred=starred, title=title,
@@ -583,6 +591,254 @@ def test_only_sessions_that_can_reach_outside_their_scope_are_planned(world, mon
     assert calls and all(identities == {TWO} for identities in calls)
 
 
+# --- review round 2: the home, the transcripts, the lock -------------------------
+
+def unlisted(monkeypatch, folder: tuple[str, str]) -> None:
+    """`folder` cannot be listed from now on (EMFILE, as on 2026-09-25)."""
+    scan = mirror.Mirror._scan
+
+    def failing(self, path, *args, **kwargs):
+        if (path.parent.name, path.name) == folder:
+            raise mirror._Unlisted(str(path), transient=True)
+        return scan(self, path, *args, **kwargs)
+
+    monkeypatch.setattr(mirror.Mirror, "_scan", failing)
+
+
+def test_a_home_unlisted_for_one_pass_spreads_nothing_back(world, monkeypatch):
+    """C-23.28a, review r2 N1: the home is resolved over every folder the store
+    holds, so one failed listing of it does not unhome the archive, which
+    would spread every archived session into every folder that pass."""
+    put(world, ONE, [HOME, OTHER], archived=True, days=30)
+    running = engine(world)
+    running.run_once(options())
+    assert where(world, ONE) == {HOME, OTHER}
+    unlisted(monkeypatch, HOME)
+    result = running.run_once(options(prune=True))
+    assert where(world, ONE) == {HOME, OTHER}, "nothing spread back, nothing removed"
+    assert result.prune["home"] == key(HOME) and result.added == 0
+
+
+def test_a_home_unlisted_for_one_pass_does_not_move(world, monkeypatch):
+    """C-23.28a, review r2 N1: with an org id and a second settled folder of
+    the org, a pass that cannot list the home neither moves it there nor
+    records the move."""
+    put(world, ONE, [HOME], archived=True, days=30)
+    running = engine(world)
+    assert running.run_once(options(dead_home="org-home")).prune["home"] == key(HOME)
+    second = ("acct-second", "org-home")
+    (world.store / second[0] / second[1]).mkdir(parents=True)
+    say(world.log, *loads(world.store, second, "2026-09-05 11:00:00"),
+        *loads(world.store, WORK, "2026-09-05 11:10:00"))
+    unlisted(monkeypatch, HOME)
+    running._last_sweep = None                          # noqa: SLF001 - plan afresh
+    result = running.run_once(options(dead_home="org-home"))
+    assert result.prune["home"] == key(HOME)
+    assert running._registry.home["folder"] == key(HOME)   # noqa: SLF001
+    assert where(world, ONE) == {HOME}, "the archive was not copied to a new home"
+
+
+def test_a_new_home_is_not_recorded_from_an_incomplete_inventory(world, monkeypatch):
+    """C-23.28a, review r2 N1: a first pass that cannot list the home's
+    account sees only another folder of the org. It may use that folder for
+    the pass, but records nothing, so the next full inventory decides."""
+    settled, other = ("acct-a", "org-z"), ("acct-b", "org-z")
+    for folder in (settled, other):
+        (world.store / folder[0] / folder[1]).mkdir(parents=True)
+    # A minute in one: settled, and nobody owns the org, so the other folder,
+    # never loaded, is unknown rather than a switch folder.
+    say(world.log, *loads(world.store, settled, "2026-09-05 11:00:00"),
+        *loads(world.store, WORK, "2026-09-05 11:01:00"))
+    account = os.fspath(world.store / settled[0])
+    scandir = os.scandir
+
+    def failing(path="."):
+        if isinstance(path, (str, os.PathLike)) and os.fspath(path) == account:
+            raise OSError(errno.EMFILE, "Too many open files", account)
+        return scandir(path)
+
+    monkeypatch.setattr(mirror.os, "scandir", failing)
+    running = engine(world)
+    assert running.run_once(options(dead_home="org-z")).prune["home"] == key(other)
+    assert running._registry.home is None             # noqa: SLF001
+    monkeypatch.setattr(mirror.os, "scandir", scandir)
+    running._last_sweep = None                          # noqa: SLF001 - plan afresh
+    assert running.run_once(options(dead_home="org-z")).prune["home"] == key(settled)
+    assert running._registry.home == {"value": "org-z", "folder": key(settled)}  # noqa: SLF001
+
+
+def test_a_home_gone_from_the_store_is_kept_and_its_archive_stays_put(world):
+    """C-23.28a, review r2 N1: a home the store no longer holds (and that
+    nothing else replaces) is kept rather than every archived session's
+    scope widened to every folder; nothing is removed for it meanwhile."""
+    put(world, ONE, [HOME, OTHER, SWITCH], archived=True, days=30)
+    running = engine(world)
+    running.run_once(options())
+    shutil.rmtree(world.store / HOME[0] / HOME[1])
+    result = running.run_once(options(prune=True))
+    assert where(world, ONE) == {OTHER, SWITCH}
+    assert result.prune["home"] == key(HOME)
+    assert "kept home folder" in result.prune["home_detail"]
+    assert result.prune["held"] == {prune_rules.HELD_HOME_UNLISTED: 1}
+
+
+def test_a_home_named_exactly_is_honoured_when_it_reads_as_a_switch_folder(world):
+    """C-23.28a, review r2 N4: the user chose it. It is the home, it is
+    seeded, and the conflict is reported."""
+    put(world, ONE, [SWITCH, OTHER], archived=True, days=30)
+    put(world, TWO, sorted(SEEDED), days=1)
+    result = engine(world).run_once(options(dead_home=key(SWITCH), prune=True))
+    assert result.prune["home"] == key(SWITCH)
+    assert "switch folder" in result.prune["home_detail"]
+    assert where(world, ONE) == {SWITCH}
+    assert where(world, TWO) == set(FOLDERS), "the home is seeded"
+
+
+def test_an_org_home_that_comes_to_read_as_a_switch_folder_stays_put(world):
+    """C-23.28a, review r2 N4: the org's only folder, never settled in, is the
+    home; once another account owns the org it reads as a switch folder.
+    The home stays, rather than the whole archive moving to the owner's."""
+    lone, owner = ("acct-lone", "org-lone"), ("acct-owner", "org-lone")
+    (world.store / lone[0] / lone[1]).mkdir(parents=True)
+    put(world, ONE, [lone, OTHER], archived=True, days=30)
+    running = engine(world)
+    assert running.run_once(options(dead_home="org-lone")).prune["home"] == key(lone)
+    (world.store / owner[0] / owner[1]).mkdir(parents=True)
+    say(world.log, *loads(world.store, owner, "2026-09-05 11:00:00"),
+        *loads(world.store, WORK, "2026-09-05 11:15:00"))
+    result = running.run_once(options(dead_home="org-lone", prune=True))
+    assert result.prune["home"] == key(lone)
+    assert "switch folder" in result.prune["home_detail"]
+    assert where(world, ONE) == {lone}
+
+
+def test_a_missing_projects_directory_removes_nothing(world, monkeypatch):
+    """C-23.28a, review r2 N2: no `projects/` where the mirror looks (another
+    home, another `SUBFLEET_CLAUDE_DIR`, or moved) makes every session read
+    as dead. That is no answer, so nothing goes."""
+    put(world, ONE, FOLDERS, days=10)
+    monkeypatch.setattr(mirror, "projects_dir", lambda: world.home / "elsewhere")
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert set(result.prune["held"]) == {"the transcripts could not all be listed this pass"}
+
+
+def test_a_projects_directory_recreated_empty_proves_no_session_dead(world):
+    """C-23.28a, review r2 N2: a `projects/` that is there but holds none of the
+    session's project directories was not where its transcript was looked
+    for; the dead rule waits for a listed project directory without it."""
+    put(world, ONE, FOLDERS, days=10)
+    projects = world.home / "projects"
+    shutil.rmtree(projects)
+    projects.mkdir()
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert result.prune["sessions"] == {"dead": 1}
+    assert result.prune["held"] == {prune_rules.HELD_LOADED: 1,
+                                    prune_rules.HELD_DEAD_UNCONFIRMED: 2}
+
+
+def test_a_symlinked_project_directory_is_listed_through_its_link(world):
+    """C-23.28a, review r2 N5: the app opens `projects/<slug>/<id>.jsonl`
+    through a symlinked project directory, so its sessions are live, not
+    dead and pruned."""
+    put(world, ONE, FOLDERS, days=10)
+    linked = world.home / "projects" / fx.project_slug()
+    real = world.home / "elsewhere"
+    linked.rename(real)
+    linked.symlink_to(real, target_is_directory=True)
+    result = engine(world).run_once(options(prune=True))
+    assert result.prune["sessions"] == {"live": 1}
+    assert where(world, ONE) == SEEDED, "only the switch folder's copy went"
+
+
+@pytest.mark.parametrize("carrier", [SWITCH, OTHER], ids=["the copy", "the keeper"])
+def test_a_dead_sessions_copy_is_checked_for_a_transcript_under_its_own_cwd(
+        world, monkeypatch, carrier):
+    """C-23.28a, review r2 N6: a copy may carry a cwd the others do not (a
+    worktree moved). A transcript appearing under the cwd of the copy to be
+    removed, or of the copy kept, after the plan makes the session live, and
+    the copy stays."""
+    put(world, ONE, [OTHER, SWITCH], openable=False, days=30)
+    moved = "/Users/someone/moved-worktree"
+    target = record(world, carrier)
+    rewrite(target, cwd=moved)
+    os.utime(target, (NOW_S - 30 * DAY,) * 2)
+    after_the_plan(monkeypatch,
+                   lambda: fx.transcript(world.home, ONE, fx.completed(), cwd=moved))
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == {OTHER, SWITCH}
+    assert result.prune["held"] == {"the session has a transcript now": 1}
+
+
+def test_the_spreads_ranking_reads_times_as_the_planner_does():
+    """C-23.28a, review r2 N7: a time that does not parse is skipped by the
+    spread's ranking as by the planner's, not ranked as raw text."""
+    data = {"lastActivityAt": "not a time", "lastFocusedAt": 1_790_000_000_000}
+    assert mirror._rank(data) == mirror._rank_ms(data) == 1_790_000_000_000
+
+
+def test_the_store_lock_does_not_follow_tmpdir(world, tmp_path, monkeypatch):
+    """C-23.28a, review r2 N3: launchd's agent has no `TMPDIR` and a Terminal
+    shell has one; two mirrors so started still take one lock."""
+    first = mirror.store_lock_dir()
+    assert first is not None
+    other = mirror.Mirror(world.root.parent / "other-state", fx.policy(), now=lambda: fx.NOW)
+    for name in ("a", "b"):
+        (tmp_path / name).mkdir()
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "a"))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert tempfile.gettempdir() == str(tmp_path / "a")   # what the lock once followed
+    held = other._store_lock()                              # noqa: SLF001
+    assert held is not None
+    try:
+        monkeypatch.setenv("TMPDIR", str(tmp_path / "b"))
+        monkeypatch.setattr(tempfile, "tempdir", None)
+        assert mirror.store_lock_dir() == first
+        running = engine(world)
+        assert running._store_lock() is None              # noqa: SLF001
+        assert running._store_lock_why == "another mirror is removing from this store"  # noqa: SLF001
+    finally:
+        held.close()
+
+
+def test_off_macos_the_lock_lives_in_a_private_directory_of_the_users(
+        world, tmp_path, monkeypatch):
+    """C-23.28a, review r2 N3: `/tmp/subfleet-<uid>`, made private; one opened
+    to others, or a link in its place, is not used, and nothing is removed,
+    for a reason `--status` names."""
+    monkeypatch.setattr(mirror.sys, "platform", "linux")
+    base = tmp_path / "tmp"
+    base.mkdir()
+    monkeypatch.setattr(mirror, "_LOCK_FALLBACK_BASE", base)
+    private = mirror.store_lock_dir()
+    assert private == base / f"subfleet-{os.getuid()}"
+    assert stat.S_IMODE(private.stat().st_mode) == 0o700
+    private.chmod(0o755)
+    assert mirror.store_lock_dir() is None
+    private.rmdir()
+    elsewhere = base / "planted"
+    elsewhere.mkdir(mode=0o700)
+    private.symlink_to(elsewhere, target_is_directory=True)
+    assert mirror.store_lock_dir() is None
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert set(result.prune["held"]) == {
+        "the store's removal lock has no private directory to live in"}
+
+
+def test_a_blocked_pass_does_not_take_the_store_lock(world, monkeypatch):
+    """C-23.28a, review r2 N9: a pass that will remove nothing leaves the lock
+    to another mirror that would."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    taken = []
+    monkeypatch.setattr(mirror.Mirror, "_store_lock", lambda self: taken.append(self))
+    result = engine(world).run_once(options(prune=True, flag_sync=False))
+    assert taken == [] and result.pruned == 0
+    assert set(result.prune["held"]) == {"flag sync is off, so no session's flags are settled"}
+
+
 # --- undoing it ---------------------------------------------------------------
 
 def test_unarchiving_a_pruned_session_brings_it_back_everywhere(world):
@@ -638,24 +894,32 @@ def test_the_archive_stamp_is_set_once_and_dropped_on_unarchive(world):
 
 # --- the home folder ----------------------------------------------------------
 
-@pytest.mark.parametrize("value,kinds,expected", [
-    ("org-home", {"acct-home/org-home": "settled", "acct-work/org-home": "switch"},
+@pytest.mark.parametrize("value,kinds,previous,expected", [
+    ("org-home", {"acct-home/org-home": "settled", "acct-work/org-home": "switch"}, None,
      "acct-home/org-home"),
-    ("org-x", {"a/org-x": "unknown"}, "a/org-x"),
-    ("org-x", {"a/org-x": "settled", "b/org-x": "settled"}, None),
-    ("org-x", {"a/org-x": "unknown", "b/org-x": "unknown"}, None),
-    ("org-x", {"a/org-x": "switch"}, None),
-    ("a/org-x", {"a/org-x": "unknown"}, "a/org-x"),
-    ("a/org-x", {"a/org-x": "switch"}, None),
-    ("a/org-y", {"a/org-x": "settled"}, None),
-    ("", {"a/org-x": "settled"}, None),
+    ("org-x", {"a/org-x": "unknown"}, None, "a/org-x"),
+    ("org-x", {"a/org-x": "settled", "b/org-x": "settled"}, None, None),
+    ("org-x", {"a/org-x": "unknown", "b/org-x": "unknown"}, None, None),
+    ("org-x", {"a/org-x": "switch"}, None, None),
+    ("a/org-x", {"a/org-x": "unknown"}, None, "a/org-x"),
+    ("a/org-x", {"a/org-x": "switch"}, None, "a/org-x"),            # named: honoured
+    ("a/org-y", {"a/org-x": "settled"}, None, None),
+    ("", {"a/org-x": "settled"}, None, None),
+    # A home once resolved stays while the store holds it (review r2 N1, N4).
+    ("org-x", {"a/org-x": "settled", "b/org-x": "settled"}, "b/org-x", "b/org-x"),
+    ("org-x", {"a/org-x": "switch", "b/org-x": "settled"}, "a/org-x", "a/org-x"),
+    ("org-x", {"b/org-x": "settled"}, "a/org-x", "b/org-x"),           # gone: anew
+    ("org-x", {"a/org-y": "settled"}, "a/org-y", None),                # another org's
 ])
-def test_the_home_is_one_folder_nobody_merely_passes_through(value, kinds, expected):
+def test_the_home_is_one_folder_nobody_merely_passes_through(value, kinds, previous, expected):
     """C-23.28a: v1 stored an org id; several accounts hold a folder for one
     org, so it names the folder the app settles in or the only one there is,
-    and never a switch folder."""
-    home, why = mirror.Mirror.resolve_home(value, kinds)
+    and never chooses a switch folder. A folder named exactly is the home,
+    and a home once resolved stays, whatever the registry comes to call it."""
+    home, why = mirror.Mirror.resolve_home(value, kinds, previous)
     assert home == expected and why
+    if home is not None and kinds.get(home) == "switch":
+        assert "switch folder" in why
 
 
 # --- a removal takes only the file it checked -----------------------------------
@@ -768,6 +1032,7 @@ def test_the_mirror_removes_exactly_what_the_planner_plans(specs):
     gives, the loaded folder, and the archive stamps a first pass makes."""
     with tempfile.TemporaryDirectory() as scratch, pytest.MonkeyPatch.context() as patch:
         world = make_world(Path(scratch), patch)
+        (world.home / "projects" / fx.project_slug()).mkdir(parents=True, exist_ok=True)
         for session, kind, starred, ages in specs:
             if kind != DEAD:
                 fx.transcript(world.home, session, fx.completed())

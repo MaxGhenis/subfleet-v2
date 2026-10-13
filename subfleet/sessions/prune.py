@@ -16,7 +16,8 @@ Three rules, each off at zero or false (`policy.json`, `sessions` section):
 
 * `mirror_skip_switch_folders`: a **switch folder** (`folder_kinds.py`: one
   the app only passes through during an account switch, whose org another
-  account owns) is in no session's scope. Nobody sees its sidebar.
+  account owns) is in no session's scope. Nobody sees its sidebar. The home
+  folder is never one: a home once named stays seeded.
 * `mirror_archive_days`: a session whose every copy is archived and unstarred,
   and that has been quiet this many days, belongs only in the **home
   folder**. Quiet means since the later of its newest activity, focus or
@@ -28,6 +29,10 @@ Three rules, each off at zero or false (`policy.json`, `sessions` section):
 * `mirror_dead_days`: a session with no transcript (dead: it shows "no
   messages" everywhere and is never spread) that has been quiet this long
   belongs only in the home folder, or nowhere without one.
+
+The home is resolved by the mirror (`Mirror.resolve_home`) against every
+folder the store is known to hold, so a home the pass could not list is
+still the home: its sessions are then neither spread nor removed.
 
 Removal is a separate switch, `mirror_prune`, because it deletes: without it
 the rules only stop the store from growing further. Every copy in a
@@ -50,6 +55,10 @@ when all of these hold:
 * the copy is outside its session's scope, and is not the home folder's;
 * the copy has a session id, and the session was neither held nor rewritten
   by this pass's flag sync, so its flags are settled;
+* for an archived or dead session, the home folder was listed this pass;
+* for a dead session, a project directory its transcript would be in was
+  listed without it, so it is known to be dead (a `projects/` the mirror
+  reads in the wrong place, or recreated empty, proves nothing);
 * for a copy outside its scope only because its folder is a switch folder,
   the folder registry has learned for `folder_kinds.SWITCH_PRUNE_AFTER_S`:
   a folder used less often than the registry has been learning looks like a
@@ -81,6 +90,8 @@ HELD_UNKNOWN_LOAD = "the loaded folder is unknown"
 HELD_FLAGS = "flags not settled this pass"
 HELD_NO_PRUNE = "pruning is off"
 HELD_LEARNING = "the folder registry is still learning which folders are switch folders"
+HELD_HOME_UNLISTED = "the home folder was not listed this pass"
+HELD_DEAD_UNCONFIRMED = "none of the session's project directories was listed"
 #: Defensive holds the plan's own construction never reaches; a property
 #: test asserts they never occur.
 HELD_NO_SURVIVOR = "no surviving copy is as new"
@@ -155,10 +166,15 @@ class Situation:
     def every_folder(self) -> frozenset[str]:
         return frozenset(self.folders)
 
+    def switch(self, folder: str) -> bool:
+        """A switch folder, unless it is the home: a home once named stays the
+        home and stays seeded, whatever the registry comes to call it."""
+        return self.kinds.get(folder) == SWITCH and folder != self.home
+
     @cached_property
     def unswitched(self) -> frozenset[str]:
         """Every folder but the switch folders."""
-        return frozenset(folder for folder in self.folders if self.kinds.get(folder) != SWITCH)
+        return frozenset(folder for folder in self.folders if not self.switch(folder))
 
 
 @dataclass(frozen=True)
@@ -198,7 +214,7 @@ class Plan:
 
 def seeded(folder: str, situation: Situation, rules: Rules) -> bool:
     """A folder sessions are spread into at all."""
-    return not (rules.skip_switch_folders and situation.kinds.get(folder) == SWITCH)
+    return not (rules.skip_switch_folders and situation.switch(folder))
 
 
 @dataclass(slots=True)
@@ -230,8 +246,7 @@ class Summary:
 def summarize(copies: Iterable[Copy], situation: Situation) -> Summary:
     summary = Summary()
     for copy in copies:
-        summary.add(copy.archived, copy.starred, copy.last_sign,
-                    situation.kinds.get(copy.folder) == SWITCH)
+        summary.add(copy.archived, copy.starred, copy.last_sign, situation.switch(copy.folder))
     return summary
 
 
@@ -279,7 +294,7 @@ def may_reach_outside(placed: Scope, summary: Summary, rules: Rules) -> bool:
 def _tie(copy: Copy, situation: Situation) -> tuple:
     """Of equally new copies: the home's, then one not in a switch folder,
     then the first by path, so the choice is the same every pass."""
-    return (copy.folder != situation.home, situation.kinds.get(copy.folder) == SWITCH,
+    return (copy.folder != situation.home, situation.switch(copy.folder),
             copy.folder, copy.name)
 
 
@@ -317,16 +332,25 @@ def keepers(kept: list[Copy], situation: Situation) -> list[Copy]:
 
 
 def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
-         held: Iterable[str] = (), blocked: str | None = None) -> Plan:
+         held: Iterable[str] = (), unconfirmed: Iterable[str] = (),
+         blocked: str | None = None) -> Plan:
     """Which copies to remove this pass, and why every other outsider stays.
 
     `held` names the sessions flag sync held or rewrote this pass: their
-    flags are not settled, so none of their copies is removed. `blocked`
-    keeps every copy, for that reason (an incomplete inventory).
+    flags are not settled, so none of their copies is removed.
+    `unconfirmed` names the sessions without a transcript whose project
+    directory (`projects/<slug of a cwd>`) the pass did not list: the
+    transcript was not looked for where it would be, so the session is not
+    known to be dead, and its copies stay. `blocked` keeps every copy, for
+    that reason (an incomplete inventory).
     """
     result = Plan()
     waiting = set(held)
+    unproven = set(unconfirmed)
     listed = set(situation.folders)
+    # The home is known but was not listed: its copies cannot be counted on,
+    # so no archived or dead session is narrowed to it this pass.
+    home_away = situation.home is not None and situation.home not in listed
     groups: dict[str, list[Copy]] = {}
     for copy in copies:
         if copy.identity and copy.folder in listed:
@@ -361,6 +385,10 @@ def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
                 result.held[HELD_HOME] += 1     # unreachable: home is in every scope
             elif identity in waiting:
                 result.held[HELD_FLAGS] += 1
+            elif reason != SWITCH_FOLDER and home_away:
+                result.held[HELD_HOME_UNLISTED] += 1
+            elif reason == DEAD and identity in unproven:
+                result.held[HELD_DEAD_UNCONFIRMED] += 1
             elif reason == SWITCH_FOLDER and not situation.switch_settled:
                 result.held[HELD_LEARNING] += 1
             elif copy.activity_ms > best_activity or copy.rank_ms > best_rank:
@@ -373,8 +401,8 @@ def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
     return result
 
 
-__all__ = ["ARCHIVED", "Copy", "DAY_S", "DEAD", "HELD_FLAGS", "HELD_HOME", "HELD_LEARNING",
-           "HELD_LOADED", "HELD_NO_PRUNE", "HELD_NO_SURVIVOR", "HELD_UNKNOWN_LOAD", "Plan",
+__all__ = ["ARCHIVED", "Copy", "DAY_S", "DEAD", "HELD_DEAD_UNCONFIRMED", "HELD_FLAGS",
+           "HELD_HOME", "HELD_HOME_UNLISTED", "HELD_LEARNING", "HELD_LOADED", "HELD_NO_PRUNE", "HELD_NO_SURVIVOR", "HELD_UNKNOWN_LOAD", "Plan",
            "Removal", "Rules", "SWITCH_FOLDER", "Scope", "Situation", "Summary", "keepers",
            "may_reach_outside", "plan", "quiet_since", "scope", "scope_of", "seeded",
            "summarize", "survivors"]

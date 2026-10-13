@@ -153,7 +153,7 @@ def test_replay_reads_every_rotation_oldest_first(tmp_path):
     write_log(tmp_path / "main1.log", lines(store, "b/org-a", at(3600)))
     write_log(log, ["2026-09-14 19:00:01 [info] unrelated", *lines(store, "a/org-a", at(3602))])
     reader = desktop.DesktopLog(log, store=store, tz=UTC)
-    events = reader.replay()
+    events = reader.replay().events
     assert [(event.folder, event.at) for event in events] == [
         ("a/org-a", at(0)), ("b/org-a", at(3600)), ("a/org-a", at(3602))]
     registry = folder_kinds.Registry(tmp_path / "registry.json")
@@ -181,6 +181,37 @@ def test_a_replay_that_finds_no_log_is_tried_again(tmp_path):
                               replay=True)
     assert registry.replayed and set(registry.folders) == {"a/org-a", "b/org-b"}
     assert registry.since == at(0).timestamp()
+
+
+def test_a_replay_that_cannot_read_a_rotation_folds_nothing_and_is_tried_again(tmp_path):
+    """C-23.28a, review r2 N8: history with a gap is not the history. Folding
+    the rest, or the live poll's events, would move the watermark past the
+    unread file's loads for good; so nothing is folded until a replay reads
+    every log, and the events passed over meanwhile are read then."""
+    store = tmp_path / "store"
+    log = tmp_path / "main.log"
+    oldest = tmp_path / "main2.log"
+    write_log(oldest, lines(store, "a/org-a", at(0)))
+    write_log(tmp_path / "main1.log", lines(store, "b/org-a", at(3600)))
+    write_log(log, lines(store, "a/org-a", at(3602)))
+    reader = desktop.DesktopLog(log, store=store, tz=UTC)
+    registry = folder_kinds.Registry(tmp_path / "registry.json")
+    oldest.chmod(0)
+    try:
+        assert reader.replay().unread == (os.fspath(oldest),)
+        reader.poll()                                   # live events, queued
+        assert not folder_kinds.learn(registry, reader, replay=True)
+        assert not registry.replayed and registry.folders == {} and registry.since is None
+    finally:
+        oldest.chmod(0o644)
+    write_log(log, lines(store, "a/org-a", at(3602)) + lines(store, "c/org-c", at(3700)))
+    reader.poll()
+    assert not folder_kinds.learn(registry, reader, replay=False), \
+        "between replays, nothing is folded"
+    assert registry.folders == {}
+    assert folder_kinds.learn(registry, reader, replay=True)
+    assert registry.replayed and registry.since == at(0).timestamp()
+    assert set(registry.folders) == {"a/org-a", "b/org-a", "c/org-c"}
 
 
 def test_poll_queues_loads_and_logouts_for_the_registry(tmp_path):

@@ -335,6 +335,42 @@ def projects_dir() -> Path:
     return transcripts.projects_dir()
 
 
+#: `<unistd.h>` on macOS: the per-user temporary directory, by `confstr`.
+_CS_DARWIN_USER_TEMP_DIR = 65537
+#: Where the lock's directory is made off macOS.
+_LOCK_FALLBACK_BASE = Path("/tmp")
+
+
+def store_lock_dir() -> Path | None:
+    """Where every mirror of this user finds the store's removal lock.
+
+    Not `tempfile.gettempdir()`: that follows `TMPDIR`, which launchd's agent
+    lacks and a Terminal shell has, so two mirrors could lock different files
+    (review r2 N3). macOS gives each user one temporary directory whatever
+    the environment says (`confstr(_CS_DARWIN_USER_TEMP_DIR)`; Python does
+    not name it, so it is asked by number). Elsewhere it is
+    `/tmp/subfleet-<uid>`, created private and used only while it is this
+    user's own directory; otherwise None, and nothing is removed.
+    """
+    found = None
+    if sys.platform == "darwin":
+        try:
+            found = os.confstr(_CS_DARWIN_USER_TEMP_DIR)
+        except (ValueError, OSError):
+            found = None
+    if found:
+        return Path(found)
+    where = _LOCK_FALLBACK_BASE / f"subfleet-{os.getuid()}"
+    try:
+        where.mkdir(mode=0o700, exist_ok=True)
+        info = os.lstat(where)
+    except OSError:
+        return None
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        return None
+    return where
+
+
 def slug(cwd: str) -> str:
     """The `~/.claude/projects` folder name for a session cwd.
 
@@ -784,11 +820,6 @@ def _short(account: str, org: str) -> str:
     return f"{account[:8]}…/{org[:8]}…"
 
 
-def _rank(data: dict) -> Any:
-    return (data.get("lastActivityAt") or data.get("lastFocusedAt")
-            or data.get("createdAt") or 0)
-
-
 def _epoch_ms(value: Any) -> int:
     """A record time as epoch ms: the app writes them so (every one of 227,924
     records on 2026-09-25); an ISO string is read too; anything else is 0."""
@@ -809,13 +840,18 @@ def _activity_ms(data: dict) -> int:
 
 
 def _rank_ms(data: dict) -> int:
-    """`_rank` as epoch ms: the first of activity, focus and creation a record
-    has, which is how the spread picks the copy to spread."""
+    """How the spread picks the copy to spread: the first of activity, focus
+    and creation a record has, epoch ms. The scope rules' newest copy by the
+    spread's ranking is the same number (review r2 N7), so a time that does
+    not parse is skipped by both rather than ranking as raw text in one."""
     for key in ("lastActivityAt", "lastFocusedAt", "createdAt"):
         stamp = _epoch_ms(data.get(key))
         if stamp:
             return stamp
     return 0
+
+
+_rank = _rank_ms
 
 
 class _Journal:
@@ -952,8 +988,14 @@ class Mirror:
         self._unsettled: set[str] = set()
         #: The last planned account of the scope rules (`pass.prune`).
         self._prune_report: dict[str, Any] | None = None
+        #: Why `_store_lock` last returned None.
+        self._store_lock_why = "another mirror is removing from this store"
         #: The last `transcript_stems` listed every transcript directory.
         self._stems_complete = False
+        #: The project directories (`projects/<slug>`) it listed, by name: a
+        #: session is known to be dead only when one its transcript would be
+        #: in was listed without it (C-23.28a, review r2 N2).
+        self._project_dirs: frozenset[str] = frozenset()
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -1271,25 +1313,29 @@ class Mirror:
         names the same files, but a transcript that is a symlink can name
         something else by now, its target replaced where it lives: each such
         link is checked again on every call (reviews of 8172685), where a FIFO
-        it had come to name had been spread as a transcript.
+        it had come to name had been spread as a transcript. A project
+        directory that is a symlink is listed through it, as the app opens
+        `projects/<slug>/<id>.jsonl` through it (review r2 N5).
         """
         stems: dict[str, Path] = {}
         # Whether every transcript directory was listed: a session missing
         # from an incomplete answer is unknown, not dead, so the scope rules
-        # remove nothing that pass (C-23.28a).
+        # remove nothing that pass (C-23.28a). A missing `projects/` is no
+        # answer either (review r2 N2): it is where the transcripts live, so
+        # it is looked for in the wrong place (another home, another
+        # `SUBFLEET_CLAUDE_DIR`) or was moved, and every session would read
+        # as dead.
         self._stems_complete = False
+        self._project_dirs = frozenset()
         base = projects_dir()
         try:
             with os.scandir(base) as listing:
-                directories = sorted(item.path for item in listing
-                                     if item.is_dir(follow_symlinks=False))
-        except FileNotFoundError:
-            self._stems_complete = True     # no transcripts at all: an answer
-            return stems
+                directories = sorted(item.path for item in listing if item.is_dir())
         except OSError:
             return stems
         complete = True
         seen = set()
+        listed: set[str] = set()
         for directory in directories:
             if current is not None:
                 self._checkpoint(current)
@@ -1325,14 +1371,17 @@ class Mirror:
                 _remove_leftovers(leftovers)
                 self._stem_dirs[directory] = (mtime, found, frozenset(links))
                 stems.update(found)
+                listed.add(os.path.basename(directory))
                 continue
-            listed, links = cached[1], cached[2]
-            stems.update(listed if not links else
-                         {stem: path for stem, path in listed.items() if stem not in links or path.is_file()})
+            names, links = cached[1], cached[2]
+            stems.update(names if not links else
+                         {stem: path for stem, path in names.items() if stem not in links or path.is_file()})
+            listed.add(os.path.basename(directory))
         for directory in list(self._stem_dirs):
             if directory not in seen:
                 del self._stem_dirs[directory]
         self._stems_complete = complete
+        self._project_dirs = frozenset(listed)
         return stems
 
     @staticmethod
@@ -2105,17 +2154,22 @@ class Mirror:
     # --- where sessions belong (C-23.28a, `prune.py`) -------------------------
 
     def _learn_folders(self, state: AppState, keys: Iterable[str], *,
-                       dry_run: bool) -> dict[str, str]:
+                       dry_run: bool, replay: bool = True) -> dict[str, str]:
         """Fold the app's new loads into the folder registry; classify `keys`.
 
         The registry lives in the state root (`folder_kinds.py`). A dry run
-        learns in memory and writes nothing.
+        learns in memory and writes nothing. Until the registry has replayed
+        the app's whole log history it learns nothing (`folder_kinds.learn`);
+        the replay reads every rotated log (about 50 MB on 2026-10-13), so
+        after a process's first try it is tried again on the sweep only.
         """
-        if self._registry is None:
+        first = self._registry is None
+        if first:
             self._registry = folder_kinds.Registry(folder_kinds.registry_path(self.root))
         if self._desktop is not None:
             try:
-                changed = folder_kinds.learn(self._registry, self._desktop, replay=True)
+                changed = folder_kinds.learn(self._registry, self._desktop,
+                                             replay=first or replay)
             except OSError:
                 changed = False
             if changed and not dry_run:
@@ -2131,29 +2185,37 @@ class Mirror:
                      previous: str | None = None) -> tuple[str | None, str]:
         """The one folder `dead_home` names, and what was decided and why.
 
-        v1 stored an org id, and several accounts can hold a folder for one
-        org (all but one of them switch folders, `folder_kinds.py`), so an org
-        id names the folder the app settles in, or else the only folder
-        there is. A switch folder is never the home: nobody would see it.
-        `previous` is the home an org id resolved to before: while it is
-        still one of the org's folders and no switch folder, it stays the
-        home, so a second folder of the org settling later neither unhomes
-        every archived session (which would spread them all back) nor moves
-        the home sideways.
+        `kinds` holds every folder the store is known to hold, listed this
+        pass or not. v1 stored an org id, and several accounts can hold a
+        folder for one org (all but one of them switch folders,
+        `folder_kinds.py`), so an org id names the folder the app settles
+        in, or else the only folder there is; a switch folder is not chosen,
+        as nobody would see it.
+
+        A home once resolved stays put (review r2 N1, N4): unhoming every
+        archived session would spread them all back, and moving the home
+        would move the whole archive. So `previous`, the home `value`
+        resolved to before, stays the home while the store holds it, even
+        when another folder of the org settles later or the registry comes
+        to read it as a switch folder; and a folder named exactly is the home
+        whatever the registry calls it. Either conflict is reported. Only
+        when the store no longer holds the home is it resolved anew, and if
+        that fails the mirror keeps `previous` (`_situation`).
         """
         if not value:
             return None, ("no home folder: set dead_home in ~/.claude/cc-mirror.json, "
                           "or pass --dead-home")
+        note = " (it reads as a switch folder)"
         if "/" in value:
             if value not in kinds:
                 return None, f"the home folder {value} is not in the store"
-            if kinds[value] == folder_kinds.SWITCH:
-                return None, f"the home folder {value} is a switch folder"
-            return value, f"home folder {value}"
+            return value, (f"home folder {value}"
+                           + (note if kinds[value] == folder_kinds.SWITCH else ""))
+        if previous is not None and previous in kinds and previous.partition("/")[2] == value:
+            return previous, (f"home folder {previous} (org {value}, kept)"
+                              + (note if kinds[previous] == folder_kinds.SWITCH else ""))
         candidates = [key for key, kind in kinds.items()
                       if key.partition("/")[2] == value and kind != folder_kinds.SWITCH]
-        if previous in candidates:
-            return previous, f"home folder {previous} (org {value}, kept)"
         settled = [key for key in candidates if kinds[key] == folder_kinds.SETTLED]
         pool = settled or candidates
         if len(pool) == 1:
@@ -2173,21 +2235,37 @@ class Mirror:
         return found
 
     def _situation(self, options: Options, folders: list[tuple[str, str, Path]],
-                   stems: dict[str, Path]) -> prune_rules.Situation:
-        """What the scope rules need besides the copies, as of now."""
+                   stems: dict[str, Path], *, known: Iterable[str] = (),
+                   complete: bool = True, sweep: bool = True) -> prune_rules.Situation:
+        """What the scope rules need besides the copies, as of now.
+
+        `folders` are the folders this pass listed; `known`, every other
+        folder the store is known to hold (one whose listing failed this
+        pass). The home is resolved over both, and a new home is recorded
+        only from a `complete` inventory (review r2 N1).
+        """
         keys = tuple(f"{account}/{org}" for account, org, _path in folders)
+        listed = set(keys)
+        others = tuple(key for key in dict.fromkeys(known) if key not in listed)
         try:
             state = self._desktop_state()
         except OSError:
             state = AppState()
-        kinds = self._learn_folders(state, keys, dry_run=options.dry_run)
+        kinds = self._learn_folders(state, keys + others, dry_run=options.dry_run,
+                                    replay=sweep)
         registry = self._registry
         kept = registry.home if registry is not None else None
         previous = (kept["folder"] if kept is not None and kept.get("value") == options.dead_home
                     else None)
         home, why = self.resolve_home(options.dead_home, kinds, previous)
+        if home is None and previous is not None:
+            # The store no longer shows the home it had, and nothing else
+            # resolves: keep it rather than widen every archived session's
+            # scope to every folder. Nothing is removed for it while it is
+            # not listed (`prune.HELD_HOME_UNLISTED`).
+            home, why = previous, f"{why}; kept home folder {previous}"
         if (registry is not None and home is not None and home != previous
-                and "/" not in options.dead_home and not options.dry_run):
+                and complete and not options.dry_run):
             registry.home = {"value": options.dead_home, "folder": home}
             try:
                 registry.save()
@@ -2301,16 +2379,31 @@ class Mirror:
 
         sessions: dict[str, int] = {}
         candidates: dict[str, list[tuple[Path, str, dict]]] = {}
+        dead: set[str] = set()
         for identity, summary in summaries.items():
             placed = prune_rules.scope_of(identity, summary, situation, rules)
             count(sessions, placed.kind)
             if prune_rules.may_reach_outside(placed, summary, rules):
                 candidates[identity] = []
+                if placed.kind == "dead":
+                    dead.add(identity)
         for path, files in folder_files.items():
             for name, data in files.items():
                 entries = candidates.get(data.get("cliSessionId") or "")
                 if entries is not None:
                     entries.append((path, name, data))
+        listed_projects = self._project_dirs
+
+        def unconfirmed(identity: str, entries: list[tuple[Path, str, dict]]) -> tuple[str, ...]:
+            """The session, if it has no transcript and no project directory
+            its transcript would be in was listed (review r2 N2)."""
+            if identity not in dead:
+                return ()
+            for _path, _name, data in entries:
+                for cwd in (data.get("originCwd"), data.get("cwd")):
+                    if isinstance(cwd, str) and cwd and slug(cwd) in listed_projects:
+                        return ()
+            return (identity,)
         outside: dict[str, int] = {}
         kept: dict[str, int] = {}
         held: dict[str, int] = {}
@@ -2320,18 +2413,21 @@ class Mirror:
                                         {"removable": 0, "removable_bytes": 0,
                                          "by_reason": {}, "held": {}})
         on = replace(rules, prune=True)
-        removing = rules.prune and not options.dry_run
+        removing = rules.prune and not options.dry_run and blocked is None
+        # Taken only to remove: a blocked pass removes nothing, and holding
+        # the lock anyway would block another mirror for no reason (review r2 N9).
         lock = self._store_lock() if removing and candidates else None
         if removing and candidates and lock is None:
-            blocked = "another mirror is removing from this store"
+            blocked = self._store_lock_why
         gone: dict[Path, set[str]] = {}
         try:
             for identity in sorted(candidates):
                 self._checkpoint(current)
-                group = [self._copy(path, name, data)
-                         for path, name, data in candidates.pop(identity)]
+                entries = candidates.pop(identity)
+                group = [self._copy(path, name, data) for path, name, data in entries]
+                unproven = unconfirmed(identity, entries)
                 decided = prune_rules.plan(group, situation, rules, held=self._unsettled,
-                                           blocked=blocked)
+                                           unconfirmed=unproven, blocked=blocked)
                 for into, part in ((outside, decided.outside), (kept, decided.kept),
                                    (held, decided.held)):
                     for key, value in part.items():
@@ -2342,7 +2438,7 @@ class Mirror:
                     # What turning removal on would remove now, so a dry run,
                     # the sidecar and `--status` can say it before anyone does.
                     other = prune_rules.plan(group, situation, on, held=self._unsettled,
-                                             blocked=blocked)
+                                             unconfirmed=unproven, blocked=blocked)
                     would["removable"] += len(other.removals)
                     would["removable_bytes"] += sum(size(item.folder, item.name)
                                                     for item in other.removals)
@@ -2398,25 +2494,35 @@ class Mirror:
         current.prune = report
 
     def _store_lock(self):
-        """An exclusive lock on the desktop store itself, or None if another
-        mirror holds it.
+        """An exclusive lock on the desktop store itself, or None if it cannot
+        be had; `_store_lock_why` then says why.
 
         `mirror.lock` is per state root, and two mirrors with different
         roots (another `SUBFLEET_HOME`) may disagree on which copy each
         session keeps; each could then remove the other's keeper. Removals
         take this lock, keyed by the store's path, so one mirror's removals
-        and their re-reads never interleave with another's. It lives in the
-        user's temporary directory, never in the app's store.
+        and their re-reads never interleave with another's. It lives in a
+        directory of the user's that no environment variable moves
+        (`store_lock_dir`), never in the app's store.
         """
         digest = hashlib.sha256(os.fsencode(os.path.realpath(store_dir()))).hexdigest()[:16]
-        path = Path(tempfile.gettempdir()) / f"subfleet-mirror-store-{digest}.lock"
+        where = store_lock_dir()
+        if where is None:
+            self._store_lock_why = ("the store's removal lock has no private directory "
+                                    "to live in")
+            return None
+        path = where / f"subfleet-mirror-store-{digest}.lock"
         stream = None
         try:
             stream = open(transcripts.lock_fd(path), "a")
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        except OSError as exc:
             if stream is not None:
                 stream.close()
+            self._store_lock_why = (
+                "another mirror is removing from this store"
+                if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN)
+                else f"the store's removal lock {path} cannot be taken: {exc.strerror}")
             return None
         return stream
 
@@ -2453,10 +2559,12 @@ class Mirror:
         cannot be read is no answer), and every keeper is read again: each
         must still hold the session, and, for an archived session, still be
         archived and unstarred; a dead session must still have no
-        transcript. Per copy: it must still hold the session, archived and
-        unstarred for an archived removal, and be no newer than the keepers
-        by either measure; `_remove` then takes only the file it checked.
-        Removed names are collected in `gone` for one snapshot per folder.
+        transcript under any cwd a keeper or the copy names (review r2 N6:
+        a copy may carry a cwd the keepers do not). Per copy: it must still
+        hold the session, archived and unstarred for an archived removal,
+        and be no newer than the keepers by either measure; `_remove` then
+        takes only the file it checked. Removed names are collected in
+        `gone` for one snapshot per folder.
         """
         removed: dict[str, int] = {}
         late: dict[str, int] = {}
@@ -2507,6 +2615,9 @@ class Mirror:
                 if (_activity_ms(data) > best_activity or _rank_ms(data) > best_rank
                         or (reason == prune_rules.ARCHIVED and not settled_archive(data))):
                     hold(changed)
+                    continue
+                if reason == prune_rules.DEAD and self._openable(data):
+                    hold("the session has a transcript now")
                     continue
                 self._invalidate_folder(folder)
                 try:
@@ -2711,6 +2822,9 @@ class Mirror:
         # A cancelled scan must not evict entries it simply did not reach yet,
         # nor this pass forget folders it could not look into.
         self._drop_folders(folders)
+        # Every folder the store is known to hold, listed this pass or not:
+        # the home is resolved over these (review r2 N1).
+        known = [f"{account}/{org}" for account, org, _path in folders]
         folders = [item for item in folders if item[2] in folder_files]
         self._inventoried = True
 
@@ -2756,7 +2870,9 @@ class Mirror:
         summaries: dict[str, prune_rules.Summary] = {}
         if rules.active:
             self._checkpoint(current, "placing sessions")
-            situation = self._situation(options, folders, stems)
+            situation = self._situation(
+                options, folders, stems, known=known, sweep=sweep,
+                complete=not (unlisted or unknown or failed or self._unread))
             summaries = self._summaries(folder_files, situation)[0]
 
         keyed = [(f"{account}/{org}", path) for account, org, path in folders]
@@ -2818,6 +2934,8 @@ class Mirror:
             elif not self._stems_complete:
                 # A session whose transcript was not listed would read as dead.
                 blocked = "the transcripts could not all be listed this pass"
+            # This pass's listing, for the removals' last look for a transcript.
+            self._stems = stems
             self._prune(flag_files if flag_files is not None else folder_files, folders,
                         situation, rules, options, current, blocked=blocked)
 

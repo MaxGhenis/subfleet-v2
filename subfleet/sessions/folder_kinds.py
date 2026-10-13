@@ -45,7 +45,8 @@ The facts are persisted in the state root, because the app keeps only about
 ten days of log: a folder the app settled in once stays settled after the log
 that showed it has rotated away. Every fact is a minimum, a maximum or a flag,
 so reading the same log lines twice (a restart, or a second process) changes
-nothing.
+nothing. A registry starts from all the history the app kept, or from none:
+until a replay has read every rotated log, it folds nothing in (`learn`).
 """
 
 from __future__ import annotations
@@ -266,19 +267,29 @@ def registry_path(root: str | Path) -> Path:
 def learn(registry: Registry, log: Any, *, replay: bool) -> bool:
     """Fold a `DesktopLog`'s events into the registry; True if it changed.
 
-    The first time a registry learns (`replay`), it reads every rotated log,
-    so it starts from all the history the app kept rather than the newest
-    rotation.
+    A registry first learns from a replay of every rotated log, so it starts
+    from all the history the app kept rather than the newest rotation. Until
+    a replay has found history and read every log (`replay` asks for one
+    now), it folds in nothing, not even the live poll's events: each event
+    folded moves the watermark, and history older than the watermark is
+    never folded, so a partial start would lose the rest for good (review
+    r2 N8). The live events it passes over are in the logs the next replay
+    reads.
     """
-    changed = False
-    if replay and not registry.replayed:
-        events = log.replay()
-        changed = registry.observe(events)
-        # Only a replay that found history counts: one that found no log (or
-        # an empty one) is tried again, rather than losing that history.
-        if events:
-            registry.replayed = changed = True
-    return registry.observe(log.drain()) or changed
+    if registry.replayed:
+        return registry.observe(log.drain())
+    if not replay:
+        log.drain()
+        return False
+    found = log.replay()
+    if found.unread or not found.events:
+        # No log, an empty one, or one that could not be read: tried again.
+        log.drain()
+        return False
+    registry.observe(found.events)
+    registry.replayed = True
+    registry.observe(log.drain())
+    return True
 
 
 def current_folder(load: Load | None) -> str | None:

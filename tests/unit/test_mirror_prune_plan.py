@@ -21,7 +21,10 @@ Invariants:
 * **Hands off.** Nothing is removed from the loaded folder or the home
   folder, and nothing at all while the loaded folder is unknown, removal is
   off, the pass is blocked, or the session's flags are unsettled; nothing
-  from a switch folder for a live session while the registry is learning.
+  from a switch folder for a live session while the registry is learning;
+  nothing of an archived or dead session while the home was not listed, nor
+  of a dead one whose project directory was not listed.
+* **The home is seeded**, even when the registry reads it as a switch folder.
 * **No churn.** Every removed copy is outside its session's scope, and stays
   outside it once the plan is applied, so the spread never puts it back.
 * **Idempotence.** Applying a plan leaves nothing for the next plan to remove.
@@ -64,11 +67,12 @@ def worlds(draw):
     count = draw(st.integers(min_value=1, max_value=len(FOLDERS)))
     folders = FOLDERS[:count]
     kinds = {folder: draw(st.sampled_from((SETTLED, SWITCH, UNKNOWN))) for folder in folders}
-    plain = [folder for folder in folders if kinds[folder] != SWITCH]
-    home = draw(st.one_of(st.none(), st.sampled_from(plain))) if plain else None
+    # The home may read as a switch folder (a home once named stays) or be a
+    # folder this pass did not list (review r2 N1, N4).
+    home = draw(st.one_of(st.none(), st.sampled_from(folders + (UNLISTED,))))
     loaded = draw(st.one_of(st.none(), st.sampled_from(folders)))
     sessions = draw(st.integers(min_value=1, max_value=7))
-    copies, openable, archived_at, held = [], set(), {}, set()
+    copies, openable, archived_at, held, unconfirmed = [], set(), {}, set(), set()
     for number in range(sessions):
         identity = f"s{number}"
         archived = draw(st.booleans())
@@ -94,6 +98,8 @@ def worlds(draw):
             held.add(identity)
         if draw(st.booleans()) or draw(st.booleans()):
             openable.add(identity)
+        elif draw(st.booleans()) and draw(st.booleans()):
+            unconfirmed.add(identity)   # no project directory of its was listed
         if draw(st.booleans()) and draw(st.booleans()):
             archived_at[identity] = NOW - draw(st.floats(0, 60)) * DAY
     for number in range(draw(st.integers(0, 2))):           # records with no session id
@@ -107,7 +113,7 @@ def worlds(draw):
     situation = prune.Situation(folders=folders, kinds=kinds, home=home, loaded=loaded,
                                 openable=frozenset(openable), archived_at=archived_at, now=NOW,
                                 switch_settled=draw(st.booleans()) or draw(st.booleans()))
-    return copies, situation, rules, frozenset(held)
+    return copies, situation, rules, frozenset(held), frozenset(unconfirmed)
 
 
 def planned(copies, situation):
@@ -138,8 +144,8 @@ def test_never_the_only_copy_and_the_newest_by_either_measure_survives(world):
     """C-23.28a: every session keeps a copy, its newest copy by activity and
     its newest by the spread's ranking; copies the plan does not consider
     (no session id, an unlisted folder) are never removed."""
-    copies, situation, rules, held = world
-    decided = prune.plan(copies, situation, rules, held=held)
+    copies, situation, rules, held, unconfirmed = world
+    decided = prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed)
     removed = {(item.folder, item.name) for item in decided.removals}
     considered = {(copy.folder, copy.name) for copy in planned(copies, situation)}
     assert removed <= considered
@@ -157,7 +163,7 @@ def test_never_the_only_copy_and_the_newest_by_either_measure_survives(world):
 def test_a_newest_copy_outside_the_scope_is_kept_only_when_needed(world):
     """C-23.28a: minimal. A survivor outside the scope is the newest by some
     measure that no copy in scope reaches."""
-    copies, situation, rules, _held = world
+    copies, situation, rules, _held, _unconfirmed = world
     for identity, group in by_session(planned(copies, situation)).items():
         inside = prune.scope(identity, group, situation, rules).folders
         within = [copy for copy in group if copy.folder in inside]
@@ -177,18 +183,26 @@ def test_a_newest_copy_outside_the_scope_is_kept_only_when_needed(world):
 def test_hands_off_the_loaded_folder_the_home_and_unsettled_sessions(world):
     """C-23.28a: the loaded folder and the home are never touched, and nothing
     is removed while the load is unknown, removal is off, or flags are
-    unsettled; a live session's switch-folder copies wait for the registry."""
-    copies, situation, rules, held = world
-    decided = prune.plan(copies, situation, rules, held=held)
+    unsettled; a live session's switch-folder copies wait for the registry;
+    no archived or dead session loses a copy while the home is not listed,
+    nor a dead one while none of its project directories was (review r2
+    N1, N2)."""
+    copies, situation, rules, held, unconfirmed = world
+    decided = prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed)
+    home_listed = situation.home is None or situation.home in situation.folders
     for removal in decided.removals:
         assert removal.folder != situation.loaded
         assert removal.folder != situation.home
         assert removal.identity not in held
         if removal.reason == prune.SWITCH_FOLDER:
             assert situation.switch_settled
+        else:
+            assert home_listed
+        if removal.reason == prune.DEAD:
+            assert removal.identity not in unconfirmed
     if situation.loaded is None or not rules.prune:
         assert not decided.removals
-    assert not prune.plan(copies, situation, rules, held=held,
+    assert not prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed,
                           blocked="the inventory is incomplete this pass").removals
 
 
@@ -197,8 +211,8 @@ def test_hands_off_the_loaded_folder_the_home_and_unsettled_sessions(world):
 def test_no_churn_what_is_removed_stays_out_of_scope(world):
     """C-23.28a: a removed copy is outside its session's scope before and after
     the plan is applied, so neither pass spreads it back."""
-    copies, situation, rules, held = world
-    decided = prune.plan(copies, situation, rules, held=held)
+    copies, situation, rules, held, unconfirmed = world
+    decided = prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed)
     before = by_session(planned(copies, situation))
     after = by_session(planned(apply(copies, decided), situation))
     for removal in decided.removals:
@@ -211,9 +225,9 @@ def test_no_churn_what_is_removed_stays_out_of_scope(world):
 @given(worlds())
 def test_a_plan_applied_leaves_nothing_to_remove(world):
     """C-23.28a: idempotence. The next pass over what a plan left removes nothing."""
-    copies, situation, rules, held = world
-    decided = prune.plan(copies, situation, rules, held=held)
-    again = prune.plan(apply(copies, decided), situation, rules, held=held)
+    copies, situation, rules, held, unconfirmed = world
+    decided = prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed)
+    again = prune.plan(apply(copies, decided), situation, rules, held=held, unconfirmed=unconfirmed)
     assert again.removals == []
 
 
@@ -224,8 +238,8 @@ def test_every_copy_outside_its_scope_is_accounted_for(world):
     construction makes unreachable never occur; and each removal names
     keepers that survive, hold the session, and are at least as new by
     both measures."""
-    copies, situation, rules, held = world
-    decided = prune.plan(copies, situation, rules, held=held)
+    copies, situation, rules, held, unconfirmed = world
+    decided = prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed)
     assert (sum(decided.outside.values())
             == sum(decided.kept.values()) + sum(decided.held.values()) + len(decided.removals))
     assert prune.HELD_HOME not in decided.held
@@ -243,10 +257,11 @@ def test_every_copy_outside_its_scope_is_accounted_for(world):
 @given(worlds(), st.sampled_from((1.0, 7.0, 30.0)))
 def test_longer_thresholds_never_remove_more(world, extra):
     """C-23.28a: monotone. Raising either threshold, seeding switch folders,
-    or the registry still learning, can only keep more."""
-    copies, situation, rules, held = world
+    the registry still learning, or fewer project directories listed, can
+    only keep more."""
+    copies, situation, rules, held, unconfirmed = world
     removed = {(item.folder, item.name) for item in
-               prune.plan(copies, situation, rules, held=held).removals}
+               prune.plan(copies, situation, rules, held=held, unconfirmed=unconfirmed).removals}
     stricter = []
     if rules.archive_days:
         stricter.append(replace(rules, archive_days=rules.archive_days + extra))
@@ -255,21 +270,26 @@ def test_longer_thresholds_never_remove_more(world, extra):
     stricter.append(replace(rules, skip_switch_folders=False))
     for other in stricter:
         fewer = {(item.folder, item.name) for item in
-                 prune.plan(copies, situation, other, held=held).removals}
+                 prune.plan(copies, situation, other, held=held, unconfirmed=unconfirmed).removals}
         assert fewer <= removed
     learning = {(item.folder, item.name) for item in
                 prune.plan(copies, replace(situation, switch_settled=False), rules,
-                           held=held).removals}
+                           held=held, unconfirmed=unconfirmed).removals}
     assert learning <= removed
+    every_dead = {copy.identity for copy in copies if copy.identity not in situation.openable}
+    unlisted = {(item.folder, item.name) for item in
+                prune.plan(copies, situation, rules, held=held,
+                           unconfirmed=every_dead).removals}
+    assert unlisted <= removed
 
 
 @SETTINGS
 @given(worlds())
 def test_with_every_rule_off_every_session_belongs_everywhere(world):
     """C-23.28a: off is off. The mirror spreads and keeps as it did before."""
-    copies, situation, rules, held = world
+    copies, situation, rules, held, unconfirmed = world
     off = prune.Rules(prune=rules.prune)
-    decided = prune.plan(copies, situation, off, held=held)
+    decided = prune.plan(copies, situation, off, held=held, unconfirmed=unconfirmed)
     assert not decided.removals and not decided.outside
     for identity, group in by_session(planned(copies, situation)).items():
         placed = prune.scope(identity, group, situation, off)
@@ -281,7 +301,7 @@ def test_with_every_rule_off_every_session_belongs_everywhere(world):
 def test_scope_is_one_of_three_shapes(world):
     """C-23.28a: a live session belongs in every seeded folder, an old archived
     one in the home only, an old dead one in the home only (or nowhere)."""
-    copies, situation, rules, _held = world
+    copies, situation, rules, _held, _unconfirmed = world
     seeded = frozenset(folder for folder in situation.folders
                        if prune.seeded(folder, situation, rules))
     for identity, group in by_session(planned(copies, situation)).items():
@@ -301,7 +321,8 @@ def test_scope_is_one_of_three_shapes(world):
             assert identity not in situation.openable and rules.dead_days > 0
     for folder in situation.folders:
         if situation.kinds.get(folder) == SWITCH and rules.skip_switch_folders:
-            assert folder not in seeded
+            assert (folder in seeded) == (folder == situation.home), \
+                "a switch folder is seeded only as the home"
 
 
 @SETTINGS
@@ -310,13 +331,13 @@ def test_the_sessions_left_unplanned_have_nothing_outside_their_scope(world):
     """C-23.28a: the mirror plans only sessions `may_reach_outside` names, and
     decides every scope from a `Summary`; skipping the others loses nothing,
     and the summary decides as the copies do."""
-    copies, situation, rules, held = world
+    copies, situation, rules, held, unconfirmed = world
     for identity, group in by_session(planned(copies, situation)).items():
         summary = prune.summarize(group, situation)
         placed = prune.scope_of(identity, summary, situation, rules)
         assert placed == prune.scope(identity, group, situation, rules)
         if not prune.may_reach_outside(placed, summary, rules):
-            assert not prune.plan(group, situation, rules, held=held).outside
+            assert not prune.plan(group, situation, rules, held=held, unconfirmed=unconfirmed).outside
 
 
 # --- examples -----------------------------------------------------------------
@@ -431,3 +452,48 @@ def test_an_old_dead_session_keeps_its_newest_copy():
     assert {item.folder for item in decided.removals} == {"home/h", "other/o"}
     young = [copy("home/h", days=2), copy("other/o", days=3)]
     assert prune.scope("s", young, dead, RULES).kind == "dead-young"
+
+
+# --- review round 2 -------------------------------------------------------------
+
+def test_a_home_that_reads_as_a_switch_folder_is_still_seeded_and_kept():
+    """C-23.28a, review r2 N4: a home once named stays the home when the
+    registry comes to read it as a switch folder. It stays seeded, in every
+    live session's scope, and its copies stay."""
+    switched = situation(home="work/h")
+    live = [copy(folder, archived=False, days=1) for folder in switched.folders]
+    placed = prune.scope("s", live, switched, RULES)
+    assert placed.folders == frozenset(switched.folders)
+    assert prune.seeded("work/h", switched, RULES)
+    assert prune.plan(live, switched, RULES).removals == []
+    old = [copy(folder) for folder in switched.folders]
+    assert {item.folder for item in prune.plan(old, switched, RULES).removals} == \
+        {"home/h", "other/o"}
+
+
+def test_a_home_the_pass_did_not_list_narrows_nothing():
+    """C-23.28a, review r2 N1: a home the store holds but this pass could not
+    list is still the home, so an old archived session is not spread back
+    everywhere; and none of its copies goes while the home's cannot be
+    counted on."""
+    away = situation(folders=("work/w", "other/o", "work/h"))
+    copies = [copy(folder) for folder in away.folders]
+    placed = prune.scope("s", copies, away, RULES)
+    assert placed.kind == "archived" and placed.folders == frozenset({"home/h"})
+    decided = prune.plan(copies, away, RULES)
+    assert decided.removals == []
+    assert decided.held == {prune.HELD_LOADED: 1, prune.HELD_HOME_UNLISTED: 1}
+    assert decided.kept == {prune.ARCHIVED: 1}
+
+
+def test_a_dead_session_whose_project_directory_was_not_listed_keeps_its_copies():
+    """C-23.28a, review r2 N2: no transcript where none was looked for is no
+    proof of death (a `projects/` read in the wrong place, or recreated
+    empty, shows every session so); the dead rule waits for a listed
+    project directory without the transcript."""
+    dead = situation(openable=frozenset(), loaded="work/h")
+    copies = [copy("home/h", days=20), copy("work/w", days=10), copy("other/o", days=30)]
+    assert {item.folder for item in prune.plan(copies, dead, RULES).removals} == {"other/o"}
+    unproven = prune.plan(copies, dead, RULES, unconfirmed={"s"})
+    assert unproven.removals == []
+    assert unproven.held == {prune.HELD_DEAD_UNCONFIRMED: 1}

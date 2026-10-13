@@ -95,7 +95,15 @@ registry keeps an owner after the log that showed it rotates away.
 | `sessions.mirror_prune` | false | also remove copies outside their session's scope |
 
 The home folder is `dead_home` in `~/.claude/cc-mirror.json` (here org
-`8b35fb7b…`, resolving to `d1e7c8a9…/8b35fb7b…`). Quiet means since the later
+`8b35fb7b…`, resolving to `d1e7c8a9…/8b35fb7b…`). It is resolved over every
+folder the store is known to hold, listed that pass or not, and once resolved
+it stays put: recorded in the folder registry (only from a pass whose
+inventory is complete), kept while the store holds it even if another folder
+of its org settles or the registry comes to read it as a switch folder (then
+reported, and the home is seeded all the same), and kept when the store no
+longer shows it. Unhoming the archive would spread every archived session
+into every folder in one pass; moving the home would move the whole archive.
+Quiet means since the later
 of the session's newest activity, focus or creation time over every copy and
 its archive stamp. Archiving leaves the activity times alone (of 850 archived
 records the app wrote into one folder on 2026-09-22, 621 had been quiet 30
@@ -129,14 +137,28 @@ scope, never:
   that cannot be read now), or anything in it: the app holds its records and
   would save them back. The log is read again right before each session's
   removals, so a switch since the plan protects its folder;
+- an archived or dead session's copy while the home folder was not listed
+  that pass;
+- a dead session's copy unless a project directory its transcript would be
+  in (`projects/<slug>` of a copy's `cwd`) was listed without it: no
+  transcript where none was looked for proves nothing. A `projects/` read in
+  the wrong place, or recreated empty, would otherwise make every session
+  dead. On 2026-10-13, 120 of the 126 dead sessions had their project
+  directory listed;
 - a session flag sync held or wrote that pass, or anything at all when the
-  inventory is incomplete, a transcript directory could not be listed (its
-  sessions would read as dead), flag sync is off or held, or another mirror
-  holds the store's removal lock.
+  inventory is incomplete, `projects/` is missing or a project directory in
+  it could not be listed (its sessions would read as dead; a symlinked one is
+  listed through its link, as the app opens transcripts through it), flag
+  sync is off or held, or the store's removal lock cannot be had. The lock
+  is keyed by the store's path and lives in a directory no environment
+  variable moves (macOS's per-user temporary directory, not `TMPDIR`, which
+  launchd's agent lacks and a Terminal shell has), so two mirrors with
+  different state roots or environments never remove from one store at once;
+  a pass that will remove nothing does not take it.
 
 Each removal re-reads every copy it counts on and the copy (archived and
-unstarred, for an archived session; still without a transcript, for a dead
-one), then renames the copy onto a fresh name of the mirror's own and
+unstarred, for an archived session; still without a transcript under any
+of their cwds, for a dead one), then renames the copy onto a fresh name of the mirror's own and
 compares what it took with what it checked (device, inode, mtime, size).
 Anything else is put back create-only, so a removal never destroys an app
 save it did not inspect, and a crash between the two steps is put back at the
@@ -144,8 +166,7 @@ folder's next listing. Two windows remain, both narrower than flag sync's
 one: a writer holding the old file open could write into it after the
 compare, and an unarchive and re-archive inside one pass keeps the old stamp.
 A removal is undone by turning its rule off, which spreads the session back,
-or by unarchiving the session where a copy remains. If an org id named the
-home, the home stays put when a second folder of that org settles.
+or by unarchiving the session where a copy remains.
 
 ## Invariants and how they are checked
 
@@ -153,23 +174,26 @@ home, the home stays put when a second folder of that org settles.
 |---|---|
 | Every session keeps a copy, and its newest by both measures; nothing without a session id or in an unlisted folder goes | `test_mirror_prune_plan.py`, property over random stores |
 | Minimal: a copy outside the scope is kept as a newest only when no copy in scope is as new | same |
-| Nothing in the loaded folder or the home; nothing while the load is unknown, removal is off, the pass is blocked, or flags are unsettled; no live session's switch-folder copy while the registry learns | same |
+| Nothing in the loaded folder or the home; nothing while the load is unknown, removal is off, the pass is blocked, or flags are unsettled; no live session's switch-folder copy while the registry learns; no archived or dead session's copy while the home is unlisted; no dead session's copy without a listed project directory | same |
 | No churn: a removed copy is outside its scope before and after | same |
 | Idempotence: a plan applied leaves nothing to remove | same |
 | Accounting: outside = newest kept + held + removed; the holds the construction makes unreachable never occur | same |
-| Monotone: longer thresholds, seeding switch folders, or a registry still learning never remove more | same |
+| Monotone: longer thresholds, seeding switch folders, a registry still learning, or fewer project directories listed never remove more | same |
+| The home is always seeded, even when it reads as a switch folder | same |
 | Off is off: with every rule off every session belongs everywhere | same |
 | The sessions left unplanned have nothing outside their scope | same |
-| Registry: idempotent, the same in any chunking, facts only accumulate, a switch folder was never settled in | `test_mirror_folder_kinds.py`, properties over random logs |
+| Registry: idempotent, the same in any chunking, facts only accumulate, a switch folder was never settled in; nothing folded until a replay has read every log | `test_mirror_folder_kinds.py`, properties over random logs, examples |
 | The real pass removes exactly what the planner plans | `test_mirror_prune.py`, differential over random stores (60 examples; 81% remove something) |
-| A removal takes only the file it checked; a crash is put back | `test_mirror_prune.py`, examples |
+| A removal takes only the file it checked; a crash is put back; every scenario from both review rounds holds | `test_mirror_prune.py`, examples |
 
 ## The dry run, 2026-10-13 (read-only)
 
 `SUBFLEET_HOME=<scratch> subfleet sessions mirror --dry-run --prune --json`,
 with a copy of the live merge base in the scratch state root, so nothing under
 `~/.subfleet` or the store was written and no lock the daemon uses was taken.
-Run on the code as of review round 1's fixes (04:42Z to 04:47Z):
+Run on the code as of review round 1's fixes (04:42Z to 04:47Z), and again
+on round 2's (05:22Z to 05:25Z, with a fresh copy of the merge base), which
+gave the same numbers to the copy:
 
 | | Copies | Bytes |
 |---|--:|--:|
@@ -192,9 +216,11 @@ it). Folders: 17 settled, 100 switch, 18 unknown. Home:
 
 The cold pass took 263 s (164 s for the earlier run; the host was busier) and
 peaked at 667 MB resident (821 MB for the earlier run, which planned every
-copy at once). The mirror now plans one session at a time, with removal off
-only on the ten-minute sweep, and decides spread scope from a per-session
-summary.
+copy at once); round 2's took 210 s and peaked at 677 MB. The mirror now
+plans one session at a time, with removal off only on the ten-minute sweep,
+and decides spread scope from a per-session summary. The registry's replay
+read all five logs (`main4.log` to `main.log`, about 50 MB) and found the
+same folder kinds.
 
 ## What remains
 
