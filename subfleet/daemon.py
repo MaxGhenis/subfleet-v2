@@ -2782,16 +2782,21 @@ class Daemon:
             return self._write_target(job, workspace)
         return self._submitted(job["job_id"]).get("folder") or workspace
 
-    def _detached_folders(self, job: dict, *, run_folder: str | None = None) -> list[tuple[str, bool]]:
+    def _detached_folders(self, job: dict, *, run_folder: str | None = None,
+                          checked: dict[str, tuple[str, OSError | None]] | None = None
+                          ) -> list[tuple[str, bool, OSError | None]]:
         """C-8.4, C-6.5: the folders whose fence holds a detached job, without
-        preparing its workspace, each with whether its names are compared folded
-        (`folders.retiring_folded`). Spelling is filesystem work, done here, outside
-        any transaction.
+        preparing its workspace, each with its independent legacy-fold flag and
+        absence answer. Modern absent names use `folders.retiring(..., folded=True)`;
+        legacy names keep `folders.retiring_folded`. Spelling is filesystem work,
+        done here outside any transaction. `checked` keeps one look's answers,
+        including an in-place row subject's, through workspace preparation; it is
+        never shared between admission looks.
 
         - The folder submit recorded: an in-place writer's write target, else
           `folder`, its workdir spelled once (where a read-only job runs, or from
           whose repository a writer's worktree is cut).
-        - Where the workdir resolves now (`folders.canonical`), when that is
+        - Where the workdir resolves now (`folders.present`), when that is
           another folder: one replaced since submit by a symlink into a tree being
           retired is prepared there, so its fence holds the job too (review of
           49651181, P2).
@@ -2805,10 +2810,20 @@ class Daemon:
                     else submitted.get("folder"))
         # The early look resolves the source; after preparation, a reader or
         # in-place writer rechecks the exact resolved cwd its lease will pin.
-        now = run_folder if run_folder is not None else folders.canonical(job["workdir"])
+        checked = {} if checked is None else checked
+
+        def present(name):
+            if name not in checked:
+                checked[name] = folders.present(name)
+            return checked[name]
+
+        now, now_absent = present(run_folder if run_folder is not None else job["workdir"])
         if not recorded:
-            return [(now, True)]
-        return [(recorded, False)] + ([(now, False)] if now != recorded else [])
+            return [(now, True, now_absent)]
+        # Keep the submitted pathname as a source check even if it now resolves
+        # elsewhere; the current resolution is checked separately above.
+        _, recorded_absent = present(recorded)
+        return [(recorded, False, recorded_absent)] + ([(now, False, now_absent)] if now != recorded else [])
 
     def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
         """C-6.5: refuse a second writer in one worktree and a second live
@@ -5212,7 +5227,8 @@ class Daemon:
         with absent names compared folded, just as in the reserving transaction;
         an unspelled turn uses the one top `_rediscovered` found for this look.
         Detached source folders come from `_detached_folders`, with its legacy
-        `fold` comparison retained independently of the row subject's absence.
+        `fold` comparison retained independently of each source's absence answer
+        and of the row subject's absence.
         An in-place writer supplies its one spelled `write_target` and `absent`
         answer for this look, reservation and own-key/blocked classification.
 
@@ -5666,6 +5682,7 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
+            detached_answers = {}                  # filesystem answers for this admission look only
             try:
                 try:
                     # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
@@ -5682,10 +5699,12 @@ class Daemon:
                                                                   tier, models, lanes, run_folder):
                         continue
                     if job["kind"] != "turn":
-                        job_folders = self._detached_folders(job)
+                        job_folders = self._detached_folders(job, checked=detached_answers)
                         fallback_folder, fallback_absent = None, None
                         if job["in_place"] and job["sandbox"] == "workspace-write":
-                            fallback_folder, fallback_absent = folders.present(self._recorded_folder(job))
+                            fallback_name = self._recorded_folder(job)
+                            fallback_folder, fallback_absent = (detached_answers.get(fallback_name)
+                                                                or folders.present(fallback_name))
                         if fallback_folder and self._fence_hold(
                                 job, fallback_folder, holds, waiters, tier, models, lanes,
                                 absent=fallback_absent, write_target=fallback_folder,
@@ -5693,9 +5712,9 @@ class Daemon:
                             continue
                         if any(self._fence_hold(
                                 job, folder, holds, waiters, tier, models, lanes, fold=fold,
-                                write_target=fallback_folder,
+                                absent=source_absent, write_target=fallback_folder,
                                 priority_waiters=priority_waiters if klass == "priority" else None)
-                               for folder, fold in job_folders):
+                               for folder, fold, source_absent in job_folders):
                             continue
                     raise
                 # `_turn_folder`, from the one answer above.
@@ -5712,17 +5731,20 @@ class Daemon:
                 # to the early look and reservation. Source/legacy folds stay separate.
                 row_folder, row_absent = None, None
                 if job["kind"] != "turn" and job["in_place"] and job["sandbox"] == "workspace-write":
-                    row_folder, row_absent = folders.present(derived or self._write_target(job, job["workdir"]))
-                job_folders = self._detached_folders(job) if job["kind"] != "turn" else []
+                    row_name = derived or self._write_target(job, job["workdir"])
+                    row_folder, row_absent = folders.present(row_name)
+                    detached_answers[row_name] = (row_folder, row_absent)
+                    detached_answers[row_folder] = (row_folder, row_absent)
+                job_folders = self._detached_folders(job, checked=detached_answers) if job["kind"] != "turn" else []
                 if row_folder and self._fence_hold(
                         job, row_folder, holds, waiters, tier, models, lanes,
                         absent=row_absent, write_target=row_folder,
                         priority_waiters=priority_waiters if klass == "priority" else None):
                     continue
                 if any(self._fence_hold(job, folder, holds, waiters, tier, models, lanes, fold=fold,
-                                        write_target=row_folder,
+                                        absent=source_absent, write_target=row_folder,
                                         priority_waiters=priority_waiters if klass == "priority" else None)
-                       for folder, fold in job_folders):
+                       for folder, fold, source_absent in job_folders):
                     # C-8.4: retention is retiring the tree the job's folder is in, so no
                     # git runs there for a job that cannot start: not its start snapshot,
                     # nor the `git worktree add` that would register a writer's worktree
@@ -5801,7 +5823,8 @@ class Daemon:
             run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn"
                                       else (folders.canonical(workspace), None))
             if job["kind"] != "turn" and (job["in_place"] or job["sandbox"] == "read-only"):
-                job_folders = self._detached_folders(job, run_folder=run_folder)
+                refreshed = self._detached_folders(job, run_folder=run_folder, checked=detached_answers)
+                job_folders.extend(each for each in refreshed if each not in job_folders)
             if absent is None and run_absent is not None:
                 named, absent = run_folder, run_absent
             if absent is None:
@@ -6134,8 +6157,9 @@ class Daemon:
                             # prepared; this transaction's read decides.
                             own = folders.exclusive_key(write_target) if job["sandbox"] == "workspace-write" \
                                 and job["in_place"] else None
-                            for folder, fold in job_folders:
-                                fenced = (folders.retiring_folded if fold else folders.retiring)(read, folder)
+                            for folder, fold, source_absent in job_folders:
+                                fenced = (folders.retiring_folded(read, folder) if fold else
+                                          folders.retiring(read, folder, folded=source_absent is not None))
                                 blockers.extend(key for key in fenced if key != own)
                         held_folder = write_target or read_folder
                         if job["kind"] == "turn":
@@ -6215,8 +6239,12 @@ class Daemon:
                             if retiring and job_folders:
                                 # The folder the fence is on or above: one the job works in,
                                 # else (a writer that is not in place) the worktree cut for it.
-                                named = next((folder for folder, fold in job_folders
-                                              if any(folders.fences(key, folder, fold=fold) for key in retiring)),
+                                named = next((folder for folder, fold, source_absent in job_folders
+                                              if any(folders.fences(key, folder, fold=fold)
+                                                     if fold or source_absent is None else
+                                                     folders.within(folders.fold(folder),
+                                                                    folders.fold(key[len(folders.EXCLUSIVE):]))
+                                                     for key in retiring)),
                                              write_target)
                             self._seen_held(kind, frozenset((key, str(holders[key])) for key in retiring))
                             hold = {"reason": "lease-held", "leases": contested + blocked,

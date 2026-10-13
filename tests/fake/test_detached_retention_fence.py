@@ -1197,9 +1197,11 @@ def test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget(tmp_
 
 
 # Review r3: modern source aliases need their own absence-aware fence check.
+@pytest.mark.parametrize("source", ["recorded", "current"])
+@pytest.mark.parametrize("fence_look", ["early", "reservation"])
 @pytest.mark.parametrize("shape", ["read-only", "allocated-writer"])
-def test_modern_unspellable_source_alias_waits_on_retirement_before_workspace(tmp_path, shape):
-    """A source recorded while submit is overtaken remains fenced when quarantined."""
+def test_modern_unspellable_source_alias_waits_on_retirement_before_workspace(tmp_path, shape, fence_look, source):
+    """Quarantine can hide either modern source spelling; both fence looks agree."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
         daemon.policy["caps"]["reading_ttl_s"] = 3600
@@ -1209,39 +1211,115 @@ def test_modern_unspellable_source_alias_waits_on_retirement_before_workspace(tm
             pytest.skip("requires the host's case-insensitive filesystem")
         quarantine = Path(tree).with_name("retired-quarantine")
         key = folders.exclusive_key(tree)
-        real_head, moved = daemon_module.git_head, []
+        sandbox = "read-only" if shape == "read-only" else "workspace-write"
 
-        def head_then_move(workdir, *args, **kwargs):
-            result = real_head(workdir, *args, **kwargs)
-            if not moved and str(workdir) == alias:
-                # Retirement selected before this submission became a queued
-                # pin: take its fence and quarantine between validation and
-                # source spelling, retaining the fence through admission.
+        def quarantine_source():
+            if fence_look == "early":
                 assert daemon.store.acquire_lease(key, "retention:retired")
-                Path(tree).rename(quarantine)
-                moved.append(True)
-            return result
+            Path(tree).rename(quarantine)
 
-        with pytest.MonkeyPatch.context() as submit_patch:
-            submit_patch.setattr(daemon_module, "git_head", head_then_move)
-            job = submit(daemon, harness, workdir=alias, in_place=False,
-                         sandbox="read-only" if shape == "read-only" else "workspace-write",
-                         caller_session=None)
-        assert moved
-        assert daemon._submitted(job)["folder"] == alias
+        if source == "recorded":
+            real_head, moved = daemon_module.git_head, []
+
+            def head_then_move(workdir, *args, **kwargs):
+                result = real_head(workdir, *args, **kwargs)
+                if not moved and str(workdir) == alias:
+                    # Selection precedes the queued pin, but real HEAD validation
+                    # precedes quarantine and the submitted-folder lookup.
+                    quarantine_source()
+                    moved.append(True)
+                return result
+
+            with pytest.MonkeyPatch.context() as submit_patch:
+                submit_patch.setattr(daemon_module, "git_head", head_then_move)
+                job = submit(daemon, harness, workdir=alias, in_place=False,
+                             sandbox=sandbox, caller_session=None)
+            assert moved and daemon._submitted(job)["folder"] == alias
+        else:
+            original = tmp_path / "outside"
+            checkout(original)
+            job = submit(daemon, harness, workdir=str(original), in_place=False,
+                         sandbox=sandbox, caller_session=None)
+            assert daemon._submitted(job)["folder"] == folders.canonical(original)
+            original.rename(tmp_path / "outside-aside")
+            original.symlink_to(alias, target_is_directory=True)
+            quarantine_source()
+
         assert quarantine.is_dir() and not Path(tree).exists()
-        workspaces = Workspaces(daemon, patch, real=True)
-        daemon._admit()
-        observed = {"shape": shape, "submitted": daemon._submitted(job),
-                    "state": daemon._job(job)["state"], "live": _live(daemon, job),
-                    "prepared": workspaces.calls, "hold": daemon._holds.get(job),
-                    "fence_holder": daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))}
-        assert workspaces.calls == [], observed
-        assert not _live(daemon, job), observed
-        assert daemon._holds[job].get("retiring") == [key], observed
+        workspaces = Workspaces(daemon, patch, real=fence_look == "early")
+        if fence_look == "reservation":
+            def workspace_then_fence(row):
+                # Isolate the SQL reservation boundary from Git failing on an
+                # absent source. The early check saw no fence; this one must.
+                answer = workspaces(row)
+                assert daemon.store.acquire_lease(key, "retention:retired")
+                return answer
 
+            patch.setattr(daemon, "_workspace", workspace_then_fence)
+        daemon._admit()
+        observed = {"shape": shape, "source": source, "fence_look": fence_look,
+                    "submitted": daemon._submitted(job), "state": daemon._job(job)["state"],
+                    "live": _live(daemon, job), "prepared": workspaces.calls,
+                    "hold": daemon._holds.get(job),
+                    "fence_holder": daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))}
+        assert workspaces.calls == ([] if fence_look == "early" else [job]), observed
+        assert not _live(daemon, job), observed
         assert observed["fence_holder"]["holder"] == "retention:retired", observed
         assert daemon._job(job)["state"] == "waiting", observed
+        assert daemon._holds[job].get("retiring") == [key], observed
         assert daemon._holds[job].get("folder") == alias, observed
         assert daemon._capacity_waits[job]["blocked"] == (key,), observed
         assert job not in daemon._workspace_deferrals
+
+
+@pytest.mark.parametrize("boundary", ["fence-arrives", "absent"])
+def test_detached_row_presence_answer_survives_workspace_until_reservation(tmp_path, boundary):
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        external = daemon.root / "worktrees" / "External"
+        git(harness.workdir, "worktree", "add", "--quiet", "--detach", str(external), "HEAD")
+        (external / "f.txt").write_text("nested\n")
+        git(Path(nested), "config", "core.worktree", str(external))
+        external = folders.canonical(external)
+        job = submit(daemon, harness, workdir=nested, in_place=True,
+                     sandbox="workspace-write", caller_session=None)
+        assert daemon._submitted(job)["write_target"] == external
+        real_present = folders.present
+        answers, prepared = [], []
+        missing = FileNotFoundError("review's one early row-subject absence answer")
+        key = folders.exclusive_key(external)
+
+        def present(name):
+            if str(name) == external:
+                assert prepared == [], "the row subject was first spelled after workspace preparation"
+                answer = (external, missing if boundary == "absent" else None)
+                answers.append(answer)
+                assert len(answers) == 1, "reservation re-spelled the early detached row subject"
+                return answer
+            return real_present(name)
+
+        def workspace(row):
+            prepared.append(row["job_id"])
+            if boundary == "fence-arrives":
+                assert daemon.store.acquire_lease(key, "retention:External")
+            # This probe concerns the boundary after preparation, independently
+            # of the start snapshot's Git runtime on a loaded host.
+            return nested, None, None, []
+
+        patch.setattr(folders, "present", present)
+        patch.setattr(daemon, "_workspace", workspace)
+        daemon._admit()
+        assert len(answers) == 1 and prepared == [job]
+        assert not _live(daemon, job)
+        if boundary == "fence-arrives":
+            assert daemon._holds[job]["leases"] == [key]
+            assert daemon._holds[job]["retiring"] == [key]
+            assert daemon._holds[job]["folder"] == external
+            assert daemon._capacity_waits[job]["blocked"] == ()
+        else:
+            assert daemon._job(job)["state"] == "waiting"
+            assert daemon._holds[job]["reason"] == "workspace"
+            assert daemon._workspace_deferrals[job] == 1
+            assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,)) is None
