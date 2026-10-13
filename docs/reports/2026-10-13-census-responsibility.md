@@ -172,3 +172,72 @@ read hardening and contract, `a0d226f79` legacy fallback isolation,
 commit names `.git-local`, the repository's existing ignored metadata convention. The hub's remaining acceptance work is the skipped files above,
 baseline and real mutation comparisons, five successful full-census runs per
 revision at host permissions, and the launchd daemon responsibility check.
+
+## Round 2 (2026-10-13)
+
+Started at merged head `8d4bfebd4b8b95bfb399cbf5603afd89cc6b9675`; read
+`~/reviews/subfleet-2110/census-responsibility/review-r1.md` in full and inspected
+the supplied Python 3.14 CI failures. Work is confined to this assigned checkout;
+no remote operation, sub-agent, live store or live daemon access. Commits use
+workspace-local `.git-local`, branch `fix/census-responsibility`, because the
+shared Git metadata is outside the writable sandbox. Only named files are staged.
+
+P2-1 disables the responsibility source for a root the census proves recycled,
+including an unknown root unique id. A different kernel unique id at the root pid
+bounds members below that new holder and at or above the recorded root. The
+daemon also refuses to persist responsibility identities from a recycled root.
+Regressions include the reviewer's self-responsible S/child C input, both with an
+older unique id and with None, and same-second reuse distinguishable only by the
+kernel counter. Discovery still grants no signal authority.
+
+P2-2 re-lists after reading every new pid until a listing adds none. A forked
+child of a member read as gone was born before that read and appears on the next
+listing. A nonempty read retains the guardian immediately; eight rounds of
+continuous births raise InspectionError and cannot release it. Synthetic races
+and a real, barrier-controlled four-generation fork-and-exit chain cover this.
+
+P3-1 polls at 0.1 s through the configured exit settle window, then backs off to
+2 s. P3-2 drops terminal quarantined guardians from `_children`; the next spawn
+reaps the abandoned handle. P3-3 encloses the provider section and exit receipt
+in `finally: linger()`, including relay serving errors, and stops the relay on
+serve errors. Each has a regression. P3-4 adds the dead-root and self-disclaiming
+member limits to C-5.5. C-5.2 now says the first look is immediate.
+
+P3-5 checks the daemon's own responsible pid at startup. Only a successful
+self-responsible result enables guardian disclaiming; terminal-started daemons
+and unreadable startup attribution preserve the Popen responsibility chain.
+Responsibility integration tests explicitly start their own daemon as a root to
+model launchd. One injectable `daemon.spawn_guardian` boundary receives the
+production command and Popen options; a shared fixture passes those exact values
+to existing Popen stand-ins. Credentials, launch gates and preflight assertions
+are retained.
+
+P3-6 retries full/ENOMEM argument reads up to an in-process KERN_ARGMAX read,
+with conservative failure at that ceiling. On this host both SC_ARG_MAX and
+KERN_ARGMAX are 1,048,576 bytes. A buffer still full there remains unverifiable;
+C-5.5 now states the residual oversized-area limitation rather than allowing a
+partial marker read to release an attempt.
+
+A task-owned Homebrew framework Python 3.14.7 probe reproduced the initial
+`bin/python3.14` path changing to `Resources/Python.app/Contents/MacOS/Python`.
+Both pid (83314) and self-responsibility stayed unchanged across re-exec; there
+was no extra stub process. The launcher and runtime have different ad-hoc code
+identities: launcher CDHash `5e9d2eb24407f340216ed7adde0a42ddc448add5`, runtime
+CDHash `c61b2c8b7af337db8b442c65919ccd6abab9297c`. The spawn test now waits until
+Python code runs before comparing the running executable identity and retains
+exact argv, gate, cwd, environment and descriptor checks. Providers only start
+after that re-exec, when guardian and self-responsible daemon run the same
+interpreter. This supports the TCC argument for framework builds; no privacy
+prompt or grant was exercised. Terminal attribution is preserved by P3-5.
+
+The supplied CI's responsibility-only failures actually show Perl in
+`marker_pids`; descendant inclusion follows earlier responsibility seed records,
+which the existing assertions already allow. Platform argument visibility differs
+between kernels. Both Perl fixtures now explicitly remove the attempt/root/job
+markers before exec, retaining renaming and session escape, so their assertions
+still require responsibility discovery and no marker/group match on either host.
+
+Validation is in progress. The first two lock acquisitions timed out at 60 s;
+no pytest ran in those holds. Each subsequent suite uses its own foreground
+lockf hold with a 1,190 s outer timeout and cleans its Darwin TMPDIR with
+shutil.rmtree. Final counts and skipped/unrun files will be recorded below.
