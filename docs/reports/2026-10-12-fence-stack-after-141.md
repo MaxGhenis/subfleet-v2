@@ -672,16 +672,50 @@ There are no collection/setup errors or skips. The copy and hold TMPDIR were
 removed with the requested cleanup; committed production/test bytes are
 unchanged. No mutation remains in the assigned source.
 
-Completed required suite holds so far (2026-10-13):
+Final required suite coverage (2026-10-13):
 
 | Hold | Result | Pytest time | Runner including acquisition and cleanup |
 | --- | --- | --- | --- |
 | Detached fence module | 89 passed | 174.83 s | 250.05 s |
 | Rediscovery and case alias | 73 passed | 732.71 s | 912.97 s |
 | Fake cwd pins, excluding property | 17 passed, 1 deselected | 473.69 s | 991.77 s |
+| Fake cwd property, final retry | 1 passed, 17 deselected | 345.60 s | 673.68 s |
+| Fake policy sandbox | 25 passed | 67.42 s | 459.13 s |
+| Fake turn retention cwd | 6 passed | 62.24 s | 384.84 s |
+| Fake writer retention fence | 23 passed | 188.77 s | 352.66 s |
+| Shared folders: interleavings | 1 passed, 61 deselected | 374.41 s | 412.48 s |
+| Shared folders: two models | 2 passed, 60 deselected | 441.00 s | 501.91 s |
+| Shared folders: remaining cases | 59 passed, 3 deselected | 495.15 s | 664.79 s |
 
-These are **179 unique required cases passing**, with no skips or failures.
-The separate eight-case targeted replay repeats cases in the detached module.
-The cwd property, other three fake files and three shared-folder partitions
-are still pending; their results will be recorded below. The full repository,
-real-provider/process suites and inherited pathname follow-ups remain unrun.
+Final required coverage is **296 unique cases passing**, with no failures or
+skips in these completed holds: detached 89, rediscovery/case alias 73, the
+four-file fake fence group 72, and shared folders 62. The separate eight-case
+targeted replay repeats cases in the detached module and is not added to that
+unique count. Baseline and mutation failures are the intentional six safety
+assertions in each, reported separately above.
+
+The first isolated cwd property hold also hit its 1,120-second child alarm
+(exit 142), with no pytest output or final summary; its runner took 1,140.06 s.
+It is excluded from completed counts. After the other requested holds, the
+unchanged property was retried under its own fresh hold and passed as shown.
+The combined fake hold and this initial property hold were capped; neither
+waited for calmer load while holding the lock. Every completed pytest child
+and capped child stayed within the requested twenty-minute hold bound.
+
+All fifteen run TMPDIRs are removed and their absence checked, including both
+capped attempts and the successful final retry. The disposable mutation copy
+is absent, and production/test bytes still match the fix commit. Final daemon
+SHA-256 is `d814d1c5922513c48956d9a73dfadb574da2e7cbe6b56771cd6f8b5accc1400a`.
+AST syntax, method-scope comparison (only `_detached_folders` changes), contract
+preservation/C-8.4 uniqueness, conflict-marker and whitespace checks pass.
+
+Unrun: full repository and real-provider/process suites, standalone reviewer
+probe modules beyond the ported equal-alias cases, and both inherited pathname
+follow-up groups. Every requested suite group and mutation was completed.
+
+`a5da77a91` records the fix and mutation evidence; the final report commit adds
+these completed suite results. Workspace-local `.git-local` remains on
+`fix/admission-detached-nested-fence`; original shared Git metadata and the
+caller checkout are unchanged. An ignored, unstaged delivery bundle at
+`docs/reports/pr142-fix-r4.bundle` carries this round's commits for transfer.
+Logs, JSON evidence and bundles are not staged or committed.
