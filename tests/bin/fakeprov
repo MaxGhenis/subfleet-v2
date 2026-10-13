@@ -137,6 +137,8 @@ def main() -> int:
         while not marker.exists() and time.monotonic() < until:
             time.sleep(.02)
         print(f"fake provider ready: {scenario}", flush=True)
+        if delay:
+            time.sleep(delay)              # still running, for a test that kills the attempt
         return 0 if marker.exists() else 1
     if scenario == "qos":
         print(json.dumps(qos_report()), flush=True)

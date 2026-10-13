@@ -39,11 +39,12 @@ NODE = shutil.which("node")
 TERMINAL = {"quarantined", "succeeded", "failed", "lost", "interrupted"}
 
 
-def submit_escaper(daemon, scenario: str) -> tuple[str, Path]:
-    """Submit `scenario`; returns the job id and the file its escaper's pid lands in."""
+def submit_escaper(daemon, scenario: str, *, hold_s: float = 0) -> tuple[str, Path]:
+    """Submit `scenario`, whose provider stays `hold_s` after its escaper is ready;
+    returns the job id and the file its escaper's pid lands in."""
     args = daemon.submit_args(scenario)
     marker = daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
-    settings = {"scenario": scenario, "delay_s": 0, "marker": str(marker)}
+    settings = {"scenario": scenario, "delay_s": hold_s, "marker": str(marker)}
     if NODE:
         settings["node"] = NODE
     Path(args["prompt_path"]).write_text(json.dumps(settings))
@@ -203,3 +204,30 @@ def test_d_cen1_a_renamed_setsid_escaper_is_found_by_responsibility_and_released
                 os.waitpid(stranger_pid, 0)
             except (ProcessLookupError, ChildProcessError):
                 pass
+
+
+def test_d_cen1_an_escaper_seen_through_the_guardian_stays_counted_after_the_kill_protocol(daemon):
+    """D-CEN1, C-5.5, C-5.6: the operator kills a running attempt whose provider left a
+    renamed perl escaper. The kill protocol's first census, taken while the guardian
+    lives, sees the escaper name it and records it; SIGKILL then ends the guardian, after
+    which the kernel names the escaper as its own responsible process. The recorded
+    identity keeps it counted, so the attempt is quarantined, not released, and the
+    escaper is never signalled: a responsibility member gains no signal authority."""
+    daemon.start()
+    job_id, marker = submit_escaper(daemon, "perl-escape", hold_s=30)
+    escaper = None
+    try:
+        escaper = escaper_identity(daemon, marker)
+        daemon.until(lambda: daemon.attempts(job_id)[-1]["state"] == "running", timeout=30)
+        daemon.call("kill", job_id=job_id)
+        attempt = settled(daemon, job_id)
+        assert attempt["state"] == "quarantined", (attempt["state"], daemon.job(job_id)["state"])
+        census = json.loads(attempt["quarantine_reason"])
+        assert escaper.pid in census["live_pids"], census
+        evidence = json.loads(attempt["evidence_json"])
+        assert evidence["responsible_identities"][str(escaper.pid)]["proc_start"] == escaper.proc_start
+        assert str(escaper.pid) not in evidence.get("owned_identities", {})
+        assert procs.liveness(escaper.pid, escaper.boot_id, escaper.proc_start) == "alive"
+        assert held(daemon, job_id, attempt["attempt_id"])
+    finally:
+        stop(escaper)
