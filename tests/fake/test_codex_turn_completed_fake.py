@@ -339,6 +339,80 @@ def test_cached_auth_reconciliation_requires_all_success_evidence(state_daemon, 
     assert (adir / "finalization.json").read_text() == frozen
 
 
+@pytest.mark.parametrize("verdict", (OutcomeClass.TRANSIENT, OutcomeClass.AUTH_DEAD, OutcomeClass.UNKNOWN))
+@pytest.mark.parametrize("recorder", ("this-daemon", "older-daemon"))
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+def test_replay_keeps_this_daemons_verdict_and_reconciles_only_an_older_one(
+        state_daemon, monkeypatch, verdict, recorder, restart):
+    """CI at 8fb1a8239: a retry whose salvage timed out (C-13.1) is finalized again,
+    and reconciling its own cached `transient` with the completed stream made it
+    succeed. A verdict this daemon classified is now replayed as its first pass
+    decided it (C-4.3); only one an older daemon recorded, without `rule`, is
+    reconciled with the frozen completion proof (C-9.2)."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_text("previous output\n")
+    job_id, attempt, adir = reserve(daemon, harness, out_path=str(out))
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "success")
+    proven = adapter.classify(adir, launch, ExitInfo(0, None, .1, None, None))
+    assert proven.cls == OutcomeClass.OK  # The stream proves verified success.
+    monkeypatch.setattr(adapter, "classify", lambda *args: replace(proven, cls=verdict, detail="fixture verdict"))
+    observed = []
+    answered = Daemon._answered
+
+    def observe(outcome, provider_class):
+        observed.append(outcome.cls.value)
+        return answered(outcome, provider_class)
+
+    monkeypatch.setattr(Daemon, "_answered", staticmethod(observe))
+    salvage = daemon._salvage
+
+    def crash(*args):
+        raise RuntimeError("interrupted before acceptance")
+
+    monkeypatch.setattr(daemon, "_salvage", crash)
+    with pytest.raises(RuntimeError, match="interrupted before acceptance"):
+        daemon._finalize(finalizing)
+    frozen = json.loads((adir / "finalization.json").read_text())
+    assert (frozen["rule"], frozen["outcome"]["cls"]) == (module.FINALIZATION_RULE, verdict.value)
+    if recorder == "older-daemon":
+        del frozen["rule"]
+        (adir / "finalization.json").write_text(json.dumps(frozen))
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
+    successor = None
+    try:
+        if restart:
+            daemon.close()
+            successor = daemon = Daemon(harness.root)
+            monkeypatch.setattr(daemon, "_launch", lambda *args: pytest.fail("recovery must not launch"))
+            daemon._process_attempt(attempt["attempt_id"])
+        else:
+            daemon._finalize(finalizing)
+        row = daemon.store.get_attempt(attempt["attempt_id"])
+        job = daemon.store.get_job(job_id)
+        evidence = json.loads(row["evidence_json"])
+        if recorder == "this-daemon":
+            assert observed == [verdict.value] * 2
+            assert row["outcome_class"] == verdict.value
+            assert job["state"] != "succeeded" and job["accepted_attempt_id"] is None
+            assert "provider_verdict" not in evidence
+            assert out.read_text() == "previous output\n"
+        else:
+            assert observed == [verdict.value, "ok"]
+            assert (row["outcome_class"], job["state"]) == ("ok", "succeeded")
+            assert job["accepted_attempt_id"] == attempt["attempt_id"]
+            assert evidence["provider_verdict"] == {"class": verdict.value, "detail": "fixture verdict",
+                                                    "killed_by": None}
+            assert out.read_bytes() == (adir / "deliverable.md").read_bytes()
+        assert evidence["classification"]["turn_completed"] is True
+    finally:
+        if successor is not None:
+            successor.close()
+
+
 @pytest.mark.parametrize("path", ("fresh", "cached", "legacy", "recovery"))
 @pytest.mark.parametrize("complete", (False, True))
 @pytest.mark.parametrize("rc", (0, 1))
