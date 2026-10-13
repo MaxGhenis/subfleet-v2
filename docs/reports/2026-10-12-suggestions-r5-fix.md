@@ -215,3 +215,85 @@ parented at the assigned head, because shared Git metadata is outside the
 writable sandbox. Only named source, test, contract and report files are staged.
 No network remotes, pushes, sub-agents, caller writes, live-state changes,
 staged logs/evidence/bundles or detached runners.
+
+## Round 7: restore submission request-id compatibility
+
+Assigned base: `234237b171f0`. Round 6 applied the protocol correlation-token
+alphabet to submission idempotency keys, refusing the daemon's own
+`turn:<message UUID>:<sequence>` and `gate:<id>:round:<number>:<token>` formats.
+
+`ids.request_id` restores round 5's nonempty-string, 128-character bounds and
+preserves the caller's string. It still refuses recognized credentials through
+the same whole-text scrubber, with a fixed error that excludes the value.
+`request_id_arg` keeps argparse from quoting refused values. Run, resume and
+handoff share that converter; daemon submission still validates through
+`ids.request_id`. Both internal builders found by `git grep -n 'request_id=f'
+subfleet` retain their existing formats. Conversation/suggestion/wake keys keep
+their separate existing validation rules.
+
+The client also used the submission key as the protocol envelope's `id`. For
+accepted keys outside the correlation alphabet, it now sends a separate UUID
+correlation token while preserving the payload key and the key used to settle
+lost-response retries. Existing correlation tokens retain their spelling.
+Protocol correlation validation and credential refusal remain in place. C-1.5
+and C-6.2 now state the restored submission rule and distinguish the wire field.
+
+Regressions cover real daemon submission and idempotent retries for both turn
+and gate keys; colon, path and Unicode CLI keys; all three submission parsers;
+unchanged bounded Unicode keys; and fixed credential refusals without stored
+jobs. The CLI path-staging test again verifies round 5's successful submission
+under a hashed filename while preserving the victim. Existing correlation and
+credential assertions remain, with a new colon-bearing correlation refusal.
+
+Final current-head pytest results: **699 passed, 12 skipped, 0 failed**.
+
+| Separate lock hold | Passed | Skipped | Failed |
+| --- | ---: | ---: | ---: |
+| `tests/e2e/test_suggestions_e2e.py` | 0 | 2 | 0 |
+| `tests/unit/test_cli.py` | 207 | 0 | 0 |
+| `tests/unit/test_protocol_secrecy.py` | 229 | 0 | 0 |
+| `tests/unit/test_suggestion_structural_errors.py` | 40 | 0 | 0 |
+| All eight tracked gate test files | 200 | 10 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+| `tests/unit/test_store_ids.py` | 22 | 0 | 0 |
+
+The gate hold included all six `tests/unit/test_gate_*.py` files,
+`tests/fake/test_gate_end_to_end.py` and
+`tests/fake/test_launch_gates_above_stdio.py`. The new two-case real submission
+regression passed in the gate hold, and the five-case CLI wire regression passed
+in the CLI hold. In a separate hold against an ignored workspace-local archive
+of `234237b17`, with those two current test files copied in, **all seven failed
+as expected**: the turn and gate submissions reported the safe-ASCII refusal,
+and the CLI refused the colon, path and Unicode keys. No production source was
+mutated. Separate lightweight source comparisons also confirmed the restored
+three keys and both versions' fixed credential refusals. All six changed Python
+files parse; named-file whitespace checks pass.
+
+**Still unexecuted assertions:** both suggestion e2e tests and the ten gate
+process checks. The e2e skip reason was `C-5.3 e2e requires permitted ps/sysctl
+inspection: macOS boot identity is unavailable`; the gate fake-daemon fixture
+likewise requires permitted boot/process identity inspection. The host must run
+these checks; no e2e pass is claimed here.
+
+Six earlier foreground attempts timed out after 60 seconds in the shared lock
+queue (exit 75): the initial seven-case regression check, two e2e attempts, two
+CLI attempts and one protocol-secrecy attempt. Every requested file eventually
+acquired its own hold. The first structural hold stopped at collection with one
+missing-Hypothesis error because a local pytest console script was absent and
+`uv run pytest` selected the global installation. A workspace-local entry point
+fixed the environment, and the structural suite then passed all 40 tests.
+
+Every hold ran one foreground pytest process with cacheprovider disabled, a
+19-minute post-acquisition deadline, its own `sf-r181f7-$$` TMPDIR and Hypothesis
+storage there, followed by Python `shutil.rmtree` cleanup. The local environment
+uses Python 3.14.7 free-threaded, pytest 9.1.1 and Hypothesis 6.168.1. Cached test
+dependencies were copied read-only from the caller's environment, excluding its
+editable-project paths; imports and commits use this workspace. No dependency
+or lockfile changes.
+
+Implementation commit: `33b7c872b`. This report is committed separately. Both
+commits are on `feat/suggested-conversations` in workspace-local `.git-local`,
+parented at the assigned head, because shared Git metadata is outside the
+writable sandbox. Only named source, test, contract and report files are staged;
+both commits carry the required co-author trailer. No network remotes, pushes,
+sub-agents, caller writes, live-state changes or staged logs/evidence/bundles.
