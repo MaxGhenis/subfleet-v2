@@ -486,3 +486,58 @@ def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, uniqu
     assert result.verified_empty and not result.responsible_pids
     assert "responsible_identities" not in json.loads(row["evidence_json"])
     assert not core.store.events
+
+
+@pytest.mark.parametrize("first_error", [False, True])
+def test_d_cen1_a_full_argument_read_retries_to_the_kernel_maximum(first_error):
+    import ctypes
+    import errno
+    payload = procargs([b"node"], [MARK, ROOT_MARK, b"LARGE=" + b"x" * 4096])
+    reads = []
+    reader = procs.Darwin()
+    reader.readable = True
+
+    def sysctl(name, count, buffer, size, *args):
+        if count == 2:
+            assert list(name) == [procs._CTL_KERN, procs._KERN_ARGMAX]
+            ctypes.cast(buffer, ctypes.POINTER(ctypes.c_int))[0] = 8192
+            return 0
+        reads.append(len(buffer))
+        if len(reads) == 1:
+            if first_error:
+                ctypes.set_errno(errno.ENOMEM)
+                return -1
+            size._obj.value = len(buffer)
+            return 0
+        ctypes.memmove(buffer, payload, len(payload))
+        size._obj.value = len(payload)
+        return 0
+
+    reader._sysctl = sysctl
+    raw = reader.arguments(42, ctypes.create_string_buffer(1024))
+    assert raw == payload and procs.procargs_marked(raw, MARK, ROOT_MARK)
+    assert reads == [1024, 8192]
+    assert reader.argument_max() == 8192
+
+
+@pytest.mark.parametrize("maximum", [1024, 8192, None])
+def test_d_cen1_a_read_filling_the_kernel_maximum_stays_unverifiable(maximum):
+    import ctypes
+    reader = procs.Darwin()
+    reader.readable = True
+    reads = []
+
+    def sysctl(name, count, buffer, size, *args):
+        if count == 2:
+            if maximum is None:
+                return -1
+            ctypes.cast(buffer, ctypes.POINTER(ctypes.c_int))[0] = maximum
+            return 0
+        reads.append(len(buffer))
+        size._obj.value = len(buffer)
+        return 0
+
+    reader._sysctl = sysctl
+    with pytest.raises(procs.InspectionError, match="fills the read|maximum unavailable"):
+        reader.arguments(42, ctypes.create_string_buffer(1024))
+    assert reads == ([1024, 8192] if maximum == 8192 else [1024])

@@ -402,7 +402,7 @@ def group_members(pgid: int) -> dict[int, str]:
 # `process.title`) leaves that area full of NULs, so it showed no marker for
 # vitest 19935 and 21910 on 2026-10-13. The census reads the same buffer itself,
 # through `sysctl` `KERN_PROCARGS2`, and looks at every string in it.
-_CTL_KERN, _KERN_PROCARGS2 = 1, 49
+_CTL_KERN, _KERN_ARGMAX, _KERN_PROCARGS2 = 1, 8, 49
 _PROC_ALL_PIDS = 1
 #: `struct proc_bsdinfowithuniqid` (sys/proc_info.h): a 136-byte `proc_bsdinfo`
 #: (flags, status, xstatus, pid, ...), then `proc_uniqidentifierinfo`, whose
@@ -413,10 +413,8 @@ _BSDINFO_WITH_UNIQID_SIZE = _BSDINFO_SIZE + 56
 _UNIQUEID_OFFSET = _BSDINFO_SIZE + 16
 _PROC_FLAG_INEXIT = 4                  # pbi_flags: the process has begun to exit
 _SZOMB = 5                             # pbi_status: a zombie
-#: `kern.argmax`, the most `execve` accepts for argv and the environment (1 MiB
-#: on macOS). `KERN_PROCARGS2` refuses a larger buffer (EINVAL, measured
-#: 2026-10-13 with 1 MiB + 64 KiB), and a read that fills this one may be cut
-#: short, so it counts as a read that failed.
+#: Initial allocation; a full read retries up to the kernel's own KERN_ARGMAX.
+#: A read still filling that maximum cannot establish that all markers were read.
 try:
     _ARGS_BUFFER = os.sysconf("SC_ARG_MAX") if sys.platform == "darwin" else 1 << 20
 except (ValueError, OSError):
@@ -513,6 +511,7 @@ class Darwin:
         self.readable = None not in (self._sysctl, self._listpids, self._pidinfo)
         #: The responsibility SPI resolved (D-CEN1); without it no root is recorded.
         self.responsibility = self.readable and self._responsible is not None
+        self._argument_max: int | None = None
 
     def pids(self) -> frozenset[int]:
         """Every pid now, from `proc_listpids`; `InspectionError` when it cannot say."""
@@ -556,16 +555,37 @@ class Darwin:
         """`pid`'s raw `KERN_PROCARGS2` buffer, or None when the kernel refused it. It
         refuses one reason as another (EINVAL for a gone, zombie or other user's
         process alike), so the caller asks `process` again to tell them apart. A
-        read that fills `buffer` may be cut short: `InspectionError`."""
+        full read or ENOMEM retries with KERN_ARGMAX when it exceeds `buffer`.
+        A read still filling that maximum may be cut short: `InspectionError`."""
         if not self.readable:
             raise InspectionError("argument inspection unavailable")
         name = (ctypes.c_int * 3)(_CTL_KERN, _KERN_PROCARGS2, pid)
-        size = ctypes.c_size_t(len(buffer))
-        if self._sysctl(name, 3, buffer, ctypes.byref(size), None, 0) != 0:
-            return None
-        if size.value >= len(buffer):
+        for retry in (False, True):
+            size = ctypes.c_size_t(len(buffer))
+            ctypes.set_errno(0)
+            rc = self._sysctl(name, 3, buffer, ctypes.byref(size), None, 0)
+            if rc == 0 and size.value < len(buffer):
+                return ctypes.string_at(buffer, size.value)
+            if rc != 0 and ctypes.get_errno() != errno.ENOMEM:
+                return None
+            if not retry:
+                maximum = self.argument_max()
+                if maximum > len(buffer):
+                    buffer = ctypes.create_string_buffer(maximum)
+                    continue
             raise InspectionError(f"argument buffer of pid {pid} fills the read")
-        return ctypes.string_at(buffer, size.value)
+
+    def argument_max(self) -> int:
+        """The kernel's allocation ceiling for PROCARGS2, read in process, once."""
+        if self._argument_max is None:
+            name = (ctypes.c_int * 2)(_CTL_KERN, _KERN_ARGMAX)
+            value = ctypes.c_int()
+            size = ctypes.c_size_t(ctypes.sizeof(value))
+            if (self._sysctl(name, 2, ctypes.byref(value), ctypes.byref(size), None, 0) != 0
+                    or size.value != ctypes.sizeof(value) or value.value <= 0):
+                raise InspectionError("kernel argument maximum unavailable")
+            self._argument_max = value.value
+        return self._argument_max
 
     def responsible(self, pid: int) -> int | None:
         """The pid of `pid`'s responsible process, or None when it is gone or another
