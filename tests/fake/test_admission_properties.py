@@ -546,15 +546,18 @@ def alternate(service, harness, patch, between):
         after_rows, hold = rows(service, job), service._holds[job]
         added = after_rows[len(before):]
         assert len(added) <= 1, f"one look added {len(added)} rows"
-        if job in looks and current["wait_reason"] == "capacity" and hold["reason"] not in (
-                "probe-pending", "lease-held", "behind-older-job", "route-moved", "attempt-live"):
-            assert job in offered, f"a look held for capacity ({hold}) offered no verdict"
-        assert job in looks or job not in offered, "a verdict was offered without a look"
+        # Which looks record is decided here, from what held the job, not from what the daemon offered.
+        held_for_capacity = job in looks and current["wait_reason"] == "capacity" and hold["reason"] not in (
+            "probe-pending", "lease-held", "behind-older-job", "route-moved", "attempt-live")
         if job in unanswered:                               # held by its probe's answer: it offers that verdict
             assert job in offered and scheduler.verdict_signature(offered[job]) == \
                 scheduler.verdict_signature(unanswered[job]), f"its probe said nothing ({hold}) and it offered no verdict"
-        if job not in offered:
-            assert not added, f"a look held {hold} added a row"
+        elif held_for_capacity:
+            assert job in offered, f"a look held for capacity ({hold}) offered no verdict"
+        else:
+            # Held on a lease, for a probe's turn, behind an older job, on a detour, or not looked at.
+            assert job not in offered and not added, (
+                f"a look held {hold} offered {'a' if job in offered else 'no'} verdict and added {len(added)} rows")
             continue
         verdict = scheduler.verdict_signature(offered[job])
         last = scheduler.verdict_signature(json.loads(before[-1]["decision_json"])) if before else None
