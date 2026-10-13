@@ -1194,3 +1194,54 @@ def test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget(tmp_
             assert daemon._holds[job]["reason"] == "workspace"
             assert daemon._holds[job]["error_type"] == "TimeoutExpired"
         assert workspaces.calls == [] and not _live(daemon, job)
+
+
+# Review r3: modern source aliases need their own absence-aware fence check.
+@pytest.mark.parametrize("shape", ["read-only", "allocated-writer"])
+def test_modern_unspellable_source_alias_waits_on_retirement_before_workspace(tmp_path, shape):
+    """A source recorded while submit is overtaken remains fenced when quarantined."""
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        daemon.policy["caps"]["reading_ttl_s"] = 3600
+        tree, nested = retiring_tree(daemon, harness)
+        alias = str(Path(tree).with_name("rETIRED") / Path(nested).relative_to(tree))
+        if not Path(alias).is_dir():
+            pytest.skip("requires the host's case-insensitive filesystem")
+        quarantine = Path(tree).with_name("retired-quarantine")
+        key = folders.exclusive_key(tree)
+        real_head, moved = daemon_module.git_head, []
+
+        def head_then_move(workdir, *args, **kwargs):
+            result = real_head(workdir, *args, **kwargs)
+            if not moved and str(workdir) == alias:
+                # Retirement selected before this submission became a queued
+                # pin: take its fence and quarantine between validation and
+                # source spelling, retaining the fence through admission.
+                assert daemon.store.acquire_lease(key, "retention:retired")
+                Path(tree).rename(quarantine)
+                moved.append(True)
+            return result
+
+        with pytest.MonkeyPatch.context() as submit_patch:
+            submit_patch.setattr(daemon_module, "git_head", head_then_move)
+            job = submit(daemon, harness, workdir=alias, in_place=False,
+                         sandbox="read-only" if shape == "read-only" else "workspace-write",
+                         caller_session=None)
+        assert moved
+        assert daemon._submitted(job)["folder"] == alias
+        assert quarantine.is_dir() and not Path(tree).exists()
+        workspaces = Workspaces(daemon, patch, real=True)
+        daemon._admit()
+        observed = {"shape": shape, "submitted": daemon._submitted(job),
+                    "state": daemon._job(job)["state"], "live": _live(daemon, job),
+                    "prepared": workspaces.calls, "hold": daemon._holds.get(job),
+                    "fence_holder": daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))}
+        assert workspaces.calls == [], observed
+        assert not _live(daemon, job), observed
+        assert daemon._holds[job].get("retiring") == [key], observed
+
+        assert observed["fence_holder"]["holder"] == "retention:retired", observed
+        assert daemon._job(job)["state"] == "waiting", observed
+        assert daemon._holds[job].get("folder") == alias, observed
+        assert daemon._capacity_waits[job]["blocked"] == (key,), observed
+        assert job not in daemon._workspace_deferrals
