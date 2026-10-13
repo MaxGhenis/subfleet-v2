@@ -220,10 +220,12 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 def admitted_reader(daemon, conn):
     """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
-    `_connection` lets it go when its last reply is out."""
+    `_connection` lets it go when its last reply is out. Its peer is read from the
+    socket as the accept loop reads it (C-25.6), before the reader starts."""
+    from subfleet.conversations.peers import peer_token
     with daemon._connection_lock:
         daemon._connections.add(conn)
-    return threading.Thread(target=daemon._connection, args=(conn,))
+    return threading.Thread(target=daemon._connection, args=(conn, peer_token(conn)))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
@@ -264,6 +266,10 @@ def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     (adir / "stdout").write_bytes(stdout)
     (adir / "stderr").write_bytes(b"")
     (adir / "lane.log").write_bytes(b"")
+    if not (adir / "launch.json").exists():
+        # No real adapter launch was staged: this is an exited generic fake,
+        # whose success must carry the daemon's detached Codex completion proof.
+        (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n' if rc == 0 else '')
     receipt = {"rc": rc, "signal": None, "wall_s": .1, "child_pid": None,
                "finished_at": daemon_module.utcnow()}
     (adir / "exit.json").write_text(json.dumps(receipt))

@@ -52,7 +52,8 @@ class FakeAdapter(Adapter):
                 except ValueError:
                     pass
             offset += len(line)
-        env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id}
+        env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id,
+                   "SUBFLEET_FAKE_STREAM": str(attempt_dir / "stream.jsonl")}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),
                               ("marker", "SUBFLEET_FAKE_MARKER"),
@@ -70,7 +71,7 @@ class FakeAdapter(Adapter):
             cwd=job.workdir, stdin_path=str(prompt_path),
             stdout_path=str(attempt_dir / "stdout"),
             stderr_path=str(attempt_dir / "stderr"),
-            raw_stream_path=None, native_session_id=None,
+            raw_stream_path=str(attempt_dir / "stream.jsonl"), native_session_id=None,
         )
 
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:

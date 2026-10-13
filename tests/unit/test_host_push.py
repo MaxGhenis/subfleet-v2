@@ -189,6 +189,9 @@ def accept(world, job=None, bundle=True, include_base=False, settle=True):
     if bundle:
         write_bundle(world, job, include_base)
     (directory / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": 1}))
+    # The lane is Codex's (astra): a finished turn's own stream carries the
+    # completion that the daemon checks before accepting (C-9.2).
+    (directory / "stream.jsonl").write_text('{"type":"turn.completed"}\n')
     core.store.add_attempt(attempt_id=attempt_id, job_id=job, seq=1, lane_id="test-lane",
                            model_requested="astra", state="running", evidence_json="{}")
     with core.store.transaction("test.running") as tx:
