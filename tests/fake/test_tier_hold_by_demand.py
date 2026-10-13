@@ -123,10 +123,12 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "astra"}),
     ({"task": "authored-prose", "tier": "hard"}, {"opus"}),                      # Fable's until 2026-09-27
     ({"pinned_lane": "claude-3"}, None),
+    ({"task": "review", "tier": "standard", "pinned_lane": "claude-3"}, {"opus"}),  # a lane pin walks the first model
+    ({"task": "review", "tier": "hard", "pinned_lane": "codex-1"}, {"astra"}),
     ({"task": "not-a-task", "tier": "standard"}, None),
 ])
 def test_c6_9_demand_models_follow_the_chain_evaluate_walks(job, expected):
-    """C-11.2 a pin is one model; a task is its chain from its tier upward."""
+    """C-11.2 a pin is one model; a task is its chain from its tier upward, and only its first with a lane pin."""
     import json
     from pathlib import Path
     policy = json.loads((Path(scheduler.__file__).with_name("default_policy.json")).read_text())
@@ -169,16 +171,19 @@ def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(
     assert admitted(service, other) and not service.store.list_attempts(older)
 
 
-@pytest.mark.parametrize("case", ["same-lane", "newer-unpinned", "older-unpinned", "newer-unknown-pin"])
+@pytest.mark.parametrize("case", ["same-lane", "older-unpinned"])
 def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case):
-    """C-6.9 only two different pins are disjoint; a free choice, a shared pin, or an unresolvable pin competes."""
+    """C-6.9 a shared pin, or an older free choice, competes.
+
+    A newer job with no pin behind an older pinned one is evaluated with the
+    older job's lane kept instead: see the C-6.9 section on pinned waiters
+    below. A pin that names no lane can use none and competes with nothing,
+    and one that names several is refused at admission (C-6.12).
+    """
     service, harness = pinned_fleet
-    older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "newer-unpinned": ("claude-a", None),
-                            "older-unpinned": (None, "claude-b"), "newer-unknown-pin": ("claude-a", None)}[case]
+    older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "older-unpinned": (None, "claude-b")}[case]
     older = submit(service, harness, pinned_model="opus", pinned_lane=older_pin)
     newer = submit(service, harness, pinned_model="opus", pinned_lane=newer_pin)
-    if case == "newer-unknown-pin":
-        service.store.update_job(newer, pinned_lane="nobody@example.invalid")   # a pin the roster cannot resolve
     wait_on_capacity(service, older)
     service._admit()
     assert not service.store.list_attempts(newer)
@@ -186,13 +191,13 @@ def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case
 
 
 def test_c6_9_demand_lanes_resolves_a_pin_to_its_lane_id():
-    """C-11.2 an account label or a lane id names one lane; nothing, or an unknown label, is any lane."""
+    """C-11.2 an account label or a lane id names one lane; no pin is any lane; an unknown label is no lane."""
     roster = [{"lane_id": "claude-a", "account_key": "claude:a@example.invalid", "email": "a@example.invalid"},
               {"lane_id": "claude-b", "account_key": "claude:b@example.invalid", "email": "b@example.invalid"}]
     assert scheduler.demand_lanes(roster, {"pinned_lane": "claude-b"}) == frozenset({"claude-b"})
     assert scheduler.demand_lanes(roster, {"pinned_lane": "a@example.invalid"}) == frozenset({"claude-a"})
     assert scheduler.demand_lanes(roster, {"pinned_lane": None}) is None
-    assert scheduler.demand_lanes(roster, {"pinned_lane": "nobody@example.invalid"}) is None
+    assert scheduler.demand_lanes(roster, {"pinned_lane": "nobody@example.invalid"}) == frozenset()
 
 
 def test_c6_9_competes_needs_a_shared_model_and_a_shared_lane():
@@ -202,3 +207,185 @@ def test_c6_9_competes_needs_a_shared_model_and_a_shared_lane():
     assert scheduler.competes(f, f, a, a) and scheduler.competes(f, f, a, None) and scheduler.competes(f, f, None, b)
     assert not scheduler.competes(f, frozenset({"opus"}), a, a)
     assert scheduler.competes(None, f, a, b) is False                                  # lanes disjoint wins even with unknown models
+    none = frozenset()                                                                 # a pin that names no lane
+    assert not scheduler.competes(f, f, none, None) and not scheduler.competes(f, f, None, none)
+    assert not scheduler.competes(None, None, none, a)
+
+
+# --- C-6.9: an older job pinned to a lane keeps that lane, not the fleet ------------------------
+#
+# Incident, 2026-09-22 (about 18:58Z): a standard build pinned to `claude-9` waited
+# from 18:24:52Z, because `claude-9` refuses Opus as `reserve:fable:unmeasured` to
+# every job without an unmeasured-reserve authorization. An unpinned job counted as
+# competing with it on every lane, so every later unpinned standard job whose chain
+# includes Opus, fresh reviews among them, was held `behind-older-job` (three at
+# once) while `claude-11`, which would have taken them, stayed open.
+
+import json
+
+from subfleet.contracts import ClockSource, Closure, ClosureReason
+from tests.fable_reserve import FABLE
+
+
+def put_claude_lane(service, lane_id):
+    service.store.put_lane(Lane(lane_id, "claude", f"claude:{lane_id}@example.invalid",
+                                Credential("claude", f"/fake/{lane_id}", "home"), f"/fake/{lane_id}",
+                                LaneOwner.V2, False))
+
+
+def reserve_fable(service):
+    """C-11.7 as production ran it on 2026-09-22: Fable a model, its bucket reserved.
+
+    Fable was retired on 2026-09-27 and the shipped policy reserves nothing; this is
+    `tests/fable_reserve.py`'s policy, applied to a running daemon.
+    """
+    service.policy["models"]["fable"] = dict(FABLE)
+    service.policy["retired"] = {alias: target for alias, target in service.policy.get("retired", {}).items()
+                                 if alias not in ("fable", "claude-fable-5", FABLE["id"])}
+    service.policy["reserve"] = {"models": ["fable"], "cap_ratio": 2., "min_slack": .05}
+
+
+@pytest.fixture
+def incident_fleet(fleet):
+    """`claude-9` has no usage read of the Fable window, so it refuses Opus; `claude-11` has slack."""
+    service, harness = fleet
+    reserve_fable(service)                                                                   # C-11.7, as in production
+    for lane_id, source in (("claude-9", "fixture"), ("claude-11", "oauth-usage")):
+        put_claude_lane(service, lane_id)
+        service.store.add_reading(Reading(lane_id, "account", "seven_day", .2, after(86400),
+                                          ReadingLabel.PROVIDER, source, utcnow()))
+    return service, harness
+
+
+def close(service, lane_id):
+    service.store.add_closure(Closure(lane_id, "account", after(3600), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+
+
+def rejections(service, job_id, model):
+    decision = json.loads(service.store.list_decisions(job_id)[-1]["decision_json"])
+    [walked] = [row for row in decision["evaluations"] if row["model"] == model]
+    return {row["lane_id"]: row["reasons"] for row in walked["rejections"]}
+
+
+def test_c6_9_the_incident_a_waiter_pinned_to_a_lane_that_refuses_it_holds_nothing_elsewhere(incident_fleet):
+    """C-6.9 the 2026-09-22 incident: later unpinned Opus builds and reviews run on `claude-11`, never `claude-9`."""
+    service, harness = incident_fleet
+    older = submit(service, harness, pinned_model=None, task="build", tier="standard", pinned_lane="claude-9")
+    service._admit()
+    assert service.store.get_job(older)["state"] == "waiting"
+    assert service._holds[older]["reason"] == "reserve:fable:unmeasured"          # its own lane refuses it
+    build = submit(service, harness, pinned_model=None, task="build", tier="standard")
+    review = submit(service, harness, pinned_model=None, task="review", tier="standard")
+    stored = {job_id: service.store.get_job(job_id)["exclusions"] for job_id in (build, review)}
+    service._admit()
+    for job_id in (build, review):
+        [attempt] = service.store.list_attempts(job_id)
+        assert (attempt["lane_id"], attempt["model_requested"]) == ("claude-11", "claude-opus-5-5")
+        assert rejections(service, job_id, "opus")["claude-9"] == ["reserve:fable:unmeasured", f"kept:{older}"]
+        assert service.store.get_job(job_id)["exclusions"] == stored[job_id]      # this pass only, never stored
+    assert not service.store.list_attempts(older) and service._holds[older]["reason"] == "reserve:fable:unmeasured"
+    assert "behind-older-job" not in service._admission["reasons"]
+
+
+def test_c6_9_a_later_unpinned_job_never_takes_the_lane_an_older_waiter_is_pinned_to(pinned_fleet):
+    """C-6.9 FIFO for the pinned lane's capacity: the later job waits behind the older one for it, then takes it."""
+    service, harness = pinned_fleet
+    close(service, "claude-b")                                  # the only lane that would take it is claude-a
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    newer = submit(service, harness, pinned_model="opus")
+    wait_on_capacity(service, older, seconds=3600)
+    service._admit()
+    assert not service.store.list_attempts(newer)
+    hold = service._holds[newer]
+    assert {key: hold[key] for key in ("reason", "behind", "tier")} == {
+        "reason": "behind-older-job", "behind": older, "tier": "standard"}
+    assert rejections(service, newer, "opus")["claude-a"] == [f"kept:{older}"]
+    answer = service.dispatch("why", {"job_id": newer})
+    assert f"held behind {older}" in answer["text"] and f"rejected claude-a: kept:{older}" in answer["text"]
+    service._admit()                                            # a pass that does not look repeats the hold
+    assert service._holds[newer]["reason"] == "behind-older-job" and not service.store.list_attempts(newer)
+    # The first pass on which the older job no longer waits looks at the later one, whatever its clock says.
+    service.store.update_job(older, state="cancelled")
+    service.store.update_job(newer, next_check_at=after(3600))
+    service._admit()
+    assert [row["lane_id"] for row in service.store.list_attempts(newer)] == ["claude-a"]
+
+
+def test_c6_9_a_pinned_waiter_moves_later_work_off_its_lane_and_holds_later_work_pinned_there(pinned_fleet):
+    """C-6.9 claude-a has the most headroom, so it is where the later job would go if nobody waited for it."""
+    service, harness = pinned_fleet
+    service.store.add_reading(Reading("claude-b", "account", "seven_day", .6, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", utcnow()))
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    unpinned = submit(service, harness, pinned_model="opus")
+    same_pin = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert [row["lane_id"] for row in service.store.list_attempts(unpinned)] == ["claude-b"]
+    assert not service.store.list_attempts(same_pin) and service.store.get_job(same_pin)["state"] == "queued"
+    assert service._holds[same_pin] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+    # With nobody waiting for claude-a, the same job goes where the headroom is.
+    service.store.update_job(older, state="cancelled")
+    service.store.update_job(same_pin, state="cancelled")
+    control = submit(service, harness, pinned_model="opus")
+    service._admit()
+    assert [row["lane_id"] for row in service.store.list_attempts(control)] == ["claude-a"]
+
+
+def test_c6_9_passing_a_pinned_waiter_still_leaves_it_the_last_slot(pinned_fleet):
+    """C-6.9 `slot-kept`: a job that runs elsewhere than the older job's lane has still passed it."""
+    service, harness = pinned_fleet
+    service.policy["caps"]["max_active_attempts"] = 2
+    running = submit(service, harness, pinned_model="terra")
+    service._admit()
+    assert admitted(service, running)
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    passer = submit(service, harness, pinned_model="opus")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(passer)
+    hold = service._holds[passer]
+    assert (hold["reason"], hold["kept_for"], hold["live"]) == ("slot-kept", older, 1)
+
+
+F, O = frozenset({"fable"}), frozenset({"opus"})
+A, B = frozenset({"claude-a"}), frozenset({"claude-b"})
+
+
+@pytest.mark.parametrize("later,pinned,waiters,expected", [
+    ((F, None), False, [("w1", F, A)], (None, {"claude-a": "w1"})),                    # the incident
+    ((F, A), True, [("w1", F, A)], ("w1", {"claude-a": "w1"})),                        # confined to the kept lane
+    ((F, B), True, [("w1", F, A)], (None, {})),                                        # PR #23: different pins
+    ((F, None), False, [("w1", F, None)], ("w1", {})),                                 # unpinned FIFO, unchanged
+    ((F, None), False, [("w1", F, A), ("w2", F, None)], ("w2", {"claude-a": "w1"})),   # an unpinned waiter still holds
+    ((F, None), False, [("w1", O, A)], (None, {})),                                    # no shared model: nothing kept
+    ((F, None), True, [("w1", F, A)], (None, {})),                                     # a pin naming several lanes: refused, not held
+    ((F, None), True, [("w1", F, None)], (None, {})),
+    ((F, frozenset()), True, [("w1", F, A), ("w2", F, None)], (None, {})),             # a pin naming no lane competes with nothing
+    ((F, None), False, [("w1", F, frozenset())], (None, {})),                          # an older pin naming no lane keeps nothing
+    ((None, None), False, [("w1", F, A)], (None, {"claude-a": "w1"})),                 # models unknown: lanes still kept
+    ((F, None), False, [("w1", F, A), ("w2", F, A)], (None, {"claude-a": "w1"})),      # the oldest keeps it
+    ((F, None), False, [("w1", F, A), ("w2", F, B)], (None, {"claude-a": "w1", "claude-b": "w2"})),
+    ((F, B), True, [("w1", F, A), ("w2", F, B)], ("w2", {"claude-b": "w2"})),
+    ((F, None), False, [], (None, {})),
+])
+def test_c6_9_tier_hold_keeps_only_the_lanes_older_pinned_waiters_are_pinned_to(later, pinned, waiters, expected):
+    """C-6.9 an older pinned waiter keeps its lanes; only a job confined to them, or an older free choice, holds."""
+    models, lanes = later
+    assert scheduler.tier_hold(models, lanes, waiters, pinned=pinned) == expected
+
+
+def test_c6_9_a_lane_kept_only_for_an_older_job_names_that_job():
+    """C-6.9, C-6.11 a lane that would take the job but for an older waiter is the cause; one that refuses it is not."""
+    def decision(rows, blocks=()):
+        return {"evaluations": [{"rejections": [{"lane_id": lane, "reason": reasons[0], "reasons": reasons}
+                                                for lane, reasons in rows], "capacity_blocks": list(blocks)}]}
+    kept_only = [("claude-a", ["kept:w1"]), ("claude-b", ["reserve:fable:unmeasured"]),
+                 ("claude-c", ["reserve:fable:unmeasured"])]
+    assert scheduler.dominant_rejection(decision(kept_only)) == "kept:w1"
+    assert scheduler.dominant_rejection(decision([("claude-a", ["no-slot", "kept:w1"])])) == "kept:w1"
+    refused_anyway = [("claude-a", ["reserve:fable:unmeasured", "kept:w1"]), ("claude-b", ["reserve:fable:unmeasured"])]
+    assert scheduler.dominant_rejection(decision(refused_anyway)) == "reserve:fable:unmeasured"
+    room = [("claude-a", ["kept:w1"]), ("claude-b", ["no-slot"])]
+    assert scheduler.dominant_rejection(decision(room, ["fleet"])) == "fleet-full"
