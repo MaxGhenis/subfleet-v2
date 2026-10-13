@@ -194,6 +194,22 @@ def test_why_prints_a_refusal_or_a_route_error_not_no_decision(daemon, capsys, a
     assert capsys.readouterr().out.splitlines() == expected
 
 
+@pytest.mark.parametrize("decision", [None, {"chosen_model": "astra", "chosen_lane": "codex-1"}])
+def test_why_prints_recorded_cut_off_attempt_with_or_without_routing(daemon, capsys, decision):
+    """D-SHUT1: the CLI keeps the daemon's attempt reason alongside routing."""
+    explanation = "Last attempt a1: Codex exited before its turn completed (last event: item.completed)"
+    daemon({"why": lambda request: {"queue": [f"Job: {JOB} is failed"],
+                                    "decision": decision, "attempt_explanation": explanation}})
+    assert run_cli(["why", JOB]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"Job: {JOB} is failed"
+    assert lines[-1] == explanation
+    assert lines.count(explanation) == 1
+    assert ("No decision recorded." in lines) == (decision is None)
+    if decision is not None:
+        assert any("astra on codex-1" in line for line in lines)
+
+
 def test_why_and_ping_reach_their_ops(daemon, capsys):
     """C-17.1 `why` and `ping` carry their arguments to the daemon."""
     server = daemon({
@@ -718,8 +734,9 @@ def test_runs_show_prints_metadata_and_out(daemon, root, capsys):
     deliverable.write_text("# the answer\n")
     job = {"job_id": JOB, "state": "succeeded", "rc": 0, "workdir": "/Users/x/repo",
            "model_requested": "opus", "lane_id": "claude-2",
+           "accepted_attempt_id": f"{JOB}/a1",
            "artifacts": [{"role": "deliverable", "path": str(deliverable),
-                          "bytes": 13}]}
+                          "bytes": 13, "attempt_id": f"{JOB}/a1"}]}
     server = daemon({"show": lambda request: job})
     assert run_cli(["show", JOB]) == 0
     assert JOB in capsys.readouterr().out
@@ -980,6 +997,29 @@ def test_show_out_online_prefers_the_accepted_attempt(daemon, root, capsys, enve
     daemon({"show": lambda request: response})
     assert run_cli(["runs", "show", JOB, "--out"]) == 0
     assert capsys.readouterr().out == "# the accepted attempt\n"
+
+
+@pytest.mark.parametrize("envelope", [False, True])
+@pytest.mark.parametrize("accepted", [None, f"{JOB}/a2"])
+@pytest.mark.parametrize("recorded_attempt", [None, f"{JOB}/a1"])
+def test_show_out_never_falls_back_to_unaccepted_artifacts_or_export(
+        daemon, root, capsys, envelope, accepted, recorded_attempt):
+    interim = root / "a1.md"
+    interim.write_text("unaccepted interim text\n")
+    old_export = root / "out.md"
+    old_export.write_text("previous job's output\n")
+    response = {"job_id": JOB, "state": "failed" if accepted is None else "succeeded",
+                "accepted_attempt_id": accepted, "out_path": str(old_export),
+                "deliverable_path": str(interim), "artifacts": [
+                    {"role": "deliverable", "path": str(interim), "attempt_id": recorded_attempt}]}
+    if envelope:
+        artifacts = response.pop("artifacts")
+        response = {"job": response, "artifacts": artifacts}
+    daemon({"show": lambda request: response})
+    assert run_cli(["runs", "show", JOB, "--out"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no accepted deliverable recorded" in captured.err
 
 
 def test_last_zero_means_no_limit_on_both_sides(daemon, capsys):

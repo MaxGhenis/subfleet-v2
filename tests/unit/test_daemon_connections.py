@@ -415,11 +415,11 @@ def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     wedged = threading.Event()
     real = service._connection
 
-    def connection(conn):
+    def connection(conn, peer):
         if len(service._readers) > 5:           # the last five readers never return
             wedged.wait(10)
             return
-        real(conn)
+        real(conn, peer)
     service._connection = connection
     held = [connect(service) for _ in range(10)]
     until(lambda: counts(service)["connections"] == 10)
