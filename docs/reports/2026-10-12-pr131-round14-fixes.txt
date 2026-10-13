@@ -760,3 +760,127 @@ staged. Existing committed artifacts and release ancestry are preserved. No
 sub-agent, network remote, push, history rewrite, live store, caller worktree
 write or unrelated process operation occurred. Real writer tests never entered
 pytest in this job, so they started no real writer children here.
+
+
+Round 19 — CI failures at f2e9b1dfc
+===================================
+
+The first full CI run on f2e9b1dfc (Python 3.14, run 38366671306) failed 52
+tests in seven files. Four causes explain all 52: one schema mismatch between
+prune and this branch, and three test stand-ins that round 14 and its receipt
+import left behind. One production gap turned up as well: prune did not
+expect schema 8's process-claim tables. No assertion was loosened; the three
+expectation changes schema 8 forces are listed under cause 1.
+
+Commits are on the job's detached workspace HEAD (shared Git metadata was
+writable), on top of f2e9b1dfc. Subfleet keeps them under
+refs/subfleet-salvage/. feat/quarantine-self-resolve is checked out in the
+caller's worktree, so this job did not move it.
+
+Cause 1: prune (#192) against schema 8 (41 + 1 failures, and one gap)
+---------------------------------------------------------------------
+- The prune pass never reads `rowid`. Its fingerprints digest each table's
+  rows as a multiset (`_digest` over `SELECT *`), so its planning, backup
+  verification and after-proofs already covered the two WITHOUT ROWID tables.
+  The 41 "no such column: rowid" failures came from the tests' independent
+  whole-store snapshots, which read every table `ORDER BY rowid`:
+  test_pr192_review_r1 (16), test_prune_decision_backup_verification (13),
+  test_pr192_review_r2 (7) and test_prune_217 (5).
+- Fix: tests/table_order.py orders a rowid table by `rowid`, as before, and a
+  WITHOUT ROWID table by its primary key. That key is unique and is the order
+  SQLite stores the table in. The four helpers use it. Every refusal and
+  equality assertion is unchanged.
+- The production gap: `_require_schema_tables` built its expected tables from
+  store_schema.sql alone. A writing `Store` also applies
+  store_process_claims.sql. A schema 8 store missing any of the five
+  process-claim tables was therefore pruned (3 rows deleted in a mutation
+  check) instead of refused. `store.schema_script()` now names the files a
+  writing `Store` applies; `Store` and the refusal both use it. With the fix
+  all five are refused; reverting it makes each one prune again.
+- Are the claims tables decision dependents? No:
+  * attempt_process_claims and process_claim_receipt_pending reference only
+    `attempts`, and no foreign key in the schema names `decisions`;
+  * all six triggers fire on `attempts`, and a prune writes only `decisions`
+    (DELETE) and `events` (one INSERT per batch);
+  * on populated claims tables, each batch's `total_changes` is exactly its
+    deleted rows plus one audit row. `total_changes` counts rows that
+    triggers and foreign-key actions change (checked directly in SQLite
+    3.53.4), so neither fired;
+  * all five tables are fingerprinted, identical after the delete and after
+    VACUUM, held by the whole-store copy, and put back byte-identical by the
+    published restore recipe.
+- The other guarantees, proven on the claims tables as well:
+  * changed rows in the backup copy are refused, at identical counts too, for
+    all five tables (and a missing or emptied table for both WITHOUT ROWID
+    ones);
+  * a trigger-driven claims change committed after planning stops the pass
+    before its first delete and names `attempts` and the claims tables;
+  * a new WITHOUT ROWID table joins the proof, and drift in it is refused;
+  * the shared lifetime lock still refuses an apply while the daemon runs.
+- Expectations schema 8 supersedes (test_prune_217.py only):
+  1. the restore property expects `{'store': 8, 'build': 8}`;
+  2. the schema test, renamed `test_schema_8_has_no_decision_dependents_...`,
+     expects SCHEMA_VERSION 8 and the five claims tables in the enumeration
+     and fingerprints. It still requires no foreign key to `decisions`. Its
+     "no trigger at all" check is replaced by the exact trigger inventory,
+     all on `attempts`;
+  3. the shared-lifetime-lock test takes its baseline after the daemon
+     opens the store. Schema 8's daemon completes its one-time receipt
+     import there (`process_claim_receipts` goes from (1,0,0) to (1,1,1)).
+     The test asserts that this row is the daemon's only write, and still
+     that the refused apply and the dry run change nothing.
+- Schema version checks: prune's apply refusal, dry-run report and newer-
+  schema refusal all compare against `SCHEMA_VERSION`, so they recognise 8
+  unchanged; test_prune_decisions' SCHEMA_VERSION-1 and schema-99 cases pass.
+  The module docstring and docs/migration.md now say schema 8 and name the
+  claims tables.
+
+Cause 2: round 7's leader-confirmation model (6 failures)
+---------------------------------------------------------
+- `test_fresh_leader_confirmation_respects_member_identity` lets the child
+  escape (`setsid 200`) from a hook on the world's `signal_group` phase.
+  That phase fires only when the daemon calls `procs.signal_group`.
+- Round 14's 8d7b6a7e7 ("Keep quarantine delivery within verified individual
+  targets") removed every production call. `git grep` finds none at
+  8d7b6a7e7, 71463059d or f2e9b1dfc; deb8c5b25, just before it, has five.
+  So the hook never fired and the child stayed in group 100:
+  `assert 100 == 200`.
+- Round 18 (1907e871b, eae6a9ab8, cd417d672) did not cause this and touched
+  no delivery code.
+- The expectation was superseded and the copy was missed. Round 14's
+  0b99d0b4f moved the primary model's two twin scenarios to the `signal`
+  phase but not this one. It now uses the same phase. Both assertions are
+  unchanged: the child escapes before its first SIGKILL, and it is killed
+  exactly when a complete table shape made it owned.
+
+Cause 3: notice tests and signal authority (3 failures)
+-------------------------------------------------------
+- Since 8d7b6a7e7, C-5.4 holds: the daemon signals only recorded,
+  scalar-confirmed and claim-authorized identities, each through
+  `procs.signal_process`, and never calls `killpg`.
+- test_notice_header's stand-in still replaced `procs.signal_group`, and the
+  `state_daemon` fixture reports the guardian unconfirmed (`same_process` is
+  False). The daemon therefore rightly signalled nothing: `sent == []`, no
+  exit receipt was written, and the recovery case found no receipt and ended
+  `lost` instead of `failed`. The daemon is right; the stand-in was stale.
+- Fix: the stand-in confirms only the attempt's live identities and receives
+  the signal at `os.kill`, behind the real `signal_process` identity and
+  authorization checks. `killpg`, or a signal to any other pid, fails the
+  test.
+- The recovery case now models its title: the guardian is dead, and its
+  provider is the writer left, recorded as owned while the guardian led its
+  group (C-5.6). Recovery signals that provider alone.
+- All assertions are unchanged. The recovery case also asserts its single
+  SIGTERM. `test_c9_2_c4_3_the_killed_downgrade_survives_finalization_replay`
+  used the same stand-in. It passed in CI only because the daemon synthesised
+  a rc -15 receipt; it now exercises the rc 0 receipt its title is about.
+
+Cause 4: launch-inspection clock stub (1 failure)
+-------------------------------------------------
+- `test_c5_12_..._after_its_guardian_started` replaced the daemon module's
+  `time` with a namespace holding only `monotonic`.
+- Since 86ffea7ec, the due inspection's ownership record reads the
+  receipt-import queue against `time.time()`. `retry_at` is wall time
+  because it outlives a restart.
+- The code is right. The stub now keeps the real wall clock and still pins
+  only the inspection clock. Every assertion is unchanged.
