@@ -154,7 +154,7 @@ def _lineage_boot_union(*sources: dict) -> set[str]:
 
 def _retain_lineage(evidence: dict, census: dict) -> dict:
     boots = _lineage_boot_union(evidence, census)
-    boots.update(ident.boot_id for records in _identity_union(census["identities"]).values()
+    boots.update(ident.boot_id for records in _identity_union(census.get("identities", {})).values()
                  for ident in records)
     result = {**evidence, "lineage_boot_ids": sorted(boots)} if boots else dict(evidence)
     resolved = {procs.CensusRoot(**value) for value in census.get("resolved_lineage_roots", [])}
