@@ -418,3 +418,123 @@ live store or live process was accessed.
 - `ce98ef169`: make empty frozen streams authoritative.
 - `019183173`: retain authentication rejection's waiting/disabled-lane behavior
   in the regression assertion.
+
+## Hub fix round 4: the first full CI run
+
+#195 had no full CI run until #191 (`8fb1a8239`), which contains this branch
+and failed 112 tests on Python 3.14. The hub's host bisect over the seven
+worst files found 279 passed at release `f3e042953` and at #142 `01d0cb9d5`,
+and 64 failed at this branch's `323ba4d08`. There were three causes, each
+fixed at its root, plus two test expectations this PR's rules supersede.
+
+### Codex-lane fixtures without completion proof
+
+`_finalize` checks C-9.2's completion proof on every detached attempt on a
+lane whose provider is `codex`, reading the attempt's frozen stream
+(`raw_stream_path`, then `stream.jsonl`, then stdout). Three fixtures model
+Codex lanes but recorded no stream, so their stubbed `ok` became `transient`:
+
+- `tests/unit/test_host_push.py::accept` is shared by the export, intake,
+  names, restart, retention, trees and mutation files. It enrolls
+  `Lane("test-lane", "codex", …)`, submits `pinned_model="astra"`, stubs
+  `classify` as `ok`, and wrote only `exit.json`. Push jobs therefore ended
+  `waiting`. The 13 `test_host_push_mutations.py` failures ("Regex pattern
+  did not match") had the same cause: each mutation's invariant calls
+  `accept`, which stopped before the mutated check could fail.
+- `tests/unit/test_daemon_settle.py::with_launch` enrolls `codex-1`, whose
+  stub classifies every exit `ok`, with a stdout of `hello`.
+- `tests/fake/gate_peer.py` runs the Astra peer on a Codex lane and wrote
+  only its verdict to stdout.
+
+These are Codex lanes, so the rule must apply to them, and a real Codex
+success always carries `turn.completed` in its own stream. Each fixture now
+writes it, as `receipt_fixture`, `fakeprov` and the #185 census test already
+did. The gate peer publishes its own `stream.jsonl`, which is the launch's
+raw stream. This needs no product change. No other provider reaches the check,
+because it is keyed on the lane's provider and `FakeAdapter` declares
+`provider = "codex"`.
+
+### Replaying this daemon's own verdict
+
+Fix round 3 reconciled every cached non-`ok` detached Codex verdict with the
+frozen evidence. The target was a verdict from an older classifier that had
+ranked an authentication message ahead of verified success. But
+`finalization.json` is also this daemon's own cache. `_finalize` writes it
+before salvage, and a salvage that times out raises, so the worker finalizes
+the attempt again (C-13.1). In `test_salvage_finalization.py` the adapter
+classifies a1 `transient`. `receipt_fixture`'s completed stream and
+`fixture result` deliverable meet every reconciliation condition, so the
+replay turned the first pass's `transient` into `ok`, and the job succeeded
+instead of retrying. The same frozen inputs produced two classes, which
+violates C-4.3 whether or not a salvage is involved.
+
+A verdict this daemon classifies is now written with
+`"rule": "verified-success-first"` (`FINALIZATION_RULE`), and every replay
+keeps it. Only a cached verdict without `rule`, which an older daemon
+recorded, is reconciled, under the unchanged conditions.
+
+The salvage rules are unchanged: a salvage failure never decides success,
+and the retry stands because a1 was `transient`. Nothing changes for the
+Codex adapter's fresh verdicts. Since #186 it returns `ok` for exactly the
+inputs that satisfy reconciliation, so a replay of its own verdict never
+needed reconciling. The pre-merge replay regressions write their cached
+verdicts without `rule` and are unchanged. These are
+`test_completed_success_survives_premerge_auth_receipt`, the seven cached
+reconciliation guards and the empty-stream regression.
+
+`test_replay_keeps_this_daemons_verdict_and_reconciles_only_an_older_one`
+crosses three adapter verdicts (`transient`, `auth-dead`, `unknown`), both
+recorders, and replay or restart, all on a stream that proves success. This
+daemon's own verdict is observed on both passes and never accepted. With
+`rule` removed, the same verdict becomes `ok`, is accepted and exported, and
+keeps `provider_verdict`.
+
+### `runs show` compatibility
+
+Fix round 1 stopped `runs show` from printing unaccepted interim text, but it
+also changed output that callers parse:
+
+- The bare form dropped `--- out.md ---` and printed prose after the
+  metadata object. `json.loads(out.split("--- out.md ---")[0])` therefore
+  failed with "Extra data" (`test_mcp_cli_contract.py`, `test_offline.py`).
+  C-17.1 keeps v1's shape, and v1 printed that line unconditionally
+  (`test_compat.py`).
+- `--out` reported `no accepted deliverable recorded` instead of
+  `no deliverable recorded`.
+- An accepted job with no deliverable row lost its `-o` export
+  (`test_notice_rendering.py`, C-8.3).
+
+Compatibility is restored and review r1's guarantee is kept:
+
+- The bare form prints the metadata object, `--- out.md ---`, and then the
+  accepted deliverable or nothing. It names unaccepted evidence paths on
+  stderr, and still returns 1 for a failed, cancelled or lost job without a
+  result.
+- `--out` reports `no deliverable recorded`.
+- An accepted job with no deliverable recorded for any attempt shows its `-o`
+  export, unless `export_error` says that export failed. This is the case of
+  a v1 import that kept only its export.
+- A deliverable recorded only for another attempt is never the result, and
+  in that case neither is `-o`. Review r1's eight cases still return 1.
+- `--json` was never affected.
+
+Test changes, each made because this PR's rules supersede the expectation or
+the fixture was impossible:
+
+- This PR's own `runs show` assertions (`test_cli.py`, the fake and e2e
+  cut-off tests) now expect the restored phrase and shape.
+- `test_offline.py`'s succeeded fixture job now records
+  `accepted_attempt_id`. `_finalize` and the importer always set it together
+  with `succeeded`, and C-12.6 gives a job without it no result.
+- `test_a_deliverable_on_disk_is_found_without_its_artifact_row` printed the
+  unrecorded `deliverable.md` of a running job through `--out`. `_finalize`
+  publishes `deliverable.md` before the acceptance transaction that records
+  its row, so such a file is unaccepted by construction. On 2026-10-12, 34
+  cut-off turns left exactly such files. C-12.6 and C-9.2 forbid printing it
+  as the result. The test now checks that offline metadata still names it
+  (`deliverable_path`) and that `--out` returns 1 with
+  `no deliverable recorded`.
+
+Two new unit tests pin the bare shape and the `-o` fallback. A direct check
+outside pytest, with no daemon, confirmed the five `runs show` paths before
+any pytest hold was available.

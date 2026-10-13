@@ -239,6 +239,10 @@ LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+#: C-9.2, C-4.3: `finalization.json`'s `rule` when this daemon classified the
+#: attempt. Every replay keeps such a verdict as its first pass decided it; only a
+#: verdict an older daemon recorded, without it, is reconciled with completion proof.
+FINALIZATION_RULE = "verified-success-first"
 #: C-6.14: the event that records a model answering on a lane (`_record_answer`),
 #: and how many of the newest a starting daemon reads to remember what was proven.
 ANSWER_EVENT = "lane.answered"
@@ -8069,7 +8073,7 @@ class Daemon:
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
-        cached_finalization = False
+        older_verdict = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
                               else "guardian exit receipt has no return code")
@@ -8077,15 +8081,19 @@ class Daemon:
         else:
             result_path = adir / "finalization.json"
             result = self._read_json(result_path)
-            cached_finalization = result is not None
             if result is None:
                 exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
                 outcome = adapter.classify(adir, launch, exit_info)
                 if exit_info.spawn_error:
                     outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                 attest = adapter.attest(adir, launch, outcome, a["model_requested"])
-                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest)}
+                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
+                          "rule": FINALIZATION_RULE}
                 self._publish("finalization", result_path, json_bytes(result))
+            # A replay of this daemon's own verdict must reach its first pass's
+            # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
+            # is finalized again and still retries.
+            older_verdict = result.get("rule") != FINALIZATION_RULE
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
@@ -8104,11 +8112,11 @@ class Daemon:
             completion = completion_evidence(adir, launch)
             outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
             spawn_error = receipt.get("spawn_error") or outcome.evidence.get("spawn_error")
-            if (cached_finalization and outcome.cls != OutcomeClass.OK and rc == 0
+            if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
                     and completion["turn_completed"] and not completion["turn_failed"]
                     and not spawn_error and not actual.get("killed_by")
                     and deliverable and read_regular(deliverable_path).strip()):
-                # C-9.2: pre-merge authentication/text verdicts can precede
+                # C-9.2: an older daemon's authentication/text verdict can precede
                 # verified success. The captured bytes decide presence; never
                 # reclassify or re-extract a result already frozen on disk.
                 # Claude's structured admission verdicts and conversation

@@ -1019,7 +1019,45 @@ def test_show_out_never_falls_back_to_unaccepted_artifacts_or_export(
     assert run_cli(["runs", "show", JOB, "--out"]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "no accepted deliverable recorded" in captured.err
+    assert "no deliverable recorded" in captured.err
+
+
+@pytest.mark.parametrize("state, code", [("failed", 1), ("running", 0)])
+def test_bare_show_without_an_accepted_result_keeps_v1s_shape(daemon, root, capsys, state, code):
+    """C-17.1, C-12.6: callers split the bare form at `--- out.md ---` and parse the
+    metadata object before it; with no accepted result nothing follows the line, and
+    the unaccepted evidence is named on stderr, never printed."""
+    interim = root / "a1.md"
+    interim.write_text("unaccepted interim text\n")
+    daemon({"show": lambda request: {"job_id": JOB, "state": state, "accepted_attempt_id": None, "artifacts": [
+        {"role": "deliverable", "path": str(interim), "attempt_id": f"{JOB}/a1"}]}})
+    assert run_cli(["runs", "show", JOB]) == code
+    captured = capsys.readouterr()
+    metadata, result = captured.out.split("\n--- out.md ---\n")
+    assert json.loads(metadata)["job_id"] == JOB
+    assert result == ""
+    assert "unaccepted interim text" not in captured.out
+    assert f"Unaccepted evidence ({JOB}/a1): {interim}" in captured.err
+
+
+@pytest.mark.parametrize("export_error", [None, "a newer owner holds the output"])
+def test_show_out_of_an_accepted_job_with_no_recorded_deliverable_is_its_export(
+        daemon, root, capsys, export_error):
+    """C-8.3, C-12.6: with no deliverable recorded for any attempt (a v1 import whose
+    run kept only its export), an accepted job's `-o` export is its result, unless
+    that export failed and the file there is not this job's copy."""
+    export = root / "out.md"
+    export.write_text("the accepted export\n")
+    daemon({"show": lambda request: {"job_id": JOB, "state": "succeeded", "rc": 0,
+                                     "accepted_attempt_id": f"{JOB}/a1", "out_path": str(export),
+                                     "export_error": export_error, "artifacts": []}})
+    captured_code = run_cli(["runs", "show", JOB, "--out"])
+    captured = capsys.readouterr()
+    if export_error is None:
+        assert (captured_code, captured.out) == (0, "the accepted export\n")
+    else:
+        assert (captured_code, captured.out) == (1, "")
+        assert "no deliverable recorded" in captured.err
 
 
 def test_last_zero_means_no_limit_on_both_sides(daemon, capsys):
