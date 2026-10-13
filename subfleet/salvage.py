@@ -373,14 +373,18 @@ def _full_index(env: dict[str, str]) -> dict[str, str]:
 
     A sparse index (``git sparse-checkout set --sparse-index``) holds one
     directory entry in place of the files under a directory outside the cone,
-    and the temporary index, a copy of it, did too. Writing a file entry
-    under such a directory left the directory entry beside it, and
-    ``write-tree`` wrote a tree naming that directory twice, which ``git
-    fsck`` calls ``duplicateEntries`` (git 2.55; found by the property that a
-    sparse worktree nobody edited snapshots to its baseline, in a repository
-    whose one file is outside the cone). With the setting off, git expands
-    such an index as it reads it and writes a full one. The real index is
-    only read, and stays as it is.
+    and the temporary index, a copy of it, did too. The first version of this
+    snapshot wrote a file entry under such a directory, which left the
+    directory entry beside it, and ``write-tree`` wrote a tree naming that
+    directory twice, which ``git fsck`` calls ``duplicateEntries`` (git 2.55;
+    found by the property that a sparse worktree nobody edited snapshots to
+    its baseline). The snapshot no longer writes an entry into the temporary
+    index (`_sparse_base` builds its own), and with this setting removed no
+    test fails, nor 450 freshly drawn examples of the three properties. It is
+    kept so that every index the snapshot writes is a full one, as every
+    listing here reads it: with the setting off, git expands such an index as
+    it reads it and writes a full one. The real index is only read, and stays
+    as it is.
 
     The setting goes last in ``GIT_CONFIG_PARAMETERS``, where ``git -c`` puts
     its own: git takes the last value given there over any other source. A
