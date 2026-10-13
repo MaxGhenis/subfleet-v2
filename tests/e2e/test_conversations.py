@@ -418,6 +418,33 @@ def test_a_denied_question_and_an_answered_question(conv):
     assert text == 'You chose {"Which color?": "Blue"}.'
 
 
+@pytest.mark.parametrize("directive,kind", [("[fake:approval]", "tool"), ("[fake:question]", "question")])
+def test_an_approval_is_listed_as_soon_as_its_event_is_read(conv_with, directive, kind):
+    """C-27.1, C-27.5, design §8: the app draws a card from `approval.requested` and
+    answers it by the id `approval.list` gives, joined on the provider's request id, so
+    whoever reads the event finds the approval listed and the message approval-needed,
+    however slow the disk under the request file. Its publish is slowed by a second
+    here; when the event committed before the approval (before 4a97e16b), the list read
+    right after it came back empty and the card could not be answered (the CI failures
+    of tests/frontend/test_core_live.py)."""
+    conv = conv_with(env={"SUBFLEET_E2E_APPROVAL_PUBLISH_DELAY_S": "1"})
+    cid = conv.create()
+    mid = conv.submit(cid, f"run something {directive}")
+    after, requested, deadline = 0, None, time.monotonic() + 60
+    while requested is None and time.monotonic() < deadline:
+        page = conv.call("conversation.events", conversation_id=cid, after=after, wait_s=5)
+        requested = next((e for e in page["events"] if e["kind"] == "approval.requested"), None)
+        after = page["next"]
+    assert requested is not None, conv.events(cid)
+    # Read at once, as the app does when the event shows the card.
+    listed = conv.call("approval.list", conversation_id=cid)["approvals"]
+    state = conv.message(mid)["state"]
+    display = {k: v for k, v in requested["data"].items() if k not in ("request_id", "kind", "options")}
+    assert [(a["message_id"], a["request_id"], a["kind"], a["state"], a["display"]) for a in listed] == [
+        (mid, requested["data"]["request_id"], kind, "pending", display)], listed
+    assert state == "approval-needed"
+
+
 def test_multiple_question_answers_reach_the_provider_once_and_a_new_message_keeps_them_pending(conv):
     """C-27.2: AskUserQuestion keeps every question and multiSelect flag; a queued
     composer message leaves the request pending, and one combined answer reaches the CLI."""
@@ -580,6 +607,36 @@ def test_a_codex_approval_and_limit(conv):
     closures = conv.e2e.rows("SELECT * FROM closures WHERE lane_id=?",
                              (conv.message(limited)["served"]["lane_id"],))
     assert closures and closures[-1]["clock_source"] == "reported"
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_provider_that_exits_with_an_approval_pending_withdraws_it_in_the_log(conv, provider):
+    """C-27.3: the provider exits without a result while its request waits for the
+    person. The approval is withdrawn with an `approval.resolved {withdrawn}` event and
+    a change-feed row before the message settles: no reader of the log, the approval
+    list or the watch feed is left with a pending card on an ended turn."""
+    if provider == "codex":
+        flag = conv.e2e.root / "conversations" / "codex-writable-verified.json"
+        flag.parent.mkdir(exist_ok=True)
+        flag.write_text(json.dumps({"verified_at": "test"}))
+        cid = conv.create(provider="codex", model="gpt-6-astra", permission="ask")
+    else:
+        cid = conv.create()
+    fed = conv.call("conversation.watch", after=0)["next"]
+    mid = conv.submit(cid, "[fake:approval-exit]")
+    ended = conv.until_state(mid, "failed", "interrupted", "complete", "delivery-unknown")
+    assert ended["state"] == "failed" and ended["state_reason"] == "ended-without-result", ended
+    assert conv.call("approval.list", conversation_id=cid)["approvals"] == []
+    events = conv.events(cid)
+    [requested] = [e for e in events if e["kind"] == "approval.requested"]
+    resolved = [e for e in events if e["kind"] == "approval.resolved"]
+    assert [e["data"] for e in resolved] == [{"request_id": requested["data"]["request_id"], "decision": "withdrawn"}]
+    assert requested["seq"] < resolved[0]["seq"]
+    assert "turn.completed" not in [e["kind"] for e in events]
+    rows = [(c["state"], c["pending_approvals"]) for c in conv.call("conversation.watch", after=fed)["changes"]
+            if c["message_id"] == mid]
+    asked, withdrawn, settled = rows.index(("approval-needed", 1)), rows.index((None, 0)), rows.index(("failed", 0))
+    assert asked < withdrawn < settled, rows
 
 
 def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv):

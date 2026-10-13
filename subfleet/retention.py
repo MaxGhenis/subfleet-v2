@@ -202,15 +202,15 @@ _PIN_QUERIES = (
                      "AND holder != 'retention:' || substr(lease_key, 8)"),
     # A job not yet ended whose directory is this job's allocated worktree or
     # inside it (a job an agent submitted from its worktree, still queued):
-    # the tree must still be there when it runs (design review, Opus 9).
-    # SQLite's LIKE ignores ASCII case (the store sets no case_sensitive_like),
-    # so a live job whose folder is *inside* this tree, spelled in another case,
-    # still keeps it. The exact-root comparisons (`=`) stay case-sensitive: a
-    # live job whose folder is the tree's root spelled in another case does not
-    # keep it, which is part of the C-8.4 known limit (review of #134's delta, P3).
+    # the tree must still be there when it runs (design review, Opus 9). A
+    # directory is compared without ASCII case: inside the tree with LIKE (the
+    # store sets no case_sensitive_like), the tree itself with NOCASE. A native
+    # session's cwd may spell the tree `jOB` for `Job`, and its queued turn, which
+    # waits on retention's fence (`folders.retiring`, folded), keeps the tree
+    # (review of 8a112986, finding 1).
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                        "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
+                        "AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE "
                         "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
                         "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'"),
 )
@@ -218,7 +218,7 @@ _PIN_QUERIES = (
 #: (`jobs.worktree` NULL, `rarch.owned_worktree`); ?1 is `<state>/worktrees/`.
 _UNRECORDED_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                       "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                      "AND (b.worktree = ?1 || a.job_id OR b.workdir = ?1 || a.job_id "
+                      "AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE "
                       "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
                       "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
 
@@ -289,6 +289,16 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
                 folder, row["worktree"]) for folder, holder in exclusive):
             add(row["job_id"], "worktree-lease")
     if root is not None:
+        # Retirement moves jobs/<id> too. Keep it for live or queued turns,
+        # including a cwd whose Git hold names a different folder. Read only
+        # recorded paths here: this also runs in the archive commit transaction.
+        turn_workdirs = {row["workdir"] for row in store.query(
+            "SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+            "('queued','running','waiting')")}
+        for row in jobs:
+            job_folder = str(Path(root) / "jobs" / row["job_id"])
+            if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
+                add(row["job_id"], "turn-folder")
         for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
             add(row["job_id"], "worktree-in-use")
     # A job registered in a repository inside another job's tree keeps that
@@ -678,6 +688,18 @@ class _Pass:
             retirement = rarch.Retirement(self.ctx, job_id, journal)
             state = journal["state"]
             try:
+                if pending := journal.get("rollback_pending"):
+                    report = retirement.rollback(**pending)
+                    reason = report.get("kept", pending["reason"])
+                    seconds = rarch.DEFER_PINNED_S if report.get("kept") or pending["defer_until"] is None \
+                        else max(0, pending["defer_until"] - time.time())
+                    self.state.defer(job_id, seconds, reason, self.clock())
+                    self.progress["deferred"][job_id] = reason
+                    if report.get("kept"):
+                        self.progress["in_flight"].append(job_id)
+                    else:
+                        self.acted += 1
+                    continue
                 if state == "idle":
                     row = self.store.get_job(job_id)
                     if row is None or now - float(journal.get("idle_since") or 0) > rarch.CACHE_KEEP_S:
@@ -806,7 +828,9 @@ class _Pass:
             # A turn may register after selection. Read its rows, on the tree
             # and on any folder inside it (P3-1), and acquire the fence
             # atomically; daemon reservation checks this same fence before
-            # inserting either a TURN or READER row on the tree itself (I5).
+            # inserting a TURN or READER row, or a detached writer's
+            # `worktree:` lease, on the tree or on any folder inside it (I5,
+            # `folders.retiring`).
             if reason is None and folder is not None and folders.turn_holds(
                     lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"
@@ -976,8 +1000,10 @@ class _Pass:
         keep_cache = not reason.startswith(_IN_USE_AGAIN)
         try:
             if retirement.journal is not None:
-                retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
-                                    failures=failures, defer_until=time.time() + seconds)
+                report = retirement.rollback(reason + (f": {detail}" if detail else ""), keep_cache=keep_cache,
+                                             failures=failures, defer_until=time.time() + seconds)
+                if report.get("kept"):
+                    self.progress["in_flight"].append(job_id)
             else:
                 with self.store.transaction("retention.rolled_back", job_id=job_id, data={"reason": reason}) as conn:
                     conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{job_id}",))

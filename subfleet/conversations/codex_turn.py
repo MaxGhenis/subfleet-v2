@@ -236,6 +236,16 @@ class CodexTurn(SteerTracking):
         self._held_steers.clear()
         return step
 
+    def restore_answer(self, request_id: str, decision: str) -> Step:
+        """Replay a recorded answer whose reply was written, without rebuilding it."""
+        if self.pending.pop(request_id, None) is None:
+            return Step()
+        if decision == "cancel-turn":
+            self.interrupt_requested = True
+        return Step(resolved=[request_id],
+                    events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
+                                  f"cmd:approval:{request_id}")])
+
     def respond(self, request_id: str, decision: str, message: str | None = None) -> Step:
         found = self.pending.pop(request_id, None)
         if found is None:
@@ -275,6 +285,10 @@ class CodexTurn(SteerTracking):
                                accepted=self.accepted, answered=self.answered, limited=self.limited,
                                served_model=self.served_model, ended_by="eof", steers=self.steers)
         self.phase = "ended"
+        # As `_end`: a pending request went with the process (C-27.3); no
+        # `turn.completed`, since delivery is reconciliation's to say (C-24.6).
+        step.resolved = sorted(self.pending)
+        self.pending.clear()
         step.outcome = self.outcome
         return step
 

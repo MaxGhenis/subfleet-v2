@@ -45,6 +45,16 @@ def test_bare_subfleet_and_aliases_reach_the_v1_spellings():
     assert cli.rewrite_aliases(["run", "-p", "x"]) == ["run", "-p", "x"]
 
 
+def test_status_help_documents_the_online_json_projection(capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.build_parser().parse_args(["status", "--help"])
+    assert exited.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "quarantined attempts (without evidence_json)" in help_text
+    assert "nonterminal jobs and those attempts' jobs" in help_text
+    assert "runs / runs show --json" in help_text
+
+
 @pytest.mark.parametrize("argv,handler", [
     ([], "cmd_status"),
     (["status"], "cmd_status"),
@@ -106,6 +116,8 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         elif action in ("hold", "release"):
             result["held" if action == "hold" else "released"] = request.args.get("lane_id")
             result["closures"] = []
+        elif action == "release-limits":
+            result.update(released=request.args.get("lane_id"), limits_released=[1], limits_reported=[2])
         return result
     server = daemon({"lanes": answer})
     cases = [
@@ -117,6 +129,8 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         (["lanes", "hold", "codex-1", "--until", "2026-09-05T18:00:00Z"],
          {"action": "hold", "lane_id": "codex-1", "until": "2026-09-05T18:00:00Z"}),
         (["lanes", "release", "codex-1"], {"action": "release", "lane_id": "codex-1"}),
+        (["lanes", "release", "codex-1", "--limits", "--note", "false positive"],
+         {"action": "release-limits", "lane_id": "codex-1", "note": "false positive"}),
         (["lanes", "transfer", "codex-1", "--to", "v1"],
          {"action": "transfer", "lane_id": "codex-1", "owner": "v1"}),
     ]
@@ -126,6 +140,41 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         for key, value in expected.items():
             assert sent[key] == value, argv
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("argv,message", [
+    (["lanes", "release", "codex-1", "--limits"], "--note is required"),
+    (["lanes", "release", "codex-1", "--limits", "--note", "   "], "--note is required"),
+    (["lanes", "release", "codex-1", "--note", "reason"], "--note requires --limits"),
+])
+def test_release_limits_requires_a_nonblank_note(argv, message, capsys):
+    assert run_cli(argv) == 2
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("json_flag", ([], ["--json"]))
+def test_release_limits_refuses_an_older_daemon(daemon, capsys, json_flag):
+    server = daemon({"lanes": lambda request: {"lanes": []}})
+    assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason", *json_flag]) == 69
+    assert server.args("lanes")["action"] == "release-limits"
+    assert "older than this CLI" in capsys.readouterr().err
+
+
+def test_release_limits_reports_clocks_kept(daemon, capsys):
+    daemon({"lanes": lambda request: {"released": "codex-1", "limits_released": [1, 2], "limits_reported": [3]}})
+    assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason"]) == 0
+    output = capsys.readouterr().out
+    assert "guessed limits released: 2" in output
+    assert "reported clocks kept: 1; cannot release by hand" in output
+
+
+def test_release_limits_help_names_reported_clock_rule(capsys):
+    with pytest.raises(SystemExit) as done:
+        cli.build_parser().parse_args(["lanes", "release", "--help"])
+    assert done.value.code == 0
+    output = " ".join(capsys.readouterr().out.split())
+    assert "--limits" in output and "--note" in output
+    assert "Provider-reported clocks cannot be released by hand" in output
 
 
 @pytest.mark.parametrize("answer,expected", [
@@ -603,8 +652,11 @@ def test_a_tmp_workdir_is_refused_with_exit_7(daemon, capsys):
 
 # --- daemon liveness (C-5.8) --------------------------------------------------
 
-def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir):
+def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir, monkeypatch):
     """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "boot_id", lambda: "1")
+    monkeypatch.setattr(client_module, "proc_start", lambda pid: "")
     daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
@@ -1333,13 +1385,15 @@ def test_a_lane_id_that_is_not_a_string_still_renders(capsys):
     capsys.readouterr()
 
 
-def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
+def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir, monkeypatch):
     """C-5.3 a start time that differs is reported with why, not just as dead.
 
     The recorded value is rendered by whoever wrote it, so a mismatch is either
     a reused pid or two sides rendering `lstart` in different locales; the
     message has to let a reader tell those apart.
     """
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "proc_start", lambda pid: "Sun Oct 11 00:00:00 2026")
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69

@@ -131,6 +131,13 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         return nil
     }
 
+    /// What one `approval.list` returned, for a check on the card it should have joined:
+    /// a card left without an id shows what the daemon listed when the app read it.
+    func listing(_ approvals: [ApprovalView]) -> [[String: Any]] {
+        approvals.map { ["approval_id": $0.approval_id, "message_id": $0.message_id,
+                         "request_id": $0.requestID ?? NSNull(), "kind": $0.kind, "state": $0.state] }
+    }
+
     func finalText(_ timeline: Timeline, _ messageID: String) -> String? {
         timeline.turn(messageID)?.items.reversed().compactMap { item -> String? in
             if case .text(let text, true) = item.content { return text }
@@ -230,12 +237,14 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     _ = engine.pump()
     let carded = follow(cid) { !($0.turn(approvalMessage.key)?.pendingApprovals.isEmpty ?? true) }
     try run.require("the approval card appears from approval.requested", carded)
+    // Read at once: the daemon commits an approval with its event (C-27.1), so the list
+    // read right after the card appears already has it, and the card's id comes from it.
     let pending = try engine.approvals(conversationID: cid)
     state.apply(approvals: pending, conversationID: cid)
     let card = state.timelines[cid]?.turn(approvalMessage.key)?.pendingApprovals.first
     run.check("the Dock badge counts it", state.pendingApprovalCount == 1, state.pendingApprovalCount)
     try run.require("the card joins its approval id", card?.approvalID != nil && card?.approvalID == pending.first?.approval_id,
-                    card.map(project) ?? NSNull())
+                    ["card": card.map(project) ?? NSNull(), "listed": listing(pending)] as [String: Any])
     if let approvalID = card?.approvalID {
         do {
             let detail = try engine.approvalDetail(approvalID)
@@ -277,17 +286,26 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     _ = engine.pump()
     let asked = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
     try run.require("the question card appears from approval.requested", asked)
+    // Read at once, as for the tool approval (C-27.1).
     let questions = try engine.approvals(conversationID: cid)
     state.apply(approvals: questions, conversationID: cid)
     let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first
     try run.require("the question card joins its approval id", questionCard?.approvalID != nil
-                    && questionCard?.approvalID == questions.first?.approval_id, questionCard.map(project) ?? NSNull())
+                    && questionCard?.approvalID == questions.first?.approval_id,
+                    ["card": questionCard.map(project) ?? NSNull(), "listed": listing(questions)] as [String: Any])
     try run.require("the question card lists its questions", questionCard?.kind == "question"
               && questionCard?.questions.first?.question == "Which color?"
               && questionCard?.questions.first?.options?.map(\.label) == ["Blue", "Red"], questionCard.map(project) ?? NSNull())
     if let id = questionCard?.approvalID {
-        let detail = try engine.approvalDetail(id)
-        _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
+        do {
+            let detail = try engine.approvalDetail(id)
+            let answer = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
+            try run.require("the question is answered as the app", answer.approval.state == "answered", answer.approval.state)
+        } catch let stop as LiveStop {
+            throw stop
+        } catch {
+            try run.require("the question is answered as the app", false, describe(error))
+        }
     }
     _ = untilState(question.key, ["complete", "failed"])
     _ = follow(cid, timeout: 20) { $0.turn(question.key)?.outcome != nil }

@@ -66,7 +66,7 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1", "workspace.check.v1", "wake.v1")
+                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY)
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
@@ -1203,6 +1203,12 @@ class ConversationService:
         decision = args.get("decision")
         if decision not in approval["options"]:
             raise ConversationError("bad-decision", f"{decision!r} is not offered here")
+        answers = args.get("answers")
+        if decision == "answer" and not (isinstance(answers, dict) and answers):
+            # Refused here, not by the driver after the answer is recorded (and its
+            # `approval.resolved` written, C-27.3): the card would read answered while
+            # the provider still waited on it (C-27.2).
+            raise ConversationError("bad-answer", "an answer needs the chosen answers")
         runner = self.runners.get(approval["attempt_id"])
         if runner is None or runner.driver.outcome is not None:
             raise ConversationError("turn-ended", "the turn that asked has ended")
@@ -2047,7 +2053,8 @@ class ConversationService:
             notes = [(job_id, "placed", lambda: waits.PLACED) for job_id in placed]
             notes += [(job_id, json.dumps({key: value for key, value in hold.items() if key != "next_check_at"},
                                           sort_keys=True, default=str),
-                       lambda hold=hold: waits.hold_reason(hold, describe=self._describe_lease, who=self._who))
+                       lambda hold=hold: waits.hold_reason(
+                           hold, describe=lambda key: self._describe_lease(key, hold.get("folder")), who=self._who))
                       for job_id, hold in holds.items()]
             for job_id, signature, reason_of in notes:
                 try:
@@ -2088,8 +2095,10 @@ class ConversationService:
         title = (row or {}).get("title")
         return f"conversation \u201c{title}\u201d" if title else f"conversation {conversation_id}"
 
-    def _describe_lease(self, key: str) -> str:
-        """Who holds one lease a turn waits for, and what that means for it."""
+    def _describe_lease(self, key: str, folder: str | None = None) -> str:
+        """Who holds one lease a turn waits for, and what that means for it. `folder`
+        is the turn's (its hold names it): a fence on a tree above it is retention
+        retiring the tree that folder is nested in (C-8.4)."""
         row = self.daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))
         holder = str(row["holder"]) if row else None
         owner = holder.split(":", 1)[1] if holder and holder.startswith(("retention:", "gate-round:")) else holder
@@ -2100,8 +2109,12 @@ class ConversationService:
         if holder is None:
             return "what it waited for was just released; it starts at the next look"
         if key.startswith(folders.EXCLUSIVE):
-            if holder.startswith("retention:"):
-                return "retention is removing a finished job's worktree in this folder"
+            if holder.startswith(folders.RETENTION):
+                tree = key[len(folders.EXCLUSIVE):]
+                kind = "job directory" if tree == str(self.daemon.root / "jobs" / str(job_id)) else "worktree"
+                if folder and folders.fold(tree) != folders.fold(folder):
+                    return f"retention is removing a finished job's {kind} that this folder is in ({tree})"
+                return f"retention is removing a finished job's {kind} in this folder ({tree})"
             job = self.daemon.store.one("SELECT kind FROM jobs WHERE job_id=?", (job_id,))
             if job and job["kind"] == "turn":
                 # A turn a daemon before 2026-09-29 admitted still holds the folder alone.

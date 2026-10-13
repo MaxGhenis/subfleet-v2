@@ -341,8 +341,8 @@ def format_status(data: dict[str, Any]) -> str:
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
     closures = rows_of(data.get("closures"))
-    # `daemon.status` carries every job the store holds as `jobs` (it is the
-    # capacity view); only the live ones belong under this heading. A turn job
+    # `daemon.status` carries nonterminal jobs and live/quarantined attempts'
+    # jobs; older daemons carry the whole ledger, so filter it here too. A turn job
     # is its conversation's (C-26.12): it is counted on its own line, never as
     # a running job.
     live = [row for row in rows_of(data.get("running") or data.get("jobs"))
@@ -410,6 +410,8 @@ def format_status(data: dict[str, Any]) -> str:
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
+    if isinstance(data.get("disk"), dict):
+        lines.append(render.disk_line(data["disk"]))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
@@ -737,6 +739,7 @@ def _prepare_submit(args: argparse.Namespace,
         pinned_provider="claude" if args.a else "codex" if args.H else None,
         unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
+        push_branch=getattr(args, "push_branch", None),
         name=args.name,
         exclusions=list(args.exclude or []),
         allow_desktop=bool(args.allow_desktop),
@@ -838,6 +841,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     minted = not args.request_id
     try:
         client = _client(args)
+        if submit.push_branch is not None:
+            refused = _push_unsupported(client, "run")
+            if refused is not None:
+                return refused
         if submit.dry_run:
             # Explains a placement and creates nothing, so there is nothing to settle.
             result = client.call("submit", _asdict(submit), request_id=request_id)
@@ -926,6 +933,7 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
     "mcp": ("mcp", "list"),
+    "push_branch": ("push_branch", "str"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -1057,6 +1065,15 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         prepared.append((options["name"], submit))
 
     client, root = _client(args), _root(args)
+    if any(submit.push_branch is not None for _, submit in prepared):
+        try:
+            refused = _push_unsupported(client, "run --batch")
+        except DaemonUnavailable as exc:
+            return _daemon_down(exc)
+        except DaemonError as exc:
+            return _daemon_error(exc)
+        if refused is not None:
+            return refused
     minted = not args.request_id
     # C-17.7: the same manifest under the same batch id sends every entry again,
     # and an entry the daemon already holds comes back as its job (C-6.2).
@@ -1429,6 +1446,18 @@ def _daemon_capabilities(client: Client) -> frozenset[str]:
     return frozenset(name for name in names if isinstance(name, str))
 
 
+def _push_unsupported(client: Client, verb: str) -> int | None:
+    """C-8.5 (review P3-10): a daemon that does not advertise `push.v1` drops
+    `push_branch` (C-16.2) and would accept the job without ever pushing, so
+    `--push-branch` is refused before anything is sent. Exit 69 with the
+    restart, as `runs --kind` answers a daemon older than the CLI."""
+    if protocol.PUSH_CAPABILITY in _daemon_capabilities(client):
+        return None
+    return fail(Exit.DAEMON_UNAVAILABLE,
+                f"{verb} --push-branch: this daemon does not advertise `{protocol.PUSH_CAPABILITY}`, so it "
+                f"would drop the branch and never push; it is older than this CLI", RESTART_DAEMON)
+
+
 def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:
     """C-26.12 on the client: does this `list` row answer the request?
 
@@ -1590,6 +1619,8 @@ def _format_job(job: dict[str, Any]) -> str:
                        ("sandbox", "sandbox"), ("out_path", "-o"),
                        ("created_at", "created"), ("finished_at", "finished"),
                        ("export_error", "export error"),
+                       ("push_branch", "push branch"), ("push_sha", "pushed"),
+                       ("push_error", "push error"),
                        ("unmeasured_reserve_reason", "unmeasured reserve"),
                        ("cancel_requested_at", "cancel requested")):
         value = job.get(key)
@@ -1621,6 +1652,9 @@ def _format_job(job: dict[str, Any]) -> str:
         for artifact in artifacts:
             lines.append(f"  {str(artifact.get('role') or '-'):<12} "
                          f"{artifact.get('path')} ({artifact.get('bytes')} bytes)")
+    for push in rows_of(job.get("pushes")):
+        lines.append(f"push     [{push.get('result')}] {push.get('remote')} "
+                     f"{push.get('branch')} {push.get('sha') or '-'} at {push.get('finished_at') or push.get('started_at')}")
     for notice in rows_of(job.get("notices")):
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
     return "\n".join(lines)
@@ -2046,14 +2080,23 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "lanes transfer: --to must be v1 or v2")
     if action == "hold" and not args.until:
         return fail(Exit.INVALID_INPUT, "lanes hold: --until is required")
+    limits = bool(getattr(args, "limits", False))
+    note = getattr(args, "note", None)
+    if limits and not (note or "").strip():
+        return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
+    if note is not None and not limits:
+        return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
     lanes_args = protocol.LanesArgs(
-        action=action,
+        # Older daemons ignore unknown fields. A distinct action prevents them
+        # from releasing operator holds when asked to release guessed limits.
+        action="release-limits" if limits else action,
         lane_id=getattr(args, "lane", None),
         credential=getattr(args, "credential", None),
         until=getattr(args, "until", None),
         owner=getattr(args, "to", None),
         dry_run=bool(getattr(args, "dry_run", False)),
         confirm_v1_edit=bool(getattr(args, "confirm_v1_edit", False)),
+        note=note,
     )
     try:
         result = _client(args).call("lanes", _asdict(lanes_args))
@@ -2069,6 +2112,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         # that as a completed no-op would record a canary transfer that never ran.
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not perform the transfer; it is older than this CLI",
+                    RESTART_DAEMON)
+    if limits and not isinstance(result.get("limits_released"), list):
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    "the daemon did not release guessed limits; it is older than this CLI",
                     RESTART_DAEMON)
     if args.json:
         emit(result)
@@ -2089,6 +2136,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
         out(f"{action}: {result.get('held') or result.get('released')}")
+        if limits:
+            out(f"guessed limits released: {len(result['limits_released'])}")
+            if result.get("limits_reported"):
+                out(f"reported clocks kept: {len(result['limits_reported'])}; cannot release by hand")
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
@@ -2911,7 +2962,12 @@ def build_parser() -> argparse.ArgumentParser:
     from .gate.cli import configure as configure_gate
     configure_gate(sub.add_parser("gate", help="main/peer agreement for an exact revision"))
 
-    p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs")
+    p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs",
+        description="Show current capacity. Online --json includes only reserved, starting, running, "
+                    "finalizing and quarantined attempts (without evidence_json), nonterminal jobs "
+                    "and those attempts' jobs. Attempt fields: attempt_id, job_id, seq, lane_id, "
+                    "model_requested, state, reserved_at. Use runs / runs show --json for history "
+                    "and full attempt evidence.")
     _add_json(p_status)
     p_status.set_defaults(handler=cmd_status)
 
@@ -2954,6 +3010,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-I", "--independent-review", dest="isolated_review", action="store_true")
     p_run.add_argument("-D", "--review-root", dest="review_root")
     p_run.add_argument("-o", dest="o", metavar="OUT", help="export the deliverable here")
+    p_run.add_argument("--push-branch", metavar="BRANCH",
+                       help="after acceptance, have the host push push.bundle to this branch (requires push policy)")
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
@@ -3074,8 +3132,14 @@ def build_parser() -> argparse.ArgumentParser:
     l_hold.add_argument("lane")
     l_hold.add_argument("--until", required=True, help="ISO 8601 UTC instant")
     _add_json(l_hold, nested=True)
-    l_release = lanes_sub.add_parser("release")
+    l_release = lanes_sub.add_parser("release", help="release operator holds or guessed limits",
+                                     description="Release operator holds, or use --limits --note TEXT to "
+                                     "release guessed provider-limit and credits closures. "
+                                     "Provider-reported clocks cannot be released by hand.")
     l_release.add_argument("lane")
+    l_release.add_argument("--limits", action="store_true",
+                           help="release open guessed provider-limit and credits closures")
+    l_release.add_argument("--note", help="required operator reason for --limits, recorded in an event")
     _add_json(l_release, nested=True)
     l_transfer = lanes_sub.add_parser("transfer")
     l_transfer.add_argument("lane")

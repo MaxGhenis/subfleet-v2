@@ -98,7 +98,7 @@ def test_the_migration_is_numbered_and_recorded(version_1_store):
         assert versions == list(range(1, SCHEMA_VERSION + 1))
         migrated = [row for row in store.list_events() if row["kind"] == "schema.migrated"]
         assert [json.loads(r["data_json"])["version"] for r in migrated] == list(range(2, SCHEMA_VERSION + 1))
-    assert set(MIGRATIONS) == {4, 5, 6}
+    assert set(MIGRATIONS) == {4, 5, 6, 7}
 
 
 def test_reopening_a_migrated_store_changes_nothing(version_1_store):

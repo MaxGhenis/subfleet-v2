@@ -443,7 +443,9 @@ class Retirement:
                 # away, it finds none, and the tree moved back has one.
                 read = rgit.gitfile_admin(worktree)
                 reg, why = rgit.registration(worktree, read)
-                if why != "no-gitfile":
+                if standalone_checkout(job, worktree):
+                    reg, why, gitfile = None, "no-gitfile", STANDALONE
+                elif why != "no-gitfile":
                     gitfile = hashlib.sha256(read[1]).hexdigest()
                 if why == "admin-remnant":
                     # Only an index and logs/ are left of the registration:
@@ -613,10 +615,35 @@ class Retirement:
 
     # --- step 3: move into quarantine ------------------------------------------------------
 
+    def _fence_job_folder(self) -> None:
+        """Keep a turn's cwd, or fence the job directory before either rename.
+
+        Selection fences the allocated tree; its job directory also needs a
+        fence. Check and acquire it atomically, including on crash recovery.
+        The cwd can differ from the Git hold, so also read queued/live turn jobs.
+        """
+        assert self.journal is not None
+        folder = folders.canonical(self.journal["job_dir"])
+        key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
+        with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
+            self.ctx.check()
+            read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
+            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+                                 "('queued','running','waiting')").fetchall()
+            if folders.turn_holds(read, folder, inside=True) or any(
+                    folders.within(row["workdir"], folder) for row in turns):
+                raise Defer("turn-folder", DEFER_PINNED_S, folder)
+            current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if current and current[0] != holder:
+                raise Defer("job folder lease", DEFER_CHANGED_S, folder)
+            conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                         (key, holder, _now()))
+
     def quarantine(self) -> None:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        self._fence_job_folder()
         present = j.get("worktree_present")
         if j["worktree"] is not None and not j["moved"]["worktree"] and present is not None \
                 and os.path.lexists(j["worktree"]) != present:
@@ -878,10 +905,10 @@ class Retirement:
                     reason = self.ctx.pinned(self.job_id, landed) if self.ctx.pinned else None
                     # The pins compare `jobs.worktree` as recorded; the journal holds
                     # the canonical spelling the selecting transaction checked. A turn
-                    # row on it or on a folder inside it (admission fences only a
-                    # turn's own folder, so one may register in a repository nested in
-                    # the tree after selection) keeps the job whatever the recorded
-                    # spelling, or with none recorded (review of 31048e67, F1).
+                    # row on it or on a folder inside it keeps the job whatever the
+                    # recorded spelling, or with none recorded (review of 31048e67,
+                    # F1). Admission reserves no turn there while the fence is held
+                    # (`folders.retiring`); this is the commit's own check of the rows.
                     if not reason and j["worktree"] and folders.turn_holds(
                             lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
                         reason = "turn-folder"
@@ -952,6 +979,31 @@ class Retirement:
 
     # --- step 8: verified deletion ---------------------------------------------------------
 
+    def _fence_quarantine(self) -> str | None:
+        """Keep live turns in quarantine, or atomically fence it before cleanup.
+
+        A turn may start at the quarantine path after the original tree moved.
+        Rows also protect quarantined attempts; recorded live cwd paths cover
+        a Git hold elsewhere. Queued turns wait on this fence without keeping
+        cleanup waiting for their admission. Spell the path outside the writer.
+        """
+        folder = folders.canonical(self.work)
+        key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
+        with self.ctx.store.transaction("retention.quarantine_folder", job_id=self.job_id) as conn:
+            self.ctx.check()
+            read = lambda sql, params: conn.execute(sql, params).fetchall()  # noqa: E731
+            turns = conn.execute("SELECT workdir FROM jobs WHERE kind='turn' AND state IN "
+                                 "('running')").fetchall()
+            if folders.turn_holds(read, folder, inside=True) or any(
+                    folders.within(row["workdir"], folder) for row in turns):
+                return f"turn-folder: {folder}"
+            current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
+            if current and current[0] != holder:
+                return f"quarantine folder lease: {folder}"
+            conn.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                         (key, holder, _now()))
+        return None
+
     def reclaim(self) -> dict[str, Any]:
         """Verified deletion of the quarantined trees, then of the admin directory.
 
@@ -974,6 +1026,9 @@ class Retirement:
         report: dict[str, Any] = {"deleted": 0, "bytes": 0, "kept": [], "errors": [], "late_anchor": None,
                                   "admin_kept": False, "done": False, "totals": manifest["totals"],
                                   "added_bytes": added_bytes(self.published_dir(), manifest["totals"])}
+        if reason := self._fence_quarantine():
+            report["errors"].append({"path": str(self.work), "error": reason})
+            return report
         if not isinstance(j.get("identity"), dict) and os.path.lexists(self.q_worktree):
             # An older pass may already have committed the lookup race. Its
             # rows cannot be rolled back, but its remaining tree and private
@@ -1036,6 +1091,7 @@ class Retirement:
             os.rmdir(self.work)
         except OSError:
             pass
+        self.ctx.store.release_leases(f"retention:{self.job_id}")
         report["done"] = True
         return report
 
@@ -1132,6 +1188,13 @@ class Retirement:
             raise RuntimeError("a committed retirement cannot be rolled back")
         if j["state"] == "quarantining":
             self._reconcile_moves()
+        # Preserve the intended rollback across a restart while a turn keeps
+        # the quarantine in place; recovery must not commit this archive.
+        self.save(rollback_pending={"reason": reason, "keep_cache": keep_cache, "failures": failures,
+                                    "defer_until": defer_until})
+        if kept := self._fence_quarantine():
+            report["kept"] = kept
+            return report
         keep_lock = False
         for name, original, target in (("worktree", j["worktree"], self.q_worktree), ("job", j["job_dir"], self.q_job)):
             if original is None or not os.path.lexists(target):
@@ -1160,7 +1223,7 @@ class Retirement:
             conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{self.job_id}",))
         if keep_cache and os.path.isdir(self.building):
             self.save(state="idle", lock=None, check1=False, reason=reason, idle_since=time.time(),
-                      failures=failures, defer_until=defer_until)
+                      failures=failures, defer_until=defer_until, rollback_pending=None)
         else:
             self._drop_journal()
             try:
@@ -1324,11 +1387,31 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
     return None, None, f"repository not found (workdir {workdir} is gone)"
 
 
-def gitfile_digest(tree: Path) -> str | None:
-    """The sha256 of the tree's `.git` file; None without one. One that cannot
-    be read as a small regular file (a directory, a link) answers a reason,
-    which no digest equals."""
+#: C-8.5 (review P3-8): what `.git` is in a host-push job's standalone checkout
+#: (`host_push.prepare_workspace`): a directory, the job's own data, not a
+#: gitfile naming a registration in the caller's repository.
+STANDALONE = "standalone .git directory"
+
+
+def standalone_checkout(job: dict[str, Any], worktree: Path) -> bool:
+    """A host-push job's tree whose `.git` is a real directory. It is archived
+    as bytes like a tree without a gitfile: there is no registration to lock or
+    discard, and no Git ever runs in it (its config is the job's)."""
+    if job.get("push_branch") is None:
+        return False
     try:
+        return stat.S_ISDIR(os.lstat(worktree / ".git").st_mode)
+    except OSError:
+        return False
+
+
+def gitfile_digest(tree: Path) -> str | None:
+    """The sha256 of the tree's `.git` file; None without one; STANDALONE for a
+    real `.git` directory. One that cannot be read as a small regular file (a
+    link, say) answers a reason, which no digest equals."""
+    try:
+        if stat.S_ISDIR(os.lstat(tree / ".git").st_mode):
+            return STANDALONE
         return hashlib.sha256(rfs.read_regular(tree / ".git", limit=65536)).hexdigest()
     except FileNotFoundError:
         return None

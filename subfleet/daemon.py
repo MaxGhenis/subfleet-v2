@@ -34,11 +34,12 @@ import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from . import __version__
-from . import capacity, descriptors, folders, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
+from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
 from . import resource_leases
+from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
@@ -53,10 +54,11 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
+from .provider_env import ProviderEnvironment
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, flatten_chain, load_policy,
+from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
                      policy_hash, resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
@@ -73,6 +75,15 @@ from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_
 _UNSET = object()
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
+
+#: C-8.5: keep a finished checkout through seven failed completion writes;
+#: the eighth failure settles the job instead of retrying ownership forever.
+PUSH_WORKSPACE_STORE_MAX_FAILURES = 8
+#: C-8.5: a recoverable completion write is retried for at least this long after its first
+#: failure, and at least PUSH_WORKSPACE_STORE_MAX_FAILURES times, before the job fails. Admission
+#: passes run every tick, so a count alone spent its retries in well under a second (review r3 of
+#: #183), far less than a full disk takes to recover.
+PUSH_WORKSPACE_STORE_RETRY_WINDOW_S = 600.0
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
@@ -104,6 +115,26 @@ ROUTE_ATTEMPTS = ("SELECT attempt_id,job_id,seq,lane_id,model_requested,state,re
 ROUTE_JOBS = ("SELECT job_id,parent_job_id,state,kind FROM jobs WHERE parent_job_id > '' OR job_id IN "
               "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing')) "
               "ORDER BY +created_at,rowid")
+#: C-17.4, D-ST2: operator views need live attempts, not the retained ledger or
+#: its evidence. Keep quarantine visible without counting it as in flight.
+#: Separate branches let SQLite use `attempts_live` and `attempts_quarantined`;
+#: adding quarantine to the live predicate would stop using its partial index.
+#: Rowid breaks equal timestamp/seq ties as the old `attempts_reserved` index
+#: did, preserving renderer order without returning the internal rowid.
+STATUS_ATTEMPTS = (
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM ("
+    "SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "WHERE state IN ('reserved','starting','running','finalizing') "
+    "UNION ALL SELECT rowid,attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at FROM attempts "
+    "WHERE state='quarantined') ORDER BY reserved_at,seq,rowid")
+#: All nonterminal jobs (including queued/waiting turns), plus the jobs of the
+#: attempts above: even a cancelled job can have an uncontained attempt. Keep
+#: their existing columns for CLI/MCP JSON callers. `+created_at` prevents an
+#: ordering scan of every retained job, as it does for `ROUTE_JOBS`.
+STATUS_JOBS = (
+    "SELECT * FROM jobs WHERE state IN ('queued','waiting','running') OR job_id IN "
+    "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
+    "UNION ALL SELECT job_id FROM attempts WHERE state='quarantined') ORDER BY +created_at,rowid")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -173,7 +204,7 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
-                            "lane-proving"})
+                            "lane-proving", "disk"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
@@ -554,6 +585,25 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 
 
 class Daemon:
+    #: C-6.17: the last latch written to the store (`_save_disk_latch`).
+    _disk_saved_hold = False
+    _disk_saved_source = "policy"
+
+    @property
+    def _disk(self) -> disk.DiskAdmission:
+        """C-6.17's state. `__init__` builds it from policy and the store. A Daemon
+        assembled without `__init__` (unit tests build one by hand) gets a disabled
+        one on first use, so admission behaves there exactly as it did before the
+        rule existed; a pass that reads an enabling policy still turns it on."""
+        state = self.__dict__.get("_disk_state")
+        if state is None:
+            state = self.__dict__["_disk_state"] = disk.DiskAdmission(Path(self.__dict__.get("root", ".")))
+        return state
+
+    @_disk.setter
+    def _disk(self, state: disk.DiskAdmission) -> None:
+        self.__dict__["_disk_state"] = state
+
     @_released_on_failure
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
@@ -656,6 +706,10 @@ class Daemon:
             os.close(self._lock_fd)
             raise DaemonUnavailable("another daemon holds daemon.lock") from None
         self._lock_finalizer = weakref.finalize(self, os.close, self._lock_fd)
+        # C-8.5, review r4 P3-2: no live daemon can be using an intake now that
+        # this startup owns daemon.lock. Remove crash leftovers before the
+        # first admission pass or any worker or push thread can create one.
+        host_push.clear_quarantine(self.root)
         try:
             ident = {"pid": os.getpid(), "boot_id": procs.boot_id(),
                      "proc_start": procs.proc_start(os.getpid()), "version": __version__}
@@ -699,8 +753,21 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
+        self._provider_environment = ProviderEnvironment(self.policy, log=self.log)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
+        self._disk.settings = disk_settings(self.policy)
+        if self._disk.settings["enabled"]:
+            latch = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_latch' ORDER BY event_id DESC LIMIT 1")
+            self._disk.holding = bool(latch and json.loads(latch["data_json"]).get("holding"))
+            floor = self.store.one("SELECT data_json FROM events WHERE kind='admission.disk_floor' ORDER BY event_id DESC LIMIT 1")
+            floor_info = json.loads(floor["data_json"]) if floor else {}
+            self._disk_saved_source = floor_info.get("floor_source", "policy")
+            if self._disk_saved_source != "policy":
+                self._disk.floor_info = floor_info
+        self._disk_saved_hold = self._disk.holding
+        self._disk.rebuild(self._disk_rows() if self._disk.settings["enabled"] else (), utcnow())
         self._pin_episodes = self._load_pin_episodes()          # C-11.8
         self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
@@ -710,6 +777,11 @@ class Daemon:
         # 13: retention's pass (d635) can hold one worker for minutes; the other
         # twelve are what attempts, admission and exports had before.
         self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
+        # C-8.5 (review P3-5): every host push runs here, one at a time, so push jobs
+        # finishing together queue on this thread rather than each holding a worker.
+        self.pushes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-push")
+        # Checkout construction shares the serialized push thread. Admission
+        # only queues or consumes a result; it never waits for a build.
         self.requests = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subfleet-api")
         self.lookups = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subfleet-read")   # C-16.5
         # C-16.7: each connection the daemon holds has a reader thread of its own
@@ -739,7 +811,12 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
-                             deliver=self._timer_notice)
+                             deliver=self._timer_notice, demand=self._reset_demand)
+        # C-23.16 (f): the policy is read once, here; say what it means for resets.
+        resets = self.timers.actions.describe()
+        self.log.info("reset credits: automatic redemption %s; no-reset marker %s",
+                      "on (only for a job waiting on the lane, one at a time, C-23.16)" if resets["automatic"] else "off",
+                      resets["inhibited_by"] or "absent")
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
         self.timers.probe_record = self._probe_record            # C-18.1: the probe holding a lane, by name
         self._recovery_complete = threading.Event()
@@ -772,7 +849,7 @@ class Daemon:
         steps = [no_stack_dumps, closing_log]
         steps += [functools.partial(executor.shutdown, wait=False)
                   for executor in (self.__dict__.get(name)
-                                   for name in ("workers", "requests", "lookups", "waiters"))
+                                   for name in ("workers", "pushes", "requests", "lookups", "waiters"))
                   if executor is not None]
         if (conversations := self.__dict__.get("conversations")) is not None:
             steps.append(conversations.close)           # its pools and its store
@@ -788,6 +865,13 @@ class Daemon:
 
     def _reset_admission_state(self) -> None:
         """What admission remembers between passes; all of it in memory (C-6.10, C-6.11)."""
+        self._push_workspaces: dict[str, Future] = {}
+        self._push_workspace_store_errors: dict[str, sqlite3.Error] = {}
+        self._push_workspace_store_failures: dict[str, int] = {}
+        # time.monotonic() of each job's first completion-write failure (C-8.5's retry window)
+        self._push_workspace_store_first_failure: dict[str, float] = {}
+        self._push_unused_workspaces: set[str] = set()
+        self._push_preparation_offered = False
         # C-6.14: what the daemon has seen of models answering. Lane id -> the epoch
         # seconds of the last answer on it, and attempt id -> when an attempt in
         # flight first answered (it is then no pilot): replaced whole under
@@ -839,6 +923,11 @@ class Daemon:
         # `_holds` is the two together.
         self._holds: dict[str, dict] = {}
         self._holds_by_kind: dict[str, dict[str, dict]] = {"turn": {}, "detached": {}}
+        # C-23.16 (a): what the pass of each kind now running has held so far
+        # (the dict it fills, None between passes). `_reset_demand` reads a
+        # job's hold here first, so a job this pass held at the door is no
+        # demand from that moment, not only once the pass ends.
+        self._pass_holds: dict[str, dict[str, dict] | None] = {"turn": None, "detached": None}
         self._note_error: str | None = None       # C-24.4: the last failure to note turn waits
         self._pass_seq = {"turn": 0, "detached": 0}   # passes begun, per kind, under their pass lock
         # C-26.9: one pass of each kind at a time; the two kinds' passes run side
@@ -1117,6 +1206,37 @@ class Daemon:
                 "released": a.lane_id if a.action == "release" else None,
                 "lanes": view["lanes"], "closures": view["closures"]}
 
+    def _release_lane_limits(self, a: protocol.LanesArgs) -> dict:
+        """C-9.6: lift guessed clocks only, recording the operator's grounds."""
+        if not a.lane_id or not self.store.get_lane(a.lane_id):
+            raise protocol.ProtocolError(f"lanes release --limits: unknown lane {a.lane_id!r}",
+                                         Exit.INVALID_INPUT, "subfleet lanes list")
+        note = (a.note or "").strip()
+        if not note:
+            raise protocol.ProtocolError("lanes release --limits: --note is required", Exit.INVALID_INPUT)
+        data = {"note": note, "closure_ids": [], "reported_closure_ids": []}
+        with self.store.transaction("lane.limits_released", lane_id=a.lane_id, data=data) as tx:
+            now = utcnow()
+            rows = tx.execute("SELECT closure_id, clock_source FROM closures WHERE lane_id=? "
+                              "AND reason IN ('provider-limit','credits') AND released_at IS NULL "
+                              "AND until_at>? ORDER BY closure_id", (a.lane_id, now)).fetchall()
+            if not rows:
+                raise protocol.ProtocolError("lanes release --limits: no open provider-limit or credits closures",
+                                             Exit.INVALID_INPUT)
+            data["closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "guessed"]
+            data["reported_closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "reported"]
+            if not data["closure_ids"]:
+                raise protocol.ProtocolError("lanes release --limits: reported clock; provider clocks cannot "
+                                             "be released by hand", Exit.INVALID_INPUT)
+            tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? "
+                       "AND reason IN ('provider-limit','credits') AND clock_source='guessed' "
+                       "AND released_at IS NULL AND until_at>?", (now, a.lane_id, now))
+        self._notify()
+        view = self._capacity_view(self._desktop_identity())
+        return {"released": a.lane_id, "limits_released": data["closure_ids"],
+                "limits_reported": data["reported_closure_ids"],
+                "lanes": view["lanes"], "closures": view["closures"]}
+
     def _seed_lanes(self) -> None:
         path = self.root / "lanes.json"
         if not path.exists():
@@ -1179,7 +1299,8 @@ class Daemon:
         and jobs a route can depend on (`ROUTE_ATTEMPTS`, `ROUTE_JOBS`, C-11.2),
         and `scheduler.evaluate` reaches the same decision over them as over
         every row (a differential property test). Status and the operator's
-        views read every row.
+        views read live/quarantined attempts without evidence and their jobs,
+        plus every nonterminal job (`STATUS_ATTEMPTS`, `STATUS_JOBS`, C-17.4).
 
         Only the reads: the view is built after the snapshot ends, so building
         it holds no read connection. Six views building at once used to hold
@@ -1188,8 +1309,8 @@ class Daemon:
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
                     "closures": self.store.list_closures(),
-                    "attempts": self.store.query(ROUTE_ATTEMPTS) if route else self.store.list_attempts(),
-                    "jobs": self.store.query(ROUTE_JOBS if route else "SELECT * FROM jobs ORDER BY created_at,rowid")}
+                    "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
+                    "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
             if not route:
                 rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt
@@ -1703,6 +1824,53 @@ class Daemon:
                                                      for lane_id, found in overrides.items()})
         return decision
 
+    def _reset_demand(self) -> list[dict]:
+        """C-23.16 (a), (b): the jobs held waiting for lane capacity, each judged as admission judges it.
+
+        The reset-credit timer calls this from its own thread, so it reads and
+        never writes, and asks nothing of the network (the cached desktop
+        identity, not a profile request). A job counts only while it is
+        `waiting` on `capacity`, is not being cancelled, its latest admission
+        look evaluated its route and found no lane would take it
+        (`_capacity_waits`, `lane_wait`), and admission's latest hold of it is
+        for that same reason: the hold the pass now running gave it, if it has
+        reached the job, else the last whole pass's. So a job submitted a moment
+        ago, one a restart has not looked at yet, and one held at the door
+        (`disk`, `machine-busy`), behind an older job, for a full fleet, a
+        lease, a probe or a person is never the reason a credit is spent, from
+        the moment that hold is made. Its lanes are the ones admission would
+        try: the lanes its own earlier attempts exclude stay excluded, and a
+        transient retry waiting for a slot on its own lane is waiting, not
+        demand. Returned in admission order, each entry `actions.demand_verdict`
+        of the job's decision now, plus its id and tier.
+        """
+        # The running passes' holds before the last whole pass's: a pass that ends
+        # between the two reads is then seen whole, never as neither.
+        running = [found.copy() for found in list(self._pass_holds.values()) if found is not None]
+        holds = self._holds
+        waits = self._capacity_waits.copy()         # one C call; admission replaces entries meanwhile
+
+        def latest(job_id: str) -> dict:
+            return next((found[job_id] for found in running if job_id in found), None) or holds.get(job_id) or {}
+        rows = self.store.query("SELECT * FROM jobs WHERE state='waiting' AND wait_reason='capacity' "
+                                "AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        rows = [job for job in rows if (wait := waits.get(job["job_id"])) and wait.get("lane_wait")
+                and latest(job["job_id"]).get("reason") == wait.get("label")]
+        if not rows:
+            return []
+        desktop = self._cached_desktop_identity()
+        demand = []
+        for job in scheduler.ordered_jobs(self.policy, rows):
+            try:
+                _, exclusions, retry = self._retry_pin(job)
+                if retry and self._retry_waits_on_a_slot(retry, exclusions, desktop):
+                    continue
+                decision = self._pick(job, extra_exclusions=exclusions, desktop=desktop)
+            except (*ROUTE_ERRORS, Unroutable):
+                continue            # C-6.12: a route that cannot be evaluated is no demand
+            demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
+        return demand
+
     def _route(self, job: dict, **options):
         """C-6.12: `_pick` for admission. An evaluation that raises is this job's, not the pass's."""
         try:
@@ -1853,6 +2021,9 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7)
+        if args.push_branch is not None and args.kind != "dispatch":
+            raise AdapterError("host push is supported for dispatch jobs", code=7,
+                               fix="submit a dispatch with --push-branch")
         with self._submit_lock:
             reason = args.unmeasured_reserve_reason
             if reason is not None:
@@ -1943,13 +2114,27 @@ class Daemon:
                                        fix="remove the symlink loop or choose a different -o path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
-                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
+                push_remote = push_default = push_head = push_current = push_top = None
+                if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
+                    # C-8.5: the job writes its bundle in its own workspace.
+                    raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
+                                       code=7, fix="pass -s workspace-write, or omit --push-branch")
+                if args.push_branch is not None:
+                    push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
+                        workdir, args.push_branch, self.policy, self.root,
+                        in_place=bool(args.in_place))
+                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
+                    if push_current in ("main", "master"):
+                        raise AdapterError("writable in-place jobs require a feature branch", code=7,
+                                           fix="choose a feature branch or omit --in-place")
+                elif sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
                     # C-13.2: the refusal is about where the job writes. A job that
                     # is not in place writes in a detached worktree the daemon cuts
                     # for it (C-6.6), wherever its caller happens to stand. A
                     # conversation a person allowed on main is exempt (C-26.10).
                     validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
-                head = git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                head = push_head if args.push_branch is not None else git_head(
+                    workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
                 if sandbox == Sandbox.WORKSPACE_WRITE and head is None and turn is None:
                     # C-26.10: an attended conversation may work outside git.
                     if from_policy:
@@ -1966,12 +2151,19 @@ class Daemon:
                 # spelled one way (`folders.canonical`, as a conversation's workspace
                 # is): a folder outside git kept the case it was typed in, so
                 # `~/Scratch` and `~/scratch` were two keys for one folder.
-                write_target = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
-                                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None)
-                # C-8.4, C-13.4: a read-only turn's folder, the same place a writable one's
-                # target is, so retention can tell it is in use (`folders.READER`).
-                read_folder = (folders.canonical(git_toplevel(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) or workdir)
-                               if turn is not None and write_target is None else None)
+                # C-8.4, C-13.4: a read-only turn's folder is the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`). Both are
+                # spelled in one look (`_row_folder`), which also says whether admission must
+                # find the folder again (`unspelled`), and admission spells it again before it
+                # takes a row (`folders.present`). C-8.5: a push job's checkout top comes from
+                # `host_push.validate_submit`, which read it without asking git, so it is
+                # spelled as given and git is not run in that checkout here either; nor at
+                # admission, since such a folder is never `unspelled`.
+                named, unspelled = (self._row_folder(workdir, push_top)
+                                    if (sandbox == Sandbox.WORKSPACE_WRITE and args.in_place) or turn is not None
+                                    else (None, False))
+                write_target = named if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None
+                read_folder = named if turn is not None and write_target is None else None
                 model = args.pinned_model
                 if model:
                     model = resolve_model(self.policy, model)
@@ -2025,11 +2217,21 @@ class Daemon:
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
-                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers)
+                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
+                    push_branch=args.push_branch, push_remote=push_remote)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
                     digest = turn["digest"]
+                # C-8.4, C-6.5: the workdir is recorded in its one spelling, as far as each
+                # name in it can be looked up now (a name that cannot stays as typed). Retention's
+                # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
+                # whose workdir was typed in another case or Unicode form than its volume
+                # stores (`stäte` in NFD under a tree spelled NFC) kept no tree: a writer or
+                # turn waiting on retention's fence above it saw the tree deleted (review of
+                # 5253faa2, P2). The digest keeps the path as resolved, so a request
+                # submitted again is the same payload whichever build accepted it first.
+                recorded_workdir = folders.canonical(workdir)
             except SalvageError as exc:
                 # C-6.8: nothing was submitted, so the caller retries; a timed-out
                 # `rev-parse` must not read as "not a repository" or "not on main".
@@ -2058,7 +2260,8 @@ class Daemon:
             for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
-                          workdir=str(workdir), workdir_head=head, out_path=out,
+                          workdir=recorded_workdir, workdir_head=head, out_path=out,
+                          push_remote=push_remote, push_default_branch=push_default,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
                           max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow(),
@@ -2122,7 +2325,7 @@ class Daemon:
                 # known now.
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
                 try:
-                    top = git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                    top = str(push_top) if push_top else git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
                 except SalvageError as exc:
                     # C-6.8: exit 1 with nothing stored, as the checks above; only
                     # the prompt has been written, under a job id nobody was given.
@@ -2130,14 +2333,14 @@ class Daemon:
                     self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                     raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                        fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
-                prefix = _git_prefix(str(workdir), cap) or os.path.relpath(os.path.realpath(workdir),
+                prefix = (None if args.push_branch is not None else _git_prefix(str(workdir), cap)) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
                 if _outside(prefix):
                     prefix = "."        # outside the checkout as far as can be told: the top
                 worktree = self.root / "worktrees" / job_id
                 place = ""
                 if prefix != ".":
-                    held = _commit_holds_dir(top, head, prefix, cap)
+                    held = None if args.push_branch is not None else _commit_holds_dir(top, head, prefix, cap)
                     template = {True: WORKSPACE_PLACE, False: WORKSPACE_PLACE_UNCOMMITTED}.get(held,
                                                                                             WORKSPACE_PLACE_UNCHECKED)
                     place = template.format(top=top, prefix=prefix, worktree=worktree, head=head[:12])
@@ -2146,6 +2349,23 @@ class Daemon:
                         prefix = "."
                 manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
                 note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
+                if args.push_branch is not None:
+                    note = note.replace(b"Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in that repository.",
+                                        b"Subfleet accepts committed work only through your push bundle.")
+            if args.push_branch is not None:
+                # C-8.5 (review P1-1): inside the directory the job starts in, the
+                # one place a Codex workspace-write sandbox lets it write.
+                root = workdir if args.in_place else self.root / "worktrees" / job_id
+                bundle = root.joinpath(*host_push.BUNDLE_PATH)
+                note += (f"Host push requested to {args.push_branch}. Commit your work, then from {root} write a "
+                         f"full bundle of exactly HEAD: mkdir -p {host_push.BUNDLE_PATH[0]} && git bundle create "
+                         f"{host_push.BUNDLE_RELATIVE} HEAD (if you commit in .git-local, pass --git-dir=.git-local "
+                         f"--work-tree=. to that git). The bundle's absolute path is {bundle}, also in "
+                         f"$SUBFLEET_PUSH_BUNDLE; never commit {host_push.BUNDLE_PATH[0]}/. It must be a regular "
+                         "file in a plain directory, not a symlink, with no prerequisites or other refs. The host "
+                         "refuses .github/ changes, submodules, absolute or '..' or chained symlinks, rewritten "
+                         "history, and policy size/count limits; a refusal keeps the job accepted for a human or "
+                         "hub push.\n\n").encode()
             preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
             if sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
@@ -2166,6 +2386,7 @@ class Daemon:
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
                          **({"folder": read_folder} if read_folder else {}),
+                         **({"unspelled": True} if unspelled else {}),
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
@@ -2468,12 +2689,92 @@ class Daemon:
             return None
         return True if state == "alive" else False if state == "dead" else None
 
+    def _row_folder(self, workdir: str | Path, top: str | Path | None = None) -> tuple[str, bool]:
+        """C-6.5, C-8.4: the folder a row for a job in `workdir` names (its checkout's
+        top level, or `workdir` outside git), spelled (`folders.present`), and whether
+        a name of it was not there to spell. Submit records such a folder `unspelled`,
+        and admission finds it again.
+
+        When git finds no checkout but a `.git` is at or above the folder
+        (`folders.under_git`), the tree may have been away for git's look and back for
+        the spelling, and `workdir` may be a folder below its checkout's top: git is
+        asked once more (review of fb674463, Q1, Q1b and Q1c). A `.git` git
+        deliberately ignores (GIT_CEILING_DIRECTORIES, an owner `safe.directory`
+        refuses) answers the same twice, and the folder is then `workdir`, as before.
+        One spelling gives both answers, so the folder recorded is the one judged.
+
+        C-8.5: `top`, when given, is a push job's checkout top as
+        `host_push.validate_submit` read it from the checkout's own metadata. It is
+        spelled as given and git is not asked, so no git runs on a push checkout's
+        configuration at submit. It is never `unspelled`, also when a name of it was
+        not there to spell: the folder a push job writes in is the top submit
+        validated, and admission never finds it again (`_rediscovered`), which would
+        run git there and let the checkout's own `core.worktree` name another folder
+        as the job's write target (review of #141 at 2cbf6fca, P2-B)."""
+        if top is not None:
+            return folders.present(top)[0], False
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        top = git_toplevel(workdir, timeout_s=cap)
+        folder, missing = folders.present(top or workdir)
+        if top is None and missing is None and folders.under_git(folder):
+            top = git_toplevel(workdir, timeout_s=cap)
+            if top is not None:
+                folder, missing = folders.present(top)
+        return folder, missing is not None
+
+    def _rediscovered(self, job: dict) -> str | None:
+        """C-6.5, C-8.4: for a job submit could not spell in full (`unspelled`), the
+        folder its row names now, found again from its folder as submit finds it
+        (`_row_folder`); None for any other job. Admission asks once per look, before
+        the look for retention's fence (`_fence_hold`), and the reserving transaction
+        uses that same answer, so the two read one folder: one found after the
+        workspace was prepared had been read by the transaction alone, and a turn
+        whose persisted `core.worktree` named a fenced top elsewhere prepared its
+        workspace (review of #141 at 2cbf6fca, P2-A).
+
+        This is `git rev-parse --show-toplevel` in the job's folder, twice when git
+        finds no checkout under a `.git`, run off the store lock. It reads the
+        repository and writes nothing: no content, mode, mtime or ctime of the
+        folder's tree, its `.git` and index, a linked worktree's admin directory or
+        an external top moves (measured by `test_retention_rediscovery.py`); a read
+        may move an atime, which retention does not sign. Git's diagnostic traces are
+        not inherited (`salvage._git_env`), so an operator's `GIT_TRACE*` cannot make
+        it write a trace file in the fenced tree (`test_rediscovery_git_trace.py`). A turn's folder is in
+        place, so this is the folder `_workspace` would return.
+
+        Never for a push job (C-8.5): its write target is the top
+        `host_push.validate_submit` validated, as submit spelled it, and git run on
+        that checkout here would read its configuration, which the job controls."""
+        if job.get("push_branch") is not None or not (job["kind"] == "turn" or job["in_place"]):
+            return None
+        if not self._submitted(job["job_id"]).get("unspelled"):
+            return None
+        return self._row_folder(job.get("worktree") or job["workdir"])[0]
+
     def _write_target(self, job: dict, workspace: str) -> str:
         """The worktree lease's subject: the checkout for an in-place job, the
         allocated worktree otherwise (C-6.5, C-6.6)."""
         if not job.get("in_place"):
             return workspace
         return self._submitted(job["job_id"]).get("write_target") or workspace
+
+    def _turn_folder(self, job: dict) -> str:
+        """C-8.4, C-24.5: the folder a turn's row is on, as its admitting transaction
+        names it, without preparing its workspace: for a turn submit could not spell
+        in full (`unspelled`), the folder `_rediscovered` finds now; for any other,
+        the one submit recorded (`_recorded_folder`). The admission pass asks
+        `_rediscovered` once and hands that one answer to its look before the
+        workspace and to its reserving transaction."""
+        return self._rediscovered(job) or self._recorded_folder(job)
+
+    def _recorded_folder(self, job: dict) -> str:
+        """The folder submit recorded for a turn's row (`write_target`, or a read-only
+        turn's `folder`), with no git: a turn is in place, so the folder `_workspace`
+        would return is the one it was submitted in."""
+        workspace = job.get("worktree") or job["workdir"]
+        if job["sandbox"] == "workspace-write":
+            return self._write_target(job, workspace)
+        return self._submitted(job["job_id"]).get("folder") or workspace
 
     def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
         """C-6.5: refuse a second writer in one worktree and a second live
@@ -2502,8 +2803,14 @@ class Daemon:
                     held = {recorded[row["job_id"]].get("write_target"),
                             os.path.realpath(row["worktree"]) if row["worktree"] else None}
                     if row["in_place"] and not recorded[row["job_id"]].get("write_target"):
-                        # Submitted before targets were recorded: ask git once.
-                        held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
+                        # Submitted before targets were recorded: inspect its
+                        # checkout, as data when the new job opts into host push.
+                        if job.get("push_branch") is not None:
+                            folder = Path(row["worktree"] or row["workdir"]).resolve()
+                            top = next((p for p in (folder, *folder.parents) if (p / ".git").exists()), folder)
+                            held.add(folders.canonical(top))
+                        else:
+                            held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
                 except SalvageError as exc:
                     raise AdapterError(f"could not inspect the worktree of {row['job_id']}: {exc}",
                                        code=int(Exit.OPERATIONAL), fix="submit again") from exc
@@ -2647,9 +2954,18 @@ class Daemon:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
+    def _credential_environment(self, lane: Lane) -> dict[str, str]:
+        return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
+
+    def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
+        return self._provider_environment.assemble(
+            launch.env_add,
+            (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"))
+
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
-                        state_root: Path | None = None, full: bool = False):
+                        state_root: Path | None = None, full: bool = False,
+                        env: dict[str, str] | None = None):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
@@ -2668,6 +2984,8 @@ class Daemon:
             raise AdapterError("Codex guard preflight is not installed", code=7,
                                fix="install the Codex adapter and reviewed guard files") from None
         options = {"state_root": state_root} if state_root is not None else {}
+        if env is not None:
+            options["env"] = env
         result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
@@ -2773,7 +3091,8 @@ class Daemon:
                                    **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
-                    "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,))}
+                    "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
+                    "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
         if op == "wait":
             return self.wait(protocol.coerce_args(protocol.WaitArgs, args), arrived=arrived,
                              client_gone=client_gone)
@@ -2797,6 +3116,8 @@ class Daemon:
                 return self._enroll_lane(a)
             if a.action in ("hold", "release"):
                 return self._hold_lane(a)
+            if a.action == "release-limits":
+                return self._release_lane_limits(a)
             return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
@@ -2904,6 +3225,7 @@ class Daemon:
             return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
+            view["disk"] = self._disk_status()
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
                     "claude_cards": self.timers.cards_view(),  # C-9.10
@@ -2914,6 +3236,43 @@ class Daemon:
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
         raise protocol.ProtocolError(f"unknown op {op}")
+
+    def _disk_rows(self) -> list[dict]:
+        # C-3.7: only live attempts and the tiny budget, never their full evidence.
+        return self.store.query(
+            "SELECT a.attempt_id,a.state,a.reserved_at,a.finished_at,j.kind,"
+            "CASE WHEN json_valid(a.evidence_json) THEN json_extract(a.evidence_json,'$.disk_reservation') END "
+            "AS disk_reservation FROM attempts a JOIN jobs j USING(job_id) "
+            "WHERE a.state IN ('reserved','starting','running','finalizing') AND a.finished_at IS NULL "
+            "AND j.kind != 'turn'")
+
+    def _disk_status(self) -> dict:
+        return self._disk.status(self._disk_rows() if self._disk.snapshot["enabled"] else (), utcnow())
+
+    def _save_disk_latch(self) -> None:
+        # A restart during recovery must not forget a low-space refusal. Only
+        # transitions write an event; disabled admission writes nothing.
+        if self._disk.holding != self._disk_saved_hold:
+            # Empty transactions emit no audit record. The explicit event's
+            # kind also differs from its audit, which must not shadow it.
+            with self.store.transaction("admission.disk_latch.recorded") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), "admission.disk_latch", json.dumps({"holding": self._disk.holding})))
+            self._disk_saved_hold = self._disk.holding
+
+    def _disk_hold(self, klass: str) -> dict | None:
+        hold = self._disk.hold(klass)
+        self._save_disk_latch()
+        return hold
+
+    def _save_disk_floor(self) -> None:
+        floor_info = disk.reported_evidence(self._disk.floor_info)
+        source = floor_info["floor_source"]
+        if self._disk.settings["enabled"] and source != self._disk_saved_source:
+            with self.store.transaction("admission.disk_floor.recorded") as tx:
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                           (utcnow(), "admission.disk_floor", json.dumps(floor_info, allow_nan=False)))
+            self._disk_saved_source = source
 
     def _why_job(self, job: dict) -> dict:
         """C-6.11: `why <job>` always says where the job stands, decision or not.
@@ -2966,8 +3325,12 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
+        if disk_reading is not None and (hold or {}).get("reason") != "disk":
+            lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "text": "\n".join(lines)}
+                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:
         """C-6.11: what admission is holding and for how long, for `status`."""
@@ -3263,7 +3626,10 @@ class Daemon:
         """The answer to a `wait` if every job has ended and every export is done."""
         with self.store.snapshot():         # one committed state for the whole answer
             jobs = [self._job(j) for j in job_ids]
-            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND lease_key LIKE 'out:%'", (j["job_id"],)) for j in jobs if j["state"] == "succeeded")
+            # C-8.5: a host push's outcome is part of the answer, as an export is.
+            pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND (lease_key LIKE 'out:%' "
+                                                 "OR lease_key LIKE 'push:%')", (j["job_id"],))
+                                  for j in jobs if j["state"] == "succeeded")
             if not all(j["state"] in TERMINAL for j in jobs) or pending_exports:
                 return None
             for job in jobs:
@@ -3335,8 +3701,9 @@ class Daemon:
         # at the job's end, however it ended, this notice says what happened instead.
         self._withdraw_pin_notice(tx, row["job_id"], why="ended")
 
-    def _schedule(self, key: str, fn: Callable, *args, paced: bool = False) -> None:
-        """Run `fn` on the worker pool unless `key` is already running.
+    def _schedule(self, key: str, fn: Callable, *args, paced: bool = False,
+                  pool: ThreadPoolExecutor | None = None) -> None:
+        """Run `fn` on the worker pool (or `pool`) unless `key` is already running.
 
         C-5.10: `paced` is for the keys the control loop offers again every tick.
         A one-shot request (an operator's `kill --confirm-dead`) is never paced:
@@ -3349,7 +3716,7 @@ class Daemon:
                 return
             self._busy.add(key)
         generation = self.store.generation
-        future = self.workers.submit(fn, *args)
+        future = (pool or self.workers).submit(fn, *args)
         def done(f):
             try:
                 deferred = f.result() is DEFERRED
@@ -3806,11 +4173,252 @@ class Daemon:
             self._record_answer(lane.lane_id, purpose)              # C-6.14: a keepalive or heal turn answered
         return dataclasses.replace(outcome, evidence=evidence)
 
+    def _prepare_push_workspace(self, job: dict, destination: Path) -> bool:
+        """Build off admission; leave ownership recording to completion processing."""
+        try:
+            try:
+                current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
+            except sqlite3.Error:
+                # The admission snapshot is enough to build. A store fault
+                # must not become the checkout's permanent Future result.
+                current = job
+            if not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
+                return False
+            host_push.prepare_workspace(self.root, Path(job["workdir"]), job["workdir_head"], destination)
+            try:
+                current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job["job_id"],))
+            except sqlite3.Error:
+                return True  # Completion will recheck cancellation atomically.
+            if not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
+                # Nothing was launched from this new checkout. A cancellation
+                # during the build must not leave an unrecorded worktree behind.
+                shutil.rmtree(destination)
+                return False
+            return True
+        finally:
+            self._notify()
+
+    def _discard_cancelled_push_workspace(self, job_id: str) -> None:
+        """Catch cancellation after the worker's last check, off admission."""
+        current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+        if ((not current or current["state"] in TERMINAL or current["cancel_requested_at"])
+                and not self.store.list_attempts(job_id)):
+            shutil.rmtree(self.root / "worktrees" / job_id, ignore_errors=True)
+
+    @staticmethod
+    def _push_workspace_store_busy(exc: sqlite3.Error) -> bool:
+        code = getattr(exc, "sqlite_errorcode", None)
+        if code is not None:
+            return (code & 0xff) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+        # Synthetic errors and older wrappers may omit SQLite's result code.
+        return isinstance(exc, sqlite3.OperationalError) and str(exc) in (
+            "database is locked", "database table is locked", "database schema is locked")
+
+    @classmethod
+    def _push_workspace_store_transient(cls, exc: sqlite3.Error) -> bool:
+        """Retry resource/locking faults and explicit write-side I/O failures.
+
+        Do not mask IOERR's extended code: checksum and filesystem corruption
+        share its primary code, and unknown I/O faults are not known to recover.
+        IOERR_READ is a failed read that SQLite does not diagnose as corruption, so it
+        is retried like a failed write (review r3 of #183); a store that stays broken
+        still fails the job once the retry window and count are both spent.
+        PROTOCOL is WAL transaction-start contention; FULL can recover when
+        space (or the database page quota) becomes available after rollback.
+        """
+        if cls._push_workspace_store_busy(exc):
+            return True
+        code = getattr(exc, "sqlite_errorcode", None)
+        if code is not None:
+            return (code & 0xff) in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_PROTOCOL) or code in (
+                sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_IOERR_WRITE, sqlite3.SQLITE_IOERR_FSYNC,
+                sqlite3.SQLITE_IOERR_DIR_FSYNC, sqlite3.SQLITE_IOERR_TRUNCATE)
+        return isinstance(exc, sqlite3.OperationalError) and str(exc) == "database or disk is full"
+
+    def _finish_push_workspace(self, job: dict, future: Future | None) -> bool | None:
+        """Apply completion: True is owned, False settled, None needs a later pass.
+
+        Transient writes retain the construction result for a bounded number
+        of failures. Permanent or exhausted failures retain their cause until
+        this job's failure and notice commit together.
+        """
+        job_id = job["job_id"]
+        try:
+            if exc := self._push_workspace_store_errors.get(job_id):
+                raise exc
+            assert future is not None
+            try:
+                ready = not future.cancelled() and future.result()
+            except AdapterError as exc:
+                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                ready = False
+            except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                self._workspace_failed(job, exc)
+                self._capacity_waits.pop(job_id, None)
+                ready = False
+            if ready:
+                destination = str(self.root / "worktrees" / job_id)
+                with self.store.transaction("job.workspace_built", job_id=job_id) as tx:
+                    current = tx.execute("SELECT state,cancel_requested_at,worktree FROM jobs WHERE job_id=?",
+                                         (job_id,)).fetchone()
+                    ready = bool(current and current["state"] in ("queued", "waiting")
+                                 and not current["cancel_requested_at"])
+                    if ready and current["worktree"] != destination:
+                        tx.execute("UPDATE jobs SET worktree=? WHERE job_id=?", (destination, job_id))
+        except sqlite3.Error as exc:
+            if job_id not in self._push_workspace_store_errors and self._push_workspace_store_transient(exc):
+                count = self._push_workspace_store_failures.get(job_id, 0) + 1
+                self._push_workspace_store_failures[job_id] = count
+                first = self._push_workspace_store_first_failure.setdefault(job_id, time.monotonic())
+                if (count < PUSH_WORKSPACE_STORE_MAX_FAILURES
+                        or time.monotonic() - first < PUSH_WORKSPACE_STORE_RETRY_WINDOW_S):
+                    return None
+            self._push_workspace_store_errors[job_id] = exc
+            try:
+                count = self._push_workspace_store_failures.get(job_id, 0)
+                tail = f" after {count} completion write failures" if count else ""
+                self._fail_queued(job, f"workspace completion could not be recorded{tail}: {type(exc).__name__}: {exc}",
+                                  kind="job.workspace_failed")
+            except sqlite3.Error:
+                return None
+            ready = False
+        self._push_workspace_store_errors.pop(job_id, None)
+        self._push_workspace_store_failures.pop(job_id, None)
+        self._push_workspace_store_first_failure.pop(job_id, None)
+        if not ready:
+            self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+        return ready
+
+    def _reap_push_workspaces(self, holds: dict[str, dict]) -> set[str]:
+        """Consume finished builds before a job's pin or other hold can hide them.
+
+        Record ownership before readiness, retrying transient writes within
+        their budget without stopping other placements. Then release the slot.
+        """
+        skipped: set[str] = set()
+        for job_id in dict.fromkeys((*self._push_workspaces, *self._push_workspace_store_errors)):
+            future = self._push_workspaces.get(job_id)
+            if future is not None and not future.done() and job_id not in self._push_workspace_store_errors:
+                continue
+            job = self.store.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+            if not job or job["state"] in TERMINAL or job["cancel_requested_at"]:
+                if future is not None and not future.done() and not future.cancel():
+                    self._push_workspace_store_errors.pop(job_id, None)
+                    self._push_workspace_store_failures.pop(job_id, None)
+                    self._push_workspace_store_first_failure.pop(job_id, None)
+                    continue  # The running worker still owns the build slot.
+                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self._push_unused_workspaces.discard(job_id)
+                self._push_workspaces.pop(job_id, None)
+                self._push_workspace_store_errors.pop(job_id, None)
+                self._push_workspace_store_failures.pop(job_id, None)
+                self._push_workspace_store_first_failure.pop(job_id, None)
+                continue
+            ready = self._finish_push_workspace(job, future)
+            if ready is None:
+                holds[job_id] = {"reason": "workspace", "preparing": True}
+                skipped.add(job_id)
+                continue
+            if not ready:
+                error = (future.exception() if future is not None and future.done()
+                         and not future.cancelled() else None)
+                holds[job_id] = ({"reason": "workspace", "error_type": type(error).__name__,
+                                  "error": str(error)[:200]} if error
+                                 else {"reason": "workspace", "preparing": True})
+                skipped.add(job_id)
+                if future is not None and not future.done():
+                    # Failure recording can finish while construction is still
+                    # running. Keep its slot until it stops; the pending-row
+                    # sweep may cancel a build that has not started yet.
+                    continue
+            else:
+                self._push_unused_workspaces.add(job_id)
+            self._push_workspaces.pop(job_id, None)
+        # A completed checkout can remain queued behind an unrelated hold.
+        # Keep watching it after its future releases the preparation slot,
+        # until an attempt makes retention responsible for its lifetime.
+        for job_id in self._push_unused_workspaces.copy():
+            current = self.store.one("SELECT state,cancel_requested_at FROM jobs WHERE job_id=?", (job_id,))
+            if self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job_id,)):
+                self._push_unused_workspaces.discard(job_id)
+            elif not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
+                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self._push_unused_workspaces.discard(job_id)
+        return skipped
+
+    def _push_workspace_ready(self, job: dict) -> bool:
+        """Queue a push checkout once; consume errors on a later admission look.
+
+        Futures are owned by the serialized detached admission pass. A restart
+        forgets incomplete builds after quarantine cleanup and reuses whole
+        checkouts at their conventional path, recording any pending ownership.
+        """
+        if (job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
+            return True
+        job_id = job["job_id"]
+        destination = self.root / "worktrees" / job_id
+        future = self._push_workspaces.get(job_id)
+        if future is None and not job.get("worktree") and destination.exists():
+            # A restart may lose a completed Future before ownership commits.
+            # Retention also recognizes this conventional allocation path.
+            future = Future()
+            future.set_result(True)
+            self._push_workspaces[job_id] = future
+        if future is not None and future.done():
+            try:
+                ready = future.result()
+            except (AdapterError, OSError, subprocess.SubprocessError, SalvageError):
+                # Apply failures only at the startup reaper, which retains the
+                # result if its store update fails. A mid-pass completion stays
+                # queued until then, without another preparation offer.
+                return False
+            # This may be a previous pass's build that finished after this
+            # pass sampled disk. Another build needs the next fresh reading.
+            self._push_preparation_offered = True
+            if ready:
+                ready = self._finish_push_workspace(job, future)
+                if ready is None:
+                    return False
+            self._push_workspaces.pop(job_id, None)
+            if ready:
+                self._push_unused_workspaces.add(job_id)
+            return ready
+        if future is None:
+            if job.get("worktree"):
+                self._push_unused_workspaces.add(job_id)
+                return True
+            # Completed results count until consumed. Each new offer also
+            # needs a fresh pass: a fast completion must not let another build
+            # use the same disk reading before any reservation exists.
+            if not self._push_workspaces and not self._push_preparation_offered:
+                self._push_preparation_offered = True
+                self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
+        if job["wait_reason"] != "workspace":
+            try:
+                with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
+                               "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL", (job_id,))
+            except sqlite3.Error as exc:
+                if not self._push_workspace_store_busy(exc):
+                    self._push_workspace_store_errors[job_id] = exc
+                    self._finish_push_workspace(job, None)
+        return False
+
     def _workspace(self, job: dict) -> tuple[str, str | None, str | None, list[str]]:
         """C-6.8: every git call here is capped by policy, and a call that did
         not finish raises rather than answering "no HEAD" or "no branch"."""
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         workdir = job.get("worktree") or job["workdir"]
+        if job.get("push_branch") is not None:
+            # No Git ever reads a config the lane can change. Baseline and
+            # remote are the submit snapshot, even on a writable retry.
+            if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
+                workdir = str(self.root / "worktrees" / job["job_id"])
+                if not Path(workdir).exists():
+                    host_push.prepare_workspace(self.root, Path(job["workdir"]), job["workdir_head"], Path(workdir))
+            elif job["sandbox"] == "workspace-write" and job["in_place"]:
+                host_push.validate_write_location(Path(workdir))
+            return workdir, job["workdir_head"], None, []
         turn_allow_main = job.get("kind") == "turn" and bool(
             ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}).get("allow_main"))
         if job["sandbox"] == "workspace-write" and (job["in_place"] or job.get("worktree")) and not turn_allow_main:
@@ -3883,7 +4491,7 @@ class Daemon:
         written without it; so when the event is new and the job has ended, the
         ref is recorded here and told in one more notice (review of ceacf18b, P2).
         """
-        if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or not previous:
+        if job["sandbox"] != "workspace-write" or job["kind"] == "turn" or job.get("push_branch") is not None or not previous:
             return None
         if not json.loads(previous[-1]["evidence_json"] or "{}").get("salvage_error"):
             return None
@@ -3932,7 +4540,11 @@ class Daemon:
         prefix = workspace.get("prefix")
         if provider == "codex" or not prefix or prefix == "." or _outside(prefix):
             return root
-        if workspace.get("worktree") and os.path.realpath(workspace["worktree"]) != os.path.realpath(root):
+        # The source's worktree is recorded as the state root was given; the resume's own
+        # workdir as submit spells it (`folders.canonical`). `realpath` keeps case, Unicode
+        # form and firmlinks, so compare the one spellings: under a state root typed in
+        # another case a resume lost its source's place (review of c7595627, P3).
+        if workspace.get("worktree") and folders.canonical(workspace["worktree"]) != folders.canonical(root):
             return root
         target = Path(root) / prefix
         return str(target) if target.is_dir() else root
@@ -4079,7 +4691,7 @@ class Daemon:
         directory = Path(record["directory"])
         adapter = get_adapter(lane.provider)
         self._validate_home(lane)
-        credential_env = resolve_credential(lane.credential)
+        credential_env = self._credential_environment(lane)
         prompt = directory / "prompt.md"
         self._publish("probe-prompt", prompt, b"Reply with exactly OK. Do not use tools.\n")
         spec = self._spec(job, kind="probe", workdir=str(directory), prompt_path=str(prompt),
@@ -4088,13 +4700,12 @@ class Daemon:
                                       model["id"], model.get("effort"), prompt,
                                       self._guard_override(adapter, lane, str(directory),
                                                            self._guard_recorder(lane, str(directory), directory),
-                                                           self.root))
+                                                           self.root,
+                                                           env=self._provider_environment.assemble(credential_env)))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
-        env = {**os.environ, **launch.env_add}
-        for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
-            env.pop(key, None)
+        env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
@@ -4459,6 +5070,7 @@ class Daemon:
             seq = self._pass_seq[kind]
             holds: dict[str, dict] = {}
             tally = {"placed": 0}
+            self._pass_holds[kind] = holds
             # A pass that raises leaves both as the last whole pass left them: half
             # a hold set would read as "nothing left pending" and end the idle
             # stretch with the queue untouched. C-5.10 logs and paces the failure.
@@ -4467,6 +5079,7 @@ class Daemon:
                 self._holds_by_kind = {**self._holds_by_kind, kind: holds}
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
+            self._pass_holds[kind] = None
             lock.release()
         if kind == "turn":
             # C-24.4 (I3): every message a turn pass left waiting says why, and one it
@@ -4500,7 +5113,8 @@ class Daemon:
                 totals[key] = totals.get(key, 0) + value
             self._route_evaluations = totals
 
-    def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True) -> int:
+    def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True,
+                       blocked: Iterable[str] = (), lane_wait: bool = False) -> int:
         """C-6.10: how many times in a row this job's wait has reached this verdict.
 
         The count follows the verdict; what is reported follows the latest look
@@ -4509,7 +5123,11 @@ class Daemon:
         carries details (`leases`, `max_active_attempts`) that the passes between
         looks must still be able to give `why`. `expedite` is whether freed
         capacity may bring the next look forward; a probe's own 60 s wait may
-        not be, or every released lease would re-probe the provider.
+        not be, or every released lease would re-probe the provider. `blocked`
+        are the hold's `leases` the job needs free but does not take, which a
+        look on its clock does not queue for (C-6.11).
+        `lane_wait` is whether this look evaluated the job's route and no lane
+        would take it: only such a wait can be C-23.16's demand (`_reset_demand`).
         """
         now = utcnow()
         wait = self._capacity_waits.get(job_id)
@@ -4518,14 +5136,88 @@ class Daemon:
         self._capacity_waits[job_id] = {
             "signature": signature, "rechecks": wait["rechecks"] + 1 if same else 0,
             "since": wait["since"] if same else now, "checked_at": now,
-            "label": hold["reason"], "hold": dict(hold), "expedite": expedite}
+            "label": hold["reason"], "hold": dict(hold), "expedite": expedite, "blocked": tuple(blocked),
+            "lane_wait": lane_wait}
         return self._capacity_waits[job_id]["rechecks"]
 
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
         """C-6.11: a look that changed no verdict and no clock still reports what it found."""
         wait = self._capacity_waits.get(job_id)
         if wait:
-            self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold)}
+            # A refreshed hold is a probe's or a moved route's, never a no-lane verdict (C-23.16 (a)).
+            self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold),
+                                            "lane_wait": False}
+
+    @staticmethod
+    def _turn_fences(read: Callable, folder: str, absent: OSError | None,
+                     run_folder: str | None, run_absent: OSError | None) -> tuple[list[str], str]:
+        """C-8.4: the early look and reservation compare the same spelled folders.
+
+        Callers spell both with `folders.present` outside the store lock. Names
+        that were absent may alias a quarantined tree, so compare those folded.
+        The actual cwd names the hold whenever its fence is among the blockers.
+        """
+        git_fences = folders.retiring(read, folder, folded=absent is not None)
+        run_fences = []
+        if run_folder:
+            # A move between the two spellings can change the comparison even
+            # when their strings match. Reuse only an identical fence query.
+            same = run_folder == folder and (run_absent is None) == (absent is None)
+            run_fences = (git_fences if same else
+                          folders.retiring(read, run_folder, folded=run_absent is not None))
+        return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+
+    def _fence_hold(self, job: dict, folder: str, holds: dict[str, dict], waiters: dict, tier: str,
+                    models: frozenset[str] | None, lanes: frozenset[str] | None,
+                    run_folder: str | None = None) -> bool:
+        """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
+        folder, actual cwd or a folder above either (`folders.retiring`), found
+        before its workspace is prepared. Both folders are spelled off the lock,
+        with absent names compared folded, just as in the reserving transaction.
+        `folder` is the one that transaction will name: for a job submit could not
+        spell (`unspelled`), the one `_rediscovered` found for this look.
+
+        The admitting transaction reads that fence too, and its answer is the one
+        that counts. This look spares a job that cannot start its start snapshot
+        (`_workspace`): on 9e159ec9 each look at a writable turn so held ran nine git
+        processes in the tree being retired, and a read-only one two. Git moved the
+        times of a nested repository's `.git`, which retention signs, and a git still
+        running when the tree went to quarantine would be a holder there (I7,
+        `retention_holders`). A plain read comes first, so a look with no fence costs
+        one indexed query per distinct folder here and no write lock. A look whose read came just before
+        retention took the fence still prepares the workspace, in that tree, and the
+        transaction then holds the job. A fence found is read again inside the
+        transaction that records the wait, and the hold is the one the admitting
+        transaction records for a fence: a waiter on those keys (never queued for: a
+        turn only needs them free; a job that would take one of them as its own lease
+        is queued for it by the transaction, `queue_for`, and is not here), the
+        capacity wait under the same signature, the job's `waiting` row and clock, and
+        the job's folder, which its reason names (C-6.11). A job that ended or was
+        cancelled meanwhile is not held, and not prepared either."""
+        folder, absent = folders.present(folder)
+        run_folder, run_absent = folders.present(run_folder) if run_folder else (None, None)
+
+        def fences(read):
+            return self._turn_fences(read, folder, absent, run_folder, run_absent)
+
+        if not fences(self.store.query)[0]:
+            return False
+        with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
+            current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
+                                 (job["job_id"],)).fetchone()
+            if current is None or current[1] or current[0] not in ("queued", "waiting"):
+                return True
+            fence, held_folder = fences(lambda sql, params: tx.execute(sql, params).fetchall())
+            if not fence:
+                return False                # let go since the read above: the job is looked at now
+            hold = {"reason": "lease-held", "leases": fence, "folder": held_folder}
+            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(fence)), hold)
+            next_check = after(scheduler.capacity_recheck_delay(rechecks))
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
+                       (next_check, job["job_id"]))
+        waiters.setdefault(tier, []).append((job["job_id"], models, lanes, frozenset(fence)))
+        holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+        return True
 
     def _note_admission(self, tally: dict, holds: dict[str, dict]) -> None:
         """C-6.11: say so in `daemon.log` when jobs are pending and nothing is placed.
@@ -4589,7 +5281,13 @@ class Daemon:
         # carries a probe (C-26.9), so the turn pass, which runs beside this one,
         # keeps none and leaves the detached pass's alone.
         probe_line: list[tuple[str, str, frozenset[str] | None]] = []
+        workspace_skips: set[str] = set()
         if kind == "detached":
+            self._push_preparation_offered = False
+            workspace_skips = self._reap_push_workspaces(holds)
+            self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
+            self._save_disk_floor()
+            self._save_disk_latch()
             self._recover_probes()
             self._probe_line = probe_line
         desktop_account = self._desktop_identity()
@@ -4601,6 +5299,14 @@ class Daemon:
         # whichever pass notices. Each dict is walked as a copy: the other kind's
         # pass writes its own jobs' entries meanwhile (`dict.copy` is one C call).
         pending = {job["job_id"] for job in queued}
+        if kind == "detached":
+            for job_id, future in list(self._push_workspaces.items()):
+                if job_id not in pending and (future.done() or future.cancel()):
+                    self._push_workspaces.pop(job_id, None)
+                    self._push_workspace_store_errors.pop(job_id, None)
+                    self._push_workspace_store_failures.pop(job_id, None)
+                    self._push_workspace_store_first_failure.pop(job_id, None)
+                    self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
@@ -4644,10 +5350,15 @@ class Daemon:
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
         # admissible lane kept three Fable-pinned jobs queued for hours beside
         # eleven free Fable lanes.
-        # Each waiter carries the leases it waits for another holder to release:
-        # a job never waits behind a waiter for a lease the job itself holds.
+        # Each waiter carries the leases it waits for (held by another, needed free,
+        # or kept for an older job): a job never waits behind a waiter for a lease
+        # the job itself holds. A waiter with any is waiting for a lease, not a slot,
+        # so it holds no later job back; it only keeps the last slot (`kept`), and
+        # its lease keeps its order through `lease_queue` (fenced-turn-precheck
+        # review P3-4: with a turn cap, a turn waiting on retention's fence held
+        # every competing later turn for the whole retirement, slots free).
         waiters: dict[str, list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]]] = {}
-        # C-6.16: a waiting priority job holds back later competing detached jobs
+        # C-6.16: a priority job waiting for a slot holds back later competing detached jobs
         # of every tier, as any waiter holds back its own tier's (review of PR
         # #147: a waiting hard-tier priority job let later standard and trivial
         # jobs take the slots it was waiting for).
@@ -4702,6 +5413,8 @@ class Daemon:
         # C-6.9, C-6.16: attended, priority, session, background. Priority is
         # FIFO across tiers; the other classes keep tier then FIFO.
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
+            if job["job_id"] in workspace_skips:
+                continue
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
@@ -4763,7 +5476,7 @@ class Daemon:
                 # priority job. A due workspace retry is held too, before its git
                 # (review of PR #72); one whose clock runs still reports `workspace`
                 # (C-6.11).
-                busy = scheduler.machine_hold(self.policy, reading, klass)
+                busy = self._disk_hold(klass) or scheduler.machine_hold(self.policy, reading, klass)
                 if busy:
                     holds[job["job_id"]] = busy
                     continue
@@ -4782,7 +5495,8 @@ class Daemon:
             # from another (`scheduler.pool_capped`): with no cap (the default) no
             # job waits for a slot, and an older job that cannot be placed (its lane
             # closed, its checkout leased) would otherwise keep every later one
-            # waiting while lanes were free. A lease keeps its FIFO below.
+            # waiting while lanes were free. A lease keeps its FIFO below, capped or
+            # not, and a job waiting for one holds no later job back (`ahead`).
             scope = scheduler.hold_scope(self.policy, job)
             family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
 
@@ -4802,17 +5516,20 @@ class Daemon:
                 return not (waiter[3] and waiter[3] & own_leases())
 
             def ahead(models, lanes):
-                """The oldest waiter this job may not pass (C-6.9), or None. Never one
-                waiting for a lease this job holds: that waiter moves only once this
-                job has run, so holding this job behind it holds both until
-                `max_wall_s` (review of PR #72: a retrying resume and a newer one
-                of the same native session, the newer ordered first by class)."""
+                """The oldest waiter this job may not pass (C-6.9), or None: only one
+                waiting for a slot. A waiter on a lease waits for no slot this job
+                could take; its lease keeps its place in `lease_queue`, and the last
+                slot is kept for it (`kept`). So this job is never held behind one
+                waiting for a lease this job holds either, which moves only once this
+                job has run (review of PR #72: a retrying resume and a newer one of
+                the same native session, the newer ordered first by class, each
+                waited for the other until `max_wall_s`)."""
                 if scope is None:
                     return None
                 return next((waiter[0] for waiter in older_waiters(tier)
-                             if scheduler.competes(models, waiter[1], lanes, waiter[2])
-                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))
-                             and blocks(waiter)), None)
+                             if not waiter[3]
+                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
             behind = ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
@@ -4850,15 +5567,21 @@ class Daemon:
                 asked = job["wait_reason"] == "capacity" and (scope is not None or lease_held)
                 for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo) if asked else None
                 if job["wait_reason"] == "capacity" and not for_good:
-                    waiting_for = (frozenset(known["hold"].get("leases") or ()) if lease_held else frozenset())
+                    # C-6.9: a lease wait, those kept for an older job too, is no slot wait.
+                    waiting_for = (frozenset([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())])
+                                   if lease_held else frozenset())
                     wait(tier, klass, (job["job_id"], models, lanes, waiting_for))
                     if probing:
                         probe_line.append((job["job_id"], probing["model"],
                                            self._probe_reach(roster, job, probing["model"], lanes, extra_exclusions)))
                 if lease_held and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
-                    queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
-                              job["job_id"])
+                    # Only the keys it takes: one it needs free but does not take (`blocked`,
+                    # retention's fence above a writer's folder, say) is never queued for
+                    # (C-6.11), on its clock as at its look (review of 5253faa2, P3).
+                    blocked = set(known.get("blocked") or ())
+                    queue_for([*(key for key in known["hold"].get("leases") or () if key not in blocked),
+                               *(known["hold"].get("queued") or ())], job["job_id"])
                 last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
                 if turn and turn != last.get("behind"):
                     # C-6.11: whose turn it is now; the job it was held for has started or ended.
@@ -4872,8 +5595,45 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
+            run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             try:
+                try:
+                    # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
+                    # so what it recorded may be below its checkout's top, or not the top its
+                    # `core.worktree` names: found again as submit finds it, once, for the look
+                    # below and for the reserving transaction alike (`_rediscovered`), then
+                    # spelled below like any other.
+                    derived = self._rediscovered(job)
+                except (OSError, subprocess.SubprocessError, SalvageError):
+                    # C-6.8's, as a workspace that cannot be prepared is. A turn whose folder
+                    # submit recorded is in a tree retention is retiring still waits on that
+                    # fence, as it did before git was asked.
+                    if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
+                                                                  tier, models, lanes, run_folder):
+                        continue
+                    raise
+                # `_turn_folder`, from the one answer above.
+                if job["kind"] == "turn" and self._fence_hold(job, derived or self._recorded_folder(job), holds,
+                                                              waiters, tier, models, lanes, run_folder):
+                    # C-8.4: retention is retiring the tree the turn's folder is in; no
+                    # workspace is prepared for a turn that cannot start, and no git runs
+                    # there but `_rediscovered`'s read (the transaction below still reads
+                    # the fence, and decides).
+                    continue
                 baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
+                if not self._push_workspace_ready(job):
+                    holds[job["job_id"]] = {"reason": "workspace", "preparing": True}
+                    continue
+                if (job.get("push_branch") is not None and job["sandbox"] == "workspace-write"
+                        and not job["in_place"]):
+                    prepared = job.get("worktree") or str(self.root / "worktrees" / job["job_id"])
+                    if not Path(prepared).is_dir():
+                        raise AdapterError("host push workspace disappeared after preparation", code=7,
+                                           fix="resubmit the job to rebuild its checkout")
+                    # Readiness may race cancellation or removal. This local
+                    # ownership snapshot keeps _workspace's direct-call fallback
+                    # out of admission even if the directory disappears now.
+                    job = {**job, "worktree": prepared}
                 workspace, head, baseline, skipped = self._workspace(job)
                 pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
@@ -4898,12 +5658,42 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
                                         "error": str(exc)[:200]}
                 continue
-            self._workspace_deferrals.pop(job["job_id"], None)
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
-            # C-8.4: the folder a read-only turn works in, which retention leaves alone while it runs.
+            # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
             read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                            if job["kind"] == "turn" and write_target is None else None)
-            if job["wait_reason"] == "workspace":
+            if derived is not None and read_folder:
+                read_folder = derived
+            elif derived is not None and write_target:
+                write_target = derived
+            # C-8.4, C-24.5, C-6.5: the folder a row will name (a turn's, or an in-place
+            # writer's `worktree:`), spelled again now, off the store lock. Submit spelled
+            # it, but a name it could not look up kept the case it was given: a native
+            # session's cwd typed `…/jOB/vendor/lib`, spelled while retention had the tree
+            # `Job` in quarantine, keyed the row on `jOB`, which no check on the tree
+            # matched once the turn's job had ended (review of 8a112986, finding 1). A
+            # folder spelled in full here is the one spelling of a folder that is there;
+            # one that is not reserves no row (`absent`, below).
+            named, absent = read_folder or (write_target if job["kind"] == "turn" or job["in_place"] else None), None
+            if named:
+                spelled, absent = folders.present(named)
+                named = spelled
+                if read_folder:
+                    read_folder = spelled
+                else:
+                    write_target = spelled
+            git_absent = absent
+            # The provider's cwd may differ from Git's hold (core.worktree).
+            # Require that extra reader row's folder to be present too.
+            # Detached jobs keep the resolved cwd through launch and quarantine;
+            # turns also require every name of their extra reader row to be present.
+            run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn"
+                                      else (folders.canonical(workspace), None))
+            if absent is None and run_absent is not None:
+                named, absent = run_folder, run_absent
+            if absent is None:
+                self._workspace_deferrals.pop(job["job_id"], None)
+            if job["wait_reason"] == "workspace" and absent is None:
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
@@ -5103,8 +5893,9 @@ class Daemon:
                         saturated[pool] = pool_cap is not None and live >= pool_cap
                         # A job that passes an older waiting job of its tier leaves one
                         # active slot free, so the older job can start the moment its
-                        # capacity appears instead of waiting out the jobs that passed it.
-                        # An uncapped pool (C-26.9) has no last slot to keep.
+                        # capacity appears instead of waiting out the jobs that passed it:
+                        # its lane, or a lease it waits for (which holds no job back,
+                        # `ahead`). An uncapped pool (C-26.9) has no last slot to keep.
                         kept = [waiter for waiter in older_waiters(tier) if blocks(waiter)]
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
@@ -5138,7 +5929,8 @@ class Daemon:
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
                             rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
+                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
+                                lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
@@ -5206,16 +5998,46 @@ class Daemon:
                             # place, so it takes no lease; its instances are told apart
                             # at submit. A detached writer still writes alone: it waits
                             # while a conversation turn writes there.
-                            leases.append((f"worktree:{write_target}", job["job_id"]))
+                            own = folders.exclusive_key(write_target)
+                            leases.append((own, job["job_id"]))
                             blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                            # C-8.4: nor while retention retires a tree its folder is in,
+                            # a repository nested in a job's worktree (its own fence is
+                            # `own`, contested above). A detached writer above it holds
+                            # another checkout, not this one (C-6.5).
+                            blockers.extend(key for key in folders.retiring(read, write_target) if key != own)
                         elif job["kind"] == "turn" and read_folder:
                             # C-8.4, C-13.4: a read-only turn excludes no writer, but
-                            # retention never removes a folder a turn is working in.
+                            # retention never removes a folder a turn is working in, or
+                            # the tree it is nested in.
                             leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
-                            fence = tx.execute("SELECT holder FROM leases WHERE lease_key=?",
-                                               (folders.exclusive_key(read_folder),)).fetchone()
-                            if fence and str(fence[0]).startswith("retention:"):
-                                blockers.append(folders.exclusive_key(read_folder))
+                        held_folder = write_target or read_folder
+                        if job["kind"] == "turn":
+                            # C-8.4: only retention's fences above either folder
+                            # hold a turn; a detached writer above holds another
+                            # checkout (C-6.5). Use the early look's comparison.
+                            fence, held_folder = self._turn_fences(read, held_folder, git_absent,
+                                                                    run_folder, run_absent)
+                            blockers.extend(fence)
+                        else:
+                            # The writer already contests its own exclusive key.
+                            own_run_key = folders.exclusive_key(write_target) if write_target else None
+                            blockers.extend(key for key in folders.retiring(read, run_folder)
+                                            if key != own_run_key)
+                        if run_folder and (job["kind"] != "turn" or run_folder != (write_target or read_folder)):
+                            # This job-held reader row keeps the resolved cwd through
+                            # retries and quarantine without changing the Git hold's
+                            # writer rules. Holder-keyed cleanup releases it.
+                            leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
+                        if absent is not None and job["kind"] != "turn":
+                            # C-8.4: its folder is not there now, so the names that could not
+                            # be looked up may not be the ones its volume stores: retention may
+                            # have its tree in quarantine under a fence spelled `Job`. Any
+                            # fence of retention's that folds alike above it holds it, as the
+                            # fence on its spelling would; with none it reserves nothing.
+                            taken = {key for key, _ in leases}       # contested already when held
+                            blockers.extend(key for key in folders.retiring(read, named, folded=True)
+                                            if key not in taken)
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -5245,35 +6067,49 @@ class Daemon:
                         queued = [key for key, holder in leases if key not in current
                                   and lease_queue.get(key, job["job_id"]) != job["job_id"]]
                         if contested or blocked or queued:
-                            wait(tier, klass, (job["job_id"], models, lanes, frozenset(contested + blocked)))
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset(contested + blocked + queued)))
                             # `leases` are held by another job; `queued` are free but kept for
                             # an older job waiting for them (C-6.9, C-26.9), named by `queued_behind`.
+                            # Either way it waits for a lease, not a slot: it holds no later job
+                            # back, and passing jobs keep the last slot for it (C-6.9).
                             # A key it only needs free (`blocked`) is never queued for: turns
                             # share their folder, so no turn takes it from another, and no
                             # detached job takes a turn's row. It is among the keys the waiter
                             # waits for, so a job holding it is never held behind the waiter.
+                            # A turn's hold names its folder: a fence it waits for may be
+                            # on a tree that folder is in, which its reason says (C-6.11).
                             hold = {"reason": "lease-held", "leases": contested + blocked,
+                                    **({"folder": held_folder}
+                                       if job["kind"] == "turn" and (write_target or read_folder) else {}),
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold,
+                                                           blocked=blocked)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
+                        if absent is not None:
+                            status = "absent"           # no row on a folder that is not there now
+                            break
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                    "run_folder": run_folder,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
                         if job["kind"] == "turn":
                             # C-26.14: the turn's window opens before its start snapshot, and
                             # its folder is where another turn's window may overlap it.
                             evidence.update(baseline_at=baseline_at, folder=write_target or read_folder)
+                        reserved_at = utcnow()
+                        if job["kind"] != "turn" and self._disk.settings["enabled"]:
+                            evidence["disk_reservation"] = self._disk.evidence()
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                                    json.dumps(evidence), utcnow()))
+                                    json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -5329,8 +6165,13 @@ class Daemon:
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
                 continue
+            if status == "absent":
+                self._folder_absent(job, named, absent, holds)
+                continue
             if status != "placed":
                 continue
+            if job["kind"] != "turn":
+                self._disk.reserve(aid, reserved_at)
             tally["placed"] += 1
             tally.setdefault("placed_jobs", []).append(job["job_id"])
             self._capacity_waits.pop(job["job_id"], None)
@@ -5816,7 +6657,6 @@ class Daemon:
         limit = self.policy["caps"]["workspace_retry_max"]
         detail = f"{record['error_type']}: {record['error']}"
         if transient and count <= limit:
-            self._workspace_deferrals[job["job_id"]] = count
             delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (count - 1))
             next_check = after(delay)
             record.update(deferrals=count, retry_max=limit, next_check_at=next_check)
@@ -5824,16 +6664,31 @@ class Daemon:
                 tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
                            "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
                            (next_check, job["job_id"]))
+            self._workspace_deferrals[job["job_id"]] = count
             self.log.warning("job %s workspace preparation deferred %d/%d, next check in %d s: %s",
                              job["job_id"], count, limit, delay, detail)
             self._notify()
             return
-        self._workspace_deferrals.pop(job["job_id"], None)
         record.update(transient=transient, deferrals=count - 1)
         self.log.error("job %s workspace preparation failed: %s", job["job_id"], detail)
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
+        self._workspace_deferrals.pop(job["job_id"], None)
+
+    def _folder_absent(self, job: dict, folder: str, missing: OSError, holds: dict) -> None:
+        """C-8.4, C-6.8: `folder`, the one `job`'s row would name, is not there now
+        (`folders.present`), and no retirement is moving a tree it is in. It takes no
+        row on a spelling that may not be the folder's once it is back; like any
+        workspace that could not be prepared it waits with backoff, and fails after
+        `caps.workspace_retry_max` tries (a tree another tool held aside comes back,
+        one that was removed does not)."""
+        error = SalvageError(f"its folder {folder} is not there now "
+                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True)
+        error.__cause__ = missing
+        self._workspace_failed(job, error)
+        self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
+        holds[job["job_id"]] = {"reason": "workspace", **self._workspace_error(error)[1]}
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
                      data: dict | None = None) -> None:
@@ -5861,6 +6716,11 @@ class Daemon:
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         evidence = json.loads(a["evidence_json"] or "{}")
+        if job["kind"] != "turn" and evidence.get("run_folder"):
+            # Use the folder whose reader row was reserved, even if the caller
+            # replaces the submitted path again before the provider launches.
+            field = "worktree" if job.get("worktree") else "workdir"
+            job = {**job, field: evidence["run_folder"]}
         model = self.policy["models"][evidence["model_short"]]
         prompt_path = Path(job["prompt_path"])
         prepared_path = prompt_path.with_name("prompt.prepared.md")
@@ -5878,18 +6738,25 @@ class Daemon:
             if job["sandbox"] == "workspace-write" and not (turn_block and turn_block.get("allow_main")):
                 # Close the reservation-to-launch window as well: the caller
                 # can switch an in-place checkout after its attempt is reserved.
-                validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                if job.get("push_branch") is not None:
+                    host_push.validate_write_location(Path(job.get("worktree") or job["workdir"]))
+                    # C-8.5: a bundle left by earlier work is never taken for this attempt's.
+                    host_push.clear_bundle(self._push_root(job))
+                else:
+                    validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
-            credential_env = resolve_credential(lane.credential)
+            credential_env = self._credential_environment(lane)
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
-                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root)
+                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
+                env=self._provider_environment.assemble(credential_env))
             resume = None
             if turn_block is not None:
                 guard = None
                 if lane.provider == "codex":
                     guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
-                                                 self.root, full=True)
+                                                 self.root, full=True,
+                                                 env=self._provider_environment.assemble(credential_env))
                 launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -5940,11 +6807,9 @@ class Daemon:
         safe_launch.pop("env_add")
         self._publish("launch", adir / "launch.json", json_bytes(safe_launch))
         self._publish("lane-log", adir / "lane.log", b"")
-        env = dict(os.environ)
-        env.update(launch.env_add)
-        for key in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
-            env.pop(key, None)
+        env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
+        env.update(self._push_environment(job))
         # The package path is explicit: provider cwd is deliberately unrelated
         # to the daemon's installation or test checkout.
         package_root = str(Path(__file__).resolve().parent.parent)
@@ -6471,7 +7336,7 @@ class Daemon:
             env.update(resolve_credential(lane.credential))
         except (AdapterError, OSError, subprocess.SubprocessError) as exc:
             self.log.debug("credential unavailable for %s: %s", lane_id, type(exc).__name__)
-        return env
+        return self._provider_environment.additions(lane.provider, env)
 
     def _saved_launch(self, a: dict) -> Launch:
         if a["attempt_id"] in self._launches:
@@ -6500,7 +7365,7 @@ class Daemon:
         (C-13.4). A quarantine's release passes `retry=False`: an operator's
         one-shot request is never offered again, so it records at once.
         """
-        if job["sandbox"] != "workspace-write":
+        if job["sandbox"] != "workspace-write" or job.get("push_branch") is not None:
             return [], None, {}
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         receipt_path = adir / "salvage.json"
@@ -6885,6 +7750,11 @@ class Daemon:
             next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
+            if accepted and job.get("push_branch") is not None:
+                # Recovery and retention use the existing indexed holder query.
+                # Keep the bundle pinned until its post-accept publication ends.
+                tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                           ("push:" + job["job_id"], job["job_id"], utcnow()))
             if not retry:
                 if not accepted:
                     tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (job["job_id"], a["attempt_id"]))
@@ -6999,6 +7869,14 @@ class Daemon:
         job = self._job(job_id)
         aid = job["accepted_attempt_id"]
         a = self.store.get_attempt(aid) if aid else None
+        if a and job.get("push_branch") is not None and not self._push_settled(job_id):
+            # C-8.5 (review P3-5): one thread publishes every push, so pushes
+            # wait for each other there and never hold a pool worker. Leases
+            # stay until it ends; the pass after it exports and releases them
+            # by the rules below, as for any job. Only an accepted attempt
+            # has a bundle to push; without one, the export fails below.
+            self._schedule("push:" + job_id, self._push_job, job_id, paced=True, pool=self.pushes)
+            return
         export_error = None if a else "export failed: no accepted attempt"
         if not aid:
             ended = self.store.one("SELECT attempt_id FROM attempts WHERE job_id=? "
@@ -7057,6 +7935,126 @@ class Daemon:
         # completion notice then appears later, before the loser's own export.
         tx.execute("UPDATE notices SET text=text || ? WHERE job_id=? AND instr(text,?)=0",
                    ("\n" + error, job_id, error))
+
+    #: C-8.5: a push whose verification was cut short this many times (a
+    #: restart, or a fault of the daemon's own) fails instead of retrying again.
+    PUSH_INTAKES = 3
+
+    def _push_root(self, job: dict) -> Path:
+        """C-8.5: where the job writes `.subfleet/push.bundle`: the directory it
+        starts in, an in-place job's workdir or the standalone checkout the
+        daemon allocated (`_workspace`)."""
+        return Path(job["workdir"]) if job["in_place"] else self.root / "worktrees" / job["job_id"]
+
+    def _push_environment(self, job: dict) -> dict[str, str]:
+        """C-8.5: the absolute path of the job's bundle, beside its prompt's note."""
+        if job.get("push_branch") is None:
+            return {}
+        return {"SUBFLEET_PUSH_BUNDLE": str(self._push_root(job).joinpath(*host_push.BUNDLE_PATH))}
+
+    def _push_settled(self, job_id: str) -> bool:
+        row = self.store.one("SELECT result FROM job_pushes WHERE job_id=?", (job_id,))
+        return row is not None and row["result"] != "pending"
+
+    def _push_job(self, job_id: str) -> None:
+        """C-8.5: acceptance is committed; every external operation is off-lock,
+        on the one push thread (`self.pushes`), so pushes are serialized.
+
+        A durable pending row precedes intake. `pushing_at` is committed with
+        the ownership claim immediately before `git push`: a pending row without
+        it sent nothing, and is verified again from the start (at most
+        PUSH_INTAKES times); a row with it may have reached the remote, so a
+        replay reports uncertainty for manual reconciliation instead of pushing
+        a second time.
+        """
+        job = self._job(job_id)
+        if job.get("push_branch") is None or not job["accepted_attempt_id"]:
+            return
+        previous = self.store.one("SELECT * FROM job_pushes WHERE job_id=?", (job_id,))
+        if previous and previous["result"] != "pending":
+            return
+        branch, remote = job["push_branch"], job["push_remote"]
+        sha = error = None
+        if previous and previous["pushing_at"]:
+            sha = previous["sha"]
+            error = ("host push interrupted after it began sending; inspect the remote "
+                     "before a human or hub push")
+        elif previous and previous["intakes"] >= self.PUSH_INTAKES:
+            error = (f"host push verification was interrupted {previous['intakes']} times; "
+                     "nothing was sent")
+        else:
+            with self.store.transaction("push.intake", job_id=job_id) as tx:
+                if previous:
+                    # Nothing was sent: verify again from the start.
+                    tx.execute("UPDATE job_pushes SET sha=NULL,started_at=?,intakes=intakes+1 "
+                               "WHERE job_id=? AND result='pending' AND pushing_at IS NULL", (utcnow(), job_id))
+                else:
+                    tx.execute("INSERT INTO job_pushes(job_id,branch,remote,started_at,result) "
+                               "VALUES(?,?,?,?,'pending')", (job_id, branch, remote, utcnow()))
+            try:
+                sha = self._publish_bundle(job)
+            except (OSError, ValueError, protocol.ProtocolError) as exc:
+                sha = getattr(exc, "sha", None)
+                error = (f"host push failed: {type(exc).__name__}"
+                         if isinstance(exc, (OSError, UnicodeError)) else str(exc))
+        result = "failed" if error else "succeeded"
+        line = (f"push failed: {error}; work remains accepted for a human or hub push" if error
+                else f"pushed {sha} to {remote} branch {branch}")
+        with self.store.transaction("push." + result, job_id=job_id, data={"branch": branch, "remote": remote,
+                                                                          "sha": sha, "result": result}) as tx:
+            tx.execute("UPDATE job_pushes SET sha=?,result=?,error=?,finished_at=? WHERE job_id=?",
+                       (sha, result, error, utcnow(), job_id))
+            tx.execute("UPDATE jobs SET push_error=?,push_sha=? WHERE job_id=?",
+                       (error, sha if not error else None, job_id))
+            if not error:
+                tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote_key=? AND branch_key=?",
+                           (sha, job_id, host_push.ownership_key(remote), host_push.fold(branch)))
+            tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job_id))
+
+    def _publish_bundle(self, job: dict) -> str:
+        """Intake, verify and publish one accepted job's bundle; the pushed SHA."""
+        branch, remote = job["push_branch"], job["push_remote"]
+        settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
+        family = job
+        while family.get("parent_job_id") and not family["independent"]:
+            family = self._job(family["parent_job_id"])
+        attempt = self.store.get_attempt(job["accepted_attempt_id"])
+        # Review P1-1: read from the job's own workspace through handles that
+        # never follow a link; Git sees only this daemon-owned copy.
+        bundle = host_push.intake_bundle(self._push_root(job), attempt_dir(self.root, job["job_id"], attempt["seq"])
+                                         / "push.bundle", settings["max_bundle_mb"] * 1024 * 1024)
+        with host_push.quarantine(self.root, job["workdir_head"]) as (repo, credentials):
+            sha = host_push.verify_bundle(repo, bundle, job["workdir_head"], settings,
+                                          host_push.Deadline(host_push.VERIFY_DEADLINE_S))
+            default, refs = host_push.remote_refs(repo, remote, credentials)
+            if default is None:
+                raise host_push.PushError("remote default branch cannot be verified")
+            host_push.check_branch(branch, settings, default)
+            host_push.check_case_twins(branch, refs)
+            key, branch_key = host_push.ownership_key(remote), host_push.fold(branch)
+            owner = self.store.one("SELECT * FROM job_owned_branches WHERE remote_key=? AND branch_key=?",
+                                   (key, branch_key))
+            if owner and owner["family_job_id"] != family["job_id"]:
+                raise host_push.PushError("remote branch belongs to another job family")
+            if owner and owner["branch"] != branch:
+                raise host_push.PushError(f"this job family owns the branch as {owner['branch']!r}")
+            if branch in refs:
+                if not owner or not owner["sha"]:
+                    raise host_push.PushError("existing remote branch is not owned by this job family")
+                host_push.git(repo, "fetch", "--no-tags", "--no-write-fetch-head", remote,
+                              f"refs/heads/{branch}:refs/heads/remote-tip", credentials=credentials)
+                host_push.git(repo, "merge-base", "--is-ancestor", "refs/heads/remote-tip", sha)
+            refspec = host_push.push_refspec(sha, branch)
+            # Review P3-7: the last write before anything is sent. A restart
+            # before it retries; after it, the remote must be inspected.
+            with self.store.transaction("push.started", job_id=job["job_id"]) as tx:
+                tx.execute("UPDATE job_pushes SET sha=?,pushing_at=? WHERE job_id=?", (sha, utcnow(), job["job_id"]))
+                tx.execute("INSERT INTO job_owned_branches(remote_key,branch_key,branch,remote,family_job_id,job_id,"
+                           "claimed_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(remote_key,branch_key) DO NOTHING",
+                           (key, branch_key, branch, remote, family["job_id"], job["job_id"], utcnow()))
+            # No force option, '+', deletion, remote config, or lane environment.
+            host_push.git(repo, "push", remote, refspec, credentials=credentials)
+        return sha
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
                  arrived: float | None = None) -> None:
@@ -7587,7 +8585,7 @@ class Daemon:
         for reader in readers:
             reader.join(max(0.0, joined_by - time.monotonic()))
         self.conversations.close()
-        for pool in (self.requests, self.lookups, self.waiters, self.workers):
+        for pool in (self.requests, self.lookups, self.waiters, self.workers, self.pushes):
             pool.shutdown(wait=True, cancel_futures=True)
         self.lock_watch.stop()
         with self._connection_lock:

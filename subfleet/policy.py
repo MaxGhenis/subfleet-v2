@@ -20,6 +20,20 @@ from .contracts import (
 )
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
+CODEX_CA_BUNDLE = "/etc/ssl/cert.pem"
+
+
+def codex_ca_bundle(policy: Mapping[str, Any]) -> str | None:
+    """C-10.8: an omitted setting uses the system PEM bundle; null opts out."""
+    return policy.get("providers", {}).get("codex", {}).get("ca_bundle", CODEX_CA_BUNDLE)
+
+# C-8.5: host credential use is opt-in both in policy and on each job.
+PUSH_DEFAULTS = {"enabled": False, "allowed_remotes": [], "protected": [],
+                 "max_bundle_mb": 256, "max_commits": 100}
+
+
+def push_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    return {**PUSH_DEFAULTS, **policy.get("push", {})}
 
 
 def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
@@ -164,7 +178,7 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     return min(limits) if limits else None
 
 
-#: `admission.*` (C-6.9, C-6.13, C-10.3, C-11.3): how admission orders and places
+#: `admission.*` (C-6.9, C-6.13, C-6.17, C-10.3, C-11.3): how admission orders and places
 #: work once no count caps it (2026-09-27).
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
@@ -199,18 +213,47 @@ MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
 }
+#: C-6.17: disk admission is opt-in. GB is decimal (1e9 bytes). A detached
+#: placement needs room for its reserve above the floor; a low refusal latches
+#: until effective free reaches floor + margin. Budgets expire at attempt end
+#: or TTL. An omitted path measures the state root's volume.
+DISK_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "floor_gb": 40,
+    "resume_margin_gb": 5,
+    "placement_reserve_gb": 1.5,
+    "reserve_ttl_s": 600,
+    "path": None,
+    "lower_path": None,
+    "raise_path": None,
+    "min_floor_gb": 20,
+    "max_lower_h": 16,
+}
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
     "weekly_reserve": 0.02,
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "disk": DISK_DEFAULTS,
     "priority_callers": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
     "prove_wait_s": 300,
 }
+
+
+#: C-6.17: bounds on disk sizes in policy, so whole-byte arithmetic stays exact.
+DISK_MAX_GB = 1_000_000          # a petabyte
+DISK_MIN_RESERVE_GB = 0.001      # a megabyte
+
+
+def disk_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-6.17: omitted disk settings leave admission off, including raw policies."""
+    return {**DISK_DEFAULTS, **((policy.get("admission") or {}).get("disk") or {})}
+
+
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
 GUARDED_CLASSES = ("session", "background")
@@ -219,7 +262,7 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
-    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}), "disk": disk_settings(policy)}
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -383,6 +426,40 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if key not in ADMISSION_DEFAULTS:
             fail(f"admission.{key}", f"is not an admission setting ({', '.join(sorted(ADMISSION_DEFAULTS))})")
     settings = {**ADMISSION_DEFAULTS, **admission}
+    disk = settings["disk"]
+    if not isinstance(disk, dict):
+        fail("admission.disk", "must be an object")
+    for key in disk:
+        if key not in DISK_DEFAULTS:
+            fail(f"admission.disk.{key}", "is not a disk admission setting")
+    disk = {**DISK_DEFAULTS, **disk}
+    if not isinstance(disk["enabled"], bool):
+        fail("admission.disk.enabled", "must be a boolean")
+    for key in ("floor_gb", "resume_margin_gb", "placement_reserve_gb", "reserve_ttl_s",
+                "min_floor_gb", "max_lower_h"):
+        item = disk[key]
+        positive = key in ("placement_reserve_gb", "reserve_ttl_s", "max_lower_h")
+        # Check integer sizes before isfinite's implicit float conversion,
+        # which can overflow even though Python integers are finite.
+        if isinstance(item, int) and key.endswith("_gb") and item > DISK_MAX_GB:
+            fail(f"admission.disk.{key}", f"must be at most {DISK_MAX_GB:g} GB")
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or item < 0 or (positive and item == 0) or not math.isfinite(item)):
+            fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
+                 + " finite number")
+        # Sizes are compared in whole bytes (C-6.17): a reserve under a megabyte
+        # rounds to almost nothing and disables pacing, and a size past a petabyte
+        # overflows nothing useful (review of #161, P3s).
+        if key.endswith("_gb") and item > DISK_MAX_GB:
+            fail(f"admission.disk.{key}", f"must be at most {DISK_MAX_GB:g} GB")
+        if key == "placement_reserve_gb" and item < DISK_MIN_RESERVE_GB:
+            fail(f"admission.disk.{key}", f"must be at least {DISK_MIN_RESERVE_GB:g} GB (1 MB), or pacing is off in effect")
+    if disk["path"] is not None and not _name(disk["path"]):
+        fail("admission.disk.path", "must be a nonempty path string, or null for the state root's volume")
+    for key in ("lower_path", "raise_path"):
+        if disk[key] is not None and (not _name(disk[key]) or not Path(disk[key]).is_absolute()):
+            fail(f"admission.disk.{key}", "must be a nonempty absolute path string, or null")
+    settings["disk"] = disk
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
@@ -447,12 +524,14 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     reset = value["reset_credits"]
     if not isinstance(reset, dict):
         fail("reset_credits", "must be an object")
-    for key in ("enabled", "headroom_floor_pct", "min_interval_min"):
+    for key in ("enabled", "min_interval_min"):
         if key not in reset:
             fail(f"reset_credits.{key}", "required key is missing")
     if not isinstance(reset["enabled"], bool):
         fail("reset_credits.enabled", "must be a boolean")
-    if not _fraction(reset["headroom_floor_pct"], 100):
+    # C-23.16: no fleet headroom sum triggers a spend any more. A policy written
+    # before that still names the floor; it is checked and otherwise ignored.
+    if "headroom_floor_pct" in reset and not _fraction(reset["headroom_floor_pct"], 100):
         fail("reset_credits.headroom_floor_pct", "must be a finite percentage between 0 and 100")
     interval = reset["min_interval_min"]
     if (not isinstance(interval, (int, float)) or isinstance(interval, bool)
@@ -533,6 +612,20 @@ def load_policy(path: str | Path) -> dict[str, Any]:
              f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
 
+    # C-10.8: validate the setting's shape here, availability at launch. An
+    # unavailable bundle must leave native trust usable, rather than refuse work.
+    providers = value.get("providers", {})
+    if not isinstance(providers, dict):
+        fail("providers", "must be an object")
+    codex = providers.get("codex", {})
+    if not isinstance(codex, dict):
+        fail("providers.codex", "must be an object")
+    bundle = codex.get("ca_bundle", CODEX_CA_BUNDLE)
+    if bundle is not None and (not isinstance(bundle, str) or not bundle.strip()
+                               or "\0" in bundle or not Path(bundle).is_absolute()):
+        fail("providers.codex.ca_bundle", "must be an absolute PEM bundle path or null")
+    value["providers"] = {**providers, "codex": {**codex, "ca_bundle": bundle}}
+
     # `network` (d260): whether a writable Codex job's shell reaches the network.
     network = value.get("network", {})
     if not isinstance(network, dict):
@@ -587,6 +680,21 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("conversations.stop_close_after_s",
              "the stop escalation must keep its order: "
              "stop_sigint_after_s < stop_close_after_s < stop_contain_after_s")
+
+    supplied = value.get("push", {})
+    if not isinstance(supplied, dict):
+        fail("push", "must be an object")
+    settings = push_settings(value)
+    if not isinstance(settings["enabled"], bool):
+        fail("push.enabled", "must be a boolean")
+    for key in ("allowed_remotes", "protected"):
+        if not isinstance(settings[key], list) or not all(_name(item) for item in settings[key]):
+            fail(f"push.{key}", "must be a list of nonempty patterns")
+    for key in ("max_bundle_mb", "max_commits"):
+        item = settings[key]
+        if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
+            fail(f"push.{key}", "must be a positive whole number")
+    value["push"] = settings
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

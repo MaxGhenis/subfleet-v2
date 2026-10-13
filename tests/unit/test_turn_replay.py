@@ -28,7 +28,10 @@ import pytest
 from subfleet.conversations import runner as runner_module
 from subfleet.conversations.launch import TURN_MANIFEST_KEY, spec_from_manifest
 from subfleet.conversations.service import ConversationService
+from subfleet.conversations.store import ConversationStore
 from subfleet.relay import RelayError, RelayServer, read_log
+from tests.unit.test_approval_resolution import (cancel_line, request_line, resolved_events, rid, runner_for,
+                                                  running_message)
 from tests.unit.test_conversation_service import (ASK, INIT_OK, SETTINGS, Clock, FakeDaemon, conversation, submit,
                                                   turn_attempt)
 
@@ -126,6 +129,62 @@ def world(tmp_path):
     yield made
     made.close()
     shutil.rmtree(short, ignore_errors=True)
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_written_answer_survives_cancel_and_restart_without_a_second_reply(tmp_path, provider):
+    """A real relay wrote the answer, then the provider cancelled. Reopen the
+    durable store and replay both lines in one read: the card still says answered,
+    with one decision event, and the pipe receives no second answer."""
+    with tempfile.TemporaryDirectory(prefix="sfar-", dir="/tmp") as short:
+        store = ConversationStore(tmp_path / "state")
+        cid, mid = running_message(store, provider)
+        socket = str(Path(short) / "r.sock")
+        first = runner_for(store, tmp_path, provider, cid, mid, control_socket=socket)
+        server = RelayServer(socket, first.adir / "stdin.jsonl")
+        server.bind()
+        pipe_r, pipe_w = os.pipe()
+        os.set_blocking(pipe_r, False)
+        server.serve(pipe_w)
+        again = None
+        try:
+            stdout = first.adir / "stdout"
+            stdout.write_text(request_line(provider) + "\n")
+            assert first._read_stdout()
+            [approval] = store.approvals(conversation_id=cid)
+            assert store.answer_approval(approval["approval_id"], {"decision": "allow"})
+            first.respond(rid(provider), "allow")
+            assert first._drain_commands()
+            sent_reply = os.read(pipe_r, 65536)
+            assert len(sent_reply.splitlines()) == 1
+            stdout.write_text(request_line(provider) + "\n" + cancel_line(provider) + "\n")
+            assert first._read_stdout()
+            first._flush()
+            before = (first.adir / "stdin.jsonl").read_bytes()
+            events, changes = store.events_after(cid, 0)["events"], store.changes_after(0)["next"]
+            first.relay.close()
+            store.close()
+            store = ConversationStore(tmp_path / "state")
+            again = runner_for(store, tmp_path, provider, cid, mid, control_socket=socket)
+            assert again._handshake()
+            assert again._read_stdout()
+            again._drain_commands()
+            again._flush()
+            assert store.approval(approval["approval_id"])["state"] == "answered"
+            assert resolved_events(store, cid) == [(rid(provider), "allow")]
+            assert store.events_after(cid, 0)["events"] == events
+            assert store.changes_after(changes)["changes"] == []
+            assert (again.adir / "stdin.jsonl").read_bytes() == before
+            assert [row["tag"] for row in read_log(again.adir / "stdin.jsonl")] == [f"approval:{rid(provider)}"]
+            with pytest.raises(BlockingIOError):
+                os.read(pipe_r, 65536)
+        finally:
+            first.relay.close()
+            if again is not None:
+                again.relay.close()
+            server.stop()
+            os.close(pipe_r)
+            store.close()
 
 
 @pytest.mark.parametrize("result", [False, True], ids=["eof", "aborted-result"])
