@@ -34,13 +34,17 @@ import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
+
+if TYPE_CHECKING:
+    from .conversations.peers import AuditToken
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import resource_leases
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
+from .conversations.peers import peer_token
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError
@@ -135,6 +139,10 @@ STATUS_JOBS = (
     "SELECT * FROM jobs WHERE state IN ('queued','waiting','running') OR job_id IN "
     "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
     "UNION ALL SELECT job_id FROM attempts WHERE state='quarantined') ORDER BY +created_at,rowid")
+#: D-RT1: retain containment evidence without expanding ordinary pool counts.
+PROVIDER_QUARANTINES = (
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,quarantine_reason "
+    "FROM attempts WHERE state='quarantined' ORDER BY reserved_at,seq")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -202,7 +210,7 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
-EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
+EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "provider-cap", "provider-slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
                             "lane-proving", "disk", "ramp"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
@@ -931,6 +939,9 @@ class Daemon:
         # C-6.10: the leases the last pass of each kind saw that no probe holds.
         # One that has gone since is capacity that came free.
         self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
+        # C-6.4a, C-6.10: quarantine can retain a provider slot after its lane
+        # lease is gone. Each pool must notice that count freeing independently.
+        self._provider_quarantines_seen: dict[str, frozenset[str]] = {}
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
@@ -1338,6 +1349,14 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
+            if scheduler.provider_caps_on(self.policy):
+                quarantines = self.store.query(PROVIDER_QUARANTINES)
+                if route:
+                    rows["attempts"].extend(quarantines)
+                else:
+                    details = {row["attempt_id"]: row["quarantine_reason"] for row in quarantines}
+                    rows["attempts"] = [dict(row, quarantine_reason=details[row["attempt_id"]])
+                                        if row["attempt_id"] in details else row for row in rows["attempts"]]
             if not route:
                 rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt
@@ -1361,6 +1380,18 @@ class Daemon:
         # `status.json` lays the same leases over the timer's snapshot (C-18.1).
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
         view = self.timers.enrich_view(view, rows["timers"])
+        provider_counts = scheduler.provider_live(view) if scheduler.provider_caps_on(self.policy) else {}
+        probe_counts = dict.fromkeys(provider_counts, 0)
+        for lane in view["lanes"]:
+            if lane.get("probe_holder"):
+                probe_counts[lane["provider"]] = probe_counts.get(lane["provider"], 0) + 1
+        provider_caps = [{"provider": provider, "live": provider_counts.get(provider, 0),
+                          "probes": probe_counts.get(provider, 0),
+                          "max_active_attempts": limit, "key": f"providers.{provider}.max_active_attempts"}
+                         for provider in sorted(self.policy.get("providers") or {})
+                         if (limit := scheduler.provider_cap(self.policy, provider)) is not None]
+        if provider_caps:
+            view["provider_caps"] = provider_caps
         # C-6.14: then each lane's pilot, at the view's clock, as `_route_rows` lays them.
         turns = {row["job_id"] for row in view.get("jobs", ()) if row.get("kind") == "turn"}
         attempts = [{**row, "kind": "turn" if row.get("job_id") in turns else "detached"}
@@ -5544,9 +5575,14 @@ class Daemon:
         probes = "holder NOT LIKE 'probe:timer:%'" if kind == "turn" else "holder NOT LIKE 'probe:%'"
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
             f"SELECT lease_key,holder FROM leases WHERE {probes}"))
+        quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
+                                    if scheduler.uncontained_quarantine(row))
+                           if scheduler.provider_caps_on(self.policy) else frozenset())
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
-            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
+            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now
+                         or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
+            self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
@@ -5716,8 +5752,14 @@ class Daemon:
             # closed, its checkout leased) would otherwise keep every later one
             # waiting while lanes were free. A lease keeps its FIFO below, capped or
             # not, and a job waiting for one holds no later job back (`ahead`).
-            scope = scheduler.hold_scope(self.policy, job)
-            family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
+            scope = scheduler.hold_scope(self.policy, job, roster=roster)
+            # Keep the old fleet/lane/family scope separate from provider FIFO.
+            # With provider caps enabled, narrow demand to the selected provider
+            # before applying either competition rule.
+            fifo_scope = scheduler.hold_scope(self.policy, job, roster=roster, include_providers=False)
+            family = self._ancestors(job, ancestry) if fifo_scope == "family" else frozenset()
+            defer_fifo = any(scheduler.provider_cap(self.policy, provider) is not None
+                             for provider in self.policy.get("providers", {}))
 
             own_here: list[frozenset[str]] = []
 
@@ -5743,17 +5785,21 @@ class Daemon:
                 job has run (review of PR #72: a retrying resume and a newer one of
                 the same native session, the newer ordered first by class, each
                 waited for the other until `max_wall_s`)."""
-                if scope is None:
+                if fifo_scope is None:
                     return None
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
                              and scheduler.competes(models, waiter[1], lanes, waiter[2])
-                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
-            behind = ahead(models, lanes)
+                             and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
+            behind = None if defer_fifo else ahead(models, lanes)
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
                                         {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                older_hold = holds.get(behind, {})
+                if older_hold.get("key", "").startswith("providers."):
+                    holds[job["job_id"]].update({key: older_hold[key] for key in
+                                                ("provider", "live", "max_active_attempts", "key")})
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -5990,7 +6036,7 @@ class Daemon:
                     # and as submitted it keeps C-6.9's place behind older jobs.
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
-                    behind = ahead(models, lanes)
+                    behind = None if defer_fifo else ahead(models, lanes)
                     if behind:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
@@ -6170,7 +6216,50 @@ class Daemon:
                         kept = [waiter for waiter in older_waiters(tier) if blocks(waiter)]
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
-                        if not decision.chosen_lane or at_limit:
+                        provider_hold = None
+                        provider_at_limit = False
+                        provider_kept = []
+                        provider_behind = None
+                        fifo_behind = None
+                        provider = None
+                        if decision.chosen_lane:
+                            provider = self.policy["models"][decision.chosen_model]["provider"]
+                        elif defer_fifo:
+                            # A rejected single-provider route still has that one
+                            # provider's FIFO. A mixed route with no selection has
+                            # no provider peer to wait behind yet.
+                            possible = scheduler.demand_providers(self.policy, models, lanes, roster)
+                            if len(possible) == 1:
+                                provider = next(iter(possible))
+                        if provider is not None:
+                            if defer_fifo:
+                                selected_models = (frozenset(name for name in models
+                                                   if self.policy["models"][name]["provider"] == provider)
+                                                   if models is not None else frozenset(
+                                                       name for name, model in self.policy["models"].items()
+                                                       if model["provider"] == provider))
+                                fifo_behind = ahead(selected_models, lanes)
+                            provider_limit = scheduler.provider_cap(self.policy, provider)
+                            if provider_limit is not None:
+                                # C-6.4: both pools share this count. Check inside the
+                                # reserving transaction, before taking ANY lease.
+                                provider_count = tx.execute(
+                                    "SELECT count(*) FROM attempts a JOIN lanes l USING(lane_id) "
+                                    "WHERE a.state IN ('reserved','starting','running','finalizing') "
+                                    "AND l.provider=?", (provider,)).fetchone()[0]
+                                # Separate predicates retain the live/quarantine
+                                # partial indexes instead of scanning history.
+                                provider_count += sum(scheduler.uncontained_quarantine(dict(row)) for row in tx.execute(
+                                    "SELECT a.state,a.quarantine_reason FROM attempts a JOIN lanes l USING(lane_id) "
+                                    "WHERE a.state='quarantined' AND l.provider=?", (provider,)))
+                                provider_kept = [waiter for waiter in kept if provider in
+                                                 scheduler.demand_providers(self.policy, waiter[1], waiter[2], roster)]
+                                provider_behind = next((waiter[0] for waiter in provider_kept if not waiter[3]), None)
+                                provider_at_limit = provider_count >= provider_limit - bool(provider_kept)
+                                provider_hold = {"provider": provider, "live": provider_count,
+                                                 "max_active_attempts": provider_limit,
+                                                 "key": f"providers.{provider}.max_active_attempts"}
+                        if not decision.chosen_lane or at_limit or provider_at_limit or provider_behind or fifo_behind:
                             # C-11.8: a job every lane refuses for a reason no wait ends
                             # (the pinned lane turned so since this pass's check) waits
                             # for no slot, so it holds no later job back (C-6.9).
@@ -6184,24 +6273,45 @@ class Daemon:
                             # 2026-09-20 three such jobs were each re-evaluated every
                             # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
                             # 709 MB store, and a daemon at a full core doing it.
-                            if not decision.chosen_lane:
+                            if fifo_behind or provider_behind:
+                                label = "behind-older-job"
+                            elif not decision.chosen_lane:
                                 label = scheduler.dominant_rejection(decision)
                             else:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
-                                label = "fleet-full" if saturated[pool] else "slot-kept"
+                                label = ("behind-older-job" if fifo_behind or provider_behind else
+                                         "provider-cap" if provider_at_limit and provider_hold["live"] >=
+                                         provider_hold["max_active_attempts"] else
+                                         "provider-slot-kept" if provider_at_limit else
+                                         "fleet-full" if saturated[pool] else "slot-kept")
                             hold = {"reason": label, **({"for_good": for_good} if for_good else {}),
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if label == "provider-cap" and provider_hold is None:
+                                provider_hold = next(row["provider_cap"] for evaluation in decision.evaluations
+                                                     for row in evaluation["rejections"]
+                                                     if row.get("provider_cap") and row["provider_cap"]["live"] >=
+                                                     row["provider_cap"]["max_active_attempts"])
+                            if label in ("provider-cap", "provider-slot-kept"):
+                                hold.update(provider_hold)
+                            if label == "provider-slot-kept":
+                                hold.update(kept_for=provider_kept[0][0], tier=tier)
+                            if fifo_behind or provider_behind:
+                                hold.update(behind=fifo_behind or provider_behind, tier=tier)
+                                if provider_behind:
+                                    hold.update(provider_hold)
                             if kind == "turn" and not decision.chosen_lane:
                                 # C-24.4, C-29.11: what each lane said, for the message's
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
-                            rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
-                                lane_wait=not decision.chosen_lane)
+                            signature = f"{scheduler.verdict_signature(decision)}:{at_limit or provider_at_limit}"
+                            if fifo_behind or provider_behind:
+                                signature += f":behind:{fifo_behind or provider_behind}"
+                            rechecks = self._capacity_wait(job["job_id"], signature, hold,
+                                                           lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
@@ -6643,6 +6753,10 @@ class Daemon:
         attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,j.kind,j.parent_job_id "
                                "FROM attempts a JOIN jobs j USING(job_id) "
                                "WHERE a.state IN ('reserved','starting','running','finalizing')")
+        if scheduler.provider_caps_on(self.policy):
+            attempts.extend(store.query(
+                "SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,a.quarantine_reason,j.kind,j.parent_job_id "
+                "FROM attempts a JOIN jobs j USING(job_id) WHERE a.state='quarantined'"))
         # C-6.14: each lane's pilot, from the attempts in flight now and what has
         # answered by now, as `_capacity_view` lays them: an attempt placed or an
         # answer heard since the early view changes the lane, which is judged again.
@@ -8516,7 +8630,7 @@ class Daemon:
             return None
 
     def _start_request(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
-                       arrived: float, peer: int | None) -> Future | None:
+                       arrived: float, peer: AuditToken | None) -> Future | None:
         """Start one request where it runs (C-16.5, C-25.3): a future, or None when
         it was answered here, on the connection's own thread."""
         if self.conversations.owns(req.op):
@@ -8536,14 +8650,12 @@ class Daemon:
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
         return pool.submit(self._respond, conn, write_lock, req, arrived)
 
-    def _connection(self, conn: socket.socket) -> None:
+    def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()
         pending: list[Future] = []
         reads: set[Future] = set()              # pending futures whose request only reads
         framer = descriptors.LineFramer()
         replied = [0.0]                         # when a reply last finished (monotonic)
-        from .conversations.peers import peer_pid
-        peer = peer_pid(conn)                   # C-25.6: who is asking, read from the socket
 
         def note_reply(_future=None) -> None:
             replied[0] = time.monotonic()
@@ -8637,7 +8749,7 @@ class Daemon:
         service = self.__dict__.get("conversations")       # none yet while __init__ runs
         return service.live_runners() if service is not None else 0
 
-    def _hold_connection(self, conn: socket.socket) -> None:
+    def _hold_connection(self, conn: socket.socket, peer: AuditToken | None = None) -> None:
         """C-16.7: hold a new connection, with a reader of its own, up to the cap.
 
         Each admitted connection gets its own reader thread, so it is read at
@@ -8658,7 +8770,7 @@ class Daemon:
             self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit",
                          "connection over the cap")
             return
-        reader = threading.Thread(target=self._read_connection, args=(conn,),
+        reader = threading.Thread(target=self._read_connection, args=(conn, peer),
                                   name="subfleet-socket", daemon=True)
         with self._connection_lock:
             self._readers.add(reader)
@@ -8674,9 +8786,9 @@ class Daemon:
             self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})",
                          f"connection no reader thread could start for ({exc})")
 
-    def _read_connection(self, conn: socket.socket) -> None:
+    def _read_connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         try:
-            self._connection(conn)
+            self._connection(conn, peer)
         finally:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
@@ -8765,6 +8877,7 @@ class Daemon:
             while not self.stopping.is_set():
                 try:
                     conn, _ = self._socket.accept()
+                    peer = peer_token(conn)     # C-25.6: first work after accept, before any logging or reader
                 except socket.timeout:
                     continue
                 except OSError as exc:
@@ -8804,7 +8917,7 @@ class Daemon:
                 if failures:
                     self.log.info("accept recovered after %d failures", failures)
                     failures = 0
-                self._hold_connection(conn)
+                self._hold_connection(conn, peer)
         finally:
             self.close()
 
