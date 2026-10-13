@@ -214,6 +214,82 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
             successor.close()
 
 
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+def test_empty_frozen_stream_cannot_accept_later_stdout_completion(state_daemon, monkeypatch, restart):
+    """Review r3 P1: only live stdout changes after an empty stream is frozen."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=1, out_path=str(out))
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "success")
+    interim = b"Interim progress, not a finished turn."
+    (adir / "stdout").write_bytes(b"")
+    (adir / "stderr").write_text("Your refresh token was revoked.")
+    (adir / "last.md").write_bytes(interim)
+    # With no stream events, this matches the pre-merge classifier's auth-dead
+    # verdict; the completion/success precedence change cannot affect it.
+    verdict = adapter.classify(adir, launch, ExitInfo(0, None, .1, None, None))
+    assert verdict.cls == OutcomeClass.AUTH_DEAD
+    attest = adapter.attest(adir, launch, verdict, attempt["model_requested"])
+    (adir / "finalization.json").write_text(json.dumps({"outcome": asdict(verdict),
+                                                       "attestation": asdict(attest)}))
+    monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
+    monkeypatch.setattr(adapter, "attest", lambda *args: pytest.fail("cached attestation repeated"))
+    observed = []
+    answered = Daemon._answered
+
+    def observe(outcome, provider_class):
+        observed.append(outcome.cls.value)
+        return answered(outcome, provider_class)
+
+    monkeypatch.setattr(Daemon, "_answered", staticmethod(observe))
+    salvage = daemon._salvage
+
+    def crash(*args):
+        raise RuntimeError("interrupted before acceptance")
+
+    monkeypatch.setattr(daemon, "_salvage", crash)
+    with pytest.raises(RuntimeError, match="interrupted before acceptance"):
+        daemon._finalize(finalizing)
+    assert observed == ["auth-dead"]
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
+    assert daemon.store.get_job(job_id)["accepted_attempt_id"] is None
+    assert (adir / "stream.jsonl").read_bytes() == b""
+    assert (adir / "deliverable.md").read_bytes() == interim
+    frozen = {name: (adir / name).read_bytes() for name in
+              ("stream.jsonl", "deliverable.md", "finalization.json", "exit.json", "last.md", "stderr")}
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    monkeypatch.setattr(adapter, "deliverable", lambda *args: pytest.fail("captured deliverable extracted again"))
+    with (adir / "stdout").open("a") as stream:
+        stream.write('{"type":"turn.completed"}\n')
+    successor = None
+    try:
+        if restart:
+            daemon.close()
+            successor = daemon = Daemon(harness.root)
+            monkeypatch.setattr(daemon, "_launch", lambda *args: pytest.fail("recovery must not launch"))
+            daemon._process_attempt(attempt["attempt_id"])
+        else:
+            daemon._finalize(finalizing)
+        assert {name: (adir / name).read_bytes() for name in frozen} == frozen
+        assert observed == ["auth-dead", "auth-dead"]
+        job = daemon.store.get_job(job_id)
+        assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
+        row = daemon.store.get_attempt(attempt["attempt_id"])
+        assert (row["outcome_class"], row["rc"], row["killed_by"]) == ("auth-dead", 0, None)
+        evidence = json.loads(row["evidence_json"])["classification"]
+        assert evidence["turn_completed"] is False
+        assert evidence["turn_failed"] is False
+        assert evidence["last_event_type"] is None
+        assert not out.exists()
+        assert not daemon.store.query("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'",
+                                      (attempt["attempt_id"],))
+    finally:
+        if successor is not None:
+            successor.close()
+
+
 @pytest.mark.parametrize("guard", ("turn-failed", "spawn-error", "cached-spawn-error", "killed",
                                   "nonzero", "blank", "incomplete"))
 def test_cached_auth_reconciliation_requires_all_success_evidence(state_daemon, monkeypatch, guard):

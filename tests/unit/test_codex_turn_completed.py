@@ -75,6 +75,42 @@ def test_completion_evidence_remembers_failure_before_completion(tmp_path):
         "turn_completed": True, "turn_failed": True, "last_event_type": "turn.completed"}
 
 
+@pytest.mark.parametrize("raw_stream", ("stream.jsonl", "custom.jsonl", "missing.jsonl", None))
+def test_empty_frozen_stream_is_authoritative_for_all_readers(tmp_path, raw_stream):
+    launch = replace(_launch(tmp_path), raw_stream_path=str(tmp_path / raw_stream) if raw_stream else None)
+    frozen = tmp_path / ("custom.jsonl" if raw_stream == "custom.jsonl" else "stream.jsonl")
+    frozen.write_bytes(b"")
+    (tmp_path / "stdout").write_text("".join(json.dumps(event) + "\n" for event in (MESSAGE, COMPLETED)))
+    (tmp_path / "stderr").write_bytes(b"")
+    adapter = CodexAdapter()
+    outcome = adapter.classify(tmp_path, launch, _exit(0))
+    assert adapter.deliverable(tmp_path, launch, outcome) is None
+    assert completion_evidence(tmp_path, launch) == {
+        "turn_completed": False, "turn_failed": False, "last_event_type": None}
+    # A nonblank last.md must not turn the live stdout completion into success.
+    (tmp_path / "last.md").write_text(INTERIM)
+    outcome = adapter.classify(tmp_path, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.evidence["turn_completed"] is False
+    assert outcome.evidence["last_event_type"] is None
+    assert outcome.evidence["model_answered"] is None
+
+
+@pytest.mark.parametrize("raw_stream,stdout", (("missing.jsonl", "stdout"), (None, "stdout"),
+                                             (None, "missing-stdout")))
+def test_absent_frozen_stream_keeps_legacy_stdout_fallback(tmp_path, raw_stream, stdout):
+    launch = replace(_launch(tmp_path), raw_stream_path=str(tmp_path / raw_stream) if raw_stream else None,
+                     stdout_path=str(tmp_path / stdout))
+    (tmp_path / "stdout").write_text("".join(json.dumps(event) + "\n" for event in (MESSAGE, COMPLETED)))
+    (tmp_path / "stderr").write_bytes(b"")
+    adapter = CodexAdapter()
+    outcome = adapter.classify(tmp_path, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
+    assert adapter.deliverable(tmp_path, launch, outcome) == INTERIM.encode()
+    assert completion_evidence(tmp_path, launch) == {
+        "turn_completed": True, "turn_failed": False, "last_event_type": "turn.completed"}
+
+
 @pytest.mark.parametrize("complete", [False, True])
 def test_resume_requires_this_attempts_completion(tmp_path, complete):
     prompt = tmp_path / "prompt.md"
