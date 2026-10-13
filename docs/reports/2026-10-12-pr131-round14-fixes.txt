@@ -652,3 +652,111 @@ Static AST comparison also confirms _contain_probe, _kill_attempt, _signal_owned
 _unambiguous_signal_identity, liveness, same_process, signal_group, signal_process,
 identities_overlap and protected_pids are unchanged from 71463059d. Static
 comparison is supporting evidence, not counted as additional pytest passes.
+
+Final standalone per-file counts
+-------------------------------
+tests/unit/test_review_pr131_round18_census.py: 8 passed (8.30 s).
+tests/fake/test_review_pr131_round18_exit_child.py: 4 passed (9.37 s).
+tests/fake/test_review_pr131_round15.py: 3 passed (12.65 s).
+tests/unit/test_test_module_names.py: 1 passed (1.04 s).
+tests/fake/test_census_recycled_pid_daemon.py: 0 executed; UNRUN.
+tests/fake/test_detached_cwd_pins.py: 0 executed; UNRUN.
+tests/fake/test_review_pr131_round14.py: 0 executed; UNRUN.
+tests/fake/test_quarantine_review_fixes.py: 0 executed; UNRUN.
+tests/fake/test_quarantine_detached_writers.py: 0 executed; UNRUN.
+tests/fake/test_quarantine_attempt_isolation.py: 0 executed; UNRUN.
+tests/fake/test_review_pr131_round3.py: 0 executed; UNRUN.
+tests/fake/test_r12orig_liveness.py: 0 executed; UNRUN.
+tests/fake/test_review_pr131_round12_liveness.py: 0 executed; UNRUN.
+tests/fake/test_state_contract.py: 0 executed; UNRUN.
+
+Total: 16 passed, zero failed, zero skipped among executed tests. There were
+28 foreground lock requests: four entered pytest and 24 exited 75 in the queue,
+before pytest. Every failed file was requested at least twice; cwd pins three
+times. Four requests used a 300-second queue; the other 24 used 60 seconds.
+The successful new census and copied reviewer probe checks used those longer
+queues. No hold exceeded 20 minutes: an outer 1140-second watchdog covered
+queue plus execution; every completed pytest took at most 12.65 seconds.
+No test waited for calmer load while holding the lock, and no pytest overlapped.
+
+The runner used a fresh task TMPDIR from getconf DARWIN_USER_TEMP_DIR per request,
+HYPOTHESIS_STORAGE_DIRECTORY inside that directory, lockf -k on the required
+/private/tmp/claude-501/subfleet-suites.lock, uv run --offline --no-sync pytest -q
+-p no:cacheprovider, and the existing opt-in tests.review_pr131_r15_bounds plugin
+for most requests. That profile bounds properties to eight examples and state
+machines to five examples/eight steps, with no database. All successful files
+contain ordinary/parametrized cases; no property/state-machine pass is claimed.
+Full property profiles, all 20 real detached-writer cases, and every file marked
+UNRUN remain host work. Queue failures are not collection or assertion failures.
+
+The isolated environment uses CPython 3.14.7 free-threaded, pytest 9.1.1 and
+Hypothesis 6.168.1. Installed test dependencies were copied read-only into this
+workspace's .venv. Its project .pth and console entry points reference only this
+workspace. No dependency network access or Git remote operation was performed.
+All four completed checks ran after the final production/fixture change in
+dac1ab0f6; subsequent commits change only this report.
+
+Host preservation manifest (all 0 executed / UNRUN here)
+-------------------------------------------------------
+Besides the ten requested files marked UNRUN above, the hub should rerun these
+previously passing release/PR groups, each file in its own lock hold:
+- tests/unit/test_procs.py
+- tests/unit/test_census_identity_uncertainty.py
+- tests/unit/test_census_recycled_pid.py
+- tests/unit/test_census_survivors_review.py
+- tests/fake/test_review_r185_adversarial.py
+- tests/fake/test_writer_retention_fence.py
+- tests/fake/test_policy_sandbox.py
+- tests/fake/test_turn_retention_cwd.py
+- tests/fake/test_r12orig_ownership.py
+- tests/fake/test_r12orig_signal_authority.py
+- tests/fake/test_review_pr131_round12_ownership.py
+- tests/fake/test_review_pr131_round12_signal_authority.py
+- tests/unit/test_daemon_settle.py
+- tests/fake/test_probe_recovery.py
+- tests/fake/test_quarantine_self_resolve.py
+- tests/fake/test_quarantine_ambiguity.py
+- tests/fake/test_review_pr131_round6.py
+- tests/fake/test_review_pr131_round6b.py
+- tests/fake/test_review_pr131_round6b_authority.py
+- tests/fake/test_review_pr131_round11.py
+- tests/unit/test_quarantine_migration.py
+- tests/fake/test_review_pr131_probes.py
+- tests/fake/test_quarantine_process_world.py
+Also UNRUN (supplemental proofs, not claimed passing): test_state_fixture_processes,
+quarantine_identity_invariants, turn_retention_cwd_properties, census_interleavings,
+review_pr131_census_property, mutation runners and broader suites not named here.
+After 24 lock-queue denials, no further full-group requests were queued. The
+caller explicitly provides host validation when the queue prevents local runs.
+
+Commits in workspace-local .git-local on feat/quarantine-self-resolve
+------------------------------------------------------------------
+099b65e43 sparse census retention
+6ba4ae690 collection-time production census imports and exact reviewer probe
+cd417d672 published child identity PID fallback
+1907e871b stable retained-group source diagnostics and descendant walks
+eae6a9ab8 unknown-boot start-mismatch resolution and eight focused witnesses
+dac1ab0f6 real inspection restoration, fresh overflow boot, resolved-root fixtures
+4ab89d0a4 root-cause report and first locked checks
+f3b123391 copied reviewer exit-child passes and unchanged signal-boundary audit
+The final handoff/report commit is listed in the final answer. Import that local
+branch tip; the ordinary checkout HEAD remains 71463059d.
+
+Final static and cleanup checks
+--------------------------------
+All eight changed Python files parse. The seven unchanged requested witness
+files (cwd pins, round 14, round 15, review fixes, both r12 liveness files, state
+contract) match 71463059d byte-for-byte. All 115 original assertion expressions
+in the four edited existing test modules remain, with two added expressions
+(117 total); the sole timing adjustment is explained above. The supplied probe
+copy matches byte-for-byte (SHA-256 ca7297edcdb7ca9ec3d40da40680b652dbe3fb18f56836cd25cd5858106e27eb).
+Module basenames are unique, both statically and in the passing pytest check.
+Git diff --check passes. These checks are not additional pytest counts.
+
+Each task TMPDIR was cleaned using the required python3/shutil.rmtree command.
+Task-only temporary runners/logs are removed at handoff; no .hypothesis directory
+or active test runner remains. Only named source, test and report files were
+staged. Existing committed artifacts and release ancestry are preserved. No
+sub-agent, network remote, push, history rewrite, live store, caller worktree
+write or unrelated process operation occurred. Real writer tests never entered
+pytest in this job, so they started no real writer children here.
