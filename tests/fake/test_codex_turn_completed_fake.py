@@ -204,6 +204,52 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
             successor.close()
 
 
+@pytest.mark.parametrize("guard", ("turn-failed", "spawn-error", "cached-spawn-error", "killed",
+                                  "nonzero", "blank", "incomplete"))
+def test_cached_auth_reconciliation_requires_all_success_evidence(state_daemon, monkeypatch, guard):
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_text("previous output\n")
+    job_id, attempt, adir = reserve(daemon, harness, max_attempts=1, out_path=str(out))
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    rc = 1 if guard == "nonzero" else 0
+    launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "success", rc=rc)
+    error = {"type": "error", "message": "Your refresh token was revoked."}
+    events = [error, {"type": "item.completed", "item": {"type": "agent_message", "text": "Finished."}}]
+    if guard == "turn-failed":
+        events.append({"type": "turn.failed", "error": {"message": "Terminal provider failure"}})
+    if guard != "incomplete":
+        events.append({"type": "turn.completed"})
+    (adir / "stdout").write_text("".join(json.dumps(event) + "\n" for event in events))
+    verdict = adapter.classify(adir, launch, ExitInfo(rc, None, .1, None, None))
+    verdict = replace(verdict, cls=OutcomeClass.AUTH_DEAD, detail="Subscription authentication rejected",
+                      evidence={**verdict.evidence, "authentication": error, "admission": None,
+                                "turn_completed": True})  # A cached claim cannot supply missing proof.
+    if guard == "spawn-error":
+        receipt = json.loads((adir / "exit.json").read_text())
+        receipt["spawn_error"] = "Provider could not spawn"
+        (adir / "exit.json").write_text(json.dumps(receipt))
+    elif guard == "cached-spawn-error":
+        verdict = replace(verdict, evidence={**verdict.evidence, "spawn_error": "Provider could not spawn"})
+    elif guard == "killed":
+        daemon.store.update_attempt(attempt["attempt_id"], killed_by="operator")
+    elif guard == "blank":
+        # The stream has nonblank agent text, but replay must use these already
+        # captured blank bytes rather than extracting the stream again.
+        (adir / "deliverable.md").write_bytes(b" \n\t")
+    attest = adapter.attest(adir, launch, verdict, attempt["model_requested"])
+    frozen = json.dumps({"outcome": asdict(verdict), "attestation": asdict(attest)})
+    (adir / "finalization.json").write_text(frozen)
+    monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
+    daemon._finalize(finalizing)
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
+    assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_class"] != "ok"
+    assert out.read_text() == "previous output\n"
+    assert (adir / "finalization.json").read_text() == frozen
+
+
 @pytest.mark.parametrize("path", ("fresh", "cached", "legacy", "recovery"))
 @pytest.mark.parametrize("complete", (False, True))
 @pytest.mark.parametrize("rc", (0, 1))

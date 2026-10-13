@@ -207,11 +207,12 @@ def _stream_path(attempt_dir: Path, launch: Launch) -> Path:
 
 def completion_evidence(attempt_dir: Path, launch: Launch) -> dict:
     """Completion proof from this attempt's stream, including legacy replays."""
-    completed, last_type = False, None
+    completed, failed, last_type = False, False, None
     for event in _events(_stream_path(attempt_dir, launch)):
         last_type = event.get("type")
         completed = completed or last_type == "turn.completed"
-    return {"turn_completed": completed, "last_event_type": last_type}
+        failed = failed or last_type == "turn.failed"
+    return {"turn_completed": completed, "turn_failed": failed, "last_event_type": last_type}
 
 
 def _objects(value: object) -> Iterator[dict]:

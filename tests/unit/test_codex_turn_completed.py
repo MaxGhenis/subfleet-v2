@@ -68,6 +68,13 @@ def test_turn_failed_retains_its_existing_class(tmp_path, complete):
     assert CodexAdapter().classify(tmp_path, _events(tmp_path, *events), _exit(0)).cls == OutcomeClass.UNKNOWN
 
 
+def test_completion_evidence_remembers_failure_before_completion(tmp_path):
+    launch = _events(tmp_path, MESSAGE, {"type": "turn.failed", "error": {"message": "Terminal failure"}},
+                     COMPLETED)
+    assert completion_evidence(tmp_path, launch) == {
+        "turn_completed": True, "turn_failed": True, "last_event_type": "turn.completed"}
+
+
 @pytest.mark.parametrize("complete", [False, True])
 def test_resume_requires_this_attempts_completion(tmp_path, complete):
     prompt = tmp_path / "prompt.md"
@@ -113,7 +120,8 @@ def test_stream_after_reader_boundaries_and_large_output_keeps_completion(tmp_pa
         stream.write(b'pleted"}')
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
     assert outcome.cls == OutcomeClass.OK
-    assert completion_evidence(tmp_path, launch) == {"turn_completed": True, "last_event_type": "turn.completed"}
+    assert completion_evidence(tmp_path, launch) == {
+        "turn_completed": True, "turn_failed": False, "last_event_type": "turn.completed"}
 
 
 @pytest.mark.parametrize("auth,admission,deliverable", [

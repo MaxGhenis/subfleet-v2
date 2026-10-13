@@ -7589,6 +7589,7 @@ class Daemon:
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
+        cached_finalization = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
                               else "guardian exit receipt has no return code")
@@ -7596,6 +7597,7 @@ class Daemon:
         else:
             result_path = adir / "finalization.json"
             result = self._read_json(result_path)
+            cached_finalization = result is not None
             if result is None:
                 exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
                 outcome = adapter.classify(adir, launch, exit_info)
@@ -7612,12 +7614,31 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
-        # The daemon's overrides of the adapter's `ok`. finalization.json
-        # keeps the adapter's verdict; these are recomputed from the attempt row,
-        # stream and captured deliverable on every (re)finalization, so a replay
-        # reaches the same class (C-4.3), and the adapter's verdict is kept in
-        # the attempt's evidence beside the class that decided.
+        # finalization.json keeps the adapter's verdict. Reconciliation and
+        # overrides use the frozen stream, captured deliverable, exit receipt
+        # and attempt row on every replay (C-4.3), before any lane, closure or
+        # acceptance effect. Keep the original verdict beside the deciding class.
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
+        if not lost and lane.provider == "codex" and job["kind"] != "turn":
+            from .adapters.codex import completion_evidence
+            completion = completion_evidence(adir, launch)
+            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
+            spawn_error = receipt.get("spawn_error") or outcome.evidence.get("spawn_error")
+            if (cached_finalization and outcome.cls != OutcomeClass.OK and rc == 0
+                    and completion["turn_completed"] and not completion["turn_failed"]
+                    and not spawn_error and not actual.get("killed_by")
+                    and deliverable and read_regular(deliverable_path).strip()):
+                # C-9.2: pre-merge authentication/text verdicts can precede
+                # verified success. The captured bytes decide presence; never
+                # reclassify or re-extract a result already frozen on disk.
+                # Claude's structured admission verdicts and conversation
+                # driver outcomes are outside this detached Codex rule.
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.OK,
+                                              detail="Codex completed with a deliverable", closure=None,
+                                              evidence={**outcome.evidence, "admission": "deliverable with exit 0"})
+            if outcome.cls == OutcomeClass.OK and (completion["turn_failed"] or spawn_error):
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN,
+                                              detail=spawn_error or "Codex turn failed without a verified deliverable")
         if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
             # C-9.2: an attempt the daemon signalled (an operator's kill, the
             # wall limit, recovery) did not finish, whatever its rc and its
@@ -7639,9 +7660,6 @@ class Daemon:
             # C-9.2, D-SHUT1: a cached verdict can predate the adapter's rule.
             # Acceptance always needs proof from this attempt's frozen stream,
             # never last.md or a receipt's claimed completion evidence.
-            from .adapters.codex import completion_evidence
-            completion = completion_evidence(adir, launch)
-            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
             if not completion["turn_completed"]:
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
                                               detail="Codex exited before its turn completed")
