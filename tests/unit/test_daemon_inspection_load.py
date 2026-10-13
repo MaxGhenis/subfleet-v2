@@ -109,6 +109,9 @@ def daemon(tmp_path, monkeypatch):
     with monkeypatch.context() as startup:
         startup.setattr(procs, "boot_id", lambda: BOOT)
         startup.setattr(procs, "proc_start", lambda pid: STARTED)
+        # The modeled table has no daemon row and cannot authorize disclaiming.
+        # Keep its one startup read outside the steady-state inspection budget.
+        startup.setattr(procs, "guardian_disclaim_allowed", lambda: False)
         core = Daemon(tmp_path / "state", inspect_interval_s=30)
     procs.forget_boot_id()      # C-5.12's cache; conftest also clears it per test
     home = tmp_path / "home"
