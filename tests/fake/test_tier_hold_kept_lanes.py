@@ -300,11 +300,64 @@ def test_c6_9_a_later_retry_pinned_to_a_kept_lane_waits_behind_the_older_job(pin
     assert len(service.store.list_attempts(newer)) == 1
     assert hold_of(service, newer) == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
     assert json.loads(service.store.get_job(newer)["exclusions"]) == []
-    # Confined to the kept lane, the retry is held at the top of the pass, like a job pinned there:
-    # no look, so its own clock (C-4.5's 60 s) stands, and it is placed once it is due.
+    # The pair is the daemon's choice, so the retry was looked at: its lane only lacks nothing but the
+    # older job's turn, so it keeps the pin and waits behind that job on a capacity clock.
+    assert service._retry_verdicts[newer][1] is True
+    assert service.store.query("SELECT 1 FROM events WHERE kind='job.retry_held' AND job_id=?", (newer,))
+    job = service.store.get_job(newer)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "capacity") and job["next_check_at"] > utcnow()
+    # The older job leaves: the retry is looked at on that pass, whatever its clock, and takes its lane.
     service.store.update_job(older, state="cancelled")
+    service.store.update_job(newer, next_check_at=after(3600))
     service._admit()
     assert attempts_on(service, newer) == ["claude-a", "claude-a"]
+
+
+# --- a kept lane re-enrolled during the pass is still kept (C-6.9, C-11.2) --------------------------
+
+def successor(service, lane_id, new_id):
+    """A re-enrolment (C-10.2): the old lane disabled, the same credential bound to a new lane id."""
+    service.store.update_lane(lane_id, enabled=0)
+    service.store.put_lane(Lane(new_id, "claude", f"claude:{lane_id}@example.invalid",
+                                Credential("claude", f"/fake/{lane_id}", "home"), f"/fake/{lane_id}",
+                                LaneOwner.V2, False))
+    service.store.add_reading(Reading(new_id, "account", "seven_day", .2, after(86400),
+                                      ReadingLabel.PROVIDER, "fixture", utcnow()))
+
+
+def test_c6_9_a_lane_re_enrolled_after_the_waiters_were_collected_is_still_kept(pinned_fleet):
+    """C-6.9, C-11.2 the pass reads the roster once; the older job's pin follows its lane to a successor
+    enrolled before the later job is evaluated, so the later job may not take that successor either."""
+    service, harness = pinned_fleet
+    close(service, "claude-b")
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    newer = submit(service, harness, pinned_model="opus")
+    wait_on_capacity(service, older, seconds=3600)
+    real = service._workspace
+
+    def workspace(job):
+        if job["job_id"] == newer and not service.store.get_lane("claude-a2"):
+            successor(service, "claude-a", "claude-a2")         # between collecting waiters and evaluating
+        return real(job)
+    service._workspace = workspace
+    service._admit()
+    assert service.store.get_lane("claude-a2") and not service.store.list_attempts(newer), attempts_on(service, newer)
+    hold = service._holds[newer]
+    assert (hold["reason"], hold["behind"], hold["kept"]) == ("behind-older-job", older, {"claude-a2": older})
+    assert scheduler.current_lane_id(service._pin_roster(), "claude-a") == "claude-a2"
+
+
+def test_c6_9_evaluate_keeps_the_successor_of_a_kept_lane():
+    policy = {"tiers": ["standard"], "chains": {}, "models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
+              "caps": {"max_active_attempts": 4, "max_in_flight_per_lane": 2}}
+    lanes = [{"lane_id": "claude-9", "provider": "claude", "home": "/h/9", "owner": "v2", "enabled": 0},
+             {"lane_id": "claude-12", "provider": "claude", "home": "/h/9", "owner": "v2", "enabled": 1},
+             {"lane_id": "claude-11", "provider": "claude", "home": "/h/11", "owner": "v2", "enabled": 1}]
+    decision = scheduler.evaluate(policy, {"lanes": lanes, "now": utcnow()},
+                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}})
+    reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
+    assert reasons["claude-12"] == ["kept:w1"] and "kept:w1" in reasons["claude-9"]
+    assert decision.chosen_lane == "claude-11"
 
 
 # --- one rule, stated once (C-6.11) -----------------------------------------------------------------

@@ -3,7 +3,7 @@
 `demand_models` and `demand_lanes` decide which jobs compete (C-6.9); `evaluate`
 decides where a job may run. They are two implementations of one semantics, so
 over generated rosters and jobs: the models demanded are the chain evaluate
-walks, a pin's lanes are the lanes evaluate looks at, a pin naming no lane is the
+walks, a pin's lanes are exactly the lanes evaluate looks at, a pin naming no lane is the
 empty set and evaluate looks at none, a pin naming several lanes is None and
 evaluate refuses it, and `demand_lanes` never raises.
 """
@@ -86,6 +86,7 @@ def test_c6_9_demand_is_what_evaluate_walks(data):
     if job["pinned_lane"]:
         assert lanes_d is not None, (job, "evaluate resolved a pin demand_lanes called several")
         assert seen <= lanes_d, (job, seen, lanes_d)
+        assert not seen or seen == lanes_d, (job, seen, lanes_d)     # a pin's one lane, exactly
         if lanes_d == frozenset():
             assert seen == set()
     else:
