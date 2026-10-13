@@ -22,12 +22,26 @@ from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.offline import Offline
 from subfleet.store import SCHEMA_VERSION, Store
+from tests.table_order import ordered_select
 
 STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'lost')
 TABLES = {
     'schema_version', 'lanes', 'readings', 'closures', 'jobs', 'job_owned_branches',
     'job_pushes', 'attempts', 'artifacts', 'notices', 'decisions', 'leases',
     'actions', 'events', 'service_notices',
+}
+#: The process-claim projection a schema 8 store holds (`store_process_claims.sql`),
+#: which C-5.4's claim authorization reads.
+CLAIM_TABLES = {
+    'attempt_process_claims', 'process_claim_clock', 'process_claim_revisions',
+    'process_claim_receipts', 'process_claim_receipt_pending',
+}
+#: Every trigger schema 8 has, by the table it fires on. None fires on the
+#: `decisions` delete or the `events` insert a prune batch makes.
+TRIGGERS = {
+    'process_claims_update': 'attempts', 'process_claims_insert': 'attempts',
+    'process_claims_delete': 'attempts', 'process_claim_receipt_added': 'attempts',
+    'process_claim_receipt_resolved': 'attempts', 'process_claim_receipt_changed': 'attempts',
 }
 # Independent copies of the live readers, including why's evaluation timestamp.
 WHY = ('SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? '
@@ -39,7 +53,7 @@ STORES = st.lists(st.tuples(st.sampled_from(STATES), st.lists(DECISION, max_size
 
 
 def _seed(root, specs):
-    """Real schema 7, with attempts, timestamp ties and distinct raw JSON bytes."""
+    """Real schema 8, with attempts, timestamp ties and distinct raw JSON bytes."""
     with Store(root / 'state.sqlite3') as store:
         store.put_lane(Lane('codex-1', 'codex', 'codex:one',
                             Credential('codex', '/synthetic/home', 'home'),
@@ -70,7 +84,7 @@ def _seed(root, specs):
 def _tables(database):
     conn = sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True)
     try:
-        return {name: conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid').fetchall()
+        return {name: conn.execute(ordered_select(conn, name)).fetchall()
                 for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         conn.close()
@@ -113,7 +127,7 @@ def _readers(root):
                         (False, 1, 'middle', False), (False, 1, 'id', False)])
                 for state in STATES], vacuum=True)
 def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
-    """C-11.5: partition, live histories, latest answers, and exact schema-7 restore."""
+    """C-11.5: partition, live histories, latest answers, and exact schema-8 restore."""
     with tempfile.TemporaryDirectory(prefix='sf-prune217-property-') as directory:
         root = Path(directory)
         _seed(root, specs)
@@ -144,7 +158,7 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         report = pruning.prune(root, apply=True, confirm=True, vacuum=vacuum,
                                batch_size=3, write_report=False)
         assert _readers(root) == before
-        assert report.schema == {'store': 7, 'build': 7}
+        assert report.schema == {'store': 8, 'build': 8}
         assert report.verification['readers_checked'] == len(states)
         assert report.verification['readers_identical'] == len(states)
         if vacuum:
@@ -170,18 +184,33 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         assert _readers(root) == before
 
 
-def test_schema_7_has_no_decision_dependents_and_hashes_every_table(tmp_path):
-    """C-3.1, C-11.5: the leaf-table and enumeration assumptions hold on this build."""
+def test_schema_8_has_no_decision_dependents_and_hashes_every_table(tmp_path):
+    """C-3.1, C-11.5: the leaf-table and enumeration assumptions hold on this build.
+
+    Schema 8 supersedes schema 7 here: a store at schema 8 also holds the
+    process-claim tables and the triggers on `attempts` that maintain them.
+    Neither is a decision dependent: no foreign key names `decisions`, and no
+    trigger fires on the `decisions` delete or the `events` insert a prune
+    batch makes.
+    """
     _seed(tmp_path, [])
     with Store(tmp_path / 'state.sqlite3', read_only=True) as store:
-        assert SCHEMA_VERSION == 7
+        assert SCHEMA_VERSION == 8
         names = {row['name'] for row in store.query("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert names == TABLES == set(pruning._tables(store.connection))
-        assert set(pruning._fingerprints(store.connection)) == TABLES - {'decisions', 'events'}
+        assert names == TABLES | CLAIM_TABLES == set(pruning._tables(store.connection))
+        assert set(pruning._fingerprints(store.connection)) == (TABLES | CLAIM_TABLES) - {'decisions', 'events'}
         assert not [fk for name in names for fk in store.query(f'PRAGMA foreign_key_list("{name}")')
                     if fk['table'] == 'decisions']
-        # The schema has no hidden trigger that could make this DELETE write elsewhere.
-        assert store.query("SELECT name FROM sqlite_master WHERE type='trigger'") == []
+        # The claims tables depend on `attempts`, which a prune never writes.
+        assert {name: {fk['table'] for fk in store.query(f'PRAGMA foreign_key_list("{name}")')}
+                for name in CLAIM_TABLES} == {
+            'attempt_process_claims': {'attempts'}, 'process_claim_receipt_pending': {'attempts'},
+            'process_claim_clock': set(), 'process_claim_revisions': set(),
+            'process_claim_receipts': set()}
+        # The schema has no hidden trigger that could make this DELETE write elsewhere:
+        # every trigger it has fires on `attempts`.
+        assert {row['name']: row['tbl_name'] for row in store.query(
+            "SELECT name,tbl_name FROM sqlite_master WHERE type='trigger'")} == TRIGGERS
 
 
 def test_a_new_table_is_included_in_the_proof(tmp_path):
@@ -201,9 +230,15 @@ def test_the_release_daemon_and_prune_share_the_lifetime_lock(tmp_path, monkeypa
     monkeypatch.setattr(daemon_module.procs, 'boot_id', lambda: 'synthetic-boot')
     monkeypatch.setattr(daemon_module.procs, 'proc_start', lambda pid: 'synthetic-start')
     _seed(tmp_path, [])
-    original = _tables(tmp_path / 'state.sqlite3')
+    seeded = _tables(tmp_path / 'state.sqlite3')
     service = Daemon(tmp_path)
     try:
+        # Schema 8's daemon completes its one-time launch-receipt import as it
+        # opens the store. That row is the daemon's only write; from here on
+        # neither the refused pass nor the dry run may change anything.
+        original = _tables(tmp_path / 'state.sqlite3')
+        assert {name for name in original if original[name] != seeded[name]} == {'process_claim_receipts'}
+        assert (seeded['process_claim_receipts'], original['process_claim_receipts']) == ([(1, 0, 0)], [(1, 1, 1)])
         with pytest.raises(pruning.PruneRefused, match='a daemon holds') as refusal:
             pruning.prune(tmp_path, apply=True, confirm=True, write_report=False)
         assert refusal.value.code == 7
