@@ -190,58 +190,60 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     _receipt(attempt_dir / "start.json", start)
     child = None
     spawn_error = None
-    qos = provider_qos()
-    command = provider_argv(argv, qos)
     try:
-        with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
-            if relay is not None:
-                read_end, write_end = os.pipe()
+        qos = provider_qos()
+        command = provider_argv(argv, qos)
+        try:
+            with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
+                if relay is not None:
+                    read_end, write_end = os.pipe()
+                    try:
+                        child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr)
+                    except OSError:
+                        os.close(write_end)
+                        raise
+                    finally:
+                        os.close(read_end)
+                    try:
+                        relay.serve(write_end, child=child)
+                        rc = child.wait()
+                    finally:
+                        relay.stop()
+                else:
+                    with open(stdin_path or os.devnull, "rb") as stdin:
+                        # Timer observation begins at the provider launch boundary, after
+                        # credential lookup and worker queueing (C-23.19).
+                        if os.environ.get("SUBFLEET_PROBE"):
+                            _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
+                        child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
+                        rc = child.wait()
+        except OSError as exc:
+            rc = 127
+            # OSError contains the executable/path and errno, never child env.
+            spawn_error = str(exc)
+        if qos and child is not None and not spawn_error:
+            spawn_error = clamp_spawn_error(rc, stderr_path, argv[0])
+            if spawn_error:
+                # No provider ran, so the receipt and the streams read as Popen's own failure
+                # leaves them. taskpolicy's line lives on in spawn_error; left in the stderr
+                # file, an adapter would read it as the provider's (Codex's transient pattern
+                # matches "Resource temporarily unavailable", its limit one "Disc quota exceeded").
+                rc, child = 127, None
                 try:
-                    child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr)
+                    os.truncate(stderr_path, 0)
                 except OSError:
-                    os.close(write_end)
-                    raise
-                finally:
-                    os.close(read_end)
-                relay.serve(write_end, child=child)
-                try:
-                    rc = child.wait()
-                finally:
-                    relay.stop()
-            else:
-                with open(stdin_path or os.devnull, "rb") as stdin:
-                    # Timer observation begins at the provider launch boundary, after
-                    # credential lookup and worker queueing (C-23.19).
-                    if os.environ.get("SUBFLEET_PROBE"):
-                        _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                    child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
-                    rc = child.wait()
-    except OSError as exc:
-        rc = 127
-        # OSError contains the executable/path and errno, never child env.
-        spawn_error = str(exc)
-    if qos and child is not None and not spawn_error:
-        spawn_error = clamp_spawn_error(rc, stderr_path, argv[0])
+                    pass
+        exit_receipt = {
+            "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
+            "wall_s": round(time.monotonic() - started, 6),
+            "child_pid": child.pid if child else None,
+        }
         if spawn_error:
-            # No provider ran, so the receipt and the streams read as Popen's own failure
-            # leaves them. taskpolicy's line lives on in spawn_error; left in the stderr
-            # file, an adapter would read it as the provider's (Codex's transient pattern
-            # matches "Resource temporarily unavailable", its limit one "Disc quota exceeded").
-            rc, child = 127, None
-            try:
-                os.truncate(stderr_path, 0)
-            except OSError:
-                pass
-    exit_receipt = {
-        "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
-        "wall_s": round(time.monotonic() - started, 6),
-        "child_pid": child.pid if child else None,
-    }
-    if spawn_error:
-        exit_receipt["spawn_error"] = spawn_error
-    _receipt(attempt_dir / "exit.json", exit_receipt)
-    linger()
-    return rc
+            exit_receipt["spawn_error"] = spawn_error
+        _receipt(attempt_dir / "exit.json", exit_receipt)
+        return rc
+    finally:
+        linger()
 
 
 def main(argv: list[str] | None = None) -> int:
