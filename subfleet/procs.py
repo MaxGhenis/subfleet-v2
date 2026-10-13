@@ -345,10 +345,12 @@ class ProcessTable:
         if not self.live(known.pid):
             return True
         started = self.rows[known.pid][3]
-        if not known.boot_id:
-            return False
+        # A positive start mismatch disproves this incarnation independently
+        # of boot inspection. Missing or matching starts still need boot proof.
         if started and known.proc_start and started != known.proc_start:
             return True
+        if not known.boot_id:
+            return False
         try:
             if boot_identity.session_uuid(known.boot_id) and self.boot_matches(known.boot_id) is False:
                 return True
@@ -829,7 +831,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     and boot_identity.session_uuid(known.boot_id) == boot_identity.session_uuid(launch_boot_id)):
                 reasons.append("different boot identity")
                 continue
-            if not known.boot_id or not known.proc_start:
+            if not known.proc_start:
                 if needs_comparison:
                     errors.append(f"recorded identity unavailable for pid {pid}")
                 return False
@@ -840,6 +842,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             if began != known.proc_start:
                 reasons.append("different start identity")
                 continue
+            if not known.boot_id:
+                if needs_comparison:
+                    errors.append(f"recorded identity unavailable for pid {pid}")
+                return False
             if not needs_comparison:
                 return False
             try:
