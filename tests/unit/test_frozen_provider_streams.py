@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import tempfile
 
@@ -43,11 +44,18 @@ def readings(adapter, directory, launch):
 @pytest.mark.parametrize("name", ("codex", "claude"))
 @pytest.mark.parametrize("kind", ("directory", "fifo", "symlink", "dangling-symlink"))
 @pytest.mark.parametrize("raw", ("stream.jsonl", "custom.jsonl", "missing.jsonl", None))
-def test_nonregular_frozen_stream_never_reads_stdout(tmp_path, name, kind, raw):
+def test_nonregular_frozen_stream_never_reads_stdout(tmp_path, monkeypatch, name, kind, raw):
     adapter, launch = provider(tmp_path, name)
     launch = replace(launch, raw_stream_path=str(tmp_path / raw) if raw else None)
     (tmp_path / "stdout").write_bytes(encode([MESSAGE, COMPLETED, CLAUDE_RESULT]))
-    make_frozen(tmp_path / ("custom.jsonl" if raw == "custom.jsonl" else "stream.jsonl"), kind)
+    frozen = tmp_path / ("custom.jsonl" if raw == "custom.jsonl" else "stream.jsonl")
+    make_frozen(frozen, kind)
+    original_open = os.open
+    def guard(path, *args, **kwargs):
+        if os.fspath(path) == str(frozen):
+            pytest.fail("non-regular frozen entry must never be opened")
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(os, "open", guard)
     outcome = adapter.classify(tmp_path, launch, _exit(0))
     assert outcome.cls == (OutcomeClass.TRANSIENT if name == "codex" else OutcomeClass.UNKNOWN)
     assert adapter.deliverable(tmp_path, launch, outcome) is None
