@@ -622,3 +622,66 @@ reviewed safety assertions: early readers and writers prepare under the fence,
 and reservation-time allocated writers become live under it, with both
 preparations. The two reservation-time reader controls pass. No setup failures
 or skips occurred. The hold's TMPDIR was removed and its absence checked.
+
+This round's commits:
+
+- `ce16f7837`: port all eight equal-alias variants and record the six baseline
+  safety failures.
+- `969ef97a0`: deduplicate equal source strings while conservatively combining
+  their absence answers (`recorded_absent or now_absent`). A successful second
+  lookup cannot erase the first lookup's absence. The same tuple reaches the
+  early and reserving comparisons, so either absence requests modern folding.
+  Distinct sources, legacy canonical/NFC spelling, the in-place row answer,
+  per-look answer reuse and fresh answers on later looks retain their behavior.
+
+The fixed targeted hold passed **8 passed, 81 deselected** in 16.80 s
+(38.28 s including acquisition and cleanup), with no skips. Static daemon AST
+comparison against the assigned base changes only `_detached_folders`; the
+contract is unchanged. The committed daemon SHA-256 is
+`d814d1c5922513c48956d9a73dfadb574da2e7cbe6b56771cd6f8b5accc1400a`.
+
+Every pytest process runs in the foreground under its own
+`/usr/bin/lockf -k -t 3600 /private/tmp/claude-501/subfleet-suites.lock uv run pytest -q -p no:cacheprovider`
+hold. Acquisition waiting occurs outside the hold. Each gets a fresh
+`sf-r142f4-<pid>` TMPDIR under `getconf DARWIN_USER_TEMP_DIR`; the workspace's
+generated pytest launcher arms a 1,120-second child alarm before importing
+pytest, keeping holds below twenty minutes. No hold waits for calmer load.
+Dependencies are locked: CPython 3.14.7, pytest 9.1.1 and Hypothesis 6.168.1,
+using workspace-local `.venv` and `.uv-cache`. Cleanup uses the requested
+`python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)'`
+command; intentional fixture permissions are repaired only within that hold's
+TMPDIR if needed, and absence is checked. Logs and runner metadata stay in
+ignored `.git-local/evidence/r4`, outside commits.
+
+The combined four-file fake fence hold reached the 1,120-second child cap
+(exit 142) after eight progress dots and without a final pytest summary. Its
+1,793.67-second runner includes acquisition waiting outside the hold. The
+TMPDIR was removed and checked absent. This interrupted run is excluded from
+completed suite counts; the files are replayed in smaller holds, with the cwd
+property separated from its ordinary cases.
+
+The mutation archives committed production/tests into a disposable copy,
+changes only the equal-string branch from `recorded_absent or now_absent` to
+`recorded_absent`, and runs all eight regressions plus an import guard. It
+produced **6 failed, 3 passed, 81 deselected** in 278.77 s (734.33 s including
+acquisition and cleanup). Every failure is the intended safety assertion:
+four early variants prepare under the fence, and both reserving allocated
+writers become live under it. Both reader controls and the guard pass. The
+guard verifies `daemon` and `folders` were imported from the disposable copy.
+There are no collection/setup errors or skips. The copy and hold TMPDIR were
+removed with the requested cleanup; committed production/test bytes are
+unchanged. No mutation remains in the assigned source.
+
+Completed required suite holds so far (2026-10-13):
+
+| Hold | Result | Pytest time | Runner including acquisition and cleanup |
+| --- | --- | --- | --- |
+| Detached fence module | 89 passed | 174.83 s | 250.05 s |
+| Rediscovery and case alias | 73 passed | 732.71 s | 912.97 s |
+| Fake cwd pins, excluding property | 17 passed, 1 deselected | 473.69 s | 991.77 s |
+
+These are **179 unique required cases passing**, with no skips or failures.
+The separate eight-case targeted replay repeats cases in the detached module.
+The cwd property, other three fake files and three shared-folder partitions
+are still pending; their results will be recorded below. The full repository,
+real-provider/process suites and inherited pathname follow-ups remain unrun.
