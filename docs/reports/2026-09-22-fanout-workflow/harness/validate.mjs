@@ -132,6 +132,12 @@ try {
       assert.equal((refusal.match(/^OUTCOME_UNKNOWN name=/gm) || []).length, 3)
       assert.doesNotMatch(refusal, /^REFUSED name=|RETRY_STEP1/m)
       assert.equal(c.count('runs'), 3)
+      // Round-3 refusal files had no log pointer. Upgrade must replay their
+      // earlier unknown attempts, rather than trusting the old terminal state.
+      const refusalPath = join(c.args.stateDir, 'rq-test.submit.refusal.json')
+      const saved = JSON.parse(readFileSync(refusalPath, 'utf8'))
+      delete saved.log
+      writeFileSync(refusalPath, JSON.stringify(saved))
       c.env.SCENARIO = 'check-prompts'
       writeFileSync(c.args.items[1].promptPath, 'Restored prompt')
       c.setup()
@@ -140,6 +146,19 @@ try {
       assert.equal(c.count('runs'), 6)
       assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
     }
+  })
+  await test('round 4: refusal after unknown and not-sent recovers only the missing id', async () => {
+    const c = await make('unknown-c,check-prompts'); c.setup(); c.step(1)
+    c.env.SCENARIO = 'submit-down-always,check-prompts'; c.step(1)
+    c.env.SCENARIO = 'check-prompts'
+    unlinkSync(c.args.items[1].promptPath)
+    const third = c.step(1).text
+    assert.match(third, /MANIFEST_REFUSED[\s\S]*SUBMITTED name=c job_id=job-c created=False/)
+    assert.match(third, /JOBS=3\nUNSETTLED=0/)
+    assert.doesNotMatch(third, /^REFUSED name=|RETRY_STEP1/m)
+    assert.equal(c.count('run'), 3)
+    assert.equal(c.count('runs'), 1)
+    assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
   })
   await test('round 4: validation refusal after only not-sent attempts stays terminal', async () => {
     const c = await make('submit-down-always,check-prompts'); c.setup(); c.step(1)

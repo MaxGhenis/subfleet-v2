@@ -8,7 +8,7 @@ export const meta = {
 }
 
 // Why the dispatcher looks like this (subfleet 2.0.0a0 at this PR's base 81d58fe9,
-// read 2026-10-04; the measured run and three review rounds are in
+// read 2026-10-04; the measured run and four review rounds are in
 // docs/reports/2026-09-22-fanout-workflow.md):
 // - `run --batch FILE --json -d` submits every manifest entry in one call and
 //   prints one JSON object per entry: job_id with outcome `created` or
@@ -22,8 +22,11 @@ export const meta = {
 //   submitted and the daemon dedupes; dropping delivered items would shift
 //   every later entry onto another entry's id. A not-sent, unknown or missing
 //   answer triggers RETRY_STEP1 under a request id (at most 3 calls per run);
-//   a refused entry never triggers retries. A row-less validation refusal is
-//   terminal for the whole manifest. After a lost answer, a digest conflict
+//   a refused entry never triggers retries. Unknown outcomes survive later
+//   not-sent or refused attempts. A row-less validation refusal stops new
+//   submissions; earlier unknown requests are looked up with `runs
+//   --request-id ID --json`, and remain unsettled if lookup is inconclusive.
+//   After a lost answer, a digest conflict
 //   naming the earlier job settles its id even if the prompt, workdir head
 //   or policy.json changed. Without a request id, items
 //   whose outPath is already non-empty are dropped before the first submission
@@ -152,11 +155,11 @@ const files = {
   helper: `${key}.fanout.py`, all: `${key}.manifest.all.json`, incoming: `${key}.manifest.new.json`,
   manifest: `${key}.manifest.json`, submitPrefix: `${key}.submit.`, submitErr: `${key}.submit.err`,
   jobs: `${key}.jobs.txt`, wait: `${key}.wait.jsonl`, waitErr: `${key}.wait.err`,
-  refusal: `${key}.submit.refusal.json`,
+  refusal: `${key}.submit.refusal.json`, recovered: `${key}.recovered.jsonl`,
 }
 const HD = 'FANOUT_PY_EOF'
 const HM = 'FANOUT_MANIFEST_EOF'
-const helper = `import glob, json, os, re, shlex, sys, time, zlib
+const helper = `import glob, json, os, re, shlex, subprocess, sys, time, zlib
 KEY = ${JSON.stringify(key)}
 REQUEST_ID = ${JSON.stringify(requestId || '')}
 F = ${JSON.stringify(files)}
@@ -204,9 +207,17 @@ def submit_logs():
     return sorted(found, key=lambda p: int(p[len(F["submitPrefix"]):-6]))
 
 def settled(manifest_names):
-    """Per name: the job id from any row that has one, else the latest outcome."""
-    state = {name: {"job_id": "", "outcome": "", "row": {}} for name in manifest_names}
-    for attempt, path in enumerate(submit_logs()):
+    """Keep a job id or unresolved uncertainty across all submission attempts."""
+    state = {name: {"job_id": "", "outcome": "", "row": {},
+                    "request_id": (REQUEST_ID + "-" + str(i)) if REQUEST_ID else ""}
+             for i, name in enumerate(manifest_names, 1)}
+    logs = submit_logs()
+    refusal = load(F["refusal"]) if os.path.isfile(F["refusal"]) else None
+    # Older helpers omitted the log name; their refusal belongs to the last log.
+    refused_log = refusal.get("log", logs[-1] if logs else "") if refusal else ""
+    for attempt, path in enumerate(logs):
+        if path == refused_log:
+            continue  # This invocation sent nothing; it cannot erase earlier unknowns.
         answered = set()
         for row in rows(path, "SUBMIT"):
             name = row.get("name")
@@ -224,18 +235,57 @@ def settled(manifest_names):
             if jid and not s["job_id"]:
                 s["job_id"] = jid
                 s["created"] = row.get("created")
+            if not jid and s["outcome"] == "unknown":
+                continue  # A later refusal or unsent attempt cannot settle the first.
+            s["request_id"] = row.get("request_id") or s["request_id"]
             s["outcome"] = outcome
             s["row"] = row
         for name, s in state.items():
             if name not in answered and not s["job_id"] and s["outcome"] != "refused":
                 s["outcome"] = "unknown"
-                s["row"] = {"rc": -1, "error": "no row", "request_id": (REQUEST_ID + "-?") if REQUEST_ID else ""}
-    if os.path.isfile(F["refusal"]):
-        refusal = load(F["refusal"])
+                s["row"] = {"rc": -1, "error": "no row", "request_id": s["request_id"]}
+    if refusal:
         for s in state.values():
-            if not s["job_id"]:
+            if not s["job_id"] and s["outcome"] != "unknown":
                 s["outcome"], s["row"] = "refused", refusal
+    for row in rows(F["recovered"], "RECOVERY"):
+        s = state.get(row.get("name"))
+        if s and not s["job_id"] and row.get("request_id") == s["request_id"] and row.get("job_id"):
+            s.update(job_id=row["job_id"], created=False, outcome="existing", row=row)
     return state
+
+def recover_unknown(state):
+    """Read the request ledger after a validation refusal; persist learned ids."""
+    deadline = time.monotonic() + 60
+    for name, s in state.items():
+        if s["job_id"] or s["outcome"] != "unknown" or not s["request_id"]:
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        rid = s["request_id"]
+        try:
+            result = subprocess.run(["subfleet", "runs", "--request-id", rid, "--json"],
+                                    capture_output=True, text=True, timeout=min(15, remaining))
+            if result.returncode != 0:
+                out("LOOKUP_UNKNOWN name=%s request_id=%s rc=%s error=%s" %
+                    (name, rid, result.returncode, " | ".join(result.stderr.splitlines()[-3:])))
+                continue
+            found = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+            out("LOOKUP_UNKNOWN name=%s request_id=%s error=%s" % (name, rid, str(exc).split(NL)[0]))
+            continue
+        matches = [row for row in found if isinstance(row, dict) and row.get("request_id") == rid
+                   and isinstance(row.get("job_id"), str) and row["job_id"]]
+        if len(matches) != 1:
+            # runs can fall back to an offline store; an empty result is not
+            # a positive daemon answer that the unanswered request never ran.
+            out("LOOKUP_UNKNOWN name=%s request_id=%s error=no unique matching job; earlier outcome remains unknown" % (name, rid))
+            continue
+        row = {**matches[0], "name": name, "created": False, "outcome": "existing"}
+        with open(F["recovered"], "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + NL)
+        s.update(job_id=row["job_id"], created=False, outcome="existing", row=row)
 
 def retry_names(state):
     return [name for name, s in state.items() if not s["job_id"] and s["outcome"] in ("", "not-sent", "unknown")]
@@ -296,6 +346,9 @@ def cmd_should_submit():
         sys.exit(0)
     state = settled(names)
     missing = retry_names(state)
+    if os.path.isfile(F["refusal"]):
+        out("ALREADY_SUBMITTED")
+        sys.exit(1)  # post-submit still looks up any earlier unanswered requests.
     if REQUEST_ID and missing:
         out("RESUBMIT names=%s" % ",".join(missing))
         latest = [r for r in rows(logs[-1], "SUBMIT") if (r.get("outcome") or "") in ("not-sent", "unknown")]
@@ -316,16 +369,17 @@ def cmd_post_submit(rc):
     names = [job["name"] for job in load(F["manifest"])["jobs"]] if os.path.isfile(F["manifest"]) else []
     logs = submit_logs()
     error = tail(F["submitErr"])
-    if logs and not rows(logs[-1], "SUBMIT"):
+    if rc >= 0 and logs and not rows(logs[-1], "SUBMIT"):
         if error:
             out("SUBMIT_ERR " + error)
         if rc == 2 or "nothing was submitted" in error:
             with open(F["refusal"], "w", encoding="utf-8") as fh:
-                json.dump({"rc": 2, "error": error or "run --batch refused the manifest (exit 2)"}, fh)
+                json.dump({"rc": 2, "error": error or "run --batch refused the manifest (exit 2)", "log": logs[-1]}, fh)
     state = settled(names)
     if os.path.isfile(F["refusal"]):
         refusal = load(F["refusal"])
         out("MANIFEST_REFUSED rc=%s error=%s" % (refusal["rc"], refusal["error"]))
+        recover_unknown(state)
     ids, unsettled, batch = [], 0, ""
     for job in everything:
         name = job["name"]
@@ -350,7 +404,7 @@ def cmd_post_submit(rc):
     out("REQUEST_ID=%s" % (REQUEST_ID or (batch if ids else "")))
     out("JOBS=%s" % len(ids))
     out("UNSETTLED=%s" % unsettled)
-    if REQUEST_ID and retry_names(state):
+    if REQUEST_ID and retry_names(state) and not os.path.isfile(F["refusal"]):
         out("RETRY_STEP1")
 
 def cmd_post_wait(rc, started):
@@ -446,7 +500,7 @@ const RESULT_SCHEMA = {
         required: ['name', 'job_id', 'state', 'rc', 'out_bytes', 'notes'],
       },
     },
-    notes: { type: 'string', description: 'anything unexpected: CHECKSUM_MISMATCH, STATE_MISMATCH, MANIFEST_REFUSED, SUBMIT_ERR, DAEMON_UNREACHABLE, RESET or BAD_*_LINE lines, a step whose marker lines were missing, a killed call; else empty' },
+    notes: { type: 'string', description: 'anything unexpected: CHECKSUM_MISMATCH, STATE_MISMATCH, MANIFEST_REFUSED, LOOKUP_UNKNOWN, SUBMIT_ERR, DAEMON_UNREACHABLE, RESET or BAD_*_LINE lines, a step whose marker lines were missing, a killed call; else empty' },
   },
   required: ['setup_ok', 'already_submitted', 'submit_calls', 'submit_rc', 'request_id', 'wait_loops', 'last_wait_rc', 'jobs', 'notes'],
 }
@@ -464,7 +518,7 @@ If step 0 does not print SETUP_OK, stop: report setup_ok false, every job as sta
 STEP 1. One Bash call. It submits the full manifest when should-submit allows it and prints SUBMIT_RC when a submission ran, then SUBMITTED, REFUSED, NOT_SENT, OUTCOME_UNKNOWN or SKIP lines, REQUEST_ID, JOBS and UNSETTLED:
 ${step1}
 
-Run step 1 again while it prints RETRY_STEP1, at most 3 step 1 calls in total. This marker requires a request id and a not-sent, unknown or missing answer; a refused entry never triggers it. MANIFEST_REFUSED is one refusal of the whole manifest; record its CLI message in notes and each REFUSED entry as refused, then stop submitting. After the last step 1 call, if JOBS=0, skip step 2.
+Run step 1 again while it prints RETRY_STEP1, at most 3 step 1 calls in total. This marker requires a request id and a not-sent, unknown or missing answer; a refused entry never triggers it. MANIFEST_REFUSED stops new submissions; record its CLI message and any LOOKUP_UNKNOWN lines in notes. Step 1 itself looks up earlier unknown request ids and prints their recovered SUBMITTED lines, or keeps them OUTCOME_UNKNOWN if the lookup is inconclusive. Use those per-name markers even after MANIFEST_REFUSED, then wait on every known id. After the last step 1 call, if JOBS=0, skip step 2.
 
 STEP 2. One Bash call per loop. It waits up to 540 s and prints DONE, PENDING or UNKNOWN lines and PENDING_COUNT:
 ${step2}

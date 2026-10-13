@@ -24,7 +24,12 @@ def commit(job, index):
                                     "name":job["name"], "state":"queued", "out_path":job["out"]})
     registry_path.write_text(json.dumps(registry, sort_keys=True))
 missing_prompt=",check-prompts," in S and any(not Path(job["prompt"]).is_file() for job in doc["jobs"])
-if ",manifest-refusal," in S or ",manifest-refusal-marker," in S or missing_prompt:
+if missing_prompt:
+    i,job=next((i,job) for i,job in enumerate(doc["jobs"],1) if not Path(job["prompt"]).is_file())
+    print(f"subfleet: run: prompt {job['prompt']} is not a file", file=sys.stderr)
+    print(f"subfleet run --batch: jobs[{i}] ({job['name']}) is invalid; nothing was submitted", file=sys.stderr)
+    sys.exit(2)
+if ",manifest-refusal," in S or ",manifest-refusal-marker," in S:
     print("subfleet: run: -C /missing is not a directory", file=sys.stderr)
     print("subfleet run --batch: jobs[1] (a) is invalid; nothing was submitted", file=sys.stderr)
     sys.exit(1 if ",manifest-refusal-marker," in S else 2)
