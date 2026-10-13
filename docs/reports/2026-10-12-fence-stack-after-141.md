@@ -528,7 +528,8 @@ changes were used.
   filesystem answers are reused, including the in-place row subject, and no
   answers survive into another look. C-8.4 now qualifies the pre-workspace
   spelling timing for detached in-place writers.
-- This report is committed separately on the same branch.
+- `e812f50c1`: record the source-alias fix and initial targeted results.
+- The final validation report is committed separately on the same branch.
 
 The source tuples are now `(folder, legacy_fold, absence)`, superseding the
 historical two-element tuple audit above. The tests cover both recorded and
@@ -553,5 +554,44 @@ seconds outside the hold. No hold waits for host load. Dependencies use this
 workspace's `.venv` and `.uv-cache`. TMPDIR cleanup uses the requested Python
 `shutil.rmtree` command.
 
-Requested suite groups and the disposable mutation are pending; validation
-entries below will supersede this status.
+The initial full detached/module-name hold completed **80 passed, 2 failed**
+(226.68 s pytest; 237.16 s locked runner). Both failures were the existing
+legacy quarantine/spelling synchronization probes: routing legacy spelling
+through `folders.present` bypassed their `folders.spelling` hook. `8e2f29fda`
+restores the existing legacy canonical spelling path and NFC fence comparison;
+its source tuples carry no modern absence flag. All interleaving assertions are
+unchanged. The hold's TMPDIR was removed and its absence verified after cleanup.
+
+Final required validation uses production/test bytes at `8e2f29fda`; the
+remaining report updates change documentation only. Every required group
+completed without failures or skips (**289 passed**):
+
+| Hold | Result | Pytest time | Locked runner time |
+| --- | --- | --- | --- |
+| Detached fence module + module-name guard | 81 + 1 passed | 154.63 s | 159.63 s |
+| Rediscovery + case alias | 73 passed | 159.56 s | 169.23 s |
+| Four-file fake fence group | 72 passed | 231.39 s | 243.82 s |
+| Shared folders: `interleavings` | 1 passed, 61 deselected | 76.65 s | 77.40 s |
+| Shared folders: `model_of_the_fence or early_fences` | 2 passed, 60 deselected | 75.75 s | 76.66 s |
+| Shared folders: remaining cases | 59 passed, 3 deselected | 136.41 s | 142.26 s |
+
+The mutation archives the committed tree into its own TMPDIR, replaces both
+modern source absence values with `None`, and keeps legacy folding and the
+in-place row answer intact. Its regression hold produced **8 failed, 73
+deselected** (35.87 s pytest; 42.91 s locked runner): all four early cases ran
+`_workspace` under the fence, and all four reserving cases reserved a live
+attempt under it. The assertions catch both lost source absence carries. The
+disposable copy was removed by the requested cleanup; the assigned source was
+never mutated.
+
+All eleven acquisition/test TMPDIRs are absent. The production, tests and
+contract match the committed head before and after mutation. Final daemon
+SHA-256: `55acf7f2726ecb38119221f1a4327ac3f88853a50b4400c94ef4efffb951f92e`.
+Syntax, whitespace and C-8.4 uniqueness/timing checks pass. Every completed
+locked runner took less than 244 seconds; no child hit its cap.
+
+Unrun: the full repository and real-provider/process suites, the review probe
+module as a standalone suite, and both inherited pathname follow-up groups.
+Every requested suite group and mutation was run. A portable, unstaged
+`docs/reports/pr142-fix-r3.bundle` carries this round's workspace-local history.
+No logs, JSON evidence or bundles enter any commit.
