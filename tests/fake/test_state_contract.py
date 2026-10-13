@@ -544,7 +544,7 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
                           group_identities={42001: guardian, 42002: child})
     census = iter([members, Containment(group_pids=frozenset({42002}), identities={42002: child}),
                    Containment()])
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: next(census))
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: next(census))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: True)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     signals = []
@@ -561,7 +561,7 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
                        ("process", 42002, signal.SIGKILL)]
     assert daemon.store.get_attempt(attempt["attempt_id"])["killed_by"] == "operator"
     assert json.loads((adir / "exit.json").read_text())["signal"] == signal.SIGKILL
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: Containment())
     daemon._finalize(daemon.store.get_attempt(attempt["attempt_id"]))
     assert daemon.store.get_job(job_id)["state"] == "cancelled"
     assert daemon.store.query("SELECT * FROM leases") == []
@@ -573,7 +573,7 @@ def test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audit
     job_id, attempt, _ = reserve(daemon, harness, out_path=str(harness.root / "export.md"))
     survivor = Containment(marker_pids=frozenset({42099}))
     daemon._quarantine(attempt, survivor, "escaped fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: survivor)
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: survivor)
     args = protocol.KillArgs(job_id, confirm_dead=True)
     daemon._resolve_quarantine(attempt, args)
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"

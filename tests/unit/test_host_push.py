@@ -94,7 +94,7 @@ def worlds(tmp_path, monkeypatch):
             core = Daemon(root, desktop_prober=lambda: None)
             core.store.put_lane(Lane("test-lane", "codex", "codex:test", Credential("codex", str(home), "home"),
                                      str(home), LaneOwner.V2, False))
-            core._contain = lambda attempt: Containment()
+            core._contain = lambda attempt, foreign_ownership=None: Containment()
             core._saved_launch = lambda attempt: Launch((), {}, (), str(repo), str(root / "prompt"),
                 str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stdout"),
                 str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stderr"), None, None)

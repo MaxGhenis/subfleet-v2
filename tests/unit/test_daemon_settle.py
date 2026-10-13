@@ -93,7 +93,7 @@ def draining(core, busy_for_s: float, busy=BUSY) -> list[float]:
     calls: list[float] = []
     first: list[float] = []
 
-    def contain(a):
+    def contain(a, foreign_ownership=None):
         now = time.monotonic()
         first.append(now) if not first else None
         calls.append(now - first[0])
@@ -121,7 +121,7 @@ def test_c5_6_kill_re_reads_a_draining_census_within_the_settle_window(daemon, m
             killed_at = now
         return True
 
-    def contain(a):
+    def contain(a, foreign_ownership=None):
         # The process ignores TERM and starts draining only after KILL. An
         # overloaded host must not make it disappear before escalation occurs.
         elapsed = None if killed_at is None else now - killed_at
@@ -174,7 +174,7 @@ def test_c5_9_exit_receipt_census_waits_out_exit_settle_before_quarantining(daem
     atomic_publish(attempt_dir(daemon.root, JOB, 1) / "exit.json",
                    json.dumps({"rc": 0, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 60,
                                "child_pid": 4243}).encode())
-    daemon._contain = lambda a: census
+    daemon._contain = lambda a, foreign_ownership=None: census
     daemon._finalize(attempt(daemon))
     assert attempt(daemon)["state"] == "finalizing"
     assert ATTEMPT in daemon._exit_settle
@@ -228,7 +228,7 @@ def test_c4_2_receipt_on_disk_wins_over_a_stale_lost_verdict(daemon, monkeypatch
     """C-4.2 a guardian found dead right after publishing exit.json completed its attempt, not lost it."""
     with_launch(daemon, monkeypatch)
     publish_receipt(daemon, rc=0)
-    daemon._contain = lambda a: EMPTY
+    daemon._contain = lambda a, foreign_ownership=None: EMPTY
     daemon._lost(attempt(daemon))      # what the tick calls for a dead guardian and an empty census
     a = attempt(daemon)
     assert a["state"] == "succeeded", a
@@ -242,7 +242,7 @@ def test_c4_2_receipt_on_disk_wins_over_a_stale_lost_verdict(daemon, monkeypatch
 def test_c4_2_missing_receipt_is_still_a_loss(daemon, monkeypatch):
     """C-4.2 without a receipt the dead-guardian path records the loss as before."""
     with_launch(daemon, monkeypatch)
-    daemon._contain = lambda a: EMPTY
+    daemon._contain = lambda a, foreign_ownership=None: EMPTY
     daemon._lost(attempt(daemon))
     a = attempt(daemon)
     assert a["state"] == "lost" and a["outcome_detail"] == "guardian lost without exit receipt"
@@ -278,7 +278,7 @@ def test_c4_2_dead_guardian_without_receipt_runs_containment(daemon, monkeypatch
     with_launch(daemon, monkeypatch)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     calls = []
-    daemon._contain = lambda a: calls.append(1) or EMPTY
+    daemon._contain = lambda a, foreign_ownership=None: calls.append(1) or EMPTY
     daemon._process_attempt(ATTEMPT)
     assert calls and attempt(daemon)["state"] == "lost"
 
@@ -343,7 +343,7 @@ def test_c5_12_a_shared_table_never_pronounces_death(daemon, monkeypatch):
     daemon._inspect_next.clear()
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     calls = []
-    daemon._contain = lambda a: calls.append(1) or EMPTY
+    daemon._contain = lambda a, foreign_ownership=None: calls.append(1) or EMPTY
     daemon._process_attempt(ATTEMPT)
     assert calls and attempt(daemon)["state"] == "lost"
 
@@ -417,7 +417,7 @@ def test_c5_12_each_inspection_is_given_a_table_read_since_its_last(daemon, monk
     uses, asking = [], {}
     daemon._record_owned = lambda a, table: uses.append((a["attempt_id"], *asking[a["attempt_id"]],
                                                          next(t for read, t in reads if read is table)))
-    daemon._contain = lambda a: EMPTY
+    daemon._contain = lambda a, foreign_ownership=None: EMPTY
     seen_at = None
     while clock[0] < died_at + 3 + read_s:
         for aid in attempts:
@@ -690,7 +690,7 @@ def test_c4_2_start_grace_reads_the_receipts_again_after_its_census(daemon, monk
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0   # start grace is over
 
-    def contain(a):
+    def contain(a, foreign_ownership=None):
         publish_start(daemon)
         publish_receipt(daemon, rc=0)                          # the provider ran and exited 0 meanwhile
         return census
@@ -714,7 +714,7 @@ def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon
     with_launch(daemon, monkeypatch)
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
-    daemon._contain = lambda a: census
+    daemon._contain = lambda a, foreign_ownership=None: census
     daemon._process_attempt(ATTEMPT)
     a = attempt(daemon)
     assert a["state"] == state
@@ -735,7 +735,7 @@ def test_c4_2_start_grace_with_start_json_alone_is_a_running_attempt(daemon, mon
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0   # start grace is over
 
-    def contain(a):
+    def contain(a, foreign_ownership=None):
         publish_start(daemon)                                  # the provider is running; no exit.json yet
         return GUARDIAN_ONLY
     daemon._contain = contain
@@ -762,7 +762,7 @@ def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monke
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
     adir, censuses = attempt_dir(daemon.root, JOB, 1), []
 
-    def contain(a):
+    def contain(a, foreign_ownership=None):
         censuses.append(1)
         atomic_publish(adir / "start.json", empty.encode())
         atomic_publish(adir / "exit.json", empty.encode())

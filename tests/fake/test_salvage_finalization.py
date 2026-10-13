@@ -236,7 +236,7 @@ def test_c13_1_a_quarantine_release_records_a_failure_that_quotes_such_a_name(st
     job_id, attempt, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
     (workdir / "tracked.txt").write_text("provider progress\n")
     daemon._quarantine(attempt, Containment(marker_pids=frozenset({42099})), "escaped fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: Containment())
     fake_add(monkeypatch, 128, NOT_UTF8_STDERR)
     daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
                                protocol.KillArgs(job_id, confirm_dead=True))
@@ -345,7 +345,7 @@ def test_c13_1_a_quarantine_release_records_a_failed_salvage_at_once(state_daemo
     repository(daemon, harness)
     job_id, attempt, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True)
     daemon._quarantine(attempt, Containment(marker_pids=frozenset({42099})), "escaped fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: Containment())
     calls = []
 
     def slow(*args, **kwargs):
@@ -385,7 +385,7 @@ def test_c13_1_a_quarantine_release_says_what_its_snapshot_left_out(state_daemon
     (workdir / "tracked.txt").write_text("provider progress\n")
     empty_repository(workdir / "newpkg")
     daemon._quarantine(attempt, Containment(marker_pids=frozenset({42099})), "escaped fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: Containment())
     daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
                                protocol.KillArgs(job_id, confirm_dead=True))
     [artifact] = [r for r in daemon.store.list_artifacts(attempt["attempt_id"]) if r["role"] == "salvage"]

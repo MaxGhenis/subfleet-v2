@@ -85,7 +85,7 @@ def test_c5_probe_restart_accepts_receipt_only_after_verified_empty(routing_stat
     job_id = submitted(service, harness)
     record = reserved_probe(service, job_id)
     exit_receipts(record)
-    monkeypatch.setattr(service, "_probe_census", lambda record: procs.Containment())
+    monkeypatch.setattr(service, "_probe_census", lambda record, foreign_ownership=None: procs.Containment())
     monkeypatch.setattr(procs, "same_process", lambda *args: False)
     service._recover_probes()
     assert not service.store.list_leases(record["holder"])
@@ -103,7 +103,7 @@ def test_c5_probe_quarantine_keeps_lease_and_never_signals_unowned_escape(routin
     exit_receipts(record)
     census = procs.Containment(marker_pids=frozenset({900003}),
                               identities={900003: procs.ProcessIdentity(900003, "boot", "escaped")})
-    monkeypatch.setattr(service, "_probe_census", lambda record: census)
+    monkeypatch.setattr(service, "_probe_census", lambda record, foreign_ownership=None: census)
     monkeypatch.setattr(procs, "same_process", lambda *args: False)
     def forbidden(*args, **kwargs):
         raise AssertionError("an unowned process must not be signalled")
@@ -128,7 +128,7 @@ def test_c5_probe_reservation_before_launch_recovers_without_dispatch(routing_st
     record.pop("guardian_pid")
     record.pop("pgid")
     service._save_probe(record)
-    monkeypatch.setattr(service, "_probe_census", lambda record: procs.Containment())
+    monkeypatch.setattr(service, "_probe_census", lambda record, foreign_ownership=None: procs.Containment())
     service._recover_probes()
     assert not service.store.list_leases(record["holder"])
     assert service._probe_record(record["holder"])["outcome"]["cls"] == "unknown"
@@ -145,7 +145,7 @@ def test_c5_probe_exception_after_spawn_keeps_unverifiable_lease(routing_state, 
     def failed(*args):
         raise OSError("receipt unavailable")
     monkeypatch.setattr(service, "_execute_probe", failed)
-    monkeypatch.setattr(service, "_probe_census", lambda record: procs.Containment(unverifiable=True))
+    monkeypatch.setattr(service, "_probe_census", lambda record, foreign_ownership=None: procs.Containment(unverifiable=True))
     monkeypatch.setattr(procs, "same_process", lambda *args: False)
     decision = SimpleNamespace(chosen_lane="codex-1", chosen_model="astra")
     outcome = service._probe_candidate(service.store.get_job(job_id), decision, record["holder"])

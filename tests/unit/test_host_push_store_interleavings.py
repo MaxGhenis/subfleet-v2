@@ -476,7 +476,7 @@ def admission_example(template, root, patch):
         connection.close()
     shutil.copytree(template.core.root / "jobs", root / "jobs")
     core = Daemon(root, desktop_prober=lambda: None)
-    core._contain = lambda attempt: Containment()
+    core._contain = lambda attempt, foreign_ownership=None: Containment()
     core._saved_launch = lambda attempt: Launch((), {}, (), str(template.repo), str(root / "prompt"),
         str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stdout"),
         str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stderr"), None, None)

@@ -294,7 +294,7 @@ def test_300_quarantines_have_bounded_pass_and_tick_cost(state_daemon, monkeypat
             tx.execute(f"INSERT INTO attempts({','.join(columns)}) VALUES({','.join('?' for _ in columns)})", tuple(row[c] for c in columns))
         tx.execute("DELETE FROM attempts WHERE attempt_id=?", (a["attempt_id"],))
     calls = []
-    monkeypatch.setattr(daemon, "_contain", lambda a: calls.append(a["attempt_id"]) or LIVE)
+    monkeypatch.setattr(daemon, "_contain", lambda a, foreign_ownership=None: calls.append(a["attempt_id"]) or LIVE)
     start = time.perf_counter()
     daemon._recheck_quarantines()
     elapsed = time.perf_counter() - start
