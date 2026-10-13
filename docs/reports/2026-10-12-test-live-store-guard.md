@@ -606,3 +606,120 @@ no logs, JSON evidence, dependency files or bundles were staged. Tests used fake
 HOME and recording credential backends. No remote, sub-agent or push was used.
 The caller checkout and shared metadata remain untouched. All task-owned
 runners and preparation commands have ended.
+
+
+## Round 5: Python 3.12 CI compatibility (assigned head `d49195394b6d`)
+
+Read the supplied CI log: seven failures, 12,368 passed, 32 skipped and one
+expected failure. All seven failing tests express legitimate production safety
+or stubbed-credential expectations and remain unchanged.
+
+### Causes and fixes
+
+- The three folder-spelling failures enter `ConversationService._check_workspace`.
+  Its guarded `CLAUDE_CONFIG_DIR` and `SUBFLEET_CODEX_APP_HOME` selections replaced
+  the HOME-based protected paths. The first test happened to refuse on its Codex
+  override, reporting `.codex` instead of `.claude`; the unlistable and sealed
+  HOME tests never checked their fake Claude homes, so neither refused.
+- The two permission variants and case-alias workspace-check failure use that
+  same check. Their patched `Path.home()` was hidden by the session overrides,
+  permitting a writable workspace containing the test's `.claude`.
+- The policy credential test reaches `credentials.keychain_command` through
+  `resolve_credential`. It checked `runner=None` before the caller selected the
+  patched `subprocess.run`, incorrectly refusing a fully stubbed execution.
+
+`protected_provider_homes()` first requires the existing guarded overrides.
+During tests it also protects `.claude` and `.codex` beneath the supplied HOME,
+putting those paths first so the original refusal and diagnostic survive.
+The account's actual home is identified through the password database; an
+identical home or a filesystem alias adds no implicit store paths. Alias
+comparison inspects only the home directories themselves. An inaccessible
+synthetic home still reaches the existing fail-closed spelling check. Ordinary
+production selection is unchanged, and fake HOME never authorizes reader
+fallback when a required override is absent.
+
+All four credential execution sites now pass the selected execution callable
+to the guard. This permits patched subprocess stubs while retaining refusal
+for the native runner and native `security` commands. Adapters check their
+captured runner, so a later module patch cannot authorize an already captured
+native backend. The helper lookup, session baselines, sentinel lifetime,
+configure/unconfigure restoration and registry are unchanged.
+
+Two earlier refusal regressions now identify their recording callable as the
+native-runner sentinel as well as the selected subprocess. Their old assumption
+that any patched subprocess should be refused is obsolete: this round explicitly
+requires stubs to work. All existing refusal assertions remain intact, including
+zero backend calls; recording keeps the regression harmless under mutation.
+The new round-five file adds eleven cases for account-home aliases, missing
+reader overrides, five patched credential readers and captured-runner refusal.
+
+### Validation
+
+**0 pytest cases executed in round 5.** All four sequential foreground
+acquisitions exited 75 (`already locked`) before pytest startup. No suite-lock
+hold was acquired. These results do not validate the implementation at runtime;
+all 28 selected files remain unrun for the hub.
+
+| Requested group | Pytest cases executed | Lock wait | Status |
+| --- | ---: | ---: | --- |
+| Three CI-failing files: folder spelling, app cutover daemon, policy support | 0 | 50.32 s | Unrun: shared lock |
+| Guard, round 3, round 4, round 5, module names, MCP resolver and launch | 0 | 50.40 s | Unrun: shared lock |
+| `tests/unit/test_cli.py` | 0 | 50.22 s | Unrun: shared lock |
+| Seventeen related HOME/credential/adapter/hooks modules below | 0 | 50.30 s | Unrun: shared lock |
+
+The guard selection was `tests/unit/test_live_store_guard.py`,
+`test_live_store_guard_round3.py`, `test_live_store_guard_round4.py`,
+`test_live_store_guard_round5.py`, `test_test_module_names.py`,
+`test_claude_mcp.py` and `test_claude_mcp_launch.py`, all under `tests/unit/`.
+The three failing files were `tests/fake/test_folder_spelling.py`,
+`tests/unit/test_app_cutover_daemon.py` and `tests/unit/test_policy_support.py`.
+
+Searched Python test sources for HOME setters, direct environment assignments,
+patched `Path.home`, and credential/home-path patches. Fifteen additional
+matching modules were selected, plus the adapter and hooks suites affected by
+this change or pending from round four. These seventeen files remain unrun:
+
+- `tests/fake/test_unadmittable_pin_rereview.py`
+- `tests/unit/test_folders.py`
+- `tests/unit/test_agent_secret_credentials.py`
+- `tests/unit/test_conversation_handoff.py`
+- `tests/unit/test_timers_busy_read.py`
+- `tests/unit/test_conversation_peers_attachments.py`
+- `tests/unit/test_status_json.py`
+- `tests/unit/test_conversation_catalog.py`
+- `tests/unit/test_host_push_quarantine_restart.py`
+- `tests/unit/test_timers_probe.py`
+- `tests/unit/test_conversation_service.py`
+- `tests/unit/test_conversation_catalog_lifecycle.py`
+- `tests/unit/test_host_push.py`
+- `tests/unit/test_conversation_fifo_reads.py`
+- `tests/unit/test_soak_tools.py`
+- `tests/unit/test_claude_adapter.py`
+- `tests/unit/test_hooks.py`
+
+The search also found `tests/canonical_identity_privacy.py` and
+`tests/e2e/conftest.py`, both harness helpers rather than standalone test modules.
+The retained guard regression verifies E2E HOME/registry/lifetime propagation.
+
+All six changed Python files parse, all 28 selected test files exist, and
+`git diff --check` passes. Each attempt used its own prescribed
+`sf-r198f5-<pid>/` TMPDIR and fake HOME, `/usr/bin/lockf -t 50 -k` on the shared
+lock, and `uv run pytest -q -p no:cacheprovider`. The 50-second queue bound
+prevented indefinite waiting. The foreground supervisor would interrupt at
+1,090 seconds and terminate within 1,120 seconds, keeping any hold below twenty
+minutes without waiting for machine load. All four temporary roots were removed
+with the required Python `shutil.rmtree` command. No task-owned runner remains.
+
+### Delivery
+
+- `543172766`: preserved implementation commit, including eleven new round-five
+  regression cases and the two retained native-refusal regression adjustments.
+- This report is committed separately after the four blocked validation attempts.
+
+Commits use workspace-local `.git-local`, on `fix/test-live-store-guard` based on
+assigned `d49195394b6d`, because the linked shared metadata is outside the writable
+sandbox. Inspect with `git --git-dir=.git-local --work-tree=.`. Only named source,
+test and report files are staged, with the requested co-author trailer. Python
+3.12.14 and locked dependencies were prepared offline in ignored `.venv` from
+workspace copies of cached packages. No remote, sub-agent, push, caller-checkout
+write or personal-store access was used.
