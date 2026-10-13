@@ -373,7 +373,7 @@ class DesktopLog:
             except OSError:
                 unread.append(os.fspath(path))
                 continue
-        if _log_files(rotated_paths(self.path) + [self.path]) != before:
+        if _rotated(before, _log_files(rotated_paths(self.path) + [self.path])):
             unread.append(f"{self.path.parent} (the logs rotated while they were read)")
         return Replay(reader.drain(), tuple(unread))
 
@@ -387,6 +387,16 @@ def _log_files(paths: list[Path]) -> list[tuple[str, int | None]]:
         except OSError:
             found.append((path.name, None))
     return found
+
+
+def _rotated(before: list[tuple[str, int | None]], after: list[tuple[str, int | None]]) -> bool:
+    """A rotation between two `_log_files`: a new or vanished name, or a log that
+    was there now another file. A live log created meanwhile (the app's first
+    launch) moved nothing, so it is no rotation (review r4 P3-d)."""
+    if [name for name, _inode in before] != [name for name, _inode in after]:
+        return True
+    return any(old is not None and old != new
+               for (_name, old), (_same, new) in zip(before, after))
 
 
 def rotated_paths(path: Path) -> list[Path]:

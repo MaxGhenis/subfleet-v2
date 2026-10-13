@@ -929,6 +929,10 @@ def test_a_restart_that_cannot_list_the_homes_account_keeps_the_recorded_home(
     assert result.prune["home"] == key(HOME)
     assert "incomplete" in result.prune["home_detail"]
     assert key(second) not in where(world, ONE)
+    # Review r4 P3-a: said as a warning too, while it lasts.
+    assert result.prune["warnings"] == [
+        f"the home folder {key(HOME)} could not be listed this pass, so old archived "
+        "and dead sessions are neither spread nor removed"]
 
 
 def test_a_home_that_reads_as_a_switch_folder_plans_no_live_session(world, monkeypatch):
@@ -964,6 +968,48 @@ def test_a_registry_that_cannot_read_the_logs_says_so(world):
     assert "folder registry is not learning" in warning and "main1.log" in warning
     assert running.health()["warnings"] == [warning]
     assert warning in running.health()["detail"]
+
+
+def test_a_home_that_names_no_folder_is_a_warning(world):
+    """C-23.28a, review r4 P3-a: a `dead_home` set but naming no folder turns
+    the archive rule off; the account and `--status` say so."""
+    running = engine(world)
+    result = running.run_once(options(dead_home="acct-none/org-none"))
+    assert result.prune["home"] is None
+    [warning] = result.prune["warnings"]
+    assert warning.startswith("the home folder acct-none/org-none is not in the store: "
+                              "old archived sessions stay in every folder")
+    assert running.health()["warnings"] == [warning]
+
+
+def test_status_keeps_the_warnings_while_a_pass_is_in_flight(world):
+    """C-23.28a, review r4 P3-b: the warnings are kept beside the pass, so
+    `--status` says them while the next pass runs or after one fails before
+    its account; a pass that finishes with the rules off clears them."""
+    running = engine(world)
+    running.run_once(options(dead_home="acct-none/org-none"))
+    [warning] = running.health()["warnings"]
+    running._record(mirror.Pass(started_at="2026-09-05T11:30:00Z"))   # noqa: SLF001 - in flight
+    assert running.health()["warnings"] == [warning]
+    running._record(mirror.Pass(started_at="2026-09-05T11:30:00Z", state="error",  # noqa: SLF001
+                                error="cancelled before its account"))
+    assert running.health()["warnings"] == [warning]
+    running.run_once(options(skip_switch_folders=False, archive_days=0.0, dead_days=0.0))
+    assert "warnings" not in running.health()
+
+
+def test_the_home_in_use_stays_the_newest_record(world):
+    """C-23.28a, review r4 P3-c: the value in use moves to the newest record
+    when a one-off value was recorded after it, so one-off values never push
+    the daemon's home out of the registry."""
+    daemon = engine(world)
+    daemon.run_once(options(dead_home="org-home"))
+    engine(world).run_once(options(dead_home=key(OTHER)))     # a one-off pass
+    daemon._registry = None                                   # noqa: SLF001 - as after a restart
+    daemon._last_sweep = None                                 # noqa: SLF001
+    daemon.run_once(options(dead_home="org-home"))
+    registry = folder_kinds.Registry(folder_kinds.registry_path(world.root))
+    assert list(registry.homes) == [key(OTHER), "org-home"]
 
 
 def test_each_home_value_keeps_its_own_record(world):

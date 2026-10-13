@@ -106,9 +106,10 @@ of its org settles or the registry comes to read it as a switch folder (then
 reported, and the home is seeded all the same), and kept when the store no
 longer shows it. Unhoming the archive would spread every archived session
 into every folder in one pass; moving the home would move the whole archive.
-A home the store does not hold, one that reads as a switch folder, and a
-registry that cannot read the app's logs are warnings in the pass's account
-and in `sessions mirror --status`.
+A home the store does not hold or the pass could not list, one that reads as
+a switch folder, a `dead_home` that names no folder, and a registry that
+cannot read the app's logs are warnings in the pass's account and in
+`sessions mirror --status`, which keeps the last ones while a pass runs.
 Quiet means since the later
 of the session's newest activity, focus or creation time over every copy and
 its archive stamp. Archiving leaves the activity times alone (of 850 archived

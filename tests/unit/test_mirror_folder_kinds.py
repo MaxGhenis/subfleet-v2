@@ -212,6 +212,41 @@ def test_a_rotation_during_the_replay_counts_as_unread(tmp_path, monkeypatch):
     assert registry.unread == ()
 
 
+def test_a_log_created_during_the_replay_is_no_rotation(tmp_path, monkeypatch):
+    """C-23.28a, review r4 P3-d: the app's first launch creates `main.log`; one
+    created while the replay reads moved no file, so the replay counts."""
+    store = tmp_path / "store"
+    log = tmp_path / "main.log"
+    write_log(tmp_path / "main1.log", lines(store, "a/org-a", at(0)))
+    reader = desktop.DesktopLog(log, store=store, tz=UTC)
+    read, created = desktop.DesktopLog._read, []
+
+    def creating(self, path, offset):
+        if not created:
+            created.append(path)
+            write_log(log, lines(store, "b/org-b", at(3600)))
+        return read(self, path, offset)
+
+    monkeypatch.setattr(desktop.DesktopLog, "_read", creating)
+    found = reader.replay()
+    assert found.unread == ()
+    assert [event.folder for event in found.events] == ["a/org-a", "b/org-b"]
+
+
+@pytest.mark.parametrize("before,after,rotated", [
+    ([("main1.log", 1), ("main.log", 2)], [("main1.log", 1), ("main.log", 2)], False),
+    ([("main1.log", 1), ("main.log", None)], [("main1.log", 1), ("main.log", 2)], False),
+    ([("main1.log", 1), ("main.log", 2)], [("main1.log", 2), ("main.log", 3)], True),
+    ([("main1.log", 1), ("main.log", 2)], [("main2.log", 1), ("main1.log", 2),
+                                           ("main.log", 3)], True),
+    ([("main1.log", 1), ("main.log", 2)], [("main1.log", 1), ("main.log", None)], True),
+])
+def test_what_counts_as_a_rotation(before, after, rotated):
+    """C-23.28a, review r3 R5 and r4 P3-d: a log that moved or vanished, or a
+    new name, is a rotation; growth or a live log's creation is not."""
+    assert desktop._rotated(before, after) is rotated
+
+
 def test_the_registry_keeps_a_home_per_value_the_most_recent_ones(tmp_path):
     """C-23.28a, review r3 R7: one record per `dead_home` value, the most
     recent `HOMES_KEPT`, and they survive a save."""

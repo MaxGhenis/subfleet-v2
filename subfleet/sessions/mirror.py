@@ -1193,6 +1193,14 @@ class Mirror:
         })
         if load_gap is not None:
             value["load_gap"] = load_gap
+        # The scope rules' warnings, kept beside the pass (review r4 P3-b): a
+        # pass in flight, or one that failed before its account, has none of
+        # its own yet, and `--status` should still say them. A pass that
+        # finished without an account (the rules off) clears them.
+        if current.prune is not None:
+            value["scope_warnings"] = list(current.prune.get("warnings") or [])
+        elif current.state != "ok" and "scope_warnings" in previous:
+            value["scope_warnings"] = previous["scope_warnings"]
         _write_json(self.sidecar_path, value)
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
@@ -2286,8 +2294,11 @@ class Mirror:
             # scope to every folder. Nothing is removed for it while it is
             # not listed (`prune.HELD_HOME_UNLISTED`).
             home, why = previous, f"{why}; kept home folder {previous}"
-        if (registry is not None and home is not None and home != previous
-                and complete and not options.dry_run):
+        # Recorded when it changes, and when the value in use is not the newest
+        # record (review r4 P3-c), so one-off values never push it out.
+        if (registry is not None and home is not None and complete and not options.dry_run
+                and (home != previous
+                     or next(reversed(registry.homes), None) != options.dead_home)):
             registry.record_home(options.dead_home, home)
             try:
                 registry.save()
@@ -2299,9 +2310,18 @@ class Mirror:
             warnings.append(f"the home folder {home} is not in the store, so old archived "
                             "and dead sessions are neither spread nor removed; "
                             "set dead_home")
+        elif home is not None and home not in kinds:
+            warnings.append(f"the home folder {home} could not be listed this pass, so old "
+                            "archived and dead sessions are neither spread nor removed")
         elif home is not None and kinds.get(home) == folder_kinds.SWITCH:
             warnings.append(f"the home folder {home} reads as a switch folder; it is "
                             "seeded all the same")
+        if home is None and options.dead_home:
+            # Set, but naming no folder (review r4 P3-a): the archive rule
+            # then does nothing, and an old dead session keeps only its newest
+            # copies.
+            warnings.append(f"{why}: old archived sessions stay in every folder, and "
+                            "old dead ones keep only their newest copies")
         if registry is not None and not registry.replayed and registry.unread:
             warnings.append("the folder registry is not learning: the app's logs could not "
                             "all be read (" + ", ".join(registry.unread) + ")")
@@ -3318,9 +3338,9 @@ class Mirror:
         data = self.sidecar()
         result = self._full_health(data, now=now)
         # The scope rules' warnings (a home gone, a registry that cannot learn)
-        # do not make a pass unhealthy, but `--status` says them (review r3 R6).
-        account = (data.get("pass") or {}).get("prune")
-        warnings = account.get("warnings") if isinstance(account, dict) else None
+        # do not make a pass unhealthy, but `--status` says them (review r3 R6),
+        # the last ones recorded while a pass is in flight (r4 P3-b).
+        warnings = data.get("scope_warnings")
         if warnings and isinstance(warnings, list):
             result["warnings"] = [str(item) for item in warnings]
             result["detail"] += "; " + "; ".join(result["warnings"])
