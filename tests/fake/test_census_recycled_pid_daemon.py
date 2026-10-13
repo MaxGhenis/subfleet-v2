@@ -11,6 +11,8 @@ from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.unit.test_procs import census
+from tests.fake.test_quarantine_attempt_isolation import running
+from tests.fake.test_review_pr131_probes import script_table
 
 
 # Save the real census before state_daemon replaces the process seam.
@@ -157,9 +159,6 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
 
 def test_exit_publication_during_census_keeps_the_unseen_child_hold(state_daemon, monkeypatch):
     """One receipt snapshot governs both the child root and publication hold."""
-    from tests.fake.test_quarantine_attempt_isolation import running
-    from tests.fake.test_review_pr131_probes import script_table
-
     daemon, harness = state_daemon
     attempt, directory = running(daemon, harness, 200, 201)
     daemon.store.update_attempt(attempt["attempt_id"], child_pid=None, evidence_json="{}")
