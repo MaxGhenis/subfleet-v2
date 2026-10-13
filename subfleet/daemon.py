@@ -648,7 +648,9 @@ class Daemon:
         self._busy_lock = threading.Lock()
         self._busy: set[str] = set()
         self._launches: dict[str, Launch] = {}
-        self._children: dict[str, subprocess.Popen] = {}
+        # Guardians this daemon started (`procs.spawn_disclaimed`), by attempt id.
+        self._children: dict[str, procs.Spawned | subprocess.Popen] = {}
+        self._unrooted_logged = False        # D-CEN1: said once that guardians start without a root
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
@@ -1147,9 +1149,7 @@ class Daemon:
                    '--launch-fd', str(read_fd), '--', *argv]
         child = None
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -1159,6 +1159,8 @@ class Daemon:
                 raise procs.InspectionError('enrollment guardian identity is absent')
             record.update(state='starting', guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if root:
+                record['responsible_root'] = root      # D-CEN1, beside the identity
             self._save_probe(record)
             if not self.stopping.is_set():
                 os.write(write_fd, b'1')
@@ -4717,9 +4719,7 @@ class Daemon:
         command += ["--", *launch.argv]
         child = None
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -4729,6 +4729,8 @@ class Daemon:
                 raise procs.InspectionError("probe guardian identity is absent")
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if root:
+                record["responsible_root"] = root      # D-CEN1, beside the identity
             self._save_probe(record)
             # Ownership has committed. Serialize the gate decision and byte with
             # cancellation too: a completed queued cancel must start no provider.
@@ -6827,9 +6829,7 @@ class Daemon:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
         command += ["--", *launch.argv]
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             self._children[a["attempt_id"]] = child
             # ps can miss a pid for a few milliseconds after fork, and it is
             # slow under load; retry briefly while the guardian is alive. The
@@ -6849,6 +6849,16 @@ class Daemon:
                     raise procs.InspectionError("cancelled during launch")
                 tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
                            (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
+                if root:
+                    # D-CEN1: committed with the identity, before the gate opens, so
+                    # every census of this attempt, after a restart too, has its root.
+                    row = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=? AND state='starting'",
+                                     (a["attempt_id"],)).fetchone()
+                    if row is not None:
+                        evidence = json.loads(row[0] or "{}")
+                        evidence["responsible_root"] = root
+                        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                                   (json.dumps(evidence), a["attempt_id"]))
             os.write(write_fd, b"1")
         except (OSError, procs.InspectionError) as exc:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
@@ -7050,6 +7060,22 @@ class Daemon:
             self._lost(a)
         return True
 
+    def _spawn_guardian(self, command: list[str], env: dict[str, str], read_fd: int, package_root: str):
+        """C-5.1, D-CEN1: start a guardian (an attempt's, a probe's or a re-enrolment's) as
+        its own responsible process, and return it with the root to record beside its
+        identity: `{"pid", "unique_id"}`, or None when this macOS cannot disclaim, in
+        which case its censuses keep three sources. Only the guardian is disclaimed: the
+        provider it starts names it, so a privacy check (TCC) still asks about the
+        daemon's own executable, which the guardian runs (`sys.executable`)."""
+        child = procs.spawn_disclaimed(command, env=env, cwd=package_root, pass_fds=(read_fd,))
+        root = procs.responsibility_root(child.pid)
+        if root is None and not self._unrooted_logged:
+            self._unrooted_logged = True
+            self.log.warning("guardian %s started without a responsibility root (disclaim available: %s); "
+                             "censuses of what it starts read three sources (C-5.5, D-CEN1)",
+                             child.pid, procs.disclaim_available())
+        return child, root
+
     def _contain(self, a: dict):
         """C-5.5: one identity/bounds path for every deciding census, probes too."""
         directory = (Path(a["directory"]) if a.get("directory") else
@@ -7062,15 +7088,42 @@ class Daemon:
         guardian = a.get("guardian_pid") or start.get("guardian_pid")
         boot = a.get("boot_id") or start.get("boot_id")
         began = a.get("proc_start") or start.get("proc_start")
+        # D-CEN1: a process seen naming the root stops naming it once the root is
+        # gone (the kill protocol's SIGKILL reaches the guardian), so each one a
+        # census saw is kept and seeds the walk afterwards, as a recorded survivor
+        # does. It is evidence only: signal authority stays `owned_identities`.
+        named = dict(a.get("responsible_identities") or evidence.get("responsible_identities") or {})
+        for pid, value in named.items():
+            recorded.setdefault(int(pid), procs.ProcessIdentity(**value))
         if guardian and boot and began:
             recorded[guardian] = procs.ProcessIdentity(guardian, boot, began)
+        # D-CEN1: an attempt whose guardian was started as a responsibility root
+        # adds its fourth source; one recorded before (or without) it keeps three.
+        rooted = a.get("responsible_root") or evidence.get("responsible_root")
+        responsible = (procs.ResponsibleRoot(guardian, boot, rooted.get("unique_id"))
+                       if isinstance(rooted, dict) and guardian and rooted.get("pid") == guardian else None)
         census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
                                    a.get("child_pid") or receipt.get("child_pid"),
                                    a.get("attempt_id") or a["holder"], root=str(self.root),
                                    recorded_identities=recorded,
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
-                                   finished_at=receipt.get("finished_at"))
+                                   finished_at=receipt.get("finished_at"),
+                                   responsible_root=responsible)
+        fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
+                 if pid != guardian and pid in census.identities
+                 and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
+        if fresh and a.get("attempt_id") and "evidence_json" in a:
+            with self.store.transaction("attempt.responsible_recorded", job_id=a["job_id"],
+                                        attempt_id=a["attempt_id"], data={"pids": sorted(map(int, fresh))}) as tx:
+                actual = self.store.get_attempt(a["attempt_id"]) or a
+                current = json.loads(actual.get("evidence_json") or "{}")
+                current["responsible_identities"] = {**current.get("responsible_identities", {}), **fresh}
+                a["evidence_json"] = json.dumps(current)
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                           (a["evidence_json"], a["attempt_id"]))
+        elif fresh:
+            a["responsible_identities"] = {**named, **fresh}      # a probe's record, saved by its caller
         if census.recycled and a.get("attempt_id"):
             excluded = census.to_dict()["recycled"]
             if any(evidence.get("recycled", {}).get(pid) != value for pid, value in excluded.items()):

@@ -28,6 +28,7 @@ from subfleet import daemon as daemon_module
 from subfleet import procs, protocol
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
+from tests.fake_kernel import FakeKernel
 
 JOB = "20260924-114650-load-probe"
 ATTEMPT = JOB + "/a1"
@@ -83,10 +84,20 @@ class FakePs:
         raise AssertionError(argv)
 
     def environment_dumps(self):
-        return [argv for argv in self.calls if "-axEww" in argv]
+        # Since D-CEN1 a census reads environments in this process (`procs.kernel`),
+        # not with `ps -axEww`: both count.
+        return [argv for argv in self.calls if "-axEww" in argv] + procs.kernel.scans()
 
     def tables(self):
         return [argv for argv in self.calls if argv == TABLE]
+
+
+@pytest.fixture(autouse=True)
+def kernel(monkeypatch):
+    """C-5.5's in-process reads (D-CEN1) for this fake process table, recorded."""
+    fake = FakeKernel()
+    monkeypatch.setattr(procs, "kernel", fake)
+    return fake
 
 
 @pytest.fixture

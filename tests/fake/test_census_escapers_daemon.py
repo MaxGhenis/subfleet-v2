@@ -25,7 +25,6 @@ import os
 from pathlib import Path
 import shutil
 import signal
-import subprocess
 import sys
 import time
 import uuid
@@ -104,6 +103,17 @@ def held(daemon, job_id: str, attempt_id: str) -> list[dict]:
     return daemon.rows("SELECT * FROM leases WHERE holder IN (?,?)", (job_id, attempt_id))
 
 
+def assert_walk_only_from_a_recorded_responsibility(daemon, attempt: dict, pid: int, census: dict) -> None:
+    """The escaper has no parent link to the attempt: the walk counts it only because an
+    earlier census saw it name the guardian and recorded it as a seed (D-CEN1)."""
+    evidence = json.loads(attempt["evidence_json"] or "{}")
+    assert evidence["responsible_root"]["pid"] == attempt["guardian_pid"], evidence
+    owned = evidence.get("owned_identities", {})
+    assert str(pid) not in owned, "the escaper was never a group member while the guardian led it"
+    if pid in census["descendant_pids"]:
+        assert str(pid) in evidence.get("responsible_identities", {}), evidence
+
+
 @pytest.mark.parametrize("scenario", ["retitled-node", "retitled-nul"])
 def test_d_cen1_a_retitled_child_alive_after_the_exit_receipt_is_not_released(daemon, scenario):
     """D-CEN1, C-5.5, C-5.9: regression 1. The provider's child leaves the group, sets a
@@ -124,7 +134,9 @@ def test_d_cen1_a_retitled_child_alive_after_the_exit_receipt_is_not_released(da
         assert census["reason"] == "writers remain after exit receipt"
         assert escaper.pid in census["live_pids"]
         assert escaper.pid in census["marker_pids"], census       # the raw buffer, not `ps -E`
-        assert escaper.pid not in census["group_pids"] + census["descendant_pids"], census
+        assert escaper.pid in census["responsible_pids"], census  # and the guardian, which waited for it
+        assert escaper.pid not in census["group_pids"], census
+        assert_walk_only_from_a_recorded_responsibility(daemon, attempt, escaper.pid, census)
         assert held(daemon, job_id, attempt["attempt_id"]), "a quarantined attempt keeps its leases (C-5.7)"
         assert daemon.job(job_id)["state"] != "succeeded"
         shown = json.dumps(daemon.call("show", job_id=job_id))
@@ -166,12 +178,18 @@ def test_d_cen1_a_renamed_setsid_escaper_is_found_by_responsibility_and_released
         assert escaper.pid in census["live_pids"]
         assert escaper.pid in census["responsible_pids"], census
         # Nothing else could have found it: the regression is responsibility's alone.
-        assert escaper.pid not in census["marker_pids"] + census["group_pids"] + census["descendant_pids"]
+        assert escaper.pid not in census["marker_pids"] + census["group_pids"], census
+        assert_walk_only_from_a_recorded_responsibility(daemon, daemon.attempts(job_id)[-1], escaper.pid, census)
         assert stranger_pid not in census["live_pids"], census
         assert str(stranger_pid) not in census["identities"] and str(stranger_pid) not in census["shapes"]
         assert held(daemon, job_id, attempt_id)
 
+        guardian = daemon.attempts(job_id)[-1]
+        assert census["group_pids"] == [guardian["guardian_pid"]], "the guardian waits while the escaper runs"
         stop(escaper)
+        # With nothing left naming it, the guardian ends by itself.
+        daemon.until(lambda: procs.liveness(guardian["guardian_pid"], guardian["boot_id"],
+                                            guardian["proc_start"]) == "dead", timeout=30)
         daemon.call("kill", job_id=job_id, confirm_dead=True)
         daemon.until(lambda: not held(daemon, job_id, attempt_id), timeout=30)
         assert daemon.attempts(job_id)[-1]["state"] in ("lost", "interrupted")

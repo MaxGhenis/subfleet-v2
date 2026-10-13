@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import procs
 from .procs import boot_id, proc_start
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
@@ -29,6 +30,14 @@ PROVIDER_QOS_ENV = "SUBFLEET_PROVIDER_QOS"    # `inherit`: the provider runs at 
 CLAMP_SPAWN_FAILED_RC = 66
 CLAMP_SPAWN_FAILED = b"taskpolicy: posix_spawn: "
 _ERRNO_BY_TEXT = {os.strerror(number): number for number in errno.errorcode}
+# D-CEN1: a guardian the daemon started as its own responsible process
+# (`procs.spawn_disclaimed`) is named as responsible by every process the provider
+# starts, and they start, whatever they do to their group, parent, title or
+# environment, but only while it lives: once it is gone, even unreaped, the kernel
+# names each of them as its own (measured 2026-10-13). So after its exit receipt
+# such a guardian stays until no other live process names it, and the census that
+# decides the attempt finds them by it (C-5.5). It looks again at these intervals.
+LINGER_FIRST_S, LINGER_MAX_S = 0.1, 2.0
 
 
 def provider_qos() -> str | None:
@@ -101,6 +110,29 @@ def _output(path: Path):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.fchmod(fd, 0o600)
     return os.fdopen(fd, "wb")
+
+
+def linger() -> None:
+    """D-CEN1: return once no other live process names this guardian as responsible;
+    at once for a guardian that is not its own responsible process (one Popen
+    started, or a macOS without the responsibility SPI), which nothing names. A
+    look that fails proves nothing, so it looks again. SIGTERM is ignored here as
+    everywhere in the guardian; the kill protocol's SIGKILL ends it."""
+    me = os.getpid()
+    try:
+        if procs.kernel.responsible(me) != me:
+            return
+    except procs.InspectionError:
+        return
+    delay = LINGER_FIRST_S
+    while True:
+        try:
+            if not procs.responsible_for(me):
+                return
+        except procs.InspectionError:
+            pass
+        time.sleep(delay)
+        delay = min(delay * 1.5, LINGER_MAX_S)
 
 
 def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
@@ -201,6 +233,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     if spawn_error:
         exit_receipt["spawn_error"] = spawn_error
     _receipt(attempt_dir / "exit.json", exit_receipt)
+    linger()
     return rc
 
 
