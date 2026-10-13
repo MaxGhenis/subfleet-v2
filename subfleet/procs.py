@@ -824,7 +824,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         another process's, at a pid the root's later took. Only a proven other boot
         excludes the rest (none of the root's processes outlives its boot); an order
         that cannot be read keeps them (C-5.3)."""
-        if responsible_root is None or responsible_root.unique_id is None:
+        if responsible_root is None:
             return True
         if not order:
             match = None
@@ -842,12 +842,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             order.append(match)
         if order[0] is False:
             return False
-        return order[0] is None or process.unique_id >= responsible_root.unique_id
+        return (order[0] is None or responsible_root.unique_id is None
+                or process.unique_id >= responsible_root.unique_id)
 
     # The table's start/boot comparison is stronger than unique-id ordering, and
     # also protects legacy roots whose unique id was unavailable at launch.
     source_root = responsible_root
-    if source_root is not None and is_recycled(source_root.pid):
+    if (source_root is not None and source_root.pid in recorded_identities
+            and is_recycled(source_root.pid)):
         source_root = None
     if wanted is not None or source_root is not None:
         try:

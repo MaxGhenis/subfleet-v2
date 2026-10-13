@@ -541,3 +541,11 @@ def test_d_cen1_a_read_filling_the_kernel_maximum_stays_unverifiable(maximum):
     with pytest.raises(procs.InspectionError, match="fills the read|maximum unavailable"):
         reader.arguments(42, ctypes.create_string_buffer(1024))
     assert reads == ([1024, 8192] if maximum == 8192 else [1024])
+
+
+def test_d_cen1_a_proven_other_boot_excludes_an_unknown_sequence_root(monkeypatch):
+    census(monkeypatch, parents=ROWS, session=BOOT_A)
+    kernel_with(monkeypatch, processes={60: b""}, responsible={60: 42})
+    result = procs.containment(None, None, None, ATTEMPT, root=ROOT,
+                               responsible_root=procs.ResponsibleRoot(42, BOOT_B, None))
+    assert not result.responsible_pids and result.verified_empty
