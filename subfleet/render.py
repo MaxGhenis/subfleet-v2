@@ -144,6 +144,8 @@ def status(view: Mapping[str, Any]) -> str:
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     if view.get("disk") is not None:
         lines.append(disk_line(view["disk"]))
+    if view.get("ramp") is not None:
+        lines.append(ramp_line(view["ramp"]))
     rows = []
     for lane in snapshot["lanes"]:
         # C-10.6: an operator looking at a lane with no readings has to be able
@@ -206,6 +208,7 @@ def status(view: Mapping[str, Any]) -> str:
 
 #: C-6.11: one line per reason admission can leave a job unplaced.
 _HOLD_TEXT = {
+    "ramp": "placement ramp: {used} of {limit} starts used in the last {window_s} s; next slot at {next_slot_at}",
     "disk": "disk admission is holding: free {free_gb} GB, reserved {reserved_gb} GB, floor {floor_gb} GB; "
             "resume margin {resume_margin_gb} GB, placement reserve {placement_reserve_gb} GB (C-6.17)",
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
@@ -246,6 +249,13 @@ def disk_floor_detail(reading: Mapping[str, Any]) -> str:
         if key in reading:
             parts.append(f"{key}: {reading[key]}")
     return "; ".join(parts)
+
+
+def ramp_line(reading: Mapping[str, Any]) -> str:
+    """C-6.18: the same one-line placement budget in both status views."""
+    return (f"placement ramp: {reading['used']} of {reading['limit']} starts used "
+            f"in the last {reading['window_s']} s; next slot at "
+            + (reading.get("next_slot_at") or "now"))
 
 
 def disk_line(reading: Mapping[str, Any]) -> str:
