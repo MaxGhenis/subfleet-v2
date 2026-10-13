@@ -145,6 +145,54 @@ Round 8 adds regressions for review r7's four findings and three nits;
   rather than silently unknown. The round-7 report section must cite
   `c230d1d8e`, `f3e042953` and `c6975725`.
 
+Round 9 keeps all 68 checks and adds seven regressions (75 total).
+`FANOUT_TEST_FILTER='round 9'` selects them. The same seven checks fail
+against `3ca9b038e` and pass on the round-9 workflow:
+
+- `fake-ps.py` controls process age independently of the host's `ps` access.
+  A hanging inspection, a nonzero exit with plausible output, empty failed
+  output and malformed output must all leave a live stale PID `unknown`.
+  Real `kill(pid, 0)` still establishes existence or death. The successful
+  inspection check still distinguishes `alive` from `reused`.
+- Held-lock CLI records with bad, missing, future, nonfinite or nonnumeric
+  timestamps, and invalid PIDs, retain `LOCKED`/exit 75 and say `unknown`.
+  A legacy bare PID has no spawn identity, so its liveness is `unknown` too.
+- `recovery_checks.py` ports the six-owned-job slow-show probe using four
+  synthetic 15-second timeouts and a controlled monotonic clock. Entries e
+  and f keep their refusal, explain the unattempted lookup in that line,
+  and contribute to `RECOVERY_SKIPPED=2`. A second case spends the budget
+  between request lookup and show, explaining all three unknown entries.
+  Both recover on a fresh invocation without submitting again.
+
+The missing/mismatched identity checks still cover all 13 recorded fields
+for all three jobs and require complete proof before recovery. They now
+replay the recorded fake registry transport with a controlled clock in the
+generated helper. This removes the host-scheduling race from repeated fake
+CLI startups; staged files, stored prompt bytes, labels, digests, refusal
+logs, empty job lists and recovered evidence are still real fixture files.
+Generated shell commands still exercise initial submission, validation
+refusal, nothing-to-wait and relaunch. Test children are supervised and
+joined; the lock probes no longer create detached process groups.
+
+`reviewer_replay.py` ports the reviewer's independent 32-history driver
+(seed 20261013), including 31 launcher/helper kills and its separate
+completeness oracle. It mixes foreign holders, alias pins, HEAD/policy
+movement, preview faults and deleted prompts. It creates no evidence files
+and uses only temporary fake registries:
+
+```sh
+env -u PYTHONPATH python3 docs/reports/2026-09-22-fanout-workflow/harness/reviewer_replay.py .claude/workflows/subfleet-fanout.js
+```
+
+To run the seven regressions on the round-8 baseline (exit 1 expected):
+
+```sh
+FANOUT_TMP=$(mktemp -d)
+git show 3ca9b038e:.claude/workflows/subfleet-fanout.js > "$FANOUT_TMP/baseline.js"
+env -u PYTHONPATH FANOUT_TEST_FILTER='round 9' bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs "$FANOUT_TMP/baseline.js"
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$FANOUT_TMP"
+```
+
 **Upgrading:** install a new helper between batches. A state folder started
 by the `8d074a715` (round 6) helper has snapshots and recovery records with
 no creation mark. This helper cannot re-prove them, and reports them
