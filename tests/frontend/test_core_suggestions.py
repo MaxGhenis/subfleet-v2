@@ -199,7 +199,9 @@ def test_c29_14_a_start_cut_short_says_why_and_offers_start_again(core_probe, ha
     row = harness.service.suggestions.get(made["suggestion_id"])
     harness.service.suggestions.claim(made["suggestion_id"], by="frontend harness",
                                       conversation=harness.service._start_fields(row, {}))
-    harness.service.suggestions.note_error(made["suggestion_id"], "worktree-failed: git worktree add failed")
+    from subfleet.conversations.store import ConversationError
+    harness.service.suggestions.note_error(made["suggestion_id"], ConversationError(
+        "worktree-failed", "git worktree add failed", code=1))
     out = suggestions(core_probe, tmp_path, [{"suggestions": harness.call("suggestion.list")}])
     card = out["open"][0]
     assert card["state"] == "starting" and out["count"] == 1

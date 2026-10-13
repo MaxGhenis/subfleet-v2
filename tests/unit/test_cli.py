@@ -1126,12 +1126,16 @@ def test_a_daemon_failure_numbered_zero_is_not_success(daemon, capsys, workdir):
 
 
 @pytest.mark.parametrize("body", [b"[1, 2, 3]\n", b'"a string"\n', b"null\n",
-                                  b'{"v": 1, "ok": false, "error": 7}\n'])
+                                  b'{"v": 1, "ok": false, "error": 7}\n',
+                                  b'{"v": "password=SECRET7-left", "ok": true}\n'])
 def test_a_wrong_shaped_response_is_exit_one(daemon, capsys, workdir, body):
     """C-16.1 valid JSON of the wrong shape is an exit code, not a traceback."""
-    daemon({"submit": lambda request: body})
+    server = daemon({"submit": lambda request: body})
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
-    assert "malformed response" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "malformed response" in err
+    assert "SECRET7-left" not in err and "sending the same submission again" not in err
+    assert len([request for request in server.requests if request.op == "submit"]) == 1
 
 
 def test_a_response_from_another_protocol_version_is_refused(daemon, capsys, workdir):

@@ -244,6 +244,43 @@ _ERROR_PREFIXES = frozenset(("cannot read the brief: ", "cannot resolve the work
                              "invalid arguments: "))
 
 
+class SuggestionError(ConversationError):
+    """A refusal with structural detail, separate from untrusted exception text."""
+
+    def __init__(self, reason: str, message: str, code: int = 2, fix: str | None = None,
+                 *, details: Any = None):
+        super().__init__(reason, message, code, fix)
+        self.details = details
+
+
+def error_details(error: Any) -> dict:
+    details = error.details if isinstance(error, SuggestionError) else None
+    if type(details) is not dict:
+        return {}
+    reason = error_reason(error)
+    if reason == "not-open":
+        state = details.get("state")
+        if type(state) is str and state in CLOSED_STATES:
+            return {"state": state}
+    if reason == "too-many-suggestions":
+        scope, count, maximum = (details.get(key) for key in ("scope", "count", "maximum"))
+        if (type(scope) is str and scope in ("all", "this conversation", "this session", "callers with no session")
+                and all(type(value) is int and 0 <= value <= 2 ** 63 - 1 for value in (count, maximum))):
+            return {"scope": scope, "count": count, "maximum": maximum}
+    return {}
+
+
+def error_message(reason: str, details: dict) -> str:
+    if reason == "not-open" and details:
+        return f"the suggestion was {details['state']}; it cannot start"
+    if reason == "too-many-suggestions" and details:
+        count, maximum, scope = (details[key] for key in ("count", "maximum", "scope"))
+        if scope == "all":
+            return f"{count} suggestions are open; at most {maximum} are kept"
+        return f"{scope} has {count} open suggestions; at most {maximum}"
+    return ERROR_MESSAGES[reason]
+
+
 def error_reason(error: Any) -> str | None:
     reason = (error.reason if isinstance(error, ConversationError) else
               getattr(error, "suggestion_reason", None))
@@ -263,14 +300,14 @@ def error_fix(error: Any) -> str | None:
 
 
 def scrub_error(error: Any, *, prefix: str = "") -> str:
-    """C-25.7's structural boundary: templates and validated errno only.
+    """C-25.7's structural boundary: templates, counts, states and errno only.
 
     No exception rendering occurs here. Even strings passed by old callers are
     untrusted and receive a fixed fallback. The scrubber remains defence in depth.
     """
     reason = error_reason(error)
     if reason is not None:
-        text = reason + ": " + ERROR_MESSAGES[reason]
+        text = reason + ": " + error_message(reason, error_details(error))
     else:
         # Fixed class names also cover subclasses with arbitrary __str__/__repr__.
         name = next((name for kind, name in ((KeyError, "KeyError"), (UnicodeError, "UnicodeError"),
@@ -294,6 +331,21 @@ def response_reason(message: Any) -> str | None:
     for reason, template in ERROR_MESSAGES.items():
         if message == reason + ": " + template:
             return reason
+    for state in CLOSED_STATES:
+        if message == "not-open: " + error_message("not-open", {"state": state}):
+            return "not-open"
+    # Recognize only complete templates with canonical, bounded integer fields.
+    match = re.fullmatch(r"too-many-suggestions: (?:(?P<all>[0-9]{1,19}) suggestions are open; "
+                         r"at most (?P<global_max>[0-9]{1,19}) are kept|"
+                         r"(?P<scope>this conversation|this session|callers with no session) has "
+                         r"(?P<count>[0-9]{1,19}) open suggestions; at most (?P<maximum>[0-9]{1,19}))", message)
+    if match:
+        details = {"scope": "all" if match["all"] is not None else match["scope"],
+                   "count": int(match["all"] if match["all"] is not None else match["count"]),
+                   "maximum": int(match["global_max"] if match["all"] is not None else match["maximum"])}
+        valid = error_details(SuggestionError("too-many-suggestions", "", details=details))
+        if valid and message == "too-many-suggestions: " + error_message("too-many-suggestions", valid):
+            return "too-many-suggestions"
     if message in tuple("unknown op '" + op + "'" for op in SUGGESTION_OPS):
         return "unknown-op"
     from ..protocol import REFUSAL_MESSAGES
@@ -317,8 +369,10 @@ for _errno in range(1, 256):
 def stored_error(error: Any) -> str | None:
     if error is None:
         return None
-    return (_PUBLIC_ERROR_TEXT.get(error, "Exception: the suggestion operation failed")
-            if type(error) is str else "Exception: the suggestion operation failed")
+    if type(error) is str:
+        if error in _PUBLIC_ERROR_TEXT or response_reason(error) in ("not-open", "too-many-suggestions"):
+            return error
+    return "Exception: the suggestion operation failed"
 
 
 def admit_message(tx: sqlite3.Connection, conversation_id: str, starts: str | None) -> None:
@@ -532,8 +586,8 @@ class Suggestions:
             marks = ",".join("?" * len(OPEN_STATES))
             total = tx.execute(f"SELECT COUNT(*) FROM suggestions WHERE state IN ({marks})", OPEN_STATES).fetchone()[0]
             if total >= open_max:
-                raise ConversationError("too-many-suggestions", f"{total} suggestions are open; at most {open_max} are kept",
-                                        code=7, fix="wait until the owner starts or dismisses some")
+                raise SuggestionError("too-many-suggestions", "too many suggestions are open", code=7,
+                                      details={"scope": "all", "count": total, "maximum": open_max})
             if origin is not None:
                 where, params = "origin_conversation_id=?", (origin,)
                 whose = "this conversation"
@@ -546,9 +600,8 @@ class Suggestions:
             mine = tx.execute(f"SELECT COUNT(*) FROM suggestions WHERE {where} AND state IN ({marks})",
                               (*params, *OPEN_STATES)).fetchone()[0]
             if mine >= per_origin:
-                raise ConversationError("too-many-suggestions", f"{whose} has {mine} open suggestions; at most "
-                                        f"{per_origin}", code=7,
-                                        fix="withdraw a stale one (subfleet suggest --withdraw ID) first")
+                raise SuggestionError("too-many-suggestions", "too many suggestions are open", code=7,
+                                      details={"scope": whose, "count": mine, "maximum": per_origin})
             now = utcnow()
             suggestion_id = new_id("sg")
             tx.execute(
@@ -608,7 +661,8 @@ class Suggestions:
             if row["state"] in (STARTING, STARTED):
                 return row, False
             if row["state"] != OPEN:
-                raise ConversationError("not-open", f"the suggestion was {row['state']}; it cannot start", code=7)
+                raise SuggestionError("not-open", "the suggestion cannot start", code=7,
+                                      details={"state": row["state"]})
             cid = self.store.insert_conversation(tx, request_id=None, **conversation)
             return _move(tx, row, STARTING, decided_by=scrubbed_line(by), decided_at=utcnow(),
                          started_conversation_id=cid, start_message_id=str(uuid.uuid4()),

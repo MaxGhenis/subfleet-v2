@@ -69,8 +69,9 @@ def _suggestion_errors(handler):
             return handler(self, args, peer)
         except ConversationError as exc:
             reason = suggestions.error_reason(exc) or "suggestion-failed"
-            raise ConversationError(reason, suggestions.scrub_error(exc), code=suggestions.error_code(exc),
-                                    fix=suggestions.error_fix(exc)) from None
+            raise suggestions.SuggestionError(reason, suggestions.scrub_error(exc), code=suggestions.error_code(exc),
+                                              fix=suggestions.error_fix(exc),
+                                              details=suggestions.error_details(exc)) from None
     return checked
 
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
@@ -1103,7 +1104,8 @@ class ConversationService:
                 conversation = self._start_fields(row, args)
                 row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
             elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
-                raise ConversationError("not-open", "the suggestion is closed and cannot start", code=7)
+                raise suggestions.SuggestionError("not-open", "the suggestion cannot start", code=7,
+                                                  details={"state": row["state"]})
             return self._finish_start(row)
 
     def _start_fields(self, row: dict, args: dict) -> dict:

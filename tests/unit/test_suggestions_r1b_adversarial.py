@@ -559,7 +559,7 @@ def test_r1b_where_a_suggestion_starts_is_decided_when_it_is_made(people, repo, 
     shutil.rmtree(gone / ".git")
     error = refused("not-a-repository", 7, svc.handle, "suggestion.start", {"suggestion_id": tree["suggestion_id"]},
                     PERSON)
-    assert "worktree" in str(error) and error.fix == "dismiss it"
+    assert "worktree" in str(error) and error.fix == "dismiss it or restore its checkout"
     assert svc.suggestions.get(tree["suggestion_id"])["state"] == "open"
 
 
