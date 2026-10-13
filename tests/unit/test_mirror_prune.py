@@ -66,11 +66,13 @@ def say(log: Path, *lines: str) -> None:
     os.utime(log, (stamp.timestamp(), stamp.timestamp()))
 
 
-def history(store: Path) -> list[str]:
-    """An hour in the home folder and in another account's, then a switch to
-    work: two seconds in the home account with work's org, then work, loaded
-    since 10:00:02 (an hour and a half by the fixture's clock)."""
-    return [*loads(store, HOME, "2026-09-05 08:00:00"),
+def history(store: Path, *, since: str = "2026-08-01 08:00:00") -> list[str]:
+    """The home folder since `since` (by default over a month back, so the
+    registry has learned `SWITCH_PRUNE_AFTER_S`), an hour in another
+    account's, then a switch to work: two seconds in the home account with
+    work's org, then work, loaded since 10:00:02 (an hour and a half by the
+    fixture's clock)."""
+    return [*loads(store, HOME, since),
             *loads(store, OTHER, "2026-09-05 09:00:00"),
             *loads(store, SWITCH, "2026-09-05 10:00:00"),
             *loads(store, WORK, "2026-09-05 10:00:02")]
@@ -423,6 +425,143 @@ def test_an_old_dead_session_keeps_its_newest_copy(world):
     assert result.prune["sessions"] == {"dead": 1, "dead-young": 1}
 
 
+# --- review round 1: what must also stop a removal ------------------------------
+
+def test_nothing_goes_while_the_transcripts_cannot_all_be_listed(world):
+    """C-23.28a, review r1 P1-1: a session whose transcript was not listed
+    reads as dead, and the dead rule would remove its copies. An unlisted
+    transcript directory blocks every removal that pass."""
+    put(world, ONE, FOLDERS, days=10)                    # live, openable, quiet 10 days
+    projects = world.home / "projects"
+    project = next(projects.iterdir())
+    project.chmod(0)
+    try:
+        result = engine(world).run_once(options(prune=True))
+    finally:
+        project.chmod(0o755)
+    assert where(world, ONE) == set(FOLDERS)
+    assert set(result.prune["held"]) == {"the transcripts could not all be listed this pass"}
+
+
+def test_nothing_goes_while_the_log_cannot_be_read(world):
+    """C-23.28a, review r1 P1-3: a log that cannot be read leaves the last
+    load it read in place; that is not knowing which folder the app holds."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    running = engine(world)
+    running.run_once(options())                          # it read: work is loaded
+    say(world.log, *loads(world.store, OTHER, "2026-09-05 11:29:00"))   # the app switches
+    world.log.rename(world.log.with_name("gone.log"))   # and its log can no longer be read
+    result = running.run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert result.prune["loaded"] is None
+
+
+def test_a_live_sessions_switch_folder_copy_waits_while_the_registry_learns(
+        tmp_path, monkeypatch):
+    """C-23.28a, review r1 P1-4: a folder used less often than the registry
+    has learned reads as a switch folder; a live session's copy there stays
+    until the registry has learned `SWITCH_PRUNE_AFTER_S`."""
+    world = make_world(tmp_path, monkeypatch,
+                       log_lines=history(tmp_path / "claude-code-sessions",
+                                         since="2026-09-05 08:00:00"))
+    put(world, ONE, FOLDERS)
+    result = engine(world).run_once(options(prune=True))
+    assert SWITCH in where(world, ONE)
+    assert result.prune["switch_removal"] is False
+    assert result.prune["held"] == {prune_rules.HELD_LEARNING: 1}
+
+
+def test_the_home_an_org_id_named_stays_when_a_second_folder_of_it_settles(world):
+    """C-23.28a, review r1 P2-1: once another account settles in the home's
+    org, the org id names two folders. The home stays where it was, rather
+    than unhoming every archived session and spreading them all back."""
+    put(world, ONE, [HOME], archived=True, days=30)
+    running = engine(world)
+    first = running.run_once(options(dead_home="org-home"))
+    assert first.prune["home"] == key(HOME)
+    second = ("acct-second", "org-home")
+    (world.store / second[0] / second[1]).mkdir(parents=True)
+    say(world.log, *loads(world.store, second, "2026-09-05 11:00:00"),
+        *loads(world.store, WORK, "2026-09-05 11:10:00"))
+    running._last_sweep = None                          # noqa: SLF001 - plan afresh
+    again = running.run_once(options(dead_home="org-home"))
+    assert again.prune["home"] == key(HOME) and "kept" in again.prune["home_detail"]
+    assert where(world, ONE) == {HOME}, "nothing spread back"
+
+
+def test_a_star_since_the_plan_stops_the_removal(world, monkeypatch):
+    """C-23.28a, review r1 P2-2: a star (here every copy's, as flag sync
+    spreads one) makes the session live; the re-reads see it."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    after_the_plan(monkeypatch, lambda: [rewrite(record(world, folder), isStarred=True)
+                                         for folder in FOLDERS])
+    engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+
+
+def test_a_copy_that_now_holds_another_session_stays(world, monkeypatch):
+    """C-23.28a: the copy re-read must still hold the session the plan saw
+    there (the app moves a record to a new session id on /clear)."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    after_the_plan(monkeypatch, lambda: rewrite(record(world, OTHER), cliSessionId=TWO))
+    engine(world).run_once(options(prune=True))
+    assert record(world, OTHER).exists()
+    assert not record(world, SWITCH).exists()
+
+
+def test_another_mirror_removing_from_the_store_blocks_this_ones_removals(world):
+    """C-23.28a, review r1 P2-3: removals take a lock keyed by the store, so a
+    mirror with another state root cannot remove the copy this one keeps."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    other = mirror.Mirror(world.root.parent / "other-state", fx.policy(), now=lambda: fx.NOW)
+    held = other._store_lock()                          # noqa: SLF001 - the other mirror
+    try:
+        result = engine(world).run_once(options(prune=True))
+    finally:
+        held.close()
+    assert where(world, ONE) == set(FOLDERS)
+    assert "another mirror is removing from this store" in result.prune["held"]
+
+
+def test_a_stale_empty_copy_outside_the_scope_is_still_repaired(world):
+    """C-23.28a, review r1 P2-4: a frozen copy with no session id already
+    stands in its folder's sidebar as a session with no messages, so the
+    spread repairs it even where it would add no new copy."""
+    put(world, ONE, [HOME], archived=True, days=30)
+    stale = fx.index_entry(world.store, *OTHER, "", name=f"local_{ONE}.json",
+                           settings={"ultracode": True})
+    engine(world).run_once(options())
+    repaired = json.loads(stale.read_text())
+    assert repaired["cliSessionId"] == ONE and repaired["isArchived"] is True
+    assert where(world, ONE) == {HOME, OTHER}, "repaired, and added nowhere else"
+
+
+def test_an_empty_grave_is_dropped_not_put_back(tmp_path):
+    """C-23.28a, review r1 P3-4: a removal that crashed after making its grave
+    name and before its rename leaves an empty placeholder, never a record."""
+    path = tmp_path / "local_x.json"
+    handle, grave = mirror._temporary(path, mirror.GRAVE_SUFFIX)
+    os.close(handle)
+    mirror._bury(grave)
+    assert not grave.exists() and not path.exists()
+
+
+def test_only_sessions_that_can_reach_outside_their_scope_are_planned(world, monkeypatch):
+    """C-23.28a: a live session with no copy in a switch folder has nothing
+    to plan; the prune step plans none of them."""
+    put(world, ONE, SEEDED)
+    put(world, TWO, FOLDERS, archived=True, days=30)
+    planned, calls = prune_rules.plan, []
+
+    def counted(copies, *args, **kwargs):
+        calls.append({copy.identity for copy in copies})
+        return planned(copies, *args, **kwargs)
+
+    monkeypatch.setattr(prune_rules, "plan", counted)
+    engine(world).run_once(options(prune=True))
+    assert calls and all(identities == {TWO} for identities in calls)
+
+
 # --- undoing it ---------------------------------------------------------------
 
 def test_unarchiving_a_pruned_session_brings_it_back_everywhere(world):
@@ -575,7 +714,13 @@ def stores(draw):
         low, high = (0.2, 13.0) if kind in (LIVE, ARCHIVED_YOUNG) else (14.5, 60.0)
         if kind == DEAD and draw(st.booleans()):
             low, high = 0.2, 6.5
-        ages = {folder: draw(st.floats(low, high)) for folder in folders}
+        ages = {}
+        for folder in folders:
+            # Activity, and sometimes a later focus in the same bounds: the
+            # two measures of "newest" can then name different copies.
+            active = draw(st.floats(low, high))
+            focused = draw(st.floats(low, active)) if draw(st.booleans()) else None
+            ages[folder] = (active, focused)
         specs.append((f"{number:08d}-cccc-4000-8000-000000000000", kind, starred, ages))
     return specs
 
@@ -587,8 +732,8 @@ def snapshot(world) -> list[prune_rules.Copy]:
         found.append(prune_rules.Copy(
             folder=f"{path.parent.parent.name}/{path.parent.name}", name=path.name,
             identity=data["cliSessionId"], archived=bool(data["isArchived"]),
-            starred=bool(data["isStarred"]), activity_ms=int(data["lastActivityAt"]),
-            mtime=path.stat().st_mtime))
+            starred=bool(data["isStarred"]), activity_ms=mirror._activity_ms(data),
+            rank_ms=mirror._rank_ms(data), mtime=path.stat().st_mtime))
     return found
 
 
@@ -605,12 +750,14 @@ def test_the_mirror_removes_exactly_what_the_planner_plans(specs):
         for session, kind, starred, ages in specs:
             if kind != DEAD:
                 fx.transcript(world.home, session, fx.completed())
-            for (account, org), days in ages.items():
+            for (account, org), (days, focused) in ages.items():
+                extra = ({"lastFocusedAt": int((NOW_S - focused * DAY) * 1000)}
+                         if focused is not None else {})
                 path = fx.index_entry(world.store, account, org, session,
                                       archived=kind in (ARCHIVED_OLD, ARCHIVED_YOUNG),
                                       starred=starred,
                                       last_activity=int((NOW_S - days * DAY) * 1000),
-                                      settings={"ultracode": True})
+                                      settings={"ultracode": True}, **extra)
                 os.utime(path, (NOW_S - days * DAY,) * 2)
         before = snapshot(world)
         stamps = {}

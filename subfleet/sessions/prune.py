@@ -1,10 +1,11 @@
 """Where each session belongs, and which copies the mirror may remove: C-23.28a.
 
 The mirror used to copy every openable session into every folder the desktop
-store holds: on 2026-09-25, 1,898 sessions in each of 120 folders, 227,923
-files and 2.96 GB, growing by a copy per folder for every new session. Most
-of those copies can never be seen. This module decides, as a pure function of
-what one pass read, two things the mirror then acts on:
+store holds: on 2026-09-25, 2,064 sessions in up to 120 folders, 227,924
+files and 2.96 GB, growing by a copy per folder for every new session; on
+2026-10-13, 442,801 files and 9.51 GB in 135 folders. Most of those copies
+can never be seen. This module decides, as a pure function of what one pass
+read, two things the mirror then acts on:
 
 * **Scope**: the folders a session belongs in. The mirror spreads a session
   only into its scope (`mirror.py`, full and hot passes alike).
@@ -20,23 +21,27 @@ Three rules, each off at zero or false (`policy.json`, `sessions` section):
   and that has been quiet this many days, belongs only in the **home
   folder**. Quiet means since the later of its newest activity, focus or
   creation and when it was archived. Archiving leaves the activity times
-  alone (850 records the app archived on 2026-09-22 were mostly a month
-  quiet), so the mirror stamps the archive in its merge base
-  (`archived_at`). Every other account then lists the session neither as a
-  session nor as archived.
+  alone (of 850 archived records the app wrote into one folder on
+  2026-09-22, 621 had been quiet 30 days or more), so the mirror stamps the
+  archive in its merge base (`archived_at`). Every other account then lists
+  the session neither as a session nor as archived.
 * `mirror_dead_days`: a session with no transcript (dead: it shows "no
   messages" everywhere and is never spread) that has been quiet this long
-  keeps one copy: the home folder's, or the newest one.
+  belongs only in the home folder, or nowhere without one.
 
 Removal is a separate switch, `mirror_prune`, because it deletes: without it
-the rules only stop the store from growing further. Every copy in a session's
-scope survives, and so does the session's newest copy by its own activity,
-focus and creation times: copies of one session often differ there (on
-2026-09-25, 1,396 of 1,906 sessions with more than one copy), and the home
-copy was the newest for about a quarter of the archived ones. An archived
-session whose home copy is older therefore keeps two copies, and the mirror
-never rewrites a copy to make one. Any other copy is removed only when all of
-these hold:
+the rules only stop the store from growing further. Every copy in a
+session's scope survives, and so do its **newest** copies: the one newest by
+the record's own activity, focus and creation times, and the one the
+spread itself would copy (`lastActivityAt` first), when no copy in scope is
+as new. Copies of one session differ there (on 2026-09-25, 1,396 of 1,906
+sessions with more than one copy): the mirror spreads a session once and
+syncs only its flags and title, so the copy where the work happened carries
+the newest record (a moved `cwd`, a changed model), and a mere focus
+elsewhere makes another copy newer by focus alone. An archived session
+whose home copy is older therefore keeps two or three copies, and the
+mirror never rewrites a copy to make one. Any other copy is removed only
+when all of these hold:
 
 * the app's loaded folder is known, and the copy is not in it: the app lists
   a folder into memory when it loads it and saves records from that memory,
@@ -44,13 +49,17 @@ these hold:
   written back (`desktop.py`);
 * the copy is outside its session's scope, and is not the home folder's;
 * the copy has a session id, and the session was neither held nor rewritten
-  by this pass's flag sync, so its flags are settled.
+  by this pass's flag sync, so its flags are settled;
+* for a copy outside its scope only because its folder is a switch folder,
+  the folder registry has learned for `folder_kinds.SWITCH_PRUNE_AFTER_S`:
+  a folder used less often than the registry has been learning looks like a
+  switch folder until it is used again.
 
 Every removal of an openable session is therefore undone by switching its
 rule off: the next full pass spreads the session back into every folder in
 the wider scope, from its newest surviving copy by the spread's own ranking
 (`test_mirror_prune.py` proves the round trip). A dead session is never
-spread, as before; its newest copy stays where it is.
+spread, as before; its newest copies stay where they are.
 """
 
 from __future__ import annotations
@@ -69,9 +78,12 @@ SWITCH_FOLDER, ARCHIVED, DEAD = "switch folder", "archived", "dead"
 #: Why a copy outside its scope is kept anyway.
 HELD_LOADED = "in the loaded folder"
 HELD_UNKNOWN_LOAD = "the loaded folder is unknown"
-HELD_NO_SURVIVOR = "no surviving copy is as new"
 HELD_FLAGS = "flags not settled this pass"
 HELD_NO_PRUNE = "pruning is off"
+HELD_LEARNING = "the folder registry is still learning which folders are switch folders"
+#: Defensive holds the plan's own construction never reaches; a property
+#: test asserts they never occur.
+HELD_NO_SURVIVOR = "no surviving copy is as new"
 HELD_HOME = "in the home folder"
 
 
@@ -84,11 +96,12 @@ class Copy:
     identity: str               # cliSessionId; "" when the record has none
     archived: bool = False
     starred: bool = False
-    #: The newest of lastActivityAt, lastFocusedAt and createdAt, epoch ms:
-    #: how new the record's content is. Copies of one session often differ
-    #: here (the mirror spreads a session once and syncs only its flags and
-    #: title), so the newest copy is the one that must survive.
+    #: The newest of lastActivityAt, lastFocusedAt and createdAt, epoch ms.
     activity_ms: int = 0
+    #: The first of lastActivityAt, lastFocusedAt and createdAt the record
+    #: has, epoch ms: the spread's own ranking (`mirror._rank`), so the copy
+    #: where the work last happened, not one merely focused since.
+    rank_ms: int = 0
     #: The file's mtime, epoch seconds: the app's last write of the record
     #: (the mirror keeps its source's mtime on every copy and flag write).
     #: It is not a clock for age. The app re-saves records it holds for
@@ -123,7 +136,7 @@ class Situation:
     """What the pass knows besides the copies."""
 
     folders: tuple[str, ...]
-    #: `folders.Registry.classify` verdicts; a folder not in it is `unknown`.
+    #: `folder_kinds.Registry.classify` verdicts; a folder not in it is `unknown`.
     kinds: Mapping[str, str]
     #: The folder old archived and dead sessions live in; None: not resolved.
     home: str | None
@@ -134,6 +147,9 @@ class Situation:
     #: Session id -> epoch seconds it was archived, as the merge base records it.
     archived_at: Mapping[str, float]
     now: float
+    #: The folder registry has learned long enough for its switch verdicts to
+    #: justify removing a live session's copies (`folder_kinds.SWITCH_PRUNE_AFTER_S`).
+    switch_settled: bool = True
 
     @cached_property
     def every_folder(self) -> frozenset[str]:
@@ -157,10 +173,12 @@ class Removal:
     name: str
     identity: str
     reason: str                 # SWITCH_FOLDER | ARCHIVED | DEAD
-    #: The copy this removal counts on to survive: `(folder, name)`, in scope
-    #: and at least as new. The mirror checks it again right before removing.
-    keeper: tuple[str, str]
-    newness: float
+    #: The copies this removal counts on to survive, `(folder, name)` each:
+    #: the newest by activity and the newest by the spread's ranking. The
+    #: mirror reads them again right before removing.
+    keepers: tuple[tuple[str, str], ...]
+    activity_ms: int
+    rank_ms: int
 
 
 @dataclass
@@ -258,27 +276,44 @@ def may_reach_outside(placed: Scope, summary: Summary, rules: Rules) -> bool:
             or (rules.skip_switch_folders and summary.in_switch))
 
 
+def _tie(copy: Copy, situation: Situation) -> tuple:
+    """Of equally new copies: the home's, then one not in a switch folder,
+    then the first by path, so the choice is the same every pass."""
+    return (copy.folder != situation.home, situation.kinds.get(copy.folder) == SWITCH,
+            copy.folder, copy.name)
+
+
 def survivors(copies: list[Copy], inside: frozenset[str], situation: Situation) -> list[Copy]:
     """The copies that stay whatever the rules say.
 
-    Every copy in scope, and the newest copy by the record's own times when
-    no copy in scope is as new. So the newest content of every session
-    survives without the mirror rewriting anything: an archived session whose
-    home copy is older keeps two copies, the home's and the newest. Of equal
-    copies the home's wins, then one in a folder the app settles in, then the
-    first by path, so the choice is the same every pass.
+    Every copy in scope; then, when no copy kept so far is as new by
+    activity, the newest by activity; then, likewise, the newest by the
+    spread's ranking. So the newest content of every session survives
+    without the mirror rewriting anything (see the module docstring).
     """
     kept = [copy for copy in copies if copy.folder in inside]
     if not copies:
         return kept
-    newest = max(copy.activity_ms for copy in copies)
-    if kept and max(copy.activity_ms for copy in kept) >= newest:
-        return kept
+    for measure in (lambda copy: copy.activity_ms, lambda copy: copy.rank_ms):
+        newest = max(measure(copy) for copy in copies)
+        if kept and max(measure(copy) for copy in kept) >= newest:
+            continue
+        best = min((copy for copy in copies if measure(copy) == newest),
+                   key=lambda copy: _tie(copy, situation))
+        kept.append(best)
+    return kept
 
-    def order(copy: Copy):
-        return (-copy.activity_ms, copy.folder != situation.home,
-                situation.kinds.get(copy.folder) == SWITCH, copy.folder, copy.name)
-    return kept + [min(copies, key=order)]
+
+def keepers(kept: list[Copy], situation: Situation) -> list[Copy]:
+    """The survivors a removal counts on: the newest by each measure."""
+    chosen: list[Copy] = []
+    for measure in (lambda copy: copy.activity_ms, lambda copy: copy.rank_ms):
+        newest = max(measure(copy) for copy in kept)
+        best = min((copy for copy in kept if measure(copy) == newest),
+                   key=lambda copy: _tie(copy, situation))
+        if best not in chosen:
+            chosen.append(best)
+    return chosen
 
 
 def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
@@ -304,13 +339,15 @@ def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
         reason = {"archived": ARCHIVED, "dead": DEAD}.get(placed.kind, SWITCH_FOLDER)
         kept = survivors(group, inside, situation)
         chosen = {(copy.folder, copy.name) for copy in kept}
-        keeper = max(kept, key=lambda copy: (copy.activity_ms, copy.folder == situation.home))
+        counted_on = keepers(kept, situation)
+        best_activity = max(copy.activity_ms for copy in counted_on)
+        best_rank = max(copy.rank_ms for copy in counted_on)
         for copy in group:
             if copy.folder in inside:
                 continue
             result.outside[reason] += 1
             if (copy.folder, copy.name) in chosen:
-                result.kept[reason] += 1        # the newest copy, outside its scope
+                result.kept[reason] += 1        # a newest copy, outside its scope
                 continue
             if not rules.prune:
                 result.held[HELD_NO_PRUNE] += 1
@@ -324,16 +361,20 @@ def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
                 result.held[HELD_HOME] += 1     # unreachable: home is in every scope
             elif identity in waiting:
                 result.held[HELD_FLAGS] += 1
-            elif copy.activity_ms > keeper.activity_ms:
-                result.held[HELD_NO_SURVIVOR] += 1  # unreachable: the newest survives
+            elif reason == SWITCH_FOLDER and not situation.switch_settled:
+                result.held[HELD_LEARNING] += 1
+            elif copy.activity_ms > best_activity or copy.rank_ms > best_rank:
+                result.held[HELD_NO_SURVIVOR] += 1  # unreachable: the newest survive
             else:
-                result.removals.append(Removal(copy.folder, copy.name, identity, reason,
-                                               (keeper.folder, keeper.name),
-                                               copy.activity_ms))
+                result.removals.append(Removal(
+                    copy.folder, copy.name, identity, reason,
+                    tuple((keeper.folder, keeper.name) for keeper in counted_on),
+                    copy.activity_ms, copy.rank_ms))
     return result
 
 
-__all__ = ["ARCHIVED", "Copy", "DAY_S", "DEAD", "HELD_FLAGS", "HELD_HOME", "HELD_LOADED",
-           "HELD_NO_PRUNE", "HELD_NO_SURVIVOR", "HELD_UNKNOWN_LOAD", "Plan", "Removal",
-           "Rules", "SWITCH_FOLDER", "Scope", "Situation", "Summary", "may_reach_outside",
-           "plan", "quiet_since", "scope", "scope_of", "seeded", "summarize", "survivors"]
+__all__ = ["ARCHIVED", "Copy", "DAY_S", "DEAD", "HELD_FLAGS", "HELD_HOME", "HELD_LEARNING",
+           "HELD_LOADED", "HELD_NO_PRUNE", "HELD_NO_SURVIVOR", "HELD_UNKNOWN_LOAD", "Plan",
+           "Removal", "Rules", "SWITCH_FOLDER", "Scope", "Situation", "Summary", "keepers",
+           "may_reach_outside", "plan", "quiet_since", "scope", "scope_of", "seeded",
+           "summarize", "survivors"]

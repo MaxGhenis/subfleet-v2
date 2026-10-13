@@ -32,11 +32,14 @@ On the 2026-09-25 logs this makes 87 switch folders. Everything else is seeded
 as before, including a folder the log has never mentioned and an org nobody
 owns yet: 16 folders of three such orgs, one of them a second org an account
 really belongs to. The two thresholds err the same way: a false "settled" or
-a false "owner" can only seed more. The one way to exclude a folder someone
-uses (never settled in, while another account owns its org) is also how a new
-account's first minutes look; the mirror seeds it once the registry sees the
-stay, and the app lists what was seeded at its next load, as for any new
-folder.
+a false "owner" can only seed more. A folder someone does use is excluded
+while the registry has not seen anyone settle in it and another account owns
+its org: a new account's first seconds, or a folder used less often than the
+registry has been learning (at first, the week or so of log the app keeps).
+It gets no new sessions until someone stays in it `SETTLE_S`; the mirror
+then seeds it within a pass, and the app lists what was seeded at its next
+load, as for any new folder. Removing a live session's copies from a switch
+folder waits until the registry has learned for `SWITCH_PRUNE_AFTER_S`.
 
 The facts are persisted in the state root, because the app keeps only about
 ten days of log: a folder the app settled in once stays settled after the log
@@ -64,6 +67,12 @@ SETTLE_S = 20.0
 #: higher than `SETTLE_S`, because ownership is what excludes other folders:
 #: every folder the app settled in had a stay of 53 minutes or more.
 OWNER_S = 600.0
+#: A folder the registry has never seen settled may still be one someone
+#: uses less often than the registry has been learning, so a live session's
+#: copies there are removed (`prune.py`) only once the registry has learned
+#: this long, counting from the oldest load or logout it folded in. On
+#: 2026-10-13 the app's own log reached back 7.5 days.
+SWITCH_PRUNE_AFTER_S = 30 * 86_400.0
 
 SETTLED, SWITCH, UNKNOWN = "settled", "switch", "unknown"
 
@@ -113,6 +122,12 @@ class Registry:
         self.last_folder: str | None = None
         self._keys: set[tuple[str | None, bool]] = set()
         self.replayed = False
+        #: The oldest event folded in, epoch seconds: how long it has learned.
+        self.since: float | None = None
+        #: The home folder last resolved, `{"value": dead_home, "folder": ...}`,
+        #: kept so an ambiguity later keeps the home rather than unhoming every
+        #: archived session (`Mirror.resolve_home`).
+        self.home: dict[str, str] | None = None
         self._read()
 
     # --- persistence -----------------------------------------------------------
@@ -133,13 +148,25 @@ class Registry:
                 self._keys = {(item[0] if isinstance(item[0], str) else None, bool(item[1]))
                               for item in keys if isinstance(item, list) and len(item) == 2}
         self.replayed = bool(value.get("replayed"))
+        since = value.get("since")
+        if isinstance(since, (int, float)) and not isinstance(since, bool):
+            self.since = float(since)
+        home = value.get("home")
+        if (isinstance(home, dict) and isinstance(home.get("value"), str)
+                and isinstance(home.get("folder"), str)):
+            self.home = {"value": home["value"], "folder": home["folder"]}
 
     def to_dict(self) -> dict[str, Any]:
-        return {"version": 1, "replayed": self.replayed,
+        return {"version": 1, "replayed": self.replayed, "since": self.since,
+                "home": self.home,
                 "folders": {key: asdict(item) for key, item in sorted(self.folders.items())},
                 "last": {"at": self.last_at, "folder": self.last_folder,
                          "keys": sorted([list(key) for key in self._keys],
                                         key=lambda item: (str(item[0]), item[1]))}}
+
+    def learned_for(self, now: float) -> float:
+        """Seconds since the oldest event the registry has folded in (0 if none)."""
+        return 0.0 if self.since is None else max(0.0, now - self.since)
 
     def save(self) -> None:
         from .mirror import _write_json
@@ -170,6 +197,7 @@ class Registry:
             if self.last_at is not None and (at < self.last_at or (
                     at == self.last_at and key in self._keys)):
                 continue
+            self.since = _earliest(self.since, at)
             if self.last_folder is not None and self.last_at is not None:
                 self._stayed(self.last_folder, self.last_at, at - self.last_at,
                              logout=event.folder is None)
@@ -244,9 +272,12 @@ def learn(registry: Registry, log: Any, *, replay: bool) -> bool:
     """
     changed = False
     if replay and not registry.replayed:
-        changed = registry.observe(log.replay())
-        registry.replayed = True
-        changed = True
+        events = log.replay()
+        changed = registry.observe(events)
+        # Only a replay that found history counts: one that found no log (or
+        # an empty one) is tried again, rather than losing that history.
+        if events:
+            registry.replayed = changed = True
     return registry.observe(log.drain()) or changed
 
 
