@@ -179,6 +179,22 @@ try {
     const mixed = await make('refuse-b,unknown-c'); mixed.setup(); mixed.step(1)
     assert.match(mixed.step(1).text, /RESUBMIT names=c\n/)
   })
+  await test('finding 7: citations match the base and cache-write totals match the CSV', () => {
+    const report = readFileSync(join(harness, '../../2026-09-22-fanout-workflow.md'), 'utf8')
+    const workflow = readFileSync(script, 'utf8')
+    assert.doesNotMatch(report + workflow, /2441fbea/)
+    assert.match(workflow, /81d58fe9/)
+    for (const line of report.split('\n').filter(line => /daemon\.py:(1087|1419|1440|1867)/.test(line))) {
+      assert.match(line, /81d58fe9/)
+    }
+    assert.match(report, /policy\.json/)
+    const records = readFileSync(join(harness, '../dispatcher-usage.csv'), 'utf8').trim().split('\n').slice(1).map(row => row.split(','))
+    const total = records.reduce((sum, row) => sum + Number(row[4]), 0)
+    const slices = records.slice(4).reduce((sum, row) => sum + Number(row[4]), 0)
+    assert.equal(total, 1320152); assert.equal(slices, 1236718)
+    assert.match(report, /1,320,152[^.]*30 turns/)
+    assert.match(report, /1,236,718[^.]*13 slices/)
+  })
   await test('failed-a: exit 1 with rows is a failed job, with no daemon retry', async () => {
     const c = await make('failed-a'); c.setup(); c.step(1)
     const output = c.wait()

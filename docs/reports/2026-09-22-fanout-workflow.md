@@ -28,8 +28,9 @@ read in `~/subfleet-v2` on the date given; `observed` is this machine's state;
   surfaced at this session's next start (`observed`).
 - Waiting is not cheap on the login. Each 540 s slice outlives the prompt
   cache's five-minute lifetime (`doc`), so every slice re-wrote the
-  dispatcher's whole context: 1,320,152 five-minute cache-write tokens over 13
-  slices, against 11,033 output tokens (`observed`). Whether cache writes count
+  dispatcher's whole context: 1,320,152 five-minute cache-write tokens over
+  30 turns, with 1,236,718 in the 13 slices and 83,434 in the four setup
+  turns, against 11,033 output tokens (`observed`). Whether cache writes count
   against the subscription's windows is not determined here; the desktop app's
   own usage history for the signed-in org rose from 22% to 84% of the 5-hour
   window during the wait, an account-wide upper bound.
@@ -38,7 +39,8 @@ read in `~/subfleet-v2` on the date given; `observed` is this machine's state;
   (Opus 5.5) verified 100 claims and listed 8 places the contract and the code
   disagree and 11 hazards for exactly this pattern. All eight findings and four
   of the hazards are fixed in the workflow shipped here, and a second review
-  of that version found nine more defects, also fixed (below).
+  of that version found nine more defects. The next review found seven;
+  all are addressed in the second and third rounds below.
 
 ## The workflow
 
@@ -49,7 +51,9 @@ quoted; the agent retypes them and nothing else.
 0. `mkdir -p` the state directory, write a helper script and the manifest
    through two quoted heredocs, check both against CRC-32 values the script
    computed (a mistyped character stops here with `CHECKSUM_MISMATCH`), and
-   run `setup`. State files are keyed by the request id, or by the label plus
+   run `setup`. All commands belong to one `&&` chain, including both
+   heredocs; if step 0 lacks `SETUP_OK`, the dispatcher stops and reports
+   `setup_ok: false`. State files are keyed by the request id, or by the label plus
    a digest of the manifest; a key whose stored manifest differs stops with
    `STATE_MISMATCH`. With no request id, items whose `outPath` is already
    non-empty are dropped (the `-o` export exists only after a deliverable is
@@ -57,7 +61,13 @@ quoted; the agent retypes them and nothing else.
    entry *n* is `<id>-n` and the daemon dedupes (below).
 1. `subfleet run --batch <manifest> --json -d [--request-id ID]`, guarded by
    `should-submit`: it runs once, and again only for entries whose outcome
-   was `not-sent` or `unknown` under a request id (C-16.3, C-17.3). Submit
+   was `not-sent`, `unknown` or missing under a request id (C-16.3, C-17.3).
+   `RETRY_STEP1` appears on the first unsettled call and drives at most three
+   step 1 calls per run. A refused entry never triggers retries; the full
+   manifest is still replayed to preserve entry indexes when another entry
+   needs recovery. A row-less validation refusal is recorded once as
+   `MANIFEST_REFUSED`, with the CLI message, and persists across relaunches;
+   every entry without an existing id is reported as `REFUSED`. Submit
    logs are numbered, never truncated; job ids are written only after a log
    is parsed. Without a request id a relaunch submits nothing and prints the
    `rm` that resets the state.
@@ -78,9 +88,9 @@ Why this shape, against the v1 brief's one-agent-per-item design:
 | v1 brief assumption | subfleet 2.0.0a0 |
 |---|---|
 | One `subfleet run` per job, N dispatchers | `run --batch FILE --json` submits every entry in one call and prints one JSON object per entry with `job_id`, `created`, `rc`, `error` (C-17.7; `cli.py:cmd_run_batch`). One dispatcher. |
-| No result cache; skip when the out file is non-empty | `--request-id ID` names entry *n* `ID-n`; the same manifest resubmitted returns the existing jobs, `created: false` (C-6.2; `Daemon.submit`, `daemon.py:1087-1094` on main at `2441fbea`; verified live at 14:40:48Z, below). The digest covers the workdir's git head for every job with a repository, so a replay after a commit is exit 2 for those entries (same function; the mapping job read it at `daemon.py:723-768` on 2026-09-22). |
+| No result cache; skip when the out file is non-empty | `--request-id ID` names entry *n* `ID-n`; the same manifest resubmitted returns the existing jobs, `created: false` (C-6.2; `Daemon.submit`, `daemon.py:1087-1094` at this PR's base `81d58fe9`; verified live at 14:40:48Z, below). The digest includes the prompt, the workdir's git head and the policy hash of the exact `policy.json` bytes loaded at daemon start (`daemon.py:1071-1094` at `81d58fe9`). A replay after any of these changes returns exit 2 naming the earlier job. If that entry previously had an unknown or missing answer, the helper recovers the named job id and waits on it (same function; the mapping job read it at `daemon.py:723-768` on 2026-09-22). |
 | The script pools concurrency | The daemon caps and queues in tier order (C-6.4, C-6.9). |
-| Adopt a live run that holds the `-o` path | The refusal is exit 7 and names no job: "out_path is held by a live job" when a queued or running job holds the lease (`daemon.py:1440` on main), "output path is held by another job" when a finished, lost or quarantined one still does (`daemon.py:1419`). Both are reported as `refused`. |
+| Adopt a live run that holds the `-o` path | The refusal is exit 7 and names no job: "out_path is held by a live job" when a queued or running job holds the lease (`daemon.py:1440` at `81d58fe9`), "output path is held by another job" when a finished, lost or quarantined one still does (`daemon.py:1419` at `81d58fe9`). Both are reported as `refused`. |
 | `subfleet notices` shows delivery | Notices are store rows with states `pending`, `offered`, `acknowledged`, `surfaced` (C-15.3). `runs show <job>` acknowledges the caller session's notice (`cli.py:_ack_notices`), and a workflow worker carries the caller's `CLAUDE_CODE_SESSION_ID`, so the dispatcher is forbidden to run it. |
 
 Two things about the harness, `observed`:
@@ -191,7 +201,9 @@ the change made:
    property.
 4. **Medium.** `cd DIR && cat` guarded only the `cat`; a missing state
    directory produced a clean-looking empty batch. Now `mkdir -p DIR && cd DIR
-   && …` chains everything, and a failed chain prints no `SETUP_OK`.
+   && …` chains everything on the heredoc declaration line, through both
+   bodies and check/setup. A failed chain prints no `SETUP_OK`, which now
+   explicitly tells the dispatcher to stop (completed in the third round).
 5. **Medium.** Names with no marker line had no state. The schema gained
    `unknown`, and the prompt names the rule.
 6. **Medium.** State files were keyed by `label` alone, so two batches in one
@@ -214,7 +226,7 @@ returns no state.
 
 Not changed: the dispatcher still cannot see partial completion, because the
 daemon answers a multi-job `wait` only when every job is terminal and exported
-(`Daemon.wait`, `daemon.py:1867-1891` on main at `2441fbea`; the release line
+(`Daemon.wait`, `daemon.py:1867-1891` at this PR's base `81d58fe9`; the release line
 factors the same check into `_wait_answer`). A caller who wants early results
 should launch one batch per job.
 
@@ -254,7 +266,8 @@ Each with the change made:
    `SUBFLEET_RUN_DETACH=0` it would have blocked. Now it passes `-d`.
 7. **Low.** Code citations named a function that exists only on the release
    line and line numbers from 2026-09-22. Corrected above to function names
-   on `main` at `2441fbea`, with both `-o` refusal texts.
+   at this PR's base `81d58fe9`, with both `-o` refusal texts (the revision
+   label was corrected in the third round).
 8. **Low.** Three numbers and one rationale did not match the evidence files.
    Corrected above: the 20-slice cap at 17:41Z, 40 minutes before the first
    attempt; eleven and a half days; the two cache reads at 13 s and 20 s;
@@ -276,6 +289,60 @@ continue), a lost job, a job failed with rc 1 (no false "unreachable"), an
 unknown id, rows without names, a state directory containing a space and a
 quote, and every step through `zsh -c eval`, which is how the Bash tool runs
 commands here.
+
+### Third round, 2026-10-12
+
+Review r2 (`~/reviews/fanout-workflow-2026-10-04/review-r2.md`) requested
+changes on head `340726bf5`, with two medium and five low findings. The
+offline harness reproduced all seven there (13 checks passed, nine failed;
+finding 1 has three failing checks). The resulting changes are:
+
+1. **Medium.** In-run recovery was unreachable because the retry condition
+   required `RESUBMIT`, which only appeared after a retry had already begun.
+   `post-submit` now prints `RETRY_STEP1` on the first retryable outcome with
+   a request id. The prompt and marker-driven harness cap step 1 at three
+   calls; persistent unavailability remains `not-sent` at that cap.
+2. **Medium.** A row-less exit 2, or the CLI's "nothing was submitted"
+   message, now records a terminal whole-manifest refusal with the stderr
+   tail. `MANIFEST_REFUSED` explains the batch refusal and `REFUSED` labels
+   each unresolved entry. Repeated step calls and relaunches submit nothing.
+   A row-less exit 1 without that message remains an unknown outcome.
+3. **Low.** When a previously unknown or unanswered entry returns a digest
+   conflict naming the job that already owns its request id, the helper
+   recovers that id as `created: false`. It waits on the earlier job, and
+   supplies its name even when wait rows omit names. A fresh digest conflict
+   remains refused. The digest description now includes the prompt and
+   `policy.json`, as well as the workdir head.
+4. **Low.** Both step 0 heredocs and check/setup now share one `&&` chain.
+   A failed directory creation or `cd` cannot write a manifest in the caller
+   directory. Missing `SETUP_OK` explicitly stops the dispatcher. Step 1's
+   post-processing also stays inside its successful `cd` guard.
+5. **Low.** The reset command quotes the absolute state directory with
+   `shlex.quote`, leaving only the validated key and `.*` outside the quotes.
+   The harness executes the reset for a directory with a space and a quote,
+   and verifies that unrelated files survive.
+6. **Low.** Only `not-sent`, `unknown` or missing answers without job ids
+   trigger resubmission. Refused entries are terminal and never trigger it.
+   The full manifest is replayed if another entry needs recovery, to keep
+   request-id indexes stable; the header, phase detail and report say this.
+7. **Low.** Daemon citations now name `81d58fe9`, this PR's base. The cache
+   total is 1,320,152 over 30 turns: 1,236,718 in 13 slices and 83,434 in four
+   setup turns. The harness checks these sums directly against the CSV.
+
+Validation: **23 checks passed, zero failed**, using `bun 1.3.12` and
+`python3 3.14.7`, with `PYTHONPATH` unset, fake
+`subfleet` first in `PATH`, and an empty temporary `SUBFLEET_HOME`. Every
+rendered command ran through `zsh -c 'eval "$1"'`. The harness covers
+`submit-down` with and without a request id, persistent submit-down,
+`refuse-b`, `unknown-c`, whole-manifest refusals, row-less unknown outcomes,
+digest conflicts, blocked setup, safe reset, `failed-a`, `wait-down-first`,
+`lost-c`, `unknown-id`, `no-name`, a full run in a state directory with a
+space and a quote, checksum tampering, manifest mismatch, distinct batches,
+skipped outputs on relaunch, and the wait sleep cap near the slice deadline.
+The standalone `render.mjs` CLI also passed the README sequence: setup,
+submit, a pending wait, then successful completion. No `tests/` file references this workflow
+or harness, so no pytest run was needed. The live workflow and daemon were
+untouched; only the hub should install the reviewed workflow after merge.
 
 ## Live check of the shipped commands, 2026-10-04
 
