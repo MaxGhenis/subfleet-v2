@@ -344,6 +344,34 @@ def test_d_cen1_a_census_reads_each_candidate_once_per_source(monkeypatch):
     assert [call for call in fake.calls if call[1:] == (61,)] == [("process", 61)]
 
 
+
+@pytest.mark.parametrize("unique_id", [1, None])
+def test_d_cen1_a_recycled_self_responsible_root_does_not_count_strangers(monkeypatch, unique_id):
+    """Review P2-1: S is self-responsible and has child C, but the recorded S died."""
+    census(monkeypatch, parents=ROWS, session=BOOT_A)
+    fake = kernel_with(monkeypatch, processes={42: b"", 43: b""},
+                       responsible={42: 42, 43: 42}, unique={42: 100, 43: 101})
+    recorded = {42: procs.ProcessIdentity(42, BOOT_A, "another start")}
+    result = procs.containment(42, 42, None, ATTEMPT, root=ROOT, recorded_identities=recorded,
+                               responsible_root=procs.ResponsibleRoot(42, BOOT_A, unique_id))
+    assert set(result.recycled) == {42}
+    assert result.verified_empty
+    assert not result.responsible_pids and not result.identities
+    assert not [call for call in fake.calls if call[0] == "responsible"]
+
+
+def test_d_cen1_a_new_root_holder_bounds_members_even_with_the_same_lstart(monkeypatch):
+    """A pid can recycle within lstart's second; the kernel sequence still proves reuse.
+    Only older members of the recorded root survive the new holder's upper bound."""
+    census(monkeypatch, parents=ROWS + f"60 1 60 S {START}\n61 1 61 S {START}\n", session=BOOT_A)
+    kernel_with(monkeypatch, processes={42: b"", 43: b"", 60: b"", 61: b""},
+                responsible={42: 42, 43: 42, 60: 42, 61: 42},
+                unique={42: 100, 43: 101, 60: 75, 61: 49})
+    result = procs.containment(None, None, None, ATTEMPT, root=ROOT,
+                               responsible_root=procs.ResponsibleRoot(42, BOOT_A, 50))
+    assert result.responsible_pids == {60}
+    assert set(result.identities) == {60}
+
 # The daemon's record ----------------------------------------------------------
 
 class Store:
@@ -444,3 +472,17 @@ def test_d_cen1_a_guardian_without_a_root_is_said_once(monkeypatch):
         child, root = Daemon._spawn_guardian(core, ["python"], {}, 9, "/fixture")
         assert root is None
     assert len(lines) == 1 and "without a responsibility root" in lines[0][0]
+
+
+@pytest.mark.parametrize("unique_id", [1, None])
+def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, unique_id):
+    census(monkeypatch, parents=ROWS, session=BOOT_A)
+    kernel_with(monkeypatch, processes={42: b"", 43: b""},
+                responsible={42: 42, 43: 42}, unique={42: 100, 43: 101})
+    row = attempt_row(responsible_root={"pid": 42, "unique_id": unique_id})
+    row.update(proc_start="another start", child_pid=None)
+    core = core_for(row)
+    result = Daemon._contain(core, dict(row))
+    assert result.verified_empty and not result.responsible_pids
+    assert "responsible_identities" not in json.loads(row["evidence_json"])
+    assert not core.store.events

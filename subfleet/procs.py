@@ -608,7 +608,10 @@ def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, b
     responsible: set[int] = set()
     errors: list[str] = []
     buffer = ctypes.create_string_buffer(_ARGS_BUFFER) if marker is not None else None
-    for pid in candidates:
+    # Read the holder before its purported members without adding another read.
+    # A reused pid can name itself and newly born strangers as responsible.
+    ceiling = None
+    for pid in sorted(candidates, key=lambda pid: (root is None or pid != root.pid, pid)):
         try:
             current = kernel_reader.process(pid)
         except InspectionError:
@@ -616,6 +619,9 @@ def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, b
             continue
         if current is None:
             continue                       # gone, a zombie, or another user's
+        if root is not None and pid == root.pid and root.unique_id is not None:
+            if current.unique_id != root.unique_id:
+                ceiling = current.unique_id
         if marker is not None:
             try:
                 found = kernel_reader.arguments(pid, buffer)
@@ -642,7 +648,8 @@ def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, b
             except InspectionError:
                 errors.append(f"responsibility read unavailable for pid {pid}")
                 continue
-            if boss == root.pid and ours(current):
+            if (boss == root.pid and ours(current)
+                    and (ceiling is None or root.unique_id <= current.unique_id < ceiling)):
                 responsible.add(pid)
     return marked, responsible, errors
 
@@ -805,7 +812,12 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             return False
         return order[0] is None or process.unique_id >= responsible_root.unique_id
 
-    if wanted is not None or responsible_root is not None:
+    # The table's start/boot comparison is stronger than unique-id ordering, and
+    # also protects legacy roots whose unique id was unavailable at launch.
+    source_root = responsible_root
+    if source_root is not None and is_recycled(source_root.pid):
+        source_root = None
+    if wanted is not None or source_root is not None:
         try:
             # The snapshot's pids and a listing taken after it, so a process born
             # since the snapshot is read too; a pid gone by then reads as gone.
@@ -814,11 +826,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             candidates = []
             if wanted is not None:
                 errors.append("marker enumeration unavailable")
-            if responsible_root is not None:
+            if source_root is not None:
                 errors.append("responsibility enumeration unavailable")
         # Never retain or report what these reads return but the pids.
         found_marked, found_responsible, failed = _kernel_sources(
-            kernel, candidates, wanted, responsible_root, ours)
+            kernel, candidates, wanted, source_root, ours)
         markers |= found_marked
         responsible |= found_responsible
         errors.extend(failed)

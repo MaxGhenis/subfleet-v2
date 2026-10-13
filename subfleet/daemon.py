@@ -7384,7 +7384,8 @@ class Daemon:
                                    finished_at=receipt.get("finished_at"),
                                    responsible_root=responsible)
         fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
-                 if pid != guardian and pid in census.identities
+                 if guardian not in census.recycled and pid not in census.recycled
+                 and pid != guardian and pid in census.identities
                  and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
         if fresh and a.get("attempt_id") and "evidence_json" in a:
             with self.store.transaction("attempt.responsible_recorded", job_id=a["job_id"],
