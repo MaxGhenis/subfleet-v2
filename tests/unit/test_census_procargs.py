@@ -485,7 +485,7 @@ def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, uniqu
     result = Daemon._contain(core, dict(row))
     assert result.verified_empty and not result.responsible_pids
     assert "responsible_identities" not in json.loads(row["evidence_json"])
-    assert not core.store.events
+    assert core.store.events == [("attempt.processes_recycled", {"recycled": result.to_dict()["recycled"]})]
 
 
 @pytest.mark.parametrize("first_error", [False, True])
