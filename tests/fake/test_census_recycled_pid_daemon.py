@@ -69,6 +69,9 @@ def test_exit_zero_recycled_child_finalizes_succeeded(state_daemon, monkeypatch)
     job_id, attempt, adir = recycled_attempt(daemon, harness, monkeypatch, CASES[0], out_path=str(out))
     (adir / "stdout").write_bytes(b"fixture result\n")
     (adir / "stderr").write_bytes(b"")
+    # As in test_state_contract.receipt_fixture: an exited generic fake's success
+    # carries the daemon's detached Codex completion proof (C-9.2).
+    (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n')
     daemon.exit_settle_s = 0
     daemon._process_attempt(attempt["attempt_id"])
     daemon._process_attempt(attempt["attempt_id"])

@@ -243,6 +243,9 @@ def publish_receipt(core, rc=0):
 def with_launch(core, monkeypatch):
     adir = attempt_dir(core.root, JOB, 1)
     (adir / "stdout").write_text("hello\n")
+    # codex-1 is a Codex lane: a finished turn's stream carries the completion
+    # the daemon checks before accepting (C-9.2).
+    (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n')
     core._launches[ATTEMPT] = Launch(argv=("fake",), env_add={}, env_remove=(), cwd=str(core.root),
                                      stdin_path=None, stdout_path=str(adir / "stdout"),
                                      stderr_path=str(adir / "stderr"), raw_stream_path=None,
