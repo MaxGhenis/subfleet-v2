@@ -166,6 +166,23 @@ def test_replay_reads_every_rotation_oldest_first(tmp_path):
         "the live poll's events were already replayed"
 
 
+def test_a_replay_that_finds_no_log_is_tried_again(tmp_path):
+    """C-23.28a, review r1 P1-4: the first learning reads all the history the
+    app kept; if there was no log to read, that history is not given up for
+    good, and the next learning replays it."""
+    store = tmp_path / "store"
+    log = tmp_path / "main.log"
+    registry = folder_kinds.Registry(tmp_path / "registry.json")
+    folder_kinds.learn(registry, desktop.DesktopLog(log, store=store, tz=UTC), replay=True)
+    assert not registry.replayed and registry.folders == {}
+    write_log(tmp_path / "main1.log", lines(store, "a/org-a", at(0)))
+    write_log(log, lines(store, "b/org-b", at(3600)))
+    assert folder_kinds.learn(registry, desktop.DesktopLog(log, store=store, tz=UTC),
+                              replay=True)
+    assert registry.replayed and set(registry.folders) == {"a/org-a", "b/org-b"}
+    assert registry.since == at(0).timestamp()
+
+
 def test_poll_queues_loads_and_logouts_for_the_registry(tmp_path):
     """C-23.28a: every load and logout the reader sees is kept, in order,
     until drained, including the missing-folder load that created a folder."""

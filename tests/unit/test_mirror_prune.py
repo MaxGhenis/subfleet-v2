@@ -456,6 +456,27 @@ def test_nothing_goes_while_the_log_cannot_be_read(world):
     assert result.prune["loaded"] is None
 
 
+def test_a_log_lost_after_the_plan_stops_the_removals(world, monkeypatch):
+    """C-23.28a: the loaded folder is read again before each session's
+    removals; a log that cannot be read then is no answer either."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    after_the_plan(monkeypatch, lambda: world.log.rename(world.log.with_name("gone.log")))
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert result.prune["held"] == {prune_rules.HELD_LOADED: 1,
+                                    prune_rules.HELD_UNKNOWN_LOAD: 2}
+
+
+def test_a_dead_session_whose_transcript_returns_keeps_its_copies(world, monkeypatch):
+    """C-23.28a: a dead session's removals check right before that it still
+    has no transcript (one restored or synced back makes it live again)."""
+    put(world, ONE, [OTHER, SWITCH], openable=False, days=30)
+    after_the_plan(monkeypatch, lambda: fx.transcript(world.home, ONE, fx.completed()))
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == {OTHER, SWITCH}
+    assert result.prune["held"] == {"the session has a transcript now": 1}
+
+
 def test_a_live_sessions_switch_folder_copy_waits_while_the_registry_learns(
         tmp_path, monkeypatch):
     """C-23.28a, review r1 P1-4: a folder used less often than the registry

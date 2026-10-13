@@ -114,35 +114,50 @@ With `mirror_prune` on, a full pass removes copies outside their session's
 scope, never:
 
 - a copy in the home folder;
-- the session's newest copy by its own activity times, when no copy in scope
-  is as new: copies of one session differ there (1,396 of 1,906 sessions with
-  more than one copy, 2026-09-25), so an archived session whose home copy is
-  older keeps two copies, and the mirror never rewrites one;
-- anything while the loaded folder is unknown, or anything in it: the app
-  holds its records and would save them back. The log is read again right
-  before each session's removals, so a switch since the plan protects its
-  folder;
+- the session's newest copies, when no copy in scope is as new: the newest by
+  its activity, focus and creation times, and the newest by the spread's own
+  ranking (`lastActivityAt` first). Copies of one session differ (1,396 of
+  1,906 sessions with more than one copy, 2026-09-25): the copy where the
+  work happened carries the newest record (a moved `cwd`, a changed model),
+  and a later focus elsewhere makes another copy newest by focus alone. An
+  archived session whose home copy is older keeps two or three copies, and
+  the mirror never rewrites one;
+- a live session's copy in a switch folder until the registry has learned
+  for 30 days: a folder someone uses less often than the registry has been
+  learning looks like a switch folder until then;
+- anything while the loaded folder is unknown (no load in the log, or a log
+  that cannot be read now), or anything in it: the app holds its records and
+  would save them back. The log is read again right before each session's
+  removals, so a switch since the plan protects its folder;
 - a session flag sync held or wrote that pass, or anything at all when the
-  inventory is incomplete or flag sync is off or held.
+  inventory is incomplete, a transcript directory could not be listed (its
+  sessions would read as dead), flag sync is off or held, or another mirror
+  holds the store's removal lock.
 
-Each removal re-reads the kept copy and the copy, then renames the copy onto
-a fresh name of the mirror's own and compares what it took with what it
-checked (device, inode, mtime, size). Anything else is put back create-only,
-so a removal never destroys an app save it did not inspect, and a crash
-between the two steps is put back at the folder's next listing. A removal is
-undone by turning its rule off, which spreads the session back, or by
-unarchiving the session where a copy remains.
+Each removal re-reads every copy it counts on and the copy (archived and
+unstarred, for an archived session; still without a transcript, for a dead
+one), then renames the copy onto a fresh name of the mirror's own and
+compares what it took with what it checked (device, inode, mtime, size).
+Anything else is put back create-only, so a removal never destroys an app
+save it did not inspect, and a crash between the two steps is put back at the
+folder's next listing. Two windows remain, both narrower than flag sync's
+one: a writer holding the old file open could write into it after the
+compare, and an unarchive and re-archive inside one pass keeps the old stamp.
+A removal is undone by turning its rule off, which spreads the session back,
+or by unarchiving the session where a copy remains. If an org id named the
+home, the home stays put when a second folder of that org settles.
 
 ## Invariants and how they are checked
 
 | Invariant | Where |
 |---|---|
-| Every session keeps a copy, and its newest one | `test_mirror_prune_plan.py`, property over random stores |
-| Nothing in the loaded folder or the home; nothing while the load is unknown, removal is off, the pass is blocked, or flags are unsettled | same |
+| Every session keeps a copy, and its newest by both measures; nothing without a session id or in an unlisted folder goes | `test_mirror_prune_plan.py`, property over random stores |
+| Minimal: a copy outside the scope is kept as a newest only when no copy in scope is as new | same |
+| Nothing in the loaded folder or the home; nothing while the load is unknown, removal is off, the pass is blocked, or flags are unsettled; no live session's switch-folder copy while the registry learns | same |
 | No churn: a removed copy is outside its scope before and after | same |
 | Idempotence: a plan applied leaves nothing to remove | same |
-| Accounting: outside = newest kept + held + removed | same |
-| Monotone: longer thresholds, or seeding switch folders, never remove more | same |
+| Accounting: outside = newest kept + held + removed; the holds the construction makes unreachable never occur | same |
+| Monotone: longer thresholds, seeding switch folders, or a registry still learning never remove more | same |
 | Off is off: with every rule off every session belongs everywhere | same |
 | The sessions left unplanned have nothing outside their scope | same |
 | Registry: idempotent, the same in any chunking, facts only accumulate, a switch folder was never settled in | `test_mirror_folder_kinds.py`, properties over random logs |
@@ -154,32 +169,42 @@ unarchiving the session where a copy remains.
 `SUBFLEET_HOME=<scratch> subfleet sessions mirror --dry-run --prune --json`,
 with a copy of the live merge base in the scratch state root, so nothing under
 `~/.subfleet` or the store was written and no lock the daemon uses was taken.
+Run on the code as of review round 1's fixes (04:42Z to 04:47Z):
 
-| | Count | Bytes |
+| | Copies | Bytes |
 |---|--:|--:|
-| Copies | 442,801 | 9.51 GB |
-| Outside their scope: in switch folders | 161,500 | |
+| In the store | 442,808 | 9.51 GB |
 | Outside their scope: archived sessions outside the home | 222,981 | |
-| Of those, the newest copy, kept | 1,077 | |
-| Of those, in the loaded folder, kept until the app leaves it | 1,653 | |
-| Removed with `mirror_prune` on | 381,751 | 7.69 GB |
-| Left | 61,050 | 1.82 GB |
+| Outside their scope: live sessions in switch folders | 161,500 | |
+| Kept: a session's newest copy, outside its scope | 1,421 | |
+| Kept: in the loaded folder, until the app leaves it | 1,653 | |
+| Kept: in switch folders, while the registry learns | 161,500 | |
+| Removed on the first pass with `mirror_prune` on | 219,907 | 2.68 GB |
+
+The switch-folder copies wait for the registry's 30 days of learning; an
+earlier dry run the same day, before that rule, would have removed them too
+(381,751 copies and 7.69 GB in all, leaving 61,050 copies and 1.82 GB).
 
 Sessions: 1,615 live, 1,664 archived and quiet 14 days, 126 dead (all quiet
 over a week, and already only in the home folder: none had a copy outside
 it). Folders: 17 settled, 100 switch, 18 unknown. Home:
 `d1e7c8a9…/8b35fb7b…`; loaded: `1ec0b854…/e7460da2…`.
 
-The pass took 164 s cold and peaked at 821 MB resident. That pass planned
-every copy at once; the mirror now plans one session at a time and, with
-removal off, only on the ten-minute sweep, and decides spread scope from a
-per-session summary.
+The cold pass took 263 s (164 s for the earlier run; the host was busier) and
+peaked at 667 MB resident (821 MB for the earlier run, which planned every
+copy at once). The mirror now plans one session at a time, with removal off
+only on the ten-minute sweep, and decides spread scope from a per-session
+summary.
 
 ## What remains
 
 - Turning removal on is the operator's call (`sessions.mirror_prune: true`
-  in `~/.subfleet/policy.json`, then a daemon restart). The first pass removes
-  about 382k files; later passes remove what newly ages out.
+  in `~/.subfleet/policy.json`, then a daemon restart). The first pass would
+  remove about 220k files (2.7 GB); the switch folders' 161k follow once the
+  registry has learned 30 days; later passes remove what newly ages out.
+- A folder an account uses less often than the registry has learned gets no
+  new sessions until someone stays in it 20 s (then it is seeded and the app
+  lists them at its next load); removing from it waits the 30 days.
 - Tombstones: a session deleted in the app is copied back from other folders
   (separate task).
 - Claude Code's transcript retention: the app renews the mtimes of transcripts
