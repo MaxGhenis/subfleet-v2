@@ -44,7 +44,7 @@ await test('allowTmp, model defaults, dead agent and result shaping', async () =
 
 // Commands cross the review's zsh eval boundary. The fake is first in PATH;
 // SUBFLEET_HOME is empty. Generated artifacts stay in this temporary folder.
-const temp = mkdtempSync(join(tmpdir(), 'fanout-r4-'))
+const temp = mkdtempSync(join(tmpdir(), 'fanout-r5-'))
 const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state') => {
   const root = mkdtempSync(join(temp, 'case-'))
   mkdirSync(join(root, 'bin'))
@@ -86,6 +86,49 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
 }
 
 try {
+  await test('round 5 finding 1: earlier refusal becomes uncertain after a later lost answer', async () => {
+    const c = await make('refuse-b,unknown-c'); c.setup()
+    assert.match(c.step(1).text, /REFUSED name=b[\s\S]*OUTCOME_UNKNOWN name=c/)
+    c.env.SCENARIO = 'lose-stdout,check-prompts'
+    const second = c.step(1).text
+    const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
+    assert.equal(registry['rq-test-2'].job_id, 'job-b')
+    unlinkSync(c.args.items[1].promptPath)
+    c.env.SCENARIO = 'check-prompts,no-name'
+    const third = c.step(1).text
+    assert.match(third, /MANIFEST_REFUSED[\s\S]*SUBMITTED name=b job_id=job-b created=False/)
+    assert.match(second, /OUTCOME_UNKNOWN name=b request_id=rq-test-2/)
+    assert.match(third, /JOBS=3\nUNSETTLED=0/)
+    assert.doesNotMatch(third, /REFUSED name=b|RETRY_STEP1/)
+    assert.equal(c.count('run'), 3)
+    assert.match(c.wait(), /DONE name=b job_id=job-b state=succeeded/)
+    c.setup(); c.step(1)
+    assert.equal(c.count('run'), 3)
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+  })
+  await test('round 5 finding 2: reused request ids cannot recover a different manifest', async () => {
+    const c = await make('check-prompts')
+    const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state'),
+      items: c.args.items.map(j => ({ ...j, name: `old-${j.name}`, outPath: join(c.root, `old-${j.name}.md`) })) })
+    assert.equal(c.step(0, old.commands[0]).status, 0)
+    assert.match(c.step(1, old.commands[1]).text, /JOBS=3\nUNSETTLED=0/)
+    c.env.SCENARIO = 'lose-stdout,check-prompts'
+    c.setup()
+    assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+    const registryBefore = readFileSync(join(c.root, 'registry.json'), 'utf8')
+    assert.equal(JSON.parse(registryBefore)['rq-test-2'].job_id, 'job-old-b')
+    unlinkSync(c.args.items[1].promptPath)
+    c.env.SCENARIO = 'check-prompts'
+    const refusal = c.step(1).text
+    assert.match(refusal, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/)
+    assert.equal((refusal.match(/^OUTCOME_UNKNOWN name=/gm) || []).length, 3)
+    assert.doesNotMatch(refusal, /^SUBMITTED |^REFUSED |RETRY_STEP1/m)
+    assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
+    c.setup(); c.step(1)
+    assert.equal(c.count('run'), 3)
+    assert.equal(c.count('wait'), 0)
+    assert.equal(readFileSync(join(c.root, 'registry.json'), 'utf8'), registryBefore)
+  })
   await test('round 4 finding 1: unknown survives not-sent before digest-conflict recovery', async () => {
     const c = await make('unknown-c'); c.setup()
     assert.match(c.step(1).text, /OUTCOME_UNKNOWN name=c/)

@@ -5,24 +5,39 @@
 # SCENARIO: comma list of refuse-b, submit-down, unknown-c, wait-down-first,
 #   submit-down-always, manifest-refusal, manifest-refusal-marker,
 #   rowless-unknown, digest-conflict-c, lost-c, failed-a, unknown-id, no-name,
-#   check-prompts, lookup-down-always, lookup-empty, lookup-bad-json
-S=",${SCENARIO:-},"; C="$FAKE_STATE/calls.$1"; n=$(cat "$C" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$C"
+#   check-prompts, lose-stdout, lookup-down-always, lookup-empty, lookup-bad-json
+S=",${SCENARIO:-},"; verb="$1"; [ "$1" = runs ] && [ "${2:-}" = show ] && verb=show
+C="$FAKE_STATE/calls.$verb"; n=$(cat "$C" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$C"
 echo "fake subfleet $*" >&2
 case "$1" in
   run)
     shift; m=""; rid=""; detach=0; while [ $# -gt 0 ]; do case "$1" in --batch) m="$2"; shift;; --request-id) rid="$2"; shift;; -d) detach=1;; esac; shift; done
     [ "$detach" = 1 ] || { echo "fake: -d missing" >&2; exit 98; }
     SCEN="$S" RID="$rid" N="$n" python3 - "$m" <<'PY'
-import json,sys,os
+import hashlib,json,sys,os
 from pathlib import Path
 doc=json.load(open(sys.argv[1])); S=os.environ["SCEN"]; n=int(os.environ["N"]); rid=os.environ["RID"] or f"auto-{n}"; worst=0
 registry_path=Path(os.environ["FAKE_STATE"]) / "registry.json"
 registry=json.loads(registry_path.read_text()) if registry_path.exists() else {}
 def commit(job, index):
     request_id=f"{rid}-{index}"
-    registry.setdefault(request_id, {"job_id":f"job-{job['name']}", "request_id":request_id,
-                                    "name":job["name"], "state":"queued", "out_path":job["out"]})
+    prompt=Path(job["prompt"]).read_bytes()
+    payload={"workdir":os.path.realpath(job["workdir"]), "out_path":os.path.realpath(job["out"]),
+             "task":job["task"], "tier":job["tier"], "sandbox":job.get("sandbox", "read-only"),
+             "pinned_model":job.get("model"), "prompt_sha256":hashlib.sha256(prompt).hexdigest()}
+    # C-6.2: display name and label are excluded, payload differences refuse.
+    digest=hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    existing=registry.get(request_id)
+    if existing:
+        return existing, False, existing["payload_digest"] != digest
+    stored_prompt=registry_path.parent / "registry-prompts" / (request_id + ".md")
+    stored_prompt.parent.mkdir(exist_ok=True)
+    stored_prompt.write_bytes(prompt)
+    registry[request_id]={**payload, "job_id":f"job-{job['name']}", "request_id":request_id,
+                         "name":job["name"], "state":"queued", "payload_digest":digest,
+                         "prompt_path":str(stored_prompt)}
     registry_path.write_text(json.dumps(registry, sort_keys=True))
+    return registry[request_id], True, False
 missing_prompt=",check-prompts," in S and any(not Path(job["prompt"]).is_file() for job in doc["jobs"])
 if missing_prompt:
     i,job=next((i,job) for i,job in enumerate(doc["jobs"],1) if not Path(job["prompt"]).is_file())
@@ -33,7 +48,7 @@ if ",manifest-refusal," in S or ",manifest-refusal-marker," in S:
     print("subfleet: run: -C /missing is not a directory", file=sys.stderr)
     print("subfleet run --batch: jobs[1] (a) is invalid; nothing was submitted", file=sys.stderr)
     sys.exit(1 if ",manifest-refusal-marker," in S else 2)
-if ",rowless-unknown," in S and n == 1:
+if (",rowless-unknown," in S and n == 1) or ",lose-stdout," in S:
     for i,job in enumerate(doc["jobs"],1): commit(job,i)
     print("subfleet: run: outcome unknown: no response line", file=sys.stderr)
     sys.exit(1)
@@ -44,12 +59,33 @@ for i,job in enumerate(doc['jobs'],1):
     elif ",refuse-b," in S and job['name']=='b': row.update(job_id=None, outcome="refused", rc=7, error="output path is held by another job", fix="use a different -o path"); worst=worst or 7
     elif ",unknown-c," in S and job['name']=='c' and n == 1: commit(job,i); row.update(job_id=None, outcome="unknown", rc=1, error="outcome unknown: no response line (request "+row["request_id"]+")", fix="rerun with the same --request-id"); worst=worst or 1
     elif ",digest-conflict-c," in S and job['name']=='c': row.update(job_id=None, outcome="refused", rc=2, error="request id already used with a different payload by job job-c"); worst=worst or 2
-    else: commit(job,i); row.update(job_id=f"job-{job['name']}", created=(n == 1), outcome=("created" if n == 1 else "existing"), out=job['out'], log="/x/lane.log", rc=0)
+    else:
+        recorded,created,conflict=commit(job,i)
+        if conflict:
+            row.update(job_id=None, outcome="refused", rc=2,
+                       error="request id already used with a different payload by job " + recorded["job_id"])
+            worst=worst or 2
+        else:
+            row.update(job_id=recorded["job_id"], created=created, outcome="created" if created else "existing",
+                       out=recorded["out_path"], log="/x/lane.log", rc=0)
     print(json.dumps(row, sort_keys=True))
 sys.exit(worst)
 PY
     exit $?;;
   runs)
+    if [ "${2:-}" = show ]; then
+      [ -z "${CLAUDE_CODE_SESSION_ID:-}" ] || { echo "fake: show would acknowledge caller notices" >&2; exit 98; }
+      python3 - "$FAKE_STATE/registry.json" "$3" <<'PY'
+import json,os,sys
+registry=json.load(open(sys.argv[1]))
+job=next((row.copy() for row in registry.values() if row["job_id"] == sys.argv[2]), None)
+if job is None: sys.exit(2)
+if os.environ.get("FAKE_SHOW_MISSING"): job.pop(os.environ["FAKE_SHOW_MISSING"], None)
+if os.environ.get("FAKE_SHOW_MISMATCH"): job[os.environ["FAKE_SHOW_MISMATCH"]]="different"
+print(json.dumps(job, sort_keys=True))
+PY
+      exit $?;
+    fi
     shift; rid=""; while [ $# -gt 0 ]; do case "$1" in --request-id) rid="$2"; shift;; --json) ;; *) echo "fake: unexpected runs argument $1" >&2; exit 99;; esac; shift; done
     case "$S" in *,lookup-down-always,*) echo "subfleet runs: daemon unavailable" >&2; exit 69;; esac
     case "$S" in *,lookup-empty,*) exit 0;; esac
