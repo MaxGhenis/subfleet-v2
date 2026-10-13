@@ -345,7 +345,7 @@ for use_request_id in (False, True):
         namespace["submit_logs"] = lambda: logs
         namespace["rows"] = lambda path, kind: recovered if path == F["recovered"] else data.get(path, [])
         namespace["load"] = lambda path: refusal if path == F["refusal"] else data[path]
-        namespace["recover_unknown"] = namespace["recover_candidates"] = lambda state: None
+        namespace["recover_unknown"] = namespace["recover_candidates"] = lambda state: (0, 0)
         namespace["write_jobs"] = lambda ids: None
         namespace["tail"] = lambda path: ""
         data[F["all"]] = data[F["manifest"]] = {"jobs": [{"name": name, "out": "/fake/" + name} for name in names]}

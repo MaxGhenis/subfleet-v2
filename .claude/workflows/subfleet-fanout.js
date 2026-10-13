@@ -602,6 +602,11 @@ def settled(manifest_names):
 def recover_candidates(state):
     """Bind a recorded payload to the exact unanswered or refused creating invocation."""
     deadline = time.monotonic() + 60
+    lookups, skipped = 0, 0
+    def skip(s, phase):
+        nonlocal skipped
+        skipped += 1
+        s["recovery_note"] = "%s: recovery budget spent after %s lookups; relaunch to recover" % (phase, lookups)
     env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
     # Unknown entries first: a refused one is already settled if unproven.
     for name, s in sorted(state.items(), key=lambda item: item[1]["outcome"] == "refused"):
@@ -614,10 +619,12 @@ def recover_candidates(state):
             continue
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            break
+            skip(s, "not looked up")
+            continue
         rid = s["request_id"]
         try:
             if not jid:
+                lookups += 1
                 result = subprocess.run(["subfleet", "runs", "--request-id", rid, "--json"],
                                         capture_output=True, text=True, timeout=min(15, remaining), env=env)
                 if result.returncode != 0:
@@ -631,7 +638,9 @@ def recover_candidates(state):
                 jid = matches[0]["job_id"]
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                break
+                skip(s, "show not looked up")
+                continue
+            lookups += 1
             result = subprocess.run(["subfleet", "runs", "show", jid, "--json"],
                                     capture_output=True, text=True, timeout=min(15, remaining), env=env)
             if result.returncode != 0:
@@ -656,6 +665,7 @@ def recover_candidates(state):
         with open(F["recovered"], "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + NL)
         s.update(job_id=row["job_id"], created=False, outcome="existing", row=row)
+    return lookups, skipped
 
 def retry_names(state):
     return [name for name, s in state.items() if not s["job_id"] and s["outcome"] in ("", "not-sent", "unknown")]
@@ -825,7 +835,7 @@ def cmd_post_submit(rc):
     if os.path.isfile(F["refusal"]):
         refusal = load(F["refusal"])
         out("MANIFEST_REFUSED rc=%s error=%s" % (refusal["rc"], refusal["error"]))
-    recover_candidates(state)
+    lookups, skipped = recover_candidates(state)
     ids, unsettled, batch = [], 0, ""
     for job in everything:
         name = job["name"]
@@ -833,12 +843,13 @@ def cmd_post_submit(rc):
             out("SKIP name=%s out_bytes=%s" % (name, size(job["out"])))
             continue
         s = state[name]
+        recovery_note = " (" + s["recovery_note"] + ")" if s.get("recovery_note") else ""
         batch = s["row"].get("batch") or batch
         if s["job_id"]:
             ids.append(s["job_id"])
             out("SUBMITTED name=%s job_id=%s created=%s" % (name, s["job_id"], s.get("created")))
         elif s["outcome"] == "refused":
-            out("REFUSED name=%s rc=%s error=%s" % (name, s["row"].get("rc"), s["row"].get("error")))
+            out("REFUSED name=%s rc=%s error=%s%s" % (name, s["row"].get("rc"), s["row"].get("error"), recovery_note))
         elif s["outcome"] in ("not-sent", "unknown"):
             unsettled += 1
             marker = "NOT_SENT" if s["outcome"] == "not-sent" else "OUTCOME_UNKNOWN"
@@ -847,7 +858,7 @@ def cmd_post_submit(rc):
                 error = ("%s; an older helper recovered job %s here without a creation mark, which this helper "
                          "cannot re-prove: finish this state with the helper that started it (install between batches)"
                          % (error, s["legacy_job_id"]))
-            out("%s name=%s request_id=%s rc=%s error=%s" % (marker, name, s["row"].get("request_id"), s["row"].get("rc"), error))
+            out("%s name=%s request_id=%s rc=%s error=%s%s" % (marker, name, s["row"].get("request_id"), s["row"].get("rc"), error, recovery_note))
         else:
             unsettled += 1
             out("OUTCOME_UNKNOWN name=%s request_id=%s rc=%s error=no row" % (name, (REQUEST_ID + "-?") if REQUEST_ID else "", -1))
@@ -855,6 +866,8 @@ def cmd_post_submit(rc):
     out("REQUEST_ID=%s" % (REQUEST_ID or (batch if ids else "")))
     out("JOBS=%s" % len(ids))
     out("UNSETTLED=%s" % unsettled)
+    out("RECOVERY_LOOKUPS=%s" % lookups)
+    out("RECOVERY_SKIPPED=%s" % skipped)
     if REQUEST_ID and retry_names(state) and not os.path.isfile(F["refusal"]):
         out("RETRY_STEP1")
 
@@ -968,7 +981,7 @@ const RESULT_SCHEMA = {
         required: ['name', 'job_id', 'state', 'rc', 'out_bytes', 'notes'],
       },
     },
-    notes: { type: 'string', description: 'anything unexpected: LOCKED, CHECKSUM_MISMATCH, STATE_MISMATCH, MANIFEST_REFUSED, LOOKUP_UNKNOWN, SUBMIT_ERR, DAEMON_UNREACHABLE, RESET or BAD_*_LINE lines, a step whose marker lines were missing, a killed call; else empty' },
+    notes: { type: 'string', description: 'anything unexpected: LOCKED, CHECKSUM_MISMATCH, STATE_MISMATCH, MANIFEST_REFUSED, LOOKUP_UNKNOWN, a nonzero RECOVERY_SKIPPED count and its relaunch advice, SUBMIT_ERR, DAEMON_UNREACHABLE, RESET or BAD_*_LINE lines, a step whose marker lines were missing, a killed call; else empty' },
   },
   required: ['setup_ok', 'already_submitted', 'submit_calls', 'submit_rc', 'request_id', 'wait_loops', 'last_wait_rc', 'jobs', 'notes'],
 }
@@ -981,12 +994,12 @@ Run only the Bash commands below, exactly as written, character for character, w
 STEP 0. One Bash call. It writes a helper and the manifest, checks that both were typed exactly, and prints CHECKSUM_OK then SETUP_OK:
 ${step0}
 
-If step 0 does not print SETUP_OK, stop: report setup_ok false, every job as state "unknown" with rc -1, and its output or missing marker in notes. CHECKSUM_MISMATCH and STATE_MISMATCH also mean stop. Any step that prints LOCKED stops this dispatcher: preserve the last per-name evidence, report the LOCKED line in notes, and mark names without evidence unknown. It names the launcher, helper and CLI child pids that last held the lock and whether each is alive; a live one still holds it.
+If step 0 does not print SETUP_OK, stop: report setup_ok false, every job as state "unknown" with rc -1, and its output or missing marker in notes. CHECKSUM_MISMATCH and STATE_MISMATCH also mean stop. Any step that prints LOCKED stops this dispatcher: preserve the last per-name evidence, report the LOCKED line in notes, and mark names without evidence unknown. It names the recorded launcher, helper and CLI child pids and classifies each as alive, dead, reused or unknown. Unavailable inspection or invalid spawn metadata means unknown.
 
-STEP 1. One Bash call. It submits the full manifest when should-submit allows it and prints SUBMIT_RC when a submission ran, then SUBMITTED, REFUSED, NOT_SENT, OUTCOME_UNKNOWN or SKIP lines, REQUEST_ID, JOBS and UNSETTLED:
+STEP 1. One Bash call. It submits the full manifest when should-submit allows it and prints SUBMIT_RC when a submission ran, then SUBMITTED, REFUSED, NOT_SENT, OUTCOME_UNKNOWN or SKIP lines, REQUEST_ID, JOBS, UNSETTLED, RECOVERY_LOOKUPS and RECOVERY_SKIPPED:
 ${step1}
 
-Run step 1 again while it prints RETRY_STEP1, at most 3 step 1 calls in total. This marker requires a request id and a not-sent, unknown or missing answer; a refused entry never triggers it. MANIFEST_REFUSED stops new submissions; record its CLI message and any LOOKUP_UNKNOWN lines in notes. Step 1 itself looks up earlier unknown request ids and prints their recovered SUBMITTED lines, or keeps them OUTCOME_UNKNOWN if the lookup is inconclusive. Use those per-name markers even after MANIFEST_REFUSED, then wait on every known id. After the last step 1 call, if JOBS=0, skip step 2.
+Run step 1 again while it prints RETRY_STEP1, at most 3 step 1 calls in total. This marker requires a request id and a not-sent, unknown or missing answer; a refused entry never triggers it. MANIFEST_REFUSED stops new submissions; record its CLI message and any LOOKUP_UNKNOWN lines in notes. Step 1 itself looks up earlier unknown request ids and prints their recovered SUBMITTED lines, or keeps them OUTCOME_UNKNOWN if the lookup is inconclusive. Candidates skipped for the recovery budget keep their per-name outcome and explain the skipped lookup in that line. If RECOVERY_SKIPPED is nonzero, record the count and the advice to relaunch to recover in notes. Use those per-name markers even after MANIFEST_REFUSED, then wait on every known id. After the last step 1 call, if JOBS=0, skip step 2.
 
 STEP 2. One Bash call per loop. It waits up to 540 s and prints DONE, PENDING or UNKNOWN lines and PENDING_COUNT:
 ${step2}
