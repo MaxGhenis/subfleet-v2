@@ -153,3 +153,35 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
         assert result.descendant_pids == {4203, 55000}
         assert result.unverifiable and not result.verified_empty
         assert not result.recycled
+
+
+def test_exit_publication_during_census_keeps_the_unseen_child_hold(state_daemon, monkeypatch):
+    """One receipt snapshot governs both the child root and publication hold."""
+    from tests.fake.test_quarantine_attempt_isolation import running
+    from tests.fake.test_review_pr131_probes import script_table
+
+    daemon, harness = state_daemon
+    attempt, directory = running(daemon, harness, 200, 201)
+    daemon.store.update_attempt(attempt["attempt_id"], child_pid=None, evidence_json="{}")
+    (directory / "start.json").write_text(json.dumps({
+        "guardian_pid": 200, "pgid": 200, "boot_id": attempt["boot_id"],
+        "proc_start": attempt["proc_start"]}))
+    script_table(monkeypatch, {201: (1, 201, "S", "unpublished-child"),
+                              202: (201, 201, "S", "unpublished-descendant")})
+    read = daemon._read_json
+    reads = []
+
+    def publication(path):
+        if path == directory / "exit.json":
+            reads.append(path)
+            return None if len(reads) == 1 else {"rc": 0, "child_pid": 201}
+        return read(path)
+
+    monkeypatch.setattr(daemon, "_read_json", publication)
+    first = daemon._contain(daemon.store.get_attempt(attempt["attempt_id"]))
+    assert not first.verified_empty
+    assert "guardian child publication unavailable" in first.errors
+    assert len(reads) == 1
+    second = daemon._contain(daemon.store.get_attempt(attempt["attempt_id"]))
+    assert not second.verified_empty and {201, 202} <= second.live_pids
+    assert len(reads) == 2

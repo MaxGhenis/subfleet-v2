@@ -448,3 +448,13 @@ instead of exhausting its two-state iterator. Its exact no-errors/empty
 assertion is unchanged. This completed run is superseded validation, not a
 passing final-head result. The tests had imported their pre-follow-up sources
 before the next code step was written.
+
+Exit publication snapshot follow-up
+-----------------------------------
+The merge exposed a two-read race: the first exit.json read supplied no child
+PID, but a receipt arriving at the later legacy-child-publication check could
+close that hold before its child entered the deciding census. _contain now
+uses one exit receipt snapshot for both child seeding and the publication hold.
+A new witness publishes only after the first read: the first census must keep
+the unseen-child hold, and the second must retain child 201 and descendant 202.
+This tightens the merged proof without changing signal authority or assertions.

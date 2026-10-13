@@ -7512,7 +7512,8 @@ class Daemon:
         held = _json_object(a.get("quarantine_reason"))
         adir = Path(a["directory"]) if probe else attempt_dir(self.root, a["job_id"], a["seq"])
         start = self._read_json(adir / "start.json") or {}
-        receipt = self._read_json(adir / "exit.json") or {}
+        exit_receipt = self._read_json(adir / "exit.json")
+        receipt = exit_receipt or {}
         # An exit-only PID is a conservative root, never signal authority.
         child_pid = a.get("child_pid") or start.get("child_pid") or receipt.get("child_pid")
         child = evidence.get("child_identity") or start.get("child_identity")
@@ -7549,7 +7550,7 @@ class Daemon:
             int(pid) != a.get("guardian_pid") for pid in evidence.get("owned_identities", {})))
         child_unrecorded = bool(start.get("guardian_pid") and not child_pid
                                 and not evidence.get("provider_identities") and not owned_provider
-                                and self._read_json(adir / "exit.json") is None)
+                                and exit_receipt is None)
         job = self._job(a["job_id"]) if not probe else None
         owner = a["holder"] if probe else a["attempt_id"]
         census = procs.containment(a.get("pgid") or start.get("pgid"), guardian_pid, child_pid,
