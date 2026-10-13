@@ -163,6 +163,24 @@ def cap(caps: Mapping[str, Any] | None, key: str) -> int | None:
     return None if value is None else int(value)
 
 
+def provider_cap(policy: Mapping[str, Any], provider: str) -> int | None:
+    """C-6.4: optional count shared by detached attempts and turns; absent is off.
+
+    Do not inject this default into loaded policies: C-11.1 preserves their
+    bytes and hashes, and existing policies need no new section.
+    """
+    return (policy.get("providers") or {}).get(provider, {}).get("max_active_attempts")
+
+
+def provider_caps_on(policy: Mapping[str, Any]) -> bool:
+    """C-6.4a: whether any provider names a `max_active_attempts` cap.
+
+    Not whether the policy has a `providers` section: every loaded policy has
+    one, because C-10.8's `providers.codex.ca_bundle` is filled in at load.
+    """
+    return any(provider_cap(policy, provider) is not None for provider in (policy.get("providers") or {}))
+
+
 def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     """C-6.4: how many detached attempts one lane may hold, or None for no cap.
 
@@ -432,6 +450,19 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(f"caps.{name}", "must be a positive integer, or null for no cap" if name in COUNT_CAPS
                  else "must be a positive integer")
     value["caps"] = caps
+
+    providers = value.get("providers", {})
+    if not isinstance(providers, dict):
+        fail("providers", "must be an object")
+    for provider, settings in providers.items():
+        key = f"providers.{provider}"
+        if provider not in PROVIDERS:
+            fail(key, f"must be one of {', '.join(PROVIDERS)}")
+        if not isinstance(settings, dict):
+            fail(key, "must be an object")
+        item = settings.get("max_active_attempts")
+        if item is not None and (type(item) is not int or item < 1):
+            fail(f"{key}.max_active_attempts", "must be a positive integer, or null for no cap")
 
     # `admission` (C-6.9, C-6.13, C-10.3, C-11.3): the load band, the desktop
     # login's recency window, and the machine guard.
