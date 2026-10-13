@@ -320,6 +320,66 @@ def test_an_app_save_landing_during_a_removal_is_put_back(world, monkeypatch):
     assert not graves(world)
 
 
+def after_the_plan(monkeypatch, act) -> None:
+    """Run `act` after the pass plans each session and before it removes any
+    of that session's copies: what the app may do while the pass works."""
+    planned = prune_rules.plan
+
+    def then_act(*args, **kwargs):
+        decided = planned(*args, **kwargs)
+        act()
+        return decided
+
+    monkeypatch.setattr(prune_rules, "plan", then_act)
+
+
+def test_a_keeper_that_changed_since_the_plan_stops_its_sessions_removals(world, monkeypatch):
+    """C-23.28a: the kept copy is read again right before the removals that
+    count on it. Unarchived since the plan (the user, in the home folder), the
+    session is live again, and no copy of it goes."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    after_the_plan(monkeypatch, lambda: rewrite(record(world, HOME), isArchived=False))
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert result.prune["held"]["the keeper changed since the pass read it"] == 2
+
+
+def test_a_copy_that_changed_since_the_plan_stays(world, monkeypatch):
+    """C-23.28a: each copy is read again right before it goes. One the app
+    unarchived since the plan stays; so does one now newer than the keeper."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+
+    def app_writes():
+        rewrite(record(world, OTHER), isArchived=False)
+        rewrite(record(world, SWITCH), lastActivityAt=int(NOW_S * 1000))
+
+    after_the_plan(monkeypatch, app_writes)
+    result = engine(world).run_once(options(prune=True))
+    assert where(world, ONE) == set(FOLDERS)
+    assert result.prune["held"]["the copy changed since the pass read it"] == 2
+
+
+def test_a_grave_whose_name_cannot_be_linked_is_kept(tmp_path, monkeypatch):
+    """C-23.28a: a grave is dropped only once its name holds a record, put
+    back or newer; if the link fails any other way, it stays for the next
+    listing rather than taking the record with it."""
+    path = tmp_path / "local_x.json"
+    path.write_text('{"v": 1}')
+    handle, grave = mirror._temporary(path, mirror.GRAVE_SUFFIX)
+    os.close(handle)
+    os.rename(path, grave)
+
+    def refused(*_args, **_kwargs):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(mirror.os, "link", refused)
+    mirror._bury(grave)
+    assert grave.exists() and not path.exists()
+    monkeypatch.undo()
+    mirror._bury(grave)
+    assert json.loads(path.read_text()) == {"v": 1} and not grave.exists()
+
+
 def test_a_session_whose_flags_move_this_pass_waits_a_pass(world):
     """C-23.28a: flag sync rewrote it, so its copies are no longer as the
     pass read them: none goes until a pass finds it settled."""

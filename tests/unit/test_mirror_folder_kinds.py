@@ -65,10 +65,16 @@ def test_a_switch_folder_is_one_never_settled_in_whose_org_another_account_owns(
 
 def test_a_real_login_a_logout_ends_is_settled_however_short():
     """C-23.28a: on 2026-09-22 two real logins lasted 27 s and 55 s before a
-    logout; a mid-switch pair is always followed by the next load."""
-    verdicts = classify([load("brief/org-brief", 0), logout(27), load("home/org-home", 60)],
+    logout; a mid-switch pair is always followed by the next load. A stay
+    shorter than `SETTLE_S` settles its folder when a logout ends it, and not
+    when the next load does."""
+    short = folder_kinds.SETTLE_S / 2
+    verdicts = classify([load("brief/org-brief", 0), logout(short), load("home/org-home", 60)],
                         ["brief/org-brief", "home/org-home"], now=60 + 30)
     assert verdicts["brief/org-brief"] == "settled"
+    verdicts = classify([load("brief/org-brief", 0), load("home/org-home", short)],
+                        ["brief/org-brief"], now=short + 30)
+    assert verdicts["brief/org-brief"] == "unknown"
 
 
 def test_an_org_nobody_owns_excludes_nothing():
