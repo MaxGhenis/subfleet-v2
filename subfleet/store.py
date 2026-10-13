@@ -75,6 +75,18 @@ CLOSE_WAIT_S = 5.0
 #: reader, only stop short of the oldest snapshot still open.
 WAL_SIZE_LIMIT = 64 * 1024 * 1024
 
+#: C-3.1: the files a writing `Store` applies, in this order, to create or
+#: complete the newest schema. The process-claim projection (C-5.4's claim
+#: authorization) depends on `attempts`, so it follows the main schema.
+#: `prune_decisions` derives the tables it expects from the same list.
+SCHEMA_FILES = ("store_schema.sql", "store_process_claims.sql")
+
+
+def schema_script() -> str:
+    """The newest schema as one script: every file in `SCHEMA_FILES`, in order."""
+    return "\n".join(Path(__file__).with_name(name).read_text() for name in SCHEMA_FILES)
+
+
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
 #: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
 #: newest version, so a fresh database never runs one.
@@ -308,9 +320,7 @@ class Store:
                         self.connection.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
                         self.connection.execute("DROP TRIGGER IF EXISTS process_claim_receipt_changed")
                         self.connection.commit()
-                schema = Path(__file__).with_name("store_schema.sql").read_text()
-                schema += "\n" + Path(__file__).with_name("store_process_claims.sql").read_text()
-                self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
+                self.connection.executescript("BEGIN IMMEDIATE;\n" + schema_script())
                 if (migrated_from is not None and migrated_from < 3) or (version and version < 3):
                     columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
                     for name, declaration in (("isolated_review", "INTEGER NOT NULL DEFAULT 0"),
