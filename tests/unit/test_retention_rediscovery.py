@@ -198,7 +198,8 @@ def test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks(t
         hold = dict(daemon._holds.get(turn) or {})
         hold.pop("next_check_at", None)
         assert not _live(daemon, turn) and prepared == [], (hold, prepared)
-        assert hold == {"reason": "lease-held", "leases": [fence], "folder": named}, hold
+        assert hold == {"reason": "lease-held", "leases": [fence],
+                        "retiring": [fence], "folder": named}, hold
         assert spawned and len(spawned) <= 2, spawned
         assert all(argv[argv.index("-C") + 2:] == ["rev-parse", "--show-toplevel"] for argv, _ in spawned), spawned
         assert {folders.canonical(at) for _, at in spawned} == {folder}, spawned
@@ -235,7 +236,8 @@ def test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence(tmp_
         assert not _live(daemon, turn) and prepared == [], (hold, prepared)
         if fenced:
             hold.pop("next_check_at")
-            assert hold == {"reason": "lease-held", "leases": [fence], "folder": nested}, hold
+            assert hold == {"reason": "lease-held", "leases": [fence],
+                            "retiring": [fence], "folder": nested}, hold
             assert (job["state"], job["wait_reason"]) == ("waiting", "capacity"), dict(job)
         else:
             assert hold["reason"] == "workspace" and hold["error_type"] == "SalvageError", hold
@@ -300,7 +302,8 @@ def test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_e
         early = dict(early_holds[turn])
         early.pop("next_check_at")
         early_signature = daemon._capacity_waits[turn]["signature"]
-        assert early == {"reason": "lease-held", "leases": [fence], "folder": nested}
+        assert early == {"reason": "lease-held", "leases": [fence],
+                         "retiring": [fence], "folder": nested}
         assert early_signature == "lease-held:" + fence
 
         # Compare the same job and leases with the reserving transaction,
@@ -316,7 +319,8 @@ def test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_e
 
         assert not _live(daemon, turn)
         assert reserved == {
-            "reason": "lease-held", "leases": [writer, fence], "folder": nested,
+            "reason": "lease-held", "leases": [writer, fence],
+            "retiring": [fence], "folder": nested,
         }
         assert reserved_signature == "lease-held:" + ",".join(sorted([writer, fence]))
         assert reserved != early and reserved_signature != early_signature
