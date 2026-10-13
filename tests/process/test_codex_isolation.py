@@ -28,7 +28,7 @@ API_KEYS = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 SCENARIOS = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection", "auth-401",
     "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag", "stream-disconnect",
-    "model-at-capacity", "spawn-fail", "model-scoped-limit",
+    "model-at-capacity", "model-at-capacity-sol", "spawn-fail", "model-scoped-limit",
 )
 
 

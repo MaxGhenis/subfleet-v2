@@ -25,7 +25,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 REQUIRED_CASES = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection",
     "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag",
-    "stream-disconnect", "model-at-capacity", "spawn-fail", "model-scoped-limit",
+    "stream-disconnect", "model-at-capacity", "model-at-capacity-sol", "spawn-fail", "model-scoped-limit",
 )
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
 THREAD = "01991c18-2680-7000-8000-000000000001"
@@ -87,6 +87,8 @@ def test_classifies_fixture_corpus(case):
     rc = int((directory / "rc").read_text())
     outcome = CodexAdapter(now=lambda: NOW).classify(directory, launch, _exit(rc))
     assert outcome.cls.value == expected["class"]
+    # C-9.5, D-CAP1: only the provider refusing the model for capacity is marked so.
+    assert outcome.evidence.get("model_capacity", False) is expected.get("model_capacity", False)
     assert outcome.native_session_id == expected["native_session_id"]
     assert (outcome.closure is not None) == expected["closure"]
     assert outcome.evidence["rc"] == rc
@@ -374,6 +376,137 @@ def test_cyber_flag_in_a_completed_answer_is_not_a_refusal(flag, case, before, a
                          {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}})
         outcome = CodexAdapter().classify(attempt, launch, _exit(0))
     assert outcome.cls == OutcomeClass.OK
+
+
+# --- the provider refusing the model for capacity (C-9.5, D-CAP1) ------------------------------
+#: Codex's wording on gpt-6.1-sol, 109 attempts from 2026-10-01 to 2026-10-13, each as an `error`
+#: event and then the `turn.failed` that ended the turn (tests/fixtures/codex/model-at-capacity-sol).
+CAPACITY = "Selected model is at capacity. Please try a different model."
+RECONNECT_503 = ("Reconnecting... 2/5 (unexpected status 503 Service Unavailable: An error occurred while "
+                 "processing your request. You can retry your request, or contact us through our help center "
+                 "at help.openai.com if the error persists.)")
+
+
+@pytest.mark.parametrize("where", ["turn.failed", "error", "stderr", "incident"])
+def test_c9_5_a_model_at_capacity_refusal_is_transient_and_marked(tmp_path, where):
+    """C-9.5, D-CAP1: the refusal, from a `turn.failed`, an `error` event or stderr, or in the
+    incident's order (a recovered 503 reconnect, then the refusal), is `transient` with no closure
+    and records `model_capacity`; the refusal, not the earlier reconnect, answers admission."""
+    failed = {"type": "turn.failed", "error": {"message": CAPACITY}}
+    error = {"type": "error", "message": CAPACITY}
+    events = {"turn.failed": (failed,), "error": (error,), "stderr": (),
+              "incident": ({"type": "error", "message": RECONNECT_503}, error, failed)}[where]
+    launch = _events(tmp_path, {"type": "thread.started", "thread_id": THREAD}, {"type": "turn.started"},
+                     {"type": "item.completed", "item": {"type": "agent_message", "text": "Working on it."}},
+                     *events, stderr="Reading prompt from stdin...\n" + (f"ERROR: {CAPACITY}\n" if where == "stderr" else ""))
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert outcome.evidence["model_capacity"] is True
+    assert outcome.evidence["model_answered"] is True
+    assert outcome.native_session_id == THREAD
+    admission = outcome.evidence["admission"]
+    assert CAPACITY in (admission if isinstance(admission, str) else json.dumps(admission))
+    assert "capacity" in outcome.detail and "different model" in outcome.detail
+
+
+def test_c9_5_the_incident_attempt_replays_to_a_marked_capacity_refusal():
+    """D-CAP1: 20261013-024327-pr198-review-r6/a1 recorded its recovered 503 reconnect as admission
+    evidence; replayed, the attempt is the capacity refusal that ended it."""
+    directory = FIXTURES / "model-at-capacity-sol"
+    launch = replace(_launch(directory), raw_stream_path=str(directory / "stdout"))
+    outcome = CodexAdapter(now=lambda: NOW).classify(directory, launch, _exit(1))
+    assert (outcome.cls, outcome.closure, outcome.evidence["model_capacity"]) == (OutcomeClass.TRANSIENT, None, True)
+    assert outcome.evidence["admission"] == {"type": "error", "message": CAPACITY}
+
+
+@pytest.mark.parametrize("message", [
+    RECONNECT_503, "Server returned HTTP 503 Service Unavailable", "HTTP 500 Internal Server Error",
+    "stream disconnected before completion: websocket closed by server",
+    "Reconnecting... 3/5 (workspace routing discovery timed out)",
+    "Reconnecting... 1/5 (We’re currently experiencing high demand, which may cause temporary errors.)",
+    "Our servers are at capacity right now; retry shortly", "capacity exceeded on the upstream gateway",
+    "DNS resolution failed for chatgpt.com", "unexpected status 401 Unauthorized from responses endpoint",
+])
+@pytest.mark.parametrize("as_event", [True, False])
+def test_c9_5_other_transient_failures_stay_unmarked(tmp_path, message, as_event):
+    """C-9.5: every other transient text, a server's capacity included, stays `transient` with no
+    closure and no `model_capacity`: only the model's own refusal steers a job (D-CAP1)."""
+    launch = (_events(tmp_path, {"type": "error", "message": message}, {"type": "turn.failed", "error": {"message": message}})
+              if as_event else _events(tmp_path, stderr=message + "\n"))
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("You've hit your usage limit.", OutcomeClass.LIMITED),
+    ("Incorrect API key provided: sk-proj-****", OutcomeClass.AUTH_DEAD),
+    ("This content was flagged for possible cybersecurity risk.", OutcomeClass.CONTENT_FILTER),
+])
+def test_c9_2_a_capacity_refusal_beside_a_stronger_verdict_keeps_that_verdict(tmp_path, message, expected):
+    """C-9.2 precedence: authentication, content and quota still answer first; the capacity
+    refusal beside them marks nothing."""
+    launch = _events(tmp_path, {"type": "error", "message": CAPACITY}, {"type": "turn.failed", "error": {"message": message}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == expected
+    assert "model_capacity" not in outcome.evidence
+
+
+def test_c9_2_a_recovered_capacity_error_before_a_completed_answer_is_success(tmp_path):
+    """C-9.2: a capacity error Codex recovered from, before a completed turn and a deliverable, is `ok`."""
+    launch = _events(tmp_path, {"type": "error", "message": CAPACITY},
+                     {"type": "item.completed", "item": {"type": "agent_message", "text": "Done after retrying."}},
+                     {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}})
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
+    assert "model_capacity" not in outcome.evidence
+
+
+CAPACITY_SPELLINGS = (CAPACITY, "The model is at capacity. Please try again later.", "model at capacity",
+                      "Selected model is currently at capacity", "error code: model_at_capacity")
+
+
+@settings(deadline=None)  # each example writes and reads files; the deadline measured load, not the property
+@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       where=st.sampled_from(("turn.failed", "error", "stderr")))
+def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, before, after, where):
+    """C-9.5 invariant: the model-capacity refusal, in any case and any surrounding text, in a
+    failure event or on stderr, is `transient` with `model_capacity` and no closure, wherever no
+    stronger verdict (C-9.2: authentication, an old CLI, content, quota) is in the same text."""
+    message = " ".join((before, case(refusal), after))
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": "turn.failed", "error": {"message": message}})
+    signal = json.dumps(event, ensure_ascii=False) if where != "stderr" else message
+    assume(not any(regex.search(signal) for regex in (codex_module.AUTH_RE, codex_module.OLD_CLI_RE,
+                                                      codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = (_events(attempt, stderr=message + "\n") if where == "stderr"
+                  else _events(attempt, {"type": "thread.started", "thread_id": THREAD}, event))
+        outcome = CodexAdapter(now=lambda: NOW).classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert outcome.evidence["model_capacity"] is True
+
+
+@settings(deadline=None)
+@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       rc=st.sampled_from((0, 1)))
+def test_c9_2_the_models_own_words_never_mark_capacity(refusal, case, before, after, rc):
+    """C-9.2 invariant: the model quoting the refusal in its own messages marks nothing, whether the
+    turn completed (`ok`) or a stream disconnect ended it (`transient`, unmarked)."""
+    text = " ".join(("Report:", before, case(refusal), after))
+    ending =({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}} if rc == 0 else
+              {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}})
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD},
+                         {"type": "item.completed", "item": {"type": "agent_message", "text": text}}, ending)
+        outcome = CodexAdapter().classify(attempt, launch, _exit(rc))
+    assert outcome.cls == (OutcomeClass.OK if rc == 0 else OutcomeClass.TRANSIENT)
+    assert "model_capacity" not in outcome.evidence
 
 
 def test_model_scoped_limit_keeps_reported_reset(tmp_path):
