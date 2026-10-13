@@ -619,6 +619,17 @@ def test_a_home_unlisted_for_one_pass_spreads_nothing_back(world, monkeypatch):
     assert result.prune["home"] == key(HOME) and result.added == 0
 
 
+def test_a_first_pass_that_cannot_list_the_home_still_knows_it(world, monkeypatch):
+    """C-23.28a, review r2 N1: with no home recorded yet, the home is found
+    among every folder the store holds, listed this pass or not, so a first
+    pass that cannot list it does not widen the archive to every folder."""
+    put(world, ONE, [HOME, OTHER], archived=True, days=30)
+    unlisted(monkeypatch, HOME)
+    result = engine(world).run_once(options())
+    assert result.prune["home"] == key(HOME)
+    assert where(world, ONE) == {HOME, OTHER}, "nothing spread"
+
+
 def test_a_home_unlisted_for_one_pass_does_not_move(world, monkeypatch):
     """C-23.28a, review r2 N1: with an org id and a second settled folder of
     the org, a pass that cannot list the home neither moves it there nor
@@ -634,7 +645,7 @@ def test_a_home_unlisted_for_one_pass_does_not_move(world, monkeypatch):
     running._last_sweep = None                          # noqa: SLF001 - plan afresh
     result = running.run_once(options(dead_home="org-home"))
     assert result.prune["home"] == key(HOME)
-    assert running._registry.home["folder"] == key(HOME)   # noqa: SLF001
+    assert running._registry.homes == {"org-home": key(HOME)}   # noqa: SLF001
     assert where(world, ONE) == {HOME}, "the archive was not copied to a new home"
 
 
@@ -660,11 +671,11 @@ def test_a_new_home_is_not_recorded_from_an_incomplete_inventory(world, monkeypa
     monkeypatch.setattr(mirror.os, "scandir", failing)
     running = engine(world)
     assert running.run_once(options(dead_home="org-z")).prune["home"] == key(other)
-    assert running._registry.home is None             # noqa: SLF001
+    assert running._registry.homes == {}              # noqa: SLF001
     monkeypatch.setattr(mirror.os, "scandir", scandir)
     running._last_sweep = None                          # noqa: SLF001 - plan afresh
     assert running.run_once(options(dead_home="org-z")).prune["home"] == key(settled)
-    assert running._registry.home == {"value": "org-z", "folder": key(settled)}  # noqa: SLF001
+    assert running._registry.homes == {"org-z": key(settled)}  # noqa: SLF001
 
 
 def test_a_home_gone_from_the_store_is_kept_and_its_archive_stays_put(world):
@@ -680,6 +691,10 @@ def test_a_home_gone_from_the_store_is_kept_and_its_archive_stays_put(world):
     assert result.prune["home"] == key(HOME)
     assert "kept home folder" in result.prune["home_detail"]
     assert result.prune["held"] == {prune_rules.HELD_HOME_UNLISTED: 1}
+    # Review r3 R6: not only a held count; the account and `--status` warn.
+    [warning] = result.prune["warnings"]
+    assert warning.startswith(f"the home folder {key(HOME)} is not in the store")
+    assert warning in running.health()["detail"]
 
 
 def test_a_home_named_exactly_is_honoured_when_it_reads_as_a_switch_folder(world):
@@ -853,6 +868,112 @@ def test_a_blocked_pass_does_not_take_the_store_lock(world, monkeypatch):
     result = engine(world).run_once(options(prune=True, flag_sync=False))
     assert taken == [] and result.pruned == 0
     assert set(result.prune["held"]) == {"flag sync is off, so no session's flags are settled"}
+
+
+# --- review round 3 -------------------------------------------------------------
+
+def test_a_looping_symlink_in_projects_fails_only_itself(world):
+    """C-23.28a, review r3 R1: following a project directory's symlink can
+    fail; a loop is no directory, for the app as for the mirror, and the rest
+    of `projects/` is listed, spread and pruned as ever."""
+    put(world, ONE, FOLDERS, days=1)
+    loop = world.home / "projects" / "loop"
+    loop.symlink_to(loop)
+    result = engine(world).run_once(options(prune=True))
+    assert result.sessions == 1
+    assert where(world, ONE) == SEEDED, "only the switch folder's copy went"
+
+
+def test_a_symlink_to_a_project_directory_that_cannot_be_read_holds_only_removal(
+        world, tmp_path):
+    """C-23.28a, review r3 R1: a symlinked project directory whose target
+    cannot be read now leaves the transcripts unknown, as an unlistable
+    directory does: nothing is removed, but every other session is still
+    listed and spread."""
+    put(world, ONE, sorted(SEEDED), days=1)
+    put(world, TWO, FOLDERS, archived=True, days=30)
+    hidden = tmp_path / "hidden"
+    (hidden / "sub").mkdir(parents=True)
+    (world.home / "projects" / "linked").symlink_to(hidden / "sub", target_is_directory=True)
+    hidden.chmod(0)
+    try:
+        result = engine(world).run_once(options(prune=True))
+    finally:
+        hidden.chmod(0o755)
+    assert result.sessions == 2
+    assert where(world, TWO) == set(FOLDERS)
+    assert set(result.prune["held"]) == {"the transcripts could not all be listed this pass"}
+
+
+def test_a_restart_that_cannot_list_the_homes_account_keeps_the_recorded_home(
+        world, monkeypatch):
+    """C-23.28a, review r3 R2: only a complete inventory may change the home.
+    A new process whose first listing of the home's account fails keeps the
+    home it recorded, rather than copying the archive into another folder
+    of the org for a pass."""
+    put(world, ONE, [HOME, OTHER], archived=True, days=30)
+    assert engine(world).run_once(options(dead_home="org-home")).prune["home"] == key(HOME)
+    second = ("acct-second", "org-home")
+    (world.store / second[0] / second[1]).mkdir(parents=True)
+    say(world.log, *loads(world.store, second, "2026-09-05 11:00:00"),
+        *loads(world.store, WORK, "2026-09-05 11:10:00"))
+    account, scandir = os.fspath(world.store / HOME[0]), os.scandir
+
+    def failing(path="."):
+        if isinstance(path, (str, os.PathLike)) and os.fspath(path) == account:
+            raise OSError(errno.EMFILE, "Too many open files", account)
+        return scandir(path)
+
+    monkeypatch.setattr(mirror.os, "scandir", failing)
+    result = engine(world).run_once(options(dead_home="org-home"))   # a new process
+    assert result.prune["home"] == key(HOME)
+    assert "incomplete" in result.prune["home_detail"]
+    assert key(second) not in where(world, ONE)
+
+
+def test_a_home_that_reads_as_a_switch_folder_plans_no_live_session(world, monkeypatch):
+    """C-23.28a, review r3 R4: the home is no switch folder to the planning
+    set either, so a live session seeded there is not planned on every sweep."""
+    put(world, ONE, FOLDERS, days=1)
+    planned, calls = prune_rules.plan, []
+
+    def counted(copies, *args, **kwargs):
+        calls.append({copy.identity for copy in copies})
+        return planned(copies, *args, **kwargs)
+
+    monkeypatch.setattr(prune_rules, "plan", counted)
+    result = engine(world).run_once(options(dead_home=key(SWITCH), prune=True))
+    assert calls == [] and where(world, ONE) == set(FOLDERS)
+    assert result.prune["sessions"] == {"live": 1}
+
+
+def test_a_registry_that_cannot_read_the_logs_says_so(world):
+    """C-23.28a, review r3 R5: while a rotated log cannot be read the registry
+    learns nothing, every folder is unknown (so seeded), and the account and
+    `--status` say why."""
+    rotated = world.log.with_name("main1.log")
+    rotated.write_text("2026-07-30 08:00:00 [info] an older day\n", encoding="utf-8")
+    rotated.chmod(0)
+    running = engine(world)
+    try:
+        result = running.run_once(options())
+    finally:
+        rotated.chmod(0o644)
+    assert result.prune["folders"] == {"settled": 0, "switch": 0, "unknown": 4}
+    [warning] = result.prune["warnings"]
+    assert "folder registry is not learning" in warning and "main1.log" in warning
+    assert running.health()["warnings"] == [warning]
+    assert warning in running.health()["detail"]
+
+
+def test_each_home_value_keeps_its_own_record(world):
+    """C-23.28a, review r3 R7: a one-off `--dead-home` pass in the daemon's
+    state root records its own home beside the daemon's, so a restarted
+    daemon still finds the home it had."""
+    engine(world).run_once(options(dead_home="org-home"))
+    engine(world).run_once(options(dead_home=key(OTHER)))     # a one-off pass
+    registry = folder_kinds.Registry(folder_kinds.registry_path(world.root))
+    assert registry.homes == {"org-home": key(HOME), key(OTHER): key(OTHER)}
 
 
 # --- undoing it ---------------------------------------------------------------

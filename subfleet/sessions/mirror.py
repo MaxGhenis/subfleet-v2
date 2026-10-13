@@ -983,6 +983,8 @@ class Mirror:
         self._kinds: dict[str, str] = {}
         self._home: str | None = None
         self._home_detail = ""
+        #: What the scope rules' last account warns of (`pass.prune.warnings`).
+        self._scope_warnings: list[str] = []
         self._archived_at: dict[str, float] = {}
         #: Sessions this pass's flag sync held or wrote: never pruned that pass.
         self._unsettled: set[str] = set()
@@ -1330,10 +1332,25 @@ class Mirror:
         base = projects_dir()
         try:
             with os.scandir(base) as listing:
-                directories = sorted(item.path for item in listing if item.is_dir())
+                entries = list(listing)
         except OSError:
             return stems
         complete = True
+        directories = []
+        for item in entries:
+            # Followed one entry at a time (review r3 R1): a symlink that
+            # fails fails only itself, never the whole listing. One that loops
+            # or names no directory is no directory, for the app as for the
+            # mirror. One whose target cannot be read now (permission, I/O)
+            # leaves the listing incomplete, as a project directory that
+            # cannot be listed does: its sessions are unknown, not dead.
+            try:
+                if item.is_dir():
+                    directories.append(item.path)
+            except OSError as exc:
+                if exc.errno not in (errno.ELOOP, errno.ENOTDIR, errno.ENAMETOOLONG):
+                    complete = False
+        directories.sort()
         seen = set()
         listed: set[str] = set()
         for directory in directories:
@@ -2241,8 +2258,9 @@ class Mirror:
 
         `folders` are the folders this pass listed; `known`, every other
         folder the store is known to hold (one whose listing failed this
-        pass). The home is resolved over both, and a new home is recorded
-        only from a `complete` inventory (review r2 N1).
+        pass). The home is resolved over both. Only a `complete` inventory
+        may change the home (review r2 N1, r3 R2): one that is not keeps the
+        home recorded for `dead_home`, and records nothing.
         """
         keys = tuple(f"{account}/{org}" for account, org, _path in folders)
         listed = set(keys)
@@ -2254,11 +2272,15 @@ class Mirror:
         kinds = self._learn_folders(state, keys + others, dry_run=options.dry_run,
                                     replay=sweep)
         registry = self._registry
-        kept = registry.home if registry is not None else None
-        previous = (kept["folder"] if kept is not None and kept.get("value") == options.dead_home
-                    else None)
+        previous = registry.homes.get(options.dead_home) if registry is not None else None
         home, why = self.resolve_home(options.dead_home, kinds, previous)
-        if home is None and previous is not None:
+        if previous is not None and home != previous and not complete:
+            # A pass that could not list everything may not know the home: a
+            # restart that cannot list the home's account would otherwise
+            # copy the whole archive into another folder of its org.
+            home, why = previous, (f"home folder {previous} (kept: the inventory is "
+                                   "incomplete this pass)")
+        elif home is None and previous is not None:
             # The store no longer shows the home it had, and nothing else
             # resolves: keep it rather than widen every archived session's
             # scope to every folder. Nothing is removed for it while it is
@@ -2266,11 +2288,24 @@ class Mirror:
             home, why = previous, f"{why}; kept home folder {previous}"
         if (registry is not None and home is not None and home != previous
                 and complete and not options.dry_run):
-            registry.home = {"value": options.dead_home, "folder": home}
+            registry.record_home(options.dead_home, home)
             try:
                 registry.save()
             except OSError:
                 pass
+        # What the operator should hear about, in `--status` too (review r3 R5, R6).
+        warnings: list[str] = []
+        if home is not None and home not in kinds and complete:
+            warnings.append(f"the home folder {home} is not in the store, so old archived "
+                            "and dead sessions are neither spread nor removed; "
+                            "set dead_home")
+        elif home is not None and kinds.get(home) == folder_kinds.SWITCH:
+            warnings.append(f"the home folder {home} reads as a switch folder; it is "
+                            "seeded all the same")
+        if registry is not None and not registry.replayed and registry.unread:
+            warnings.append("the folder registry is not learning: the app's logs could not "
+                            "all be read (" + ", ".join(registry.unread) + ")")
+        self._scope_warnings = warnings
         self._kinds, self._home, self._home_detail = kinds, home, why
         self._archived_at = self._base_archived_at()
         now = self.now().timestamp()
@@ -2317,7 +2352,9 @@ class Mirror:
         facts: dict[int, tuple[bool, bool, int]] = {}
         count = size = 0
         for path, files in folder_files.items():
-            switch = situation.kinds.get(f"{path.parent.name}/{path.name}") == folder_kinds.SWITCH
+            # The home is never one (review r3 R4): with a home that reads as
+            # a switch folder, every session would otherwise be planned.
+            switch = situation.switch(f"{path.parent.name}/{path.name}")
             base = os.fspath(path)
             for name, data in files.items():
                 count += 1
@@ -2360,7 +2397,9 @@ class Mirror:
         last account forward (its `planned_at` says when).
         """
         if not (rules.prune or options.dry_run or current.swept or self._prune_report is None):
-            current.prune = dict(self._prune_report)
+            # The last plan, with this pass's warnings: they come from the
+            # home and the registry, which every pass decides.
+            current.prune = dict(self._prune_report, warnings=list(self._scope_warnings))
             return
         if options.flag_sync:
             # The stamps this pass's flag sync decided, including the first
@@ -2489,6 +2528,7 @@ class Mirror:
             "sessions": sessions, "outside": outside, "kept_newest": kept,
             "removable": removable, "removable_bytes": removable_bytes,
             "removed": removed, "held": held, "if_on": would,
+            "warnings": list(self._scope_warnings),
         }
         self._prune_report = report
         current.prune = report
@@ -3277,6 +3317,13 @@ class Mirror:
         """
         data = self.sidecar()
         result = self._full_health(data, now=now)
+        # The scope rules' warnings (a home gone, a registry that cannot learn)
+        # do not make a pass unhealthy, but `--status` says them (review r3 R6).
+        account = (data.get("pass") or {}).get("prune")
+        warnings = account.get("warnings") if isinstance(account, dict) else None
+        if warnings and isinstance(warnings, list):
+            result["warnings"] = [str(item) for item in warnings]
+            result["detail"] += "; " + "; ".join(result["warnings"])
         hot = data.get("hot")
         if not isinstance(hot, dict):
             return result

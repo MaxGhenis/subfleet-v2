@@ -347,11 +347,16 @@ class DesktopLog:
         loads, so this reads them all, in order, with a fresh reader (each
         file calibrated to the zone it was written in). It leaves this
         reader's own position alone. A log that cannot be read is named in
-        `unread` (review r2 N8); a live log that is not there yet is not.
+        `unread` (review r2 N8); a live log that is not there yet is not. So
+        is a rotation while the logs are read (review r3 R5): the files move
+        up a name under the reader, which then reads one twice and skips the
+        one that moved past it.
         """
         reader = DesktopLog(self.path, store=self._store, tz=self.tz)
         unread: list[str] = []
-        for path in rotated_paths(self.path) + [self.path]:
+        paths = rotated_paths(self.path) + [self.path]
+        before = _log_files(paths)
+        for path in paths:
             try:
                 size = os.stat(path).st_size
                 offset = 0
@@ -368,7 +373,20 @@ class DesktopLog:
             except OSError:
                 unread.append(os.fspath(path))
                 continue
+        if _log_files(rotated_paths(self.path) + [self.path]) != before:
+            unread.append(f"{self.path.parent} (the logs rotated while they were read)")
         return Replay(reader.drain(), tuple(unread))
+
+
+def _log_files(paths: list[Path]) -> list[tuple[str, int | None]]:
+    """Each log's name and inode: what a rotation changes, and growth does not."""
+    found: list[tuple[str, int | None]] = []
+    for path in paths:
+        try:
+            found.append((path.name, os.stat(path).st_ino))
+        except OSError:
+            found.append((path.name, None))
+    return found
 
 
 def rotated_paths(path: Path) -> list[Path]:

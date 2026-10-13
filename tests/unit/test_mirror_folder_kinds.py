@@ -183,6 +183,49 @@ def test_a_replay_that_finds_no_log_is_tried_again(tmp_path):
     assert registry.since == at(0).timestamp()
 
 
+def test_a_rotation_during_the_replay_counts_as_unread(tmp_path, monkeypatch):
+    """C-23.28a, review r3 R5: the app rotating its logs while they are read
+    moves each up a name under the reader, which then reads one twice and
+    skips another. That replay counts as unread; the next one learns all."""
+    store = tmp_path / "store"
+    log = tmp_path / "main.log"
+    write_log(tmp_path / "main1.log", lines(store, "a/org-a", at(0)))
+    write_log(log, lines(store, "b/org-b", at(3600)))
+    reader = desktop.DesktopLog(log, store=store, tz=UTC)
+    read, rotated = desktop.DesktopLog._read, []
+
+    def rotating(self, path, offset):
+        if not rotated:                                 # the app rotates, once
+            rotated.append(path)
+            os.rename(tmp_path / "main1.log", tmp_path / "main2.log")
+            os.rename(log, tmp_path / "main1.log")
+            write_log(log, lines(store, "c/org-c", at(7200)))
+        return read(self, path, offset)
+
+    monkeypatch.setattr(desktop.DesktopLog, "_read", rotating)
+    found = reader.replay()
+    assert any("rotated while they were read" in item for item in found.unread)
+    assert {event.folder for event in found.events} == {"b/org-b", "c/org-c"}, "a/org-a skipped"
+    registry = folder_kinds.Registry(tmp_path / "registry.json")
+    assert folder_kinds.learn(registry, reader, replay=True)    # read again, whole
+    assert set(registry.folders) == {"a/org-a", "b/org-b", "c/org-c"}
+    assert registry.unread == ()
+
+
+def test_the_registry_keeps_a_home_per_value_the_most_recent_ones(tmp_path):
+    """C-23.28a, review r3 R7: one record per `dead_home` value, the most
+    recent `HOMES_KEPT`, and they survive a save."""
+    registry = folder_kinds.Registry(tmp_path / "registry.json")
+    for number in range(folder_kinds.HOMES_KEPT + 2):
+        registry.record_home(f"org-{number}", f"a/org-{number}")
+    registry.record_home("org-2", "b/org-2")              # resolved again: the newest
+    registry.save()
+    again = folder_kinds.Registry(tmp_path / "registry.json")
+    assert len(again.homes) == folder_kinds.HOMES_KEPT
+    assert list(again.homes)[-1] == "org-2" and again.homes["org-2"] == "b/org-2"
+    assert "org-0" not in again.homes and "org-1" not in again.homes
+
+
 def test_a_replay_that_cannot_read_a_rotation_folds_nothing_and_is_tried_again(tmp_path):
     """C-23.28a, review r2 N8: history with a gap is not the history. Folding
     the rest, or the live poll's events, would move the watermark past the

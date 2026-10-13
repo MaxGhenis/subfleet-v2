@@ -595,6 +595,7 @@ def _prune_lines(account: dict[str, Any] | None, *, dry_run: bool) -> list[str]:
     if held:
         lines.append("  kept: " + ", ".join(f"{count} ({reason})"
                                             for reason, count in sorted(held.items())))
+    lines.extend(f"  warning: {item}" for item in account.get("warnings") or ())
     return lines
 
 

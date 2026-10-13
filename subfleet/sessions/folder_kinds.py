@@ -74,6 +74,8 @@ OWNER_S = 600.0
 #: this long, counting from the oldest load or logout it folded in. On
 #: 2026-10-13 the app's own log reached back 7.5 days.
 SWITCH_PRUNE_AFTER_S = 30 * 86_400.0
+#: How many `dead_home` values keep their resolved home in the registry.
+HOMES_KEPT = 8
 
 SETTLED, SWITCH, UNKNOWN = "settled", "switch", "unknown"
 
@@ -125,10 +127,15 @@ class Registry:
         self.replayed = False
         #: The oldest event folded in, epoch seconds: how long it has learned.
         self.since: float | None = None
-        #: The home folder last resolved, `{"value": dead_home, "folder": ...}`,
+        #: The home folder each `dead_home` value resolved to, oldest first,
         #: kept so an ambiguity later keeps the home rather than unhoming every
-        #: archived session (`Mirror.resolve_home`).
-        self.home: dict[str, str] | None = None
+        #: archived session (`Mirror.resolve_home`). One per value (review r3
+        #: R7): a one-off `--dead-home` pass in the same state root leaves the
+        #: daemon's own record alone.
+        self.homes: dict[str, str] = {}
+        #: The logs the last replay could not read (not persisted): while any
+        #: is named and nothing was replayed, the registry learns nothing.
+        self.unread: tuple[str, ...] = ()
         self._read()
 
     # --- persistence -----------------------------------------------------------
@@ -152,14 +159,21 @@ class Registry:
         since = value.get("since")
         if isinstance(since, (int, float)) and not isinstance(since, bool):
             self.since = float(since)
-        home = value.get("home")
-        if (isinstance(home, dict) and isinstance(home.get("value"), str)
-                and isinstance(home.get("folder"), str)):
-            self.home = {"value": home["value"], "folder": home["folder"]}
+        homes = value.get("homes")
+        if isinstance(homes, dict):
+            self.homes = {key: folder for key, folder in homes.items()
+                          if isinstance(key, str) and isinstance(folder, str)}
+
+    def record_home(self, value: str, folder: str) -> None:
+        """Record what `value` resolved to; the most recent `HOMES_KEPT` values stay."""
+        self.homes.pop(value, None)
+        self.homes[value] = folder
+        while len(self.homes) > HOMES_KEPT:
+            del self.homes[next(iter(self.homes))]
 
     def to_dict(self) -> dict[str, Any]:
         return {"version": 1, "replayed": self.replayed, "since": self.since,
-                "home": self.home,
+                "homes": dict(self.homes),
                 "folders": {key: asdict(item) for key, item in sorted(self.folders.items())},
                 "last": {"at": self.last_at, "folder": self.last_folder,
                          "keys": sorted([list(key) for key in self._keys],
@@ -282,6 +296,7 @@ def learn(registry: Registry, log: Any, *, replay: bool) -> bool:
         log.drain()
         return False
     found = log.replay()
+    registry.unread = found.unread           # reported until a replay reads them all
     if found.unread or not found.events:
         # No log, an empty one, or one that could not be read: tried again.
         log.drain()
@@ -296,5 +311,5 @@ def current_folder(load: Load | None) -> str | None:
     return load.folder if load is not None else None
 
 
-__all__ = ["OWNER_S", "REGISTRY_NAME", "Registry", "SETTLED", "SETTLE_S", "SWITCH",
-           "UNKNOWN", "Facts", "current_folder", "learn", "registry_path"]
+__all__ = ["HOMES_KEPT", "OWNER_S", "REGISTRY_NAME", "Registry", "SETTLED", "SETTLE_S",
+           "SWITCH", "UNKNOWN", "Facts", "current_folder", "learn", "registry_path"]

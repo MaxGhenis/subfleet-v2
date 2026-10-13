@@ -97,12 +97,18 @@ registry keeps an owner after the log that showed it rotates away.
 The home folder is `dead_home` in `~/.claude/cc-mirror.json` (here org
 `8b35fb7b…`, resolving to `d1e7c8a9…/8b35fb7b…`). It is resolved over every
 folder the store is known to hold, listed that pass or not, and once resolved
-it stays put: recorded in the folder registry (only from a pass whose
-inventory is complete), kept while the store holds it even if another folder
+it stays put: recorded in the folder registry (one record per `dead_home`
+value, so a one-off `--dead-home` pass leaves the daemon's alone), changed or
+recorded only by a pass whose inventory is complete (one that is not, such as
+a restart that cannot list the home's account, keeps the recorded home), kept
+while the store holds it even if another folder
 of its org settles or the registry comes to read it as a switch folder (then
 reported, and the home is seeded all the same), and kept when the store no
 longer shows it. Unhoming the archive would spread every archived session
 into every folder in one pass; moving the home would move the whole archive.
+A home the store does not hold, one that reads as a switch folder, and a
+registry that cannot read the app's logs are warnings in the pass's account
+and in `sessions mirror --status`.
 Quiet means since the later
 of the session's newest activity, focus or creation time over every copy and
 its archive stamp. Archiving leaves the activity times alone (of 850 archived
@@ -148,7 +154,9 @@ scope, never:
 - a session flag sync held or wrote that pass, or anything at all when the
   inventory is incomplete, `projects/` is missing or a project directory in
   it could not be listed (its sessions would read as dead; a symlinked one is
-  listed through its link, as the app opens transcripts through it), flag
+  listed through its link, as the app opens transcripts through it, and one
+  whose target cannot be read leaves the listing incomplete, while a link
+  that loops is no directory and fails only itself), flag
   sync is off or held, or the store's removal lock cannot be had. The lock
   is keyed by the store's path and lives in a directory no environment
   variable moves (macOS's per-user temporary directory, not `TMPDIR`, which
