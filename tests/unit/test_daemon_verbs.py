@@ -17,6 +17,7 @@ import pytest
 
 from subfleet import cli
 from subfleet.client import Client
+from tests.fake.conftest import process_inspection_available  # noqa: F401 - shared host prerequisite
 
 REPO = str(Path(__file__).resolve().parents[2])
 
@@ -82,7 +83,7 @@ def _write_stub(path: Path, body: str) -> Path:
 
 
 @pytest.fixture
-def stub(root, monkeypatch, tmp_path):
+def stub(root, monkeypatch, tmp_path, process_inspection_available):
     """A `subfleetd` that really listens, torn down however the test ends."""
     path = _write_stub(tmp_path / "stub-subfleetd", STUB)
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(path))
@@ -217,7 +218,7 @@ def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
 
 
 def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
-                                                             tmp_path, capsys):
+                                                             tmp_path, capsys, process_inspection_available):
     """C-17.1 a subfleetd that double-forks exits 0; that is not a failure."""
     forking = tmp_path / "forking-subfleetd"
     forking.write_text(STUB.format(python=sys.executable, repo=REPO).replace(
@@ -347,7 +348,7 @@ def _stopping_stub(root: Path, tmp_path: Path, mode: str):
 
 
 def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(root, tmp_path,
-                                                                             monkeypatch, capsys):
+                                                                             monkeypatch, capsys, process_inspection_available):
     """C-5.8a a daemon ending itself at its bound is reported stopped, not failed,
     and is never sent SIGKILL."""
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 8.0)
@@ -359,7 +360,7 @@ def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(roo
 
 
 def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_path,
-                                                                    monkeypatch, capsys):
+                                                                    monkeypatch, capsys, process_inspection_available):
     """C-5.8a, C-5.4 still the signalled identity after the wait: SIGKILL, as
     launchd's ExitTimeOut would, and the stop succeeds."""
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 1.0)
