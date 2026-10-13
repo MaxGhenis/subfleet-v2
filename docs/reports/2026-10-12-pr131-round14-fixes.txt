@@ -267,3 +267,47 @@ failure or caught mutation is claimed. The hub must run every UNRUN entry.
 All temporary task directories and disposable source trees were cleaned using
 the requested Python shutil.rmtree cleanup. No runner or build remains, and
 there is no .hypothesis directory in the worktree.
+
+Round 16, 2026-10-12 (base 5b220e3f0d5f)
+======================================
+
+23ac76d1b rebuilds both C-5.6 kill worlds in test_daemon_settle.py. Production
+_record_owned records the group before guardian exit; same_process then sees
+the owned child alive. authorized_signal_stub delivers individual TERM/KILL.
+In the draining world KILL ends scalar liveness while the conservative census
+stays busy for .15 s. The original finalizing/no-quarantine, exact TERM/KILL,
+post-kill reread and receipt assertions remain unchanged. The persistent-census
+neighbor previously passed without signalling anything; it now requires TERM,
+escalation KILL and the subsequent survivor KILL. The exit-receipt settle tests
+already exercise finalization, which does not depend on signal delivery.
+
+Static checks: all 104 original assertions preserved, one delivery assertion
+added; Python parses; git diff --check passes. Production daemon.py matches the
+base byte for byte.
+
+Requested validation                         passed / failed / status
+unit/test_daemon_settle.py                       0 / 0 / UNRUN
+fake/test_state_contract.py                      0 / 0 / UNRUN
+fake/test_review_pr131_round15.py                 0 / 0 / UNRUN
+settle-window mutation (one regression node)     0 / 0 / UNRUN, UNPROVEN
+
+The first unit request hit its 1100-second watchdog (exit 124) without pytest
+output. Separate 45-second lock requests for state-contract, round-15, mutation
+and the unit retry each exited 75: shared lock already locked. No completed
+test result is counted. Other suites were not requested or run in this round.
+
+The disposable mutation set the kill settle deadline to monotonic() + 0.0.
+It could not enter pytest, so no expected regression failure is claimed.
+Its original bytes were restored and verified before cleanup; SHA256:
+87abc310f1384b920283d259f8db5c39a1dab835da3a1c9a4ce1b7ca0bda42d6.
+Production bytes remained unchanged. All task TMPDIRs and the disposable tree
+were cleaned with the requested Python shutil.rmtree command. Requests ran
+foreground, sequentially, each with its own shared-lock request and watchdog.
+
+Commits use workspace-local .git-local on feat/quarantine-self-resolve because
+shared Git metadata is outside the writable workspace. Shared HEAD remains
+5b220e3f0d5f; the hub must carry the local commits. Only the named test and this
+report are staged, in separate commits, with the requested Co-Authored-By
+trailer. The report commit is listed in the handoff. No remote, sub-agent,
+caller-worktree write or live application operation occurred. Host validation
+of the three suites and the negative mutation witness remains outstanding.
