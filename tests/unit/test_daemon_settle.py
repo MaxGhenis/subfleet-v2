@@ -88,6 +88,12 @@ def attempt(core) -> dict:
     return dict(core.store.get_attempt(ATTEMPT))
 
 
+def record_owned_group(core):
+    """Remember both identities before the guardian exits, as production inspection does."""
+    core._record_owned(attempt(core), table_showing((4242, 1, 4242, "Ss"),
+                                                  (4243, 4242, 4242, "R")))
+
+
 def draining(core, busy_for_s: float, busy=BUSY) -> list[float]:
     """Inject a census that stays busy for `busy_for_s` after its first read, then empties."""
     calls: list[float] = []
@@ -108,14 +114,23 @@ def test_c5_6_kill_re_reads_a_draining_census_within_the_settle_window(daemon, m
     killed_at = None
     signals = []
     calls = []
+    record_owned_group(daemon)
+
+    def same_process(pid, boot_id, proc_start):
+        # The guardian has exited; its recorded child survives until KILL.
+        return (pid, boot_id, proc_start) == (4243, "boot", STARTED) and killed_at is None
 
     def wait(timeout):
         nonlocal now
         now += timeout
         return False
 
-    def signal_group(pgid, sig, **identity):
+    def deliver(recorded, sig):
         nonlocal killed_at
+        # Match signal_process's scalar check: teardown may outlast identity
+        # liveness, so a stale busy census cannot deliver another KILL.
+        if not daemon_module.procs.same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
+            return False
         signals.append(sig)
         if sig == signal.SIGKILL:
             killed_at = now
@@ -132,7 +147,8 @@ def test_c5_6_kill_re_reads_a_draining_census_within_the_settle_window(daemon, m
     # Replace only this daemon module's clock, not the shared time module or
     # real threading primitives used by pytest and filesystem publication.
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now))
-    monkeypatch.setattr(daemon_module.procs, "signal_group", signal_group)
+    monkeypatch.setattr(daemon_module.procs, "same_process", same_process)
+    monkeypatch.setattr(daemon_module.procs, "signal_process", authorized_signal_stub(deliver))
     daemon.stopping = SimpleNamespace(wait=wait)
     daemon._contain = contain
     daemon._kill_attempt(attempt(daemon))
@@ -149,8 +165,20 @@ def test_c5_6_kill_re_reads_a_draining_census_within_the_settle_window(daemon, m
     assert receipt["signal"] == 9 and receipt["killed_by"] == "operator"
 
 
-def test_c5_6_kill_quarantines_only_after_the_settle_window(daemon):
+def test_c5_6_kill_quarantines_only_after_the_settle_window(daemon, monkeypatch):
     """C-5.6 a census that never empties quarantines once kill_settle_s has elapsed, with its evidence."""
+    record_owned_group(daemon)
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda pid, boot_id, proc_start:
+                        (pid, boot_id, proc_start) == (4243, "boot", STARTED))
+    signals = []
+
+    def deliver(recorded, sig):
+        if not daemon_module.procs.same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
+            return False
+        signals.append((recorded, sig))
+        return True
+
+    monkeypatch.setattr(daemon_module.procs, "signal_process", authorized_signal_stub(deliver))
     draining(daemon, 60)
     started = time.monotonic()
     daemon._kill_attempt(attempt(daemon))
@@ -164,6 +192,8 @@ def test_c5_6_kill_quarantines_only_after_the_settle_window(daemon):
     assert daemon.store.get_job(JOB)["state"] == "lost"
     kinds = [row["kind"] for row in daemon.store.list_events(JOB)]
     assert "attempt.quarantined" in kinds
+    child = BUSY.identities[4243]
+    assert signals == [(child, signal.SIGTERM), (child, signal.SIGKILL), (child, signal.SIGKILL)]
 
 
 @pytest.mark.parametrize("census", [BUSY, GUARDIAN_ONLY, UNVERIFIABLE],
