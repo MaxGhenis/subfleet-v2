@@ -7068,16 +7068,16 @@ class Daemon:
         provider it starts names it, so a privacy check (TCC) still asks about the
         daemon's own executable, which the guardian runs (`sys.executable`)."""
         child = procs.spawn_disclaimed(command, env=env, cwd=package_root, pass_fds=(read_fd,))
-        try:
-            root = procs.responsibility_root(child.pid)
-        except procs.InspectionError:
-            if not isinstance(child, procs.Spawned):
-                raise
-            root = None
-        if root is None and isinstance(child, procs.Spawned):
-            # posix_spawn accepted the disclaim attribute. A failed metadata
-            # read must not silently downgrade this attempt to three sources.
-            root = {"pid": child.pid, "unique_id": None}
+        root = None
+        if isinstance(child, procs.Spawned):
+            try:
+                root = procs.responsibility_root(child.pid)
+            except procs.InspectionError:
+                pass
+            if root is None:
+                # posix_spawn accepted the disclaim attribute. A failed metadata
+                # read must not silently downgrade this attempt to three sources.
+                root = {"pid": child.pid, "unique_id": None}
         if root is None and not self._unrooted_logged:
             self._unrooted_logged = True
             self.log.warning("guardian %s started without a responsibility root (disclaim available: %s); "

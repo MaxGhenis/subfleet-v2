@@ -76,3 +76,18 @@ def test_a_successful_disclaimed_spawn_always_records_a_root(monkeypatch, unavai
     assert found is child
     assert recorded == {"pid": 42, "unique_id": None}
     assert not core._unrooted_logged
+
+
+def test_a_fallback_spawn_needs_no_responsibility_metadata(monkeypatch):
+    """A missing spawn SPI can coexist with a readable responsibility SPI: fallback
+    still starts as before and must not depend on a responsibility read succeeding."""
+    child = SimpleNamespace(pid=42)
+    monkeypatch.setattr(procs, "spawn_disclaimed", lambda *args, **kwargs: child)
+    monkeypatch.setattr(procs, "responsibility_root", lambda pid: pytest.fail("fallback read responsibility"))
+    monkeypatch.setattr(procs, "disclaim_available", lambda: False)
+    warnings = []
+    core = SimpleNamespace(_unrooted_logged=False,
+                           log=SimpleNamespace(warning=lambda *args: warnings.append(args)))
+    found, recorded = Daemon._spawn_guardian(core, ["python"], {}, 9, "/fixture")
+    assert found is child and recorded is None
+    assert len(warnings) == 1
