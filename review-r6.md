@@ -72,4 +72,9 @@ All runs used Python 3.12.14 and `/usr/bin/lockf -k /private/tmp/claude-501/subf
 - The full suite and Python 3.14.
 - A non-Python child invoking `security`; none was found in the tree.
 
+## Housekeeping
+
+- I appended `.venv` to the shared `~/subfleet-v2/.git/info/exclude`, which a job worktree resolves to. I then removed exactly that line; `.venv/` was already listed there.
+- My TMPDIR cleanup glob also removed two `sf-r198r6-*` directories left by the earlier round-6 attempt (`20261013-024327-pr198-review-r6`). No process from that attempt was running.
+
 Evidence is in `~/reviews/subfleet-2110/test-live-store-guard/review-r6-evidence/`: hold logs, `probes-*.jsonl`, audit logs and copies of the probe files.
