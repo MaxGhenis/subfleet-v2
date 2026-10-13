@@ -199,6 +199,7 @@ def test_lineage_limit_keeps_newest_and_overflow_holds_until_proven_reboot(monke
     assert set(history) == {"200", "300"} and overflow == BOOT
     for boot, empty in ((BOOT, False), ("unknown", False), (NEXT_BOOT, True)):
         monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({}, boot_id=boot))
+        monkeypatch.setattr(procs, "boot_id", lambda: boot)
         monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
         census = procs.containment(None, None, None, "a1", lineage_overflow_boot=BOOT)
         assert census.verified_empty is empty

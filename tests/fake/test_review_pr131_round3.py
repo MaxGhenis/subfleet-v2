@@ -25,7 +25,9 @@ from tests.fake.test_workspace_contract import repository
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 # The production readers, captured before `state_daemon` replaces them.
-REAL = {name: getattr(procs, name) for name in ("boot_id", "proc_start", "same_process", "containment", "liveness", "cwd_pids")}
+REAL = {name: getattr(procs, name) for name in (
+    "boot_id", "proc_start", "same_process", "containment", "liveness", "cwd_pids",
+    "identity", "snapshot", "group_members")}
 
 
 

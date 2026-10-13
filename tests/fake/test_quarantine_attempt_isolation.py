@@ -71,6 +71,8 @@ def test_child_dispatch_succeeds_while_parent_turn_waiter_is_live(
         daemon.store.update_attempt(child["attempt_id"], evidence_json=json.dumps(evidence))
     daemon._contain(child)
     daemon._contain(child)  # Retained cwd roots used to adopt the entire parent group.
+    evidence = json.loads(daemon.store.get_attempt(child["attempt_id"])["evidence_json"])
+    assert {r["pid"] for r in evidence["lineage_roots"]} == {200, 201}
     rows.pop(200)
     rows.pop(201)
     finalizing = receipt_fixture(daemon, child, adir)
@@ -84,7 +86,10 @@ def test_child_dispatch_succeeds_while_parent_turn_waiter_is_live(
     assert not daemon.store.one("SELECT 1 FROM events WHERE kind='attempt.quarantined' AND attempt_id=?",
                                 (child["attempt_id"],))
     evidence = json.loads(daemon.store.get_attempt(child["attempt_id"])["evidence_json"])
-    assert {r["pid"] for r in evidence["lineage_roots"]} == {200, 201}
+    # The combined census retires dead roots only after their groups empty.
+    # Signal ownership history remains separate from these resolved holds.
+    assert evidence.get("lineage_roots", []) == []
+    assert set(evidence["owned_identity_history"]) == {"200", "201"}
 
 
 @settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
