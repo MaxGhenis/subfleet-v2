@@ -149,7 +149,8 @@ def add_worktree(repository: str, path: str, commit: str, *, env: dict[str, str]
         if reset.returncode:
             allocation.result = reset
             return allocation
-        status = _run(["git", "--no-optional-locks", "-C", path, "status", "--porcelain=v1", "-z",
+        # No fsmonitor: a check `git worktree add` does not make must not start its daemon.
+        status = _run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", path, "status", "--porcelain=v1", "-z",
                        "--untracked-files=all", "--ignore-submodules=none"], env, deadline.left())
         if status.returncode or status.stdout:
             # Not what `git worktree add` gives (or git gives it that way too):
@@ -182,7 +183,17 @@ def _clone_stage(allocation: Allocation, repository: str, path: str, env: dict[s
     if _git_out(path, env, stage, "config", "--bool", "core.sparseCheckout", check=False).strip() == b"true":
         allocation.reason = "sparse checkout"
         return
-    source = _git_out(repository, env, stage, "rev-parse", "--show-toplevel").rstrip(b"\n")
+    # Under either, git's checkout marks index entries (assume-unchanged, or
+    # fsmonitor-valid) that an entry a refresh verified would not carry.
+    if _git_out(path, env, stage, "config", "--bool", "core.ignoreStat", check=False).strip() == b"true":
+        allocation.reason = "core.ignoreStat"
+        return
+    fsmonitor = _git_out(path, env, stage, "config", "--get", "core.fsmonitor", check=False).strip()
+    if fsmonitor and _git_out(path, env, stage, "config", "--type=bool", "--get", "core.fsmonitor",
+                              check=False).strip() != b"false":
+        allocation.reason = "core.fsmonitor"
+        return
+    source = _git_out(repository, env, stage, "rev-parse", "--show-toplevel", check=False).rstrip(b"\n")
     if not source:
         allocation.reason = "the caller's directory is in no worktree"
         return

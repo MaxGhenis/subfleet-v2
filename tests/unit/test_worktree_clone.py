@@ -88,7 +88,15 @@ def tree_state(root: Path) -> dict:
 def git_state(root: Path) -> dict:
     git_path = lambda name: Path(git(root, "rev-parse", "--path-format=absolute", "--git-path", name).strip())
     read = lambda p: p.read_bytes() if p.exists() else None
+    admin = Path(git(root, "rev-parse", "--path-format=absolute", "--git-dir").strip())
+    # Old and new head and the message of each reflog line; who and when are the clock's.
+    reflog = [(line.split(" ", 2)[:2], line.partition("\t")[2])
+              for line in (read(admin / "logs" / "HEAD") or b"").decode().splitlines()]
     return {
+        # A split index's file is named by a hash of its stat data, which two plain adds differ in too.
+        "admin": sorted("sharedindex.*" if p.name.startswith("sharedindex.") else p.name for p in admin.iterdir()),
+        "orig_head": read(admin / "ORIG_HEAD"),
+        "reflog": reflog,
         "head": git(root, "rev-parse", "HEAD").strip(),
         "branch": git(root, "symbolic-ref", "-q", "HEAD", check=False).strip(),
         "index": git(root, "ls-files", "-s", "-z"),
@@ -255,6 +263,70 @@ def test_c6_6a_a_path_git_converts_on_checkout_is_never_cloned(tmp_path, attribu
     else:
         assert not converted & set(allocation.cloned_paths)
         assert allocation.skipped.get("converted by git on checkout", 0) >= 2
+
+
+@pytest.mark.parametrize("config", [
+    {"core.ignoreStat": "true"},
+    {"core.trustctime": "false"},
+    {"core.checkStat": "minimal"},
+    {"index.version": "4"},
+    {"feature.manyFiles": "true"},
+    {"core.untrackedCache": "true"},
+    {"core.preloadIndex": "false"},
+    {"core.symlinks": "false"},
+    {"core.filemode": "false"},
+    {"index.skipHash": "true"},
+    {"core.splitIndex": "true"},
+    {"core.fsmonitor": "false"},
+])
+def test_c6_6a_index_and_stat_config_never_keeps_a_clone_that_is_not_the_blob(tmp_path, config):
+    """Whatever the index and stat settings, a clone of a file the caller rewrote
+    in place (same size, other bytes) is written by git, and the worktree is the
+    plain add's."""
+    source = make_repo(tmp_path / "repo", FILES)
+    for key, value in config.items():
+        git(source, "config", key, value)
+    (source / "big.bin").write_bytes(bytes(reversed(range(256))) * (BIG // 256))
+    expected, got, allocation = both(tmp_path, source)
+    assert got == expected
+    assert "big.bin" not in allocation.cloned_paths
+    assert private(tmp_path / "cloned" / "big.bin") > 0
+    if config == {"core.ignoreStat": "true"}:
+        assert allocation.reason == "core.ignoreStat" and allocation.cloned == 0
+    else:
+        assert allocation.cloned == 5
+
+
+@pytest.mark.parametrize("value", ["true", "/no/such/hook"])
+def test_c6_6a_an_fsmonitor_leaves_the_checkout_to_git(tmp_path, value):
+    """git's own checkout marks entries fsmonitor-valid, which a refresh would
+    not: the stage stands aside, and the worktree (and any fsmonitor daemon git
+    starts for it) is the plain add's."""
+    source = make_repo(tmp_path / "repo", FILES)
+    git(source, "config", "core.fsmonitor", value)
+    try:
+        expected, got, allocation = both(tmp_path, source)
+        assert got[0] == expected[0] and got[1]["index"] == expected[1]["index"]
+        assert allocation.reason == "core.fsmonitor" and allocation.cloned == 0
+        watching = [("is watching" in git(tmp_path / name, "fsmonitor--daemon", "status", check=False))
+                    for name in ("plain", "cloned")]
+        assert watching[0] == watching[1]
+    finally:
+        for name in ("plain", "cloned"):
+            if (tmp_path / name).exists():
+                git(tmp_path / name, "fsmonitor--daemon", "stop", check=False)
+
+
+def test_c6_6a_a_caller_outside_any_worktree_is_left_to_git(tmp_path):
+    source = make_repo(tmp_path / "repo", FILES)
+    bare = tmp_path / "bare.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(source), str(bare)], check=True)
+    commit = git(bare, "rev-parse", "HEAD").strip()
+    assert plain_add(bare, tmp_path / "plain", commit).returncode == 0
+    allocation = clone_add(bare, tmp_path / "cloned", commit)
+    assert allocation.result.returncode == 0
+    assert allocation.reason == "the caller's directory is in no worktree"
+    assert checkout_state(tmp_path / "cloned") == checkout_state(tmp_path / "plain")
 
 
 def test_c6_6a_a_sparse_checkout_is_left_to_git(tmp_path):
