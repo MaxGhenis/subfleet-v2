@@ -483,9 +483,17 @@ def _real_index(worktree):
     return Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "index"))
 
 
+def _off_disk(worktree):
+    """`salvage._off_disk`, with a copy of the index in a directory of its own, as
+    ``(mode, object, path)`` in index order."""
+    with tempfile.TemporaryDirectory() as temporary:
+        found = salvage_module._off_disk(worktree, Path(temporary) / "listed")
+    return [(*meta.split(b" "), path) for path, meta in found.items()]
+
+
 def _off_disk_paths(worktree):
     """The paths `_off_disk` says the sparse checkout keeps off disk, in index order."""
-    return [os.fsdecode(path) for _, _, path in salvage_module._off_disk(worktree)]
+    return [os.fsdecode(path) for _, _, path in _off_disk(worktree)]
 
 
 def _git_add_all(worktree, *flags):
@@ -731,23 +739,176 @@ def test_c13_1_sparse_a_worktree_with_no_index_is_refused_not_read_as_deleted(sp
     assert git(repo, "for-each-ref", "refs/subfleet-salvage/") == ""
 
 
-@pytest.mark.parametrize("broken", [("ls-files", "-s"), ("update-index", "--index-info"),
+def _checkout_newer(repo, worktrees):
+    """Commit in ``repo`` a change to files left out, and check it out detached in
+    each of ``worktrees``: their real indexes then hold entries the baseline lacks."""
+    git(repo, "checkout", "-q", "-b", "newer")
+    (repo / "state" / "a.json").write_text('{"a": "newer"}\n')
+    (repo / "state" / "added.json").write_text("{}\n")
+    git(repo, "add", "-A")
+    git(repo, *IDENTITY, "commit", "-m", "newer")
+    git(repo, "checkout", "-q", "task/source")
+    for worktree in worktrees:
+        git(worktree, "checkout", "-q", "--detach", "newer")
+
+
+@pytest.mark.parametrize("broken", [("ls-files", "-s"), ("ls-tree", "-r"), ("update-index", "--index-info"),
                                     ("update-index", "--skip-worktree")])
 def test_c13_1_sparse_a_snapshot_that_cannot_keep_the_files_left_out_fails(sparse_pair, monkeypatch,
                                                                              broken):
-    """C-13.1 fails closed: when the real index cannot be listed, or its entries
-    cannot be written into the temporary one, or their bits cannot be set there,
-    the snapshot raises. Going on would record every file left out as deleted."""
+    """C-13.1 fails closed: when the real index cannot be listed, the baseline
+    cannot be listed, the entries cannot be written into an index of their own,
+    or their bits cannot be set in the temporary one, the snapshot raises. Going
+    on would record every file left out as deleted. The real index holds a newer
+    commit and the read is into an empty index, so each step has work to do."""
     repo, sparse, _ = sparse_pair
+    baseline = git_head(sparse)
+    _checkout_newer(repo, [sparse])
     real = salvage_module._git_bytes
 
     def git_bytes(workdir, *args, **kwargs):
         refused = args[0] == broken[0] and broken[1] in args
         return None if refused else real(workdir, *args, **kwargs)
     monkeypatch.setattr(salvage_module, "_git_bytes", git_bytes)
-    with pytest.raises(SalvageError, match="sparse checkout"):
-        salvage(sparse, git_head(sparse), 1)
+    with _empty_index_read(), pytest.raises(SalvageError, match="sparse checkout|baseline"):
+        salvage(sparse, baseline, 1)
     assert git(repo, "for-each-ref", "refs/subfleet-salvage/") == ""
+
+
+def test_c13_1_sparse_a_temporary_index_without_an_entry_left_out_fails(sparse_pair, monkeypatch):
+    """C-13.1 fails closed: a temporary index that does not hold every entry the
+    patterns keep off disk would record the missing ones as deleted. Here the
+    base it reads lacks the newer commit's entries; both reads refuse it."""
+    repo, sparse, _ = sparse_pair
+    baseline = git_head(sparse)
+    _checkout_newer(repo, [sparse])
+    monkeypatch.setattr(salvage_module, "_sparse_base", lambda workdir, env, scratch, base, *a, **k: base)
+    with pytest.raises(SalvageError, match="could not mark"):
+        working_tree(sparse, baseline)
+    assert git(repo, "for-each-ref", "refs/subfleet-salvage/") == ""
+
+
+def test_c13_1_sparse_a_failed_read_of_the_sparse_setting_fails_the_snapshot(sparse_pair, monkeypatch):
+    """C-13.1 an unset `core.sparseCheckout` reads as false; any other failure to
+    read it raises. Read as "not sparse", it took the plain snapshot, which
+    passes over a file a job wrote outside the patterns (review of the first
+    version: one injected `unable to read config` lost that edit)."""
+    repo, sparse, _ = sparse_pair
+    (sparse / "state").mkdir()
+    (sparse / "state" / "a.json").write_text("the job wrote this\n")
+    real_run = subprocess.run
+
+    def run(cmd, **kwargs):
+        if cmd[3:4] == ["config"] and "core.sparseCheckout" in cmd:
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: unable to read config: Input/output error\n")
+        return real_run(cmd, **kwargs)
+    monkeypatch.setattr("subfleet.salvage.subprocess.run", run)
+    with pytest.raises(SalvageError, match="config failed"):
+        salvage(sparse, git_head(sparse), 1)
+    monkeypatch.undo()
+    assert git(repo, "for-each-ref", "refs/subfleet-salvage/") == ""
+    assert sparse_checkout(sparse) is True
+
+
+def test_c13_1_sparse_the_entries_left_out_come_from_one_read_of_the_index(sparse_pair, monkeypatch):
+    """C-13.1 the entries are listed from a private copy of the real index, so an
+    index removed while they are listed changes nothing (review of the first
+    version: git listed the missing index as empty, and the snapshot recorded
+    every file left out as deleted). The listing never reads the real index."""
+    repo, sparse, _ = sparse_pair
+    (sparse / "state").mkdir()
+    (sparse / "state" / "a.json").write_text("the job wrote this\n")
+    baseline, index = git_head(sparse), _real_index(sparse)
+    saved, listed_from = index.read_bytes(), []
+    real = salvage_module._git_bytes
+
+    def git_bytes(workdir, *args, **kwargs):
+        if args[:2] == ("ls-files", "-s"):
+            listed_from.append(kwargs["env"]["GIT_INDEX_FILE"])
+            index.unlink()
+            try:
+                return real(workdir, *args, **kwargs)
+            finally:
+                index.write_bytes(saved)
+        return real(workdir, *args, **kwargs)
+    monkeypatch.setattr(salvage_module, "_git_bytes", git_bytes)
+    tree = working_tree(sparse, baseline)
+    monkeypatch.undo()
+    assert listed_from and str(index) not in listed_from
+    assert _changes(repo, f"{baseline}^{{tree}}", tree) == ["M\tstate/a.json"]
+
+
+#: Failures a git call can end in that the snapshot's helpers do not all raise on
+#: (a timeout always raises): some read them as "no answer" and fall back.
+_FAULTS = {
+    "exit 128": lambda cmd, kwargs: subprocess.CompletedProcess(
+        cmd, 128, b"" if kwargs.get("text") is None else "",
+        b"fatal: unable to read config: Input/output error\n" if kwargs.get("text") is None
+        else "fatal: unable to read config: Input/output error\n"),
+    "no git": lambda cmd, kwargs: FileNotFoundError(errno.ENOENT, "No such file or directory", "git"),
+}
+
+
+@pytest.mark.parametrize(("fault", "newer"), [("exit 128", False), ("exit 128", True), ("no git", True)],
+                         ids=["exit-128-index-at-baseline", "exit-128-index-at-newer-commit",
+                              "no-git-index-at-newer-commit"])
+def test_c13_1_sparse_any_one_failed_git_call_raises_or_changes_nothing(tmp_path, monkeypatch, fault, newer):
+    """C-13.1 fails closed, for every git call a snapshot makes: fail any one of
+    them (git exiting 128, or no git at all) and the snapshot either
+    raises `SalvageError` or returns the tree it returns when nothing fails. It
+    never returns another tree, and the real index's bytes never change. Run for
+    both reads, with the real index at the baseline and at a newer commit (which
+    builds an index of its own), and edits in the patterns and outside them."""
+    repo = _layout_repo(tmp_path / "repo", SPARSE_LAYOUT)
+    sparse = _cut(repo, tmp_path / "sparse", SPARSE_MODES["patterns"], branch="task/sparse")
+    baseline = git_head(sparse)
+    if newer:
+        _checkout_newer(repo, [sparse])
+    (sparse / "bin" / "tool").write_text("edited\n")
+    (sparse / "state").mkdir(exist_ok=True)
+    (sparse / "state" / "b.json").write_text("the job wrote this\n")
+    (sparse / "scratch").mkdir()
+    (sparse / "scratch" / "note.txt").write_text("untracked\n")
+    index = _real_index(sparse)
+    before = index.read_bytes()
+    real_run = subprocess.run
+    for seeded in (True, False):
+        with contextlib.ExitStack() as stack:
+            if not seeded:
+                stack.enter_context(_empty_index_read())
+            expected = working_tree(sparse, baseline)
+            calls = []
+
+            def counting(cmd, **kwargs):
+                calls.append(cmd[3:5])
+                return real_run(cmd, **kwargs)
+            monkeypatch.setattr("subfleet.salvage.subprocess.run", counting)
+            assert working_tree(sparse, baseline) == expected
+            monkeypatch.setattr("subfleet.salvage.subprocess.run", real_run)
+            assert len(calls) >= 8
+            for position, failed in enumerate(calls):
+                seen = [0]
+
+                def failing(cmd, **kwargs):
+                    seen[0] += 1
+                    if seen[0] - 1 == position:
+                        outcome = _FAULTS[fault](cmd, kwargs)
+                        if isinstance(outcome, BaseException):
+                            raise outcome
+                        return outcome
+                    return real_run(cmd, **kwargs)
+                monkeypatch.setattr("subfleet.salvage.subprocess.run", failing)
+                try:
+                    tree = working_tree(sparse, baseline)
+                except SalvageError:
+                    tree = None
+                finally:
+                    monkeypatch.setattr("subfleet.salvage.subprocess.run", real_run)
+                assert tree in (None, expected), (seeded, position, failed, fault)
+                assert index.read_bytes() == before, (seeded, position, failed, fault)
+    changes = _changes(repo, f"{baseline}^{{tree}}", expected)
+    assert {"M\tbin/tool", "M\tstate/b.json", "A\tscratch/note.txt"} <= set(changes)
+    assert not any(line.startswith("D\t") for line in changes)
 
 
 def test_c13_1_sparse_a_subdirectory_snapshots_the_whole_worktree(sparse_pair):
@@ -806,7 +967,7 @@ def test_c13_1_sparse_every_kind_of_entry_left_out_is_kept(tmp_path):
     sparse = _cut(repo, tmp_path / "sparse", SPARSE_MODES["patterns"], branch="task/sparse")
     full = _cut(repo, tmp_path / "full", branch="task/full")
     baseline = git_head(sparse)
-    modes = {os.fsdecode(path): mode for mode, _, path in salvage_module._off_disk(sparse)}
+    modes = {os.fsdecode(path): mode for mode, _, path in _off_disk(sparse)}
     assert (modes["notes/link"], modes["state/run.sh"], modes["vendor/lib"]) == (b"120000", b"100755", b"160000")
     assert _both_reads(sparse, baseline) == git(sparse, "rev-parse", "HEAD^{tree}")
     for worktree in (sparse, full):
@@ -832,6 +993,40 @@ def test_c13_1_sparse_a_file_written_then_removed_outside_the_patterns_reads_as_
     assert _both_reads(sparse, baseline) == git(sparse, "rev-parse", "HEAD^{tree}")
     git(sparse, "rm", "--sparse", "--cached", "--", "state/a.json")
     assert _changes(repo, f"{baseline}^{{tree}}", _both_reads(sparse, baseline)) == ["D\tstate/a.json"]
+
+
+def test_c13_1_sparse_intended_a_repository_cloned_where_a_directory_was_left_out(sparse_pair):
+    """C-13.1 intended, and not a full checkout's snapshot (review of the first
+    version): a repository cloned where a directory the patterns left out was.
+    The files it does not hold are not on disk, so they read as unchanged, as
+    `git status` reports them; a full checkout records their removal."""
+    repo, sparse, full = sparse_pair
+    fixture = _layout_repo(repo.parent / "fixture", {"a.json": b"cloned\n"})
+    baseline = git_head(sparse)
+    for worktree in (sparse, full):
+        shutil.rmtree(worktree / "state", ignore_errors=True)
+        git(repo.parent, "clone", "-q", str(fixture), str(worktree / "state"))
+    ours, theirs = _both_reads(sparse, baseline), working_tree(full, baseline)
+    assert _changes(repo, f"{baseline}^{{tree}}", ours) == ["M\tstate/a.json"]
+    assert [line.split("\t")[1] for line in _changes(repo, f"{baseline}^{{tree}}", ours)] == _status_paths(sparse)
+    assert {"D\tstate/b.json", "D\tstate/deep/c.json"} <= set(_changes(repo, f"{baseline}^{{tree}}", theirs))
+
+
+def test_c13_1_sparse_intended_an_attribute_change_does_not_reach_a_file_left_out(tmp_path):
+    """C-13.1 intended, and not a full checkout's snapshot (review of the first
+    version): attributes changed so that a file outside the patterns would be
+    read differently (here, CRLF normalized). The file is not on disk and is
+    not read, as `git status` does not read it; a full checkout rereads it."""
+    repo = _layout_repo(tmp_path / "repo", {".gitattributes": b"state/*.txt -text\n", "bin/tool": b"x\n",
+                                            "state/f.txt": b"hello\r\n"})
+    sparse = _cut(repo, tmp_path / "sparse", ("--cone", "bin"), branch="task/sparse")
+    full = _cut(repo, tmp_path / "full", branch="task/full")
+    baseline = git_head(sparse)
+    for worktree in (sparse, full):
+        (worktree / ".gitattributes").write_text("state/*.txt text\n")
+    ours, theirs = _both_reads(sparse, baseline), working_tree(full, baseline)
+    assert _changes(repo, f"{baseline}^{{tree}}", ours) == ["M\t.gitattributes"] and _status_paths(sparse) == [".gitattributes"]
+    assert _changes(repo, f"{baseline}^{{tree}}", theirs) == ["M\t.gitattributes", "M\tstate/f.txt"]
 
 
 def test_c13_1_sparse_index_mode_holds_a_directory_and_its_real_index_is_untouched(tmp_path):
@@ -868,7 +1063,7 @@ def test_c13_1_sparse_only_a_skip_worktree_entry_whose_file_is_gone_counts_as_of
     real = salvage_module._git_bytes
     monkeypatch.setattr(salvage_module, "_git_bytes", lambda workdir, *args, **kwargs: (
         listing if args[:2] == ("ls-files", "-s") else real(workdir, *args, **kwargs)))
-    assert salvage_module._off_disk(sparse) == [
+    assert _off_disk(sparse) == [
         (b"100644", one.encode(), b"state/b.json"), (b"100755", two.encode(), b"notes/with\ttab.md")]
 
 
@@ -899,17 +1094,40 @@ def test_c13_1_sparse_index_holding_only_directories_snapshots_to_a_well_formed_
     assert "duplicateEntries" not in checked.stdout + checked.stderr
 
 
-def test_c13_1_sparse_the_temporary_index_is_told_to_be_full_beside_any_setting_already_there():
-    """C-13.1 `index.sparse` is turned off through git's numbered environment settings,
-    after any the daemon's environment already carries; a count that is not a
-    number is read as none."""
+def test_c13_1_sparse_the_temporary_index_is_told_to_be_full_after_any_setting_already_there():
+    """C-13.1 `index.sparse=false` goes last in `GIT_CONFIG_PARAMETERS`, after
+    whatever the daemon's environment already carries there, which is kept."""
     assert salvage_module._full_index({"KEEP": "1"}) == {
-        "KEEP": "1", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "index.sparse", "GIT_CONFIG_VALUE_0": "false"}
-    given = {"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "a.b", "GIT_CONFIG_VALUE_0": "c",
-             "GIT_CONFIG_KEY_1": "d.e", "GIT_CONFIG_VALUE_1": "f"}
-    assert salvage_module._full_index(given) == {
-        **given, "GIT_CONFIG_COUNT": "3", "GIT_CONFIG_KEY_2": "index.sparse", "GIT_CONFIG_VALUE_2": "false"}
-    assert salvage_module._full_index({"GIT_CONFIG_COUNT": "junk"})["GIT_CONFIG_COUNT"] == "1"
+        "KEEP": "1", "GIT_CONFIG_PARAMETERS": "'index.sparse=false'"}
+    assert salvage_module._full_index({"GIT_CONFIG_PARAMETERS": " 'a.b=c' 'index.sparse=true' "}) == {
+        "GIT_CONFIG_PARAMETERS": "'a.b=c' 'index.sparse=true' 'index.sparse=false'"}
+
+
+@pytest.mark.parametrize("inherited", [{"GIT_CONFIG_PARAMETERS": "'index.sparse=true'"},
+                                       {"GIT_CONFIG_PARAMETERS": "'index.sparse'='true'"},
+                                       {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "index.sparse",
+                                        "GIT_CONFIG_VALUE_0": "true"}])
+def test_c13_1_sparse_index_turned_on_by_the_environment_cannot_turn_it_back_on(tmp_path, monkeypatch,
+                                                                                  inherited):
+    """C-13.1 review of the first version: an `index.sparse=true` the daemon inherits
+    (`git -c` writes `GIT_CONFIG_PARAMETERS`) overrode the setting, and the
+    snapshot of a sparse index nobody edited was a tree naming a directory twice.
+    Whatever the environment says, both reads give the baseline's tree."""
+    repo = _layout_repo(tmp_path / "repo", {"a/f": b""})
+    sparse = _cut(repo, tmp_path / "sparse", ("--cone", "--sparse-index"), branch="task/sparse")
+    for name, value in inherited.items():
+        monkeypatch.setenv(name, value)
+    assert git(sparse, "config", "--get", "index.sparse") == "true"
+    head = git_head(sparse)
+    assert _both_reads(sparse, head) == git(sparse, "rev-parse", "HEAD^{tree}")
+    assert salvage(sparse, head, 1) is None
+    (sparse / "a").mkdir()
+    (sparse / "a" / "new").write_text("new\n")
+    result = salvage(sparse, head, 1)
+    monkeypatch.undo()
+    assert _changes(repo, f"{head}^{{tree}}", result.tree) == ["A\ta/new"]
+    checked = subprocess.run(["git", "-C", str(repo), "fsck", "--no-dangling"], capture_output=True, text=True)
+    assert checked.returncode == 0 and "duplicateEntries" not in checked.stdout + checked.stderr
 
 
 def test_c13_1_sparse_a_file_written_outside_the_patterns_is_read_whatever_git_is_told_to_expect(sparse_pair):
@@ -997,13 +1215,19 @@ def test_c26_14_sparse_a_turn_diff_lists_only_what_the_turn_wrote(sparse_pair):
 
 # --- C-13.1 in a sparse checkout: the properties ---------------------------------
 #
-# 1. Nobody edited it: for any files, any patterns and any of the three kinds of
-#    sparse checkout, the snapshot is the baseline's tree, read either way, from
+# Each holds for every input of the domain its strategy draws from, which the
+# docstring states; Hypothesis samples it.
+#
+# 1. Nobody edited it: the snapshot is the baseline's tree, read either way, from
 #    the top level or a subdirectory, and the real index is not rewritten.
-# 2. Sparse is full: for any edits, git's own commands among them, the snapshot
-#    of a sparse worktree is the snapshot of a full checkout with the same edits.
-# 3. The snapshot reads the worktree as git does: for any edits to files, the
-#    paths the snapshot changes are the paths `git status` reports.
+# 2. Sparse is full: the snapshot of a sparse worktree is the snapshot of a full
+#    checkout with the same edits. Not for every edit: a file outside the
+#    patterns that is not on disk is never read (`working_tree`), so removing one,
+#    or changing the attributes that would read it, is left out of the domain.
+# 3. The snapshot reads the worktree as git does: the paths the snapshot changes
+#    are the paths `git status` reports, with no assume-unchanged bit and
+#    `sparse.expectFilesOutsideOfPatterns` unset (with it set, git trusts a
+#    skip-worktree bit over the file on disk, and the snapshot does not).
 
 QUIET = dict(deadline=None, derandomize=True, database=None)
 _SERIAL = itertools.count()
@@ -1036,9 +1260,11 @@ def sparse_scratch(tmp_path_factory):
        mode=st.sampled_from(sorted(SPARSE_MODES)))
 def test_c13_1_sparse_property_a_worktree_nobody_edited_snapshots_to_its_baseline(
         sparse_scratch, files, root_files, kept, mode):
-    """C-13.1 for any tracked files, any patterns (keeping all, some or none of the
-    directories) and each kind of sparse checkout: the snapshot of a worktree
-    nobody edited is its baseline's tree. Read from the real index or into an
+    """C-13.1 for tracked files at up to three levels under four top-level
+    directories (names with spaces, tabs, newlines, quotes and non-ASCII),
+    patterns keeping all, some or none of those directories, and each kind of
+    sparse checkout: the snapshot of a worktree nobody edited is its baseline's
+    tree. Read from the real index or into an
     empty one, from the top level or from a directory the patterns keep, with
     the real index left byte for byte as it was."""
     root = sparse_scratch / f"nobody-{next(_SERIAL)}"
@@ -1129,10 +1355,12 @@ def _worktrees(source, scratch, mode, *, full):
        edits=st.lists(st.one_of(_file_edits, _git_edits), max_size=8))
 def test_c13_1_sparse_property_the_snapshot_is_a_full_checkouts_with_the_same_edits(
         sparse_source, sparse_scratch, mode, edits):
-    """C-13.1 for any sequence of edits (files written, created, removed, made
-    executable or replaced by a symlink, in the patterns and outside them, staged
-    or committed along the way): the sparse worktree's snapshot, read either way,
-    is the tree a full checkout with the same edits snapshots to."""
+    """C-13.1 for any sequence of up to eight of these edits: tracked files written
+    in the patterns and outside them; files created, and symlinks made, in
+    directories in and outside them, ignored names among them; tracked files in
+    the patterns removed or made executable; a path staged with `--sparse`; a
+    commit of the patterns' directories. The sparse worktree's snapshot, read
+    either way, is the tree a full checkout with the same edits snapshots to."""
     with _worktrees(sparse_source, sparse_scratch, mode, full=True) as (sparse, full):
         baseline = git_head(sparse)
         for edit in edits:
@@ -1154,8 +1382,9 @@ def _status_paths(worktree):
                       max_size=8))
 def test_c13_1_sparse_property_the_snapshot_changes_the_paths_git_status_reports(
         sparse_source, sparse_scratch, mode, edits):
-    """C-13.1 for any edits to files, including a file outside the patterns written
-    and then removed: the paths at which the snapshot differs from the baseline
+    """C-13.1 for any sequence of up to eight of the file edits above, and the
+    removal of a tracked file outside the patterns (written by an earlier edit,
+    or never there): the paths at which the snapshot differs from the baseline
     are exactly the paths `git status` reports in the sparse worktree."""
     with _worktrees(sparse_source, sparse_scratch, mode, full=False) as (sparse, _):
         baseline = git_head(sparse)
