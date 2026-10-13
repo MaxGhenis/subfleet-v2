@@ -95,7 +95,7 @@ def test_d_cen1_a_disclaimed_guardian_starts_as_popen_started_it(tmp_path):
     report = tmp_path / "report.json"
     ready = tmp_path / "ready"
     code = ("import json, os, sys\n"
-            "open(sys.argv[3], 'w').write(str(os.getpid()))\n"
+            "with open(sys.argv[3], 'w') as ready: ready.write(str(os.getpid()))\n"
             "fd = int(sys.argv[1]); gate = os.read(fd, 1)\n"
             "fds = sorted(int(n) for n in os.listdir('/dev/fd') if n.isdigit())\n"
             "json.dump({'gate': gate.decode(), 'cwd': os.getcwd(), 'env': dict(os.environ), 'fds': fds,\n"
