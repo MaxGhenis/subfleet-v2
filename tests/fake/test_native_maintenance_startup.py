@@ -412,7 +412,9 @@ def test_retention_runs_exactly_when_its_two_clocks_allow(state_daemon, monkeypa
 
 def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_pins(state_daemon, monkeypatch):
     """C-8.4, C-26.12, IR-17: the hourly pass hands retention the detached and turn
-    budgets of the `retention` policy section and the conversation service's pins."""
+    budgets of the `retention` policy section and the conversation service's pins. Since
+    C-6.18 they arrive through the daemon's `_retention_pins`, which adds the placement
+    ramp's ledger when the ramp is on; it is off here, so the pins are the service's."""
     service, _ = state_daemon
     service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'jobs': 7, 'turn_jobs': 9,
                                                       'turn_bytes': 1234, 'turn_keep_days': 2}}
@@ -426,7 +428,8 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     service._retention()
     assert (seen['max_jobs'], seen['max_bytes']) == (7, 2 * 1024 ** 3)
     assert (seen['turn_max_jobs'], seen['turn_max_bytes'], seen['turn_keep_s']) == (9, 1234, 2 * 86400)
-    assert seen['pins'] == service.conversations.retention_pins
+    assert seen['pins'] == service._retention_pins
+    assert seen['pins']() == service.conversations.retention_pins()
     assert seen['remote_less_history_bytes'] == 64 * 1024 ** 2          # d635 N1: the default
     service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'remote_less_history_bytes': 0}}
     service._retention()
@@ -435,7 +438,7 @@ def test_retention_gets_both_budgets_from_policy_and_the_conversation_services_p
     for batch in calls:
         assert (batch['max_jobs'], batch['max_bytes']) == (7, 2 * 1024 ** 3)
         assert (batch['turn_max_jobs'], batch['turn_max_bytes'], batch['turn_keep_s']) == (9, 1234, 2 * 86400)
-        assert batch['pins'] == service.conversations.retention_pins
+        assert batch['pins'] == service._retention_pins
         assert batch['state'] is service._retention_state
 
 
