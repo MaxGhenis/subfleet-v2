@@ -254,7 +254,8 @@ class SuggestionError(ConversationError):
 
 
 def error_details(error: Any) -> dict:
-    details = error.details if isinstance(error, SuggestionError) else None
+    details = (error.details if isinstance(error, SuggestionError) else
+               getattr(error, "suggestion_details", None))
     if type(details) is not dict:
         return {}
     reason = error_reason(error)
@@ -320,20 +321,13 @@ def scrub_error(error: Any, *, prefix: str = "") -> str:
     return scrubbed_line(context + text)
 
 
-def response_reason(message: Any) -> str | None:
-    """Validate a daemon wire message against our finite vocabulary, for the CLI.
-
-    Return an enum key, never wire text. Exact legacy unknown-op templates keep
-    old-daemon discovery working without allowing arbitrary diagnostic prose.
-    """
+def response_details(message: Any) -> dict:
+    """Extract validated counts/states from complete canonical wire templates."""
     if type(message) is not str:
-        return None
-    for reason, template in ERROR_MESSAGES.items():
-        if message == reason + ": " + template:
-            return reason
+        return {}
     for state in CLOSED_STATES:
         if message == "not-open: " + error_message("not-open", {"state": state}):
-            return "not-open"
+            return {"state": state}
     # Recognize only complete templates with canonical, bounded integer fields.
     match = re.fullmatch(r"too-many-suggestions: (?:(?P<all>[0-9]{1,19}) suggestions are open; "
                          r"at most (?P<global_max>[0-9]{1,19}) are kept|"
@@ -345,7 +339,24 @@ def response_reason(message: Any) -> str | None:
                    "maximum": int(match["global_max"] if match["all"] is not None else match["maximum"])}
         valid = error_details(SuggestionError("too-many-suggestions", "", details=details))
         if valid and message == "too-many-suggestions: " + error_message("too-many-suggestions", valid):
-            return "too-many-suggestions"
+            return valid
+    return {}
+
+
+def response_reason(message: Any) -> str | None:
+    """Validate a daemon wire message against our template vocabulary, for the CLI.
+
+    Return an enum key, never wire text. Exact legacy unknown-op templates keep
+    old-daemon discovery working without allowing arbitrary diagnostic prose.
+    """
+    if type(message) is not str:
+        return None
+    for reason, template in ERROR_MESSAGES.items():
+        if message == reason + ": " + template:
+            return reason
+    details = response_details(message)
+    if details:
+        return "not-open" if "state" in details else "too-many-suggestions"
     if message in tuple("unknown op '" + op + "'" for op in SUGGESTION_OPS):
         return "unknown-op"
     from ..protocol import REFUSAL_MESSAGES
