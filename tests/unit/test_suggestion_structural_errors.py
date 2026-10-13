@@ -164,6 +164,52 @@ def test_conversation_error_metadata_is_untrusted(field):
         assert_secret_absent(cli_error(service, response["error"]), value)
 
 
+@given(secret=secrets, field=st.sampled_from(("scope", "count", "maximum", "state")))
+@settings(max_examples=100, deadline=None)
+def test_structural_diagnostic_fields_cannot_render_caller_text(secret, field):
+    reason = "not-open" if field == "state" else "too-many-suggestions"
+    details = {"scope": "this conversation", "count": 20, "maximum": 20, "state": "dismissed", field: secret}
+    error = suggestions.SuggestionError(reason, secret, code=7, fix=secret, details=details)
+    with fixture() as service:
+        service.handle = lambda *a, **kw: (_ for _ in ()).throw(error)
+        response = wire_reply(service, op="suggestion.list")
+        assert response["error"]["message"] == reason + ": " + suggestions.ERROR_MESSAGES[reason]
+        assert_secret_absent(response, secret)
+        assert_secret_absent(cli_error(service, response["error"]), secret)
+
+
+@pytest.mark.parametrize("reason,details,message", (
+    ("too-many-suggestions", {"scope": "this conversation", "count": 20, "maximum": 20},
+     "this conversation has 20 open suggestions; at most 20"),
+    ("too-many-suggestions", {"scope": "all", "count": 65, "maximum": 65},
+     "65 suggestions are open; at most 65 are kept"),
+    ("not-open", {"state": "dismissed"}, "the suggestion was dismissed; it cannot start"),
+    ("not-open", {"state": "withdrawn"}, "the suggestion was withdrawn; it cannot start"),
+))
+def test_structural_diagnostics_survive_wire_cli_and_retained_reads(reason, details, message):
+    secret = "password='SECRET7-left\n右秘密-TAIL8'"
+    error = suggestions.SuggestionError(reason, secret, code=7, fix=secret, details=details)
+    with fixture() as service:
+        service.handle = lambda *a, **kw: (_ for _ in ()).throw(error)
+        response = wire_reply(service, op="suggestion.list")
+        diagnostic = reason + ": " + message
+        assert response["error"]["message"] == diagnostic
+        assert suggestions.response_reason(diagnostic) == reason
+        assert message in cli_error(service, response["error"])
+        assert suggestions.stored_error(diagnostic) == diagnostic
+        assert suggestions.response_reason(diagnostic + secret) is None
+        assert suggestions.stored_error(diagnostic + secret) == "Exception: the suggestion operation failed"
+        assert_secret_absent(response, secret)
+
+
+@pytest.mark.parametrize("invalid", (True, -1, 2 ** 63, "20", None, [], UnrenderableFailure()))
+def test_structural_counts_are_bounded_integers(invalid):
+    error = suggestions.SuggestionError("too-many-suggestions", "untrusted", details={
+        "scope": "this conversation", "count": invalid, "maximum": 20,
+    })
+    assert suggestions.scrub_error(error) == "too-many-suggestions: " + suggestions.ERROR_MESSAGES["too-many-suggestions"]
+
+
 @pytest.mark.parametrize("flag", ("--provider", "--permission", "--request-id"))
 def test_cli_argument_refusals_do_not_echo_caller_values(flag, capsys):
     value = "password='SECRET7-left\n右秘密-TAIL8'"
