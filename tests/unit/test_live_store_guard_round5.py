@@ -13,6 +13,7 @@ from subfleet.adapters import claude
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential
 from subfleet.conversations.service import ConversationService
+from tests.keychain_standin import standin  # noqa: F401 - the fixture
 
 
 @pytest.mark.parametrize("alias", ["same", "symlink", "case"])
@@ -87,19 +88,16 @@ def test_patched_subprocess_is_a_credential_standin(tmp_path, monkeypatch, reade
     assert calls == [["security", "find-generic-password", "-s", reference, "-w"]]
 
 
-def test_adapter_guard_checks_captured_runner_after_subprocess_patch(monkeypatch):
-    """Patching the module later cannot authorize an adapter's native runner."""
-    calls = []
+def test_adapter_guard_checks_captured_runner_after_subprocess_patch(monkeypatch, standin):
+    """Patching the module later cannot authorize an adapter's native runner.
 
-    def native(argv, **kwargs):
-        calls.append(argv)
-        pytest.fail("native backend reached")
-
-    monkeypatch.setattr(credentials, "_NATIVE_RUNNER", native)
-    monkeypatch.setattr(credentials.subprocess, "run", native)
+    The adapter captures the real subprocess.run; `standin` puts a recording
+    `security` first on PATH, so a refusal defect would be counted, not run.
+    """
+    assert credentials.subprocess.run is credentials._NATIVE_RUNNER
     adapter = claude.ClaudeAdapter()
     monkeypatch.setattr(credentials.subprocess, "run", lambda *a, **k: pytest.fail("wrong runner"))
     with pytest.raises(AdapterError, match="refusing personal keychain"):
         adapter._resolve_keychain_token("fixture-service")
     assert adapter._plan_from_keychain("fixture-service") is None
-    assert calls == []
+    assert standin.count() == 0

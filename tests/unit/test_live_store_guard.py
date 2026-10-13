@@ -24,6 +24,7 @@ from subfleet.home_paths import (
     SAFE_ENV_REMOVALS, SAFE_HOME_PATHS,
 )
 from tests.conftest import pytest_configure, pytest_unconfigure
+from tests.keychain_standin import StandIn, standin  # noqa: F401 - the fixture
 
 REPO = Path(__file__).resolve().parents[2]
 RESOLVERS = [
@@ -522,36 +523,34 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
 
 @pytest.mark.parametrize("marker", [PYTEST_MARKER, "PYTEST_CURRENT_TEST"])
 def test_keychain_after_undo_never_requests_native_command(tmp_path, monkeypatch, marker):
-    """Replay the review's default desktop reader with a recording backend."""
-    from subfleet.adapters import claude
+    """Replay the review's default desktop reader against the real default backend."""
     from subfleet.adapters.claude import PROFILE_UNAVAILABLE
     from tests.conftest import no_desktop_login
     monkeypatch.undo()
+    # Neither subprocess.run nor the native-runner sentinel is replaced. A
+    # recording `security` comes first on PATH, and the exec guard and safety
+    # net refuse the real binary, so even a refusal defect reaches no keychain.
+    found = StandIn(tmp_path / "standin-bin")
     with pytest.MonkeyPatch.context() as phase:
         phase.delenv(PYTEST_MARKER, raising=False)
         phase.delenv("PYTEST_CURRENT_TEST", raising=False)
         phase.setenv(marker, "1")
         phase.setenv("HOME", str(tmp_path / "fake-home"))
-        calls = []
-
-        def record(argv, **kwargs):
-            calls.append(argv)
-            return subprocess.CompletedProcess(argv, 1, "", "fixture unavailable")
-
-        phase.setattr(claude.subprocess, "run", record)
-        # Stand in for the native backend itself so refusal remains safe to replay.
-        phase.setattr(credentials, "_NATIVE_RUNNER", record)
+        phase.setenv("PATH", found.search_path())
+        phase.delenv("CLAUDE_LANE_AGENT_SECRET", raising=False)
+        assert subprocess.run is credentials._NATIVE_RUNNER
         removable = pytest.MonkeyPatch()
         no_desktop_login.__wrapped__(removable)
         removable.undo()
         result = ClaudeAdapter().probe_desktop_profile()
         assert result.status == PROFILE_UNAVAILABLE
-        assert calls == []
+        assert result.detail == "keychain: 7"
+    assert found.count() == 0
 
 
 @pytest.mark.parametrize("reader", ["blob", "home-login", "token", "plan", "credential"])
 @pytest.mark.parametrize("marker", [PYTEST_MARKER, "PYTEST_CURRENT_TEST"])
-def test_every_keychain_reader_refuses_default_backend(tmp_path, monkeypatch, reader, marker):
+def test_every_keychain_reader_refuses_default_backend(tmp_path, monkeypatch, standin, reader, marker):
     from subfleet.adapters import claude
     from subfleet.adapters.base import AdapterError
     from subfleet.contracts import Credential
@@ -559,15 +558,9 @@ def test_every_keychain_reader_refuses_default_backend(tmp_path, monkeypatch, re
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv(marker, "1")
     monkeypatch.setenv("HOME", str(tmp_path / "fake-home"))
-    monkeypatch.delenv("CLAUDE_LANE_AGENT_SECRET", raising=False)
-    calls = []
-
-    def record(argv, **kwargs):
-        calls.append(argv)
-        return subprocess.CompletedProcess(argv, 1, "", "fixture unavailable")
-
-    monkeypatch.setattr(claude.subprocess, "run", record)
-    monkeypatch.setattr(credentials, "_NATIVE_RUNNER", record)
+    # The real default backend: neither subprocess.run nor the native-runner
+    # sentinel is replaced. `standin` puts a recording `security` first on PATH.
+    assert subprocess.run is credentials._NATIVE_RUNNER
     adapter = ClaudeAdapter()
     if reader == "blob":
         assert claude._keychain_blob("Claude Code-credentials") is None
@@ -581,7 +574,7 @@ def test_every_keychain_reader_refuses_default_backend(tmp_path, monkeypatch, re
                 adapter._resolve_keychain_token("claude-quota-fixture")
             else:
                 credentials.resolve_credential(Credential("claude", "claude-quota-fixture", "keychain-token"))
-    assert calls == []
+    assert standin.count() == 0
 
 
 def test_keychain_explicit_runner_is_a_standin(monkeypatch):

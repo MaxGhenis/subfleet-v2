@@ -24,6 +24,7 @@ from subfleet.home_paths import (
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
+from subfleet.credentials import install_keychain_exec_guard
 
 TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "claude"
@@ -56,6 +57,10 @@ def pytest_configure(config):
     config._subfleet_safe_home_base = base
     os.environ.update({name: str(base / relative)
                        for name, relative in SAFE_HOME_PATHS.items()})
+    # No runner identity tells a stub from a wrapper around the real
+    # subprocess.run (review r6, 2026-10-13). Refuse by the file a launch would
+    # start, for this whole session; an audit hook cannot be undone.
+    install_keychain_exec_guard()
 
 
 def pytest_unconfigure(config):

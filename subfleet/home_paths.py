@@ -58,17 +58,22 @@ def under_pytest() -> bool:
         # A copied PYTEST_CURRENT_TEST must not revive an expired session either.
         if session is None:
             return True
-        identity = os.environ.get(PYTEST_SESSION_ID)
-        if not identity:
-            return False
-        try:
-            with (Path(session) / PYTEST_SENTINEL).open(encoding="ascii") as sentinel:
-                found = os.fstat(sentinel.fileno())
-                token = sentinel.read(65)
-                return identity == f"{found.st_dev}:{found.st_ino}:{token}"
-        except (OSError, UnicodeError, ValueError):
-            return False
+        return session_alive(session, os.environ.get(PYTEST_SESSION_ID))
     return "PYTEST_CURRENT_TEST" in os.environ
+
+
+def session_alive(session: str | os.PathLike, identity: str | None) -> bool:
+    """Whether this session's own sentinel still exists. Cleanup deletes it, and
+    a recreated file never matches: the identity includes its inode and token."""
+    if not identity:
+        return False
+    try:
+        with (Path(session) / PYTEST_SENTINEL).open(encoding="ascii") as sentinel:
+            found = os.fstat(sentinel.fileno())
+            token = sentinel.read(65)
+            return identity == f"{found.st_dev}:{found.st_ino}:{token}"
+    except (OSError, UnicodeError, ValueError):
+        return False
 
 
 def home_path(variable: str, default: Callable[[], str | Path], *,
