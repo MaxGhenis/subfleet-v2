@@ -458,3 +458,87 @@ uses one exit receipt snapshot for both child seeding and the publication hold.
 A new witness publishes only after the first read: the first census must keep
 the unseen-child hold, and the second must retain child 201 and descendant 202.
 This tightens the merged proof without changing signal authority or assertions.
+
+Final validation and handoff
+----------------------------
+Commits in workspace-local .git-local on feat/quarantine-self-resolve:
+e2a979a2b merge (parents e2ba0c219fec and release 5bd0a3a674c6)
+d9f0cd976 release census fixture integration
+6b16a3e26 recorded-group/reboot/claim integration and scalar fixture consistency
+a6d489f03 complete cwd and continuing-absence fixtures
+0dc632420 one exit-publication snapshot and regression witness
+The final report commit is listed in the handoff. Every commit has the required
+Co-Authored-By trailer; shared HEAD stays e2ba0c219fec. The hub must import the
+local branch tip, including its merge ancestry, from this workspace.
+
+Reviewer tools: all five requested *_direct.py / *_inputs.py tools completed
+both before and after the root-source corrections, with 50 passed / 0 failed
+in each batch (100 executions, including repeated exit-child cases). Breakdown
+per batch: inputs 4, census_direct 12, direct 15, exit_direct 3, original_direct
+16. Both batches used the exact supplied runner sources. Missing reviewer
+fixtures were recovered byte-for-byte from local salvage commit 9cbf6e083;
+no other worktree or live state was read. The second batch imported a6d489f03,
+before the final single-receipt change. After 0dc632420, six fresh direct calls
+passed: all three exit-child consumers, the recycled probe guardian, the new
+exit-publication race, and the cached-boot retained-root witness. Thus 106
+completed direct executions passed, none failed. The four reviewer exit-child
+cases all pass on the final code. No full pytest result is inferred from direct
+calls, and aggregate runner exit codes were checked against their printed
+per-input PASS/FAIL counts.
+
+One completed pytest hold: 145 passed / 13 failed at d9f0cd976, 400.64 seconds,
+reported above; all thirteen failures have corresponding code/fixture fixes.
+Final full-suite pytest validation is UNRUN, not claimed passing. Of eleven
+separate requests, ten exited 75 before pytest because the shared lock was
+already locked. They included corrected unit/census requests, the new race,
+release fences, the PR suites and module names. Three queues used 300 seconds;
+others used 45 seconds. The successful queue was also 300 seconds. Every
+request used the foreground locked runner, a fresh task TMPDIR, bounded
+Hypothesis storage, no cacheprovider and an 1100-second outer watchdog. No hold
+lasted 20 minutes, no overlapping pytest process or calmer-load wait occurred.
+The opt-in reduced PR/focused requests used tests.review_pr131_r15_bounds
+(8 property examples, 8 steps; 5 state-machine examples); those requests could
+not enter pytest, so no reduced or full property suite pass is claimed.
+
+Host must run the requested full files at the final local tip:
+- tests/unit/test_procs.py
+- tests/unit/test_census_identity_uncertainty.py
+- tests/unit/test_census_recycled_pid.py
+- tests/unit/test_census_survivors_review.py
+- tests/fake/test_census_recycled_pid_daemon.py
+- tests/fake/test_review_r185_adversarial.py
+- tests/fake/test_writer_retention_fence.py
+- tests/fake/test_detached_cwd_pins.py
+- tests/fake/test_policy_sandbox.py
+- tests/fake/test_turn_retention_cwd.py
+- tests/fake/test_review_pr131_round14.py
+- tests/fake/test_review_pr131_round15.py
+- tests/unit/test_daemon_settle.py
+- tests/fake/test_quarantine_ambiguity.py
+- tests/fake/test_quarantine_self_resolve.py
+- tests/fake/test_state_contract.py
+- tests/unit/test_test_module_names.py
+Also unrun: supplemental test_state_fixture_processes.py, census_interleavings,
+review_pr131_census_property, full property profiles, and broader suites or
+mutations not requested here. The causal.py tool is the reviewer's pre-merge
+source-overlay diagnostic, not a direct/input probe, and was not rerun against
+already-integrated replacement anchors. No causal-overlay pass is claimed.
+
+Final line-union audit: all 212 files changed by either parent checked; 205
+retain the exact union of added lines and none resurrect a wholly removed
+line. Rewritten additions in the four conflict files and three ported census
+fixture files are accounted for in this round's resolutions and follow-ups.
+No automatic hunk outside those seven files lost an addition. The audit also
+identified the already-strengthened #131 marker/descendant/delivery oracles and
+release's added unknown-identity diagnostic; their combinations are described
+above. All 44, 21 and 24 original assertions in the ported release files remain
+in AST form; the survivor file adds one and the publication-race file adds five.
+Changed production/test Python parses; module basenames are unique; git diff
+--check passes. Static checks are not counted as pytest passes.
+
+Exact temporary reviewer copies and every task TMPDIR were cleaned. TMPDIR
+cleanup used python3/shutil.rmtree, never rm -rf. No .hypothesis directory,
+active test runner, staged logs, JSON evidence or delivery bundles remain.
+Existing committed artifacts from both parents are preserved. No network
+remote, push, history rewrite, sub-agent, live store or unrelated process
+operation occurred. Only named source/test/report files were staged.
