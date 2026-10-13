@@ -164,15 +164,15 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
         frozen = json.dumps({"outcome": asdict(legacy), "attestation": asdict(attest)})
         (adir / "finalization.json").write_text(frozen)
         monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
-        notice = daemon._notice
+        salvage = daemon._salvage
         def crash(*args):
             raise RuntimeError("interrupted before acceptance")
-        monkeypatch.setattr(daemon, "_notice", crash)
+        monkeypatch.setattr(daemon, "_salvage", crash)
         with pytest.raises(RuntimeError, match="interrupted before acceptance"):
             daemon._finalize(finalizing)
         assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
         assert (adir / "deliverable.md").read_bytes() == b"Finished."
-        monkeypatch.setattr(daemon, "_notice", notice)
+        monkeypatch.setattr(daemon, "_salvage", salvage)
     successor = None
     try:
         if path == "recovery":
