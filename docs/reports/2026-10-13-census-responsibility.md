@@ -9,9 +9,9 @@ timings, and launchd responsibility check still need the hub's permitted host.
 Continued checkpoint `7ac60bcede906c7a07370a62195b4559e51167df`, preserving its
 regressions-first history. No remote operation, sub-agent, live-store access or
 live-daemon modification. The shared Git index rejected writes with EPERM, so
-new commits use workspace-local `.git-sf-census`, branch
+new commits use workspace-local `.git-local`, branch
 `fix/census-responsibility`, with read-only alternates to the shared object store.
-Inspect it with `GIT_DIR="$PWD/.git-sf-census" GIT_WORK_TREE="$PWD" git log`.
+Inspect it with `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
 Only named source, test, contract and report files were staged; no logs, JSON
 evidence or bundles. All commits carry the requested co-author trailer.
 
@@ -168,7 +168,7 @@ continuation does not claim to have reproduced them.
 Preserved commits: `b53b20185` regressions first, `8d9fe7e42` implementation,
 `7ac60bced` parser/source/guardian tests. Continuation commits: `b5f203cf8` failed
 read hardening and contract, `a0d226f79` legacy fallback isolation,
-`a1e3811c8` fixture isolation and cleanup. The final documentation commit adds
-this report. The hub's remaining acceptance work is the skipped files above,
+`a1e3811c8` fixture isolation and cleanup. Report commit `a24bfcadd` adds this report; the following documentation-only
+commit names `.git-local`, the repository's existing ignored metadata convention. The hub's remaining acceptance work is the skipped files above,
 baseline and real mutation comparisons, five successful full-census runs per
 revision at host permissions, and the launchd daemon responsibility check.
