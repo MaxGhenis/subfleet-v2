@@ -643,3 +643,12 @@ The latter two checks entered during the original serial file request batch;
 the new census checks entered on a subsequent 300-second queue. Other requested
 files are still pending at this checkpoint. Earlier requests that exited 75
 before pytest are unavailable validation, not failed tests or passing tests.
+
+Reviewer exit-child checkpoint at 4ab89d0a4:
+- tests/fake/test_review_pr131_round18_exit_child.py: 4 passed, 9.37 seconds.
+  This is the exact supplied r15 probe, including all three exit-only child
+  consumers and the recycled probe guardian. No assertion or input is changed.
+Static AST comparison also confirms _contain_probe, _kill_attempt, _signal_owned,
+_unambiguous_signal_identity, liveness, same_process, signal_group, signal_process,
+identities_overlap and protected_pids are unchanged from 71463059d. Static
+comparison is supporting evidence, not counted as additional pytest passes.
