@@ -83,7 +83,11 @@ reads as off, and any other failure to read it fails the snapshot):
    bit is set alone and reads every other path from disk.
 5. Every git command that touches the temporary index runs with
    `index.sparse=false` last in `GIT_CONFIG_PARAMETERS`, so that index is
-   always a full one (`_full_index`).
+   always a full one (`_full_index`). The first version needed this (next
+   section). The present one writes no entry into the temporary index, and
+   with the setting removed no test fails, nor 450 freshly drawn property
+   examples; it is kept so that every index the snapshot writes is a full
+   one.
 
 The entries come from the real index, not the baseline, so a job that checks
 out or commits newer work gets that work's files outside the patterns. If the
