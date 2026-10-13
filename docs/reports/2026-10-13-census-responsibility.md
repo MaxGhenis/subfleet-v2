@@ -214,7 +214,8 @@ P3-5 checks the daemon's own responsible pid at startup. Only a successful
 self-responsible result enables guardian disclaiming; terminal-started daemons
 and unreadable startup attribution preserve the Popen responsibility chain.
 Responsibility integration tests explicitly start their own daemon as a root to
-model launchd. One injectable `daemon.spawn_guardian` boundary receives the
+model launchd. A native startup probe returned False for inherited responsibility
+and True for a task-owned self-responsible child; the child was reaped. One injectable `daemon.spawn_guardian` boundary receives the
 production command and Popen options; a shared fixture passes those exact values
 to existing Popen stand-ins. Credentials, launch gates and preflight assertions
 are retained.
@@ -247,7 +248,9 @@ between kernels. Both Perl fixtures now explicitly remove the attempt/root/job
 markers before exec, retaining renaming and session escape, so their assertions
 still require responsibility discovery and no marker/group match on either host.
 
-Validation is in progress. The first two lock acquisitions timed out at 60 s;
-no pytest ran in those holds. Each subsequent suite uses its own foreground
-lockf hold with a 1,190 s outer timeout and cleans its Darwin TMPDIR with
-shutil.rmtree. Final counts and skipped/unrun files will be recorded below.
+The first four acquisitions could not enter the shared lock (three at 60 s,
+one at 600 s). The next core run acquired it and passed **131 tests** in 22.88 s:
+procargs 52, responsibility failures 20, procs 47, guardian 12. No assertions
+failed or were weakened. Additional files are being run separately. Every pytest
+process has its own foreground lockf hold with a 1,190 s outer timeout, and each
+Darwin TMPDIR is removed with shutil.rmtree. Exact final counts follow below.
