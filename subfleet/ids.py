@@ -56,6 +56,17 @@ def request_id(value: str | None = None) -> str:
     return value
 
 
+def request_id_arg(value: str) -> str:
+    """Validate a CLI id without argparse quoting a rejected caller value."""
+    import argparse
+    try:
+        return request_id(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"request id must contain 1 to {REQUEST_ID_MAX} ASCII letters, digits, '-' or '_' "
+            "and cannot be a credential") from None
+
+
 def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | None = None,
                    workdir_head: str | None = None, task: str | None = None,
                    tier: str | None = None, pinned_model: str | None = None,

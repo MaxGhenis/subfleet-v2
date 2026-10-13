@@ -1206,7 +1206,9 @@ def test_invalid_request_ids_are_rejected_without_truncation(
 
     monkeypatch.setattr(cli, "_client", no_transport)
     assert run_cli([*argv, "--request-id", identity]) == 2
-    assert "--request-id" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "--request-id" in err
+    assert "SECRET7-left" not in err and "ghp_" + "A" * 36 not in err
     assert not (root / "inbox").exists()
 
 

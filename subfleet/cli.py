@@ -3146,7 +3146,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--independent", action="store_true",
                        help="a parent's cancel does not cancel this child (C-7.3)")
     p_run.add_argument("--parent", metavar="JOB", help="parent job id")
-    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id,
+    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id_arg,
                        help="idempotency key (default: a UUID4, printed back)")
     p_run.add_argument("--wait", "--attach", dest="attach", action="store_true",
                        help="block until the job is terminal and return its rc")
@@ -3260,7 +3260,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("id")
     p_resume.add_argument("prompt", nargs="?")
     p_resume.add_argument("-o", "--output", help="also write the final response here")
-    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id)
+    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id_arg)
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 
