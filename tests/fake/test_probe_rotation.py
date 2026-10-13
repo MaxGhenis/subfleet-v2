@@ -18,10 +18,10 @@ I6 (rotation). After a probe of a model on a lane says nothing, the job's next
    probe of that model goes to a lane of that model it has not had such an
    answer on this round, never to a model the chain promotes to. So while one
    lane's probes always run out of time, every job that could run on another lane
-   starts, except one that C-6.9 holds behind an older job pinned to the slow lane
-   (here a job with no lane pin competes with every lane, so it waits behind any
-   older waiter of its model; the desktop release line narrows that); and once
-   every probe answers, every job starts.
+   starts: an older job pinned to the slow lane keeps that lane, not the fleet
+   (C-6.9), so a later job of its model with no lane pin starts on another lane,
+   and only one pinned to the slow lane too waits behind it; and once every probe
+   answers, every job starts.
 """
 
 from contextlib import contextmanager
@@ -197,6 +197,38 @@ def test_a_slow_lane_at_the_top_holds_the_tier_one_probe_not_for_ever(fleet, mon
     service._admit()
     assert probes.vehicles[3:] == [(later, "codex-3", "astra")]
     assert started(service) == [oldest, later]
+
+
+def test_an_older_job_pinned_to_the_slow_lane_keeps_that_lane_not_the_fleet(fleet, monkeypatch):
+    """I6, C-6.9: the property's counterexample on #203 (an Astra job pinned to codex-1, which is
+    slow, then an Astra job with no lane pin). On main the later one was held behind the pinned job for
+    as long as codex-1 stayed slow; here it starts on codex-2, never probing codex-1, and only a later
+    job pinned to codex-1 too waits behind the pinned one."""
+    from tests.fake.test_tier_hold_by_demand import rejections
+    service, harness = fleet
+    pinned = submit(service, harness, pinned_lane="codex-1")
+    free = submit(service, harness)
+    behind = submit(service, harness, pinned_lane="codex-1")
+    probes = Probes(service, monkeypatch, bad={"codex-1"})
+    service._admit()
+    assert probes.vehicles == [(pinned, "codex-1", "astra"), (free, "codex-2", "astra")]
+    assert started(service) == [free] and service.store.list_attempts(free)[0]["lane_id"] == "codex-2"
+    assert rejections(service, free, "astra")["codex-1"] == [f"kept:{pinned}"]
+    assert {key: service._holds[behind][key] for key in ("reason", "behind")} == {
+        "reason": "behind-older-job", "behind": pinned}
+    for _ in range(3):
+        end_attempts(service)
+        make_due(service)
+        service._admit()
+        assert service._holds[behind]["reason"] == "behind-older-job"
+    assert started(service) == [free]
+    assert [(job_id, lane) for job_id, lane, _ in probes.vehicles[2:]] == [(pinned, "codex-1")] * 3
+    probes.bad.clear()                                        # codex-1 answers again: they start in order
+    for _ in range(2):
+        end_attempts(service)
+        make_due(service)
+        service._admit()
+    assert started(service) == [free, pinned, behind]
 
 
 def test_rotation_never_takes_a_model_the_chain_promotes_to(fleet, monkeypatch):
@@ -578,11 +610,17 @@ def test_a_slow_lane_never_keeps_a_job_from_a_lane_that_answers(jobs, outcomes, 
             service._admit()
             check(first)
         def held_by_c6_9(index: int) -> bool:
-            """An older job of the same model pinned to the slow lane holds this one (C-6.9)."""
+            """C-6.9: an older job of the same model pinned to the slow lane, a waiter on every pass,
+            keeps that lane and no other. It holds this one only if this one is pinned there too;
+            one with no lane pin could use any lane and is evaluated with the slow lane kept."""
             model, pin = jobs[index]
-            return pin is None and any(other == (model, lane) for other in jobs[:index] for lane in bad)
+            kept = {lane for other in jobs[:index] for lane in bad if other == (model, lane)}
+            return pin in kept
         assert set(started(service)) == {job_id for index, job_id in enumerate(ids)
                                          if wants[job_id][1] not in bad and not held_by_c6_9(index)}
+        for index, job_id in enumerate(ids):
+            if job_id not in started(service):
+                assert (service._holds[job_id]["reason"] == "behind-older-job") == held_by_c6_9(index)
         # Once every probe answers, the rest start too.
         probes.bad.clear()
         for _ in range(2 * len(ids) + 2):
