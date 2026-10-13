@@ -250,7 +250,90 @@ still require responsibility discovery and no marker/group match on either host.
 
 The first four acquisitions could not enter the shared lock (three at 60 s,
 one at 600 s). The next core run acquired it and passed **131 tests** in 22.88 s:
-procargs 52, responsibility failures 20, procs 47, guardian 12. No assertions
-failed or were weakened. Additional files are being run separately. Every pytest
+procargs 52, responsibility failures 20, procs 47, guardian 12. No core assertions
+failed or were weakened. The remaining files ran in later, separate holds. Every pytest
 process has its own foreground lockf hold with a 1,190 s outer timeout, and each
 Darwin TMPDIR is removed with shutil.rmtree. Exact final counts follow below.
+
+
+Final distinct validation is **531 passed, 55 skipped, zero remaining failures
+or errors**, across 34 files. All requested files and every stand-in-bearing
+module found by the requested Popen/guardian search were run. No file remains
+unrun. The launch/prompt/probe files contribute 92 passing cases and retain
+credential, identity-gate and preflight assertions against the actual spawn
+boundary options. The #185 census files and state-contract assertions passed.
+
+The first extra stand-in run found 17 real-inspection cases lacking their host
+prerequisite: six sessions cases launched real providers whose guardians could
+not establish identity, five daemon CLI stubs required real boot/start reads,
+and six registry cases executed `/bin/ps` directly. Those cases now request the
+existing session-scoped `process_inspection_available` fixture before launching;
+all their assertions still execute on a permitted host. A synthetic stale-lock
+case also depended on denied inspection or a previously cached boot mismatch.
+It now models an inspected absent pid at the reader seam (`""`, not unknown
+None), retaining its no-op and stale-lock assertions. Its whole file reran with
+15 passed and five expected skips. The inspection-budget fixture scopes startup
+attribution with its existing startup boot/start mocks; its 22 cost assertions
+passed unchanged.
+
+| File under `tests/` | Passed | Skipped |
+|---|---:|---:|
+| fake/test_census_escapers_daemon.py | 0 | 4 |
+| fake/test_census_recycled_pid_daemon.py | 8 | 0 |
+| fake/test_daemon_launch.py | 8 | 0 |
+| fake/test_idle_cost.py | 0 | 2 |
+| fake/test_launch_gates_above_stdio.py | 0 | 9 |
+| fake/test_policy_sandbox.py | 25 | 0 |
+| fake/test_probe_cancel.py | 24 | 0 |
+| fake/test_probe_recovery.py | 9 | 0 |
+| fake/test_probe_turn.py | 43 | 0 |
+| fake/test_prompt_seam.py | 8 | 0 |
+| fake/test_review_r185_adversarial.py | 1 | 0 |
+| fake/test_sessions_end_to_end.py | 27 | 6 |
+| fake/test_state_contract.py | 37 | 0 |
+| process/test_census_raw_markers_process.py | 0 | 3 |
+| process/test_census_responsibility_process.py | 0 | 8 |
+| process/test_guardian_process.py | 0 | 4 |
+| process/test_guardian_qos_process.py | 0 | 3 |
+| process/test_guardian_relay.py | 0 | 4 |
+| process/test_pipe_above_stdio.py | 8 | 0 |
+| unit/test_census_identity_uncertainty.py | 8 | 0 |
+| unit/test_census_procargs.py | 52 | 0 |
+| unit/test_census_recycled_pid.py | 25 | 0 |
+| unit/test_census_responsibility_failures.py | 20 | 0 |
+| unit/test_census_survivors_review.py | 14 | 0 |
+| unit/test_conversation_peers_attachments.py | 44 | 0 |
+| unit/test_daemon_inspection_load.py | 22 | 0 |
+| unit/test_daemon_verbs.py | 15 | 5 |
+| unit/test_guardian.py | 12 | 0 |
+| unit/test_guardian_qos.py | 14 | 0 |
+| unit/test_legacy_hold.py | 50 | 6 |
+| unit/test_procs.py | 47 | 0 |
+| unit/test_retention_qos.py | 8 | 0 |
+| unit/test_stop_alarm.py | 1 | 1 |
+| unit/test_test_module_names.py | 1 | 0 |
+
+All 55 skips are inspection prerequisites, not weakened containment checks.
+This sandbox denies execution of `/bin/ps` with EPERM (1), and subprocess boot
+identity reads are unavailable. Every item in a table row with zero passes and
+nonzero skips was skipped. The mixed-file skipped cases are:
+
+- `fake/test_sessions_end_to_end.py`: `test_world_shutdown_reaps_a_provider_still_writing_receipts`, `test_revive_probes_lane_before_launch`, `test_revive_census_refreshed_and_skips_running_twin`, `test_a_revive_that_loses_the_lease_race_is_skipped_not_queued`, `test_the_lease_is_session_scoped_and_released_with_the_job`, and `test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one`.
+- `unit/test_daemon_verbs.py`: `test_daemon_start_waits_for_the_socket_then_status_and_stop`, `test_daemon_start_runs_in_its_own_session`, `test_daemon_start_waits_out_a_self_daemonising_subfleetd`, `test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself`, and `test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed`.
+- `unit/test_legacy_hold.py`: both `subfleet` variants of `test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait`, and all four `(direction, subfleet)` variants of `test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait`.
+- `unit/test_stop_alarm.py`: `test_guardian_started_after_stop_alarm_is_armed_survives`.
+
+The hub still needs the 55 real-inspection items at host permissions, including
+the responsibility/process regressions on its framework Python runner. Native
+probes establish the fork-race fix and baseline failure, framework re-exec
+identity continuity, startup attribution choice, and conservative argument
+ceiling behavior; they do not substitute for those skipped pytest items or a
+TCC prompt/grant exercise.
+
+Completed pytest times inside their holds were 22.88 s, 225.41 s, 311.71 s
+and 12.46 s; every hold stayed under 20 minutes. Seven acquisition attempts never entered the lock (five at
+60 s and two at 600 s); no pytest ran in them. No test processes overlapped.
+All Darwin test TMPDIRs and native-probe directories were removed with
+shutil.rmtree. Python syntax compilation and Git whitespace checks passed.
+No logs, JSON evidence or bundles were staged. Commits retain the requested
+co-author trailer and live in `.git-local` on `fix/census-responsibility`.
