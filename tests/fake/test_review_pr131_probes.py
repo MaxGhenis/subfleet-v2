@@ -39,6 +39,11 @@ def script_table(monkeypatch, rows, *, markers="", boot=BOOT, table_fails=False,
         if "stat=" in argv:          # `_stat` for a marker pid the table lacks
             pid = int(argv[argv.index("-p") + 1])
             return rows[pid][2] if pid in rows else ""
+        if argv == ["/usr/sbin/sysctl", "-n", "kern.boottime"]:
+            # `boot_identity.boot_seconds`, read when a legacy boot id meets
+            # another (r16 P3-1). A legacy scripted boot is its own seconds; a
+            # boot-session UUID world has a different, fixed legacy clock.
+            return f"{{ sec = {boot if str(boot).isdecimal() else 1600000000}, usec = 0 }}"
         raise AssertionError(argv)
 
     monkeypatch.setattr(procs, "snapshot", snapshot)
