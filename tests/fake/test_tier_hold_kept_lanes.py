@@ -354,13 +354,14 @@ def test_c6_9_evaluate_keeps_the_successor_of_a_kept_lane():
              {"lane_id": "claude-12", "provider": "claude", "home": "/h/9", "owner": "v2", "enabled": 1},
              {"lane_id": "claude-11", "provider": "claude", "home": "/h/11", "owner": "v2", "enabled": 1}]
     decision = scheduler.evaluate(policy, {"lanes": lanes, "now": utcnow()},
-                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}})
+                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"},
+                                   "kept_successors": {"claude-9": "w2"}})
     reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
-    assert reasons["claude-12"] == ["kept:w1"] and "kept:w1" in reasons["claude-9"]
+    assert reasons["claude-12"] == ["kept:w2"] and "kept:w1" in reasons["claude-9"]   # the job whose pin follows
     assert decision.chosen_lane == "claude-11"
-    # An older job whose pin never follows (an unmeasured-reserve authorization, C-11.7) keeps only its own id.
+    # A lane only a pin that never follows keeps (an unmeasured-reserve authorization, C-11.7) keeps only its id.
     decision = scheduler.evaluate(policy, {"lanes": lanes, "now": utcnow()},
-                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}, "kept_exact": ["claude-9"]})
+                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}})
     reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
     assert "claude-12" not in reasons and "kept:w1" in reasons["claude-9"]
     assert decision.chosen_lane in ("claude-11", "claude-12")
@@ -404,19 +405,19 @@ def test_c6_9_a_following_keeper_keeps_the_successor_though_an_older_bound_one_d
     service._workspace = workspace
     service._admit()
     assert service.store.get_lane("claude-a2") and not service.store.list_attempts(newer), attempts_on(service, newer)
-    assert service._holds[newer]["reason"] == "behind-older-job"
+    hold = service._holds[newer]
+    assert hold["reason"] == "behind-older-job" and hold["kept"] == {"claude-a2": follows}   # kept for the job it waits for
 
 
-def test_c6_9_exact_lanes_are_those_only_bound_keepers_keep():
+def test_c6_9_successor_keepers_name_the_oldest_competing_keeper_whose_pin_follows():
     a, b = frozenset({"claude-a"}), frozenset({"claude-b"})
     opus = frozenset({"opus"})
-    waiters = [("w1", opus, a), ("w2", opus, a), ("w3", opus, b), ("w4", frozenset({"astra"}), b)]
+    waiters = [("w1", opus, a), ("w2", opus, a), ("w3", opus, b), ("w4", frozenset({"astra"}), b), ("w5", opus, None)]
     kept = {"claude-a": "w1", "claude-b": "w3"}
-    assert scheduler.exact_lanes(opus, None, waiters, kept, {"w1"}) == frozenset()            # w2 follows to a's successor
-    assert scheduler.exact_lanes(opus, None, waiters, kept, {"w1", "w2"}) == {"claude-a"}
-    assert scheduler.exact_lanes(opus, None, waiters, kept, {"w3"}) == {"claude-b"}            # w4 does not compete
-    assert scheduler.exact_lanes(opus, None, waiters, kept, set()) == frozenset()
-
+    assert scheduler.successor_keepers(opus, None, waiters, kept, set()) == {"claude-a": "w1", "claude-b": "w3"}
+    assert scheduler.successor_keepers(opus, None, waiters, kept, {"w1"}) == {"claude-a": "w2", "claude-b": "w3"}
+    assert scheduler.successor_keepers(opus, None, waiters, kept, {"w1", "w2", "w3"}) == {}   # w4 does not compete
+    assert scheduler.successor_keepers(opus, None, waiters, {"claude-a": "w1"}, set()) == {"claude-a": "w1"}
 
 # --- one rule, stated once (C-6.11) -----------------------------------------------------------------
 

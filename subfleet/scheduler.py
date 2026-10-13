@@ -259,22 +259,26 @@ def tier_hold(models: frozenset[str] | None, lanes: frozenset[str] | None,
     return None, kept
 
 
-def exact_lanes(models: frozenset[str] | None, lanes: frozenset[str] | None,
-                waiters: Iterable[tuple[str, frozenset[str] | None, frozenset[str] | None]],
-                kept: Mapping[str, str], bound: Iterable[str]) -> frozenset[str]:
-    """C-6.9, C-11.7: the kept lanes whose successor is not kept.
+def successor_keepers(models: frozenset[str] | None, lanes: frozenset[str] | None,
+                      waiters: Iterable[tuple[str, frozenset[str] | None, frozenset[str] | None]],
+                      kept: Mapping[str, str], bound: Iterable[str]) -> dict[str, str]:
+    """C-6.9, C-11.7: for each kept lane, the older job a re-enrolled successor of it is kept for.
 
     A lane re-enrolled during a pass is kept as the lane it replaced (`evaluate`),
-    because a competing older job's pin follows it there. A pin bound to the
-    lane id it names (`bound`: an unmeasured-reserve authorization) never
-    follows, so a lane that only such jobs keep keeps only its own id. Any one
-    competing keeper whose pin follows is enough to keep the successor.
+    because a competing older job's pin follows it there: the oldest such job,
+    which is the one waiting for the successor. A pin bound to the lane id it
+    names (`bound`: an unmeasured-reserve authorization) never follows, so a lane
+    only such jobs keep has no entry and keeps only its own id.
     """
     bound = set(bound)
-    following = {lane for older, theirs, their_lanes in waiters
-                 if older not in bound and their_lanes and competes(models, theirs, lanes, their_lanes)
-                 for lane in their_lanes}
-    return frozenset(kept) - following
+    found: dict[str, str] = {}
+    for older, theirs, their_lanes in waiters:
+        if older in bound or not their_lanes or not competes(models, theirs, lanes, their_lanes):
+            continue
+        for lane in their_lanes:
+            if lane in kept:
+                found.setdefault(lane, older)
+    return found
 
 
 def kept_only(decision: Decision | Mapping[str, Any] | None) -> dict[str, str]:
@@ -454,14 +458,12 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     excluded = job.get("exclusions") or ()
     excluded = set(json.loads(excluded) if isinstance(excluded, str) else excluded)
     kept = dict(job.get("kept_lanes") or {})    # C-6.9: lane id -> the older job pinned there, this pass only
-    exact = set(job.get("kept_exact") or ())    # kept lanes no keeper's pin follows to a successor (C-11.7)
-    for lane_id, older in list(kept.items()):
+    for lane_id, older in dict(job.get("kept_successors") or {}).items():
         # C-11.2: admission collected its waiters' lanes before this view was read.
         # A lane re-enrolled since is the same lane, and an older job's pin now
-        # runs on its successor, so that is kept too, unless every older job
-        # keeping it is bound to the lane id it names (`exact_lanes`).
-        if lane_id not in exact:
-            kept.setdefault(current_lane_id(lanes, lane_id), older)
+        # runs on its successor, so that is kept too, for that job; a lane only
+        # bound pins keep has no entry (`successor_keepers`, C-11.7).
+        kept.setdefault(current_lane_id(lanes, lane_id), older)
     pin = job.get("pinned_lane")
     task, tier = job.get("task"), job.get("tier")
     # An unknown task, tier, or model is the policy's to fix, not the job's: submit

@@ -3181,13 +3181,14 @@ class Daemon:
             if kept_lanes:
                 # C-6.9: the lanes older competing waiters are pinned to are
                 # rejected as `kept:<older job id>` on this pass only; never
-                # written to the job's exclusions. `kept_exact` names the kept
-                # lanes whose successor no keeper's pin follows (C-11.2, C-11.7).
+                # written to the job's exclusions. `kept_successors` names, per
+                # kept lane, the older job whose pin follows it to a successor
+                # re-enrolled during the pass (C-11.2, C-11.7).
                 bound = {older for older, _, _ in waiters.get(tier, ())
                          if (by_id.get(older) or {}).get("unmeasured_reserve_reason")}
                 decision_job = {**decision_job, "kept_lanes": kept_lanes,
-                                "kept_exact": sorted(scheduler.exact_lanes(models, lanes, waiters.get(tier, ()),
-                                                                           kept_lanes, bound))}
+                                "kept_successors": scheduler.successor_keepers(
+                                    models, lanes, waiters.get(tier, ()), kept_lanes, bound)}
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
