@@ -539,6 +539,8 @@ def test_keychain_after_undo_never_requests_native_command(tmp_path, monkeypatch
             return subprocess.CompletedProcess(argv, 1, "", "fixture unavailable")
 
         phase.setattr(claude.subprocess, "run", record)
+        # Stand in for the native backend itself so refusal remains safe to replay.
+        phase.setattr(credentials, "_NATIVE_RUNNER", record)
         removable = pytest.MonkeyPatch()
         no_desktop_login.__wrapped__(removable)
         removable.undo()
@@ -565,6 +567,7 @@ def test_every_keychain_reader_refuses_default_backend(tmp_path, monkeypatch, re
         return subprocess.CompletedProcess(argv, 1, "", "fixture unavailable")
 
     monkeypatch.setattr(claude.subprocess, "run", record)
+    monkeypatch.setattr(credentials, "_NATIVE_RUNNER", record)
     adapter = ClaudeAdapter()
     if reader == "blob":
         assert claude._keychain_blob("Claude Code-credentials") is None

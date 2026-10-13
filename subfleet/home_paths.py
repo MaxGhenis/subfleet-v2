@@ -108,6 +108,33 @@ def codex_app_home() -> Path:
                           test_only=True))
 
 
+def protected_provider_homes() -> list[Path]:
+    """Protect test-provided HOME as well as isolated reader paths.
+
+    Reader overrides must remain mandatory under pytest. They redirect access,
+    but must not hide the provider homes checked by workspace admission. Only
+    a HOME distinct from the account's home may add those implicit paths during
+    tests; compare the home directories themselves without inspecting stores.
+    """
+    isolated = [Path(home_path("CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude",
+                               test_only=True)), codex_app_home()]
+    if not under_pytest():
+        return isolated
+    import pwd
+
+    home = Path.home()
+    personal = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    if home == personal:
+        return isolated
+    try:
+        if home.samefile(personal):
+            return isolated
+    except OSError:
+        # An inaccessible synthetic home must still reach the spelling refusal.
+        pass
+    return [home / ".claude", home / ".codex", *isolated]
+
+
 def desktop_login_path() -> Path:
     """Claude's desktop login, with a test-only isolation override."""
     return Path(home_path("SUBFLEET_DESKTOP_LOGIN", lambda: Path.home() / ".claude.json",

@@ -33,8 +33,8 @@ def keychain_command(reference: str, security_bin: str = "security", *,
         if helper:
             return [helper, "get", reference]
     # A reference or fake HOME does not isolate macOS's login keychain. Fixture
-    # undo cannot remove this guard. Only an explicit test runner or executable
-    # stand-in may issue a credential command while either marker is present.
+    # undo cannot remove this guard. Only a stand-in runner or executable
+    # may issue a credential command while either marker is present.
     if (under_pytest() and (runner is None or runner is _NATIVE_RUNNER)
             and security_bin in ("security", "/usr/bin/security")):
         raise AdapterError("refusing personal keychain read under pytest", code=7,
@@ -55,9 +55,10 @@ def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]
         return {"CLAUDE_CODE_OAUTH_TOKEN": token}
     if credential.kind != "keychain-token" or credential.provider != "claude":
         raise AdapterError("unsupported credential kind for provider", code=7)
+    execute = runner or subprocess.run
     try:
-        result = (runner or subprocess.run)(keychain_command(credential.ref, runner=runner),
-                                           capture_output=True, text=True, timeout=10, check=False)
+        result = execute(keychain_command(credential.ref, runner=execute),
+                         capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
         raise AdapterError("could not resolve lane keychain credential", code=7,
                            fix="unlock the configured credential store and verify the lane reference with agent-secret") from None

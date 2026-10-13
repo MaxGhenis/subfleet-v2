@@ -383,9 +383,10 @@ def _keychain_blob(service: str, *, security_bin: str = "security", runner=None)
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
     from ..credentials import keychain_command
+    execute = runner or subprocess.run
     try:
-        done = (runner or subprocess.run)(keychain_command(service, security_bin, runner=runner),
-                                          capture_output=True, text=True, timeout=15)
+        done = execute(keychain_command(service, security_bin, runner=execute),
+                       capture_output=True, text=True, timeout=15)
     except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
@@ -536,7 +537,6 @@ class ClaudeAdapter(Adapter):
     ) -> None:
         self.claude_bin = claude_bin
         self._runner = runner or subprocess.run
-        self._credential_runner = runner
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -561,7 +561,7 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin, runner=self._credential_runner),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
         except (OSError, subprocess.SubprocessError):
@@ -603,7 +603,7 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin, runner=self._credential_runner),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
         except (AdapterError, OSError, subprocess.SubprocessError):
