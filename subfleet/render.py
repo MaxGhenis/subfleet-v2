@@ -181,6 +181,8 @@ def status(view: Mapping[str, Any]) -> str:
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     if view.get("disk") is not None:
         lines.append(disk_line(view["disk"]))
+    if view.get("ramp") is not None:
+        lines.append(ramp_line(view["ramp"]))
     rows = []
     for lane in snapshot["lanes"]:
         # C-10.6: an operator looking at a lane with no readings has to be able
@@ -250,6 +252,7 @@ def status(view: Mapping[str, Any]) -> str:
 
 #: C-6.11: one line per reason admission can leave a job unplaced.
 _HOLD_TEXT = {
+    "ramp": "placement ramp: {used} of {limit} starts used in the last {window_s} s; next slot at {next_slot_at}",
     "disk": "disk admission is holding: free {free_gb} GB, reserved {reserved_gb} GB, floor {floor_gb} GB; "
             "resume margin {resume_margin_gb} GB, placement reserve {placement_reserve_gb} GB (C-6.17)",
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
@@ -257,6 +260,8 @@ _HOLD_TEXT = {
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "lease-held": "a lease this job needs is held by another job: {leases}",
+    "lease-held:retiring": "retention is removing a finished job's worktree{where} ({trees}); it waits until "
+                           "retention lets go of it (C-8.4){others}",
     "probe-pending": "its lane is being probed before the job may start on it",
     "lane-proving": "every lane that could take it has gone admission.prove_idle_s without a model's answer and "
                     "is being proven by one attempt, its pilot; the job starts once a pilot shows its model "
@@ -288,6 +293,13 @@ def disk_floor_detail(reading: Mapping[str, Any]) -> str:
         if key in reading:
             parts.append(f"{key}: {reading[key]}")
     return "; ".join(parts)
+
+
+def ramp_line(reading: Mapping[str, Any]) -> str:
+    """C-6.18: the same one-line placement budget in both status views."""
+    return (f"placement ramp: {reading['used']} of {reading['limit']} starts used "
+            f"in the last {reading['window_s']} s; next slot at "
+            + (reading.get("next_slot_at") or "now"))
 
 
 def disk_line(reading: Mapping[str, Any]) -> str:
@@ -385,6 +397,20 @@ def _blocked(hold: Mapping[str, Any]) -> str:
     return "; ".join(part for part in parts if part) or "blocked"
 
 
+def _retiring(hold: Mapping[str, Any]) -> dict[str, str]:
+    """C-8.4: the fields of `lease-held:retiring`. Retention's fence is no job's lease
+    but a finished job's worktree being removed, which the held job's folder is or
+    is in (`retiring`, `folder`); any other key the job waits for is named after it."""
+    fences = list(hold.get("retiring") or ())
+    trees = ", ".join(str(key).split(":", 1)[1] for key in fences)
+    folder = hold.get("folder")
+    others = [key for key in hold.get("leases") or () if key not in fences]
+    return {"trees": trees,
+            "where": (", its folder" if folder and trees == folder else
+                      f" that its folder {folder} is in" if folder else " it works in"),
+            "others": "; a lease it needs is also held by another job: " + ", ".join(others) if others else ""}
+
+
 def why_queue(standing: Mapping[str, Any]) -> list[str]:
     """C-6.11: where a job stands in admission, in lines a person can act on.
 
@@ -412,12 +438,15 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
             # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
             template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
+        if reason == "lease-held" and hold.get("retiring"):
+            template = _HOLD_TEXT["lease-held:retiring"]      # C-8.4: retention's fence, named as such
         if reason == "probe-pending" and hold.get("behind"):
             # C-6.9: FIFO on a probe; an older job waits on the same one and carries it first.
             template = ("{lane} must be probed for {model} before the job may start on it, and {behind}, an "
                         "older job waiting on that probe, carries it first (C-6.9)")
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
+                      **(_retiring(hold) if hold.get("retiring") else {}),
                       "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
