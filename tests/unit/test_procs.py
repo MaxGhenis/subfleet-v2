@@ -643,7 +643,7 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
         if "pid=,command=" in argv:
             return "77 provider SUBFLEET_ATTEMPT=job/a1\n"
         if "stat=" in argv:
-            return next(states)  # alive during marker scan, absent at identity capture
+            return next(states, "")  # alive during scan, then absent on every fresh read
         if "lstart=" in argv:
             return ""
         raise AssertionError(argv)

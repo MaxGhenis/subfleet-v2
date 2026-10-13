@@ -436,3 +436,15 @@ are preserved with release's additional missing-record diagnostic. #131's
 larger group/descendant and either-marker sets retain the stronger writer-hold
 oracles from the first parent; release's narrower pre-#131 sets and group-signal
 protocol are superseded by those documented safety fixes, not relaxed.
+
+First completed locked suite (d9f0cd976, before root-source follow-up):
+145 passed / 13 failed in 400.64 seconds. Per-file: procs 105/6; identity
+uncertainty 7/1; recycled PID 21/4; survivor review 12/2. Ten failures are the
+identified fresh-boot/source-group/scalar-fixture integration issues, corrected
+in the root-source follow-up. Three additional kill-world failures exposed an
+undeclared cwd seam; those synthetic worlds now explicitly contain no cwd
+matches. The gone-marker fixture's subsequent scalar reads now remain absent
+instead of exhausting its two-state iterator. Its exact no-errors/empty
+assertion is unchanged. This completed run is superseded validation, not a
+passing final-head result. The tests had imported their pre-follow-up sources
+before the next code step was written.

@@ -65,6 +65,7 @@ def install(patch, rows, marked=(), boot=BOOT_A):
     patch.setattr(procs, "proc_start", lambda pid: rows[pid][3] if pid in rows else None)
     patch.setattr(procs, "_stat", lambda pid: rows[pid][2] if pid in rows else None)
     patch.setattr(procs, "process_group", lambda pid: rows[pid][1] if pid in rows else None)
+    patch.setattr(procs, "cwd_pids", lambda _: frozenset())
 
 
 def recorded(rows, boot=BOOT_A):
