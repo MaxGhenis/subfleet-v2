@@ -926,6 +926,33 @@ def test_a_closure_is_extended_never_shortened(v1):
     assert after["until_at"] == before["until_at"]
 
 
+@pytest.mark.parametrize("hold_ends", ["before", "after"])
+def test_a_cooldown_never_merges_with_an_operator_hold(v1, hold_ends):
+    """C-9.6 (D-HOLD1): an imported cooldown is a limit. It neither replaces a hold that ends sooner
+    (`before`, the lane's own cooldown released first) nor yields to one that ends later (`after`): each
+    keeps its own row."""
+    from subfleet.contracts import ClockSource, Closure, ClosureReason
+
+    def utc(seconds: float) -> str:
+        return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    run_import(v1)
+    [cooldown] = rows(v1["root"], "SELECT * FROM closures WHERE scope='account'")
+    hold_until = utc(1800) if hold_ends == "before" else "2099-01-01T00:00:00Z"
+    with Store(v1["root"] / "state.sqlite3") as store:
+        if hold_ends == "before":
+            with store.transaction("fixture.released") as tx:
+                tx.execute("UPDATE closures SET released_at=? WHERE closure_id=?", (utc(0), cooldown["closure_id"]))
+        store.put_closure(Closure(cooldown["lane_id"], "account", hold_until, ClosureReason.OPERATOR_HOLD,
+                                  ClockSource.REPORTED, "operator"))
+    write_json(v1["delegate"] / "cooldowns.json", {f"{v1['home']}/.codex-2": {"*": offset_now(4 * 3600)}})
+    run_import(v1)
+    open_rows = rows(v1["root"], "SELECT reason,until_at FROM closures WHERE lane_id=? AND released_at IS NULL "
+                                 "ORDER BY reason", (cooldown["lane_id"],))
+    assert [row["reason"] for row in open_rows] == ["cooldown", "operator-hold"]
+    assert open_rows[0]["until_at"] > cooldown["until_at"] and open_rows[1]["until_at"] == hold_until
+
+
 # --- notices ------------------------------------------------------------------
 
 def test_notices_are_pending_or_surfaced_with_the_session_from_the_file_name(v1):
