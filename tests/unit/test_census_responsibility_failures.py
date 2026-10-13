@@ -91,3 +91,42 @@ def test_a_fallback_spawn_needs_no_responsibility_metadata(monkeypatch):
     found, recorded = Daemon._spawn_guardian(core, ["python"], {}, 9, "/fixture")
     assert found is child and recorded is None
     assert len(warnings) == 1
+
+
+def test_a_fork_and_exit_between_listing_and_read_cannot_prove_empty(monkeypatch):
+    listings = iter([{42, 60}, {42, 61}])
+    reads = []
+
+    def responsible(pid):
+        reads.append(pid)
+        return None if pid == 60 else 42
+
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(pids=lambda: frozenset(next(listings)),
+                                                        responsible=responsible))
+    assert procs.responsible_for(42) == {61}
+    assert reads == [60, 61]
+
+
+def test_a_responsibility_listing_that_keeps_growing_cannot_prove_empty(monkeypatch):
+    listings, reads = [], []
+
+    def pids():
+        pid = 60 + len(listings)
+        listings.append(pid)
+        return frozenset({42, pid})
+
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(pids=pids,
+                       responsible=lambda pid: reads.append(pid)))
+    with pytest.raises(procs.InspectionError, match="did not settle"):
+        procs.responsible_for(42)
+    assert len(listings) == procs.RESPONSIBILITY_ROUNDS
+    assert reads == listings
+
+
+def test_an_empty_responsibility_listing_has_read_every_new_pid(monkeypatch):
+    listings = iter([{42, 60}, {42, 60, 61}, {42, 61}])
+    reads = []
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(pids=lambda: frozenset(next(listings)),
+                       responsible=lambda pid: reads.append(pid)))
+    assert procs.responsible_for(42) == frozenset()
+    assert reads == [60, 61]

@@ -584,17 +584,29 @@ class Darwin:
 
 #: The reader every census uses; tests replace it.
 kernel = Darwin()
+RESPONSIBILITY_ROUNDS = 8
 
 
 def responsible_for(root: int) -> frozenset[int]:
     """Every other live process whose responsible process is `root`: what a guardian
     started as a responsibility root waits on after its exit receipt (D-CEN1).
-    `InspectionError` when the listing or any one read fails, which proves nothing."""
-    named = set()
-    for pid in sorted(kernel.pids()):
-        if pid != root and kernel.responsible(pid) == root:
-            named.add(pid)
-    return frozenset(named)
+    Re-list after reading: a member can fork and exit between its listing and its
+    read. Its child was born before that read and appears in the next listing.
+    `InspectionError` on failed reads or continuous births exhausting the bounded
+    rounds; neither proves emptiness."""
+    read = {root}
+    for _ in range(RESPONSIBILITY_ROUNDS):
+        fresh = kernel.pids() - read
+        if not fresh:
+            return frozenset()
+        named = set()
+        for pid in sorted(fresh):
+            if kernel.responsible(pid) == root:
+                named.add(pid)
+        if named:
+            return frozenset(named)
+        read.update(fresh)
+    raise InspectionError("responsibility listing did not settle")
 
 
 def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, bytes | None] | None,

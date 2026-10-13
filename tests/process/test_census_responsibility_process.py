@@ -237,3 +237,88 @@ def test_d_cen1_a_platform_binary_is_found_through_its_root(tmp_path):
     finally:
         stop_identity(sleeper)
         stop(root_process)
+
+
+def test_d_cen1_linger_closes_a_real_fork_and_exit_chain(tmp_path):
+    """P2-2: force each member to fork and exit after listing, before its SPI read.
+    All kernel reads are real; the barrier only selects that adversarial timing."""
+    code = '''import os, sys, time
+from pathlib import Path
+from subfleet import guardian, procs
+state = Path(sys.argv[1])
+first = os.fork()
+if first == 0:
+    for generation in range(4):
+        me = os.getpid()
+        temporary = state / f'current-{me}'
+        temporary.write_text(str(me))
+        temporary.rename(state / 'current')
+        if generation == 3:
+            (state / 'last').write_text(str(me))
+            time.sleep(60)
+            os._exit(0)
+        deadline = time.monotonic() + 60
+        while not (state / f'read-{me}').exists():
+            if time.monotonic() > deadline: os._exit(1)
+            time.sleep(.001)
+        if os.fork(): os._exit(0)
+    os._exit(1)
+while not (state / 'current').exists(): time.sleep(.001)
+real = procs.kernel.responsible
+def read(pid):
+    current = int((state / 'current').read_text() or '0')
+    if pid == current and not (state / 'last').exists():
+        (state / f'read-{pid}').touch()
+        deadline = time.monotonic() + 10
+        while procs.kernel.process(pid) is not None:
+            if time.monotonic() > deadline: raise RuntimeError('member did not exit')
+            time.sleep(.001)
+        if pid == first: os.waitpid(first, 0)
+    return real(pid)
+procs.kernel.responsible = read
+guardian.linger()
+(state / 'returned').touch()
+'''
+    root = procs.spawn_disclaimed([sys.executable, "-c", code, str(tmp_path)],
+                                  env={"PYTHONPATH": str(REPO), "PATH": "/usr/bin:/bin"}, cwd=str(REPO))
+    last = None
+    try:
+        last = procs.identity(int(wait_for(tmp_path / "last")))
+        assert last is not None
+        assert root.poll() is None and not (tmp_path / "returned").exists()
+        assert last.pid in procs.responsible_for(root.pid)
+        stop_identity(last)
+        assert root.wait(timeout=30) == 0
+        assert (tmp_path / "returned").exists()
+    finally:
+        current = tmp_path / "current"
+        if current.exists() and current.read_text().strip():
+            stop_identity(last or procs.identity(int(current.read_text())))
+        stop(root)
+
+
+@pytest.mark.parametrize("known_unique", [True, False])
+def test_d_cen1_a_real_recycled_root_and_its_child_are_strangers(tmp_path, known_unique):
+    """The reviewer's executed input: a self-responsible S and its child C recorded
+    under a dead root's start identity and older (or unknown) kernel sequence."""
+    pidfile = tmp_path / "member"
+    code = ("import subprocess, time\n"
+            "p = subprocess.Popen(['/bin/sleep', '60'])\n"
+            f"open({str(pidfile)!r}, 'w').write(str(p.pid))\n"
+            "time.sleep(60)\n")
+    source = procs.spawn_disclaimed([sys.executable, "-c", code], env={}, cwd="/")
+    member = None
+    try:
+        member = procs.identity(int(wait_for(pidfile)))
+        own = procs.identity(source.pid)
+        assert own is not None and member is not None
+        sequence = procs.kernel.process(source.pid).unique_id
+        result = procs.containment(source.pid, source.pid, None, "absent-marker",
+            recorded_identities={source.pid: procs.ProcessIdentity(source.pid, own.boot_id, "old start")},
+            responsible_root=procs.ResponsibleRoot(source.pid, own.boot_id, sequence - 1 if known_unique else None))
+        assert set(result.recycled) == {source.pid}
+        assert result.verified_empty and not result.responsible_pids
+        assert source.poll() is None and procs.liveness(member.pid, member.boot_id, member.proc_start) == "alive"
+    finally:
+        stop_identity(member)
+        stop(source)
