@@ -124,11 +124,33 @@ def test_c9_5_the_kinds_a_steer_applies_to():
     assert all(scheduler.capacity_steerable(job(kind=kind)) for kind in ("dispatch", "gate-review", "handoff"))
 
 
-def test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing(policy):
-    other = {OPUS: UNTIL, "gpt-5.6-terra": UNTIL}
-    for spec in (job(task="build"), job(tier="standard", task="build")):
-        assert scheduler.prepare(policy, fleet(), {**spec, "capacity_steer": other})["chain"] == \
-            scheduler.prepare(policy, fleet(), spec)["chain"]
+@pytest.mark.parametrize("tier,expected", [("hard", ["astra"]), ("standard", ["opus", "astra"])])
+def test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing(policy, tier, expected):
+    """Below-tier Sonnet and off-chain Terra cannot affect either eligible walk."""
+    other = {policy["models"]["sonnet"]["id"]: UNTIL, "gpt-5.6-terra": UNTIL}
+    spec = job(tier=tier, task="build")
+    assert scheduler.prepare(policy, fleet(), spec)["chain"] == expected
+    assert scheduler.prepare(policy, fleet(), {**spec, "capacity_steer": other})["chain"] == expected
+    assert exact(scheduler.evaluate(policy, fleet(), {**spec, "capacity_steer": other})) == \
+        exact(scheduler.evaluate(policy, fleet(), spec))
+
+
+def test_c11_2_a_steer_inside_the_upward_walk_changes_routing(policy):
+    """A standard build includes hard-tier Astra after Opus, so steering Opus moves it."""
+    spec = job(tier="standard", task="build")
+    assert scheduler.prepare(policy, fleet(), spec)["chain"] == ["opus", "astra"]
+    assert scheduler.evaluate(policy, fleet(), spec).chosen_model == "opus"
+    steered = {**spec, "capacity_steer": {OPUS: UNTIL}}
+    assert scheduler.prepare(policy, fleet(), steered)["chain"] == ["astra", "opus"]
+    assert scheduler.evaluate(policy, fleet(), steered).chosen_model == "astra"
+
+
+@pytest.mark.parametrize("steer", [{ASTRA: UNTIL, OPUS: UNTIL}, {OPUS: UNTIL, ASTRA: UNTIL}])
+def test_c11_2_multiple_steers_keep_policy_order_regardless_of_map_order(policy, steer):
+    """Both models remain in the policy's preference order, regardless of steer insertion order."""
+    spec = job(tier="standard", task="build", capacity_steer=steer)
+    assert scheduler.prepare(policy, fleet(), spec)["chain"] == ["opus", "astra"]
+    assert scheduler.evaluate(policy, fleet(), spec).chosen_model == "opus"
 
 
 # --- properties over random stores, policies and jobs ---------------------------------------------

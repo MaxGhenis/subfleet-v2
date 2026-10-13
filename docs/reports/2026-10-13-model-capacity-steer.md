@@ -134,3 +134,11 @@ C-4.3 retains #195's `FINALIZATION_RULE`: replays preserve this daemon's own ver
 Both capacity fixtures remain failure streams; no completion event was invented for them. The fake finalization helper copies explicit Codex output to the attempt's frozen stream, while generic fake successes retain `receipt_fixture`'s completion proof from #195. Both scenario lists retain the incident fixture and all three new cut-off fixtures. The contract helper ran mid-merge, and the merged C-4.3, C-4.5, C-9.2, C-9.5 and C-11.2 clauses were reviewed with `contract_wdiff.py` and read in full.
 
 Merge validation: `tests/unit/test_codex_adapter.py`: **135 passed** (42.56 s); `tests/fake/test_capacity_steer_daemon.py`: **33 passed** (67.00 s). Each ran alone under its own shared-lock hold, with a fresh TMPDIR cleaned afterward. Python: CPython 3.14.7, free-threaded build. The CI routing correction and remaining validation follow below.
+
+### CI routing correction
+
+The failure at `9c8a4dde7` was a test setup error, not nondeterministic ordering. C-11.2 requires flattening the requested tier and all higher tiers in preference order. The test steered Opus while asserting that a standard build's walk was unchanged; that walk is `[opus, astra]`, so steering Opus correctly produces `[astra, opus]`. `policy.flatten_chain` deduplicates with an insertion-ordered dictionary, and `scheduler.prepare` builds its steered dictionary in chain order. Routing therefore already has the deterministic order the contract requires.
+
+The outside-walk regression now steers below-tier Sonnet and off-chain Terra, asserts both hard and standard walks explicitly, and verifies the whole decision stays unchanged. Separate cases prove that steering Opus in the upward walk changes the selected model to Astra, and that steering both models preserves policy order regardless of the steer map's insertion order. No production routing code was changed.
+
+The routing module parses and `git diff --check` passes. Two attempts to execute its pytest file were denied the shared lock after 60 seconds each; no pytest started on either attempt. Additional requested files are being attempted in turn, without parallel pytest processes. Final results are recorded below.
