@@ -1195,8 +1195,11 @@ class Daemon:
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
         scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
-        every open operator hold. A held lane is never a candidate (C-11.2) but is
-        still probed, so a held account keeps being measured."""
+        every open operator hold. A held lane is never a candidate (C-11.2), and no
+        timer reads it while the hold is in force (C-18.1); an attempt already
+        running on it can still report a limit. The hold keeps a row of its own
+        (`Store.put_closure`): no limit, reset or reset credit ends it before its
+        `until`, and its release leaves any limit on the lane in force."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list")
