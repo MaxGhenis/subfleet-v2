@@ -200,8 +200,9 @@ or by unarchiving the session where a copy remains.
 `SUBFLEET_HOME=<scratch> subfleet sessions mirror --dry-run --prune --json`,
 with a copy of the live merge base in the scratch state root, so nothing under
 `~/.subfleet` or the store was written and no lock the daemon uses was taken.
-Run on the code as of review round 1's fixes (04:42Z to 04:47Z), and again
-on round 2's (05:22Z to 05:25Z, with a fresh copy of the merge base), which
+Run on the code as of review round 1's fixes (04:42Z to 04:47Z), and again,
+each with a fresh copy of the merge base, on round 2's (05:22Z to 05:25Z)
+and on the final code (`752070614`, 06:00Z to 06:02Z, with no warnings), which
 gave the same numbers to the copy:
 
 | | Copies | Bytes |
@@ -225,7 +226,8 @@ it). Folders: 17 settled, 100 switch, 18 unknown. Home:
 
 The cold pass took 263 s (164 s for the earlier run; the host was busier) and
 peaked at 667 MB resident (821 MB for the earlier run, which planned every
-copy at once); round 2's took 210 s and peaked at 677 MB. The mirror now
+copy at once); round 2's took 210 s and peaked at 677 MB, and the final
+code's 125 s and 676 MB. The mirror now
 plans one session at a time, with removal off only on the ten-minute sweep,
 and decides spread scope from a per-session summary. The registry's replay
 read all five logs (`main4.log` to `main.log`, about 50 MB) and found the
@@ -255,3 +257,7 @@ same folder kinds.
   - On an incomplete pass, a home that was really deleted reads as "could not
     be listed", and an org whose only account failed to list as "no folder";
     both clear at the next complete pass.
+  - The folder registry file has no lock. A save keeps the home records
+    another process wrote, but one written between a save's read and its
+    write is lost, and a daemon writes back as its own the records it read at
+    start. A lost record costs only a fresh resolution of that value.
