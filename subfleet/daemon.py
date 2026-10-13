@@ -34,7 +34,7 @@ import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
@@ -2226,6 +2226,15 @@ class Daemon:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
                     digest = turn["digest"]
+                # C-8.4, C-6.5: the workdir is recorded in its one spelling, as far as each
+                # name in it can be looked up now (a name that cannot stays as typed). Retention's
+                # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
+                # whose workdir was typed in another case or Unicode form than its volume
+                # stores (`stäte` in NFD under a tree spelled NFC) kept no tree: a writer or
+                # turn waiting on retention's fence above it saw the tree deleted (review of
+                # 5253faa2, P2). The digest keeps the path as resolved, so a request
+                # submitted again is the same payload whichever build accepted it first.
+                recorded_workdir = folders.canonical(workdir)
             except SalvageError as exc:
                 # C-6.8: nothing was submitted, so the caller retries; a timed-out
                 # `rev-parse` must not read as "not a repository" or "not on main".
@@ -2254,7 +2263,7 @@ class Daemon:
             for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest,
-                          workdir=str(workdir), workdir_head=head, out_path=out,
+                          workdir=recorded_workdir, workdir_head=head, out_path=out,
                           push_remote=push_remote, push_default_branch=push_default,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
                           exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
@@ -4534,7 +4543,11 @@ class Daemon:
         prefix = workspace.get("prefix")
         if provider == "codex" or not prefix or prefix == "." or _outside(prefix):
             return root
-        if workspace.get("worktree") and os.path.realpath(workspace["worktree"]) != os.path.realpath(root):
+        # The source's worktree is recorded as the state root was given; the resume's own
+        # workdir as submit spells it (`folders.canonical`). `realpath` keeps case, Unicode
+        # form and firmlinks, so compare the one spellings: under a state root typed in
+        # another case a resume lost its source's place (review of c7595627, P3).
+        if workspace.get("worktree") and folders.canonical(workspace["worktree"]) != folders.canonical(root):
             return root
         target = Path(root) / prefix
         return str(target) if target.is_dir() else root
@@ -4573,8 +4586,7 @@ class Daemon:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
     def _probe_census(self, record: dict):
-        return procs.containment(record.get("pgid"), record.get("guardian_pid"),
-                                 record.get("child_pid"), record["holder"], root=str(self.root))
+        return self._contain(record)
 
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
@@ -5104,7 +5116,7 @@ class Daemon:
             self._route_evaluations = totals
 
     def _capacity_wait(self, job_id: str, signature: str, hold: dict, *, expedite: bool = True,
-                       lane_wait: bool = False) -> int:
+                       blocked: Iterable[str] = (), lane_wait: bool = False) -> int:
         """C-6.10: how many times in a row this job's wait has reached this verdict.
 
         The count follows the verdict; what is reported follows the latest look
@@ -5113,7 +5125,9 @@ class Daemon:
         carries details (`leases`, `max_active_attempts`) that the passes between
         looks must still be able to give `why`. `expedite` is whether freed
         capacity may bring the next look forward; a probe's own 60 s wait may
-        not be, or every released lease would re-probe the provider.
+        not be, or every released lease would re-probe the provider. `blocked`
+        are the hold's `leases` the job needs free but does not take, which a
+        look on its clock does not queue for (C-6.11).
         `lane_wait` is whether this look evaluated the job's route and no lane
         would take it: only such a wait can be C-23.16's demand (`_reset_demand`).
         """
@@ -5124,7 +5138,8 @@ class Daemon:
         self._capacity_waits[job_id] = {
             "signature": signature, "rechecks": wait["rechecks"] + 1 if same else 0,
             "since": wait["since"] if same else now, "checked_at": now,
-            "label": hold["reason"], "hold": dict(hold), "expedite": expedite, "lane_wait": lane_wait}
+            "label": hold["reason"], "hold": dict(hold), "expedite": expedite, "blocked": tuple(blocked),
+            "lane_wait": lane_wait}
         return self._capacity_waits[job_id]["rechecks"]
 
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
@@ -5598,8 +5613,12 @@ class Daemon:
                                            self._probe_reach(roster, job, probing["model"], lanes, extra_exclusions)))
                 if lease_held and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
-                    queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
-                              job["job_id"])
+                    # Only the keys it takes: one it needs free but does not take (`blocked`,
+                    # retention's fence above a writer's folder, say) is never queued for
+                    # (C-6.11), on its clock as at its look (review of 5253faa2, P3).
+                    blocked = set(known.get("blocked") or ())
+                    queue_for([*(key for key in known["hold"].get("leases") or () if key not in blocked),
+                               *(known["hold"].get("queued") or ())], job["job_id"])
                 last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
                 if turn and turn != last.get("behind"):
                     # C-6.11: whose turn it is now; the job it was held for has started or ended.
@@ -5703,7 +5722,10 @@ class Daemon:
             git_absent = absent
             # The provider's cwd may differ from Git's hold (core.worktree).
             # Require that extra reader row's folder to be present too.
-            run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn" else (None, None))
+            # Detached jobs keep the resolved cwd through launch and quarantine;
+            # turns also require every name of their extra reader row to be present.
+            run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn"
+                                      else (folders.canonical(workspace), None))
             if absent is None and run_absent is not None:
                 named, absent = run_folder, run_absent
             if absent is None:
@@ -6030,8 +6052,14 @@ class Daemon:
                             # place, so it takes no lease; its instances are told apart
                             # at submit. A detached writer still writes alone: it waits
                             # while a conversation turn writes there.
-                            leases.append((f"worktree:{write_target}", job["job_id"]))
+                            own = folders.exclusive_key(write_target)
+                            leases.append((own, job["job_id"]))
                             blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                            # C-8.4: nor while retention retires a tree its folder is in,
+                            # a repository nested in a job's worktree (its own fence is
+                            # `own`, contested above). A detached writer above it holds
+                            # another checkout, not this one (C-6.5).
+                            blockers.extend(key for key in folders.retiring(read, write_target) if key != own)
                         elif job["kind"] == "turn" and read_folder:
                             # C-8.4, C-13.4: a read-only turn excludes no writer, but
                             # retention never removes a folder a turn is working in, or
@@ -6045,9 +6073,15 @@ class Daemon:
                             fence, held_folder = self._turn_fences(read, held_folder, git_absent,
                                                                     run_folder, run_absent)
                             blockers.extend(fence)
-                        if run_folder and run_folder != (write_target or read_folder):
-                            # Preserve the Git hold's writer rules. This extra
-                            # reader row only keeps the provider's cwd in place.
+                        else:
+                            # The writer already contests its own exclusive key.
+                            own_run_key = folders.exclusive_key(write_target) if write_target else None
+                            blockers.extend(key for key in folders.retiring(read, run_folder)
+                                            if key != own_run_key)
+                        if run_folder and (job["kind"] != "turn" or run_folder != (write_target or read_folder)):
+                            # This job-held reader row keeps the resolved cwd through
+                            # retries and quarantine without changing the Git hold's
+                            # writer rules. Holder-keyed cleanup releases it.
                             leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
                         if absent is not None and job["kind"] != "turn":
                             # C-8.4: its folder is not there now, so the names that could not
@@ -6104,7 +6138,8 @@ class Daemon:
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])
-                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
+                            rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold,
+                                                           blocked=blocked)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
@@ -6116,6 +6151,7 @@ class Daemon:
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                    "run_folder": run_folder,
                                     **({"baseline_ref": pinned["path"]} if pinned else {}),
                                     **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
                         if job["kind"] == "turn":
@@ -6746,6 +6782,11 @@ class Daemon:
         lane = self.store.get_lane(a["lane_id"])
         adapter = get_adapter(lane.provider)
         evidence = json.loads(a["evidence_json"] or "{}")
+        if job["kind"] != "turn" and evidence.get("run_folder"):
+            # Use the folder whose reader row was reserved, even if the caller
+            # replaces the submitted path again before the provider launches.
+            field = "worktree" if job.get("worktree") else "workdir"
+            job = {**job, field: evidence["run_folder"]}
         model = self.policy["models"][evidence["model_short"]]
         prompt_path = Path(job["prompt_path"])
         prepared_path = prompt_path.with_name("prompt.prepared.md")
@@ -7077,7 +7118,41 @@ class Daemon:
         return True
 
     def _contain(self, a: dict):
-        return procs.containment(a.get("pgid"), a.get("guardian_pid"), a.get("child_pid"), a["attempt_id"], root=str(self.root))
+        """C-5.5: one identity/bounds path for every deciding census, probes too."""
+        directory = (Path(a["directory"]) if a.get("directory") else
+                     attempt_dir(self.root, a["job_id"], a["seq"]))
+        start = self._read_json(directory / "start.json") or {}
+        receipt = self._read_json(directory / "exit.json") or {}
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        owned = a.get("owned_identities", evidence.get("owned_identities", {}))
+        recorded = {int(pid): procs.ProcessIdentity(**value) for pid, value in owned.items()}
+        guardian = a.get("guardian_pid") or start.get("guardian_pid")
+        boot = a.get("boot_id") or start.get("boot_id")
+        began = a.get("proc_start") or start.get("proc_start")
+        if guardian and boot and began:
+            recorded[guardian] = procs.ProcessIdentity(guardian, boot, began)
+        census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
+                                   a.get("child_pid") or receipt.get("child_pid"),
+                                   a.get("attempt_id") or a["holder"], root=str(self.root),
+                                   recorded_identities=recorded,
+                                   started_at=a.get("started_at") or start.get("started_at")
+                                   or a.get("reserved_at") or a.get("created_at"),
+                                   finished_at=receipt.get("finished_at"))
+        if census.recycled and a.get("attempt_id"):
+            excluded = census.to_dict()["recycled"]
+            if any(evidence.get("recycled", {}).get(pid) != value for pid, value in excluded.items()):
+                # A verified-empty census is otherwise discarded at success.
+                # Preserve its explanation for runs show, and in the caller's
+                # row too: kill/finalization later write evidence from that row.
+                with self.store.transaction("attempt.processes_recycled", job_id=a["job_id"],
+                                            attempt_id=a["attempt_id"], data={"recycled": excluded}) as tx:
+                    actual = self.store.get_attempt(a["attempt_id"]) or a
+                    current = json.loads(actual.get("evidence_json") or "{}")
+                    current["recycled"] = {**current.get("recycled", {}), **excluded}
+                    a["evidence_json"] = json.dumps(current)
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (a["evidence_json"], a["attempt_id"]))
+        return census
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
