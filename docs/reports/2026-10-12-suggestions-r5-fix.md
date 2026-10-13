@@ -1,6 +1,6 @@
-# PR #181 rounds 5 and 6: retained events, secrecy and compatibility
+# PR #181 rounds 5 to 8: retained events, secrecy and compatibility
 
-The original round-5 record follows. Round-6 fixes and results are appended below.
+The original round-5 record follows. Round-6, round-7 and round-8 fixes and results are appended below.
 
 Assigned base: `4cd38b44beef`, including the release/217 merge and the
 round-5 reproductions in `3c36728ee`. Read the fix brief, full round-4 review,
@@ -297,3 +297,281 @@ parented at the assigned head, because shared Git metadata is outside the
 writable sandbox. Only named source, test, contract and report files are staged;
 both commits carry the required co-author trailer. No network remotes, pushes,
 sub-agents, caller writes, live-state changes or staged logs/evidence/bundles.
+
+## Round 8: handler refusals say what they name; a malformed reply is resent
+
+Review r5 (`178e9438b`) found the round-5 to round-7 responders gave every
+handler refusal the argument template `args: request was refused` (P1), and
+round 6 had stopped the CLI resending after a reply that does not decode
+(P2). The first round-8 job committed the P2 fix as `a29f83319` and was then
+cut off three times by provider capacity, leaving its P1 work uncommitted;
+the hub saved it as `fix8-uncommitted.patch` (12 files). This continuation
+applied that patch at `a29f83319`, read every hunk, and finished P1.
+
+**P2, `a29f83319`.** A complete reply line that does not decode raises
+`ResponseLost` with the fixed `malformed-response` text, so C-16.3 holds
+again: the CLI sends the identical submission once more and, if that also
+goes unanswered, reports the outcome as unknown with the request id and the
+`--request-id` command that settles it. The two `test_cli.py` tests that had
+pinned a single submission now require two identical submissions, the
+resend notice, the request id and `--request-id`. Their bodies include the
+reviewer's three probes (not JSON, an array, an `error` that is not an
+object).
+
+**P1.** The request vocabulary now covers only the decoding and argument
+errors that `request_error` tags. Every refusal a handler raises
+(`ProtocolError`, `AdapterError`, and `TransferError`, which the daemon passes
+on) carries a reason from `subfleet/refusals.py`. Where the reason's template
+names a value, the refusal carries that value in `details`. The wire text is
+the reason's most specific form whose values pass their checks:
+
+- a job id or lane id of its form that the C-25.5 scrubber leaves unchanged;
+- a task name of its form;
+- a known isolation variable or Codex configuration layer;
+- `main` or `master`, a provider, or a count.
+
+A value that fails its check is left out by a less specific form of the same
+refusal, which keeps the refusal's kind and repair. Exception messages, their
+args and their own repair text are never inputs. A refusal whose reason is
+unknown reads `operation: request was refused`. The table holds 148 reasons,
+24 of which have less specific forms.
+
+| Command (review r5's cases first) | `75ffe34f5` | rounds 5–7 | now |
+| --- | --- | --- | --- |
+| `run --request-id R` again with another prompt | `…different payload by job <id>` | `args: request was refused` | `request id already used with a different payload by job <id>` |
+| `run --task build --tier standard -C <non-git>` | `build jobs write by policy, and this directory is not a git repository` + fix with `-s read-only` | `args: request was refused` (exit 7, no fix) | same as `75ffe34f5` |
+| `runs show <unknown>`, `kill <unknown>` | `unknown job <id>` | `args: request was refused` | `unknown job <id>` |
+| `lanes release codex-99 --limits --note x` | (no such option) | `args: request was refused` | `lanes release --limits: unknown lane codex-99` + `fix: subfleet lanes list` |
+| `lanes transfer codex-99 --to v2` | `unknown lane codex-99` | `args: request was refused` | `lanes transfer: unknown lane codex-99` + fix |
+| `lanes hold <not a lane id> --until …` | the value quoted | `args: request was refused` | `lanes hold: unknown lane` + fix (value left out) |
+
+Rerunning the reviewer's `probe_daemon.py` against this tree gives its
+refusal cases the "now" text above, which is `75ffe34f5`'s wherever that
+version had the case. Its three round-4 secrecy cases still report
+`leaks: false`, and its `notice.ack` case keeps the argument template.
+
+What the hub's draft patch got right, and kept: the closed reason plus checked
+details, the split in `protocol.refuse`, `ProtocolError` no longer defaulting
+to `refused-args`, tags on every raise site in `daemon.py` and the adapters, the isolation variable
+and layer, the four conversation seams, and its tests' intent. What changed:
+
+1. **Reason names.** The draft's 70 generated `handler-<first words of the
+   message>` slugs are short names (`batch-id`, `workdir-tmp`,
+   `reenroll-lease`).
+2. **A failed value no longer swallows the refusal.** In the draft, any value
+   that failed its check made the whole refusal the operation fallback:
+   `lanes hold foo` read `operation: request was refused` with no fix. Each
+   reason that names a value now has less specific forms, ending in one that
+   names none.
+3. **C-11.1 under policy.** `_written_by_policy` dropped the reason of the
+   writer refusal it wraps, so every writer refusal of a job writing by policy
+   (d261) became the fallback, without `pass -s read-only`. It now keeps the
+   reason and details. The renderer adds `(<task> jobs write by policy)` and
+   `; or pass -s read-only`, as the exception's own text does.
+4. **Refusal sites the draft missed.** It left these untagged:
+   - the 14 operator-command refusals (`operations.py`);
+   - the 16 `lanes transfer` refusals, which shared one generic template
+     whose fix it had invented;
+   - host push at submit, admission and checkout;
+   - credential resolution, the adapter registry, and the conversation turn
+     launch.
+
+   They read the fallback or lost their repair. `--i-understand-v1-edit`, for
+   instance, is again what the transfer refusal tells the operator to pass.
+   An AST test now requires a known reason on all 167 refusal constructions
+   in the daemon's code (the client's own errors and `request_error` aside).
+5. **Detail the draft dropped.** These are back, each value checked:
+   - the task in the policy-workdir refusal (the draft read `jobs write by
+     policy, and …`);
+   - the holding or source job in the writer-conflict, revive and resume
+     refusals;
+   - the count and limit under `caps.max_writable_per_session`;
+   - the provider for resume and MCP, the lane already bound at enrollment,
+     and the `sessions` action.
+6. **The conversation fix.** The conversation-session and resume-of-a-turn
+   refusals use `registry.CONVERSATION_FIX` again; the draft had invented
+   different text.
+7. **Unknown layers.** An unknown Codex layer source is left out. The draft
+   rendered it as the word `unknown` ("an unsupported unknown configuration
+   layer").
+8. **The daemon log.** A handler refusal's own words go to daemon.log only,
+   scrubbed whole (`refusals.log_detail`), as C-25.7 allows. The host-push
+   and transfer templates that say "the daemon log names …" rely on this.
+9. **A fifth conversation seam.** `_handoff_brief` rendered `str(HandoffError)`
+   (transcript paths, exception text), the same leak as `_handoff_history`.
+   It now uses fixed text.
+10. **The draft's CLI tests never reached the daemon.** `served` records the
+    daemon as booted at `routing-boot` and started at `routing-start`. The CLI
+    read the machine's real values, judged `daemon.lock` stale and exited 69
+    before sending anything. The tests now stub the client's identity to
+    match.
+11. **Two argument refusals lost their words.** The draft replaced
+    `ProtocolError(str(exc))` in two submit argument checks with
+    `request_error("invalid-args")`. Those checks cover reading the submission
+    and a resume's `--mcp` names. The change dropped the exception's own
+    message, which direct callers read.
+    `tests/fake/test_admission_route_isolation.py:1080` matches "was given as
+    a claude lane", and `tests/fake/test_mcp_job_contract.py:101` matches
+    "unknown MCP server …". Both would have failed. They are
+    `ProtocolError(str(exc), reason="invalid-args")` again (`76d3e2c1c`). The
+    wire reads the argument template and the exception keeps its message. This
+    was found by reading those tests, not by running them.
+
+Nothing else was discarded.
+
+**`test_protocol_secrecy.py:172`.** That case fed `ProtocolError(VALUE,
+fix=VALUE)` and `AdapterError(VALUE, fix=VALUE)` to the argument-refusal
+test and required the `args:` template: it asserted the over-broad
+behaviour review r5 found. Those inputs now live in their own cases:
+
+- with no known reason, they require the operation fallback, still with no
+  prose and no fix;
+- with reasons, they require the job, lane, policy fix and isolation names;
+- with values that fail their checks, they require the less specific form.
+
+The argument case keeps `request_error("invalid-args")`, which is what it
+tests.
+
+**P3 dispositions.**
+
+- *Credential-shaped request ids* stay refused, both as submission keys
+  (C-1.5) and as correlation ids (C-25.7). Both clauses already state this,
+  and the value is never shown. The cost is a legitimate key such as
+  `sk-learn-benchmark-2026` needing another spelling. Accepting it would put
+  a string the scrubber recognizes into stored rows and replies.
+- *Conversation refusals outside suggestions.* Five seams are templated: the
+  four the reviewer named (`bad-decision`, `diff-failed`, `bad-native`,
+  `handoff-source`) and the handoff brief. C-25.7 now describes the rest as
+  they are: `reason: text` lines in our own words, which may name the ids,
+  states and paths the request or store holds and errno text, through the
+  scrubber, with no exception text. An AST check of
+  `subfleet/conversations` found no other `ConversationError` that renders
+  a caught exception, apart from errno `strerror`.
+
+**Invariants**, stated in `tests/unit/test_handler_refusals.py` and
+executed:
+
+- the text is the reason's first form whose values all pass their checks,
+  plus the by-policy suffix exactly when the details carry it;
+- a known reason never reads the fallback, and an unknown one always does;
+- the exception's own message and repair never appear;
+- a checked value has its stated shape (an oracle written apart from the
+  module's patterns);
+- each refusal the code builds names a known handler reason, or a request
+  reason for an argument check;
+- where a raise site's message or fix is a constant, the wire shows that
+  same text. This differential check compares more than 100 pairs; their
+  meanings cannot drift apart.
+
+Hypothesis runs the rendering properties over all three exception types, and
+every reason goes through the daemon's real responder.
+
+**Not changed.** Three limits remain:
+
+- Handler `ValueError`, `TypeError` and `KeyError` refusals still read
+  `args: required fields are missing or invalid`, as in rounds 5 to 7 (for
+  example `output directory must exist`, or a gate review's `round_lease`).
+  C-25.7 counts those as argument refusals, and review r5 did not raise
+  them.
+- Host-push refusals at submit share one template; the check that refused is
+  in daemon.log.
+- `gate.*` operations return their errors as results (`message: str(exc)`),
+  outside the refusal path. That is unchanged.
+
+**Tests.** Each hold ran one foreground pytest process under the shared lock,
+with its own `sf-r181f8-$$` TMPDIR and Hypothesis storage, a hard deadline
+inside 20 minutes, and Python `shutil.rmtree` cleanup. It used the caller's
+`.venv` read-only (Python 3.14.7 free-threaded, pytest 9.1.1, Hypothesis
+6.168.1), with `PYTHONPATH` unset and imports from this workspace.
+
+| Hold | Tree | Passed | Failed |
+| --- | --- | ---: | ---: |
+| `tests/unit/test_handler_refusals.py` | P1 tree (before `14fad997f` and `76d3e2c1c`) | 307 | 0 |
+| `tests/unit/test_daemon_refusals_cli.py`, `tests/fake/test_request_routing.py`, `tests/fake/test_lost_acknowledgement.py` | P1 tree | 14 | 0 |
+| `tests/unit/test_protocol_secrecy.py` | P1 tree | 317 | 0 |
+| the same three files, CLI test from `babc5c8e8` | `git archive a29f83319` | 4 | 10 |
+| `tests/unit/test_daemon_refusals_cli.py` (identity stubs) | `git archive a29f83319` | 0 | 8 |
+
+At `a29f83319`, the two fake-daemon tests review r5 cited fail on
+`'unknown job' in 'args: request was refused'` and `'different payload by
+job …' in 'args: request was refused'`; both pass on the P1 tree. In the
+first archive hold, the CLI test from `babc5c8e8` also failed on exit 69:
+its `served` daemon looked stale to the CLI (item 10 above). With the
+identity stubs, all eight CLI cases fail at `a29f83319` on `subfleet: args:
+request was refused` and pass on the P1 tree. `14fad997f` only moves
+`value_names` beside the checks it lists. `76d3e2c1c` restores the two
+argument messages, adds one test and widens the AST check to request reasons.
+An import check after `14fad997f` confirmed the same value names and
+rendering, and one after `76d3e2c1c` that the daemon loads. No pytest hold
+ran on either.
+
+**Not run: the lock queue kept these out.** From 06:20 to after 10:00 the
+shared suite lock was held by other sessions' runs of 20 to 50 minutes,
+including an integration hub's, with five to eight sessions waiting and load
+between 40 and 125. More than 30 of this session's attempts timed out in the
+queue (exit 75). A foreground call can wait at most about nine minutes. These
+are for the hub's host run, at the final head:
+
+- `tests/unit/test_handler_refusals.py`. It last passed before `14fad997f`
+  and `76d3e2c1c`; its new argument-refusal test has not run.
+- `tests/unit/test_cli.py`, after P1. It passed 208 at `a29f83319` in the
+  first job's third attempt. P1 changes no client code, and its fake daemon
+  sends its own replies.
+- `tests/unit/test_test_module_names.py`. The one new module,
+  `test_handler_refusals.py`, has a basename of its own.
+- The suggestion unit files: `test_suggestion_error_boundaries.py`,
+  `test_suggestion_structural_errors.py`, `test_suggestion_secret_properties.py`,
+  `test_suggestion_properties.py`, `test_suggestions.py`,
+  `test_suggestions_r1b_adversarial.py`, `test_suggestions_r3_channels.py`,
+  `test_suggestions_review_boundaries.py`, `test_suggestions_review_multiline.py`,
+  `test_suggestions_review_response.py`, `test_suggest_cli.py` and
+  `test_suggest_hint.py`. Also `tests/fake/test_suggestions_fake.py`.
+- `tests/e2e/test_milestone1_codex.py`, whose different-payload assertion
+  `88c6e806c` tightened, and `tests/e2e/test_suggestions_e2e.py`.
+- The files the brief's grep names, and those holding fragments of the
+  changed refusal messages:
+  - `tests/unit/`: `test_outcome_unknown.py`, `test_lanes_transfer.py`,
+    `test_sessions_cli.py`, `test_host_push_copy.py`, `test_wait_hub.py`,
+    `test_store_migration_2.py`, `test_salvage_unindexable.py`,
+    `test_retention_case_alias.py`, `test_host_push_mutations.py`,
+    `test_host_push_build_budget.py`, `test_host_push_admission.py`,
+    `test_host_push_metadata.py`, `test_host_push_validated_top.py`,
+    `test_guard_overlay.py`, `test_folders.py`, `test_daemon_init_release.py`,
+    `test_daemon_connections.py`, `test_cli_batch.py`,
+    `test_operator_notices.py`, `test_conversation_service.py` and
+    `test_conversation_handoff*.py`;
+  - `tests/fake/`: `test_mcp_job_contract.py`, `test_lanes_enroll.py`,
+    `test_canonical_identity_fix2.py`, `test_canonical_identity_fix4.py`,
+    `test_daemon_stacks.py`, `test_state_contract.py`,
+    `test_sessions_end_to_end.py`, `test_routing_end_to_end.py`,
+    `test_notice_delivery.py`, `test_notice_header.py`,
+    `test_lanes_reenroll.py`, `test_admission_route_isolation.py`,
+    `test_policy_sandbox.py`, `test_salvage_finalization.py`,
+    `test_workspace_transient.py` and `test_writable_fanout.py`.
+
+  Each of their refusal-text assertions was read against the new code. They
+  check the raised exception's own `str`, `code` or `fix`, a job notice, a
+  fake daemon's own reply, or a launch receipt. Apart from the two messages
+  `76d3e2c1c` restores, P1 leaves those unchanged: it adds keyword
+  arguments, and only the wire text is templated. None checks daemon refusal
+  text on the wire, so none is expected to change.
+
+Commits on `feat/suggested-conversations` after `a29f83319`, all in the
+shared repository (detached in this worktree, kept by Subfleet's salvage
+ref):
+
+- `babc5c8e8`: the CLI regressions;
+- `7d1204825`: the P1 fix with its unit tests;
+- `bb38acd37`: the CLI tests reach their daemon;
+- `88c6e806c`: the e2e assertion;
+- `08024d1d9`: the contract;
+- `14fad997f`: the refactor;
+- `76d3e2c1c`: the argument messages;
+- this report.
+
+Only named files were staged, and every commit carries the co-author
+trailer. There were no network remotes, pushes or sub-agents, no writes to
+the caller's checkout, no live-state changes, and no staged logs, evidence
+or bundles. The reviewer's daemon probe ran from a temporary copy, which has
+been removed. The `/tmp/sf-failed` state root that the first archive hold
+left was removed; other sessions' state roots there were left alone.
