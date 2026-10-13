@@ -233,7 +233,8 @@ try {
         writeFileSync(cliPath, JSON.stringify(entry))
         const blocked = c.step(1)
         assert.equal(blocked.status, 75, JSON.stringify(entry) + ': ' + blocked.text)
-        assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=alive helper_pid=none cli_pid=${entry.pid} cli=unknown$`, 'm'))
+        const pidText = entry.pid === true ? 'True' : String(entry.pid)
+        assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=alive helper_pid=none cli_pid=${pidText} cli=unknown$`, 'm'))
         assert.doesNotMatch(blocked.text, /Traceback|SUBMIT_RC|JOBS=/)
       }
     } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }

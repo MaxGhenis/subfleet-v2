@@ -182,11 +182,15 @@ const HL = 'FANOUT_SETUP_EOF'
 // The lock file names the launcher and its child (the helper, or step 0's
 // shell); the helper names each CLI child in LOCK.cli. Every one of them
 // inherits the lock, so LOCKED reports each pid and whether it still lives.
-const lockRunner = `import fcntl, json, os, subprocess, sys, time
+const lockRunner = `import fcntl, json, math, os, re, subprocess, sys, time
 def status(entry):
-    # alive, dead, or reused: the pid now names a process started later.
+    # A PID alone cannot prove which process holds the inherited lock.
     try:
-        pid = int(entry["pid"])
+        pid, since = entry["pid"], entry["since"]
+        if type(pid) is not int or pid <= 0:
+            return "unknown"
+        if type(since) not in (int, float) or not math.isfinite(since) or not 0 < since <= time.time():
+            return "unknown"
         os.kill(pid, 0)
     except PermissionError:
         pass
@@ -194,14 +198,16 @@ def status(entry):
         return "dead"
     except (KeyError, TypeError, ValueError, OverflowError):
         return "unknown"
-    etime = None
     try:
-        etime = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout.strip()
+        result = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
+        etime = result.stdout.strip()
+        if result.returncode != 0 or not re.fullmatch(r"(?:[0-9]+-)?[0-9]+:[0-9]{2}(?::[0-9]{2})?", etime):
+            return "unknown"
         days, _, clock = etime.rpartition("-")
         age = int(days or 0) * 86400 + sum(int(n) * 60 ** i for i, n in enumerate(reversed(clock.split(":"))))
     except (OSError, subprocess.SubprocessError, ValueError):
-        return "dead" if etime == "" else "alive"
-    return "reused" if time.time() - age > float(entry.get("since") or "inf") + 2 else "alive"
+        return "unknown"
+    return "reused" if time.time() - age > since + 2 else "alive"
 with open(sys.argv[1], "a+") as lock:
     try:
         budget = float(os.environ.get("SUBFLEET_FANOUT_LOCK_WAIT_S", "5"))
@@ -231,7 +237,7 @@ with open(sys.argv[1], "a+") as lock:
                 found = []
                 for role in ("launcher", "helper", "cli"):
                     entry = holders.get(role)
-                    ok = isinstance(entry, dict) and entry.get("pid")
+                    ok = isinstance(entry, dict) and "pid" in entry
                     found.append("%s_pid=%s %s=%s" % (role, entry["pid"], role, status(entry)) if ok else role + "_pid=none")
                 print("LOCKED lock=%s wait_s=%s %s" % (sys.argv[1], budget, " ".join(found)), flush=True)
                 sys.exit(75)
