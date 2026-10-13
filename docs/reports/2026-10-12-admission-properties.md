@@ -229,9 +229,16 @@ in the tests and the contract text. Each is corrected in the commit after it:
 
 On main (3f155e5 with the fixes above, 2026-09-27), each bug in the table was put back by hand and
 the `deep` search then ran without shrinking. A clean baseline passed the same search: 1,000
-examples in 18 minutes 44 seconds. The same sweep on release/217 has 15 mutations scripted, including
-three for 217's own rules (an uncapped pool holding jobs, a lease waiter holding others back, a job
-no lane can admit registered as a waiter). It waits for the host's disk pause to lift.
+examples in 18 minutes 44 seconds.
+
+The same sweep for release/217 is `tools/admission_mutations.py` (`--list` names them). It has 16
+bugs: ten of the eleven below, rewritten for 217's code (not the route wait that holds back its
+tier), and six for 217's own rules. Those six are an
+uncapped pool holding jobs, a lease waiter holding others back, a lease waiter keeping no slot, a job
+no lane can admit registered as a waiter, a job waiting on a probe that is no waiter, and a probe
+turn that ignores the probe's model. It has not run on 217. On 2026-10-13 the host's free disk fell
+from 62 GB to 43 GB while the sweep waited for the shared test lock, below the hub's 60 GB line,
+so it was cancelled before it started.
 
 | Bug put back (main) | Caught by | Seconds |
 |---|---|---|
@@ -262,3 +269,7 @@ T="$(getconf DARWIN_USER_TEMP_DIR)sf-admission-$$"; mkdir -p "$T"
   uv run --no-sync pytest -x -q -p no:cacheprovider -p no:logging tests/fake/test_admission_stateful.py
 python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$T"
 ```
+
+The mutation sweep runs the same way, one hold per batch of about six, for example
+`.venv/bin/python tools/admission_mutations.py 150 baseline fix1 fix2 fix3 fix4-merge fix4-submit`
+in place of the `pytest` command.

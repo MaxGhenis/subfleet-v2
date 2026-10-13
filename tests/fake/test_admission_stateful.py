@@ -5,19 +5,23 @@ adapters, stubbed process identity, no guardian, no provider) on a virtual
 clock through random sequences of lanes enrolled and disabled, sensor readings
 fresh and stale, closures, probe reservations, lane pins (a lane id, a name two
 lanes answer to, a name no lane answers to), jobs in every tier, attempts that
-end `ok`, `transient` or `limited`, restarts, and sensors that fail. After each
+end `ok`, `transient` or `limited`, C-6.14's pilot hold on or off, restarts,
+and sensors that fail. After each
 admission pass it checks what the pass left against the contract rather than
 against the code that produced it:
 
 - P1 totality (C-6.11, C-6.12): no error from one job's route ends the pass,
   and every job the pass leaves pending has a stated reason.
-- P2 non-interference (C-6.9, C-11.2): `behind-older-job` names an older job of
-  the same tier that competes with the held job, by the models routing walks
-  and the lanes the pins name; a younger job that competes with a waiting job
-  is not placed past it.
-- P3 bounded progress (C-6.9): under fair capacity every job some lane would
-  take is placed within a bounded number of passes unless an older job that
-  competes with it can never be placed, and the fleet stays within its caps.
+- P2 non-interference (C-6.9, C-11.2, C-11.8): `behind-older-job` names an
+  older job of the same tier that competes with the held job, by the models
+  routing walks and the lanes the pins name; in a capped pool a younger job
+  that competes with a job waiting for a slot, a lane or a probe is not placed
+  past it, and one placed past such a waiter or a lease waiter leaves the last
+  slot free.
+- P3 bounded progress (C-6.9, C-11.8): under fair capacity every job some lane
+  would take is placed within a bounded number of passes, with no exception (a
+  job no lane can admit holds nobody back and keeps no slot), and the fleet
+  stays within its caps.
 - P4 recheck cost (C-6.10): a look that repeats its verdict adds no decision
   row and sets a later clock, so a quiet fleet looks at a waiting job a bounded
   number of times however long it waits.
