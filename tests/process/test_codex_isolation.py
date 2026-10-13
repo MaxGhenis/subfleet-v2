@@ -29,6 +29,7 @@ SCENARIOS = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection", "auth-401",
     "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag", "stream-disconnect",
     "model-at-capacity", "model-at-capacity-sol", "spawn-fail", "model-scoped-limit",
+    "cut-off-item-completed", "cut-off-item-started", "cut-off-error",
 )
 
 

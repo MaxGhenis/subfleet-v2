@@ -31,6 +31,7 @@ from subfleet.adapters.registry import register
 from subfleet.contracts import (MODEL_CAPACITY_STEER_S, TRANSIENT_RETRY_DELAY_S, Credential, Lane, LaneOwner,
                                 Outcome, OutcomeClass, Reading, ReadingLabel)
 from subfleet.daemon import after, utcnow
+from subfleet.daemon import Daemon
 from tests.fake.test_state_contract import receipt_fixture, state_daemon  # noqa: F401 (a fixture)
 from tests.fake_adapter import FakeAdapter
 
@@ -99,9 +100,15 @@ def finish(daemon, attempt, adapter, *, rc=1, stdout=None, stderr=b""):
     adir.mkdir(mode=0o700, exist_ok=True)
     daemon._pending_launches.discard(attempt["attempt_id"])
     receipt = receipt_fixture(daemon, attempt, adir, rc=rc, stdout=stdout if stdout is not None else b"fixture result\n")
+    if stdout is not None:
+        # Explicit Codex output is this attempt's frozen stream; a generic fake
+        # success keeps receipt_fixture's turn.completed proof instead.
+        (adir / "stream.jsonl").write_bytes(stdout)
     (adir / "stderr").write_bytes(stderr)
-    daemon._finalize(receipt)
-    register(provider, FakeAdapter)
+    try:
+        daemon._finalize(receipt)
+    finally:
+        register(provider, FakeAdapter)
     return daemon.store.get_attempt(attempt["attempt_id"])
 
 
@@ -151,6 +158,71 @@ def test_c9_5_a_refused_hard_review_moves_to_its_chains_next_model_on_the_next_p
     finish(daemon, second, FakeAdapter, rc=0)
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["rc"], job["accepted_attempt_id"]) == ("succeeded", 0, second["attempt_id"])
+
+
+@pytest.mark.parametrize("restart", [False, True], ids=["replay", "restart"])
+@pytest.mark.parametrize("older", [False, True], ids=["this-daemon", "older-daemon"])
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize("rc", [0, 1])
+def test_c4_3_capacity_mark_and_steer_survive_replay(fleet, monkeypatch, restart, older, complete, rc):
+    """A terminal capacity refusal remains marked with either replay rule and completion state."""
+    daemon, harness = fleet
+    (harness.root / "policy.json").write_text(json.dumps(daemon.policy))
+    job_id = submit(daemon, harness)
+    first = admit(daemon, job_id)
+    adir = daemon.root / "jobs" / job_id / "a1"
+    stdout = (FIXTURE / "stdout").read_bytes()
+    if complete:
+        stdout += b'{"type":"turn.completed"}\n'
+    salvage = daemon._salvage
+
+    def crash(*args):
+        raise RuntimeError("interrupted before acceptance")
+
+    monkeypatch.setattr(daemon, "_salvage", crash)
+    with pytest.raises(RuntimeError, match="interrupted before acceptance"):
+        finish(daemon, first, Refused, rc=rc, stdout=stdout)
+    frozen_path = adir / "finalization.json"
+    frozen = json.loads(frozen_path.read_text())
+    assert frozen["rule"] == daemon_module.FINALIZATION_RULE
+    assert frozen["outcome"]["cls"] == "transient"
+    assert frozen["outcome"]["evidence"]["model_capacity"] is True
+    if older:
+        del frozen["rule"]
+        frozen_path.write_text(json.dumps(frozen))
+    frozen_bytes = frozen_path.read_bytes()
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    monkeypatch.setattr(Refused, "classify", lambda *args: pytest.fail("cached classification repeated"))
+    register("codex", Refused)
+    # Later live stdout cannot replace this attempt's frozen refusal.
+    (adir / "stdout").write_text('{"type":"turn.completed"}\n')
+    successor = None
+    try:
+        if restart:
+            daemon.close()
+            successor = daemon = Daemon(harness.root)
+            monkeypatch.setattr(daemon, "_launch", lambda *args: pytest.fail("recovery must not launch"))
+            daemon._process_attempt(first["attempt_id"])
+        else:
+            daemon._finalize(daemon.store.get_attempt(first["attempt_id"]))
+        row = daemon.store.get_attempt(first["attempt_id"])
+        recorded = evidence(row)
+        assert row["outcome_class"] == "transient"
+        assert recorded["classification"]["model_capacity"] is True
+        assert recorded["classification"]["turn_completed"] is complete
+        assert recorded["classification"]["turn_failed"] is True
+        assert seconds(recorded["capacity_steer"]["until"], row["finished_at"]) == MODEL_CAPACITY_STEER_S
+        assert frozen_path.read_bytes() == frozen_bytes
+        assert (adir / "stream.jsonl").read_bytes() == stdout
+        assert daemon.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert daemon.store.list_closures() == []
+        assert daemon._retry_pin(daemon.store.get_job(job_id))[2] is None
+        second = admit(daemon, job_id)
+        assert second is not None and second["model_requested"] == OPUS
+    finally:
+        register("codex", FakeAdapter)
+        if successor is not None:
+            successor.close()
 
 
 def test_c9_5_with_no_lane_for_the_next_model_the_job_goes_back_to_the_model_at_once(fleet):
