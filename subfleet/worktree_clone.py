@@ -7,34 +7,43 @@ plan records are tracked. On APFS a file the caller's checkout already holds
 can instead be an APFS clone: a regular file with its own inode, mode and
 metadata that shares its blocks with the original until either side writes.
 
-`add_worktree` makes the same worktree `git worktree add --detach` makes, in
-the same steps git takes, with one step put in the middle:
+`add_worktree` makes the worktree `git worktree add --detach` makes, by git's
+own steps (git 2.55 `builtin/worktree.c`: `add_worktree`, `checkout_worktree`)
+with one step put in the middle:
 
-1. `git worktree add --no-checkout --detach PATH COMMIT`: the administrative
-   directory, HEAD, and any sparse-checkout and worktree config git copies
-   from the caller's worktree; no files.
-2. Clone stage (best effort): `read-tree` fills the index; each tracked regular
-   file whose blob the caller's checkout records at the same path, and whose
-   checkout git writes as the blob's bytes unchanged (`_writes_blob_bytes`), is
-   cloned from that checkout into PATH with the mode git would create it with;
-   `update-index --refresh` then hashes every clone against its blob. A clone
-   whose bytes are not the blob's stays out of date in the index.
-3. `git reset --hard --no-recurse-submodules`: what `git worktree add` itself
-   runs to check a worktree out. It keeps every entry the refresh found up to
-   date and writes all the others, so a clone the refresh rejected, and every
-   file the clone stage skipped, is written by git.
-4. `git status` must be empty. If it is not, the worktree is removed and a
-   plain `git worktree add` makes it instead.
-5. The `post-checkout` hook, as `git worktree add` runs it (null old head,
-   new head, flag 1), once.
+1. Preflight, in the caller's repository as `worktree add` sees it: the
+   caller's directory must be in a worktree, and no `post-checkout` hook may be
+   configured there (`git hook list`). `worktree add` runs that hook itself
+   (serially, from the caller's repository, in the new tree, without
+   `GIT_DIR`/`GIT_WORK_TREE`); rather than imitate that, a repository with one
+   gets the plain add.
+2. `git worktree add --no-checkout --detach PATH COMMIT`: the same
+   administrative directory, HEAD, and copied sparse and worktree config as
+   the plain add, without its checkout (which runs no hook here).
+3. Clone stage, best effort, within `CLONE_SHARE` of the cap. Its own git
+   calls run with no hook (`core.hooksPath=/dev/null`, `hook.<event>.enabled`
+   off for the index and ref events) and no fsmonitor, so it starts nothing a
+   plain add would not. `read-tree` fills the index. A tracked regular file is
+   cloned when the caller's checkout records the same blob at the same path,
+   git checks it out as the blob's bytes unchanged (`_writes_blob_bytes`), it
+   is not a `.gitattributes` file, and the caller's file is a regular file of
+   the blob's size with no flags. A clone is kept only if it has no flags,
+   extended attributes or ACL and its bytes hash to the blob (a raw git blob
+   hash, no conversion); it is given the mode git would create it with under
+   the umask. `update-index --refresh` then records stat data for the clones.
+4. git's own checkout, run as `worktree add` runs it: `git reset --hard
+   --no-recurse-submodules` with `GIT_DIR=PATH/.git` and `GIT_WORK_TREE=PATH`,
+   from the caller's worktree top. It keeps every entry the refresh found up to
+   date and writes all the others.
+5. The tree must then be clean (`diff-files`, `diff-index --cached`, no
+   untracked file). If it is not, this tree and only its own registration are
+   removed (never a repository-wide prune, d635) and the plain add makes it.
 
-What a clone carries that git's own write would not is ruled out before the
-clone is kept: it must be a regular file of the blob's size with no file flags,
-extended attributes or ACL. A clone keeps its source's modification time, which
-git never reads for content. Anything the clone stage cannot do (no clone
-support, another volume, a sparse checkout, a timeout, an error) leaves fewer
-or no clones and git writes the rest: the stage never decides what the
-worktree contains, git's refresh and reset do.
+One deadline covers every step, as the cap covered the one add, and a timeout
+anywhere is reported as the add's. A clone keeps its source's modification
+time, which git never reads for content. Anything the clone stage cannot do
+leaves git to write what it did not clone: the stage never decides what the
+worktree contains.
 
 Off with `SUBFLEET_WORKTREE_CLONE=0` in the daemon's environment.
 """
@@ -56,13 +65,18 @@ from . import retention_fs as rfs
 #: `SUBFLEET_WORKTREE_CLONE=0` in the daemon's environment turns the clone stage off.
 CLONE_ENV = "SUBFLEET_WORKTREE_CLONE"
 #: The clone stage gets at most this share of the allocation's cap; git's own
-#: checkout (step 3) has the rest, so a slow stage never costs the allocation.
+#: checkout (step 4) has the rest.
 CLONE_SHARE = 0.5
-NULL_OID = {"sha1": "0" * 40, "sha256": "0" * 64}
 #: Errors that say this volume (or this pair of volumes) cannot clone at all.
 NO_CLONES = frozenset({errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.ENOSYS, errno.EINVAL})
 #: `check-attr` names read for `_writes_blob_bytes`.
 ATTRIBUTES = ("text", "eol", "crlf", "ident", "filter", "working-tree-encoding")
+#: For every git call this module adds (never the add or the checkout, which run
+#: as git runs them): no hook fires and no fsmonitor daemon starts.
+QUIET = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+         "-c", "hook.post-index-change.enabled=false", "-c", "hook.reference-transaction.enabled=false")
+#: Reads in the caller's repository that must see its hooks as they are.
+NO_FSMONITOR = ("-c", "core.fsmonitor=false")
 _REGULAR_MODES = {"100644": 0o666, "100755": 0o777}
 
 _libc = ctypes.CDLL(None, use_errno=True)
@@ -120,56 +134,54 @@ def add_worktree(repository: str, path: str, commit: str, *, env: dict[str, str]
                  timeout_s: float, clone: bool | None = None) -> Allocation:
     """Make `path` a detached worktree of `repository` at `commit` (C-6.6a).
 
-    Raises what `subprocess.run` raises for the add (a `TimeoutExpired` names
-    the add and the whole allocation's cap); otherwise returns an `Allocation`
+    Raises what `subprocess.run` raises for the add, a `TimeoutExpired` naming
+    the add and the whole allocation's cap; an `OSError` if a worktree this call
+    made cannot be removed for the plain add. Otherwise returns an `Allocation`
     whose `result` is non-zero when git refused, as `git worktree add` would.
+    A relative `path` is read under `repository`, as `git -C` reads it.
     """
     started = time.monotonic()
-    add = ["git", "-C", repository, "worktree", "add", "--detach", path, commit]
-    if not (enabled() if clone is None else clone):
-        allocation = Allocation(_run_text(add, env, timeout_s), reason="clone stage off")
-        allocation.seconds = time.monotonic() - started
-        return allocation
     deadline = _Deadline(timeout_s)
-    no_checkout = ["git", "-C", repository, "worktree", "add", "--no-checkout", "--detach", path, commit]
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.abspath(repository), path)
+    add = ["git", "-C", repository, "worktree", "add", "--detach", path, commit]
     try:
+        top = None
+        if not (enabled() if clone is None else clone):
+            reason = "clone stage off"
+        else:
+            reason, top = _preflight(repository, env, deadline)
+        if reason is not None:
+            return _plain(add, env, deadline, started, reason)
+        no_checkout = ["git", "-C", repository, "worktree", "add", "--no-checkout", "--detach", path, commit]
         result = _run_text(no_checkout, env, deadline.left())
         if result.returncode:
-            return Allocation(result, reason="worktree add refused")
+            return Allocation(result, reason="worktree add refused", seconds=time.monotonic() - started)
         allocation = Allocation(result, method="clone")
+        admin = _admin_dir(path, env, deadline)
         try:
-            _clone_stage(allocation, repository, path, env, deadline, timeout_s * CLONE_SHARE)
+            _clone_stage(allocation, top, path, env, deadline, timeout_s * CLONE_SHARE)
         except subprocess.TimeoutExpired:
             allocation.reason = allocation.reason or "clone stage reached its share of the cap"
-            _clear_index_lock(path, env, deadline)
+            if admin is not None:
+                _clear_index_lock(admin)
         except (OSError, subprocess.SubprocessError, ValueError) as exc:
             allocation.reason = f"clone stage failed: {type(exc).__name__}: {exc}"
-        reset = _run_text(["git", "-C", path, "reset", "--hard", "--no-recurse-submodules", "--quiet"],
-                          env, deadline.left())
+        # `checkout_worktree`: the child git `worktree add` starts, with its environment and directory.
+        checkout_env = {**env, "GIT_DIR": os.path.join(path, ".git"), "GIT_WORK_TREE": path}
+        reset = _run_text(["git", "reset", "--hard", "--no-recurse-submodules"], checkout_env, deadline.left(),
+                          cwd=top)
         if reset.returncode:
             allocation.result = reset
+            allocation.seconds = time.monotonic() - started
             return allocation
-        # No fsmonitor: a check `git worktree add` does not make must not start its daemon.
-        status = _run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", path, "status", "--porcelain=v1", "-z",
-                       "--untracked-files=all", "--ignore-submodules=none"], env, deadline.left())
-        if status.returncode or status.stdout:
-            # Not what `git worktree add` gives (or git gives it that way too):
-            # either way the plain add decides, never the clone stage.
-            _remove(repository, path, env, max(1.0, deadline.left()))
-            plain = Allocation(_run_text(add, env, max(1.0, deadline.left())),
-                               reason="status after the clone stage was not clean; plain add used")
+        if not _clean(path, env, deadline):
+            # Not what `git worktree add` gives, or git gives it that way too
+            # (names a case-insensitive volume folds together): the plain add decides.
+            _discard(path, admin)
+            plain = _plain(add, env, deadline, started, "not clean after the checkout; plain add used")
             plain.skipped = allocation.skipped
-            plain.seconds = time.monotonic() - started
             return plain
-        head = _run_text(["git", "-C", path, "rev-parse", "--verify", "HEAD"], env, deadline.left())
-        object_format = _run_text(["git", "-C", path, "rev-parse", "--show-object-format"], env, deadline.left())
-        if head.returncode or object_format.returncode:
-            allocation.result = head if head.returncode else object_format
-            return allocation
-        hook = _run_text(["git", "-C", path, "hook", "run", "--ignore-missing", "post-checkout", "--",
-                          NULL_OID.get(object_format.stdout.strip(), NULL_OID["sha1"]), head.stdout.strip(), "1"],
-                         env, deadline.left())
-        allocation.result = hook if hook.returncode else result
         allocation.seconds = time.monotonic() - started
         return allocation
     except subprocess.TimeoutExpired as exc:
@@ -177,31 +189,51 @@ def add_worktree(repository: str, path: str, commit: str, *, env: dict[str, str]
         raise subprocess.TimeoutExpired(add, timeout_s, output=exc.output, stderr=exc.stderr) from exc
 
 
-def _clone_stage(allocation: Allocation, repository: str, path: str, env: dict[str, str],
+def _plain(add: list[str], env: dict[str, str], deadline: _Deadline, started: float,
+           reason: str) -> Allocation:
+    allocation = Allocation(_run_text(add, env, deadline.left()), reason=reason)
+    allocation.seconds = time.monotonic() - started
+    return allocation
+
+
+def _preflight(repository: str, env: dict[str, str], deadline: _Deadline) -> tuple[str | None, str | None]:
+    """(why the plain add is used, or None; the caller's worktree top)."""
+    out = _run(["git", *QUIET, "-C", repository, "rev-parse", "--show-toplevel"], env, deadline.left())
+    top = out.stdout.rstrip(b"\n") if not out.returncode else b""
+    if not top:
+        return "the caller's directory is in no worktree", None
+    # As `worktree add` selects it: from the caller's repository, its config
+    # (conditional includes too) and its hooks directory, as git resolves them there.
+    hooks = _run(["git", *NO_FSMONITOR, "-C", repository, "hook", "list", "post-checkout"], env, deadline.left())
+    if not (hooks.returncode == 1 and b"no hooks found" in hooks.stderr):
+        return "post-checkout hook", None
+    return None, os.fsdecode(top)
+
+
+def _clone_stage(allocation: Allocation, source_top: str, path: str, env: dict[str, str],
                  deadline: _Deadline, share_s: float) -> None:
     stage = _Deadline(min(share_s, deadline.left()))
-    if _git_out(path, env, stage, "config", "--bool", "core.sparseCheckout", check=False).strip() == b"true":
+    if _config(path, env, stage, "--bool", "core.sparseCheckout") == b"true":
         allocation.reason = "sparse checkout"
         return
     # Under either, git's checkout marks index entries (assume-unchanged, or
     # fsmonitor-valid) that an entry a refresh verified would not carry.
-    if _git_out(path, env, stage, "config", "--bool", "core.ignoreStat", check=False).strip() == b"true":
+    if _config(path, env, stage, "--bool", "core.ignoreStat") == b"true":
         allocation.reason = "core.ignoreStat"
         return
-    fsmonitor = _git_out(path, env, stage, "config", "--get", "core.fsmonitor", check=False).strip()
-    if fsmonitor and _git_out(path, env, stage, "config", "--type=bool", "--get", "core.fsmonitor",
-                              check=False).strip() != b"false":
+    if _config(path, env, stage, "--get", "core.fsmonitor") and \
+            _config(path, env, stage, "--type=bool", "--get", "core.fsmonitor") != b"false":
         allocation.reason = "core.fsmonitor"
         return
-    source = _git_out(repository, env, stage, "rev-parse", "--show-toplevel", check=False).rstrip(b"\n")
-    if not source:
-        allocation.reason = "the caller's directory is in no worktree"
+    listed = _run(["git", *QUIET, "-C", path, "hook", "list", "post-index-change"], env, stage.left())
+    if not (listed.returncode == 1 and b"no hooks found" in listed.stderr):
+        allocation.reason = "an index write here would run a hook"
         return
-    source_top = os.path.realpath(os.fsdecode(source))
     if os.stat(source_top).st_dev != os.stat(path).st_dev:
         allocation.reason = "the caller's checkout is on another volume"
         return
     _git_out(path, env, stage, "read-tree", "HEAD")
+    object_format = _git_out(path, env, stage, "rev-parse", "--show-object-format").strip().decode()
     targets = _tree_files(_git_out(path, env, stage, "ls-tree", "-r", "-l", "-z", "--full-tree", "HEAD"))
     recorded = _index_blobs(_git_out(source_top, env, stage, "ls-files", "-s", "-z"))
     candidates = [t for t in targets if recorded.get(t[0]) == t[1]]
@@ -219,10 +251,14 @@ def _clone_stage(allocation: Allocation, repository: str, path: str, env: dict[s
             if stage.left() <= 0:
                 allocation.reason = "clone stage reached its share of the cap"
                 break
+            if rel.rpartition("/")[2] == ".gitattributes":
+                # A refresh reads the tree's attributes files: only git writes them.
+                allocation.skip("attributes file")
+                continue
             if not _writes_blob_bytes(attributes.get(rel, {}), autocrlf):
                 allocation.skip("converted by git on checkout")
                 continue
-            outcome = _clone_one(source_top, path, rel, size, mode & ~umask, folders)
+            outcome = _clone_one(source_top, path, rel, oid, size, mode & ~umask, object_format, folders)
             if outcome is None:
                 allocation.reason = "this volume cannot clone"
                 break
@@ -235,25 +271,25 @@ def _clone_stage(allocation: Allocation, repository: str, path: str, env: dict[s
             os.close(fd)
     if not clones:
         return
-    # Hashes every clone against its blob; a clone that differs stays out of
-    # date, and the reset that follows writes it. Exit 1 says some did.
-    _run(["git", "-C", path, "update-index", "-q", "--ignore-missing", "--refresh"], env, stage.left())
+    # Records stat data for the clones (each already hashed to its blob); one the
+    # refresh does not find up to date is written by the reset. Exit 1 says some were not.
+    _run(["git", *QUIET, "-C", path, "update-index", "-q", "--ignore-missing", "--refresh"], env, stage.left())
     stale = set(os.fsdecode(p) for p in
-                _git_out(path, env, deadline, "diff-files", "--name-only", "-z").split(b"\0") if p)
+                _git_out(path, env, stage, "diff-files", "--name-only", "-z").split(b"\0") if p)
     for rel, size in clones:
         if rel in stale:
-            allocation.skip("not the blob's bytes")
+            allocation.skip("not up to date after the refresh")
         else:
             allocation.cloned += 1
             allocation.cloned_bytes += size
             allocation.cloned_paths.append(rel)
 
 
-def _clone_one(source_top: str, path: str, rel: str, size: int, mode: int,
+def _clone_one(source_top: str, path: str, rel: str, oid: str, size: int, mode: int, object_format: str,
                folders: dict[str, int]) -> str | None:
     """Clone `source_top/rel` to `path/rel`; "cloned", a skip reason, or None
     when the volume cannot clone. A kept clone is a regular file of `size`
-    bytes, `mode`, and no flags, extended attributes or ACL."""
+    bytes that hash to `oid`, with `mode` and no flags, extended attributes or ACL."""
     try:
         src = os.open(os.path.join(source_top, rel), rfs.O_FILE)
     except OSError:
@@ -274,19 +310,38 @@ def _clone_one(source_top: str, path: str, rel: str, size: int, mode: int,
     finally:
         os.close(src)
     clone = os.open(name, rfs.O_FILE, dir_fd=folder)
-    keep = False
+    outcome = "metadata git would not write"
     try:
         cst = os.fstat(clone)
         if (stat.S_ISREG(cst.st_mode) and cst.st_size == size and not getattr(cst, "st_flags", 0)
                 and not _has_xattrs(clone) and not _has_acl(clone)):
-            os.fchmod(clone, mode)
-            keep = True
+            if _blob_id(clone, size, object_format) != oid:
+                outcome = "not the blob's bytes"
+            else:
+                os.fchmod(clone, mode)
+                outcome = "cloned"
     finally:
         os.close(clone)
-    if not keep:
+    if outcome != "cloned":
         os.unlink(name, dir_fd=folder)
-        return "metadata git would not write"
-    return "cloned"
+    return outcome
+
+
+def _blob_id(fd: int, size: int, object_format: str) -> str | None:
+    """The git blob id of exactly `size` bytes read from `fd`, or None if the
+    file is not that long. A clone is private to this allocation: nothing else
+    writes it between this read and the refresh."""
+    blob = rfs.git_blob_hasher(object_format, size)
+    offset = 0
+    while offset < size:
+        chunk = os.pread(fd, min(rfs.CHUNK, size - offset), offset)
+        if not chunk:
+            return None
+        blob.update(chunk)
+        offset += len(chunk)
+    if os.pread(fd, 1, offset):
+        return None
+    return blob.hexdigest()
 
 
 def _folder(path: str, parent: str, folders: dict[str, int]) -> int:
@@ -307,10 +362,9 @@ def _folder(path: str, parent: str, folders: dict[str, int]) -> int:
 
 def _writes_blob_bytes(attributes: dict[str, str], autocrlf: bool) -> bool:
     """Whether git checks this path out as its blob's bytes unchanged, and reads
-    it back the same way, so a refresh that finds a file clean found the blob's
-    bytes. No filter, `ident` or `working-tree-encoding`, and the file is not
-    text: `-text` (or `-crlf` where `text` is unspecified), or nothing set at
-    all with `core.autocrlf` false. Every other path is left to git."""
+    it back the same way. No filter, `ident` or `working-tree-encoding`, and the
+    file is not text: `-text` (or `-crlf` where `text` is unspecified), or
+    nothing set at all with `core.autocrlf` false. Every other path is left to git."""
     def off(name: str) -> bool:
         return attributes.get(name, "unspecified") in ("unspecified", "unset")
     if not (off("filter") and off("ident") and off("working-tree-encoding")):
@@ -323,22 +377,27 @@ def _writes_blob_bytes(attributes: dict[str, str], autocrlf: bool) -> bool:
             and attributes.get("eol", "unspecified") == "unspecified" and not autocrlf)
 
 
+def _config(path: str, env: dict[str, str], deadline: _Deadline, *args: str) -> bytes:
+    """The repository's own setting: read without `QUIET`, whose overrides it
+    would otherwise answer with (`git config` starts no daemon and runs no hook)."""
+    return _git_out(path, env, deadline, "config", *args, check=False, overrides=()).strip()
+
+
 def _autocrlf(path: str, env: dict[str, str], deadline: _Deadline) -> bool:
     """True unless `core.autocrlf` is unset or false; `input` counts as set (it
     normalises what a refresh reads)."""
-    raw = _git_out(path, env, deadline, "config", "--get", "core.autocrlf", check=False).strip()
+    raw = _config(path, env, deadline, "--get", "core.autocrlf")
     if not raw:
         return False
     if raw.lower() == b"input":
         return True
-    parsed = _git_out(path, env, deadline, "config", "--type=bool", "--get", "core.autocrlf", check=False).strip()
-    return parsed != b"false"
+    return _config(path, env, deadline, "--type=bool", "--get", "core.autocrlf") != b"false"
 
 
 def _attributes(path: str, env: dict[str, str], deadline: _Deadline, paths: list[str]) -> dict[str, dict[str, str]]:
     """`check-attr --cached` for every path: the index's .gitattributes, as checkout reads them."""
-    out = _run(["git", "-C", path, "check-attr", "--cached", "-z", "--stdin", *ATTRIBUTES], env, deadline.left(),
-               stdin=b"\0".join(os.fsencode(p) for p in paths) + b"\0")
+    out = _run(["git", *QUIET, "-C", path, "check-attr", "--cached", "-z", "--stdin", *ATTRIBUTES], env,
+               deadline.left(), stdin=b"\0".join(os.fsencode(p) for p in paths) + b"\0")
     if out.returncode:
         raise ValueError("check-attr failed: " + os.fsdecode(out.stderr).strip()[-200:])
     fields = out.stdout.split(b"\0")
@@ -391,8 +450,7 @@ def _umask(path: str) -> int:
 def _has_xattrs(fd: int) -> bool:
     if _flistxattr is None:
         return False
-    size = _flistxattr(fd, None, 0, 0)
-    return size != 0
+    return _flistxattr(fd, None, 0, 0) != 0
 
 
 def _has_acl(fd: int) -> bool:
@@ -405,28 +463,54 @@ def _has_acl(fd: int) -> bool:
     return True
 
 
-def _clear_index_lock(path: str, env: dict[str, str], deadline: _Deadline) -> None:
-    """A refresh cut short at the stage's cap leaves `index.lock` in this new
+def _clean(path: str, env: dict[str, str], deadline: _Deadline) -> bool:
+    """Plumbing, so no `status.*` setting decides: tracked files match the index,
+    the index matches HEAD, and nothing is untracked."""
+    worktree = _run(["git", *QUIET, "-C", path, "diff-files", "--quiet", "--ignore-submodules=none"],
+                    env, deadline.left())
+    index = _run(["git", *QUIET, "-C", path, "diff-index", "--cached", "--quiet", "--ignore-submodules=none",
+                  "HEAD"], env, deadline.left())
+    untracked = _run(["git", *QUIET, "-C", path, "ls-files", "-z", "--others", "--exclude-standard"],
+                     env, deadline.left())
+    return not (worktree.returncode or index.returncode or untracked.returncode or untracked.stdout)
+
+
+def _admin_dir(path: str, env: dict[str, str], deadline: _Deadline) -> Path | None:
+    out = _run(["git", *QUIET, "-C", path, "rev-parse", "--absolute-git-dir"], env, deadline.left())
+    git_dir = out.stdout.rstrip(b"\n") if not out.returncode else b""
+    return Path(os.fsdecode(git_dir)) if git_dir else None
+
+
+def _clear_index_lock(admin: Path) -> None:
+    """A refresh cut short at the stage's share leaves `index.lock` in this new
     worktree's own git directory, which the reset would trip on. Nothing else
     writes that index: the worktree was made by this call and is not handed out."""
-    out = _run(["git", "-C", path, "rev-parse", "--git-dir"], env, max(1.0, deadline.left()))
-    if out.returncode or not out.stdout.strip():
-        return
-    git_dir = os.fsdecode(out.stdout.strip())
-    lock = Path(git_dir if os.path.isabs(git_dir) else os.path.join(path, git_dir)) / "index.lock"
     try:
-        lock.unlink()
+        (admin / "index.lock").unlink()
     except FileNotFoundError:
         pass
 
 
-def _remove(repository: str, path: str, env: dict[str, str], timeout_s: float) -> None:
-    shutil.rmtree(path, ignore_errors=True)
-    _run(["git", "-C", repository, "worktree", "prune"], env, timeout_s)
+def _discard(path: str, admin: Path | None) -> None:
+    """Remove the tree this call made and its own registration, nothing else
+    (d635: never a repository-wide prune). Raises `OSError` if it cannot, so the
+    plain add never runs over a registration still in place."""
+    if admin is None:
+        raise OSError(errno.ENOENT, "the new worktree's git directory is unknown", path)
+    backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+    if not os.path.isabs(backlink):         # `worktree.useRelativePaths`: relative to the admin directory
+        backlink = os.path.join(admin, backlink)
+    if os.path.realpath(backlink) != os.path.realpath(os.path.join(path, ".git")):
+        raise OSError(errno.EEXIST, "the git directory is not this worktree's", str(admin))
+    if os.path.lexists(admin / "locked"):
+        raise OSError(errno.EBUSY, "the worktree is locked", str(admin))
+    shutil.rmtree(path)
+    shutil.rmtree(admin)
 
 
-def _git_out(where: str, env: dict[str, str], deadline: _Deadline, *args: str, check: bool = True) -> bytes:
-    out = _run(["git", "-C", where, *args], env, deadline.left())
+def _git_out(where: str, env: dict[str, str], deadline: _Deadline, *args: str, check: bool = True,
+             overrides: tuple[str, ...] = QUIET) -> bytes:
+    out = _run(["git", *overrides, "-C", where, *args], env, deadline.left())
     if out.returncode and check:
         raise ValueError(f"git {args[0]} failed: " + os.fsdecode(out.stderr).strip()[-200:])
     return out.stdout if not out.returncode else b""
@@ -438,9 +522,9 @@ def _run(cmd: list[str], env: dict[str, str], timeout_s: float, stdin: bytes | N
     return subprocess.run(cmd, env=env, input=stdin, capture_output=True, timeout=timeout_s)
 
 
-def _run_text(cmd: list[str], env: dict[str, str], timeout_s: float) -> subprocess.CompletedProcess:
+def _run_text(cmd: list[str], env: dict[str, str], timeout_s: float, cwd: str | None = None) -> subprocess.CompletedProcess:
     """As the daemon ran `git worktree add`: text, with git's undecodable bytes escaped."""
     if timeout_s <= 0:
         raise subprocess.TimeoutExpired(cmd, 0)
     return subprocess.run(cmd, capture_output=True, text=True, errors="backslashreplace", env=env,
-                          timeout=timeout_s)
+                          timeout=timeout_s, cwd=cwd)
