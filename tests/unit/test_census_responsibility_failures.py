@@ -177,3 +177,29 @@ def test_linger_backs_off_only_after_the_exit_settle_window(monkeypatch):
     guardian.linger()
     assert all(delay <= .1 for at, delay in sleeps if at < 3)
     assert max(delay for _, delay in sleeps) == guardian.LINGER_MAX_S
+
+
+def test_a_quarantined_lingering_guardian_is_reaped_by_the_next_spawn(monkeypatch):
+    from contextlib import contextmanager
+    from subfleet import daemon
+
+    @contextmanager
+    def transaction(*args, **kwargs):
+        yield SimpleNamespace(execute=lambda *args: None)
+
+    monkeypatch.setattr(procs, "_abandoned", [])
+    core = SimpleNamespace(store=SimpleNamespace(transaction=transaction),
+        _job=lambda job: {"cancel_requested_at": None}, _earlier_attempt=lambda *args, **kwargs: "",
+        _notice=lambda *args: None, _notify=lambda: None,
+        _children={"job/a1": procs.Spawned(["owned-guardian"], 42)})
+    daemon.Daemon._quarantine(core, {"job_id": "job", "attempt_id": "job/a1", "seq": 1},
+                             procs.Containment(responsible_pids=frozenset({42, 60})), "still live")
+    assert core._children == {}
+    assert [child.pid for child in procs._abandoned] == [42]
+    waited = []
+    monkeypatch.setattr(procs.os, "waitpid", lambda pid, flags: waited.append((pid, flags)) or (pid, 0))
+    monkeypatch.setattr(procs._spawn, "available", False)
+    monkeypatch.setattr(procs.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(pid=43))
+    procs.spawn_disclaimed(["next-guardian"], env={}, cwd="/")
+    assert waited == [(42, procs.os.WNOHANG)]
+    assert procs._abandoned == []

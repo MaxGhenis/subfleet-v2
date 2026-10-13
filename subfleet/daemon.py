@@ -7642,6 +7642,9 @@ class Daemon:
             # C-13.1, C-15.1: a quarantined retry names the attempt before it.
             earlier = self._earlier_attempt(tx, job, before=a["seq"])
             self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + detail + earlier)
+        # Terminal attempts are no longer polled. Dropping a running Spawned
+        # hands it to procs._abandoned, which a later spawn polls and reaps.
+        self._children.pop(a["attempt_id"], None)
         self._notify()
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
