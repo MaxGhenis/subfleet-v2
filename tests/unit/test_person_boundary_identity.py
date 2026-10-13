@@ -347,7 +347,10 @@ def exec_socket_pair(app, server):
     """A child-created socket pair, so LOCAL_PEERTOKEN identifies the child.
 
     Pass the server end with SCM_RIGHTS; keep the client end across exec.
-    The development stand-in's new connection is the exec readiness barrier.
+    The child keeps its copy of the passed end until the parent acknowledges
+    receiving it: closing it first can drop the queued request on macOS
+    (review r3 of #191). The development stand-in's new connection is the
+    exec readiness barrier.
     """
     _, path = server
     payload = {"v": 1, "id": "queued", "op": "message.resolve", "args": {}}
@@ -355,7 +358,7 @@ def exec_socket_pair(app, server):
         "import array,os,socket,sys; control=socket.socket(fileno=int(sys.argv[1])); "
         "client,remote=socket.socketpair(); os.set_inheritable(client.fileno(),True); "
         "control.sendmsg([b'c'],[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array('i',[remote.fileno()]))]); "
-        "remote.close(); control.close(); client.sendall(sys.argv[4].encode()+b'\\n'); "
+        "control.recv(1); remote.close(); control.close(); client.sendall(sys.argv[4].encode()+b'\\n'); "
         "sys.stdin.readline(); os.execv(sys.argv[3],[sys.argv[3],sys.argv[2],'{}'])"
     )
     with contextlib.ExitStack() as stack:
@@ -374,6 +377,7 @@ def exec_socket_pair(app, server):
                 assert (level, kind) == (socket.SOL_SOCKET, socket.SCM_RIGHTS)
                 fds.frombytes(data)
             assert len(fds) == 1
+            control.sendall(b"a")                   # received: the child may now close its copy
             with socket.socket(fileno=fds[0]) as conn:
                 conn.settimeout(30)
                 yield child, conn, payload
