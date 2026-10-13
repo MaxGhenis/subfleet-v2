@@ -413,6 +413,8 @@ def format_status(data: dict[str, Any]) -> str:
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
         lines.append(render.disk_line(data["disk"]))
+    if isinstance(data.get("ramp"), dict):
+        lines.append(render.ramp_line(data["ramp"]))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
@@ -1577,14 +1579,16 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
 def _shown_deliverable(job: dict[str, Any]) -> str | None:
     """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
 
-    The recorded artifact, the accepted attempt's first; failing that, the `-o`
-    export, but only of an accepted job. Nothing exported to the `-o` path of
-    a job that was not accepted, so a file there is someone else's or an
-    earlier run's, never this job's output.
+    Only the accepted attempt's recorded artifact can be the result. An
+    attempt's interim text remains in metadata as evidence. With no accepted
+    attempt, `--out` prints nothing and returns Exit.OPERATIONAL (1).
     """
     merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
-    return _artifact_path(job, "deliverable") or (
-        merged.get("out_path") if merged.get("state") == JobState.SUCCEEDED.value else None)
+    accepted = merged.get("accepted_attempt_id")
+    if not accepted:
+        return None
+    return next((artifact.get("path") for artifact in rows_of(job.get("artifacts"))
+                 if artifact.get("role") == "deliverable" and artifact.get("attempt_id") == accepted), None)
 
 
 def _cat(label: str, path: str | None, *, header: bool) -> int:
@@ -1717,28 +1721,27 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         worst = int(Exit.OK)
         if args.out:
             worst = max(worst, _cat(
-                "deliverable",
+                "accepted deliverable",
                 _shown_deliverable(job),
                 header=both))
         if args.err:
             worst = max(worst, _cat("stderr", _artifact_path(job, "stderr"),
                                     header=both))
         return worst
-    # C-17.1: the bare form keeps v1's shape, which agents parse today: the
-    # metadata object, then `--- out.md ---` and the deliverable, and with
-    # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
-    # are v2's single-artifact forms.
+    # C-17.1: keep v1's metadata followed by `--- out.md ---` for an accepted
+    # result. Unaccepted artifacts are evidence paths, never result text.
+    # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
-    out("\n--- out.md ---")
     path = _shown_deliverable(job)
-    if path and Path(path).is_file():
-        # v1 printed whatever out.md held, or nothing, and still exited 0; the
-        # explicit `--out` form is the one that fails on a missing artifact.
-        text = Path(path).read_text(errors="replace")
-        sys.stdout.write(text)
-        if text and not text.endswith("\n"):
-            out()
-    return int(Exit.OK)
+    if path:
+        out("\n--- out.md ---")
+        return _cat("accepted deliverable", path, header=False)
+    out("\nNo accepted result; attempt artifacts are unaccepted evidence.")
+    for artifact in rows_of(job.get("artifacts")):
+        if artifact.get("role") == "deliverable":
+            out(f"Unaccepted evidence ({artifact.get('attempt_id') or 'attempt unknown'}): {artifact.get('path')}")
+    merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
+    return int(Exit.OPERATIONAL if merged.get("state") in ("failed", "cancelled", "lost") else Exit.OK)
 
 
 def _same_process():
@@ -2181,6 +2184,9 @@ def cmd_why(args: argparse.Namespace) -> int:
         lines.append(f"Decision: none; this job's route could not be evaluated: {result['route_error']}")
     elif not result.get("refused"):
         lines.append("No decision recorded.")
+    # D-SHUT1: routing fields alone omit why the last attempt was rejected.
+    if result.get("attempt_explanation"):
+        lines.append(result["attempt_explanation"])
     out("\n".join(lines))
     return int(Exit.OK)
 
