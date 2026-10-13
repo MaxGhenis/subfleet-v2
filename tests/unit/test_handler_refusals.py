@@ -97,8 +97,9 @@ def test_every_refusal_the_daemon_builds_names_a_known_reason():
         else:
             found = [node.value for node in ast.walk(value)
                      if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+            # A handler's argument check may name a request reason (its words then stay off the wire).
             unknown += [(where, reason) for reason in found or [ast.unparse(value)]
-                        if reason not in refusals.HANDLER_MESSAGES]
+                        if reason not in refusals.HANDLER_MESSAGES and reason not in protocol.REFUSAL_MESSAGES]
     assert missing == [] and unknown == []
 
 
@@ -226,6 +227,16 @@ def test_every_reason_reaches_the_wire_with_its_code(reason):
 
 
 # --- the seams that build refusals ----------------------------------------------
+
+def test_an_argument_refusal_keeps_its_words_for_direct_callers_only():
+    """A submit argument check keeps its words on the exception (tests and callers that
+    dispatch directly read them), and the wire reads the argument template."""
+    error = protocol.ProtocolError(f"pinned_lane: {SENTINEL!r} was given as a claude lane", reason="invalid-args")
+    assert "was given as a claude lane" in str(error)
+    response = wire_reply(op="submit", error=error)
+    assert response["error"]["message"] == protocol.REFUSAL_MESSAGES["invalid-args"]
+    assert SENTINEL not in json.dumps(response)
+
 
 def test_a_refusal_by_policy_keeps_its_reason_and_names_the_way_out():
     """C-11.1, d261: a writer refusal of a job the caller did not ask to write."""

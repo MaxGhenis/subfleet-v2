@@ -2237,7 +2237,9 @@ class Daemon:
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                    fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
-                raise protocol.request_error("invalid-args") from None
+                # An argument refusal: the wire reads its template (C-25.7); the
+                # words stay with the exception for its direct callers.
+                raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
                 if existing["payload_digest"] != digest:
@@ -2569,7 +2571,7 @@ class Daemon:
         try:
             asked = claude_mcp.validate_names(args.mcp_servers or ())
         except ValueError as exc:
-            raise protocol.request_error("invalid-args") from None
+            raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
         if asked and asked != recorded:
             raise AdapterError(f"a resume starts its source's MCP servers ({', '.join(recorded) or 'none'}), "
                                f"not {', '.join(asked)} (C-12.9)",
