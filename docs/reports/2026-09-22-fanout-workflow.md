@@ -39,8 +39,9 @@ read in `~/subfleet-v2` on the date given; `observed` is this machine's state;
   (Opus 5.5) verified 100 claims and listed 8 places the contract and the code
   disagree and 11 hazards for exactly this pattern. All eight findings and four
   of the hazards are fixed in the workflow shipped here, and a second review
-  of that version found nine more defects. The next review found seven;
-  all are addressed in the second and third rounds below.
+  of that version found nine more defects. The next review found seven,
+  and its follow-up found two; these are addressed in the second through
+  fourth rounds below.
 
 ## The workflow
 
@@ -63,12 +64,16 @@ quoted; the agent retypes them and nothing else.
    `should-submit`: it runs once, and again only for entries whose outcome
    was `not-sent`, `unknown` or missing under a request id (C-16.3, C-17.3).
    `RETRY_STEP1` appears on the first unsettled call and drives at most three
-   step 1 calls per run. A refused entry never triggers retries; the full
+   step 1 calls per run. A fresh refused entry never triggers retries; the full
    manifest is still replayed to preserve entry indexes when another entry
    needs recovery. A row-less validation refusal is recorded once as
-   `MANIFEST_REFUSED`, with the CLI message, and persists across relaunches;
-   every entry without an existing id is reported as `REFUSED`. Submit
-   logs are numbered, never truncated; job ids are written only after a log
+   `MANIFEST_REFUSED`, with the CLI message, and stops new submissions across
+   relaunches. Earlier unknown outcomes survive later unsent or refused
+   attempts. After a manifest refusal, `runs --request-id <id>-<n> --json`
+   looks up each earlier unknown request; recovered ids are saved and waited
+   on. Inconclusive lookups keep those entries `OUTCOME_UNKNOWN` and counted
+   in `UNSETTLED`; only entries without earlier uncertainty become `REFUSED`.
+   Submit logs are numbered, never truncated; job ids are written only after a log
    is parsed. Without a request id a relaunch submits nothing and prints the
    `rm` that resets the state.
 2. `subfleet wait $(cat jobs.txt) --timeout 540 --json`, then `post-wait`,
@@ -343,6 +348,55 @@ The standalone `render.mjs` CLI also passed the README sequence: setup,
 submit, a pending wait, then successful completion. No `tests/` file references this workflow
 or harness, so no pytest run was needed. The live workflow and daemon were
 untouched; only the hub should install the reviewed workflow after merge.
+
+### Fourth round (round 4), 2026-10-12
+
+Review r3 (`~/reviews/fanout-workflow-2026-10-04/review-r3.md`) requested
+changes on head `c95d10809`, with two medium findings. Both reviewer
+scenarios are now registry-backed harness regressions:
+
+1. **Medium, resolved.** `unknown-c → submit-down-always → digest-conflict-c`
+   no longer loses c's earlier unknown outcome. Uncertainty survives later
+   unsent or refused attempts until a job id is learned. The third call
+   recovers `job-c` from the conflict, reports `JOBS=3`, `UNSETTLED=0`, and
+   waits on all three jobs. The registry verifies c existed throughout and
+   no duplicate request was created.
+2. **Medium, resolved.** A submission that committed three jobs but lost
+   stdout, followed by removal of b's prompt, still records the latest
+   manifest validation refusal. That refusal stops further submissions and
+   preserves the earlier unknowns. The helper looks up their exact original
+   request ids with `subfleet runs --request-id <id>-<n> --json`, persists
+   recovered ids in an append-only recovery file, and waits on all three.
+   Restoring the prompt and relaunching reuses those ids without submitting.
+
+Unavailable, empty and malformed lookups keep `UNSETTLED=3` and remain
+recoverable on relaunch, including state written by the round-3 helper
+without a refusal log pointer. An empty ledger result cannot prove an
+earlier request never ran: `cmd_runs` can fall back to the offline store.
+Lookups require exactly one row carrying the requested id and a job id;
+they are bounded to 15 seconds per request and 60 seconds overall per call.
+A mixed history of unknown, then not-sent, then validation refusal recovers
+only the missing c id. Fresh validation refusals, including after only
+not-sent attempts, remain terminal and do not query the ledger.
+
+Validation used the shipped fake first in `PATH`, an empty temporary
+`SUBFLEET_HOME`, `PYTHONPATH` unset, `bun 1.3.12`, `python3 3.14.7`, and
+`zsh -c 'eval "$1"'` for every rendered command:
+
+- Original harness at `c95d10809`: **23 passed, zero failed**.
+- Expanded harness against the exact `c95d10809` workflow: **24 passed,
+  four failed**, including both reviewer reproductions.
+- Expanded harness against the round-4 workflow: **28 passed, zero failed**,
+  retaining all 23 existing checks.
+- `python3 -m subfleet.cli runs --help` confirmed the request-id filter
+  without contacting the daemon; `git diff --check` passed.
+
+Only named workflow, harness and report files were staged; no logs, JSON
+evidence or bundles were committed. Commits use workspace-local Git metadata
+in `.git-local` on `docs/fanout-workflow-measured`, because the shared Git
+metadata is outside this job's writable sandbox. Temporary fixtures are
+removed with the prescribed Python `shutil.rmtree` command. No real jobs,
+network remotes, live workflow edits or daemon changes were used.
 
 ## Live check of the shipped commands, 2026-10-04
 

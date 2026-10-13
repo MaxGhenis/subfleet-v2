@@ -23,6 +23,16 @@ The earlier scenarios remain covered, including wait failures, nameless rows,
 checksums, state mismatch, separate state keys, skipped outputs and the wait
 sleep cap. The report records the baseline and final results.
 
+Round-4 regressions use a request-id registry to prove that jobs exist after
+lost answers. They cover unknown → not-sent → digest conflict; committed
+jobs hidden by a later missing-prompt validation refusal; unavailable, empty
+and malformed request-id lookups; recovery from round-3 refusal state on
+relaunch; and recovery of only the missing id after mixed outcomes. The
+expanded harness has 28 checks, including all 23 existing checks. Against
+the exact workflow at `c95d10809`, 24 pass and four fail; the round-4 workflow
+passes all 28. The registry and recovery evidence stay in temporary folders
+and are cleaned up after the run.
+
 For an individual command sequence, from this harness directory:
 
 ```sh
@@ -51,7 +61,13 @@ python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "
 - `manifest-refusal`: no rows, exit 2, CLI validation message saying
   "nothing was submitted".
 - `manifest-refusal-marker`: the same message with exit 1; still a refusal.
-- `rowless-unknown`: no rows, exit 1, lost-answer message on the first run.
+- `rowless-unknown`: commits all jobs to the fake registry, then loses all
+  stdout and exits 1 on the first run.
+- `check-prompts`: validates that every prompt exists before committing any
+  jobs; deleting one prompt produces a whole-manifest refusal.
+- `lookup-down-always`: request-id lookups fail with exit 69.
+- `lookup-empty`: lookups return no rows with exit 0, as an offline store can.
+- `lookup-bad-json`: lookups return malformed stdout with exit 0.
 - `wait-down-first`: first wait cannot reach the daemon, exit 69.
 - `lost-c`: c finishes lost, exit 125.
 - `failed-a`: a finishes failed with rc 1, exit 1.
