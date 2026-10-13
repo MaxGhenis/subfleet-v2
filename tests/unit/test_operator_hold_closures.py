@@ -173,8 +173,9 @@ class World:
                 for reason in rejection["reasons"] if reason.startswith("closed:account:")}
 
     def open_rows(self) -> list[dict]:
+        """The lane's closures in force now: not released and not yet ended."""
         return self.store.query("SELECT reason,until_at FROM closures WHERE lane_id=? AND released_at IS NULL "
-                                "ORDER BY closure_id", (LANE,))
+                                "AND until_at>? ORDER BY closure_id", (LANE, iso(self.clock())))
 
 
 @pytest.fixture
