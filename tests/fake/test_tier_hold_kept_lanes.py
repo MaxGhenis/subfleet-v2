@@ -358,6 +358,27 @@ def test_c6_9_evaluate_keeps_the_successor_of_a_kept_lane():
     reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
     assert reasons["claude-12"] == ["kept:w1"] and "kept:w1" in reasons["claude-9"]
     assert decision.chosen_lane == "claude-11"
+    # An older job whose pin never follows (an unmeasured-reserve authorization, C-11.7) keeps only its own id.
+    decision = scheduler.evaluate(policy, {"lanes": lanes, "now": utcnow()},
+                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}, "kept_exact": ["w1"]})
+    reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
+    assert "claude-12" not in reasons and "kept:w1" in reasons["claude-9"]
+    assert decision.chosen_lane in ("claude-11", "claude-12")
+
+
+def test_c6_9_an_older_authorized_pin_does_not_keep_its_lanes_successor(pinned_fleet):
+    """C-6.9, C-11.7 an authorized job runs only on the lane id it was granted, never on a successor, so it
+    keeps only that id: a later job takes the successor, pass after pass, rather than waiting on nothing."""
+    service, harness = pinned_fleet
+    close(service, "claude-b")
+    older = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
+    service.store.update_job(older, unmeasured_reserve_reason="fixture: a granted authorization")
+    successor(service, "claude-a", "claude-a2")
+    newer = submit(service, harness, pinned_model="opus")
+    wait_on_capacity(service, older, seconds=3600)
+    service._admit()
+    assert attempts_on(service, newer) == ["claude-a2"], service._holds.get(newer)
+    assert not service.store.list_attempts(older)
 
 
 # --- one rule, stated once (C-6.11) -----------------------------------------------------------------

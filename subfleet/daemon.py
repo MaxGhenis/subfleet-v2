@@ -3033,6 +3033,7 @@ class Daemon:
         self._recover_probes()
         desktop_account = self._desktop_identity()
         queued = self.store.query("SELECT * FROM jobs WHERE state IN ('queued','waiting') AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        by_id = {job["job_id"]: job for job in queued}             # C-6.9: a kept lane's older job, by id
         for gone in set(self._capacity_waits) - {job["job_id"] for job in queued}:
             self._capacity_waits.pop(gone, None)
         for gone in set(self._route_deferrals) - {job["job_id"] for job in queued}:
@@ -3180,8 +3181,11 @@ class Daemon:
             if kept_lanes:
                 # C-6.9: the lanes older competing waiters are pinned to are
                 # rejected as `kept:<older job id>` on this pass only; never
-                # written to the job's exclusions.
-                decision_job = {**decision_job, "kept_lanes": kept_lanes}
+                # written to the job's exclusions. `kept_exact` names the older
+                # jobs whose pin does not follow a re-enrolment (C-11.2, C-11.7).
+                decision_job = {**decision_job, "kept_lanes": kept_lanes,
+                                "kept_exact": sorted({older for older in kept_lanes.values()
+                                                      if (by_id.get(older) or {}).get("unmeasured_reserve_reason")})}
             try:
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:

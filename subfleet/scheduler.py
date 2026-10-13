@@ -436,12 +436,14 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     excluded = job.get("exclusions") or ()
     excluded = set(json.loads(excluded) if isinstance(excluded, str) else excluded)
     kept = dict(job.get("kept_lanes") or {})    # C-6.9: lane id -> the older job pinned there, this pass only
+    exact = set(job.get("kept_exact") or ())    # older jobs whose pin never follows a re-enrolment (C-11.7)
     for lane_id, older in list(kept.items()):
         # C-11.2: admission collected its waiters' lanes before this view was read.
         # A lane re-enrolled since is the same lane, and the older job's pin now
-        # runs on its successor, so that is kept too. (An authorized pin never
-        # follows; keeping the successor from it as well only errs toward FIFO.)
-        kept.setdefault(current_lane_id(lanes, lane_id), older)
+        # runs on its successor, so that is kept too, unless that pin is bound to
+        # the lane id it names, as an unmeasured-reserve authorization's is.
+        if older not in exact:
+            kept.setdefault(current_lane_id(lanes, lane_id), older)
     pin = job.get("pinned_lane")
     task, tier = job.get("task"), job.get("tier")
     # An unknown task, tier, or model is the policy's to fix, not the job's: submit
