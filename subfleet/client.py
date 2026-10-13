@@ -160,7 +160,8 @@ class ResponseLost(ProtocolError):
     Raised for every failure after `connect` succeeded: a timeout while sending
     or reading, a reset or broken pipe (even a `sendall` that fails part-way may
     have delivered the whole line), a close with no line, a line past
-    `MAX_RESPONSE_BYTES`, and a line that does not decode. The daemon may have
+    `MAX_RESPONSE_BYTES`. A complete malformed reply is an operational error
+    and must never trigger a resend. The daemon may have
     done the work, so the outcome is unknown, never "not done". It is a
     `ProtocolError` with exit 1 and the message the CLI has always printed, so
     every handler written before it still reports it.
@@ -491,11 +492,10 @@ class Client:
                                op=op, request_id=request_id)
         try:
             response: Response = decode_response(line)
-        except ProtocolError as exc:              # not JSON: "malformed response: ..."
-            raise ResponseLost(str(exc), op=op, request_id=request_id) from exc
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise ResponseLost(f"malformed response: {exc}", op=op,
-                               request_id=request_id) from exc
+        except (AttributeError, TypeError, ValueError):
+            # A reply arrived: never resend or render its fields/exceptions.
+            from .protocol import request_error
+            raise request_error("malformed-response", Exit.OPERATIONAL) from None
         if response.v != PROTOCOL_VERSION:
             raise ProtocolError(
                 f"the daemon speaks protocol version {response.v}; this CLI speaks "

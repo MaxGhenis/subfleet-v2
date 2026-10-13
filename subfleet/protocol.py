@@ -67,7 +67,7 @@ REFUSAL_MESSAGES = {
     "refused-args": "args: request was refused",
     "bad-id": "id: must be a safe token of at most 128 ASCII letters, digits, '-' or '_'",
     "bad-notice-id": "notice_id: must be an integer",
-    "malformed-response": "response: malformed JSON",
+    "malformed-response": "malformed response: expected a JSON object with valid fields",
 }
 CORRELATION_ID_MAX = 128
 _CORRELATION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")

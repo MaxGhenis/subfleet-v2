@@ -48,6 +48,11 @@ def request_id(value: str | None = None) -> str:
         return str(uuid.uuid4())
     if not isinstance(value, str) or not value or len(value) > REQUEST_ID_MAX:
         raise ValueError(f"request id must contain 1 to {REQUEST_ID_MAX} characters")
+    from .protocol import ProtocolError, correlation_id
+    try:
+        correlation_id(value)
+    except ProtocolError:
+        raise ValueError("request id must be a safe ASCII token") from None
     return value
 
 
