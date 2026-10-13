@@ -77,7 +77,9 @@ def test_claude_empty_frozen_stream_is_authoritative(tmp_path, raw, contents):
     assert adapter.raw_stream_text(tmp_path, launch) == contents.decode()
     assert adapter.stream_summary(tmp_path, launch).result is None
     outcome = adapter.classify(tmp_path, launch, _exit(0))
-    assert outcome.cls == OutcomeClass.UNKNOWN
+    # The existing parser treats an undecodable final line as a truncated stream.
+    expected = OutcomeClass.TRANSIENT if contents == b"garbage\n" else OutcomeClass.UNKNOWN
+    assert outcome.cls == expected
     assert adapter.deliverable(tmp_path, launch, outcome) is None
 
 
