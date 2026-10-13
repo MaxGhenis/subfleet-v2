@@ -509,3 +509,49 @@ against `f04e7e34c`, rather than shifted lines after these fixes.
   handoff (`:6537`, `:6551`) and both provider spawns (`guardian.py:161`, `:178`).
   A single `realpath` / `stat` check leaves a check-to-use race. Neither inherited
   pathname case is changed or claimed fixed here.
+
+## Review r3: modern absent source aliases
+
+The assigned base is `6ddf13703e58`; its checkout was clean. Changes stay in
+this workspace. Shared Git metadata is outside its writable roots, so commits
+use workspace-local `.git-local` on `fix/admission-detached-nested-fence`, with
+read-only object alternates. The original `.git` pointer is unchanged. No
+Git remote operations, sub-agents, caller-worktree writes or operational-state
+changes were used.
+
+- `473871193`: port the reviewer's reader and allocated-writer source-alias
+  regression, with waiting-state, fence-holder and blocked-key checks.
+- `5d5fb9cd8`: carry modern source/current absence answers through early and
+  reserving fence comparisons. Legacy NFC folding stays independent. Keep the
+  submitted pathname check, retain the early current-source check when cwd is
+  refreshed, and match the hold's folder using the same comparison. One look's
+  filesystem answers are reused, including the in-place row subject, and no
+  answers survive into another look. C-8.4 now qualifies the pre-workspace
+  spelling timing for detached in-place writers.
+- This report is committed separately on the same branch.
+
+The source tuples are now `(folder, legacy_fold, absence)`, superseding the
+historical two-element tuple audit above. The tests cover both recorded and
+current aliases, both fence boundaries and both detached shapes (eight cases),
+plus the review's two single-row-answer/own-key controls. Both inherited
+pathname follow-ups above remain outside this PR and unchanged.
+
+The baseline runs the regression-only commit against byte-identical production
+code from `6ddf13703e58` (daemon SHA-256
+`8cd8a43b0c7a067af725c935b45b2ee2218a0d82a46d428b80d6394dd8991372`). It
+reproduced **2 failed, 71 deselected**: `_workspace` ran for both fenced sources;
+the reader ran and the allocated writer failed. Pytest took 39.80 s and the
+locked runner 75.99 s. The fixed target hold passed **10 passed, 71 deselected**
+(58.79 s pytest; 89.54 s locked runner).
+
+Each pytest process runs in the foreground under its own
+`lockf -k /private/tmp/claude-501/subfleet-suites.lock` hold with
+`uv run pytest -q -p no:cacheprovider`, an independent `sf-r142f3-<pid>` TMPDIR
+and a 1,120-second child cap. The first baseline acquisition timed out after
+600 seconds (exit 75, zero tests); subsequent acquisition windows allow 3,600
+seconds outside the hold. No hold waits for host load. Dependencies use this
+workspace's `.venv` and `.uv-cache`. TMPDIR cleanup uses the requested Python
+`shutil.rmtree` command.
+
+Requested suite groups and the disposable mutation are pending; validation
+entries below will supersede this status.
