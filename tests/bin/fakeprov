@@ -90,7 +90,12 @@ def escaper(kind: str) -> int:
         os.execv(node, [node, "-e", NODE_ESCAPER])
     if kind == "nul":
         os.execv(sys.executable, [sys.executable, "-c", NUL_ESCAPER])
-    os.execv("/usr/bin/perl", ["/usr/bin/perl", "-e", PERL_ESCAPER])
+    # macOS versions differ in how much of a platform binary's argument area
+    # remains readable after $0 changes. Erase the markers explicitly so this
+    # fixture proves responsibility discovery on either kernel.
+    env = {k: v for k, v in os.environ.items()
+           if k not in {"SUBFLEET_ATTEMPT", "SUBFLEET_ROOT", "SUBFLEET_JOB"}}
+    os.execve("/usr/bin/perl", ["/usr/bin/perl", "-e", PERL_ESCAPER], env)
     return 1
 
 

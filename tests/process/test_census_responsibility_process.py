@@ -29,9 +29,11 @@ from subfleet import procs
 REPO = Path(__file__).resolve().parents[2]
 PERL_ESCAPE = ("import os, sys\n"
                "if os.fork(): sys.exit(0)\n"
-               "os.execv('/usr/bin/perl', ['/usr/bin/perl', '-e', "
+               "os.execve('/usr/bin/perl', ['/usr/bin/perl', '-e', "
                "'$0 = \"renamed-escaper\"; open(my $o, \">\", \"$ENV{ESCAPER}.tmp\") or die; print $o $$; "
-               "close($o); rename(\"$ENV{ESCAPER}.tmp\", $ENV{ESCAPER}); sleep 60;'])\n")
+               "close($o); rename(\"$ENV{ESCAPER}.tmp\", $ENV{ESCAPER}); sleep 60;'],\n"
+               "{k: v for k, v in os.environ.items() if k not in "
+               "{'SUBFLEET_ATTEMPT', 'SUBFLEET_ROOT', 'SUBFLEET_JOB'}})\n")
 PROVIDER = ("import os, subprocess, sys, time\n"
             f"subprocess.Popen([sys.executable, '-c', {PERL_ESCAPE!r}], start_new_session=True)\n"
             "while not os.path.exists(os.environ['ESCAPER']): time.sleep(.02)\n")
@@ -91,19 +93,24 @@ def test_d_cen1_a_disclaimed_guardian_starts_as_popen_started_it(tmp_path):
     stray_r, stray_w = os.pipe()                     # inheritable: must not reach the child
     os.set_inheritable(stray_r, True)
     report = tmp_path / "report.json"
+    ready = tmp_path / "ready"
     code = ("import json, os, sys\n"
+            "open(sys.argv[3], 'w').write(str(os.getpid()))\n"
             "fd = int(sys.argv[1]); gate = os.read(fd, 1)\n"
             "fds = sorted(int(n) for n in os.listdir('/dev/fd') if n.isdigit())\n"
             "json.dump({'gate': gate.decode(), 'cwd': os.getcwd(), 'env': dict(os.environ), 'fds': fds,\n"
-            "           'std': [os.fstat(n).st_rdev for n in (0, 1, 2)]}, open(sys.argv[2], 'w'))\n")
+            "           'argv': sys.argv, 'std': [os.fstat(n).st_rdev for n in (0, 1, 2)]}, open(sys.argv[2], 'w'))\n")
     child = control = None
     try:
-        child = procs.spawn_disclaimed([sys.executable, "-c", code, str(gate_r), str(report)],
+        child = procs.spawn_disclaimed([sys.executable, "-c", code, str(gate_r), str(report), str(ready)],
                                        env={"PATH": "/usr/bin:/bin", "MARK": "1"}, cwd=str(tmp_path),
                                        pass_fds=(gate_r,))
+        # Framework Python first execs its stub, then re-execs Python.app at the
+        # same pid. Inspect the running interpreter after it reaches our code.
+        assert int(wait_for(ready)) == child.pid
         root = procs.responsibility_root(child.pid)
         assert root is not None and root["pid"] == child.pid and root["unique_id"] > 0
-        assert executable(child.pid) == executable(os.getpid())       # the daemon's own binary
+        assert os.path.samefile(executable(child.pid), executable(os.getpid()))  # same running code identity
         control = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
         assert procs.responsibility_root(control.pid) is None
         assert procs.kernel.responsible(control.pid) == procs.kernel.responsible(os.getpid())
@@ -111,6 +118,7 @@ def test_d_cen1_a_disclaimed_guardian_starts_as_popen_started_it(tmp_path):
         assert child.wait(timeout=30) == 0
         seen = json.loads(report.read_text())
         assert seen["gate"] == "1" and seen["cwd"] == os.path.realpath(tmp_path)
+        assert seen["argv"] == ["-c", str(gate_r), str(report), str(ready)]
         assert {key: seen["env"][key] for key in ("PATH", "MARK")} == {"PATH": "/usr/bin:/bin", "MARK": "1"}
         assert "SUBFLEET_ATTEMPT" not in seen["env"] and "HOME" not in seen["env"]
         assert seen["std"] == [os.stat("/dev/null").st_rdev] * 3

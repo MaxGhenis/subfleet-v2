@@ -148,7 +148,7 @@ def test_d_cen1_a_retitled_child_alive_after_the_exit_receipt_is_not_released(da
 
 def test_d_cen1_a_renamed_setsid_escaper_is_found_by_responsibility_and_released_once_gone(daemon):
     """D-CEN1, C-5.5: regressions 2 and 3. The provider double-forks, calls setsid and runs
-    perl, which renames itself with `$0` and shows no environment in its argument buffer:
+    perl, which renames itself with `$0` after its launcher removes the markers:
     no marker, no group, no parent link. It is found because the guardian is its
     responsible process, and the attempt is quarantined. A stranger of the same uid,
     started after the guardian, that is its own responsible process and carries this
