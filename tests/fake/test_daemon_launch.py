@@ -134,7 +134,10 @@ def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guar
     assert asked == [] and tables == []
     due = daemon._inspect_next[aid]
     assert due > daemon._table[1]                            # no table read before the launch can serve it
-    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: due))
+    # Only the inspection clock is held. The receipt-import retry clock is wall
+    # time (`process_claim_receipt_pending.retry_at` outlives a restart), so it
+    # stays real.
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: due, time=time.time))
     daemon._process_attempt(aid)                             # due: it reads the table, which shows its guardian
     assert asked == [] and tables == [1]
     assert str(guardian) in json.loads(daemon.store.get_attempt(aid)["evidence_json"])["owned_identities"]
