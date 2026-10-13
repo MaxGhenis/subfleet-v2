@@ -45,7 +45,58 @@ def qos_report() -> dict:
     return report
 
 
+#: D-CEN1 (incident 2026-10-13): processes no census source saw. Each is
+#: born outside the attempt's group (its parent called setsid and exits at
+#: once), so its ppid is 1, and each then hides from `ps -E`: node's
+#: `process.title` and the stand-in fill the argv area with the title and
+#: NULs, which ends `ps`'s environment list; perl, a platform binary, shows
+#: `ps` no environment at all, and `$0` renames it. The pid is published
+#: (by rename) only after the title is set, and each exits within a minute
+#: whatever happens to the test that started it.
+ESCAPE_S = 60
+NODE_ESCAPER = ("const fs = require('fs'); process.title = 'node (vitest)';"
+                "const marker = process.env.SUBFLEET_FAKE_MARKER;"
+                "fs.writeFileSync(marker + '.tmp', String(process.pid)); fs.renameSync(marker + '.tmp', marker);"
+                f"setTimeout(() => {{}}, {ESCAPE_S * 1000});")
+NUL_ESCAPER = f"""
+import ctypes, os, time
+libc = ctypes.CDLL(None)
+libc._NSGetArgv.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
+libc._NSGetArgc.restype = ctypes.POINTER(ctypes.c_int)
+argc, argv = libc._NSGetArgc().contents.value, libc._NSGetArgv().contents
+start, last = argv[0], argv[argc - 1]
+end = last + len(ctypes.string_at(last)) + 1
+title = b"node (vitest 1)"
+ctypes.memset(start, 0, end - start)
+ctypes.memmove(start, title, min(len(title), end - start - 1))
+marker = os.environ["SUBFLEET_FAKE_MARKER"]
+with open(marker + ".tmp", "w") as stream:
+    stream.write(str(os.getpid()))
+os.rename(marker + ".tmp", marker)
+time.sleep({ESCAPE_S})
+"""
+PERL_ESCAPER = ('$0 = "renamed-escaper"; my $marker = $ENV{SUBFLEET_FAKE_MARKER};'
+                'open(my $out, ">", "$marker.tmp") or die; print $out $$; close($out);'
+                f'rename("$marker.tmp", $marker) or die; sleep {ESCAPE_S};')
+ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl"}
+
+
+def escaper(kind: str) -> int:
+    """The escaper's parent: started in a new session, it forks and exits."""
+    if os.fork():
+        return 0
+    if kind == "node":
+        node = os.environ["SUBFLEET_FAKE_NODE"]
+        os.execv(node, [node, "-e", NODE_ESCAPER])
+    if kind == "nul":
+        os.execv(sys.executable, [sys.executable, "-c", NUL_ESCAPER])
+    os.execv("/usr/bin/perl", ["/usr/bin/perl", "-e", PERL_ESCAPER])
+    return 1
+
+
 def main() -> int:
+    if "--escaper" in sys.argv:
+        return escaper(sys.argv[sys.argv.index("--escaper") + 1])
     if "--escaped-child" in sys.argv:
         # Popen gave this process its own session, but it belonged to the
         # attempt's group between fork() and setsid(), and a census landing
@@ -76,6 +127,17 @@ def main() -> int:
             start_new_session=True,
             stdin=subprocess.DEVNULL,
         )
+    if scenario in ESCAPERS:
+        # The provider ends as soon as its escaper is ready, so the exit receipt
+        # is written with the escaper still running in the attempt's workspace.
+        marker = Path(os.environ["SUBFLEET_FAKE_MARKER"])
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--escaper", ESCAPERS[scenario]],
+                         start_new_session=True, stdin=subprocess.DEVNULL)
+        until = time.monotonic() + 30
+        while not marker.exists() and time.monotonic() < until:
+            time.sleep(.02)
+        print(f"fake provider ready: {scenario}", flush=True)
+        return 0 if marker.exists() else 1
     if scenario == "qos":
         print(json.dumps(qos_report()), flush=True)
         return 0
