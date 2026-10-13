@@ -208,7 +208,8 @@ def test_unknown_op_never_echoes_its_value(op):
     assert_secret_absent(response, VALUE)
 
 
-def test_coercion_and_notice_refusals_never_render_values_or_exceptions():
+@pytest.mark.parametrize("boundary", ("coercion", "notice"))
+def test_coercion_and_notice_refusals_never_render_values_or_exceptions(boundary):
     @dataclass
     class PoisonArgs:
         value: str
@@ -216,11 +217,12 @@ def test_coercion_and_notice_refusals_never_render_values_or_exceptions():
         def __post_init__(self):
             raise UnrenderableFailure(VALUE)
 
-    for operation in (lambda: protocol.coerce_args(PoisonArgs, {"value": VALUE}),
-                      lambda: protocol.notice_row({"x": VALUE})):
-        with pytest.raises(protocol.ProtocolError) as caught:
-            operation()
-        assert_secret_absent(str(caught.value), VALUE)
+    with pytest.raises(protocol.ProtocolError) as caught:
+        if boundary == "coercion":
+            protocol.coerce_args(PoisonArgs, {"value": VALUE})
+        else:
+            protocol.notice_row({"x": VALUE})
+    assert_secret_absent(str(caught.value), VALUE)
 
 
 @pytest.mark.parametrize("error", (None, "KeyError: the suggestion operation failed", VALUE, {"x": VALUE}))
