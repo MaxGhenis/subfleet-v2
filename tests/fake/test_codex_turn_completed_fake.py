@@ -275,7 +275,9 @@ def test_empty_frozen_stream_cannot_accept_later_stdout_completion(state_daemon,
         assert {name: (adir / name).read_bytes() for name in frozen} == frozen
         assert observed == ["auth-dead", "auth-dead"]
         job = daemon.store.get_job(job_id)
-        assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
+        # C-4.5: auth rejection disables the lane without counting the attempt.
+        assert (job["state"], job["accepted_attempt_id"]) == ("waiting", None)
+        assert not daemon.store.get_lane(attempt["lane_id"]).enabled
         row = daemon.store.get_attempt(attempt["attempt_id"])
         assert (row["outcome_class"], row["rc"], row["killed_by"]) == ("auth-dead", 0, None)
         evidence = json.loads(row["evidence_json"])["classification"]
