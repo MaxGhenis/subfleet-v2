@@ -32,6 +32,7 @@ def last_message(fixture: Path, stdout: bytes) -> bytes | None:
     if saved.is_file():
         return saved.read_bytes()
     last = None
+    completed = False
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -51,7 +52,8 @@ def last_message(fixture: Path, stdout: bytes) -> bytes | None:
             # A failed turn leaves no --output-last-message file, even after an
             # agent message (20261009-092734-pr158-review-sol, gpt-6.1-sol).
             return None
-    return last
+        completed = completed or event.get("type") == "turn.completed"
+    return last if completed else None
 
 
 def nested_grandchild() -> int:

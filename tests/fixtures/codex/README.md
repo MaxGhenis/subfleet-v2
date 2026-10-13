@@ -27,6 +27,9 @@ quotations were not treated as observed provider failures.
 | `stream-disconnect` | Synthetic interrupted provider stream. |
 | `model-at-capacity` | Synthetic temporary model-capacity rejection. |
 | `spawn-fail` | Synthetic rc 127 spawn failure. |
+| `cut-off-item-completed` | Synthetic D-SHUT1 host-reboot shape: rc 0, interim completed agent item, no `turn.completed` or `last.md`. |
+| `cut-off-item-started` | Synthetic D-SHUT1 cut-off shape: rc 0, interim started agent item, no `turn.completed` or `last.md`. |
+| `cut-off-error` | Synthetic D-SHUT1 transport shape: rc 0, interim agent message followed by an UnknownIssuer CA error, no `turn.completed` or `last.md`. |
 
 The real success source has `meta.json`, human-formatted `err.log`, `out.md`,
 and the rollout named in `expected.json`. Its actual thread id and final
@@ -53,6 +56,12 @@ credential/attempt environment fields for the process isolation tests. The
 `nested-setsid` scenario starts a grandchild in a new session, records its pid
 in those diagnostics, and keeps both the fake and grandchild alive for 30 s
 so the process lane can test containment (C-12.8).
+
+The D-SHUT1 cut-off fixtures use only the incident evidence supplied on
+2026-10-12; no live job store was read. The fake writes a stream-derived
+`last.md` only when the fixture contains `turn.completed`, so replaying the
+cut-off fixtures preserves their absent last-message file. Every successful
+detached replay already emits `turn.completed` from `success/stdout`.
 
 The `sigterm-exit-0` scenario has no fixture directory: it reproduces what
 Codex did when the daemon stopped it on 2026-09-24. It prints `thread.started`,

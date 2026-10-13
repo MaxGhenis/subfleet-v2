@@ -19,6 +19,7 @@ from typing import NamedTuple
 import pytest
 
 from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, SAFE_HOME_PATHS
+from tests.e2e import dev_app as development_app
 from tests.fake.profile import derived_identity as claude_identity
 
 REPO = Path(__file__).resolve().parents[2]
@@ -106,6 +107,9 @@ class E2E:
         self.out = self.workdir / "out.md"
         self.process: subprocess.Popen | None = None
         self.logs = []
+        #: Why no person-only request can be made here (C-25.6), when the `e2e` fixture
+        #: could not name the development app's stand-in; `Conversations.as_person` says it.
+        self.no_person: str | None = None
         shutil.copyfile(REPO / "subfleet/default_policy.json", self.root / "policy.json")
         # C-11.7's reserve rule is exercised by tests/e2e/test_reserve.py; every other case
         # here describes admission mechanics the rule sits on top of, so it starts off.
@@ -336,11 +340,30 @@ def e2e_process_inspection():
         pytest.skip(f"C-5.3 e2e requires permitted ps/sysctl inspection: {exc}")
 
 
+@pytest.fixture(scope="session")
+def dev_app(tmp_path_factory) -> Path | str:
+    """The person of every person-only request here (C-25.6; a terminal is not one
+    since D-PB1): the development app's stand-in, `tests/e2e/dev_app.py`, compiled
+    once. Otherwise why there is none, which `Conversations.as_person` reports; tests
+    that need no person still run."""
+    try:
+        return development_app.build(tmp_path_factory.mktemp("dev-app")) or development_app.NO_COMPILER
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        return str(exc)
+
+
 @pytest.fixture
-def e2e(request, e2e_process_inspection):
+def e2e(request, e2e_process_inspection, dev_app):
     # macOS AF_UNIX's sun_path cannot fit pytest's usual temporary root.
     with tempfile.TemporaryDirectory(prefix="sf-e2e-", dir="/tmp") as directory:
         harness = E2E(Path(directory))
+        # Every daemon this harness starts knows the stand-in as the development app
+        # (D-21). Its state root is under /tmp, never ~/.subfleet, so the name widens
+        # nothing else.
+        if isinstance(dev_app, Path):
+            harness.env[development_app.ENV] = str(dev_app)
+        else:
+            harness.no_person = dev_app
         try:
             yield harness
         finally:

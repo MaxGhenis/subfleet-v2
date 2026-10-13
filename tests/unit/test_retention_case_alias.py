@@ -340,15 +340,16 @@ def test_an_absent_nested_writer_under_a_parent_fence_waits_on_it(tmp_path, type
 
 
 def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree(tmp_path):
-    """C-8.4's known limit for the folders above a tree (review of #141 at 7b9e7ca4,
-    P3; its `Ünï`/`ünï` probe). The state root is `…/Ünï/state`, and a conversation's
+    """C-8.4's legacy workdir limit for the folders above a tree (review of #141 at
+    7b9e7ca4, P3; its `Ünï`/`ünï` probe). The state root is `…/Ünï/state`, and a conversation's
     cwd typed `…/ünï/state/worktrees/jOB/vendor/lib` is submitted while retention has
     `Job` in quarantine. Admission spells the folder again, the state root as the
     volume stores it, and compares the names it could not look up folded, so the turn
-    waits on the fence and takes no row. `worktree-in-use` compares the cwd as submit
-    recorded it with SQLite's NOCASE and LIKE, which fold ASCII letters only, so the
-    queued job keeps no tree: an intended limit the contract states. With the state
-    root typed as stored (`Ünï`), only ASCII case differs and the job keeps the tree."""
+    waits on the fence and takes no row. #140 canonically records the parent names
+    submission can still look up, so both fresh submissions keep the tree. A legacy
+    raw workdir is compared with SQLite's NOCASE and LIKE, which fold ASCII letters
+    only; that queued job still keeps no tree when its parent is typed `ünï`. With
+    the parent typed as stored (`Ünï`), only ASCII case differs and it keeps the tree."""
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _live
     from tests.fake.test_turn_wait_reasons import SETTINGS
@@ -363,10 +364,15 @@ def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree
         typed = {"ascii-case": alias, "beyond-ascii": Path(str(alias).replace("/Ünï/", "/ünï/"))}
         assert typed["beyond-ascii"].is_dir() and typed["beyond-ascii"].samefile(folder)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:Job")
-        kept, turns = {}, {}
+        kept, fresh_kept, turns = {}, {}, {}
         for how, cwd in typed.items():
             _, turns[how] = submit_while_moved(daemon, harness, cwd, lambda: wt.rename(aside),
                                                {**SETTINGS, "permission": "read-only"})
+            assert "/Ünï/state/" in daemon.store.get_job(turns[how])["workdir"]
+            fresh_kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
+            # Preserve the pre-canonical-submission row this limit concerns.
+            # Its folder and unspelled flag retain their original meanings.
+            daemon.store.update_job(turns[how], workdir=str(cwd))
             daemon._admit_turns()
             hold = daemon._holds.get(turns[how]) or {}
             assert not _live(daemon, turns[how]) and turn_rows(daemon, turns[how]) == [], hold
@@ -374,6 +380,7 @@ def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree
             kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
             daemon.store.update_job(turns[how], state="cancelled", cancel_requested_at="2026-10-10T00:00:00Z")
             aside.rename(wt)
+        assert fresh_kept == {"ascii-case": "worktree-in-use", "beyond-ascii": "worktree-in-use"}, fresh_kept
         assert kept == {"ascii-case": "worktree-in-use", "beyond-ascii": None}, kept
 
 
