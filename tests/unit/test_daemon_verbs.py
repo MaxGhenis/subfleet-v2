@@ -154,10 +154,17 @@ def test_daemon_status_without_a_daemon_is_69(root, capsys):
     assert "lock        absent" in captured.out
 
 
-def test_daemon_stop_on_a_stale_lock_is_a_no_op(root, capsys):
+def test_daemon_stop_on_a_stale_lock_is_a_no_op(root, capsys, monkeypatch):
     """C-5.8 a lock whose recorded identity is dead is not a daemon to stop."""
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
+    from subfleet import client
+
+    def absent(pid):
+        assert pid == 999999
+        return ""                      # an inspected, absent pid; None means unknown
+
+    monkeypatch.setattr(client, "proc_start", absent)
     assert cli.main(["daemon", "stop"]) == 0
     assert "stale lock" in capsys.readouterr().err
 
