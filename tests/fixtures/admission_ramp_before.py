@@ -1,4 +1,9 @@
-"""Frozen pre-ramp admission pass from 4c6a8a9c989e for R6 differential tests."""
+"""Frozen pre-ramp admission pass from release/217 at 5bd0a3a674c6 for R6 differential tests.
+
+Re-frozen 2026-10-13 after release/217 gained #140 (detached-writer nested fence),
+#185 (recycled-pid census), #183 (host push) and #179 (reset-credit lane_wait):
+the ramp, disabled or absent, must still behave exactly like the current release pass.
+"""
 
 def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
     """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
@@ -8,7 +13,10 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
     # carries a probe (C-26.9), so the turn pass, which runs beside this one,
     # keeps none and leaves the detached pass's alone.
     probe_line: list[tuple[str, str, frozenset[str] | None]] = []
+    workspace_skips: set[str] = set()
     if kind == "detached":
+        self._push_preparation_offered = False
+        workspace_skips = self._reap_push_workspaces(holds)
         self._disk.begin_pass(self.policy, self._disk_rows() if disk_settings(self.policy)["enabled"] else (), utcnow())
         self._save_disk_floor()
         self._save_disk_latch()
@@ -23,6 +31,14 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
     # whichever pass notices. Each dict is walked as a copy: the other kind's
     # pass writes its own jobs' entries meanwhile (`dict.copy` is one C call).
     pending = {job["job_id"] for job in queued}
+    if kind == "detached":
+        for job_id, future in list(self._push_workspaces.items()):
+            if job_id not in pending and (future.done() or future.cancel()):
+                self._push_workspaces.pop(job_id, None)
+                self._push_workspace_store_errors.pop(job_id, None)
+                self._push_workspace_store_failures.pop(job_id, None)
+                self._push_workspace_store_first_failure.pop(job_id, None)
+                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
     tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
               self._pin_episodes, self._probe_misses)
     gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
@@ -129,6 +145,8 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
     # C-6.9, C-6.16: attended, priority, session, background. Priority is
     # FIFO across tiers; the other classes keep tier then FIFO.
     for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
+        if job["job_id"] in workspace_skips:
+            continue
         tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
         tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
         klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
@@ -290,8 +308,12 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                                        self._probe_reach(roster, job, probing["model"], lanes, extra_exclusions)))
             if lease_held and not for_good:
                 # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
-                queue_for([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())],
-                          job["job_id"])
+                # Only the keys it takes: one it needs free but does not take (`blocked`,
+                # retention's fence above a writer's folder, say) is never queued for
+                # (C-6.11), on its clock as at its look (review of 5253faa2, P3).
+                blocked = set(known.get("blocked") or ())
+                queue_for([*(key for key in known["hold"].get("leases") or () if key not in blocked),
+                           *(known["hold"].get("queued") or ())], job["job_id"])
             last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
             if turn and turn != last.get("behind"):
                 # C-6.11: whose turn it is now; the job it was held for has started or ended.
@@ -306,14 +328,44 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
             holds[job["job_id"]] = {"reason": "attempt-live"}
             continue
         run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
-        if job["kind"] == "turn" and self._fence_hold(job, self._turn_folder(job), holds, waiters, tier,
-                                                      models, lanes, run_folder):
-            # C-8.4: retention is retiring the tree the turn's folder is in; no
-            # git runs there for a turn that cannot start (the transaction below
-            # still reads the fence, and decides).
-            continue
         try:
+            try:
+                # C-6.5, C-8.4: submit could not spell this job's folder in full (`unspelled`),
+                # so what it recorded may be below its checkout's top, or not the top its
+                # `core.worktree` names: found again as submit finds it, once, for the look
+                # below and for the reserving transaction alike (`_rediscovered`), then
+                # spelled below like any other.
+                derived = self._rediscovered(job)
+            except (OSError, subprocess.SubprocessError, SalvageError):
+                # C-6.8's, as a workspace that cannot be prepared is. A turn whose folder
+                # submit recorded is in a tree retention is retiring still waits on that
+                # fence, as it did before git was asked.
+                if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
+                                                              tier, models, lanes, run_folder):
+                    continue
+                raise
+            # `_turn_folder`, from the one answer above.
+            if job["kind"] == "turn" and self._fence_hold(job, derived or self._recorded_folder(job), holds,
+                                                          waiters, tier, models, lanes, run_folder):
+                # C-8.4: retention is retiring the tree the turn's folder is in; no
+                # workspace is prepared for a turn that cannot start, and no git runs
+                # there but `_rediscovered`'s read (the transaction below still reads
+                # the fence, and decides).
+                continue
             baseline_at = utcnow_ms()           # C-26.14: before the start snapshot
+            if not self._push_workspace_ready(job):
+                holds[job["job_id"]] = {"reason": "workspace", "preparing": True}
+                continue
+            if (job.get("push_branch") is not None and job["sandbox"] == "workspace-write"
+                    and not job["in_place"]):
+                prepared = job.get("worktree") or str(self.root / "worktrees" / job["job_id"])
+                if not Path(prepared).is_dir():
+                    raise AdapterError("host push workspace disappeared after preparation", code=7,
+                                       fix="resubmit the job to rebuild its checkout")
+                # Readiness may race cancellation or removal. This local
+                # ownership snapshot keeps _workspace's direct-call fallback
+                # out of admission even if the directory disappears now.
+                job = {**job, "worktree": prepared}
             workspace, head, baseline, skipped = self._workspace(job)
             pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
             native_session = job["caller_session"] if job["kind"] == "revive" else None
@@ -338,15 +390,42 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
             holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
                                     "error": str(exc)[:200]}
             continue
-        self._workspace_deferrals.pop(job["job_id"], None)
         write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
         # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
         read_folder = (self._submitted(job["job_id"]).get("folder") or workspace
                        if job["kind"] == "turn" and write_target is None else None)
-        # Git's persisted core.worktree can put the hold outside the cwd
-        # the provider runs in. Spell that cwd before taking the store lock.
-        run_folder = folders.canonical(workspace) if job["kind"] == "turn" else None
-        if job["wait_reason"] == "workspace":
+        if derived is not None and read_folder:
+            read_folder = derived
+        elif derived is not None and write_target:
+            write_target = derived
+        # C-8.4, C-24.5, C-6.5: the folder a row will name (a turn's, or an in-place
+        # writer's `worktree:`), spelled again now, off the store lock. Submit spelled
+        # it, but a name it could not look up kept the case it was given: a native
+        # session's cwd typed `…/jOB/vendor/lib`, spelled while retention had the tree
+        # `Job` in quarantine, keyed the row on `jOB`, which no check on the tree
+        # matched once the turn's job had ended (review of 8a112986, finding 1). A
+        # folder spelled in full here is the one spelling of a folder that is there;
+        # one that is not reserves no row (`absent`, below).
+        named, absent = read_folder or (write_target if job["kind"] == "turn" or job["in_place"] else None), None
+        if named:
+            spelled, absent = folders.present(named)
+            named = spelled
+            if read_folder:
+                read_folder = spelled
+            else:
+                write_target = spelled
+        git_absent = absent
+        # The provider's cwd may differ from Git's hold (core.worktree).
+        # Require that extra reader row's folder to be present too.
+        # Detached jobs keep the resolved cwd through launch and quarantine;
+        # turns also require every name of their extra reader row to be present.
+        run_folder, run_absent = (folders.present(workspace) if job["kind"] == "turn"
+                                  else (folders.canonical(workspace), None))
+        if absent is None and run_absent is not None:
+            named, absent = run_folder, run_absent
+        if absent is None:
+            self._workspace_deferrals.pop(job["job_id"], None)
+        if job["wait_reason"] == "workspace" and absent is None:
             # The workspace is ready; what the job waits for next is not it.
             with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
                 tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
@@ -582,7 +661,8 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                             from .conversations import waits as turn_waits
                             hold["lanes"] = turn_waits.lane_summary(decision)
                         rechecks = self._capacity_wait(
-                            job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold)
+                            job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
+                            lane_wait=not decision.chosen_lane)
                         waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                         if not rechecks:
                             self.store.add_decision(job["job_id"], decision)
@@ -645,29 +725,51 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                         # retention and a detached writer still see the folder in use.
                         leases.append((folders.turn_key(write_target, job["job_id"], writable=True), job["job_id"]))
                         blockers.append(folders.exclusive_key(write_target))
-                        # C-8.4: nor while retention retires a tree its folder is
-                        # in, a repository nested in a job's worktree; a detached
-                        # writer above it holds another checkout (C-6.5).
-                        blockers.extend(folders.retiring(read, write_target))
                     elif job["sandbox"] == "workspace-write":
                         # C-6.5: the hold is where the job writes. A session is not a
                         # place, so it takes no lease; its instances are told apart
                         # at submit. A detached writer still writes alone: it waits
                         # while a conversation turn writes there.
-                        leases.append((f"worktree:{write_target}", job["job_id"]))
+                        own = folders.exclusive_key(write_target)
+                        leases.append((own, job["job_id"]))
                         blockers.extend(key for key, _ in folders.turn_holds(read, write_target, (folders.TURN,)))
+                        # C-8.4: nor while retention retires a tree its folder is in,
+                        # a repository nested in a job's worktree (its own fence is
+                        # `own`, contested above). A detached writer above it holds
+                        # another checkout, not this one (C-6.5).
+                        blockers.extend(key for key in folders.retiring(read, write_target) if key != own)
                     elif job["kind"] == "turn" and read_folder:
                         # C-8.4, C-13.4: a read-only turn excludes no writer, but
                         # retention never removes a folder a turn is working in, or
                         # the tree it is nested in.
                         leases.append((folders.turn_key(read_folder, job["job_id"], writable=False), job["job_id"]))
-                        blockers.extend(folders.retiring(read, read_folder))
-                    run_fences = folders.retiring(read, run_folder) if run_folder else []
-                    blockers.extend(run_fences)
-                    if run_folder and run_folder != (write_target or read_folder):
-                        # Preserve the Git hold's writer rules. This extra
-                        # reader row only keeps the provider's cwd in place.
+                    held_folder = write_target or read_folder
+                    if job["kind"] == "turn":
+                        # C-8.4: only retention's fences above either folder
+                        # hold a turn; a detached writer above holds another
+                        # checkout (C-6.5). Use the early look's comparison.
+                        fence, held_folder = self._turn_fences(read, held_folder, git_absent,
+                                                                run_folder, run_absent)
+                        blockers.extend(fence)
+                    else:
+                        # The writer already contests its own exclusive key.
+                        own_run_key = folders.exclusive_key(write_target) if write_target else None
+                        blockers.extend(key for key in folders.retiring(read, run_folder)
+                                        if key != own_run_key)
+                    if run_folder and (job["kind"] != "turn" or run_folder != (write_target or read_folder)):
+                        # This job-held reader row keeps the resolved cwd through
+                        # retries and quarantine without changing the Git hold's
+                        # writer rules. Holder-keyed cleanup releases it.
                         leases.append((folders.turn_key(run_folder, job["job_id"], writable=False), job["job_id"]))
+                    if absent is not None and job["kind"] != "turn":
+                        # C-8.4: its folder is not there now, so the names that could not
+                        # be looked up may not be the ones its volume stores: retention may
+                        # have its tree in quarantine under a fence spelled `Job`. Any
+                        # fence of retention's that folds alike above it holds it, as the
+                        # fence on its spelling would; with none it reserves nothing.
+                        taken = {key for key, _ in leases}       # contested already when held
+                        blockers.extend(key for key in folders.retiring(read, named, folded=True)
+                                        if key not in taken)
                     revive_key = (revive_lease_key(job["caller_session"])
                                   if job["kind"] == "revive" and job["caller_session"] else None)
                     if revive_key:
@@ -709,20 +811,25 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                         # A turn's hold names its folder: a fence it waits for may be
                         # on a tree that folder is in, which its reason says (C-6.11).
                         hold = {"reason": "lease-held", "leases": contested + blocked,
-                                **({"folder": run_folder if run_fences else write_target or read_folder}
+                                **({"folder": held_folder}
                                    if job["kind"] == "turn" and (write_target or read_folder) else {}),
                                 **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                    if queued else {})}
                         queue_for(contested + queued, job["job_id"])
-                        rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold)
+                        rechecks = self._capacity_wait(job["job_id"], "lease-held:" + ",".join(sorted(contested + blocked + queued)), hold,
+                                                       blocked=blocked)
                         next_check = after(scheduler.capacity_recheck_delay(rechecks))
                         tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         status = "held"
                         break
+                    if absent is not None:
+                        status = "absent"           # no row on a folder that is not there now
+                        break
                     for key, holder in leases:
                         tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                     evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
+                                "run_folder": run_folder,
                                 **({"baseline_ref": pinned["path"]} if pinned else {}),
                                 **({"baseline_skipped": _skipped(skipped)} if skipped else {})}
                     if job["kind"] == "turn":
@@ -789,6 +896,9 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
             holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
             self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
+            continue
+        if status == "absent":
+            self._folder_absent(job, named, absent, holds)
             continue
         if status != "placed":
             continue
