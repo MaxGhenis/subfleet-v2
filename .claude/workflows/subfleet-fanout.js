@@ -8,7 +8,7 @@ export const meta = {
 }
 
 // Why the dispatcher looks like this (subfleet 2.0.0a0 at this PR's base 81d58fe9,
-// read 2026-10-04; the measured run and seven review rounds are in
+// read 2026-10-04; the measured run and eight review rounds are in
 // docs/reports/2026-09-22-fanout-workflow.md):
 // - `run --batch FILE --json -d` submits every manifest entry in one call and
 //   prints one JSON object per entry: job_id with outcome `created` or
@@ -30,8 +30,14 @@ export const meta = {
 //   Recovery (including C-6.2 digest conflicts) verifies recorded job identity
 //   against an unanswered invocation's unique batch label before adopting an
 //   id, then recomputes C-6.2's digest with the daemon-recorded HEAD/policy.
-//   A placement preview resolves explicit model pins through decision.chain;
-//   those canonical pins are submitted, never a copied alias table.
+//   A refused row naming the job that holds its request id is a candidate
+//   too: the CLI re-sends after a lost answer, and when HEAD or policy moved
+//   in between, the refused re-send names the job the first send created
+//   (client.py _settle_refused_submit). Adopted only on the same proof.
+//   Models are submitted as written (run --batch takes only the CLI's
+//   MODEL_CHOICES). A placement preview resolves an explicit pin through
+//   decision.chain for the snapshot, never a copied alias table; only a pin
+//   the daemon rewrote needs it, and a failed preview is not asked again.
 //   Prompts are staged once and those exact files are submitted.
 //   This still works after prompt deletion or workdir head/policy changes.
 //   Without a request id, items
@@ -45,7 +51,7 @@ export const meta = {
 //   A per-key advisory lock spans setup, each step-1 call and each wait slice.
 //   Inherited children keep it after a killed launcher; the OS releases it
 //   after the last holder exits. Acquisition waits at most 5 s, then reports
-//   LOCKED with the last launcher's pid (a surviving child may be the holder).
+//   LOCKED with the launcher, helper and CLI child pids and whether each lives.
 // - Step 0 checksums what the agent retyped: the helper and the manifest are
 //   compared with CRC-32 values computed here before anything runs.
 // - The Bash tool caps one call at 600 s, so the wait is sliced:
@@ -173,9 +179,35 @@ const HM = 'FANOUT_MANIFEST_EOF'
 const HL = 'FANOUT_SETUP_EOF'
 // Setup needs the same lock before it writes the helper or incoming manifest.
 // Keep the inode: unlinking a lock lets two callers lock different files.
-const lockRunner = `import fcntl, os, subprocess, sys, time
+// The lock file names the launcher and its child (the helper, or step 0's
+// shell); the helper names each CLI child in LOCK.cli. Every one of them
+// inherits the lock, so LOCKED reports each pid and whether it still lives.
+const lockRunner = `import fcntl, json, os, subprocess, sys, time
+def status(entry):
+    # alive, dead, or reused: the pid now names a process started later.
+    try:
+        pid = int(entry["pid"])
+        os.kill(pid, 0)
+    except PermissionError:
+        pass
+    except ProcessLookupError:
+        return "dead"
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return "unknown"
+    etime = None
+    try:
+        etime = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout.strip()
+        days, _, clock = etime.rpartition("-")
+        age = int(days or 0) * 86400 + sum(int(n) * 60 ** i for i, n in enumerate(reversed(clock.split(":"))))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return "dead" if etime == "" else "alive"
+    return "reused" if time.time() - age > float(entry.get("since") or "inf") + 2 else "alive"
 with open(sys.argv[1], "a+") as lock:
-    budget = max(0, min(5, float(os.environ.get("SUBFLEET_FANOUT_LOCK_WAIT_S", "5"))))
+    try:
+        budget = float(os.environ.get("SUBFLEET_FANOUT_LOCK_WAIT_S", "5"))
+    except ValueError:
+        budget = 5
+    budget = max(0, min(5, budget)) if budget == budget else 5
     deadline = time.monotonic() + budget
     while True:
         try:
@@ -184,16 +216,41 @@ with open(sys.argv[1], "a+") as lock:
         except BlockingIOError:
             if time.monotonic() >= deadline:
                 lock.seek(0)
-                pid = lock.read().strip() or "unknown"
-                print("LOCKED lock=%s launcher_pid=%s wait_s=%s" % (sys.argv[1], pid, budget), flush=True)
+                try:
+                    holders = json.loads(lock.read() or "{}")
+                except ValueError:
+                    holders = {}
+                if type(holders) is int:
+                    holders = {"launcher": {"pid": holders}}
+                holders = holders if isinstance(holders, dict) else {}
+                try:
+                    with open(sys.argv[1] + ".cli") as fh:
+                        holders["cli"] = json.load(fh)
+                except (OSError, ValueError):
+                    pass
+                found = []
+                for role in ("launcher", "helper", "cli"):
+                    entry = holders.get(role)
+                    ok = isinstance(entry, dict) and entry.get("pid")
+                    found.append("%s_pid=%s %s=%s" % (role, entry["pid"], role, status(entry)) if ok else role + "_pid=none")
+                print("LOCKED lock=%s wait_s=%s %s" % (sys.argv[1], budget, " ".join(found)), flush=True)
                 sys.exit(75)
             time.sleep(min(.05, max(0, deadline - time.monotonic())))
-    lock.seek(0)
-    lock.truncate()
-    lock.write(str(os.getpid()))
-    lock.flush()
+    def record(**holders):
+        lock.seek(0)
+        lock.truncate()
+        lock.write(json.dumps(holders))
+        lock.flush()
+    launcher = {"pid": os.getpid(), "since": time.time()}
+    record(launcher=launcher)
+    try:
+        os.unlink(sys.argv[1] + ".cli")
+    except OSError:
+        pass
     env = {**os.environ, "SUBFLEET_FANOUT_LOCK_FD": str(lock.fileno())}
-    sys.exit(subprocess.call(sys.argv[2:], env=env, pass_fds=(lock.fileno(),)))`
+    child = subprocess.Popen(sys.argv[2:], env=env, pass_fds=(lock.fileno(),))
+    record(launcher=launcher, helper={"pid": child.pid, "since": time.time()})
+    sys.exit(child.wait())`
 const helper = `import base64, glob, hashlib, json, os, re, shlex, subprocess, sys, time, uuid, zlib
 KEY = ${JSON.stringify(key)}
 REQUEST_ID = ${JSON.stringify(requestId || '')}
@@ -243,12 +300,63 @@ def submit_logs():
     found = glob.glob(F["submitPrefix"] + "*.jsonl")
     return sorted(found, key=lambda p: int(p[len(F["submitPrefix"]):-6]))
 
+def note_cli(pid):
+    # A contending launcher's LOCKED line names this child: it inherits the lock.
+    if not LOCK_FDS:
+        return
+    path = F["lock"] + ".cli"
+    try:
+        if pid is None:
+            os.unlink(path)
+            return
+        with open(path + ".new", "w", encoding="utf-8") as fh:
+            json.dump({"pid": pid, "since": time.time()}, fh)
+        os.replace(path + ".new", path)
+    except OSError:
+        pass
+
+def run_holding(command, timeout=None, capture_output=False, **kwargs):
+    """subprocess.run for a CLI child that inherits the lock, recorded while it runs."""
+    if capture_output:
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with subprocess.Popen(command, pass_fds=LOCK_FDS, **kwargs) as child:
+        note_cli(child.pid)
+        try:
+            stdout, stderr = child.communicate(timeout=timeout)
+        except BaseException:
+            child.kill()
+            child.wait()
+            raise
+        finally:
+            note_cli(None)
+    return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+
 IDENTITY_FIELDS = ("name", "workdir", "out_path", "task", "tier", "sandbox", "pinned_model",
                    "workdir_head", "policy_hash", "payload_digest")
+ID = "[A-Za-z0-9._-]+"
 
 def prompt_digest(path):
     with open(path, "rb") as fh:
         return hashlib.sha256(fh.read()).hexdigest()
+
+def named_holder(row, request_id):
+    """The job a row without a job id names as holding this entry's request id.
+
+    The daemon's C-6.2 conflict names the job holding the id; the CLI adds
+    "; job X carries request id R" to any other refused re-send (C-16.3,
+    client.py _settle_refused_submit). Either may be this invocation's own job:
+    its first send can create the job its refused re-send then names.
+    """
+    if row.get("request_id") not in (None, request_id):
+        return None
+    error = row.get("error") or ""
+    found = re.search(r"request id already used with a different payload by job (" + ID + ")", error)
+    if found:
+        return found.group(1)
+    for job, rid in re.findall(r"job (" + ID + ") carries request id (" + ID + ")", error):
+        if rid == request_id:
+            return job
+    return None
 
 def preview_policy(job, timeout):
     # Read the daemon's loaded policy, never the caller's policy file. A fresh
@@ -261,9 +369,9 @@ def preview_policy(job, timeout):
     if ALLOW_TMP:
         command.append("--allow-tmp")
     env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
-    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=env, pass_fds=LOCK_FDS)
+    result = run_holding(command, capture_output=True, text=True, timeout=timeout, env=env)
     if result.returncode:
-        raise ValueError("policy preview unavailable")
+        raise ValueError("policy preview unavailable (exit %s)" % result.returncode)
     result = json.loads(result.stdout)
     if not isinstance(result, dict):
         raise ValueError("policy preview is not an object")
@@ -290,43 +398,98 @@ def payload_hash(identity, prompt):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
         ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
 
-def entry_identity(job, policy, timeout):
-    result = subprocess.run(["git", "-C", job["workdir"], "rev-parse", "--verify", "HEAD"],
-                            capture_output=True, text=True, timeout=timeout)
-    head = result.stdout.strip() if result.returncode == 0 else None
+def workdir_head(workdir, heads, deadline):
+    # Diagnostic only: recovery recomputes the digest with the daemon's HEAD.
+    if workdir not in heads:
+        heads[workdir] = None
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            try:
+                result = subprocess.run(["git", "-C", workdir, "rev-parse", "--verify", "HEAD"],
+                                        capture_output=True, text=True, timeout=min(5, remaining))
+                heads[workdir] = result.stdout.strip() if result.returncode == 0 else None
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    return heads[workdir]
+
+def entry_identity(job, preview, heads, deadline):
+    policy, canonical, problem = preview
     with open(job["prompt"], "rb") as fh:
         prompt = fh.read()
     identity = {"name": job["name"], "workdir": os.path.realpath(job["workdir"]),
             "out_path": os.path.realpath(job["out"]), "task": job["task"], "tier": job["tier"],
-            "sandbox": job.get("sandbox", "read-only"), "pinned_model": job.get("model"),
-            "workdir_head": head, "policy_hash": policy,
+            "sandbox": job.get("sandbox", "read-only"), "pinned_model": canonical or job.get("model"),
+            "workdir_head": workdir_head(job["workdir"], heads, deadline), "policy_hash": policy,
             "prompt_sha256": hashlib.sha256(prompt).hexdigest(),
             "prompt_base64": base64.b64encode(prompt).decode("ascii")}
+    if job.get("model"):
+        # Only a pin needs the preview: an alias the daemon rewrote can be
+        # matched only against the canonical name the preview resolved.
+        identity["model_source"] = "preview" if canonical else "written"
+        if not canonical:
+            identity["preview_error"] = problem
     # Match ids.payload_digest's canonical fields, including implicit flags.
     identity["payload_digest"] = payload_hash(identity, identity["prompt_base64"])
     return identity
 
-def recovery_matches(row, s):
-    identity = row.get("identity")
+def proof_gap(row, identity, s):
+    """None when row is the job that snapshot's invocation created; else why not."""
     # A unique label in job.submitted proves WHICH invocation created this
     # request. A reused request id alone cannot distinguish an old payload
     # from a refused submission with a lost answer. Legacy snapshots fail shut.
-    if (not isinstance(identity, dict) or identity not in s["identities"]
-            or not isinstance(identity.get("submit_batch"), dict)
-            or row.get("submit_batch") != identity["submit_batch"]
-            or row.get("request_id") != s["request_id"]
-            or not isinstance(row.get("job_id"), str) or not row["job_id"]
-            or any(field not in row for field in IDENTITY_FIELDS)):
-        return False
+    if not isinstance(identity, dict) or identity not in s["identities"]:
+        return "no snapshot of an unanswered invocation"
+    if not isinstance(identity.get("submit_batch"), dict):
+        return "the snapshot comes from an older helper and has no creation mark"
+    if row.get("submit_batch") != identity["submit_batch"]:
+        return "created by another invocation"
+    if (row.get("request_id") != s["request_id"]
+            or not isinstance(row.get("job_id"), str) or not row["job_id"]):
+        return "request id or job id differs"
+    absent = [field for field in IDENTITY_FIELDS if field not in row]
+    if absent:
+        return "the shown job lacks " + ",".join(absent)
     stable = [field for field in IDENTITY_FIELDS if field not in ("workdir_head", "policy_hash", "payload_digest")]
     try:
+        for field in stable:
+            if row[field] != identity[field]:
+                if field == "pinned_model" and identity.get("model_source") == "written":
+                    return ("recorded model %s is not the model as written, %s; only the policy preview "
+                            "resolves an alias, and it failed: %s" % (row[field], identity[field], identity.get("preview_error")))
+                return "recorded %s differs from the snapshot" % field
         prompt = identity["prompt_base64"]
-        return (all(row[field] == identity[field] for field in stable)
-                and hashlib.sha256(base64.b64decode(prompt, validate=True)).hexdigest() == identity["prompt_sha256"]
-                and row.get("prompt_sha256") == identity["prompt_sha256"]
-                and payload_hash(row, prompt) == row["payload_digest"])
+        if (hashlib.sha256(base64.b64decode(prompt, validate=True)).hexdigest() != identity["prompt_sha256"]
+                or row.get("prompt_sha256") != identity["prompt_sha256"]):
+            return "stored prompt bytes differ from the snapshot"
+        if payload_hash(row, prompt) != row["payload_digest"]:
+            return "recorded payload digest does not recompute"
     except (KeyError, TypeError, ValueError):
-        return False
+        return "snapshot or recorded payload is malformed"
+    return None
+
+def recovery_matches(row, s):
+    return proof_gap(row, row.get("identity"), s) is None
+
+def unproven(row, s):
+    """Why no snapshot of this entry proves row, naming a missing snapshot."""
+    mark = row.get("submit_batch")
+    label = mark.get("label") if isinstance(mark, dict) else None
+    for identity in s["identities"]:
+        if isinstance(identity.get("submit_batch"), dict) and identity["submit_batch"].get("label") == label:
+            return "the creating invocation's snapshot does not match: " + str(proof_gap(row, identity, s))
+    for gap in s["unproven"]:
+        if label and gap["label"] == label:
+            return "snapshot missing for the creating invocation %s: %s" % (gap["log"], gap["why"])
+    if label is None:
+        text = "no creation label on the job"
+    elif any(not isinstance(identity.get("submit_batch"), dict) for identity in s["identities"]):
+        text = ("label %s matches no marked snapshot; an older helper's snapshot has no creation mark "
+                "(install between batches)" % label)
+    else:
+        text = "created by another invocation (label %s), not an unanswered one of this state" % label
+    if s["unproven"]:
+        text += "; snapshot missing for " + ", ".join("%s (%s)" % (gap["log"], gap["why"]) for gap in s["unproven"])
+    return text
 
 def shown_job(result):
     if isinstance(result, dict) and isinstance(result.get("job"), dict):
@@ -345,9 +508,26 @@ def shown_job(result):
         return {**result, "submit_batch": manifest.get("batch")}
     return result
 
+def remember(s, path, identities, name, missing):
+    """Keep this invocation's snapshot of an entry it may have created, or why it has none."""
+    identity = identities.get(name)
+    if isinstance(identity, dict):
+        if identity not in s["identities"]:
+            s["identities"].append(identity)
+        return
+    try:
+        label = load(path + ".manifest.json")["label"]
+    except (OSError, ValueError, KeyError, TypeError):
+        label = None
+    reasons = identities.get("_missing")
+    why = reasons.get(name) if isinstance(reasons, dict) else None
+    gap = {"log": os.path.basename(path), "label": label, "why": why or missing}
+    if gap not in s["unproven"]:
+        s["unproven"].append(gap)
+
 def settled(manifest_names):
     """Keep a job id or unresolved uncertainty across all submission attempts."""
-    state = {name: {"job_id": "", "outcome": "", "row": {}, "identities": [],
+    state = {name: {"job_id": "", "outcome": "", "row": {}, "identities": [], "unproven": [],
                     "request_id": (REQUEST_ID + "-" + str(i)) if REQUEST_ID else ""}
              for i, name in enumerate(manifest_names, 1)}
     logs = submit_logs()
@@ -357,10 +537,12 @@ def settled(manifest_names):
     for path in logs:
         if path == refused_log:
             continue  # This invocation sent nothing; it cannot erase earlier unknowns.
+        missing = "no snapshot recorded for this entry"
         try:
             identities = load(path + ".identity.json")
         except (OSError, ValueError):
             identities = {}  # Legacy state cannot prove an entry's original prompt.
+            missing = "the invocation's snapshot file is missing or unreadable"
         if not isinstance(identities, dict):
             identities = {}
         answered = set()
@@ -374,27 +556,29 @@ def settled(manifest_names):
                 continue  # A known job remains known across full-manifest retries.
             outcome = row.get("outcome") or ("created" if row.get("job_id") else "refused")
             jid = row.get("job_id")
-            conflict = re.search(r"request id already used with a different payload by job (\\S+)", row.get("error") or "")
-            if not jid and REQUEST_ID and s["outcome"] == "unknown" and conflict:
-                s["candidate_job_id"] = conflict.group(1)  # Verify before adoption.
+            holder = named_holder(row, s["request_id"]) if REQUEST_ID and not jid else None
+            if holder:
+                # Verify before adoption. A refused re-send names the job its
+                # first send may have created, so this invocation is a candidate.
+                s["candidate_job_id"] = holder
+                remember(s, path, identities, name, missing)
             if jid and not s["job_id"]:
                 s["job_id"] = jid
                 s["created"] = row.get("created")
             if not jid and s["outcome"] == "unknown":
-                if outcome == "unknown" and identities.get(name):
-                    s["identities"].append(identities[name])
+                if outcome == "unknown":
+                    remember(s, path, identities, name, missing)
                 continue  # A later refusal or unsent attempt cannot settle the first.
             s["request_id"] = row.get("request_id") or s["request_id"]
             s["outcome"] = outcome
             s["row"] = row
-            if outcome == "unknown" and identities.get(name):
-                s["identities"].append(identities[name])
+            if outcome == "unknown":
+                remember(s, path, identities, name, missing)
         for name, s in state.items():
             if name not in answered and not s["job_id"]:
                 s["outcome"] = "unknown"
                 s["row"] = {"rc": -1, "error": "no row", "request_id": s["request_id"]}
-                if identities.get(name):
-                    s["identities"].append(identities[name])
+                remember(s, path, identities, name, missing)
     if refusal:
         for s in state.values():
             if not s["job_id"] and s["outcome"] != "unknown":
@@ -403,16 +587,23 @@ def settled(manifest_names):
         s = state.get(row.get("name"))
         if s and not s["job_id"] and recovery_matches(row, s):
             s.update(job_id=row["job_id"], created=False, outcome="existing", row=row)
+        elif s and not s["job_id"]:
+            identity = row.get("identity")
+            if not (isinstance(identity, dict) and isinstance(identity.get("submit_batch"), dict)):
+                s["legacy_job_id"] = row.get("job_id")  # An older helper's recovery; not re-provable.
     return state
 
-def recover_unknown(state):
-    """Bind a recorded payload to the exact unanswered creating invocation."""
+def recover_candidates(state):
+    """Bind a recorded payload to the exact unanswered or refused creating invocation."""
     deadline = time.monotonic() + 60
     env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
-    for name, s in state.items():
-        if s["job_id"] or s["outcome"] != "unknown" or not s["request_id"]:
+    # Unknown entries first: a refused one is already settled if unproven.
+    for name, s in sorted(state.items(), key=lambda item: item[1]["outcome"] == "refused"):
+        if s["job_id"] or not s["request_id"] or s["outcome"] not in ("unknown", "refused"):
             continue
         jid = s.get("candidate_job_id")
+        if s["outcome"] == "refused" and not jid:
+            continue  # Only a refusal naming the job that holds this request id.
         if not jid and not os.path.isfile(F["refusal"]):
             continue
         remaining = deadline - time.monotonic()
@@ -444,12 +635,17 @@ def recover_unknown(state):
                 raise ValueError("show identity missing or mismatched")
             row = {**row, "prompt_sha256": prompt_digest(row["prompt_path"]), "created": False, "outcome": "existing"}
             identity = next((identity for identity in s["identities"]
-                             if recovery_matches({**row, "identity": identity}, s)), None)
+                             if proof_gap(row, identity, s) is None), None)
             if identity is None:
-                raise ValueError("job lacks matching invocation and recorded payload proof")
+                raise ValueError("job %s lacks proof: %s" % (jid, unproven(row, s)))
             row["identity"] = identity
         except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
-            out("LOOKUP_UNKNOWN name=%s request_id=%s error=%s" % (name, rid, str(exc).split(NL)[0]))
+            error = str(exc).split(NL)[0]
+            if s["unproven"] and "snapshot missing" not in error:
+                error += "; snapshot missing for " + ", ".join("%s (%s)" % (gap["log"], gap["why"]) for gap in s["unproven"])
+            if s["outcome"] == "refused":
+                error = "the refusal names job %s, not adopted: %s; stays REFUSED" % (jid, error)
+            out("LOOKUP_UNKNOWN name=%s request_id=%s error=%s" % (name, rid, error))
             continue
         with open(F["recovered"], "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + NL)
@@ -553,27 +749,36 @@ def cmd_next_log():
     # Daemon.submit stores batch metadata only on creation. Retries keep the
     # request ids, while each actual invocation carries a fresh creation mark.
     label = manifest["label"][:47] + "." + uuid.uuid4().hex
-    identities = {}
+    # The staged manifest keeps each model as the caller wrote it: run --batch
+    # accepts only the CLI's own choices, and the daemon resolves and digests
+    # the pin either way. The preview's canonical name goes in the snapshot.
+    identities, missing = {}, {}
     deadline = time.monotonic() + 60
-    previews = {}
+    previews, heads = {}, {}
     for index, job in enumerate(staged, 1):
-        try:
-            remaining = deadline - time.monotonic()
-            model = job.get("model")
-            if remaining > 0 and os.path.isfile(job["prompt"]):
-                if model not in previews:
-                    previews[model] = preview_policy(job, min(15, remaining))
-                policy, canonical = previews[model]
-                if canonical:
-                    job["model"] = canonical
+        if not os.path.isfile(job["prompt"]):
+            missing[job["name"]] = "its staged prompt is missing, so the CLI refuses the batch"
+            continue
+        model = job.get("model")
+        if model not in previews:
+            # One answer per model and invocation, failures included, so a
+            # hung daemon costs one timeout rather than one per job.
+            try:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    continue
-                identities[job["name"]] = entry_identity(job, policy, min(5, remaining))
-                identities[job["name"]]["submit_batch"] = {"id": REQUEST_ID, "label": label,
-                    "index": index, "size": len(staged)}
-        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
-            pass  # Missing commit/policy/prompt proof leaves recovery uncertain.
+                    raise ValueError("no time left for the policy preview")
+                previews[model] = (*preview_policy(job, min(15, remaining)), None)
+            except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
+                previews[model] = (None, None, str(exc).split(NL)[0] or type(exc).__name__)
+        try:
+            identities[job["name"]] = entry_identity(job, previews[model], heads, deadline)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            missing[job["name"]] = "the snapshot failed: %s" % str(exc).split(NL)[0]
+            continue
+        identities[job["name"]]["submit_batch"] = {"id": REQUEST_ID, "label": label,
+            "index": index, "size": len(staged)}
+    if missing:
+        identities["_missing"] = missing  # Names start alphanumeric; this key cannot collide.
     with open(path + ".manifest.json", "x", encoding="utf-8") as fh:
         json.dump({**manifest, "label": label, "jobs": staged}, fh)
     with open(path + ".identity.json", "x", encoding="utf-8") as fh:
@@ -595,7 +800,7 @@ def cmd_submit():
         if REQUEST_ID:
             command.extend(["--request-id", REQUEST_ID])
         with open(path, "a", encoding="utf-8") as stdout, open(F["submitErr"], "w", encoding="utf-8") as stderr:
-            rc = subprocess.run(command, stdout=stdout, stderr=stderr, pass_fds=LOCK_FDS).returncode
+            rc = run_holding(command, stdout=stdout, stderr=stderr).returncode
         out("SUBMIT_RC=%s" % rc)
     cmd_post_submit(rc)
 
@@ -614,7 +819,7 @@ def cmd_post_submit(rc):
     if os.path.isfile(F["refusal"]):
         refusal = load(F["refusal"])
         out("MANIFEST_REFUSED rc=%s error=%s" % (refusal["rc"], refusal["error"]))
-    recover_unknown(state)
+    recover_candidates(state)
     ids, unsettled, batch = [], 0, ""
     for job in everything:
         name = job["name"]
@@ -631,7 +836,12 @@ def cmd_post_submit(rc):
         elif s["outcome"] in ("not-sent", "unknown"):
             unsettled += 1
             marker = "NOT_SENT" if s["outcome"] == "not-sent" else "OUTCOME_UNKNOWN"
-            out("%s name=%s request_id=%s rc=%s error=%s" % (marker, name, s["row"].get("request_id"), s["row"].get("rc"), s["row"].get("error")))
+            error = s["row"].get("error")
+            if s.get("legacy_job_id"):
+                error = ("%s; an older helper recovered job %s here without a creation mark, which this helper "
+                         "cannot re-prove: finish this state with the helper that started it (install between batches)"
+                         % (error, s["legacy_job_id"]))
+            out("%s name=%s request_id=%s rc=%s error=%s" % (marker, name, s["row"].get("request_id"), s["row"].get("rc"), error))
         else:
             unsettled += 1
             out("OUTCOME_UNKNOWN name=%s request_id=%s rc=%s error=no row" % (name, (REQUEST_ID + "-?") if REQUEST_ID else "", -1))
@@ -684,8 +894,8 @@ def cmd_wait():
         return
     started = time.time()
     with open(F["wait"], "w", encoding="utf-8") as stdout, open(F["waitErr"], "w", encoding="utf-8") as stderr:
-        rc = subprocess.run(["subfleet", "wait", *ids, "--timeout", "${WAIT_S}", "--json"],
-                            stdout=stdout, stderr=stderr, pass_fds=LOCK_FDS).returncode
+        rc = run_holding(["subfleet", "wait", *ids, "--timeout", "${WAIT_S}", "--json"],
+                         stdout=stdout, stderr=stderr).returncode
     cmd_post_wait(rc, started)
 
 def num(value, default):
@@ -765,7 +975,7 @@ Run only the Bash commands below, exactly as written, character for character, w
 STEP 0. One Bash call. It writes a helper and the manifest, checks that both were typed exactly, and prints CHECKSUM_OK then SETUP_OK:
 ${step0}
 
-If step 0 does not print SETUP_OK, stop: report setup_ok false, every job as state "unknown" with rc -1, and its output or missing marker in notes. CHECKSUM_MISMATCH and STATE_MISMATCH also mean stop. Any step that prints LOCKED stops this dispatcher: preserve the last per-name evidence, report the LOCKED line in notes, and mark names without evidence unknown. Its launcher_pid is the last launcher, and a surviving child may still hold the lock.
+If step 0 does not print SETUP_OK, stop: report setup_ok false, every job as state "unknown" with rc -1, and its output or missing marker in notes. CHECKSUM_MISMATCH and STATE_MISMATCH also mean stop. Any step that prints LOCKED stops this dispatcher: preserve the last per-name evidence, report the LOCKED line in notes, and mark names without evidence unknown. It names the launcher, helper and CLI child pids that last held the lock and whether each is alive; a live one still holds it.
 
 STEP 1. One Bash call. It submits the full manifest when should-submit allows it and prints SUBMIT_RC when a submission ran, then SUBMITTED, REFUSED, NOT_SENT, OUTCOME_UNKNOWN or SKIP lines, REQUEST_ID, JOBS and UNSETTLED:
 ${step1}
