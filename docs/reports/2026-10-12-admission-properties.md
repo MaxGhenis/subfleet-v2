@@ -231,9 +231,10 @@ On main (3f155e5 with the fixes above, 2026-09-27), each bug in the table was pu
 the `deep` search then ran without shrinking. A clean baseline passed the same search: 1,000
 examples in 18 minutes 44 seconds.
 
-The same sweep for release/217 is `tools/admission_mutations.py` (`--list` names them). It has 16
+The same sweep for release/217 is `tools/admission_mutations.py` (`--list` names them). It has 17
 bugs: ten of the eleven below, rewritten for 217's code (not the route wait that holds back its
-tier), and six for 217's own rules. Those six are an
+tier), six for 217's own rules, and #194's wait key (`fix2-provider`, added by the chain merge of
+2026-10-13, `docs/reports/2026-10-13-chain-199.md`). The six are an
 uncapped pool holding jobs, a lease waiter holding others back, a lease waiter keeping no slot, a job
 no lane can admit registered as a waiter, a job waiting on a probe that is no waiter, and a probe
 turn that ignores the probe's model. It has not run on 217. On 2026-10-13 the host's free disk fell

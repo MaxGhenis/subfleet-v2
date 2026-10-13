@@ -30,6 +30,10 @@ MUTATIONS = {
     "fix2": ("Fix 2 reverted: occupancy suffix back in the wait key", [
         (D, 'rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,',
             'rechecks = self._capacity_wait(job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,')]),
+    "fix2-provider": ("#194's wait key: the pool's or provider's at-limit and the job ahead in it", [
+        (D, 'rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,',
+            'rechecks = self._capacity_wait(job["job_id"], f"{scheduler.verdict_signature(decision)}:'
+            '{at_limit or provider_at_limit}:behind:{fifo_behind or provider_behind}", hold,')]),
     "fix3": ("Fix 3 reverted: a quarantined probe's job is a waiter", [
         (D, '                if current["wait_reason"] in ("approval", "uncertain"):\n',
             '                if False:\n')]),
@@ -59,8 +63,9 @@ MUTATIONS = {
         (D, 'limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap',
             'limit = None if pool_cap is None else pool_cap')]),
     "uncapped-holds": ("217: an uncapped pool holds jobs back", [
-        (D, '            scope = scheduler.hold_scope(self.policy, job)\n',
-            '            scope = scheduler.hold_scope(self.policy, job) or "pool"\n')]),
+        # #194 split C-6.9's FIFO scope (`fifo_scope`) from the one C-11.8's question reads (`scope`).
+        (D, '            fifo_scope = scheduler.hold_scope(self.policy, job, roster=roster, include_providers=False)\n',
+            '            fifo_scope = scheduler.hold_scope(self.policy, job, roster=roster, include_providers=False) or "pool"\n')]),
     "lease-holds": ("217: a lease waiter holds others back", [
         (D, '                             if not waiter[3]\n', '                             if True\n')]),
     "lease-keeps-none": ("217: a lease waiter keeps no slot", [
