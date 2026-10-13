@@ -7331,6 +7331,7 @@ class Daemon:
         which case its censuses keep three sources. Only the guardian is disclaimed: the
         provider it starts names it, so a privacy check (TCC) still asks about the
         daemon's own executable, which the guardian runs (`sys.executable`)."""
+        env = {**env, "SUBFLEET_EXIT_SETTLE_S": str(getattr(self, "exit_settle_s", EXIT_SETTLE_S))}
         child = procs.spawn_disclaimed(command, env=env, cwd=package_root, pass_fds=(read_fd,))
         root = None
         if isinstance(child, procs.Spawned):

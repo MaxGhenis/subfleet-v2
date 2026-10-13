@@ -130,3 +130,50 @@ def test_an_empty_responsibility_listing_has_read_every_new_pid(monkeypatch):
                        responsible=lambda pid: reads.append(pid)))
     assert procs.responsible_for(42) == frozenset()
     assert reads == [60, 61]
+
+
+@pytest.mark.parametrize("settle_s", [3.0, 4.0])
+def test_linger_polls_at_point_one_until_the_exit_settle_window_passes(monkeypatch, settle_s):
+    clock, sleeps, looks = [0.0], [], []
+    ended = settle_s - .1
+
+    def members(pid):
+        looks.append(clock[0])
+        return {60} if clock[0] < ended else frozenset()
+
+    def sleep(delay):
+        sleeps.append(delay)
+        clock[0] += delay
+
+    monkeypatch.setenv(guardian.LINGER_SETTLE_ENV, str(settle_s))
+    monkeypatch.setattr(guardian.os, "getpid", lambda: 42)
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(responsibility=True, responsible=lambda pid: 42))
+    monkeypatch.setattr(procs, "responsible_for", members)
+    monkeypatch.setattr(guardian.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(guardian.time, "sleep", sleep)
+    guardian.linger()
+    assert looks[0] == 0                     # the first look is immediate
+    assert ended <= clock[0] <= settle_s + 1e-9
+    assert sleeps and max(sleeps) <= .1
+
+
+def test_linger_backs_off_only_after_the_exit_settle_window(monkeypatch):
+    clock, looks, sleeps = [0.0], [], []
+
+    def members(pid):
+        looks.append(clock[0])
+        return {60} if clock[0] < 12 else frozenset()
+
+    def sleep(delay):
+        sleeps.append((clock[0], delay))
+        clock[0] += delay
+
+    monkeypatch.setenv(guardian.LINGER_SETTLE_ENV, "3")
+    monkeypatch.setattr(guardian.os, "getpid", lambda: 42)
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(responsibility=True, responsible=lambda pid: 42))
+    monkeypatch.setattr(procs, "responsible_for", members)
+    monkeypatch.setattr(guardian.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(guardian.time, "sleep", sleep)
+    guardian.linger()
+    assert all(delay <= .1 for at, delay in sleeps if at < 3)
+    assert max(delay for _, delay in sleeps) == guardian.LINGER_MAX_S

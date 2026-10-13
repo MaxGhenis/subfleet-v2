@@ -15,6 +15,7 @@ from pathlib import Path
 
 from . import procs
 from .procs import boot_id, proc_start
+from .contracts import EXIT_SETTLE_S
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
 # daemon at the default QoS (launchd `ProcessType` `Interactive`) never lifts it over the
@@ -38,6 +39,7 @@ _ERRNO_BY_TEXT = {os.strerror(number): number for number in errno.errorcode}
 # such a guardian stays until no other live process names it, and the census that
 # decides the attempt finds them by it (C-5.5). It looks again at these intervals.
 LINGER_FIRST_S, LINGER_MAX_S = 0.1, 2.0
+LINGER_SETTLE_ENV = "SUBFLEET_EXIT_SETTLE_S"
 
 
 def provider_qos() -> str | None:
@@ -121,6 +123,7 @@ def linger() -> None:
     me = os.getpid()
     if not procs.kernel.responsibility:
         return
+    fast_until = time.monotonic() + max(0.0, float(os.environ.get(LINGER_SETTLE_ENV, EXIT_SETTLE_S)))
     delay = LINGER_FIRST_S
     while True:
         try:
@@ -133,8 +136,10 @@ def linger() -> None:
                 return
         except procs.InspectionError:
             pass
-        time.sleep(delay)
-        delay = min(delay * 1.5, LINGER_MAX_S)
+        remaining = fast_until - time.monotonic()
+        time.sleep(min(LINGER_FIRST_S, remaining) if remaining > 0 else delay)
+        if time.monotonic() >= fast_until:
+            delay = min(delay * 1.5, LINGER_MAX_S)
 
 
 def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
