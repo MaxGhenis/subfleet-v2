@@ -1577,18 +1577,24 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
 
 
 def _shown_deliverable(job: dict[str, Any]) -> str | None:
-    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
+    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-12.6, C-15.1).
 
     Only the accepted attempt's recorded artifact can be the result. An
     attempt's interim text remains in metadata as evidence. With no accepted
     attempt, `--out` prints nothing and returns Exit.OPERATIONAL (1).
+    An accepted job with no deliverable recorded for any attempt (a v1 import
+    whose run kept only its export) shows its `-o` export, C-8.3's copy of the
+    accepted deliverable, unless that export failed. A deliverable recorded
+    only for another attempt is never the result, and then neither is `-o`.
     """
     merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
     accepted = merged.get("accepted_attempt_id")
     if not accepted:
         return None
-    return next((artifact.get("path") for artifact in rows_of(job.get("artifacts"))
-                 if artifact.get("role") == "deliverable" and artifact.get("attempt_id") == accepted), None)
+    recorded = [artifact for artifact in rows_of(job.get("artifacts")) if artifact.get("role") == "deliverable"]
+    if recorded:
+        return next((artifact.get("path") for artifact in recorded if artifact.get("attempt_id") == accepted), None)
+    return None if merged.get("export_error") else merged.get("out_path")
 
 
 def _cat(label: str, path: str | None, *, header: bool) -> int:
@@ -1721,25 +1727,27 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         worst = int(Exit.OK)
         if args.out:
             worst = max(worst, _cat(
-                "accepted deliverable",
+                "deliverable",
                 _shown_deliverable(job),
                 header=both))
         if args.err:
             worst = max(worst, _cat("stderr", _artifact_path(job, "stderr"),
                                     header=both))
         return worst
-    # C-17.1: keep v1's metadata followed by `--- out.md ---` for an accepted
-    # result. Unaccepted artifacts are evidence paths, never result text.
+    # C-17.1: the bare form keeps v1's shape, which agents parse today: the
+    # metadata object, then `--- out.md ---` and the accepted deliverable, or
+    # nothing after it when no result was accepted (C-12.6). Unaccepted
+    # artifacts are evidence paths on stderr, never result text on stdout.
     # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
+    out("\n--- out.md ---")
     path = _shown_deliverable(job)
     if path:
-        out("\n--- out.md ---")
-        return _cat("accepted deliverable", path, header=False)
-    out("\nNo accepted result; attempt artifacts are unaccepted evidence.")
+        return _cat("deliverable", path, header=False)
+    note("No accepted result; attempt artifacts are unaccepted evidence.")
     for artifact in rows_of(job.get("artifacts")):
         if artifact.get("role") == "deliverable":
-            out(f"Unaccepted evidence ({artifact.get('attempt_id') or 'attempt unknown'}): {artifact.get('path')}")
+            note(f"Unaccepted evidence ({artifact.get('attempt_id') or 'attempt unknown'}): {artifact.get('path')}")
     merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
     return int(Exit.OPERATIONAL if merged.get("state") in ("failed", "cancelled", "lost") else Exit.OK)
 
