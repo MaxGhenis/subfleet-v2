@@ -216,7 +216,13 @@ class SnapshotWriteError(RuntimeError):
 
 class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
-                 readers: int = 0, read_wait_s: float = READ_WAIT_S):
+                 readers: int = 0, read_wait_s: float = READ_WAIT_S, initialize: bool = True):
+        """Open a store, optionally without applying any schema DDL.
+
+        `initialize=False` requires an existing, current-version database. It
+        lets maintenance back up and prove the original store without repairing
+        tables or indexes before taking its baseline.
+        """
         self.path = Path(path)
         self.read_only = read_only if readonly is None else readonly
         # C-3.7: read connections, opened on first use, at most `readers` of them.
@@ -248,9 +254,10 @@ class Store:
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
         self.generation = 0
-        if not self.read_only:
+        if not self.read_only and initialize:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-        uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
+        mode = "ro" if self.read_only else ("rwc" if initialize else "rw")
+        uri = self.path.resolve().as_uri() + f"?mode={mode}"
         self.connection = sqlite3.connect(uri, uri=True, isolation_level=None,
                                           check_same_thread=False, timeout=5)
         self.connection.row_factory = sqlite3.Row
@@ -261,14 +268,19 @@ class Store:
             version = self.connection.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] if exists else 0
             if version and version > SCHEMA_VERSION:
                 raise SchemaVersionError(f"store schema {version} is newer than supported schema {SCHEMA_VERSION}")
+            if not self.read_only and not initialize and version != SCHEMA_VERSION:
+                raise SchemaVersionError(
+                    f"store schema {version or 0} requires initialization or migration; "
+                    f"supported schema {SCHEMA_VERSION}")
             if self.read_only:
                 if not version:
                     raise SchemaVersionError(f"store schema {version or 0} is uninitialized; supported schema {SCHEMA_VERSION}")
                 self.connection.execute("PRAGMA query_only=ON")
-            else:
+            if not self.read_only:
                 self.connection.execute("PRAGMA journal_mode=WAL")
                 self.connection.execute("PRAGMA synchronous=FULL")
                 self.connection.execute(f"PRAGMA journal_size_limit={int(WAL_SIZE_LIMIT)}")
+            if not self.read_only and initialize:
                 # Columns first, then the schema file: `store_schema.sql` always
                 # describes the newest version, and its indexes cannot be created
                 # over an older table until that table has caught up (C-3.1).

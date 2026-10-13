@@ -311,3 +311,75 @@ report are staged, in separate commits, with the requested Co-Authored-By
 trailer. The report commit is listed in the handoff. No remote, sub-agent,
 caller-worktree write or live application operation occurred. Host validation
 of the three suites and the negative mutation witness remains outstanding.
+
+Round 17, 2026-10-12/13 (base e2ba0c219fec)
+=========================================
+
+Merge origin/release/217 at 5bd0a3a674c6 into feat/quarantine-self-resolve,
+with two parents and no rebase. Shared Git metadata is outside the writable
+workspace, so the assigned branch and merge use workspace-local .git-local.
+The original shared checkout stays at e2ba0c219fec; the hub must carry the
+local branch tip. No network remote, push, history rewrite or sub-agent.
+
+All ten conflict blocks were combined:
+- docs/acceptance-contract.md (one block, C-5.2 through C-5.7): preserve the
+  durable child publication gate, legacy boot uncertainty, claim/collision
+  rules, marker/cwd/retained-lineage census, paced self-resolution and notices.
+  Add release's absent/zombie parent anchors, recorded orphan roots, receipt
+  PID census-only role, incomparable-root holds, wall-clock exclusion refusal,
+  fresh boot confirmation and persisted recycled-root diagnostics. State the
+  already implemented individual TERM/KILL target cap in C-5.4/C-5.6.
+- subfleet/daemon.py block 1 (_probe_census): route probes through the combined
+  _contain, retaining the foreign_ownership keyword and probe lineage saving.
+  The launch guardian joins recorded identity comparisons without becoming a
+  newly authorized signal target. Probe receipts and attempt receipts now use
+  the same identity-qualified path.
+- subfleet/daemon.py block 2 (claim helpers/_contain): retain every indexed
+  claim, bounded pending/legacy receipt import, sidecar/store dispatch lock,
+  authorization check and individual-signal helper from #131. Combine #185's
+  receipt child PID, start fallbacks, bounds compatibility and recycled audit
+  persistence with all local/provider/ambiguity/retained-group observations.
+  Fresh attempt rows remain authoritative; exit-only child PIDs only seed the
+  deciding census. Caller snapshots retain the saved lineage/reuse evidence.
+- subfleet/procs.py block 1 (Containment fields): keep every #131 field and add
+  #185's recycled diagnostics after them, preserving positional compatibility.
+- subfleet/procs.py block 2 (serialization): retain both lineage_boot_ids and
+  recycled entries; neither contains commands, environments or cwd strings.
+- subfleet/procs.py block 3 (containment signature): retain #131's recorded
+  observation sequences and every authority/lineage argument; accept release's
+  recorded_identities and receipt timestamps as additional, census-only inputs.
+  Merge observations without overwriting an incarnation. Times never prove reuse.
+- subfleet/procs.py block 4 (root/group walk): combine #131's foreign exclusions,
+  ambiguity protection, retained groups and identity-bracketed observations
+  with #185's comparable reuse checks. All observations must prove different
+  before pruning a PID. Retain absent/zombie parent anchors and exit-only
+  children; matching/unknown orphans remain roots after ancestor reuse. A
+  recycled zombie leader discharges only the original group source. Retained
+  sampled groups remain independent holds and grant no signal authority.
+  A table shares one fresh boot confirmation before any UUID mismatch proves
+  root/group death, including the #131 retained-root pruning paths.
+- subfleet/procs.py block 5 (cwd versus late identity capture): retain #131's
+  fresh identity/group/identity bracket and cwd matching. Missing table starts
+  already raise InspectionError and retain unknown roots; the release loop's
+  stale-snapshot fallback cannot replace the stronger later-incarnation check.
+- subfleet/procs.py block 6 (return): preserve every #131 observation, ownership
+  and resolution field, with recycled appended in its matching dataclass slot.
+- tests/unit/test_procs.py (one block): preserve release's live-then-absent
+  marker fixture and its exact verified-empty/no-errors assertion. A marker
+  born after the table gets its state check before fresh identity capture,
+  preserving #131's fresh-read protection and release's no-unneeded-boot rule.
+
+The auto-merged #140 hunks retain canonical submission/resume spelling,
+blocked-key lease queue exclusions, nested writer ancestor retirement fences,
+the resolved detached run_folder's job-held READER row, its atomic admission
+fence and launch's use of that pinned cwd. #192 Store initialize=False composes
+with #131's claim-dispatch locking and imports. Both sides' retention changes
+and the complete state fixture's authorization wrappers remain present.
+
+Initial per-file line-union audit: compare merge-base be66113eaed9, each parent,
+and the working tree for added lines absent from the result and wholly removed
+lines reintroduced. All 212 changed files checked, including automatic merges:
+208 have an exact added-line union, zero removed-line resurrection in every
+file. The four conflict files' rewritten lines are accounted for above; they
+are combinations of the competing APIs, loops, serialization and contract
+paragraphs, not discarded guarantees. No auto-merged hunk lost an addition.
