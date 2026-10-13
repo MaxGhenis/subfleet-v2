@@ -220,10 +220,12 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 def admitted_reader(daemon, conn):
     """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
-    `_connection` lets it go when its last reply is out."""
+    `_connection` lets it go when its last reply is out. Its peer is read from the
+    socket as the accept loop reads it (C-25.6), before the reader starts."""
+    from subfleet.conversations.peers import peer_token
     with daemon._connection_lock:
         daemon._connections.add(conn)
-    return threading.Thread(target=daemon._connection, args=(conn,))
+    return threading.Thread(target=daemon._connection, args=(conn, peer_token(conn)))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
