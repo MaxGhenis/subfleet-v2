@@ -7965,6 +7965,13 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
+        # C-12.6: cached acceptance uses the fresh provider's content boundary,
+        # not the artifact's byte count. Preserve the captured payload itself.
+        nonblank_deliverable = False
+        if deliverable:
+            payload = read_regular(deliverable_path)
+            nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
+                                       if lane.provider == "claude" else payload.strip())
         # finalization.json keeps the adapter's verdict. Reconciliation and
         # overrides use the frozen stream, captured deliverable, exit receipt
         # and attempt row on every replay (C-4.3), before any lane, closure or
@@ -7978,7 +7985,7 @@ class Daemon:
             if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
                     and completion["turn_completed"] and not completion["turn_failed"]
                     and not spawn_error and not actual.get("killed_by")
-                    and deliverable and read_regular(deliverable_path).strip()):
+                    and nonblank_deliverable):
                 # C-9.2: an older daemon's authentication/text verdict can precede
                 # verified success. The captured bytes decide presence; never
                 # reclassify or re-extract a result already frozen on disk.
@@ -8014,7 +8021,7 @@ class Daemon:
             if not completion["turn_completed"]:
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
                                               detail="Codex exited before its turn completed")
-        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
+        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and not nonblank_deliverable:
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if not lost and self._answered(outcome, provider_verdict["class"]):
             # C-6.14: before the attempt leaves flight, so a pilot that answered and
