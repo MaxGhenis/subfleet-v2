@@ -43,7 +43,7 @@ from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
-from .adapters.base import AdapterError
+from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
@@ -7872,7 +7872,11 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            contents = read_regular(path)          # only a regular file is an artifact
+            if role == "raw-stream":
+                with open_stream(path) as stream:
+                    contents = stream.read()
+            else:
+                contents = read_regular(path)      # only a regular file is an artifact
         except (FileNotFoundError, NotRegularFile):
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
@@ -7912,11 +7916,11 @@ class Daemon:
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.
-        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+        if launch.raw_stream_path and not os.path.lexists(launch.raw_stream_path):
             try:
                 data = read_regular(Path(launch.stdout_path))       # never waiting in open()
             except (FileNotFoundError, NotRegularFile):
-                data = None                                        # none there, as `is_file()` had said
+                data = None                                        # no regular stdout to freeze
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
