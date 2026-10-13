@@ -119,15 +119,17 @@ def linger() -> None:
     look that fails proves nothing, so it looks again. SIGTERM is ignored here as
     everywhere in the guardian; the kill protocol's SIGKILL ends it."""
     me = os.getpid()
-    try:
-        if procs.kernel.responsible(me) != me:
-            return
-    except procs.InspectionError:
+    if not procs.kernel.responsibility:
         return
     delay = LINGER_FIRST_S
     while True:
         try:
-            if not procs.responsible_for(me):
+            responsible = procs.kernel.responsible(me)
+            # An unavailable self-read cannot establish that this guardian is
+            # unrooted: leaving would erase its descendants' responsibility link.
+            if responsible is not None and responsible != me:
+                return
+            if responsible == me and not procs.responsible_for(me):
                 return
         except procs.InspectionError:
             pass

@@ -378,7 +378,8 @@ def group_members(pgid: int) -> dict[int, str]:
     process, which that record never uses. The start column tells a recorded pid's later incarnation from the
     process recorded under it; it is a change detector only, and an identity is
     still captured by `identity` (C-5.3). Containment decisions (release, kill,
-    lost, quarantine) still take the full three-source `containment`. Raises
+    lost, quarantine) still take the full `containment`, including responsibility
+    for attempts that recorded a root. Raises
     `InspectionError` when `ps` fails.
     """
     if not pgid or pgid <= 0:
@@ -754,7 +755,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         groups = set(seen.group(pgid))
         if pgid and groups and is_recycled(pgid):
             groups.clear()
-        # There is no recorded group before setsid. The two remaining sources
+        # There is no recorded group before setsid. The other sources
         # still enumerate the guardian and any inherited marker.
         # The snapshot is not atomic: an absent/zombie parent may still have
         # live child rows. Keep its links, and seed every recorded survivor so
@@ -1106,18 +1107,19 @@ def spawn_disclaimed(argv: list[str], *, env: dict[str, str], cwd: str,
     return Spawned(list(argv), pid.value)
 
 
-def responsibility_root(pid: int) -> dict[str, int] | None:
+def responsibility_root(pid: int) -> dict[str, int | None] | None:
     """What the daemon records for a guardian `spawn_disclaimed` started (D-CEN1):
     `{"pid", "unique_id"}` when the kernel names `pid` as its own responsible
     process, else None (a guardian Popen started, or the SPI is missing), and then
     the census keeps its three sources for that attempt. A unique id that cannot be
-    read is recorded as None, which keeps every process naming the root (C-5.3)."""
+    read is recorded as None, which keeps every process naming the root (C-5.3).
+    A failed responsibility read raises: it does not prove the child unrooted."""
     if not kernel.responsibility:
         return None
+    if kernel.responsible(pid) != pid:
+        return None
     try:
-        if kernel.responsible(pid) != pid:
-            return None
         found = kernel.process(pid)
     except InspectionError:
-        return None
+        found = None
     return {"pid": pid, "unique_id": found.unique_id if found is not None else None}
