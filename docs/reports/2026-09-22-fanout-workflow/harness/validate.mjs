@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -11,6 +11,7 @@ const harness = dirname(fileURLToPath(import.meta.url))
 const run = (args, agentImpl) => runWorkflow(script, args, agentImpl)
 let failures = 0, passed = 0
 const test = async (name, fn) => {
+  if (process.env.FANOUT_TEST_FILTER && !name.includes(process.env.FANOUT_TEST_FILTER)) return
   try { await fn(); passed++; console.log('PASS', name) }
   catch (e) { failures++; console.error('FAIL', name, e.message.slice(0, 1000)) }
 }
@@ -51,6 +52,9 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   mkdirSync(join(root, 'empty-home'))
   copyFileSync(join(harness, 'fake-subfleet.sh'), join(root, 'bin', 'subfleet'))
   chmodSync(join(root, 'bin', 'subfleet'), 0o755)
+  // A fake git supplies only the commit inspected by the generated helper.
+  writeFileSync(join(root, 'bin', 'git'), '#!/bin/bash\nprintf "%s\\n" "${FAKE_WORKDIR_HEAD:-head-one}"\n')
+  chmodSync(join(root, 'bin', 'git'), 0o755)
   const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, FAKE_STATE: root,
     SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0',
     CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller' }
@@ -87,6 +91,120 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
 }
 
 try {
+  for (const field of ['workdir_head', 'policy_hash']) {
+    await test(`round 6 finding 2: reused request id with changed ${field} stays uncertain`, async () => {
+      const c = await make('check-prompts')
+      const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state') })
+      c.step(0, old.commands[0]); c.step(1, old.commands[1])
+      c.env[field === 'workdir_head' ? 'FAKE_WORKDIR_HEAD' : 'FAKE_POLICY_HASH'] = 'different'
+      c.env.SCENARIO = 'lose-stdout,check-prompts'; c.setup()
+      assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+      const registryBefore = readFileSync(join(c.root, 'registry.json'), 'utf8')
+      c.env.SCENARIO = 'check-prompts'
+      const conflict = c.step(1).text
+      assert.match(conflict, /LOOKUP_UNKNOWN[\s\S]*JOBS=0\nUNSETTLED=3/)
+      assert.doesNotMatch(conflict, /^SUBMITTED |^REFUSED /m)
+      c.setup()
+      assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+      assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
+      assert.equal(readFileSync(join(c.root, 'registry.json'), 'utf8'), registryBefore)
+    })
+  }
+  await test('round 6 finding 3: prompt edit after snapshot submits the snapshot bytes', async () => {
+    const c = await make('check-prompts')
+    const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state') })
+    c.step(0, old.commands[0]); c.step(1, old.commands[1])
+    const fake = join(c.root, 'bin', 'subfleet')
+    copyFileSync(fake, fake + '-registry')
+    writeFileSync(fake, '#!/bin/bash\nif [ "$1" = run ] && [[ " $* " != *" --dry-run "* ]] && [ -n "${FAKE_EDIT_PROMPT:-}" ]; then printf "Different prompt after snapshot" > "$FAKE_EDIT_PROMPT"; fi\nexec "$(dirname "$0")/subfleet-registry" "$@"\n')
+    c.env.FAKE_EDIT_PROMPT = c.args.items[1].promptPath
+    c.env.FAKE_CAPTURE_ATTEMPT = join(c.root, 'attempt.json')
+    c.env.SCENARIO = 'lose-stdout,check-prompts'; c.setup(); c.step(1)
+    const identity = JSON.parse(readFileSync(join(c.args.stateDir, 'rq-test.submit.1.jsonl.identity.json'), 'utf8'))
+    const attempted = JSON.parse(readFileSync(c.env.FAKE_CAPTURE_ATTEMPT, 'utf8'))
+    assert.equal(identity.b.prompt_sha256, attempted.b, 'snapshot must describe the bytes actually submitted')
+    const staged = JSON.parse(readFileSync(join(c.args.stateDir, 'rq-test.submit.1.jsonl.manifest.json'), 'utf8'))
+    assert.notEqual(staged.jobs[1].prompt, c.args.items[1].promptPath)
+    assert.equal(readFileSync(staged.jobs[1].prompt, 'utf8'), 'Review b')
+    assert.equal(readFileSync(c.args.items[1].promptPath, 'utf8'), 'Different prompt after snapshot')
+    const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
+    assert.equal(identity.b.payload_digest, registry['rq-test-2'].payload_digest)
+    delete c.env.FAKE_EDIT_PROMPT; c.env.SCENARIO = 'check-prompts'
+    assert.match(c.step(1).text, /SUBMITTED name=b job_id=job-b created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
+    c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+  })
+  await test('round 6 finding 1: synchronized submissions preserve successful evidence', async () => {
+    const c = await make('check-prompts'); c.setup()
+    const realPython = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
+    const wrapper = join(c.root, 'bin', 'synchronized-python')
+    writeFileSync(wrapper, `#!${realPython}
+import os,pathlib,subprocess,sys,time
+real=${JSON.stringify(realPython)}
+root=pathlib.Path(os.environ["FAKE_STATE"]); role=os.environ.get("FAKE_ROLE", "")
+verb=next((arg for arg in sys.argv[1:] if arg in ("should-submit", "submit", "next-log")), "")
+def wait(path):
+    deadline=time.monotonic()+20
+    while not path.exists():
+        if time.monotonic()>deadline: raise RuntimeError("barrier timed out: "+str(path))
+        time.sleep(.01)
+if role and verb in ("should-submit", "submit"): (root/("entry-"+role)).touch()
+if role and verb == "next-log":
+    result=subprocess.run([real,*sys.argv[1:]],capture_output=True,text=True)
+    (root/("next-ready-"+role)).write_text(result.stdout)
+    wait(root/("next-ready-refuser" if role == "creator" else "creator-done"))
+    sys.stdout.write(result.stdout); sys.exit(result.returncode)
+os.execv(real,[real,*sys.argv[1:]])
+`)
+    chmodSync(wrapper, 0o755)
+    const fake = join(c.root, 'bin', 'subfleet')
+    copyFileSync(fake, fake + '-registry')
+    writeFileSync(fake, `#!${realPython}
+import os,pathlib,subprocess,sys,time
+root=pathlib.Path(os.environ["FAKE_STATE"])
+role=os.environ.get("FAKE_ROLE", "")
+env=dict(os.environ)
+if sys.argv[1] == "run" and "--dry-run" not in sys.argv:
+    if role == "creator":
+        (root/"creator-run-ready").touch()
+        deadline=time.monotonic()+20
+        while not (root/"release-creator").exists():
+            if time.monotonic()>deadline: raise RuntimeError("creator barrier timed out")
+            time.sleep(.01)
+    elif role == "refuser": env["SCENARIO"]="manifest-refusal"
+result=subprocess.run([str(root/"bin/subfleet-registry"),*sys.argv[1:]],env=env)
+if role == "creator" and sys.argv[1] == "run" and "--dry-run" not in sys.argv: (root/"creator-done").touch()
+sys.exit(result.returncode)
+`)
+    const command = c.commands[1].replaceAll('python3', `'${wrapper}'`)
+    const launch = role => new Promise((resolveResult, reject) => {
+      const child = spawn('zsh', ['-c', 'eval "$1"', 'fanout-overlap', command], { cwd: c.root, env: { ...c.env, FAKE_ROLE: role }, timeout: 30000 })
+      let text = ''; child.stdout.on('data', b => { text += b }); child.stderr.on('data', b => { text += b })
+      child.on('error', reject); child.on('close', status => resolveResult({ status, text }))
+    })
+    const until = async predicate => {
+      const deadline = Date.now() + 20000
+      while (!predicate()) { assert.ok(Date.now() < deadline, 'overlap barrier timed out'); await new Promise(r => setTimeout(r, 10)) }
+    }
+    const creator = launch('creator')
+    await until(() => existsSync(join(c.root, 'next-ready-creator')) || existsSync(join(c.root, 'creator-run-ready')))
+    const refuser = launch('refuser')
+    await until(() => existsSync(join(c.root, 'entry-refuser')))
+    writeFileSync(join(c.root, 'release-creator'), '')
+    for (const result of await Promise.all([creator, refuser])) assert.equal(result.status, 0, result.text)
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+    c.setup()
+    const relaunched = c.step(1).text
+    assert.match(relaunched, /JOBS=3\nUNSETTLED=0/)
+    assert.doesNotMatch(relaunched, /^REFUSED /m)
+    assert.equal(c.count('run'), 1)
+    assert.match(c.wait(), /DONE name=b job_id=job-b state=succeeded/)
+  })
+  await test('randomized sequential replay: 20,000 histories', async () => {
+    const c = await make(); c.setup()
+    const result = spawnSync('python3', [join(harness, 'replay.py'), join(c.args.stateDir, 'rq-test.fanout.py')], { env: c.env, encoding: 'utf8', timeout: 60000 })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    console.log(result.stdout.trim())
+  })
   await test('round 5 finding 1: earlier refusal becomes uncertain after a later lost answer', async () => {
     const c = await make('refuse-b,unknown-c'); c.setup()
     assert.match(c.step(1).text, /REFUSED name=b[\s\S]*OUTCOME_UNKNOWN name=c/)

@@ -7,26 +7,43 @@
 #   rowless-unknown, digest-conflict-c, lost-c, failed-a, unknown-id, no-name,
 #   check-prompts, lose-stdout, lookup-down-always, lookup-empty, lookup-bad-json
 S=",${SCENARIO:-},"; verb="$1"; [ "$1" = runs ] && [ "${2:-}" = show ] && verb=show
+if [ "$1" = run ]; then for arg in "$@"; do [ "$arg" = --dry-run ] && verb=preview; done; fi
 C="$FAKE_STATE/calls.$verb"; n=$(cat "$C" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$C"
 echo "fake subfleet $*" >&2
 case "$1" in
   run)
+    if [ "$verb" = preview ]; then
+      python3 - <<'PY'
+import json,os,sys
+mode=os.environ.get("FAKE_POLICY_PROOF", "")
+if mode == "down": sys.exit(69)
+if mode == "bad": print("not JSON"); sys.exit(0)
+print(json.dumps({"dry_run":True, "decision":{} if mode == "missing" else {"policy_hash":os.environ.get("FAKE_POLICY_HASH", "policy-one")}}))
+PY
+      exit $?;
+    fi
     shift; m=""; rid=""; detach=0; while [ $# -gt 0 ]; do case "$1" in --batch) m="$2"; shift;; --request-id) rid="$2"; shift;; -d) detach=1;; esac; shift; done
     [ "$detach" = 1 ] || { echo "fake: -d missing" >&2; exit 98; }
     SCEN="$S" RID="$rid" N="$n" python3 - "$m" <<'PY'
-import hashlib,json,sys,os
+import base64,hashlib,json,sys,os
 from pathlib import Path
 doc=json.load(open(sys.argv[1])); S=os.environ["SCEN"]; n=int(os.environ["N"]); rid=os.environ["RID"] or f"auto-{n}"; worst=0
+if os.environ.get("FAKE_CAPTURE_ATTEMPT"):
+    Path(os.environ["FAKE_CAPTURE_ATTEMPT"]).write_text(json.dumps({job["name"]:hashlib.sha256(Path(job["prompt"]).read_bytes()).hexdigest() for job in doc["jobs"]}))
 registry_path=Path(os.environ["FAKE_STATE"]) / "registry.json"
 registry=json.loads(registry_path.read_text()) if registry_path.exists() else {}
 def commit(job, index):
     request_id=f"{rid}-{index}"
     prompt=Path(job["prompt"]).read_bytes()
-    payload={"workdir":os.path.realpath(job["workdir"]), "out_path":os.path.realpath(job["out"]),
+    payload={"workdir_head":os.environ.get("FAKE_WORKDIR_HEAD", "head-one"),
+             "policy_hash":os.environ.get("FAKE_POLICY_HASH", "policy-one"),
+             "workdir":os.path.realpath(job["workdir"]), "out_path":os.path.realpath(job["out"]),
              "task":job["task"], "tier":job["tier"], "sandbox":job.get("sandbox", "read-only"),
              "pinned_model":job.get("model"), "prompt_sha256":hashlib.sha256(prompt).hexdigest()}
     # C-6.2: display name and label are excluded, payload differences refuse.
-    digest=hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    canonical={k:v for k,v in payload.items() if k != "prompt_sha256"}
+    canonical.update(prompt=base64.b64encode(prompt).decode("ascii"), pinned_lane=None, exclusions=[], allow_desktop=False)
+    digest=hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     existing=registry.get(request_id)
     if existing:
         return existing, False, existing["payload_digest"] != digest
