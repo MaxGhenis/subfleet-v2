@@ -337,6 +337,7 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
+    lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)

@@ -190,10 +190,18 @@ def hold_reason(hold: Mapping[str, Any], *, describe: Callable[[str], str],
     if reason == "route-moved":
         return "admission: its lane changed while it was being placed; it is looked at again at once"
     if reason == "behind-older-job":
+        if hold.get("key", "").startswith("providers."):
+            return ("capacity: " + render.provider_cap_text(hold) +
+                    f"; behind an older turn waiting for this provider ({who(str(hold.get('behind')))})")
         return f"capacity: behind an older turn waiting for the same lanes ({who(str(hold.get('behind')))})"
     if reason == "fleet-full":
         return (f"capacity: the conversations' turn pool is full ({hold.get('max_active_attempts')} at once, "
                 "conversations.max_active_turns)")
+    if reason in ("provider-cap", "provider-slot-kept"):
+        text = "capacity: " + render.provider_cap_text(hold)
+        if reason == "provider-slot-kept":
+            text += f"; the last provider slot is kept for an older turn ({who(str(hold.get('kept_for')))})"
+        return text
     if reason == "slot-kept":
         return f"capacity: the last turn slot is kept for an older turn ({who(str(hold.get('kept_for')))})"
     if reason == "probe-pending":
