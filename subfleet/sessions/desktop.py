@@ -108,6 +108,31 @@ class Load:
 
 
 @dataclass(frozen=True)
+class Event:
+    """A session-folder load or a logout, in the order the app logged it.
+
+    `folders.py` keeps these to learn which folders the app settles in, which
+    only the gaps between successive loads can tell.
+    """
+
+    at: datetime
+    #: `<account>/<org>` for a load; None for a logout.
+    folder: str | None
+    #: The folder did not exist, so the app created it (a missing load).
+    missing: bool = False
+
+
+@dataclass(frozen=True)
+class Replay:
+    """What `DesktopLog.replay` read: the events, oldest first, and the logs
+    it could not read. History with a gap is not the history: a registry
+    that folded it could never fold the missing file's events afterwards."""
+
+    events: list[Event]
+    unread: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AppState:
     """The app's latest session-folder load, as far as its log says."""
 
@@ -139,6 +164,8 @@ class DesktopLog:
         #: when it differs from the reader's own zone at the file's mtime.
         self._utc_offset: float | None = None
         self.state = AppState()
+        #: Loads and logouts read since the last `drain()`, oldest first.
+        self._events: list[Event] = []
 
     # --- time and paths ------------------------------------------------------
 
@@ -225,6 +252,7 @@ class DesktopLog:
             return
         if _LOGOUT.match(message):
             self.state = replace(self.state, logged_out_at=at)
+            self._events.append(Event(at, None))
 
     def _record_load(self, folder: tuple[str, str], at: datetime, count: int, *,
                      missing: bool) -> None:
@@ -244,6 +272,7 @@ class DesktopLog:
                     fresh_started_at=started if fresh else previous.fresh_started_at,
                     loaded_at=None if missing else at, count=count, missing=missing)
         self.state = AppState(load=load, logged_out_at=None, error=None)
+        self._events.append(Event(started, load.folder, missing))
 
     def _consume(self, data: bytes, *, final: bool = False) -> None:
         data = self._partial + data
@@ -303,5 +332,87 @@ class DesktopLog:
             self.state = replace(self.state, error=None)
         return self.state
 
+    def drain(self) -> list[Event]:
+        """The loads and logouts read since the last drain, oldest first."""
+        events, self._events = self._events, []
+        return events
 
-__all__ = ["AppState", "DesktopLog", "LOG_ENV", "Load", "log_path"]
+    def replay(self) -> Replay:
+        """Every load and logout in the rotated logs and the live one, oldest first.
+
+        The app keeps `main.log` and its rotations `main1.log` (newest) to
+        `main4.log` (oldest) on 2026-09-25, about ten days in all. `poll()`
+        reads only the newest rotation, which is enough for the latest load;
+        learning which folders the app settles in needs every gap between
+        loads, so this reads them all, in order, with a fresh reader (each
+        file calibrated to the zone it was written in). It leaves this
+        reader's own position alone. A log that cannot be read is named in
+        `unread` (review r2 N8); a live log that is not there yet is not. So
+        is a rotation while the logs are read (review r3 R5): the files move
+        up a name under the reader, which then reads one twice and skips the
+        one that moved past it.
+        """
+        reader = DesktopLog(self.path, store=self._store, tz=self.tz)
+        unread: list[str] = []
+        paths = rotated_paths(self.path) + [self.path]
+        before = _log_files(paths)
+        for path in paths:
+            try:
+                size = os.stat(path).st_size
+                offset = 0
+                while offset < size:
+                    data, offset = reader._read(path, offset)
+                    if not data:
+                        break
+                    reader._consume(data)
+                reader._consume(b"", final=True)
+            except FileNotFoundError:
+                if path != self.path:
+                    unread.append(os.fspath(path))  # rotated away while read
+                continue
+            except OSError:
+                unread.append(os.fspath(path))
+                continue
+        if _rotated(before, _log_files(rotated_paths(self.path) + [self.path])):
+            unread.append(f"{self.path.parent} (the logs rotated while they were read)")
+        return Replay(reader.drain(), tuple(unread))
+
+
+def _log_files(paths: list[Path]) -> list[tuple[str, int | None]]:
+    """Each log's name and inode: what a rotation changes, and growth does not."""
+    found: list[tuple[str, int | None]] = []
+    for path in paths:
+        try:
+            found.append((path.name, os.stat(path).st_ino))
+        except OSError:
+            found.append((path.name, None))
+    return found
+
+
+def _rotated(before: list[tuple[str, int | None]], after: list[tuple[str, int | None]]) -> bool:
+    """A rotation between two `_log_files`: a new or vanished name, or a log that
+    was there now another file. A live log created meanwhile (the app's first
+    launch) moved nothing, so it is no rotation (review r4 P3-d)."""
+    if [name for name, _inode in before] != [name for name, _inode in after]:
+        return True
+    return any(old is not None and old != new
+               for (_name, old), (_same, new) in zip(before, after))
+
+
+def rotated_paths(path: Path) -> list[Path]:
+    """`main<N>.log` beside `path`, oldest (highest N) first."""
+    found: list[tuple[int, Path]] = []
+    stem, suffix = path.stem, path.suffix
+    try:
+        names = os.listdir(path.parent)
+    except OSError:
+        return []
+    for name in names:
+        match = re.fullmatch(re.escape(stem) + r"(\d+)" + re.escape(suffix), name)
+        if match:
+            found.append((int(match.group(1)), path.parent / name))
+    return [item for _number, item in sorted(found, reverse=True)]
+
+
+__all__ = ["AppState", "DesktopLog", "Event", "LOG_ENV", "Load", "Replay", "log_path",
+           "rotated_paths"]
