@@ -12,9 +12,11 @@ release site frees a turn's row with the job's other leases.
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
   A turn whose provider cwd differs from its Git hold also has a reader row
   on that canonical cwd, preserving the Git hold's exact-folder writer rules.
+  Detached jobs also hold a reader row on their resolved reservation cwd for
+  the job lease's lifetime, including retries and quarantined attempts.
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
-  job's tree. No turn, writable or read-only, starts on that folder or on one
-  inside it while it is held (`retiring`, C-8.4).
+  job's tree. No turn, writable or read-only, and no detached writer starts on
+  that folder or on one inside it while it is held (`retiring`, C-8.4).
 
 `<folder>` is a real path and may itself contain `:`; a job id never does
 (C-1.1), so a key names a folder exactly when what follows `<prefix><folder>:`
@@ -326,19 +328,19 @@ def under_git(folder: str) -> bool:
 def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str, *, folded: bool = False) -> list[str]:
     """The `worktree:` keys retention holds (`RETENTION`) on `folder` or on a
     folder it is inside (`above`), nearest first. While one is held a retirement
-    is archiving and moving that tree, so no turn starts there: also not one in
-    a repository nested in the tree, whose row is keyed on that repository, not
-    on the tree (C-8.4). A detached writer's `worktree:` on a folder above is
-    not among them: a checkout's top level is the hold, and a repository nested
-    in it is a hold of its own (C-6.5). `read(sql, params)` as for `turn_holds`;
-    no filesystem work.
+    is archiving and moving that tree, so no turn or detached writer starts
+    there: also not one in a repository nested in the tree, whose row or lease
+    is keyed on that repository, not on the tree (C-8.4). A detached writer's
+    `worktree:` on a folder above is not among them: a checkout's top level is
+    the hold, and a repository nested in it is a hold of its own (C-6.5).
+    `read(sql, params)` as for `turn_holds`; no filesystem work.
 
     `folded` is for a folder `present` could not spell in full, whose names it
     could not look up stay as given: its tree may be in quarantine under that
     very fence, spelled `Job` where the folder says `jOB`. Every fence of
     retention's is read then, and each compared `fold`ed. On a volume that tells
     case apart this also names a fence on another folder whose name differs from
-    one of these only in case; the turn then only waits for that retirement."""
+    one of these only in case; the job then only waits for that retirement."""
     if folded:
         rows = read("SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
                     (EXCLUSIVE, EXCLUSIVE[:-1] + ";"))      # ':' + 1: every `worktree:` key
