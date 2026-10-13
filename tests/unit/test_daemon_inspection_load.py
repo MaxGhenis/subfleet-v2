@@ -102,9 +102,14 @@ def kernel(monkeypatch):
 
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
-    core = Daemon(tmp_path / "state", inspect_interval_s=30)
-    # The constructor recorded this machine's real boot identity; the attempt
-    # below belongs to the fake one, so each test starts with nothing cached.
+    # This suite models a synthetic process table. Construction must not read
+    # the host before each test installs that table's reader. Restore the real
+    # identity functions immediately afterwards, so every behavior below is
+    # still exercised through the reader the test supplies.
+    with monkeypatch.context() as startup:
+        startup.setattr(procs, "boot_id", lambda: BOOT)
+        startup.setattr(procs, "proc_start", lambda pid: STARTED)
+        core = Daemon(tmp_path / "state", inspect_interval_s=30)
     procs.forget_boot_id()      # C-5.12's cache; conftest also clears it per test
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),

@@ -55,11 +55,17 @@ def start(argv: list[str], attempt: str, root: str) -> subprocess.Popen:
            "SUBFLEET_ROOT": root}
     child = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              start_new_session=True)
-    assert child.stdout.readline().strip() == b"ready"
+    try:
+        assert child.stdout.readline().strip() == b"ready"
+    except BaseException:
+        finish(child)
+        raise
     return child
 
 
-def finish(child: subprocess.Popen) -> None:
+def finish(child: subprocess.Popen | None) -> None:
+    if child is None:
+        return
     if child.poll() is None:
         child.kill()             # this test's own unreaped child: its pid cannot have been reused
     child.wait(timeout=10)
@@ -86,8 +92,9 @@ def test_d_cen1_the_marker_of_a_process_that_wrote_its_title_over_argv_is_found(
     argv = [node, "-e", NODE_TITLE] if kind == "node" else [sys.executable, "-c", NUL_TITLE]
     attempt, root = f"raw-{uuid.uuid4().hex[:8]}/a1", str(tmp_path)
     retitled = start(argv, attempt, root)
-    neighbour = start([sys.executable, "-c", NUL_TITLE], attempt + "0", root)
+    neighbour = None
     try:
+        neighbour = start([sys.executable, "-c", NUL_TITLE], attempt + "0", root)
         assert not ps_shows_marker(retitled.pid, attempt), "the fixture no longer hides from ps -E"
         result = procs.containment(None, None, None, attempt, root=root)
         assert retitled.pid in result.marker_pids, result.to_dict()
