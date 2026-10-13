@@ -8,7 +8,7 @@ export const meta = {
 }
 
 // Why the dispatcher looks like this (subfleet 2.0.0a0 at this PR's base 81d58fe9,
-// read 2026-10-04; the measured run and eight review rounds are in
+// read 2026-10-04; the measured run and nine review rounds are in
 // docs/reports/2026-09-22-fanout-workflow.md):
 // - `run --batch FILE --json -d` submits every manifest entry in one call and
 //   prints one JSON object per entry: job_id with outcome `created` or

@@ -866,6 +866,114 @@ bundles. Temporary fixtures are removed with Python's `shutil.rmtree`. No
 real jobs, network remotes, sub-agents, live workflow edits or writes to the
 caller's checkout were used.
 
+## Round 9: conservative lock diagnostics and explicit recovery skips, 2026-10-13
+
+Starting workflow: `3ca9b038ebcd`. Review: `review-r8b.md` and the full
+`review-r8-evidence/review-r8.md`, with its `probe.py`, `machine.py`,
+`resend.py` and validator output. The review's three low findings are fixed.
+The creation-label, stable-field, stored-prompt and digest proof rules are
+unchanged, including adoption of a model pin the daemon left as written.
+
+1. **Unavailable process inspection.** Lock status now checks `ps`'s exit
+   status and elapsed-time format. A timeout, failed exit, empty failed
+   output, malformed output or inspection exception yields `unknown`.
+   Successful inspection still distinguishes the recorded live process from
+   a reused PID; `kill(pid, 0)` can establish death, but existence alone no
+   longer establishes `alive`.
+2. **Invalid holder metadata.** A PID must be a positive integer. `since`
+   must be a finite positive numeric timestamp no later than the current
+   time. Missing, malformed, future and nonfinite values yield `unknown`,
+   retaining the named PID, `LOCKED` marker and exit 75. A legacy bare PID
+   likewise lacks spawn identity and reports `unknown`. None of these
+   diagnostics release or bypass the advisory lock.
+3. **Recovery budget.** Every eligible candidate is visited even after the
+   shared 60-second budget expires. Untouched candidates append
+   `(not looked up: recovery budget spent after N lookups; relaunch to recover)`
+   to their existing per-name outcome. If a request lookup used the remaining
+   budget, that candidate says `show not looked up`. `RECOVERY_LOOKUPS`
+   counts attempted request/show commands; `RECOVERY_SKIPPED` counts
+   candidates whose proof lookup was incomplete. The dispatcher carries a
+   nonzero skipped count and relaunch advice into its notes. Refused entries
+   remain refused and do not trigger a submission retry.
+
+**The validator's two failures.** The reviewer attributed the missing-field
+`spawnSync zsh ETIMEDOUT` to a host stall; its separate rerun passed. The
+old test repeatedly launched shells and fake CLI processes for each of 13
+fields, exposing proof checks to process startup delays and the recovery
+deadline. The harness now exercises initial submission, validation refusal,
+empty waits and relaunch through the generated commands, but replays each
+field's missing/mismatched transport in the generated helper under a
+controlled monotonic clock. All 13 fields still reject adoption for all
+three jobs and recover only once complete proof returns. It reads the
+actual staged files, labels, prompt bytes, digests and logs. The outer
+process watchdog remains; the proof scenarios no longer consume real time.
+
+The unresolved PID-reuse fallback required a **code fix**: timed-out or
+denied `ps` must report `unknown`. The harness also needed an **assertion
+fix** for the legacy bare PID: expecting `alive` without `since` contradicted
+the review's required conservative classification. `fake-ps.py` now provides
+a controlled successful age inspection for the existing `reused`/`alive`
+assertions, with separate failed-inspection regressions. Real PID existence
+and killed-holder checks remain. The two lock probes supervise and join
+children without detached process groups.
+
+**Updated state machine.** Round 8's settlement, retry and adoption
+transitions remain. These reporting rows supersede or extend its table:
+
+| State or evidence | Transition and reporting rule |
+|---|---|
+| Lock still held after acquisition budget | `LOCKED`/exit 75, preserving each recorded PID. Liveness is `alive`, `dead`, `reused` or `unknown`; invalid spawn metadata or unavailable inspection yields `unknown`. No workflow step executes. |
+| Eligible candidate with no recovery time left | Keeps `REFUSED` or `OUTCOME_UNKNOWN`, names the unattempted lookup and relaunch advice, and increments `RECOVERY_SKIPPED`. Writes no adoption evidence. |
+| Budget expires between request lookup and show | Keeps the same outcome, says `show not looked up`, and counts the candidate as skipped; later candidates also receive explanations. |
+| Relaunch after skipped recovery | Starts a fresh recovery budget and replays the same numbered logs and snapshots. Adoption still requires complete creation and payload proof; no new submission is needed for terminal refused-holder or manifest-refusal state. |
+
+**Validation, all fake-only:**
+
+- Round-9 regressions on the exact `3ca9b038e` workflow: **0 passed,
+  7 failed**. Every low finding has a failing baseline regression. The
+  final harness repeats this result, including both budget boundaries.
+- Round-9 regressions on the fixed workflow: **7 passed, 0 failed**.
+  The six-job probe simulates four 15-second show timeouts, counts two
+  skipped refusals, then recovers all six without resubmitting. The other
+  probe spends the budget during request lookup, counts three skipped
+  unknowns, then recovers all three without resubmitting.
+- Complete validator: **75 passed, 0 failed**: all **68** existing checks
+  plus the seven new regressions. Both formerly failing checks pass.
+- Sequential oracle, seed 12505: **20,000 histories, 113,703 transitions**,
+  passed.
+- Shipped concurrent drivers: **104 histories**, passed: **64** original
+  (128 overlapping invocations, 121 immutable submission logs), **24**
+  HEAD/policy/alias histories (48 invocations), and **16** re-send histories
+  (32 invocations, eight adopted and eight refused). No peer required a
+  `LOCKED` relaunch in this run.
+- Ported reviewer oracle, seed 20261013: **32 independent histories,
+  31 launcher/helper kills**, passed, with no `LOCKED` relaunches. Its
+  separate completeness oracle requires all answered or provable jobs to
+  settle and rejects foreign creation labels. The driver is now shipped as
+  `harness/reviewer_replay.py`; it emits no evidence files.
+- Python AST parsing: **six sources** (rendered helper, lock runner,
+  sequential/concurrent replay, fake process inspection, controlled recovery
+  checks and reviewer replay), passed. Fake CLI `bash -n` and
+  `git diff --check` passed.
+
+Commands and baseline reproduction are in the harness README. Every fake
+uses a temporary registry and empty `SUBFLEET_HOME`/`ZDOTDIR`; `PYTHONPATH`
+is removed. No real jobs, network remotes, sub-agents, live workflow edits
+or writes to the caller's checkout were used. Temporary fixtures are
+removed with the specified Python `shutil.rmtree` command. Only named
+workflow, harness and report source files are staged; no logs, JSON evidence
+or bundles are committed.
+
+This sandbox cannot write the shared Git metadata or replace the worktree's
+`.git` pointer. The round-9 commits therefore use **workspace-local
+`.git-local` metadata**, with read-only access to the existing objects, on
+`docs/fanout-workflow-measured`. The original detached HEAD remains intact.
+Inspect the commits with `git --git-dir=.git-local log`; no history was
+rewritten or pushed. Coherent steps are `0717cb995` (regressions and
+deterministic identity checks), `bb731aa99` (lock proof), `69c2ce6ba`
+(recovery diagnostics), and `6da43c90b` (independent oracle and instructions),
+followed by the report commit.
+
 ## Live check of the shipped commands, 2026-10-04
 
 The three rendered commands, run by hand against the daemon (release
