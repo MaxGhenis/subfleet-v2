@@ -55,13 +55,15 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   mkdirSync(join(root, 'empty-home'))
   copyFileSync(join(harness, 'fake-subfleet.sh'), join(root, 'bin', 'subfleet'))
   chmodSync(join(root, 'bin', 'subfleet'), 0o755)
+  copyFileSync(join(harness, 'fake-ps.py'), join(root, 'bin', 'ps'))
+  chmodSync(join(root, 'bin', 'ps'), 0o755)
   // A fake git supplies only the commit inspected by the generated helper.
   writeFileSync(join(root, 'bin', 'git'), '#!/bin/bash\nprintf "%s\\n" "${FAKE_WORKDIR_HEAD:-head-one}"\n')
   chmodSync(join(root, 'bin', 'git'), 0o755)
   const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, FAKE_STATE: root,
     SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0',
     CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller', ZDOTDIR: join(root, 'empty-home'),
-    FANOUT_FAKE_REPOSITORY: resolve(harness, '../../../..') }
+    FANOUT_FAKE_REPOSITORY: resolve(harness, '../../../..'), FAKE_PROCESS_STARTED: String(Date.now() / 1000) }
   delete env.PYTHONPATH
   const args = { label: 't', stateDir: join(root, stateSuffix), items: ['a', 'b', 'c'].map(name => ({ ...ok, name,
     promptPath: join(root, `prompt-${name}.md`), outPath: join(root, `out-${name}.md`) })) }
@@ -200,6 +202,76 @@ try {
     writeFileSync(join(c.args.stateDir, 'rq-test.lock'), record)
     return holder
   }
+  // Port the reviewer's held-lock probes. Inspection is controlled even on a
+  // sandbox that denies real ps; kill(pid, 0) still checks the actual PID.
+  for (const mode of ['hang', 'nonzero', 'empty', 'malformed']) {
+    await test(`round 9 finding 1: ${mode} ps leaves the live stale holder unknown`, async () => {
+      const c = await make(); c.setup()
+      c.env.SUBFLEET_FANOUT_LOCK_WAIT_S = '0'; c.env.FAKE_PS = mode
+      const holder = await holdLock(c, JSON.stringify({ launcher: { pid: process.pid, since: 1 } }))
+      try {
+        const blocked = c.step(1)
+        assert.equal(blocked.status, 75, blocked.text)
+        assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none$`, 'm'))
+        assert.doesNotMatch(blocked.text, /Traceback|SUBMIT_RC|JOBS=/)
+      } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
+    })
+  }
+  await test('round 9 finding 2: invalid spawn metadata keeps LOCKED and reports unknown', async () => {
+    const c = await make(); c.setup(); c.env.SUBFLEET_FANOUT_LOCK_WAIT_S = '0'
+    const holder = await holdLock(c, JSON.stringify({ launcher: { pid: process.pid, since: Date.now() / 1000 } }))
+    const cliPath = join(c.args.stateDir, 'rq-test.lock.cli')
+    try {
+      for (const entry of [
+        { pid: process.pid, since: 'bad' }, { pid: process.pid },
+        { pid: process.pid, since: Date.now() / 1000 + 3600 },
+        { pid: process.pid, since: null }, { pid: process.pid, since: true },
+        { pid: process.pid, since: 'NaN' }, { pid: process.pid, since: 'Infinity' },
+        { pid: process.pid, since: -1 }, { pid: 0, since: 1 }, { pid: -1, since: 1 },
+        { pid: 'bad', since: 1 }, { pid: true, since: 1 },
+      ]) {
+        writeFileSync(cliPath, JSON.stringify(entry))
+        const blocked = c.step(1)
+        assert.equal(blocked.status, 75, JSON.stringify(entry) + ': ' + blocked.text)
+        assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=alive helper_pid=none cli_pid=${entry.pid} cli=unknown$`, 'm'))
+        assert.doesNotMatch(blocked.text, /Traceback|SUBMIT_RC|JOBS=/)
+      }
+    } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
+  })
+  const recoveryCheck = (c, mode) => {
+    const result = spawnSync('python3', [join(harness, 'recovery_checks.py'), join(c.args.stateDir, 'rq-test.fanout.py'), mode],
+      { cwd: c.root, env: c.env, encoding: 'utf8', timeout: STEP_TIMEOUT_MS })
+    if (result.error) throw result.error
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    return result.stdout
+  }
+  await test('round 9 finding 3: budget-skipped refused holders are explained and counted', async () => {
+    const c = await make('resend-moved,check-prompts')
+    for (const name of ['d', 'e', 'f']) {
+      const item = { ...c.args.items[0], name, promptPath: join(c.root, `prompt-${name}.md`), outPath: join(c.root, `out-${name}.md`) }
+      writeFileSync(item.promptPath, `Review ${name}`); c.args.items.push(item)
+    }
+    const rendered = await renderWorkflow(script, c.args)
+    assert.equal(c.step(0, rendered.commands[0]).status, 0)
+    // Leave the six owned jobs unadopted, as in the reviewer's slow-show probe.
+    c.env.FAKE_SHOW_MISSING = 'job_id'
+    assert.match(c.step(1, rendered.commands[1]).text, /JOBS=0\nUNSETTLED=0/)
+    delete c.env.FAKE_SHOW_MISSING
+    recoveryCheck(c, 'budget')
+    assert.equal(c.count('run'), 1, 'recovery and relaunch must not submit again')
+    assert.match(c.step(1, rendered.commands[1]).text, /JOBS=6\nUNSETTLED=0/)
+    assert.equal(c.count('run'), 1)
+  })
+  await test('round 9 finding 3: budget spent between request and show explains every unknown', async () => {
+    const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
+    unlinkSync(c.args.items[1].promptPath); c.env.FAKE_SHOW_MISSING = 'job_id'
+    assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+    delete c.env.FAKE_SHOW_MISSING
+    recoveryCheck(c, 'between-lookups')
+    assert.equal(c.count('run'), 2)
+    assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('run'), 2)
+  })
   await test('round 8 finding 3: LOCKED names the live CLI child and the killed launcher and helper', async () => {
     const c = await make('check-prompts'); c.setup()
     const realPython = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
@@ -216,7 +288,7 @@ if sys.argv[1] == "run" and "--batch" in sys.argv:
         time.sleep(.01)
 os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
 `)
-    const owner = spawn('zsh', ['-c', 'eval "$1"', 'fanout-lock-probe', c.commands[1]], { cwd: c.root, env: c.env, detached: true })
+    const owner = spawn('zsh', ['-c', 'eval "$1"', 'fanout-lock-probe', c.commands[1]], { cwd: c.root, env: c.env })
     const done = new Promise(resolveResult => owner.on('close', resolveResult))
     const gone = async pid => {
       const deadline = Date.now() + BARRIER_MS
@@ -261,10 +333,11 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       assert.equal(existsSync(join(c.args.stateDir, 'rq-test.lock.cli')), false, 'a finished CLI child is no longer named')
     } finally {
       writeFileSync(join(c.root, 'release-child'), '')
-      try { process.kill(-owner.pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
+      try { process.kill(owner.pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
       if (holders) for (const pid of [holders.cli, holders.helper]) {
         try { process.kill(pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
       }
+      await done
     }
     // Liveness is per recorded spawn: a live pid that started after its
     // record is reported reused, and a round-7 bare pid is still named.
@@ -272,7 +345,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
     for (const [record, line] of [
       [JSON.stringify({ launcher: { pid: process.pid, since: 1 }, helper: { pid: process.pid, since: Date.now() / 1000 } }),
         `launcher_pid=${process.pid} launcher=reused helper_pid=${process.pid} helper=alive cli_pid=none`],
-      [String(process.pid), `launcher_pid=${process.pid} launcher=alive helper_pid=none cli_pid=none`],
+      [String(process.pid), `launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none`],
       ['not a record', 'launcher_pid=none helper_pid=none cli_pid=none'],
     ]) {
       const holder = await holdLock(d, record)
@@ -453,7 +526,7 @@ if sys.argv[1] == "run" and "--batch" in sys.argv:
         time.sleep(.01)
 os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
 `)
-    const owner = spawn('zsh', ['-c', 'eval "$1"', 'fanout-lock-probe', c.commands[1]], { cwd: c.root, env: c.env, detached: true })
+    const owner = spawn('zsh', ['-c', 'eval "$1"', 'fanout-lock-probe', c.commands[1]], { cwd: c.root, env: c.env })
     const done = new Promise(resolveResult => owner.on('close', resolveResult))
     let holders
     try {
@@ -480,10 +553,11 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
     } finally {
       writeFileSync(join(c.root, 'release-child'), '')
-      try { process.kill(-owner.pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
+      try { process.kill(owner.pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
       if (holders) for (const pid of [holders.cli, holders.helper]) {
         try { process.kill(pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
       }
+      await done
     }
   })
   for (const field of ['workdir_head', 'policy_hash']) {
@@ -743,20 +817,15 @@ for job in manifest["jobs"]:
   })
   for (const mode of ['MISSING', 'MISMATCH']) {
     await test(`round 5: ${mode.toLowerCase()} recorded identity fields keep jobs uncertain`, async () => {
-      for (const field of ['job_id', 'request_id', 'name', 'workdir', 'out_path', 'task', 'tier', 'sandbox', 'pinned_model', 'prompt_path', 'workdir_head', 'policy_hash', 'payload_digest']) {
-        const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
-        unlinkSync(c.args.items[1].promptPath)
-        c.env[`FAKE_SHOW_${mode}`] = field
-        const refusal = c.step(1).text
-        assert.match(refusal, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/, `${mode} ${field}: ${refusal}`)
-        assert.equal((refusal.match(/^LOOKUP_UNKNOWN name=/gm) || []).length, 3)
-        assert.doesNotMatch(refusal, /^SUBMITTED |^REFUSED |RETRY_STEP1/m)
-        assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
-        delete c.env[`FAKE_SHOW_${mode}`]
-        c.setup()
-        assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
-        assert.equal(c.count('run'), 2)
-      }
+      const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
+      unlinkSync(c.args.items[1].promptPath); c.env.FAKE_SHOW_MISSING = 'job_id'
+      assert.match(c.step(1).text, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/)
+      assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
+      delete c.env.FAKE_SHOW_MISSING
+      const output = recoveryCheck(c, mode)
+      assert.equal((output.match(/^PASS /gm) || []).length, 13, output)
+      c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+      assert.equal(c.count('run'), 2)
     })
   }
   await test('round 5: flat offline show metadata is verified without acknowledging caller notices', async () => {
