@@ -91,8 +91,10 @@ def test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fenc
         assert not any(live and not cwd_exists for live, cwd_exists in seen["moves"]), seen
         assert seen["rows_in_tree"] == []
         assert seen["hold"]["leases"] == [folders.exclusive_key(tree)]
-        expected = typed if after_quarantine else nested
-        assert seen["hold"]["folder"] == expected
+        # Submission spells the cwd while it is present. #141 retains that
+        # canonical spelling when quarantine subsequently makes it absent.
+        assert seen["run_folder"] == nested
+        assert seen["hold"]["folder"] == nested
         assert tree in seen["reason"]
         assert Path(nested).is_dir()
         daemon._admit_turns()
