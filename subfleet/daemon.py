@@ -2826,7 +2826,12 @@ class Daemon:
         # Keep the submitted pathname as a source check even if it now resolves
         # elsewhere; the current resolution is checked separately above.
         _, recorded_absent = present(recorded)
-        return [(recorded, False, recorded_absent)] + ([(now, False, now_absent)] if now != recorded else [])
+        if now == recorded:
+            # Equal source strings may come from different lookups: the tree
+            # can return between them. Either absence still requires a folded
+            # fence comparison, both before preparation and at reservation.
+            return [(recorded, False, recorded_absent or now_absent)]
+        return [(recorded, False, recorded_absent), (now, False, now_absent)]
 
     def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
         """C-6.5: refuse a second writer in one worktree and a second live
