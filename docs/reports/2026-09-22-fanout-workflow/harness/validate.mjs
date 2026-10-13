@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,7 +44,7 @@ await test('allowTmp, model defaults, dead agent and result shaping', async () =
 
 // Commands cross the review's zsh eval boundary. The fake is first in PATH;
 // SUBFLEET_HOME is empty. Generated artifacts stay in this temporary folder.
-const temp = mkdtempSync(join(tmpdir(), 'fanout-r3-'))
+const temp = mkdtempSync(join(tmpdir(), 'fanout-r4-'))
 const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state') => {
   const root = mkdtempSync(join(temp, 'case-'))
   mkdirSync(join(root, 'bin'))
@@ -54,7 +54,9 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, FAKE_STATE: root,
     SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0' }
   delete env.PYTHONPATH
-  const args = { label: 't', stateDir: join(root, stateSuffix), items: ['a', 'b', 'c'].map(name => ({ ...ok, name, outPath: join(root, `out-${name}.md`) })) }
+  const args = { label: 't', stateDir: join(root, stateSuffix), items: ['a', 'b', 'c'].map(name => ({ ...ok, name,
+    promptPath: join(root, `prompt-${name}.md`), outPath: join(root, `out-${name}.md`) })) }
+  for (const item of args.items) writeFileSync(item.promptPath, `Review ${item.name}`)
   if (requestId !== null) args.requestId = requestId
   const rendered = await renderWorkflow(script, args)
   const shell = command => spawnSync('zsh', ['-c', 'eval "$1"', 'fanout-harness', command], { cwd: root, env, encoding: 'utf8', timeout: 60000 })
@@ -84,6 +86,71 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
 }
 
 try {
+  await test('round 4 finding 1: unknown survives not-sent before digest-conflict recovery', async () => {
+    const c = await make('unknown-c'); c.setup()
+    assert.match(c.step(1).text, /OUTCOME_UNKNOWN name=c/)
+    const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
+    assert.equal(registry['rq-test-3'].job_id, 'job-c')
+    c.env.SCENARIO = 'submit-down-always'
+    const second = c.step(1).text
+    c.env.SCENARIO = 'digest-conflict-c,no-name'
+    const third = c.step(1).text
+    assert.match(third, /SUBMITTED name=c job_id=job-c created=False/)
+    assert.match(second, /OUTCOME_UNKNOWN name=c request_id=rq-test-3/)
+    assert.doesNotMatch(third, /REFUSED name=c/)
+    assert.match(third, /JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('run'), 3)
+    assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
+    c.setup(); c.step(1)
+    assert.equal(c.count('run'), 3)
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+  })
+  await test('round 4 finding 2: validation refusal recovers earlier committed jobs by request id', async () => {
+    const c = await make('rowless-unknown,check-prompts'); c.setup()
+    assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+    unlinkSync(c.args.items[1].promptPath)
+    const second = c.step(1).text
+    assert.match(second, /MANIFEST_REFUSED[\s\S]*JOBS=3\nUNSETTLED=0/)
+    assert.doesNotMatch(second, /^REFUSED name=|RETRY_STEP1/m)
+    assert.equal(c.count('run'), 2)
+    assert.equal(c.count('runs'), 3)
+    assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
+    writeFileSync(c.args.items[1].promptPath, 'Restored prompt')
+    c.setup()
+    assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('run'), 2)
+    assert.equal(c.count('runs'), 3)
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+  })
+  await test('round 4: failed, empty and malformed lookups preserve uncertainty until relaunch', async () => {
+    for (const lookup of ['lookup-down-always', 'lookup-empty', 'lookup-bad-json']) {
+      const c = await make(`rowless-unknown,check-prompts,${lookup}`); c.setup(); c.step(1)
+      unlinkSync(c.args.items[1].promptPath)
+      const refusal = c.step(1).text
+      assert.match(refusal, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/)
+      assert.equal((refusal.match(/^OUTCOME_UNKNOWN name=/gm) || []).length, 3)
+      assert.doesNotMatch(refusal, /^REFUSED name=|RETRY_STEP1/m)
+      assert.equal(c.count('runs'), 3)
+      c.env.SCENARIO = 'check-prompts'
+      writeFileSync(c.args.items[1].promptPath, 'Restored prompt')
+      c.setup()
+      assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+      assert.equal(c.count('run'), 2)
+      assert.equal(c.count('runs'), 6)
+      assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
+    }
+  })
+  await test('round 4: validation refusal after only not-sent attempts stays terminal', async () => {
+    const c = await make('submit-down-always,check-prompts'); c.setup(); c.step(1)
+    assert.equal(existsSync(join(c.root, 'registry.json')), false)
+    c.env.SCENARIO = 'check-prompts'
+    unlinkSync(c.args.items[1].promptPath)
+    assert.match(c.step(1).text, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=0/)
+    assert.equal(c.count('runs'), 0)
+    c.setup(); c.step(1)
+    assert.equal(c.count('run'), 2)
+  })
   await test('finding 1: submit-down with request id retries from the first printed marker', async () => {
     const c = await make('submit-down'); c.setup()
     const outputs = c.submit()
