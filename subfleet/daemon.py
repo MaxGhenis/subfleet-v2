@@ -7915,8 +7915,10 @@ class Daemon:
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment when no separate raw file was supplied.
-        if launch.raw_stream_path and not os.path.lexists(launch.raw_stream_path):
+        # stream once after containment only when both frozen candidates are absent.
+        # Do not shadow an authoritative canonical entry with a new custom file.
+        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
+                                             (launch.raw_stream_path, adir / "stream.jsonl")):
             try:
                 data = read_regular(Path(launch.stdout_path))       # never waiting in open()
             except (FileNotFoundError, NotRegularFile):
