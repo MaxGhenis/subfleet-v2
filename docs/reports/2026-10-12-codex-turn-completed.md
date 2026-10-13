@@ -17,8 +17,9 @@ requiring `turn.completed` rejects none of them.
 This report uses the supplied evidence; no live store or live process was read.
 
 `CodexAdapter.classify()` now requires this attempt's `turn.completed` event,
-rc 0, no `turn.failed`, and a non-empty deliverable for `ok`, with the existing
-spawn and authentication checks. An unfinished rc-0 turn still passes through
+rc 0, no `turn.failed`, no spawn error, and a nonblank deliverable for `ok`.
+Verified success precedes recovered authentication, admission and quota text.
+An unfinished rc-0 turn still passes through
 authentication, CLI age, content-filter and quota classification. Otherwise,
 it is `transient`, detail **Codex exited before its turn completed**, for
 C-4.5's retry. Terminal `turn.failed` classifications remain unchanged.
@@ -27,12 +28,21 @@ latest attempt's recorded cut-off reason and event, and notices keep the reason.
 
 `last.md` alone proves nothing: the 2026-09-24 incident wrote an interim note
 there. Deliverable extraction still retains attempt-local text as evidence.
-The daemon rechecks completion from this attempt's frozen stream whenever an
-adapter verdict is `ok`, including cached `finalization.json`, legacy receipts,
-and restart recovery. An incomplete cached `ok` becomes `transient`; the
-original verdict remains `provider_verdict` evidence, as for C-9.2's signal
+The daemon rechecks completion and terminal failure from this attempt's frozen
+stream, including cached `finalization.json`, legacy receipts and restart
+recovery. For unfinished detached Codex finalizations, a cached non-`ok` becomes
+`ok` when the frozen stream, captured nonblank deliverable, rc-0 receipt and
+absence of spawn error or `killed_by` prove verified success. This reconciliation
+precedes lane, closure and acceptance effects; recovered textual diagnostics
+cannot disable the successful lane or close it. An incomplete cached `ok`
+becomes `transient`; a terminal failure or spawn error disqualifies success.
+The original verdict remains `provider_verdict` evidence, as for C-9.2's signal
 override. Claimed completion fields in a cached verdict cannot replace the
-stream's proof. `_export_locked()` still requires `accepted_attempt_id` and
+stream's proof. Replays recompute the same class from those same frozen inputs
+without repeating classification, attestation or deliverable extraction.
+Claude's structured admission verdicts and conversation driver outcomes retain
+their authority. Terminal jobs are not retroactively repaired.
+`_export_locked()` still requires `accepted_attempt_id` and
 exports only that attempt's artifact.
 
 `runs show` renders the accepted result separately from unaccepted artifact
@@ -67,8 +77,9 @@ They use the recorded driver outcome rather than this detached classifier.
   every finalization path, including cached and legacy verdicts.
 - **I2:** adding `turn.completed` to a stream lacking it never removes `ok`;
   removing completion from an `ok` stream always disqualifies it.
-- **I3:** authentication > admission > quota precedence is unchanged when
-  `turn.completed` is present.
+- **I3:** authentication > admission > quota precedence applies to runs without
+  verified success, including completed streams with no nonblank deliverable.
+  Verified success takes precedence over recovered textual diagnostics.
 
 `tests/unit/test_codex_turn_completed.py` generates event sequences containing
 `thread.started`, `turn.started`, agent-message/command-execution
@@ -229,3 +240,90 @@ Commits use workspace-local `.git-local` metadata on
 sandbox denies writes to the shared Git index and refs. The original `.git`
 pointer and caller's checkout remain untouched. Only named source, test and
 report files are staged; no logs or JSON evidence are committed.
+
+## Fix round 3
+
+Review r2 P1 exposed a pending-finalization inconsistency: the adapter at
+`4658ea6d2` recorded `auth-dead` before checking verified success. Restoring
+that receipt bypassed the daemon's completion check, which only examined
+`ok`. Finalization now reconciles cached non-`ok` detached Codex verdicts with
+the frozen attempt evidence before any lane, closure or acceptance effect.
+The original `finalization.json` and attestation remain unchanged; when the
+deciding class differs, `provider_verdict` retains the original class and
+detail. Reconciliation removes a superseded textual closure. The stream scan
+records `turn_failed` as well as completion and the last event, so a completion
+after a terminal failure cannot establish success.
+
+C-4.3 replay determinism comes from recomputing the decision from the same
+frozen raw stream, captured `deliverable.md`, exit receipt and `killed_by`
+record on each unfinished finalization. The adapter is not reclassified and
+an existing deliverable is not extracted again. The regression interrupts
+before acceptance, observes `ok` on both executions, then changes stdout and
+`last.md` to prove that frozen evidence still decides. A further call after
+acceptance leaves the terminal attempt and its single notice untouched.
+Claude's structured rejection remains authoritative; the reconciliation only
+applies to detached Codex. P3 is corrected above: I3's diagnostic precedence
+applies to runs without verified success.
+
+The review's two authentication sources (`error` event and stderr) are ported
+across fresh classification, immediate replay and restart recovery. Their
+serialized legacy outcomes were independently compared with the actual
+`4658ea6d2` adapter and matched in both cases. The four replay/recovery inputs
+failed their desired-success assertions against the exact assigned
+`b4d8a8719` daemon, while both fresh controls passed. At the fixed head, all
+six pass: the attempt is accepted, `Finished.` is exported, the lane remains
+enabled, and no closure is added.
+
+Direct validation results (isolated Python inputs, **not pytest counts**):
+
+| Input | Passed | Failed |
+| --- | ---: | ---: |
+| Exact `b4d8a8719` daemon: fresh controls and replay/recovery regressions | 2 | 4 expected |
+| Fixed daemon: the same six inputs | 6 | 0 |
+| Fixed daemon: terminal failure, receipt/cached spawn error, daemon signal, nonzero rc, blank capture, missing completion | 7 | 0 |
+| Legacy serialization comparisons, terminal-stream proof, structured rejection, module names | 5 | 0 |
+| Disposable mutant with only the reconciliation block removed | 2 | 4 expected |
+
+Thus **18 direct checks pass at the fixed head**. The disposable mutant uses
+the same current regressions; all four replay/recovery cases catch removal of
+the reconciliation, while both fresh controls still pass. Its source was
+verified to differ from the fixed daemon by exactly that block. The baseline
+source hash was verified against Git's assigned commit. Direct state inputs
+stub process identity, containment and launches; isolate state and desktop
+paths; disable the desktop prober; and reject network calls. They start no
+provider, guardian or daemon serve loop.
+
+Foreground pytest requests each use the shared lock, a fresh `sf-r195f3-$$`
+temporary directory, a 60-second acquisition timeout and a 1,100-second total
+bound with at most 10 seconds of termination grace. Each runner cleans its
+temporary directory with the prescribed Python/shutil command. Only one
+pytest acquisition request runs at a time.
+
+| Requested files | Pytest result |
+| --- | --- |
+| Six baseline replay/fresh inputs in `tests/fake/test_codex_turn_completed_fake.py` | Unrun: lock denied, exit 75 |
+| `tests/unit/test_codex_turn_completed.py` | Unrun: lock denied, exit 75 |
+| `tests/fake/test_codex_turn_completed_fake.py` | Unrun: lock denied, exit 75 |
+| `tests/fake/test_finalization_replay.py` | Unrun: lock denied, exit 75 |
+| `tests/fake/test_state_contract.py` | Unrun: lock denied, exit 75 |
+| `tests/unit/test_empty_provider_results.py`, `tests/unit/test_limit_from_model_text.py` | Unrun: lock denied, exit 75 |
+| `tests/unit/test_test_module_names.py` | Unrun: lock denied, exit 75 |
+
+All **seven acquisition requests timed out before pytest started** (60.73–61.49
+seconds each). No shared-lock hold occurred. **Pytest counts: 0 executed,
+0 passed, 0 failed.** The requested full suites must be run by the hub.
+Other full adapter, CLI and e2e suites were not requested or run
+in this round. Four edited Python files pass AST parsing and `git diff --check`
+passes. All runners ended; their temporary directories, disposable baseline
+and mutant, and untracked validation helpers/logs were removed with Python/shutil.
+
+Commits use workspace-local `.git-local` metadata on
+`fix/codex-turn-completed`, based on `b4d8a87192c6`; shared Git metadata is
+outside the sandbox's writable roots. The original `.git` pointer and caller's
+checkout remain untouched. Every commit carries the requested co-author
+trailer, and only named source, test and report files are staged.
+
+- `1bbe899d3`: port the six review regression/control inputs.
+- `9d2485f71`: interrupt before acceptance on both success and retry paths.
+- `dd27b6a08`: reconcile pending verdicts and guard the frozen success evidence.
+- `1346fc157`: pin replay consistency and captured-evidence ownership.
