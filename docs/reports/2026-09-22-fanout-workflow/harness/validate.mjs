@@ -99,6 +99,7 @@ try {
         const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state') })
         c.step(0, old.commands[0]); assert.match(c.step(1, old.commands[1]).text, /JOBS=3\nUNSETTLED=0/)
         const before = readFileSync(join(c.root, 'registry.json'), 'utf8')
+        c.env.FAKE_CAPTURE_PAYLOADS = join(c.root, 'actual-payloads.jsonl')
         c.env[variable] = 'different-at-submit'; c.env.SCENARIO = `${lost},check-prompts`
         c.setup()
         const uncertain = lost === 'lose-stdout' ? 3 : 1
@@ -111,6 +112,10 @@ try {
         c.setup(); assert.match(c.step(1).text, new RegExp(`JOBS=0\nUNSETTLED=${uncertain}`))
         assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
         assert.equal(readFileSync(join(c.root, 'registry.json'), 'utf8'), before)
+        const registry = JSON.parse(before)
+        const actual = readFileSync(c.env.FAKE_CAPTURE_PAYLOADS, 'utf8').trim().split('\n').map(JSON.parse)
+        assert.equal(actual.length, 9) // Lost attempt, conflict, then relaunch.
+        assert.ok(actual.every(row => row[field] === 'different-at-submit' && row.payload_digest !== registry[row.request_id].payload_digest))
       })
     }
   }
@@ -128,11 +133,82 @@ try {
       for (const name of ['a', 'b', 'c']) {
         assert.equal(snapshots[name].pinned_model, canonical)
         assert.equal(registry[`rq-test-${['a', 'b', 'c'].indexOf(name) + 1}`].pinned_model, canonical)
+        assert.equal(snapshots[name].payload_digest, registry[`rq-test-${['a', 'b', 'c'].indexOf(name) + 1}`].payload_digest)
       }
       assert.equal(c.count('run'), 2)
       assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
     })
   }
+  await test('round 7: recorded HEAD and policy prove a job created after snapshot capture', async () => {
+    for (const variable of ['FAKE_SUBMIT_HEAD', 'FAKE_SUBMIT_POLICY']) {
+      const c = await make('rowless-unknown,check-prompts')
+      c.env[variable] = 'different-at-submit'
+      c.setup(); assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+      unlinkSync(c.args.items[1].promptPath)
+      assert.match(c.step(1).text, /MANIFEST_REFUSED[\s\S]*JOBS=3\nUNSETTLED=0/)
+      c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+      const field = variable === 'FAKE_SUBMIT_HEAD' ? 'workdir_head' : 'policy_hash'
+      const proof = JSON.parse(readFileSync(join(c.args.stateDir, 'rq-test.recovered.jsonl'), 'utf8').split('\n')[0])
+      assert.equal(proof[field], 'different-at-submit')
+      assert.notEqual(proof.identity[field], proof[field])
+      assert.deepEqual(proof.submit_batch, proof.identity.submit_batch)
+    }
+  })
+  await test('round 7: missing or different creation markers cannot settle old requests', async () => {
+    for (const mode of ['MISSING', 'MISMATCH']) {
+      const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
+      unlinkSync(c.args.items[1].promptPath); c.env[`FAKE_SHOW_${mode}`] = 'batch'
+      assert.match(c.step(1).text, /LOOKUP_UNKNOWN[\s\S]*JOBS=0\nUNSETTLED=3/)
+      delete c.env[`FAKE_SHOW_${mode}`]
+      c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    }
+  })
+  await test('round 7: a surviving fake CLI holds the lock; bounded wait reports its launcher', async () => {
+    const c = await make('check-prompts'); c.setup()
+    const realPython = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
+    const fake = join(c.root, 'bin', 'subfleet'); copyFileSync(fake, fake + '-registry')
+    writeFileSync(fake, `#!${realPython}
+import json,os,pathlib,sys,time
+root=pathlib.Path(os.environ["FAKE_STATE"])
+if sys.argv[1] == "run" and "--batch" in sys.argv:
+    (root/"holders.new").write_text(json.dumps({"cli":os.getpid(),"helper":os.getppid()}))
+    os.replace(root/"holders.new",root/"holders.json")
+    deadline=time.monotonic()+20
+    while not (root/"release-child").exists():
+        if time.monotonic()>deadline: raise RuntimeError("lock probe barrier timed out")
+        time.sleep(.01)
+os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
+`)
+    const owner = spawn('zsh', ['-c', 'eval "$1"', 'fanout-lock-probe', c.commands[1]], { cwd: c.root, env: c.env, detached: true })
+    const done = new Promise(resolveResult => owner.on('close', resolveResult))
+    let holders
+    try {
+      const deadline = Date.now() + 10000
+      while (!existsSync(join(c.root, 'holders.json'))) {
+        assert.ok(Date.now() < deadline, 'lock probe readiness timed out')
+        await new Promise(r => setTimeout(r, 10))
+      }
+      holders = JSON.parse(readFileSync(join(c.root, 'holders.json'), 'utf8'))
+      const launcher = readFileSync(join(c.args.stateDir, 'rq-test.lock'), 'utf8').trim()
+      process.kill(owner.pid, 'SIGKILL'); process.kill(holders.helper, 'SIGKILL')
+      c.env.SUBFLEET_FANOUT_LOCK_WAIT_S = '.1'
+      const start = Date.now(), blocked = c.step(0)
+      assert.equal(blocked.status, 75, blocked.text)
+      assert.match(blocked.text, new RegExp(`LOCKED lock=rq-test.lock launcher_pid=${launcher} wait_s=0.1`))
+      assert.ok(Date.now() - start < 3000)
+      assert.doesNotMatch(blocked.text, /CHECKSUM_OK|SETUP_OK/)
+      writeFileSync(join(c.root, 'release-child'), '')
+      await done
+      delete c.env.SUBFLEET_FANOUT_LOCK_WAIT_S
+      c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    } finally {
+      writeFileSync(join(c.root, 'release-child'), '')
+      try { process.kill(-owner.pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
+      if (holders) for (const pid of [holders.cli, holders.helper]) {
+        try { process.kill(pid, 'SIGKILL') } catch (e) { if (e.code !== 'ESRCH') throw e }
+      }
+    }
+  })
   for (const field of ['workdir_head', 'policy_hash']) {
     await test(`round 6 finding 2: reused request id with changed ${field} stays uncertain`, async () => {
       const c = await make('check-prompts')
@@ -154,8 +230,8 @@ try {
   }
   await test('round 6 finding 3: prompt edit after snapshot submits the snapshot bytes', async () => {
     const c = await make('check-prompts')
-    const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state') })
-    c.step(0, old.commands[0]); c.step(1, old.commands[1])
+    // A lost creation belongs to this invocation. An older job from another
+    // state cannot prove that a later lost dedupe attempt used its HEAD/policy.
     const fake = join(c.root, 'bin', 'subfleet')
     copyFileSync(fake, fake + '-registry')
     writeFileSync(fake, '#!/bin/bash\nif [ "$1" = run ] && [[ " $* " != *" --dry-run "* ]] && [ -n "${FAKE_EDIT_PROMPT:-}" ]; then printf "Different prompt after snapshot" > "$FAKE_EDIT_PROMPT"; fi\nexec "$(dirname "$0")/subfleet-registry" "$@"\n')

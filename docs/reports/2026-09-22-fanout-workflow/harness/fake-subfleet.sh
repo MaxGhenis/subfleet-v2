@@ -54,6 +54,9 @@ def commit(job, index):
     canonical={k:v for k,v in payload.items() if k != "prompt_sha256"}
     canonical.update(prompt=base64.b64encode(prompt).decode("ascii"), pinned_lane=None, exclusions=[], allow_desktop=False)
     digest=hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    if os.environ.get("FAKE_CAPTURE_PAYLOADS"):
+        with Path(os.environ["FAKE_CAPTURE_PAYLOADS"]).open("a") as evidence:
+            evidence.write(json.dumps({**payload, "request_id":request_id, "payload_digest":digest})+chr(10))
     existing=registry.get(request_id)
     if existing:
         return existing, False, existing["payload_digest"] != digest
