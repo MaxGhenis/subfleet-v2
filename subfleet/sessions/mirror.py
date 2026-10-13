@@ -936,6 +936,8 @@ class Mirror:
         self._archived_at: dict[str, float] = {}
         #: Sessions this pass's flag sync held or wrote: never pruned that pass.
         self._unsettled: set[str] = set()
+        #: The last planned account of the scope rules (`pass.prune`).
+        self._prune_report: dict[str, Any] | None = None
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -1937,8 +1939,8 @@ class Mirror:
                 elif previous.get("isArchived") is False:
                     record["archived_at"] = now
                 else:
-                    written = max((self._copy(path, name, data).mtime
-                                   for path, name, data in copies), default=0.0)
+                    written = max((self._mtime(path, name) for path, name, _data in copies),
+                                  default=0.0)
                     record["archived_at"] = min(now, written) if written > 0 else now
             if title is not None:
                 record["title"] = title
@@ -2137,46 +2139,83 @@ class Mirror:
             openable=frozenset(stems), archived_at=dict(self._archived_at),
             now=self.now().timestamp())
 
-    def _copy(self, path: Path, name: str, data: dict) -> prune_rules.Copy:
+    def _mtime(self, path: Path, name: str) -> float:
+        """A listed copy's mtime, from the inventory's signature when it holds one."""
         key = os.path.join(path, name)
         cached = self._entries.get(key)
         if cached is not None:
-            mtime = cached[0][2] / 1e9
-        else:
-            try:
-                mtime = os.stat(key).st_mtime
-            except OSError:
-                mtime = 0.0
+            return cached[0][2] / 1e9
+        try:
+            return os.stat(key).st_mtime
+        except OSError:
+            return 0.0
+
+    def _copy(self, path: Path, name: str, data: dict) -> prune_rules.Copy:
         return prune_rules.Copy(
-            # Interned: 228k copies on 2026-09-25 named 120 folders.
+            # Interned: 442,801 copies on 2026-10-13 named 135 folders.
             folder=sys.intern(f"{path.parent.name}/{path.name}"), name=name,
             identity=str(data.get("cliSessionId") or ""),
             archived=bool(data.get("isArchived")), starred=bool(data.get("isStarred")),
-            activity_ms=_activity_ms(data), mtime=mtime)
+            activity_ms=_activity_ms(data), mtime=self._mtime(path, name))
 
-    def _copies(self, folder_files: dict[Path, dict[str, dict]]) -> dict[str, list[prune_rules.Copy]]:
-        """Every copy the inventory read with a session id, by session."""
-        groups: dict[str, list[prune_rules.Copy]] = {}
+    def _summaries(self, folder_files: dict[Path, dict[str, dict]],
+                   situation: prune_rules.Situation) -> tuple[dict[str, prune_rules.Summary], int, int]:
+        """Every session's `Summary`, and how many copies and bytes the inventory holds.
+
+        One pass and no object per copy: equal copies share one projection,
+        so each projection's facts are worked out once.
+        """
+        summaries: dict[str, prune_rules.Summary] = {}
+        facts: dict[int, tuple[bool, bool, int]] = {}
+        count = size = 0
         for path, files in folder_files.items():
+            switch = situation.kinds.get(f"{path.parent.name}/{path.name}") == folder_kinds.SWITCH
+            base = os.fspath(path)
             for name, data in files.items():
+                count += 1
+                cached = self._entries.get(os.path.join(base, name))
+                if cached is not None:
+                    size += cached[0][3]
                 identity = data.get("cliSessionId") or ""
-                if identity:
-                    groups.setdefault(identity, []).append(self._copy(path, name, data))
-        return groups
+                if not identity:
+                    continue
+                known = facts.get(id(data))
+                if known is None:
+                    known = facts[id(data)] = (bool(data.get("isArchived")),
+                                               bool(data.get("isStarred")), _activity_ms(data))
+                archived, starred, activity = known
+                if activity > 0:
+                    last = activity / 1000.0
+                else:
+                    last = cached[0][2] / 1e9 if cached is not None else self._mtime(path, name)
+                summary = summaries.get(identity)
+                if summary is None:
+                    summary = summaries[identity] = prune_rules.Summary()
+                summary.add(archived, starred, last, switch)
+        return summaries, count, size
 
     def _prune(self, folder_files: dict[Path, dict[str, dict]],
                folders: list[tuple[str, str, Path]], situation: prune_rules.Situation,
                rules: prune_rules.Rules, options: Options, current: Pass, *,
                blocked: str | None) -> None:
-        """Plan this pass's removals, carry them out, and record the account."""
-        groups = self._copies(folder_files)
-        copies = [copy for group in groups.values() for copy in group]
+        """Plan this pass's removals session by session, carry them out, and
+        record the account (C-23.28a).
+
+        Only a session that can have a copy outside its scope is planned
+        (`prune.may_reach_outside`), and one session's copies are held at a
+        time: before pruning, 442,801 copies on 2026-10-13. With removal off
+        the plan only reports, so it runs on the ten-minute sweep, on a dry
+        run, and on a process's first pass; a pass in between carries the
+        last account forward (its `planned_at` says when).
+        """
+        if not (rules.prune or options.dry_run or current.swept or self._prune_report is None):
+            current.prune = dict(self._prune_report)
+            return
         if options.flag_sync:
             # The stamps this pass's flag sync decided, including the first
             # stamp of an archive it had not seen happen.
             situation = replace(situation, archived_at=dict(self._archived_at))
-        decided = prune_rules.plan(copies, situation, rules, held=self._unsettled,
-                                   blocked=blocked)
+        summaries, copies, total_bytes = self._summaries(folder_files, situation)
         paths = {f"{account}/{org}": path for account, org, path in folders}
         paths.update({f"{path.parent.name}/{path.name}": path for path in folder_files})
 
@@ -2184,47 +2223,81 @@ class Mirror:
             cached = self._entries.get(os.path.join(paths[folder], name))
             return cached[0][3] if cached is not None else 0
 
-        total_bytes = sum(size(copy.folder, copy.name) for copy in copies)
-        removable_bytes = sum(size(item.folder, item.name) for item in decided.removals)
-        would: dict[str, Any] | None = None
-        if not rules.prune:
-            # What turning removal on would remove now, so a dry run, the
-            # sidecar and `--status` can say it before anyone does.
-            other = prune_rules.plan(copies, situation, replace(rules, prune=True),
-                                     held=self._unsettled, blocked=blocked)
-            reasons: dict[str, int] = {}
-            for item in other.removals:
-                reasons[item.reason] = reasons.get(item.reason, 0) + 1
-            would = {"removable": len(other.removals),
-                     "removable_bytes": sum(size(item.folder, item.name)
-                                            for item in other.removals),
-                     "by_reason": reasons, "held": dict(other.held)}
+        def count(into: dict[str, int], key: str, by: int = 1) -> None:
+            into[key] = into.get(key, 0) + by
+
+        sessions: dict[str, int] = {}
+        candidates: dict[str, list[tuple[Path, str, dict]]] = {}
+        for identity, summary in summaries.items():
+            placed = prune_rules.scope_of(identity, summary, situation, rules)
+            count(sessions, placed.kind)
+            if prune_rules.may_reach_outside(placed, summary, rules):
+                candidates[identity] = []
+        for path, files in folder_files.items():
+            for name, data in files.items():
+                entries = candidates.get(data.get("cliSessionId") or "")
+                if entries is not None:
+                    entries.append((path, name, data))
+        outside: dict[str, int] = {}
+        kept: dict[str, int] = {}
+        held: dict[str, int] = {}
         removed: dict[str, int] = {}
-        held = dict(decided.held)
-        if options.dry_run:
-            for removal in decided.removals:
-                removed[removal.reason] = removed.get(removal.reason, 0) + 1
-            current.pruned = len(decided.removals)
-        elif rules.prune and decided.removals:
-            removed, late = self._remove_copies(decided.removals, paths, folder_files, current)
-            for reason, count in late.items():
-                held[reason] = held.get(reason, 0) + count
+        removable = removable_bytes = 0
+        would: dict[str, Any] | None = (None if rules.prune else
+                                        {"removable": 0, "removable_bytes": 0,
+                                         "by_reason": {}, "held": {}})
+        on = replace(rules, prune=True)
+        for identity in sorted(candidates):
+            self._checkpoint(current)
+            group = [self._copy(path, name, data) for path, name, data in candidates.pop(identity)]
+            decided = prune_rules.plan(group, situation, rules, held=self._unsettled,
+                                       blocked=blocked)
+            for into, part in ((outside, decided.outside), (kept, decided.kept),
+                               (held, decided.held)):
+                for key, value in part.items():
+                    count(into, key, value)
+            removable += len(decided.removals)
+            removable_bytes += sum(size(item.folder, item.name) for item in decided.removals)
+            if would is not None:
+                # What turning removal on would remove now, so a dry run, the
+                # sidecar and `--status` can say it before anyone does.
+                other = prune_rules.plan(group, situation, on, held=self._unsettled,
+                                         blocked=blocked)
+                would["removable"] += len(other.removals)
+                would["removable_bytes"] += sum(size(item.folder, item.name)
+                                                for item in other.removals)
+                for item in other.removals:
+                    count(would["by_reason"], item.reason)
+                for key, value in other.held.items():
+                    count(would["held"], key, value)
+            elif options.dry_run:
+                for item in decided.removals:
+                    count(removed, item.reason)
+                current.pruned += len(decided.removals)
+            elif decided.removals:
+                done, late = self._remove_copies(decided.removals, paths, folder_files, current)
+                for key, value in done.items():
+                    count(removed, key, value)
+                for key, value in late.items():
+                    count(held, key, value)
         kinds = dict.fromkeys((folder_kinds.SETTLED, folder_kinds.SWITCH,
                                folder_kinds.UNKNOWN), 0)
         for key in situation.folders:
             kinds[situation.kinds.get(key, folder_kinds.UNKNOWN)] += 1
-        current.prune = {
+        report = {
             "rules": {"skip_switch_folders": rules.skip_switch_folders,
                       "archive_days": rules.archive_days, "dead_days": rules.dead_days,
                       "prune": rules.prune},
+            "planned_at": _iso(self.now()),
             "home": situation.home, "home_detail": self._home_detail,
             "loaded": situation.loaded, "folders": kinds,
-            "copies": len(copies), "bytes": total_bytes,
-            "sessions": dict(decided.sessions), "outside": dict(decided.outside),
-            "kept_newest": dict(decided.kept),
-            "removable": len(decided.removals), "removable_bytes": removable_bytes,
+            "copies": copies, "bytes": total_bytes,
+            "sessions": sessions, "outside": outside, "kept_newest": kept,
+            "removable": removable, "removable_bytes": removable_bytes,
             "removed": removed, "held": held, "if_on": would,
         }
+        self._prune_report = report
+        current.prune = report
 
     def _still(self, path: Path, identity: str) -> tuple[tuple[int, ...], dict] | None:
         """`path`'s signature and projection now, if it still holds `identity`.
@@ -2555,19 +2628,20 @@ class Mirror:
         # Where each session belongs (C-23.28a): only there is it spread.
         rules = options.rules
         situation: prune_rules.Situation | None = None
-        placed: dict[str, list[prune_rules.Copy]] = {}
+        summaries: dict[str, prune_rules.Summary] = {}
         if rules.active:
             self._checkpoint(current, "placing sessions")
             situation = self._situation(options, folders, stems)
-            placed = self._copies(folder_files)
+            summaries = self._summaries(folder_files, situation)[0]
 
+        keyed = [(f"{account}/{org}", (account, org, path)) for account, org, path in folders]
         self._checkpoint(current, "copying entries")
         for identity, (_score, data, name, source) in canonical.items():
             targets = folders
             if situation is not None:
-                inside = prune_rules.scope(identity, placed.get(identity, []), situation,
-                                           rules).folders
-                targets = [item for item in folders if f"{item[0]}/{item[1]}" in inside]
+                inside = prune_rules.scope_of(identity, summaries.get(identity)
+                                              or prune_rules.Summary(), situation, rules).folders
+                targets = [item for folder, item in keyed if folder in inside]
             self._spread(identity, data, name, source, targets,
                          has=lambda path, key: key in folder_ids[path],
                          existing=lambda path, key: folder_files[path].get(key),

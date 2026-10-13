@@ -234,6 +234,21 @@ def test_scope_is_one_of_three_shapes(world):
             assert folder not in seeded
 
 
+@SETTINGS
+@given(worlds())
+def test_the_sessions_left_unplanned_have_nothing_outside_their_scope(world):
+    """C-23.28a: the mirror plans only sessions `may_reach_outside` names, and
+    decides every scope from a `Summary`; skipping the others loses nothing,
+    and the summary decides as the copies do."""
+    copies, situation, rules, held = world
+    for identity, group in by_session(copies).items():
+        summary = prune.summarize(group, situation)
+        placed = prune.scope_of(identity, summary, situation, rules)
+        assert placed == prune.scope(identity, group, situation, rules)
+        if not prune.may_reach_outside(placed, summary, rules):
+            assert not prune.plan(group, situation, rules, held=held).outside
+
+
 # --- examples -----------------------------------------------------------------
 
 def situation(**changes) -> prune.Situation:

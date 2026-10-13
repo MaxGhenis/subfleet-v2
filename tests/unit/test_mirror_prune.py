@@ -219,6 +219,31 @@ def test_removal_is_off_by_default_and_the_pass_says_what_it_would_remove(world)
     assert result.prune["if_on"]["held"] == {prune_rules.HELD_LOADED: 1}
 
 
+def test_with_removal_off_the_account_is_planned_on_the_sweep_and_carried_between(
+        world, monkeypatch):
+    """C-23.28a: with removal off the plan only reports, so a pass between
+    ten-minute sweeps carries the last account forward instead of planning
+    every copy every minute (442,801 copies on 2026-10-13)."""
+    put(world, ONE, FOLDERS, archived=True, days=30)
+    running = engine(world)
+    first = running.run_once(options())
+    put(world, TWO, [HOME], archived=True, days=30)
+    planned, calls = prune_rules.plan, []
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return planned(*args, **kwargs)
+
+    monkeypatch.setattr(prune_rules, "plan", counted)
+    between = running.run_once(options())
+    assert not between.swept and not calls, "no planning between sweeps"
+    assert between.prune == first.prune
+    running._last_sweep = None                       # noqa: SLF001 - the sweep is due
+    swept = running.run_once(options())
+    assert swept.swept and calls
+    assert swept.prune["sessions"]["archived"] == 2
+
+
 def test_old_archived_copies_go_except_the_homes_and_the_loaded_folders(world):
     """C-23.28a: the copies outside the home go; the loaded folder's waits
     until the app has left it, since the app saves what it holds."""

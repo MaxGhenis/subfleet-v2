@@ -57,6 +57,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Iterable, Mapping
 
 from .folder_kinds import SWITCH
@@ -134,6 +135,15 @@ class Situation:
     archived_at: Mapping[str, float]
     now: float
 
+    @cached_property
+    def every_folder(self) -> frozenset[str]:
+        return frozenset(self.folders)
+
+    @cached_property
+    def unswitched(self) -> frozenset[str]:
+        """Every folder but the switch folders."""
+        return frozenset(folder for folder in self.folders if self.kinds.get(folder) != SWITCH)
+
 
 @dataclass(frozen=True)
 class Scope:
@@ -173,36 +183,79 @@ def seeded(folder: str, situation: Situation, rules: Rules) -> bool:
     return not (rules.skip_switch_folders and situation.kinds.get(folder) == SWITCH)
 
 
+@dataclass(slots=True)
+class Summary:
+    """What a session's scope depends on, folded over its copies.
+
+    Scope needs no more than this, so a pass can decide it for every session
+    without holding an object per copy (442,801 copies on 2026-10-13).
+    """
+
+    copies: int = 0
+    #: Every copy is archived.
+    archived: bool = True
+    #: Some copy is starred.
+    starred: bool = False
+    #: The newest `Copy.last_sign` over the copies, epoch seconds.
+    last_sign: float = 0.0
+    #: Some copy sits in a switch folder.
+    in_switch: bool = False
+
+    def add(self, archived: bool, starred: bool, last_sign: float, switch: bool) -> None:
+        self.copies += 1
+        self.archived = self.archived and archived
+        self.starred = self.starred or starred
+        self.last_sign = max(self.last_sign, last_sign)
+        self.in_switch = self.in_switch or switch
+
+
+def summarize(copies: Iterable[Copy], situation: Situation) -> Summary:
+    summary = Summary()
+    for copy in copies:
+        summary.add(copy.archived, copy.starred, copy.last_sign,
+                    situation.kinds.get(copy.folder) == SWITCH)
+    return summary
+
+
 def quiet_since(identity: str, copies: Iterable[Copy], situation: Situation) -> float:
     """Epoch seconds of the session's newest sign of life, over every copy."""
-    latest = situation.archived_at.get(identity, 0.0)
-    for copy in copies:
-        latest = max(latest, copy.last_sign)
-    return latest
+    return max(situation.archived_at.get(identity, 0.0),
+               summarize(copies, situation).last_sign)
 
 
 def scope(identity: str, copies: list[Copy], situation: Situation, rules: Rules) -> Scope:
-    """The folders a session belongs in, judged over every copy of it.
+    """The folders a session belongs in, judged over every copy of it."""
+    return scope_of(identity, summarize(copies, situation), situation, rules)
+
+
+def scope_of(identity: str, summary: Summary, situation: Situation, rules: Rules) -> Scope:
+    """The folders a session belongs in, from its `Summary`.
 
     A session with any unarchived or starred copy is live: flag sync has not
     settled it, or the user wants it seen, and a live session belongs
     everywhere. So does an archived one while it is younger than the rule,
     and every session when its rule is off or no home folder is known.
     """
-    everywhere = frozenset(folder for folder in situation.folders
-                           if seeded(folder, situation, rules))
-    age = situation.now - quiet_since(identity, copies, situation)
+    everywhere = situation.unswitched if rules.skip_switch_folders else situation.every_folder
+    age = situation.now - max(situation.archived_at.get(identity, 0.0), summary.last_sign)
     if identity not in situation.openable:
         if rules.dead_days > 0 and age >= rules.dead_days * DAY_S:
             home = frozenset({situation.home}) if situation.home else frozenset()
             return Scope("dead", home)
         return Scope("dead-young", everywhere)
     if (rules.archive_days > 0 and situation.home is not None
-            and copies and all(copy.archived for copy in copies)
-            and not any(copy.starred for copy in copies)
+            and summary.copies and summary.archived and not summary.starred
             and age >= rules.archive_days * DAY_S):
         return Scope("archived", frozenset({situation.home}))
     return Scope("live", everywhere)
+
+
+def may_reach_outside(placed: Scope, summary: Summary, rules: Rules) -> bool:
+    """Whether a session can have a copy outside its scope at all: only an
+    archived or dead one, or one with a copy in an unseeded switch folder.
+    Every other session needs no planning beyond its scope."""
+    return (placed.kind in ("archived", "dead")
+            or (rules.skip_switch_folders and summary.in_switch))
 
 
 def survivors(copies: list[Copy], inside: frozenset[str], situation: Situation) -> list[Copy]:
@@ -282,5 +335,5 @@ def plan(copies: Iterable[Copy], situation: Situation, rules: Rules, *,
 
 __all__ = ["ARCHIVED", "Copy", "DAY_S", "DEAD", "HELD_FLAGS", "HELD_HOME", "HELD_LOADED",
            "HELD_NO_PRUNE", "HELD_NO_SURVIVOR", "HELD_UNKNOWN_LOAD", "Plan", "Removal",
-           "Rules", "SWITCH_FOLDER", "Scope", "Situation", "plan", "quiet_since", "scope",
-           "seeded", "survivors"]
+           "Rules", "SWITCH_FOLDER", "Scope", "Situation", "Summary", "may_reach_outside",
+           "plan", "quiet_since", "scope", "scope_of", "seeded", "summarize", "survivors"]
