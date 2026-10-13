@@ -1145,10 +1145,10 @@ def test_c13_1_live_git_past_its_cap_is_tried_again_then_recorded(state_daemon, 
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
     add = salvage_module._add
 
-    def capped_add(workdir, env, pathspec, timeout_s):
+    def capped_add(workdir, env, pathspec, timeout_s, sparse=False):
         # Only the sleeping add has the short cap. Real setup/probe calls retain
         # their normal cap, so load cannot turn this into a read-tree reproduction.
-        return add(workdir, env, pathspec, 1)
+        return add(workdir, env, pathspec, 1, sparse)
 
     monkeypatch.setattr(salvage_module, "_add", capped_add)
     for tries in range(1, SALVAGE_TRIES):
