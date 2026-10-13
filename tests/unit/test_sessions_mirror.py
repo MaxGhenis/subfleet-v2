@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 import os
 import threading
-from datetime import timedelta
+from datetime import timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from subfleet.sessions import mirror
+from subfleet.sessions import desktop, mirror
 from tests import sessions_fixtures as fx
 
 ONE = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
@@ -488,13 +488,23 @@ def test_flag_sync_can_be_switched_off(world):
 
 # --- prune --------------------------------------------------------------------
 
-def test_prune_keeps_one_dead_copy_in_the_dead_home(world):
-    """v1's `--prune`, kept and still off by default: the Claude app prunes
-    dead copies itself on load."""
+def test_prune_keeps_one_dead_copy_in_the_dead_home(world, tmp_path):
+    """C-23.28a, v1's `--prune` kept and still off by default: a dead session
+    quiet `mirror_dead_days` keeps one copy, the home folder's. (v1's reason
+    for leaving it off, that the app prunes dead copies itself on load, is
+    refuted for app 2.9939.2: its load deletes nothing.) Removal also needs
+    the app's loaded folder known, so the app's log names one."""
     _home, store, _root = world
     for account, org in ((ACCOUNT_A, ORG_A), (ACCOUNT_B, ORG_B)):
         fx.index_entry(store, account, org, ONE)        # no transcript: dead
-    engine(world).run_once(mirror.Options(prune=True, dead_home=ORG_A))
+    running = engine(world)
+    unknown = running.run_once(mirror.Options(prune=True, dead_home=ORG_A, dead_days=7))
+    assert unknown.pruned == 0, "nothing goes while the loaded folder is unknown"
+    log = tmp_path / "main.log"
+    log.write_text("2026-09-05 11:00:00 [info] Loaded 1 persisted sessions from "
+                   f"{store / ACCOUNT_A / ORG_A}\n", encoding="utf-8")
+    running._desktop = desktop.DesktopLog(log, store=store, tz=timezone.utc)   # noqa: SLF001
+    running.run_once(mirror.Options(prune=True, dead_home=ORG_A, dead_days=7))
     assert (store / ACCOUNT_A / ORG_A / f"local_{ONE}.json").exists()
     assert not (store / ACCOUNT_B / ORG_B / f"local_{ONE}.json").exists()
 

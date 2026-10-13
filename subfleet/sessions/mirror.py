@@ -103,6 +103,7 @@ import fcntl
 import glob as globbing
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -110,11 +111,13 @@ import stat
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import folder_kinds
+from . import prune as prune_rules
 from . import transcripts
 from .desktop import AppState, DesktopLog
 
@@ -424,6 +427,84 @@ def _remove_leftovers(paths: Iterable[str]) -> None:
             pass
 
 
+#: A record the mirror is removing waits under a name of its own ending in
+#: this, for the one check that it is the file the pass decided on. Never
+#: `*.json` or `*.json.tmp` (see TEMPORARY_SUFFIX), and never swept as a
+#: leftover: a grave a crash left is put back (`_bury`), not deleted.
+GRAVE_SUFFIX = ".prune-subfleet"
+
+
+def _same_contents(one: tuple[int, ...], other: tuple[int, ...]) -> bool:
+    """Two `_stat_signature`s of one file with the same bytes: device, inode,
+    mtime and size. A rename changes the ctime, so it is left out; the app
+    replaces a record by renaming a new file over it, which a new inode shows."""
+    return one[:4] == other[:4]
+
+
+def _remove(path: Path, expect: tuple[int, ...]) -> bool:
+    """Delete `path` only if it is still the file `expect` describes (C-23.28a).
+
+    unlink(2) cannot compare first, so the record is renamed aside, which
+    takes whatever holds the name in one step, and is checked there. If it is
+    not the file the pass decided on (the app renamed a save over it after the
+    pass looked), it is put back create-only, and if the app saved yet again
+    meanwhile, that newer save keeps the name. So a removal never destroys a
+    save it did not inspect. The grave is a fresh name of the mirror's own
+    (`_temporary`), renamed over, so no earlier grave is ever replaced; a crash
+    between the two steps leaves one for `_bury` at the folder's next listing.
+    """
+    handle, grave = _temporary(path, GRAVE_SUFFIX)
+    os.close(handle)
+    try:
+        os.rename(path, grave)
+    except FileNotFoundError:
+        grave.unlink(missing_ok=True)
+        return False
+    except BaseException:
+        grave.unlink(missing_ok=True)
+        raise
+    try:
+        taken: tuple[int, ...] | None = _stat_signature(os.lstat(grave))
+    except OSError:
+        taken = None
+    if taken is not None and _same_contents(taken, expect):
+        grave.unlink()
+        return True
+    _bury(grave)                            # not ours to remove: put it back
+    return False
+
+
+def _grave_name(name: str) -> str | None:
+    """The record name a grave stands for, or None if `name` is no grave."""
+    if not (name.startswith("local_") and name.endswith(GRAVE_SUFFIX)):
+        return None
+    stem = name[:-len(GRAVE_SUFFIX)]
+    original, dot, _random = stem.rpartition(".")
+    return original if dot and original.endswith(".json") else None
+
+
+def _bury(grave: Path) -> None:
+    """Put a grave back under its record's name, create-only, then drop it.
+
+    If a newer save holds the name, the grave is the older record and goes.
+    If the link fails any other way, the grave stays for the next listing: a
+    record is never dropped without its name being held.
+    """
+    original = _grave_name(grave.name)
+    if original is None:
+        return
+    try:
+        os.link(grave, grave.with_name(original), follow_symlinks=False)
+    except FileExistsError:
+        pass
+    except OSError:
+        return
+    try:
+        grave.unlink()
+    except OSError:
+        pass
+
+
 def _stat_signature(info: os.stat_result) -> tuple[int, ...]:
     return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size, info.st_ctime_ns)
 
@@ -566,13 +647,19 @@ class Pass:
     flags_held: int = 0
     #: Why, for the first few: `{"path", "reason"}`.
     held_by: list[dict[str, str]] | None = None
+    #: The scope rules' account of a full pass (C-23.28a, `prune.py`): folders
+    #: by kind, the home and loaded folders, sessions by scope, copies outside
+    #: their scope by reason, and what was removed or kept and why. None when
+    #: no rule is on.
+    prune: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: getattr(self, key) for key in (
             "started_at", "finished_at", "state", "added", "repaired", "revived",
             "pruned", "flag_synced", "retitled", "transcript_retitled",
             "accounts", "sessions", "error", "dry_run", "stage", "entries_scanned",
-            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by")}
+            "kind", "folders_scanned", "swept", "skipped", "flags_held", "held_by",
+            "prune")}
 
     @property
     def changed(self) -> bool:
@@ -592,13 +679,27 @@ class Options:
     """Everything a pass may be told to do or not do."""
 
     dry_run: bool = False
+    #: Remove copies outside their session's scope (C-23.28a, `prune.py`).
     prune: bool = False
+    #: The home folder of old archived and dead sessions: `<account>/<org>`,
+    #: or an org id (v1's spelling) naming one folder the app settles in.
     dead_home: str = ""
     exclude: tuple[str, ...] = ()
     flag_sync: bool = True
     restore: bool = True
     archive: str = ""
     ultracode_default: bool = True
+    #: The scope rules (C-23.28a). Off here, so a bare `Options()` spreads
+    #: everywhere as before; `options_from` takes them from the policy.
+    skip_switch_folders: bool = False
+    archive_days: float = 0.0
+    dead_days: float = 0.0
+
+    @property
+    def rules(self) -> prune_rules.Rules:
+        return prune_rules.Rules(skip_switch_folders=self.skip_switch_folders,
+                                 archive_days=self.archive_days, dead_days=self.dead_days,
+                                 prune=self.prune)
 
 
 def load_config(path: Path | None = None) -> dict[str, Any]:
@@ -617,10 +718,15 @@ def transcripts_dir() -> Path:
 
 def options_from(policy: dict[str, Any], **overrides: Any) -> Options:
     """Policy, then v1's saved defaults and caller flags; exclusions accumulate."""
-    settings = policy.get("sessions", {})
+    from ..policy import SESSION_DEFAULTS
+    settings = {**SESSION_DEFAULTS, **policy.get("sessions", {})}
     config = load_config()
     values: dict[str, Any] = {
-        "ultracode_default": bool(settings.get("mirror_ultracode_default", True))}
+        "ultracode_default": bool(settings.get("mirror_ultracode_default", True)),
+        "skip_switch_folders": bool(settings["mirror_skip_switch_folders"]),
+        "archive_days": float(settings["mirror_archive_days"]),
+        "dead_days": float(settings["mirror_dead_days"]),
+        "prune": bool(settings["mirror_prune"])}
     if isinstance(config.get("dead_home"), str):
         values["dead_home"] = config["dead_home"]
     if isinstance(config.get("archive"), str):
@@ -662,6 +768,29 @@ def _short(account: str, org: str) -> str:
 def _rank(data: dict) -> Any:
     return (data.get("lastActivityAt") or data.get("lastFocusedAt")
             or data.get("createdAt") or 0)
+
+
+def _activity_ms(data: dict) -> int:
+    """The newest of a record's activity, focus and creation times, epoch ms.
+
+    The app writes all three as epoch milliseconds (every one of 227,924
+    records on 2026-09-25); an ISO string is read too, and anything else is no
+    time.
+    """
+    newest = 0
+    for key in ("lastActivityAt", "lastFocusedAt", "createdAt"):
+        value = data.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            stamp = int(value)
+        elif isinstance(value, str):
+            instant = _instant(value)
+            stamp = int(instant.timestamp() * 1000) if instant is not None else 0
+        else:
+            continue
+        newest = max(newest, stamp)
+    return newest
 
 
 class _Journal:
@@ -785,6 +914,17 @@ class Mirror:
         #: A published flag decision or copy write left standing this hot pass.
         self._flags_moved = False
         self._flags_active = False
+        #: Which folders the app settles in (`folder_kinds.py`), read on first use.
+        self._registry: folder_kinds.Registry | None = None
+        #: The last full pass's view, for the hot pass's scope (C-23.28a):
+        #: folder -> kind, the resolved home folder and why, and when each
+        #: session was archived as the merge base records it.
+        self._kinds: dict[str, str] = {}
+        self._home: str | None = None
+        self._home_detail = ""
+        self._archived_at: dict[str, float] = {}
+        #: Sessions this pass's flag sync held or wrote: never pruned that pass.
+        self._unsettled: set[str] = set()
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -1208,11 +1348,12 @@ class Mirror:
         # Clear only the old invalidation. An embedded hot write during this
         # listing or its reads must leave a fresh invalidation for the next scan.
         self._dirty.discard(path)
-        try:
+
+        def listed() -> tuple[list[tuple[str, os.DirEntry]], list[str], list[str]]:
             with os.scandir(path) as listing:
                 # The same ~1.8k names recur in every folder; interned, the
                 # folders' listings share one string per name.
-                found, leftovers = [], []
+                found, leftovers, graves = [], [], []
                 for index, item in enumerate(listing):
                     if index % LISTING_CHECKPOINT_ENTRIES == 0:
                         self._checkpoint(current)
@@ -1220,7 +1361,19 @@ class Mirror:
                         found.append((sys.intern(item.name), item))
                     elif sweep and item.name.endswith(TEMPORARY_SUFFIX):
                         leftovers.append(item.path)
+                    elif item.name.endswith(GRAVE_SUFFIX):
+                        graves.append(item.path)
                 found.sort(key=lambda row: row[0])
+                return found, leftovers, graves
+
+        try:
+            found, leftovers, graves = listed()
+            if graves and not current.dry_run:
+                # A removal that crashed between its two steps (C-23.28a): put
+                # each record back where its name is free, then list again.
+                for grave in graves:
+                    _bury(Path(grave))
+                found, leftovers, _graves = listed()
         except OSError as exc:
             # Unknown is not empty: an empty view would hide every session the
             # folder holds and invite copies over them. List it again next pass.
@@ -1756,6 +1909,26 @@ class Mirror:
                 current.transcript_retitled += 1
 
             record = {"isArchived": base["isArchived"], "isStarred": base["isStarred"]}
+            # When the session was archived (C-23.28a), stamped once and kept
+            # while it stays archived. An archive the base records from
+            # unarchived is stamped now. One the mirror did not see happen (no
+            # base yet, or a base from before the stamp existed) is stamped
+            # with the app's last write of any copy: the archive write or a
+            # later save, so the stamp errs late and the session waits the
+            # longer. The app's later re-saves never move it.
+            previous = base_all.get(identity) or {}
+            if base["isArchived"]:
+                since = previous.get("archived_at")
+                now = self.now().timestamp()
+                if (previous.get("isArchived") is True and isinstance(since, (int, float))
+                        and not isinstance(since, bool) and math.isfinite(since)):
+                    record["archived_at"] = since
+                elif previous.get("isArchived") is False:
+                    record["archived_at"] = now
+                else:
+                    written = max((self._copy(path, name, data).mtime
+                                   for path, name, data in copies), default=0.0)
+                    record["archived_at"] = min(now, written) if written > 0 else now
             if title is not None:
                 record["title"] = title
             if anchor is not None:
@@ -1764,11 +1937,11 @@ class Mirror:
                 record["tmt"] = stamp
             fresh[identity] = record
 
+        held: set[str] = set()
         if not options.dry_run:
             # Once writes start, finish the matching merge base. Cancellation
             # inside this batch could mistake our partial writes for user edits.
             self._checkpoint(current, "publishing flags")
-            held: set[str] = set()
             batches: dict[str, list[tuple[Path, str]]] = {}
             for path, name in sorted(dirty, key=lambda item: (str(item[0]), item[1])):
                 batches.setdefault(owners.get((path, name), ""), []).append((path, name))
@@ -1862,7 +2035,283 @@ class Mirror:
                     for identity in fresh.keys() | base_all.keys()
                 ):
                     self._flags_moved = True
+        # What pruning must leave for the next pass (C-23.28a): a session this
+        # pass held, or wrote (its copies are no longer as the pass read them).
+        self._unsettled = waiting | held | {owners.get(item, "") for item in dirty}
+        self._archived_at = {identity: float(record["archived_at"])
+                             for identity, record in fresh.items()
+                             if isinstance(record, dict)
+                             and isinstance(record.get("archived_at"), (int, float))
+                             and not isinstance(record.get("archived_at"), bool)}
         return dirty
+
+    # --- where sessions belong (C-23.28a, `prune.py`) -------------------------
+
+    def _learn_folders(self, state: AppState, keys: Iterable[str], *,
+                       dry_run: bool) -> dict[str, str]:
+        """Fold the app's new loads into the folder registry; classify `keys`.
+
+        The registry lives in the state root (`folder_kinds.py`). A dry run
+        learns in memory and writes nothing.
+        """
+        if self._registry is None:
+            self._registry = folder_kinds.Registry(folder_kinds.registry_path(self.root))
+        if self._desktop is not None:
+            try:
+                changed = folder_kinds.learn(self._registry, self._desktop, replay=True)
+            except OSError:
+                changed = False
+            if changed and not dry_run:
+                try:
+                    self._registry.save()
+                except OSError:
+                    pass                     # learned again from the log next pass
+        return self._registry.classify(keys, now=self.now().timestamp(),
+                                       logged_out=state.logged_out_at)
+
+    @staticmethod
+    def resolve_home(value: str, kinds: dict[str, str]) -> tuple[str | None, str]:
+        """The one folder `dead_home` names, and what was decided and why.
+
+        v1 stored an org id, and several accounts can hold a folder for one
+        org (all but one of them switch folders, `folder_kinds.py`), so an org
+        id names the folder the app settles in, or else the only folder
+        there is. A switch folder is never the home: nobody would see it.
+        """
+        if not value:
+            return None, ("no home folder: set dead_home in ~/.claude/cc-mirror.json, "
+                          "or pass --dead-home")
+        if "/" in value:
+            if value not in kinds:
+                return None, f"the home folder {value} is not in the store"
+            if kinds[value] == folder_kinds.SWITCH:
+                return None, f"the home folder {value} is a switch folder"
+            return value, f"home folder {value}"
+        candidates = [key for key, kind in kinds.items()
+                      if key.partition("/")[2] == value and kind != folder_kinds.SWITCH]
+        settled = [key for key in candidates if kinds[key] == folder_kinds.SETTLED]
+        pool = settled or candidates
+        if len(pool) == 1:
+            return pool[0], f"home folder {pool[0]} (org {value})"
+        if not pool:
+            return None, f"no folder for the home org {value}"
+        return None, (f"the home org {value} names {len(pool)} folders; set dead_home "
+                      "to <account>/<org>")
+
+    def _base_archived_at(self) -> dict[str, float]:
+        found: dict[str, float] = {}
+        for identity, record in _load(self.flags_path).items():
+            since = record.get("archived_at") if isinstance(record, dict) else None
+            if (isinstance(since, (int, float)) and not isinstance(since, bool)
+                    and math.isfinite(since)):
+                found[identity] = float(since)
+        return found
+
+    def _situation(self, options: Options, folders: list[tuple[str, str, Path]],
+                   stems: dict[str, Path]) -> prune_rules.Situation:
+        """What the scope rules need besides the copies, as of now."""
+        keys = tuple(f"{account}/{org}" for account, org, _path in folders)
+        try:
+            state = self._desktop_state()
+        except OSError:
+            state = AppState()
+        kinds = self._learn_folders(state, keys, dry_run=options.dry_run)
+        home, why = self.resolve_home(options.dead_home, kinds)
+        self._kinds, self._home, self._home_detail = kinds, home, why
+        self._archived_at = self._base_archived_at()
+        load = state.load
+        return prune_rules.Situation(
+            folders=keys, kinds=kinds, home=home,
+            loaded=load.folder if load is not None else None,
+            openable=frozenset(stems), archived_at=dict(self._archived_at),
+            now=self.now().timestamp())
+
+    def _copy(self, path: Path, name: str, data: dict) -> prune_rules.Copy:
+        key = os.path.join(path, name)
+        cached = self._entries.get(key)
+        if cached is not None:
+            mtime = cached[0][2] / 1e9
+        else:
+            try:
+                mtime = os.stat(key).st_mtime
+            except OSError:
+                mtime = 0.0
+        return prune_rules.Copy(
+            folder=f"{path.parent.name}/{path.name}", name=name,
+            identity=str(data.get("cliSessionId") or ""),
+            archived=bool(data.get("isArchived")), starred=bool(data.get("isStarred")),
+            activity_ms=_activity_ms(data), mtime=mtime)
+
+    def _copies(self, folder_files: dict[Path, dict[str, dict]]) -> dict[str, list[prune_rules.Copy]]:
+        """Every copy the inventory read with a session id, by session."""
+        groups: dict[str, list[prune_rules.Copy]] = {}
+        for path, files in folder_files.items():
+            for name, data in files.items():
+                identity = data.get("cliSessionId") or ""
+                if identity:
+                    groups.setdefault(identity, []).append(self._copy(path, name, data))
+        return groups
+
+    def _prune(self, folder_files: dict[Path, dict[str, dict]],
+               folders: list[tuple[str, str, Path]], situation: prune_rules.Situation,
+               rules: prune_rules.Rules, options: Options, current: Pass, *,
+               blocked: str | None) -> None:
+        """Plan this pass's removals, carry them out, and record the account."""
+        groups = self._copies(folder_files)
+        copies = [copy for group in groups.values() for copy in group]
+        if options.flag_sync:
+            # The stamps this pass's flag sync decided, including the first
+            # stamp of an archive it had not seen happen.
+            situation = replace(situation, archived_at=dict(self._archived_at))
+        decided = prune_rules.plan(copies, situation, rules, held=self._unsettled,
+                                   blocked=blocked)
+        paths = {f"{account}/{org}": path for account, org, path in folders}
+        paths.update({f"{path.parent.name}/{path.name}": path for path in folder_files})
+
+        def size(folder: str, name: str) -> int:
+            cached = self._entries.get(os.path.join(paths[folder], name))
+            return cached[0][3] if cached is not None else 0
+
+        total_bytes = sum(size(copy.folder, copy.name) for copy in copies)
+        removable_bytes = sum(size(item.folder, item.name) for item in decided.removals)
+        would: dict[str, Any] | None = None
+        if not rules.prune:
+            # What turning removal on would remove now, so a dry run, the
+            # sidecar and `--status` can say it before anyone does.
+            other = prune_rules.plan(copies, situation, replace(rules, prune=True),
+                                     held=self._unsettled, blocked=blocked)
+            reasons: dict[str, int] = {}
+            for item in other.removals:
+                reasons[item.reason] = reasons.get(item.reason, 0) + 1
+            would = {"removable": len(other.removals),
+                     "removable_bytes": sum(size(item.folder, item.name)
+                                            for item in other.removals),
+                     "by_reason": reasons, "held": dict(other.held)}
+        removed: dict[str, int] = {}
+        held = dict(decided.held)
+        if options.dry_run:
+            for removal in decided.removals:
+                removed[removal.reason] = removed.get(removal.reason, 0) + 1
+            current.pruned = len(decided.removals)
+        elif rules.prune and decided.removals:
+            removed, late = self._remove_copies(decided.removals, paths, folder_files, current)
+            for reason, count in late.items():
+                held[reason] = held.get(reason, 0) + count
+        kinds = dict.fromkeys((folder_kinds.SETTLED, folder_kinds.SWITCH,
+                               folder_kinds.UNKNOWN), 0)
+        for key in situation.folders:
+            kinds[situation.kinds.get(key, folder_kinds.UNKNOWN)] += 1
+        current.prune = {
+            "rules": {"skip_switch_folders": rules.skip_switch_folders,
+                      "archive_days": rules.archive_days, "dead_days": rules.dead_days,
+                      "prune": rules.prune},
+            "home": situation.home, "home_detail": self._home_detail,
+            "loaded": situation.loaded, "folders": kinds,
+            "copies": len(copies), "bytes": total_bytes,
+            "sessions": dict(decided.sessions), "outside": dict(decided.outside),
+            "kept_newest": dict(decided.kept),
+            "removable": len(decided.removals), "removable_bytes": removable_bytes,
+            "removed": removed, "held": held, "if_on": would,
+        }
+
+    def _still(self, path: Path, identity: str) -> tuple[tuple[int, ...], dict] | None:
+        """`path`'s signature and projection now, if it still holds `identity`.
+
+        The inventory's cached entry answers when the file is unchanged since
+        the pass read it; otherwise the file is read again (only as a regular
+        file), and must not change while it is read.
+        """
+        try:
+            signature = _signature_of(path)
+            cached = self._entries.get(os.fspath(path))
+            if cached is not None and cached[0] == signature:
+                data = self._payloads[cached[1]].value
+            else:
+                raw, info = _read_entry(path)
+                data = _project(json.loads(raw))
+                if _stat_signature(info) != signature or _signature_of(path) != signature:
+                    return None
+        except (OSError, ValueError):
+            return None
+        if (data.get("cliSessionId") or "") != identity:
+            return None
+        return signature, data
+
+    def _remove_copies(self, removals: list[prune_rules.Removal], paths: dict[str, Path],
+                       folder_files: dict[Path, dict[str, dict]],
+                       current: Pass) -> tuple[dict[str, int], dict[str, int]]:
+        """Remove the planned copies, each only if everything it relied on still holds.
+
+        Per session, right before its removals, the app's loaded folder is
+        read again from its log (a switch may have loaded one of them since
+        the plan), and the keeper is read again: it must still hold the
+        session (archived, for an archived session's removals). Per copy: it
+        must still hold the session, archived for an archived removal and no
+        newer than the keeper; `_remove` then takes only the file it checked.
+        """
+        removed: dict[str, int] = {}
+        late: dict[str, int] = {}
+        changed = "the copy changed since the pass read it"
+
+        def hold(reason: str, count: int = 1) -> None:
+            late[reason] = late.get(reason, 0) + count
+
+        batches: dict[str, list[prune_rules.Removal]] = {}
+        for removal in removals:
+            batches.setdefault(removal.identity, []).append(removal)
+        for identity, batch in batches.items():
+            self._checkpoint(current)
+            try:
+                load = self._desktop_state().load
+            except OSError:
+                load = None
+            if load is None:
+                hold(prune_rules.HELD_UNKNOWN_LOAD, len(batch))
+                continue
+            keeper_folder, keeper_name = batch[0].keeper
+            kept = self._still(paths[keeper_folder] / keeper_name, identity)
+            if kept is None or (batch[0].reason == prune_rules.ARCHIVED
+                                and not kept[1].get("isArchived")):
+                hold("the keeper changed since the pass read it", len(batch))
+                continue
+            best = _activity_ms(kept[1])
+            for removal in batch:
+                if removal.folder == load.folder:
+                    hold(prune_rules.HELD_LOADED)
+                    continue
+                folder = paths[removal.folder]
+                target = folder / removal.name
+                now_holds = self._still(target, identity)
+                if now_holds is None:
+                    hold(changed)
+                    continue
+                signature, data = now_holds
+                if _activity_ms(data) > best or (removal.reason == prune_rules.ARCHIVED
+                                                 and not data.get("isArchived")):
+                    hold(changed)
+                    continue
+                self._invalidate_folder(folder)
+                try:
+                    gone = _remove(target, signature)
+                except OSError:
+                    gone = False
+                if not gone:
+                    hold(changed)
+                    continue
+                self._forget(target)
+                folder_files.get(folder, {}).pop(removal.name, None)
+                state = self._folders.get(folder)
+                if state is not None:
+                    # A new snapshot, never a mutation of one shared with the
+                    # hot worker (see `_scan`).
+                    ids = {key: [name for name in value if name != removal.name]
+                           for key, value in state.ids.items()}
+                    self._folders[folder] = _Folder(
+                        state.signature, state.names - {removal.name},
+                        {key: value for key, value in ids.items() if value}, False)
+                removed[removal.reason] = removed.get(removal.reason, 0) + 1
+                current.pruned += 1
+        return removed, late
 
     # --- one pass ------------------------------------------------------------
 
@@ -2054,11 +2503,6 @@ class Mirror:
         self._drop_folders(folders)
         folders = [item for item in folders if item[2] in folder_files]
         self._inventoried = True
-        by_name: dict[str, dict[Path, dict]] = {}
-        if options.prune:
-            for path, files in folder_files.items():
-                for name, data in files.items():
-                    by_name.setdefault(name, {})[path] = data
 
         if options.restore and options.archive:
             self._checkpoint(current, "restoring transcripts")
@@ -2096,16 +2540,30 @@ class Mirror:
             folder_files[path][name] = data
             folder_ids[path].add(identity)
 
+        # Where each session belongs (C-23.28a): only there is it spread.
+        rules = options.rules
+        situation: prune_rules.Situation | None = None
+        placed: dict[str, list[prune_rules.Copy]] = {}
+        if rules.active:
+            self._checkpoint(current, "placing sessions")
+            situation = self._situation(options, folders, stems)
+            placed = self._copies(folder_files)
+
         self._checkpoint(current, "copying entries")
         for identity, (_score, data, name, source) in canonical.items():
-            self._spread(identity, data, name, source, folders,
+            targets = folders
+            if situation is not None:
+                inside = prune_rules.scope(identity, placed.get(identity, []), situation,
+                                           rules).folders
+                targets = [item for item in folders if f"{item[0]}/{item[1]}" in inside]
+            self._spread(identity, data, name, source, targets,
                          has=lambda path, key: key in folder_ids[path],
                          existing=lambda path, key: folder_files[path].get(key),
                          note=note, options=options, current=current)
 
+        flag_files: dict[Path, dict[str, dict]] | None = folder_files
         if options.flag_sync:
             self._checkpoint(current, "resolving flags")
-            flag_files = folder_files
             if self._hot_services:
                 for _attempt in range(2):
                     # An inline hot pass may have advanced the base while this
@@ -2134,26 +2592,20 @@ class Mirror:
                 finally:
                     self._flags_active = False
 
-        if options.prune:
+        if situation is not None:
             self._checkpoint(current, "pruning entries")
-            # Off by default: the Claude app prunes dead copies itself on load.
-            home = next((path for _a, org, path in folders if org == options.dead_home), None)
-            for name, copies in by_name.items():
-                self._checkpoint(current)
-                if any(resolvable(data) for data in copies.values()):
-                    continue                                # openable somewhere
-                keep = home if home in copies else sorted(copies)[0]
-                for path in list(copies):
-                    if path == keep:
-                        continue
-                    if not options.dry_run:
-                        self._invalidate_folder(path)
-                        try:
-                            (path / name).unlink()
-                            self._forget(path / name)
-                        except OSError:
-                            pass
-                    current.pruned += 1
+            # Removal needs every copy known and every flag settled: the plan
+            # counts on each session's survivors, and flag sync's holds name
+            # the sessions whose copies are in question (C-23.28a).
+            blocked = None
+            if not options.flag_sync:
+                blocked = "flag sync is off, so no session's flags are settled"
+            elif flag_files is None:
+                blocked = "flag sync was held this pass"
+            elif unlisted or unknown or failed or self._unread:
+                blocked = "the inventory is incomplete this pass"
+            self._prune(flag_files if flag_files is not None else folder_files, folders,
+                        situation, rules, options, current, blocked=blocked)
 
         self._stems = stems
         if sweep:
@@ -2296,17 +2748,21 @@ class Mirror:
             written.setdefault(path, {})[name] = data
             written_ids.setdefault(path, set()).add(identity)
 
+        rules = options.rules
         self._checkpoint(current, "copying entries" if spread else "resolving flags")
         for identity, since in (identities.items() if spread else ()):
             # Openability is a property of the session, not of a copy: any copy
             # may know the cwd its transcript lives under.
             best: tuple[Any, dict, str, Path] | None = None
             openable = False
+            seen: list[prune_rules.Copy] = []
             for _account, _org, path in folders:
                 state = self._folders.get(path)
                 for name in (state.ids.get(identity, ()) if state is not None else ()):
                     data = self._file(path, name)
                     openable = openable or self._openable(data)
+                    if rules.active:
+                        seen.append(self._copy(path, name, data))
                     score = _rank(data)
                     if best is None or score > best[0]:
                         best = (score, data, name, path / name)
@@ -2315,7 +2771,20 @@ class Mirror:
                 continue
             self._retry.pop(identity, None)
             _score, data, name, source = best
-            self._spread(identity, data, name, source, folders, has=has,
+            targets = folders
+            if rules.active:
+                # The full pass's rule (C-23.28a), on what the full pass last
+                # learned: otherwise a record the app rewrote would carry an
+                # old archived session back into every folder the full pass
+                # had removed it from.
+                situation = prune_rules.Situation(
+                    folders=tuple(f"{account}/{org}" for account, org, _path in folders),
+                    kinds=self._kinds, home=self._home, loaded=None,
+                    openable=frozenset({identity}), archived_at=self._archived_at,
+                    now=self.now().timestamp())
+                inside = prune_rules.scope(identity, seen, situation, rules).folders
+                targets = [item for item in folders if f"{item[0]}/{item[1]}" in inside]
+            self._spread(identity, data, name, source, targets, has=has,
                          existing=existing, note=note, options=options, current=current)
 
         if options.flag_sync:
