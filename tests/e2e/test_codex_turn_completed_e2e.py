@@ -44,13 +44,16 @@ def test_zero_exit_cut_off_turn_cannot_publish_output(e2e, case):
     assert json.loads(why_json.stdout)["attempt_explanation"] == explanation
     shown = e2e.cli("runs", "show", identity)
     assert shown.rc == 1, shown
-    assert "No accepted result" in shown.stdout
-    assert "Unaccepted evidence" in shown.stdout
-    assert "--- out.md ---" not in shown.stdout
+    # C-17.1: v1's shape with nothing after `--- out.md ---`; evidence on stderr.
+    metadata, result = shown.stdout.split("\n--- out.md ---\n")
+    assert json.loads(metadata)["job"]["job_id"] == identity
+    assert result == ""
+    assert "No accepted result" in shown.stderr
+    assert "Unaccepted evidence" in shown.stderr
     interim = (adir / "deliverable.md").read_text()
     if interim:
         assert interim not in shown.stdout
     result = e2e.cli("runs", "show", identity, "--out")
     assert result.rc == 1, result
     assert result.stdout == ""
-    assert "no accepted deliverable recorded" in result.stderr
+    assert "no deliverable recorded" in result.stderr

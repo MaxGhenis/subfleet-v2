@@ -497,13 +497,17 @@ def test_runs_show_separates_failed_interim_evidence(state_daemon, monkeypatch, 
     assert cli.cmd_runs_show(Namespace(id=job_id, json=False, out=explicit_out, err=False)) == 1
     captured = capsys.readouterr()
     assert interim not in captured.out
-    assert "--- out.md ---" not in captured.out
     if explicit_out:
         assert captured.out == ""
-        assert "no accepted deliverable recorded" in captured.err
+        assert "no deliverable recorded" in captured.err
     else:
-        assert "No accepted result" in captured.out
-        assert f"Unaccepted evidence ({attempt['attempt_id']}): {adir / 'deliverable.md'}" in captured.out
+        # C-17.1: v1's shape, the metadata object and `--- out.md ---`, with
+        # nothing after it; the unaccepted evidence is named on stderr.
+        metadata, result = captured.out.split("\n--- out.md ---\n")
+        assert json.loads(metadata)["job"]["accepted_attempt_id"] is None
+        assert result == ""
+        assert "No accepted result" in captured.err
+        assert f"Unaccepted evidence ({attempt['attempt_id']}): {adir / 'deliverable.md'}" in captured.err
 
 
 @pytest.mark.parametrize("legacy", (False, True))
