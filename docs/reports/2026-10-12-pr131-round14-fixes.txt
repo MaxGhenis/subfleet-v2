@@ -542,3 +542,104 @@ active test runner, staged logs, JSON evidence or delivery bundles remain.
 Existing committed artifacts from both parents are preserved. No network
 remote, push, history rewrite, sub-agent, live store or unrelated process
 operation occurred. Only named source/test/report files were staged.
+
+
+Round 18 — release integration fixes at 71463059d
+================================================
+
+This job uses only its assigned isolated workspace. The initial checkout was
+clean. Shared Git metadata is outside the writable sandbox, so each coherent
+step is committed on feat/quarantine-self-resolve in workspace-local .git-local,
+with a read-only object alternate to the shared repository. Shared HEAD and
+index remain untouched. Import the .git-local branch tip, including every
+round-18 commit; the ordinary checkout HEAD remains 71463059d.
+
+Root causes and combined rules
+------------------------------
+1. Detached cwd pin quarantine: _retain_lineage indexed census["identities"],
+   unlike every other optional census field. The release cwd fixture supplies
+   only an uncertain verdict. Missing identities now contribute no new boot
+   observations; all existing roots and evidence survive. The real quarantine
+   transition can retain both reader and writer job-held folder leases. This
+   does not classify a sparse census as empty or grant any signal authority.
+
+2. Exit-publication witness: its function-local imports initialized the helper's
+   ORIGINAL_CENSUS after state_daemon had installed an empty containment stub.
+   Consequently the host failure never reached the production publication
+   guard. Importing running/script_table at collection time restores the actual
+   collector. All 29 assertion expressions remain unchanged. The exact four
+   reviewer r15 exit-child cases are also copied byte-for-byte into the uniquely
+   named tests/fake/test_review_pr131_round18_exit_child.py. The one-receipt
+   production snapshot from round 17 is retained without alteration.
+
+3. Round-14 probes: their child_identity exists while child_pid is omitted.
+   The merged common _contain built a recorded identity under the key "None"
+   and _identity_union raised. The fallback now uses the published identity's
+   own PID only when row/start/exit PID publications are absent. A conflicting
+   PID still fails the identity union. All claim dispatch locks, receipt locks,
+   fresh scalar authorization, individual delivery and target caps are intact.
+   Probe and attempt signal-authority assertions are unchanged.
+
+4. Audit growth: recorded writer groups already seeded the descendant walk,
+   but persisted CensusRoots seeded group_pids on the following pass. An
+   unchanged table therefore changed its source diagnostics and produced an
+   additional quarantine.still_live event. Sampled retained groups now join
+   recorded writer groups in the descendant walk on every pass. Every member
+   and descendant still holds containment, including members of a sampled
+   group whose leader was reused during a failed bracket. group_pids continues
+   to describe the original launch group, as the release recycled-PID oracles
+   require. Shape changes remain audit changes. No audit assertion is changed.
+
+5. Unknown-boot collision release: identity_gone and compare_root rejected a
+   missing boot before considering positive start mismatch. A missing boot
+   still holds when either start is missing or both starts match. Two readable,
+   different starts now prove the old incarnation gone without needing boot
+   proof, consistent with the collector's existing start mismatch rule. A
+   retained root retires only when its sampled group is also empty. Missing
+   boot identity never authorizes a signal; scalar liveness/signal checks are
+   unchanged. Both r12 liveness files keep every original assertion.
+
+6. Real detached writer capture: state_daemon now replaces identity and snapshot,
+   but real_ps's older REAL list restored neither, nor group_members. The
+   parent PID was read from the synthetic fixture table and returned None.
+   real_ps now restores these production readers too. The overflow witness's
+   fresh boot reader also now agrees with its declared table boot, as round-17
+   reboot confirmation requires. All 47 detached-writer and 24 round-three
+   assertion expressions remain unchanged. Real tests still launch and clean
+   up only their own children.
+
+7. Additional six isolation failures: release's deliberately combined root
+   retirement removes dead lineage once its group is empty. The old terminal
+   expectation that roots 200/201 remain forever is superseded by that rule.
+   The exact {200, 201} root assertion is retained while those children are
+   alive, after two full censuses; after their disappearance/finalization the
+   test additionally asserts no remaining roots and exactly their separate
+   owned_identity_history keys. Every prior assertion expression remains in
+   AST form (15 before, 17 after). The timing of this one historical expectation
+   is the only expectation adjustment; success, leases, parent isolation,
+   disjointness and no-quarantine assertions remain at their original points.
+
+Focused new witnesses
+---------------------
+tests/unit/test_review_pr131_round18_census.py has eight cases: six unknown-boot
+start/group combinations, an unchanged two-census comparison after sampled
+root persistence, and sparse census retention. The six combinations check
+matching/missing starts hold, differing starts resolve only the old identity,
+nonempty sampled groups and detached descendants still hold, and incomplete
+identities never acquire signal authority. The unchanged-table case checks the
+entire serialized census, not only event counts. These are supplementary to,
+not substitutes for, the requested reviewer and release suites.
+
+Validation, commits and handoff
+-------------------------------
+Execution results and the final commit list follow below. No pytest pass is
+inferred from static checks or the caller's earlier host results.
+
+First completed locked checks at dac1ab0f6 (all production/fixture fixes):
+- tests/unit/test_review_pr131_round18_census.py: 8 passed, 8.30 seconds.
+- tests/fake/test_review_pr131_round15.py: 3 passed, 12.65 seconds.
+- tests/unit/test_test_module_names.py: 1 passed, 1.04 seconds.
+The latter two checks entered during the original serial file request batch;
+the new census checks entered on a subsequent 300-second queue. Other requested
+files are still pending at this checkpoint. Earlier requests that exited 75
+before pytest are unavailable validation, not failed tests or passing tests.
