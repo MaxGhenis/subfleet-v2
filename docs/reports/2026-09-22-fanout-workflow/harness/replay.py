@@ -12,6 +12,76 @@ namespace = {}
 source = open(sys.argv[1], encoding="utf-8").read().split('\nverb = sys.argv[1]')[0]
 exec(compile(source, sys.argv[1], "exec"), namespace)
 F = namespace["F"]
+
+if len(sys.argv) > 2 and sys.argv[2] == "--concurrent":
+    # Exercise the actual generated commands, including the lock boundary.
+    # Two shell processes wait at a start barrier in each seeded history.
+    import json
+    import os
+    from pathlib import Path
+    import re
+    import shlex
+    import shutil
+    import subprocess
+    import time
+
+    original = Path(sys.argv[1]).parent
+    command = Path(sys.argv[3]).read_text()
+    rng = random.Random(12506)
+    scenarios = ["", "unknown-c", "refuse-b,unknown-c", "submit-down-always",
+                 "rowless-unknown", "lose-stdout", "manifest-refusal"]
+    invocations = submissions = 0
+    for history in range(64):
+        root = original.parent / ("concurrent-%03d" % history)
+        state = root / "state"
+        state.mkdir(parents=True)
+        for key in ("helper", "all", "manifest"):
+            shutil.copyfile(original / F[key], state / F[key])
+        current = command.replace(shlex.quote(str(original)), shlex.quote(str(state)))
+        env = {**os.environ, "FAKE_STATE": str(root)}
+        pair = [subprocess.Popen(["zsh", "-c", 'read -r START; eval "$1"', "concurrent-replay", current],
+                cwd=root, env={**env, "SCENARIO": rng.choice(scenarios)},
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                for _ in range(2)]
+        rng.shuffle(pair)
+        for process in pair:
+            process.stdin.write("start" + chr(10))
+            process.stdin.close()
+            process.stdin = None
+            time.sleep(rng.random() / 1000)
+        for process in pair:
+            stdout, stderr = process.communicate(timeout=30)
+            assert process.returncode == 0, (history, stdout, stderr)
+            assert len(re.findall(r"^(?:SUBMITTED|REFUSED|NOT_SENT|OUTCOME_UNKNOWN) name=", stdout, re.M)) == 3, stdout
+            invocations += 1
+        # A final validation refusal stops retries and recovers every provable
+        # unanswered request. The registry is an independent existence oracle.
+        final = subprocess.run(["zsh", "-c", 'eval "$1"', "concurrent-replay", current],
+            cwd=root, env={**env, "SCENARIO": "manifest-refusal"}, capture_output=True, text=True, timeout=30)
+        assert final.returncode == 0, final.stdout + final.stderr
+        registry = json.loads((root / "registry.json").read_text()) if (root / "registry.json").exists() else {}
+        registered = {row["job_id"] for row in registry.values()}
+        known = set(re.findall(r"^SUBMITTED name=\S+ job_id=(\S+)", final.stdout, re.M))
+        assert known == registered, (history, registered, final.stdout)
+        assert "UNSETTLED=0" + chr(10) in final.stdout, final.stdout
+        count = int((root / "calls.run").read_text())
+        logs = list(state.glob(F["submitPrefix"] + "*.jsonl"))
+        assert len(logs) == count, (history, count, logs)
+        assert 1 <= count <= 3
+        # Replaying must not replace evidence or launch another submission.
+        evidence = {path.name: path.read_bytes() for path in logs}
+        replay = subprocess.run(["zsh", "-c", 'eval "$1"', "concurrent-replay", current],
+            cwd=root, env=env, capture_output=True, text=True, timeout=30)
+        assert replay.returncode == 0, replay.stdout + replay.stderr
+        assert set(re.findall(r"^SUBMITTED name=\S+ job_id=(\S+)", replay.stdout, re.M)) == registered
+        assert int((root / "calls.run").read_text()) == count
+        assert evidence == {path.name: path.read_bytes() for path in logs}
+        submissions += count
+        if (history + 1) % 16 == 0:
+            print(f"Concurrent replay: {history + 1}/64 histories checked", flush=True)
+    print(f"PASS randomized concurrent replay: seed 12506, 64 histories, {invocations} overlapping invocations, {submissions} immutable submission logs", flush=True)
+    sys.exit(0)
+
 randomizer = random.Random(12505)
 names = ["a", "b", "c"]
 histories = transitions = 0

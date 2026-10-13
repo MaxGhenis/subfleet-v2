@@ -8,7 +8,7 @@ export const meta = {
 }
 
 // Why the dispatcher looks like this (subfleet 2.0.0a0 at this PR's base 81d58fe9,
-// read 2026-10-04; the measured run and five review rounds are in
+// read 2026-10-04; the measured run and six review rounds are in
 // docs/reports/2026-09-22-fanout-workflow.md):
 // - `run --batch FILE --json -d` submits every manifest entry in one call and
 //   prints one JSON object per entry: job_id with outcome `created` or
@@ -29,6 +29,9 @@ export const meta = {
 //   --request-id ID --json`, and remain unsettled if lookup is inconclusive.
 //   Recovery (including C-6.2 digest conflicts) verifies recorded job identity
 //   against a snapshot from an unanswered invocation before adopting an id.
+//   The snapshot includes C-6.2's full payload digest, the original workdir
+//   head and the daemon's policy hash from a read-only placement preview.
+//   Prompts are staged once and those exact files are submitted.
 //   This still works after prompt deletion or workdir head/policy changes.
 //   Without a request id, items
 //   whose outPath is already non-empty are dropped before the first submission
@@ -38,6 +41,8 @@ export const meta = {
 //   the label plus a digest of the manifest; a key whose stored manifest
 //   differs stops with STATE_MISMATCH. Submit logs are numbered and never
 //   truncated; job ids are written only after a log is parsed.
+//   A per-key advisory lock spans setup, each step-1 call and each wait slice.
+//   The OS releases it when its owner exits, including after a killed call.
 // - Step 0 checksums what the agent retyped: the helper and the manifest are
 //   compared with CRC-32 values computed here before anything runs.
 // - The Bash tool caps one call at 600 s, so the wait is sliced:
@@ -158,13 +163,24 @@ const files = {
   manifest: `${key}.manifest.json`, submitPrefix: `${key}.submit.`, submitErr: `${key}.submit.err`,
   jobs: `${key}.jobs.txt`, wait: `${key}.wait.jsonl`, waitErr: `${key}.wait.err`,
   refusal: `${key}.submit.refusal.json`, recovered: `${key}.recovered.jsonl`,
+  lock: `${key}.lock`,
 }
 const HD = 'FANOUT_PY_EOF'
 const HM = 'FANOUT_MANIFEST_EOF'
-const helper = `import glob, hashlib, json, os, re, shlex, subprocess, sys, time, zlib
+const HL = 'FANOUT_SETUP_EOF'
+// Setup needs the same lock before it writes the helper or incoming manifest.
+// Keep the inode: unlinking a lock lets two callers lock different files.
+const lockRunner = `import fcntl, os, subprocess, sys
+with open(sys.argv[1], "a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    env = {**os.environ, "SUBFLEET_FANOUT_LOCK_FD": str(lock.fileno())}
+    sys.exit(subprocess.call(sys.argv[2:], env=env, pass_fds=(lock.fileno(),)))`
+const helper = `import base64, glob, hashlib, json, os, re, shlex, subprocess, sys, time, zlib
 KEY = ${JSON.stringify(key)}
 REQUEST_ID = ${JSON.stringify(requestId || '')}
+ALLOW_TMP = ${allowTmp ? 'True' : 'False'}
 F = ${JSON.stringify(files)}
+LOCK_FDS = (int(os.environ["SUBFLEET_FANOUT_LOCK_FD"]),) if "SUBFLEET_FANOUT_LOCK_FD" in os.environ else ()
 NL = chr(10)
 RETRY_S = int(os.environ.get("SUBFLEET_FANOUT_RETRY_S", "60"))
 SLICE_BUDGET_S = 590
@@ -208,17 +224,53 @@ def submit_logs():
     found = glob.glob(F["submitPrefix"] + "*.jsonl")
     return sorted(found, key=lambda p: int(p[len(F["submitPrefix"]):-6]))
 
-IDENTITY_FIELDS = ("name", "workdir", "out_path", "task", "tier", "sandbox", "pinned_model")
+IDENTITY_FIELDS = ("name", "workdir", "out_path", "task", "tier", "sandbox", "pinned_model",
+                   "workdir_head", "policy_hash", "payload_digest")
 
 def prompt_digest(path):
     with open(path, "rb") as fh:
         return hashlib.sha256(fh.read()).hexdigest()
 
-def entry_identity(job):
-    return {"name": job["name"], "workdir": os.path.realpath(job["workdir"]),
+def preview_policy(job):
+    # Read the daemon's loaded policy, never the caller's policy file. A fresh
+    # request id avoids C-6.2 deduplication of this non-creating preview.
+    command = ["subfleet", "run", "--dry-run", "--json", "-C", job["workdir"],
+               "-p", job["prompt"], "-o", job["out"], "--task", job["task"],
+               "--tier", job["tier"], "-s", job.get("sandbox", "read-only")]
+    if job.get("model"):
+        command.extend(["-m", job["model"]])
+    if ALLOW_TMP:
+        command.append("--allow-tmp")
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    result = subprocess.run(command, capture_output=True, text=True, timeout=15, env=env, pass_fds=LOCK_FDS)
+    if result.returncode:
+        raise ValueError("policy preview unavailable")
+    result = json.loads(result.stdout)
+    if not isinstance(result, dict):
+        raise ValueError("policy preview is not an object")
+    policy = result["decision"]["policy_hash"] if result.get("dry_run") is True else None
+    if not isinstance(policy, str) or not policy:
+        raise ValueError("policy preview missing hash")
+    return policy
+
+def entry_identity(job, policy, timeout):
+    result = subprocess.run(["git", "-C", job["workdir"], "rev-parse", "--verify", "HEAD"],
+                            capture_output=True, text=True, timeout=timeout)
+    head = result.stdout.strip() if result.returncode == 0 else None
+    with open(job["prompt"], "rb") as fh:
+        prompt = fh.read()
+    identity = {"name": job["name"], "workdir": os.path.realpath(job["workdir"]),
             "out_path": os.path.realpath(job["out"]), "task": job["task"], "tier": job["tier"],
             "sandbox": job.get("sandbox", "read-only"), "pinned_model": job.get("model"),
-            "prompt_sha256": prompt_digest(job["prompt"])}
+            "workdir_head": head, "policy_hash": policy,
+            "prompt_sha256": hashlib.sha256(prompt).hexdigest()}
+    # Match ids.payload_digest's canonical fields, including implicit flags.
+    payload = {field: value for field, value in identity.items() if field not in ("name", "prompt_sha256")}
+    payload.update(prompt=base64.b64encode(prompt).decode("ascii"), pinned_lane=None,
+                   exclusions=[], allow_desktop=False)
+    identity["payload_digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True,
+        separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+    return identity
 
 def recorded_identity(row, digest):
     # Missing fields are not evidence, including a missing null model pin.
@@ -419,16 +471,65 @@ def cmd_should_submit():
     sys.exit(1)
 
 def cmd_next_log():
-    path = F["submitPrefix"] + str(len(submit_logs()) + 1) + ".jsonl"
-    identities = {}
-    for job in load(F["manifest"])["jobs"]:
+    logs = submit_logs()
+    number = max((int(p[len(F["submitPrefix"]):-6]) for p in logs), default=0) + 1
+    path = F["submitPrefix"] + str(number) + ".jsonl"
+    # Reserve before staging. A killed submission leaves a numbered unknown
+    # invocation; neither a relaunch nor a later refusal overwrites it.
+    with open(path, "x", encoding="utf-8"):
+        pass
+    manifest = load(F["manifest"])
+    staged = []
+    for index, job in enumerate(manifest["jobs"], 1):
+        prompt = os.path.abspath(path + ".prompt." + str(index) + ".md")
         try:
-            identities[job["name"]] = entry_identity(job)
+            with open(job["prompt"], "rb") as original:
+                content = original.read()
+            with open(prompt, "xb") as snapshot:
+                snapshot.write(content)
+            os.chmod(prompt, 0o400)
         except OSError:
-            pass  # A missing prompt cannot supply proof for recovery.
-    with open(path + ".identity.json", "w", encoding="utf-8") as fh:
+            pass  # A missing staged file lets CLI validation refuse the batch.
+        staged.append({**job, "prompt": prompt})
+    with open(path + ".manifest.json", "x", encoding="utf-8") as fh:
+        json.dump({**manifest, "jobs": staged}, fh)
+    identities = {}
+    deadline = time.monotonic() + 60
+    policy = None
+    try:
+        readable = next(job for job in staged if os.path.isfile(job["prompt"]))
+        policy = preview_policy(readable)
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, StopIteration):
+        pass  # Submission can proceed, but unknown answers cannot be proved.
+    for job in staged:
+        try:
+            remaining = deadline - time.monotonic()
+            if policy and remaining > 0:
+                identities[job["name"]] = entry_identity(job, policy, min(5, remaining))
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            pass  # Missing commit/policy/prompt proof leaves recovery uncertain.
+    with open(path + ".identity.json", "x", encoding="utf-8") as fh:
         json.dump(identities, fh)
-    print(path)
+    return path
+
+def cmd_submit():
+    rc = -1
+    should_submit = False
+    try:
+        cmd_should_submit()
+    except SystemExit as exc:
+        should_submit = exc.code == 0
+    if should_submit:
+        path = cmd_next_log()
+        command = ["subfleet", "run", "--batch", path + ".manifest.json", "--json", "-d"]
+        if ALLOW_TMP:
+            command.append("--allow-tmp")
+        if REQUEST_ID:
+            command.extend(["--request-id", REQUEST_ID])
+        with open(path, "a", encoding="utf-8") as stdout, open(F["submitErr"], "w", encoding="utf-8") as stderr:
+            rc = subprocess.run(command, stdout=stdout, stderr=stderr, pass_fds=LOCK_FDS).returncode
+        out("SUBMIT_RC=%s" % rc)
+    cmd_post_submit(rc)
 
 def cmd_post_submit(rc):
     everything = load(F["all"])["jobs"]
@@ -507,6 +608,18 @@ def cmd_post_wait(rc, started):
             out("UNKNOWN name=%s job_id=%s rc=%s error=%s" % (names.get(jid, ""), jid, rc, tail(F["waitErr"])))
     out("PENDING_COUNT=%s" % pending)
 
+def cmd_wait():
+    ids = lines(F["jobs"])
+    if not ids:
+        out("NOTHING_TO_WAIT")
+        out("PENDING_COUNT=0")
+        return
+    started = time.time()
+    with open(F["wait"], "w", encoding="utf-8") as stdout, open(F["waitErr"], "w", encoding="utf-8") as stderr:
+        rc = subprocess.run(["subfleet", "wait", *ids, "--timeout", "${WAIT_S}", "--json"],
+                            stdout=stdout, stderr=stderr, pass_fds=LOCK_FDS).returncode
+    cmd_post_wait(rc, started)
+
 def num(value, default):
     try:
         return int(value)
@@ -514,6 +627,8 @@ def num(value, default):
         return default
 
 verb = sys.argv[1] if len(sys.argv) > 1 else ""
+# Rendered steps hold the outer lock before even opening this helper, so
+# overlapping setup cannot truncate code while another step loads it.
 if verb == "check":
     cmd_check(sys.argv[2], sys.argv[3])
 elif verb == "setup":
@@ -521,7 +636,11 @@ elif verb == "setup":
 elif verb == "should-submit":
     cmd_should_submit()
 elif verb == "next-log":
-    cmd_next_log()
+    print(cmd_next_log())
+elif verb == "submit":
+    cmd_submit()
+elif verb == "wait":
+    cmd_wait()
 elif verb == "post-submit":
     cmd_post_submit(num(sys.argv[2] if len(sys.argv) > 2 else None, -1))
 elif verb == "post-wait":
@@ -530,15 +649,14 @@ else:
     out("BAD_VERB " + verb)
     sys.exit(2)
 `
-for (const [text, marker] of [[helper, HD], [manifestText, HM], [helper, HM], [manifestText, HD]]) {
+for (const [text, marker] of [[helper, HD], [manifestText, HM], [helper, HM], [manifestText, HD], [helper, HL], [manifestText, HL]]) {
   if (text.split('\n').includes(marker)) throw new Error('subfleet-fanout: text collides with a heredoc delimiter')
 }
 
 const H = q(files.helper)
-const runFlags = `--json -d${allowTmp ? ' --allow-tmp' : ''}${requestId ? ` --request-id ${q(requestId)}` : ''}`
-const step0 = `mkdir -p ${q(stateDir)} && cd ${q(stateDir)} && cat > ${H} <<'${HD}' && cat > ${q(files.incoming)} <<'${HM}' && python3 -u ${H} check ${crc32(helper)} ${crc32(manifestText)} && python3 -u ${H} setup\n${helper}${HD}\n${manifestText}${HM}`
-const step1 = `cd ${q(stateDir)} && { SUBMIT_RESULT=-1; if python3 -u ${H} should-submit; then subfleet run --batch ${q(files.manifest)} ${runFlags} > "$(python3 ${H} next-log)" 2> ${q(files.submitErr)}; SUBMIT_RESULT=$?; echo "SUBMIT_RC=$SUBMIT_RESULT"; fi; python3 -u ${H} post-submit "$SUBMIT_RESULT"; }`
-const step2 = `cd ${q(stateDir)} && if [ -s ${q(files.jobs)} ]; then T0=$(date +%s); subfleet wait $(cat ${q(files.jobs)}) --timeout ${WAIT_S} --json > ${q(files.wait)} 2> ${q(files.waitErr)}; python3 -u ${H} post-wait $? $T0; else echo "NOTHING_TO_WAIT"; echo "PENDING_COUNT=0"; fi`
+const step0 = `mkdir -p ${q(stateDir)} && cd ${q(stateDir)} && python3 -c ${q(lockRunner)} ${q(files.lock)} zsh -s <<'${HL}'\ncat > ${H} <<'${HD}' && cat > ${q(files.incoming)} <<'${HM}' && python3 -u ${H} check ${crc32(helper)} ${crc32(manifestText)} && python3 -u ${H} setup\n${helper}${HD}\n${manifestText}${HM}\n${HL}`
+const step1 = `cd ${q(stateDir)} && python3 -c ${q(lockRunner)} ${q(files.lock)} python3 -u ${H} submit`
+const step2 = `cd ${q(stateDir)} && python3 -c ${q(lockRunner)} ${q(files.lock)} python3 -u ${H} wait`
 
 const STATES = ['skipped', 'refused', 'not-sent', 'submit-unknown', 'succeeded', 'failed', 'cancelled', 'lost', 'running', 'unknown']
 const RESULT_SCHEMA = {

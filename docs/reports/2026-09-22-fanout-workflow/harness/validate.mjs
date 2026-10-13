@@ -29,7 +29,7 @@ await test('argument validation (11 inputs)', async () => {
 })
 await test('allowTmp, model defaults, dead agent and result shaping', async () => {
   const rendered = await renderWorkflow(script, { items: [{ ...ok, dir: '/tmp/x' }], allowTmp: true, model: 'opus' })
-  assert.match(rendered.commands[1], /--allow-tmp/)
+  assert.ok(/--allow-tmp/.test(rendered.commands[1]) || /ALLOW_TMP = True/.test(rendered.commands[0]))
   assert.match(rendered.commands[0], /"model":"opus"/)
   const r = await run({ items: [{ ...ok, dir: '/tmp/x' }], allowTmp: true, model: 'opus' }, async () => ({ setup_ok: true, jobs: [] }))
   assert.equal(r.out.jobs[0].state, 'unknown')
@@ -57,7 +57,7 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   chmodSync(join(root, 'bin', 'git'), 0o755)
   const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, FAKE_STATE: root,
     SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0',
-    CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller' }
+    CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller', ZDOTDIR: join(root, 'empty-home') }
   delete env.PYTHONPATH
   const args = { label: 't', stateDir: join(root, stateSuffix), items: ['a', 'b', 'c'].map(name => ({ ...ok, name,
     promptPath: join(root, `prompt-${name}.md`), outPath: join(root, `out-${name}.md`) })) }
@@ -128,20 +128,22 @@ try {
     assert.equal(readFileSync(staged.jobs[1].prompt, 'utf8'), 'Review b')
     assert.equal(readFileSync(c.args.items[1].promptPath, 'utf8'), 'Different prompt after snapshot')
     const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
-    assert.equal(identity.b.payload_digest, registry['rq-test-2'].payload_digest)
+    assert.equal(identity.b.payload_digest, registry['rq-test-2'].payload_digest, JSON.stringify({ identity: identity.b, recorded: registry['rq-test-2'] }))
     delete c.env.FAKE_EDIT_PROMPT; c.env.SCENARIO = 'check-prompts'
     assert.match(c.step(1).text, /SUBMITTED name=b job_id=job-b created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
     c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
   })
   await test('round 6 finding 1: synchronized submissions preserve successful evidence', async () => {
-    const c = await make('check-prompts'); c.setup()
-    const realPython = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
-    const wrapper = join(c.root, 'bin', 'synchronized-python')
-    writeFileSync(wrapper, `#!${realPython}
+    for (const killOwner of [false, true]) {
+      const c = await make('check-prompts'); c.setup()
+      const realPython = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
+      const wrapper = join(c.root, 'bin', 'synchronized-python')
+      writeFileSync(wrapper, `#!${realPython}
 import os,pathlib,subprocess,sys,time
 real=${JSON.stringify(realPython)}
 root=pathlib.Path(os.environ["FAKE_STATE"]); role=os.environ.get("FAKE_ROLE", "")
 verb=next((arg for arg in sys.argv[1:] if arg in ("should-submit", "submit", "next-log")), "")
+if role and "-c" in sys.argv: (root/("lock-owner-"+role)).write_text(str(os.getpid()))
 def wait(path):
     deadline=time.monotonic()+20
     while not path.exists():
@@ -155,10 +157,10 @@ if role and verb == "next-log":
     sys.stdout.write(result.stdout); sys.exit(result.returncode)
 os.execv(real,[real,*sys.argv[1:]])
 `)
-    chmodSync(wrapper, 0o755)
-    const fake = join(c.root, 'bin', 'subfleet')
-    copyFileSync(fake, fake + '-registry')
-    writeFileSync(fake, `#!${realPython}
+      chmodSync(wrapper, 0o755)
+      const fake = join(c.root, 'bin', 'subfleet')
+      copyFileSync(fake, fake + '-registry')
+      writeFileSync(fake, `#!${realPython}
 import os,pathlib,subprocess,sys,time
 root=pathlib.Path(os.environ["FAKE_STATE"])
 role=os.environ.get("FAKE_ROLE", "")
@@ -170,40 +172,101 @@ if sys.argv[1] == "run" and "--dry-run" not in sys.argv:
         while not (root/"release-creator").exists():
             if time.monotonic()>deadline: raise RuntimeError("creator barrier timed out")
             time.sleep(.01)
-    elif role == "refuser": env["SCENARIO"]="manifest-refusal"
+    elif role == "refuser":
+        (root/"refuser-run-ready").touch()
+        env["SCENARIO"]="manifest-refusal"
 result=subprocess.run([str(root/"bin/subfleet-registry"),*sys.argv[1:]],env=env)
 if role == "creator" and sys.argv[1] == "run" and "--dry-run" not in sys.argv: (root/"creator-done").touch()
 sys.exit(result.returncode)
 `)
-    const command = c.commands[1].replaceAll('python3', `'${wrapper}'`)
-    const launch = role => new Promise((resolveResult, reject) => {
-      const child = spawn('zsh', ['-c', 'eval "$1"', 'fanout-overlap', command], { cwd: c.root, env: { ...c.env, FAKE_ROLE: role }, timeout: 30000 })
-      let text = ''; child.stdout.on('data', b => { text += b }); child.stderr.on('data', b => { text += b })
-      child.on('error', reject); child.on('close', status => resolveResult({ status, text }))
-    })
-    const until = async predicate => {
-      const deadline = Date.now() + 20000
-      while (!predicate()) { assert.ok(Date.now() < deadline, 'overlap barrier timed out'); await new Promise(r => setTimeout(r, 10)) }
+      const command = c.commands[1].replaceAll('python3', `'${wrapper}'`)
+      const launch = role => new Promise((resolveResult, reject) => {
+        const child = spawn('zsh', ['-c', 'eval "$1"', 'fanout-overlap', command], { cwd: c.root, env: { ...c.env, FAKE_ROLE: role }, timeout: 30000 })
+        let text = ''; child.stdout.on('data', b => { text += b }); child.stderr.on('data', b => { text += b })
+        child.on('error', reject); child.on('close', status => resolveResult({ status, text }))
+      })
+      const until = async predicate => {
+        const deadline = Date.now() + 20000
+        while (!predicate()) { assert.ok(Date.now() < deadline, 'overlap barrier timed out'); await new Promise(r => setTimeout(r, 10)) }
+      }
+      const creator = launch('creator')
+      await until(() => existsSync(join(c.root, 'next-ready-creator')) || existsSync(join(c.root, 'creator-run-ready')))
+      const refuser = launch('refuser')
+      await until(() => existsSync(join(c.root, 'entry-refuser')))
+      if (killOwner) {
+        process.kill(Number(readFileSync(join(c.root, 'lock-owner-creator'), 'utf8')), 'SIGKILL')
+        await new Promise(r => setTimeout(r, 100))
+        assert.equal(existsSync(join(c.root, 'refuser-run-ready')), false, 'surviving child must keep the lock')
+      }
+      writeFileSync(join(c.root, 'release-creator'), '')
+      const results = await Promise.all([creator, refuser])
+      if (!killOwner) assert.equal(results[0].status, 0, results[0].text)
+      assert.equal(results[1].status, 0, results[1].text)
+      assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+      c.setup()
+      const relaunched = c.step(1).text
+      assert.match(relaunched, /JOBS=3\nUNSETTLED=0/)
+      assert.doesNotMatch(relaunched, /^REFUSED /m)
+      assert.equal(c.count('run'), 1)
+      assert.match(c.wait(), /DONE name=b job_id=job-b state=succeeded/)
     }
-    const creator = launch('creator')
-    await until(() => existsSync(join(c.root, 'next-ready-creator')) || existsSync(join(c.root, 'creator-run-ready')))
-    const refuser = launch('refuser')
-    await until(() => existsSync(join(c.root, 'entry-refuser')))
-    writeFileSync(join(c.root, 'release-creator'), '')
-    for (const result of await Promise.all([creator, refuser])) assert.equal(result.status, 0, result.text)
-    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
-    c.setup()
-    const relaunched = c.step(1).text
-    assert.match(relaunched, /JOBS=3\nUNSETTLED=0/)
-    assert.doesNotMatch(relaunched, /^REFUSED /m)
-    assert.equal(c.count('run'), 1)
-    assert.match(c.wait(), /DONE name=b job_id=job-b state=succeeded/)
   })
   await test('randomized sequential replay: 20,000 histories', async () => {
     const c = await make(); c.setup()
     const result = spawnSync('python3', [join(harness, 'replay.py'), join(c.args.stateDir, 'rq-test.fanout.py')], { env: c.env, encoding: 'utf8', timeout: 60000 })
     assert.equal(result.status, 0, result.stdout + result.stderr)
     console.log(result.stdout.trim())
+  })
+  await test('randomized concurrent replay: 64 histories with two overlapping invocations', async () => {
+    const c = await make(); c.setup()
+    const command = join(c.root, 'step1.sh'); writeFileSync(command, c.commands[1])
+    const result = await new Promise((resolveResult, reject) => {
+      const child = spawn('python3', [join(harness, 'replay.py'), join(c.args.stateDir, 'rq-test.fanout.py'), '--concurrent', command], { env: c.env })
+      let output = ''
+      child.stdout.on('data', b => { output += b; process.stdout.write(b) })
+      child.stderr.on('data', b => { output += b })
+      child.on('error', reject); child.on('close', status => resolveResult({ status, output }))
+    })
+    assert.equal(result.status, 0, result.output)
+  })
+  await test('round 6: canonical snapshots agree with the daemon payload digest', async () => {
+    const c = await make(); c.setup(); c.step(1)
+    const result = spawnSync('python3', ['-c', `import json,sys
+from pathlib import Path
+from subfleet.ids import payload_digest
+path=Path(sys.argv[1])
+identities=json.loads(Path(str(path)+".identity.json").read_text())
+manifest=json.loads(Path(str(path)+".manifest.json").read_text())
+for job in manifest["jobs"]:
+    identity=identities[job["name"]]
+    actual=payload_digest(Path(job["prompt"]).read_bytes(), workdir=job["workdir"],
+        workdir_head=identity["workdir_head"], task=job["task"], tier=job["tier"],
+        pinned_model=job.get("model"), sandbox=job.get("sandbox", "read-only"),
+        out_path=job["out"], policy_hash=identity["policy_hash"])
+    assert actual == identity["payload_digest"], (actual, identity)
+`, join(c.args.stateDir, 'rq-test.submit.1.jsonl')], { env: c.env, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+  })
+  await test('round 6: unavailable policy proof leaves recovery uncertain across relaunch', async () => {
+    for (const mode of ['down', 'bad', 'missing']) {
+      const c = await make('rowless-unknown,check-prompts'); c.env.FAKE_POLICY_PROOF = mode
+      c.setup(); c.step(1); unlinkSync(c.args.items[1].promptPath)
+      const refusal = c.step(1).text
+      assert.match(refusal, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/)
+      assert.doesNotMatch(refusal, /^SUBMITTED |^REFUSED /m)
+      delete c.env.FAKE_POLICY_PROOF; c.setup()
+      assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+    }
+  })
+  await test('round 6: recovery retains the original commit and policy after both move', async () => {
+    const c = await make('unknown-c'); c.setup(); c.step(1)
+    c.env.FAKE_WORKDIR_HEAD = 'head-two'; c.env.FAKE_POLICY_HASH = 'policy-two'
+    const conflict = c.step(1).text
+    assert.match(conflict, /SUBMITTED name=c job_id=job-c created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('show'), 1)
+    c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('run'), 2)
+    assert.equal(c.count('show'), 1)
   })
   await test('round 5 finding 1: earlier refusal becomes uncertain after a later lost answer', async () => {
     const c = await make('refuse-b,unknown-c'); c.setup()
@@ -288,7 +351,7 @@ sys.exit(result.returncode)
   })
   for (const mode of ['MISSING', 'MISMATCH']) {
     await test(`round 5: ${mode.toLowerCase()} recorded identity fields keep jobs uncertain`, async () => {
-      for (const field of ['job_id', 'request_id', 'name', 'workdir', 'out_path', 'task', 'tier', 'sandbox', 'pinned_model', 'prompt_path']) {
+      for (const field of ['job_id', 'request_id', 'name', 'workdir', 'out_path', 'task', 'tier', 'sandbox', 'pinned_model', 'prompt_path', 'workdir_head', 'policy_hash', 'payload_digest']) {
         const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
         unlinkSync(c.args.items[1].promptPath)
         c.env[`FAKE_SHOW_${mode}`] = field
