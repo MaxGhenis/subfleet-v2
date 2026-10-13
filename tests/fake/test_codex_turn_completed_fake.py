@@ -13,6 +13,7 @@ from subfleet.adapters.codex import CodexAdapter
 from subfleet.contracts import ExitInfo, OutcomeClass
 from subfleet.daemon import Daemon
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.frozen_streams import frozen_identity, make_frozen
 
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
@@ -215,8 +216,9 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
-def test_empty_frozen_stream_cannot_accept_later_stdout_completion(state_daemon, monkeypatch, restart):
-    """Review r3 P1: only live stdout changes after an empty stream is frozen."""
+@pytest.mark.parametrize("kind", ("empty", "directory", "fifo", "symlink", "dangling-symlink"))
+def test_frozen_stream_cannot_accept_later_stdout_completion(state_daemon, monkeypatch, restart, kind):
+    """Review r3/r4/r6: only live stdout changes after the frozen path exists."""
     daemon, harness = state_daemon
     out = harness.root / "out.md"
     job_id, attempt, adir = reserve(daemon, harness, max_attempts=1, out_path=str(out))
@@ -236,6 +238,8 @@ def test_empty_frozen_stream_cannot_accept_later_stdout_completion(state_daemon,
                                                        "attestation": asdict(attest)}))
     monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
     monkeypatch.setattr(adapter, "attest", lambda *args: pytest.fail("cached attestation repeated"))
+    make_frozen(adir / "stream.jsonl", kind)
+    identity = frozen_identity(adir / "stream.jsonl")
     observed = []
     answered = Daemon._answered
 
@@ -255,10 +259,12 @@ def test_empty_frozen_stream_cannot_accept_later_stdout_completion(state_daemon,
     assert observed == ["auth-dead"]
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
     assert daemon.store.get_job(job_id)["accepted_attempt_id"] is None
-    assert (adir / "stream.jsonl").read_bytes() == b""
+    assert frozen_identity(adir / "stream.jsonl") == identity
+    if kind == "empty":
+        assert (adir / "stream.jsonl").read_bytes() == b""
     assert (adir / "deliverable.md").read_bytes() == interim
     frozen = {name: (adir / name).read_bytes() for name in
-              ("stream.jsonl", "deliverable.md", "finalization.json", "exit.json", "last.md", "stderr")}
+              ("deliverable.md", "finalization.json", "exit.json", "last.md", "stderr")}
     monkeypatch.setattr(daemon, "_salvage", salvage)
     monkeypatch.setattr(adapter, "deliverable", lambda *args: pytest.fail("captured deliverable extracted again"))
     with (adir / "stdout").open("a") as stream:
@@ -273,6 +279,7 @@ def test_empty_frozen_stream_cannot_accept_later_stdout_completion(state_daemon,
         else:
             daemon._finalize(finalizing)
         assert {name: (adir / name).read_bytes() for name in frozen} == frozen
+        assert frozen_identity(adir / "stream.jsonl") == identity
         assert observed == ["auth-dead", "auth-dead"]
         job = daemon.store.get_job(job_id)
         # C-4.5: auth rejection disables the lane without counting the attempt.
