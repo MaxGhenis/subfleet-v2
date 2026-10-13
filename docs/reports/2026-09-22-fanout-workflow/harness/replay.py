@@ -28,10 +28,12 @@ if len(sys.argv) > 2 and sys.argv[2] == "--concurrent":
     original = Path(sys.argv[1]).parent
     command = Path(sys.argv[3]).read_text()
     rng = random.Random(12506)
+    selected = os.environ.get("FANOUT_REPLAY_CASE", "")
+    assert selected in ("", "perturbations", "head", "policy", "sol", "fable"), selected
     scenarios = ["", "unknown-c", "refuse-b,unknown-c", "submit-down-always",
                  "rowless-unknown", "lose-stdout", "manifest-refusal"]
     invocations = submissions = 0
-    for history in range(64):
+    for history in range(0 if selected else 64):
         root = original.parent / ("concurrent-%03d" % history)
         state = root / "state"
         state.mkdir(parents=True)
@@ -79,7 +81,124 @@ if len(sys.argv) > 2 and sys.argv[2] == "--concurrent":
         submissions += count
         if (history + 1) % 16 == 0:
             print(f"Concurrent replay: {history + 1}/64 histories checked", flush=True)
-    print(f"PASS randomized concurrent replay: seed 12506, 64 histories, {invocations} overlapping invocations, {submissions} immutable submission logs", flush=True)
+    if not selected:
+        print(f"PASS randomized concurrent replay: seed 12506, 64 histories, {invocations} overlapping invocations, {submissions} immutable submission logs", flush=True)
+    # Round 7: coordinate the mutation at the ACTUAL submission boundary,
+    # after previews, then overlap a retry/refuser while the first holds the
+    # workflow lock. The registry, not the helper's snapshot, is the oracle.
+    rng = random.Random(12507)
+    checked = 0
+    for history in range(24):
+        case = ("head" if history % 2 == 0 else "policy") if history < 16 else ("sol" if history % 2 == 0 else "fable")
+        if selected not in ("", "perturbations", case):
+            continue
+        root = original.parent / ("perturbed-%03d" % history)
+        state = root / "state"
+        state.mkdir(parents=True)
+        document = json.loads((original / F["manifest"]).read_text())
+        alias = ("sol" if history % 2 == 0 else "fable") if history >= 16 else None
+        canonical = "astra" if alias == "sol" else "opus"
+        for job in document["jobs"]:
+            prompt = root / ("prompt-" + job["name"] + ".md")
+            prompt.write_bytes(Path(job["prompt"]).read_bytes())
+            job["prompt"] = str(prompt)
+            if alias:
+                job["model"] = alias
+        shutil.copyfile(original / F["helper"], state / F["helper"])
+        for key in ("all", "manifest"):
+            (state / F[key]).write_text(json.dumps(document))
+        current = command.replace(shlex.quote(str(original)), shlex.quote(str(state)))
+        env = {**os.environ, "FAKE_STATE": str(root), "SCENARIO": "check-prompts"}
+        field = "workdir_head" if history % 2 == 0 else "policy_hash"
+        variable = "FAKE_SUBMIT_HEAD" if field == "workdir_head" else "FAKE_SUBMIT_POLICY"
+        if not alias:
+            old = root / "old-state"
+            old.mkdir()
+            for key in ("helper", "all", "manifest"):
+                shutil.copyfile(state / F[key], old / F[key])
+            result = subprocess.run(["zsh", "-c", 'eval "$1"', "concurrent-seed",
+                current.replace(shlex.quote(str(state)), shlex.quote(str(old)))],
+                cwd=root, env=env, capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0 and "JOBS=3\nUNSETTLED=0" in result.stdout, result.stdout + result.stderr
+            before = (root / "registry.json").read_bytes()
+            env[variable] = "different-at-submit"
+        env["FAKE_CAPTURE_PAYLOADS"] = str(root / "actual-payloads.jsonl")
+        # The wrapper leaves preview values alone, pauses only a batch call,
+        # and hands every submission/lookup to the shipped fake.
+        fake = root / "bin" / "subfleet"
+        fake.parent.mkdir()
+        shipped = shutil.which("subfleet", path=os.environ["PATH"])
+        fake.write_text("#!" + sys.executable + "\n" + '''import os,pathlib,sys,time
+root=pathlib.Path(os.environ["FAKE_STATE"])
+if sys.argv[1] == "run" and "--batch" in sys.argv and os.environ.get("PERTURBED_ROLE") == "lost":
+    (root/"lost-ready").touch()
+    deadline=time.monotonic()+20
+    while not (root/"release-lost").exists():
+        if time.monotonic()>deadline: raise RuntimeError("submission barrier timed out")
+        time.sleep(.01)
+os.execv(''' + repr(shipped) + ''', [''' + repr(shipped) + ''', *sys.argv[1:]])
+''')
+        fake.chmod(0o755)
+        env["PATH"] = str(fake.parent) + os.pathsep + env["PATH"]
+        lost = subprocess.Popen(["zsh", "-c", 'eval "$1"', "concurrent-perturbed", current],
+            cwd=root, env={**env, "SCENARIO": "lose-stdout,check-prompts", "PERTURBED_ROLE": "lost"},
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 20
+        while not (root / "lost-ready").exists():
+            assert time.monotonic() < deadline, history
+            time.sleep(.01)
+        second = "manifest-refusal" if alias or rng.randrange(2) else "check-prompts"
+        if alias:
+            Path(document["jobs"][1]["prompt"]).unlink()
+        following_env = {**env, "SCENARIO": second}
+        if not alias:
+            following_env["FAKE_WORKDIR_HEAD" if field == "workdir_head" else "FAKE_POLICY_HASH"] = "different-at-submit"
+        following = subprocess.Popen(["zsh", "-c", 'eval "$1"', "concurrent-perturbed", current],
+            cwd=root, env=following_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(.02)
+        (root / "release-lost").touch()
+        first_out, first_err = lost.communicate(timeout=30)
+        following_out, following_err = following.communicate(timeout=30)
+        assert lost.returncode == following.returncode == 0, (history, first_err, following_err)
+        assert "JOBS=0\nUNSETTLED=3" in first_out, first_out
+        registry = json.loads((root / "registry.json").read_text())
+        registered = {row["job_id"] for row in registry.values()}
+        actual = [json.loads(line) for line in (root / "actual-payloads.jsonl").read_text().splitlines()]
+        assert len(actual) >= 3, actual
+        reported = set(re.findall(r"^SUBMITTED name=\S+ job_id=(\S+)", following_out, re.M))
+        if alias:
+            assert reported == registered and "UNSETTLED=0\n" in following_out, following_out
+            assert all(row["pinned_model"] == canonical for row in registry.values()), registry
+            assert all(row["payload_digest"] == registry[row["request_id"]]["payload_digest"] for row in actual)
+        else:
+            assert not reported and "JOBS=0\nUNSETTLED=3" in following_out, following_out
+            assert (root / "registry.json").read_bytes() == before
+            assert all(row[field] != "different-at-submit" for row in registry.values())
+            assert all(row[field] == "different-at-submit" and row["payload_digest"] != registry[row["request_id"]]["payload_digest"] for row in actual)
+        count = int((root / "calls.run").read_text())
+        logs = list(state.glob(F["submitPrefix"] + "*.jsonl"))
+        assert len(logs) == 2 and count == (2 if alias else 3), (history, count, logs)
+        evidence = {path.name: path.read_bytes() for path in logs}
+        if not alias:
+            # Stop further attempts without changing earlier uncertainty.
+            following_env["SCENARIO"] = "manifest-refusal"
+        final = subprocess.run(["zsh", "-c", 'eval "$1"', "concurrent-perturbed", current],
+            cwd=root, env=following_env, capture_output=True, text=True, timeout=30)
+        assert final.returncode == 0, final.stdout + final.stderr
+        assert set(re.findall(r"^SUBMITTED name=\S+ job_id=(\S+)", final.stdout, re.M)) == reported, final.stdout
+        count = int((root / "calls.run").read_text())
+        replay_logs = list(state.glob(F["submitPrefix"] + "*.jsonl"))
+        immutable = {path.name: path.read_bytes() for path in replay_logs}
+        assert all(immutable[name] == content for name, content in evidence.items())
+        replay = subprocess.run(["zsh", "-c", 'eval "$1"', "concurrent-perturbed", current],
+            cwd=root, env=following_env, capture_output=True, text=True, timeout=30)
+        assert replay.returncode == 0 and int((root / "calls.run").read_text()) == count, replay.stdout + replay.stderr
+        assert immutable == {path.name: path.read_bytes() for path in state.glob(F["submitPrefix"] + "*.jsonl")}
+        assert set(re.findall(r"^SUBMITTED name=\S+ job_id=(\S+)", replay.stdout, re.M)) == reported
+        checked += 1
+        if (history + 1) % 8 == 0:
+            print(f"Concurrent perturbations: {history + 1}/24 histories checked", flush=True)
+    print(f"PASS concurrent perturbations: seed 12507, {checked} histories, {checked * 2} overlapping invocations, case={selected or 'all'}, immutable logs and relaunch proof", flush=True)
     sys.exit(0)
 
 randomizer = random.Random(12505)

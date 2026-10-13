@@ -578,6 +578,116 @@ staged. Fixtures are removed with the prescribed Python `shutil.rmtree`
 command. No real jobs, network remotes, sub-agents, live workflow edits or
 daemon changes were used.
 
+## Round 7: bind recovery to the daemon-recorded invocation, 2026-10-13
+
+Read `review-r6.md` and `review-r6-full.txt` from the review archive. The two
+medium findings reproduce at the exact requested `8d074a715f29` checkpoint.
+Local `main` (`eef8d3d9b`) and the checkpoint both record the canonical payload
+digest, its HEAD/policy inputs, and creation-time batch metadata. Online
+`runs show --json` returns that metadata beside `job`; offline show omits it
+but the daemon-written `manifest.json` beside `prompt.md` retains it.
+
+1. **Recovery identity, resolved with option (b).** Each numbered invocation
+   stages an exclusive manifest with a fresh UUID in its batch label. The
+   daemon records that label only when it creates the job; C-6.2 deduplication
+   returns an existing job without replacing its creation metadata. Recovery
+   first requires the exact batch id, unique label, entry index and batch
+   size of an unanswered invocation. It then compares the stable manifest
+   fields and stored prompt bytes, and recomputes the full payload digest
+   with the daemon's recorded HEAD and policy hash. The earlier preview's
+   HEAD/policy/digest remain diagnostic observations, not submission proof.
+   A legitimate creation after HEAD/policy changes during submission can
+   therefore recover, while a lost conflicting attempt against an older
+   job cannot. The request ids and prompt bytes retain their existing
+   semantics, and no daemon or CLI source was changed.
+2. **Model aliases, resolved.** Explicit pins are canonicalized before
+   staging the submitted manifest and building identity. The read-only
+   daemon placement preview exposes `decision.chain`; a pinned preview has
+   one canonical model even when `chosen_model` is null because no lane is
+   available. The helper uses that surface rather than a copied alias map.
+   Preview failure or absent canonical-pin proof leaves recovery uncertain.
+   The fake uses the repository's pure CLI retirement mapping and
+   `resolve_model` before hashing/storing jobs: `sol` becomes `astra`, and
+   `fable` becomes `opus` under this checkpoint's policy.
+3. **Lock note, addressed.** Acquisition uses nonblocking flock with an
+   explicit default/max five-second budget. Exhaustion prints `LOCKED`,
+   the lock path and last launcher's pid, then exits 75 without writing
+   workflow state. The dispatcher preserves its last per-name evidence and
+   stops on that marker. A surviving inherited child may be the actual
+   holder, so the pid is accurately called `launcher_pid`. Files are never
+   unlinked to reclaim a held lock. Five seconds of contention plus the
+   590-second helper slice budget fit within the 600-second Bash timeout.
+   Submission/CLI execution still relies on that outer timeout.
+
+**Updated state machine.** Round-5 outcome transitions remain: explicit
+successful ids stay known, later refused/not-sent answers cannot erase an
+earlier unknown, and a whole-manifest validation refusal sends nothing.
+The stronger invocation/recovery layer is:
+
+| State or evidence | Transition and proof rule |
+|---|---|
+| Waiting for the per-key lock | Reads no mutable workflow state. Acquires within five seconds or reports `LOCKED`/exit 75; no stale-file reclamation. |
+| Setup holds the lock | Checksums/binds the manifest and replays known ids. Mismatch or missing `SETUP_OK` stops dispatch. |
+| Reserved invocation | Numbered log, exclusive prompt snapshots, canonical explicit pins and a unique creation label precede the batch call. Request ids keep full-manifest entry indices. |
+| Successful response | Keeps the explicitly returned id across retries and relaunch, as before. |
+| Unknown or missing response | Keeps the invocation snapshot and uncertainty; later refusals/not-sent attempts cannot settle it. |
+| Candidate with a different/missing creation mark | `LOOKUP_UNKNOWN` and `OUTCOME_UNKNOWN`; no id adoption or wait on that candidate. An older equal preview is insufficient. |
+| Candidate with this invocation's creation mark | Requires exact request id/job metadata, stable manifest fields, matching stored prompt SHA-256 and a recomputed digest using daemon-recorded HEAD/policy. Only then writes recovery evidence and adopts the id. |
+| Offline candidate | Reads the daemon-written manifest beside its recorded prompt. Requires its job id, request id and digest to match the shown row before using the creation mark. Missing/corrupt proof remains uncertain. |
+| Relaunch | Replays the same creation mark and digest proof from saved recovery records. Legacy snapshots without a mark cannot retroactively prove an unknown; explicit successful rows remain known. |
+| Interrupted holder | Surviving children retain flock. A later launcher reports `LOCKED`; after the last holder exits, the same inode permits replay/recovery. |
+
+A lost deduplication answer for a job created outside the saved history
+remains uncertain, even if its preview looks equal. Neither the daemon's
+creation record nor a pre-submit preview proves the refused/lost attempt's
+payload. A later explicit successful dedupe response can still settle it.
+This supersedes round 6's assumption that an equal pre-submit snapshot could
+prove that older job. The prompt-byte fixture now loses this invocation's
+creation answer, edits the original prompt after staging, then exercises
+conflict recovery and relaunch. Its byte/digest assertions are retained.
+
+Validation is fake only, with fake Subfleet/Git first in PATH, empty temporary
+`SUBFLEET_HOME`/`ZDOTDIR`, and PYTHONPATH unset:
+
+- Exact `8d074a715f29` export: **zero passed, six finding regressions failed**
+  as expected. HEAD-only and policy-only races each cover lost stdout and
+  ordinary refusal/unknown rows. Attempted payload digests are captured
+  independently and differ from the older registry jobs on every call.
+- The same baseline independently rejects concurrent `head`, `policy`,
+  `sol` and `fable` selections: **zero passed, one failed per selection**.
+- Expanded harness: **55 checks passed, zero failed**, keeping the 46 earlier
+  checks and adding six finding checks plus three proof/lock checks.
+- Sequential oracle, seed 12505: **20,000 histories / 113,703 transitions**.
+- Original concurrent oracle, seed 12506: **64 histories / 128 overlapping
+  invocations / 123 immutable submission logs** in the full run. Acquisition
+  order changes the log count; an isolated run had 126 logs.
+- Added concurrent driver, seed 12507: **16 HEAD/policy and eight alias
+  histories / 48 overlapping invocations**, including validation refusals,
+  deleted prompts, immutable-log checks and repeated relaunch settlement.
+  Each history separately captures actual attempted payload digests and inputs
+  and compares them against registry records; all 24 were rerun after adding
+  those independent digest assertions.
+- Targeted checks cover actual HEAD/policy changes during a successful lost
+  creation, missing/mismatched creation marks, alias digest equality, nested
+  online/flat offline proof, and a surviving fake CLI after launcher/helper
+  death. The lock probe reports `LOCKED` within a shortened 0.1-second budget,
+  then recovers after the surviving CLI exits.
+- Python AST parsing, fake CLI Bash syntax and `git diff --check` pass.
+
+Run the complete validator with the command in the harness README. Select
+finding regressions with `FANOUT_TEST_FILTER='round 7 finding'`; select a
+concurrent baseline perturbation with
+`FANOUT_TEST_FILTER='randomized concurrent' FANOUT_REPLAY_CASE=head`
+(or `policy`, `sol`, `fable`). The README documents export and cleanup.
+
+The sandbox refused writes to the shared Git index and the workspace's Git
+pointer. Commits therefore use workspace-local `.git-local` metadata on
+`docs/fanout-workflow-measured`, with the requested coauthor trailer. Use
+`git --git-dir=.git-local` to inspect them. Only named workflow, harness and
+report sources are staged; no logs, JSON evidence or bundles. Temporary
+fixtures use the prescribed Python `shutil.rmtree` cleanup. No real jobs,
+network remotes, sub-agents, live workflow edits or caller-checkout writes.
+
 ## Live check of the shipped commands, 2026-10-04
 
 The three rendered commands, run by hand against the daemon (release
