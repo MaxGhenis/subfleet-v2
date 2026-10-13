@@ -310,11 +310,6 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
 
 FALLBACK: tuple[str, None] = ("operation: request was refused", None)
 
-
-def value_names() -> frozenset[str]:
-    """Every value name a template may format; each has a check (`checked`)."""
-    return frozenset((*_choices(), *_SHAPES, *_COUNTS))
-
 #: `details` key a by-policy refusal carries (d261): the task whose policy made the job write.
 BY_POLICY = "by_policy"
 _BY_POLICY_FIX = "pass -s read-only"
@@ -341,6 +336,11 @@ def _choices() -> dict[str, tuple[str, ...]]:
 
 
 _COUNTS = ("count", "limit")
+
+
+def value_names() -> frozenset[str]:
+    """Every value name a template may format; each has a check (`checked`)."""
+    return frozenset((*_choices(), *_SHAPES, *_COUNTS))
 
 
 def fields(template: str | None) -> tuple[str, ...]:
