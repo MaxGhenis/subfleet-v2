@@ -292,8 +292,11 @@ def test_c6_9_a_job_no_lane_can_admit_held_behind_an_older_one_holds_nobody_and_
 
 def test_c6_9_a_pinned_retry_held_behind_an_older_one_holds_back_with_its_pair(fleet):
     """C-6.12: "While it is pinned, its C-6.9 demand is that one model on that one lane". The retry, on
-    the 60 s clock its transient attempt left, is held behind an older Opus job; it holds back what
-    competes for Opus on claude-a, not the Astra job its own chain would also compete with."""
+    the 60 s clock its transient attempt left, is held behind an older Opus job, and registers with its
+    pair's demand, Opus on claude-a: the Astra job its own chain would also compete with is placed. A
+    hold through it cannot be seen here: a demand of one model on one lane competes only with jobs that
+    also compete with the older job it is held behind, which is older still and is named instead (so
+    the Opus job below waits behind the older job)."""
     service, harness = fleet
     older = submit(service, harness, pinned_model="opus")
     waiting(service, older, 600)
@@ -302,9 +305,103 @@ def test_c6_9_a_pinned_retry_held_behind_an_older_one_holds_back_with_its_pair(f
     transient_on(service, retry)
     waiting(service, retry, 60)
     astra = submit(service, harness, pinned_model="astra")
+    opus = submit(service, harness, pinned_model="opus", pinned_lane="claude-a")
     service._admit()
     assert service._holds[retry] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
     assert placed_on(service, astra) == "codex-1"
+    assert service._holds[opus] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+
+
+def reenrolled_retry(service, harness):
+    """A review retry whose first attempt was `limited` on codex-1, since re-enrolled as codex-2 (C-4.5:
+    the successor is excluded by `_retry_pin` alone, `extra_exclusions`), whose second was `transient`
+    on claude-a, now closed for ten days (a standing refusal, C-11.8), and which excludes claude-b
+    itself: no lane can admit it, though its stored exclusions name neither codex-2 nor claude-a's
+    closure (review of #201 r1, finding 1)."""
+    from dataclasses import replace
+    service.store.put_lane(lane("claude-b"))
+    measured(service, "claude-b")
+    retry = submit(service, harness, pinned_model=None, task="review", tier="standard", exclusions=["claude-b"])
+    transient_on(service, retry, "codex-1", "astra")
+    with service.store.transaction("fixture.limited") as tx:
+        tx.execute("UPDATE attempts SET outcome_class='limited' WHERE job_id=?", (retry,))
+    service.store.update_job(retry, exclusions=service._merged_exclusions(service.store.get_job(retry), ("codex-1",)))
+    service.store.add_attempt(attempt_id=f"{retry}/a2", job_id=retry, seq=2, lane_id="claude-a",
+                              model_requested=service.policy["models"]["opus"]["id"], state="failed",
+                              outcome_class="transient")
+    original = service.store.get_lane("codex-1")
+    service.store.update_lane("codex-1", enabled=0)
+    service.store.put_lane(replace(original, lane_id="codex-2", enabled=True))
+    measured(service, "codex-2")
+    closed(service, "codex-2", seconds=600)
+    closed(service, "claude-a", seconds=10 * 86400)
+    job = service.store.get_job(retry)
+    _, extra, pair = service._retry_pin(job)
+    assert pair and "codex-2" in extra
+    view = service._pin_view(service._desktop_identity())
+    assert scheduler.unadmittable(service.policy, view, job) is None                      # as stored
+    assert scheduler.unadmittable(service.policy, view, {**job, "exclusions": service._merged_exclusions(job, extra)})
+    return retry
+
+
+def test_c11_8_a_retry_no_lane_can_admit_once_its_attempts_exclusions_count_holds_nobody(fleet):
+    """C-11.8: "A job no lane can admit ... holds back none", with the lanes its attempts excluded counted
+    as its route counts them (C-4.5). Held behind an older Astra job, on the pass whose look lets its pin
+    go and on one while its clock runs, the retry holds back neither younger Opus job pinned to claude-b."""
+    service, harness = fleet
+    older = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+    waiting(service, older, 600)
+    retry = reenrolled_retry(service, harness)
+    first = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service._admit()                                        # its look lets the pin go: behind the older job
+    assert service._holds[retry]["behind"] == older and service._holds[retry]["for_good"]
+    assert placed_on(service, first) == "claude-b"
+    service.store.update_job(retry, next_check_at=after(60))
+    second = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service._admit()                                        # on its clock, held at the top
+    assert service._holds[retry]["behind"] == older and service._holds[retry]["for_good"]
+    assert placed_on(service, second) == "claude-b"
+
+
+def test_c11_8_a_retry_no_lane_can_admit_on_its_clock_with_nobody_ahead_holds_nobody(fleet):
+    """The same on C-6.10's clocked wait, which asked C-11.8 of the job as stored before review of #201
+    r1: the look that let the pin go found the retry behind the older job, so no reserving transaction
+    stored its merged exclusions; the older job then leaves, and on the retry's clock nobody is ahead."""
+    service, harness = fleet
+    older = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
+    waiting(service, older, 600)
+    retry = reenrolled_retry(service, harness)
+    service._admit()                                        # the let-go look: behind the older job
+    assert service._holds[retry]["behind"] == older
+    assert "codex-2" not in json.loads(service.store.get_job(retry)["exclusions"])      # never stored
+    service.dispatch("kill", {"job_id": older})
+    service.store.update_job(retry, next_check_at=after(60))
+    younger = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
+    service._admit()                                        # on its clock, nobody ahead
+    assert service._holds[retry].get("for_good") and placed_on(service, younger) == "claude-b"
+
+
+def test_c6_11_a_lease_waiter_held_behind_an_older_one_that_no_lane_can_admit_says_so(fleet):
+    """C-6.11: a job held behind an older one while its clock runs carries `for_good` when every lane
+    refuses it for a standing reason, a lease waiter too (review of #201 r1, finding 3). Its look found
+    its output path held while claude-a could take it; claude-a is disabled before the next pass."""
+    service, harness = fleet
+    closed(service, "codex-1")
+    older = submit(service, harness, pinned_model="astra")
+    service.store.update_job(older, state="waiting", wait_reason="approval")     # holds nobody yet
+    out = str(harness.root / "report.md")
+    middle = submit(service, harness, pinned_model=None, task="review", tier="standard", out_path=out,
+                    exclusions=["codex-1"])
+    assert service.store.acquire_lease(f"out:{out}", "another-job")
+    service._admit()
+    assert service._holds[middle]["reason"] == "lease-held"
+    waiting(service, older, 600)
+    service.store.update_job(middle, next_check_at=after(60))
+    service.store.update_lane("claude-a", enabled=0)
+    service._admit()
+    hold = service._holds[middle]
+    assert hold["reason"] == "behind-older-job" and hold["behind"] == older
+    assert set(hold["for_good"]) == {"disabled", "excluded"}
 
 
 def test_c6_12_a_retry_that_let_its_pin_go_is_not_passed_by_a_younger_competitor(fleet):

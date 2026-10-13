@@ -32,9 +32,16 @@ LANES = (("codex-1", "codex"), ("codex-2", "codex"), ("claude-a", "claude"), ("c
 #: What a job asks for: a model pin, or a review (standard: Opus, then Astra).
 ASKS = {"astra": dict(pinned_model="astra"), "opus": dict(pinned_model="opus"), "terra": dict(pinned_model="terra"),
         "review": dict(pinned_model=None, task="review", tier="standard")}
-JOBS = st.fixed_dictionaries({"ask": st.sampled_from(sorted(ASKS)), "pin": st.sampled_from([None, 0, 1]),
+JOBS = st.fixed_dictionaries({"ask": st.sampled_from(sorted(ASKS)), "pin": st.sampled_from([None, None, 0, 1]),
                               "clocked": st.booleans()})
-DIFFERENTIAL = settings(max_examples=40, deadline=None, derandomize=True, database=None,
+#: The shape of findings 5 and 6, varied: an Astra or Opus head on its clock, a review on its clock
+#: behind it (Opus or Astra, so it competes with either head), then later jobs of any ask, on their
+#: clocks or not: those of the head's other model compete with the review alone.
+QUEUES = st.tuples(st.sampled_from(["astra", "opus"]), st.sampled_from([None, 0, 1]),
+                   st.lists(JOBS, min_size=1, max_size=4)).map(
+    lambda parts: [{"ask": parts[0], "pin": parts[1], "clocked": True},
+                   {"ask": "review", "pin": None, "clocked": True}, *parts[2]])
+DIFFERENTIAL = settings(max_examples=60, deadline=None, derandomize=True, database=None,
                         suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture,
                                                HealthCheck.data_too_large])
 
@@ -72,9 +79,9 @@ def pinned_lane(spec) -> str | None:
 
 
 @DIFFERENTIAL
-@given(cap=st.sampled_from([None, 2, 3, 10]),
+@given(cap=st.sampled_from([None, 2, 3, 10, 10]),
        shut=st.lists(st.sampled_from([lane_id for lane_id, _ in LANES]), max_size=3, unique=True),
-       specs=st.lists(JOBS, min_size=2, max_size=6))
+       specs=QUEUES)
 def test_c6_9_the_detached_pass_takes_the_pass_model_s_decisions_around_waiters_on_their_clock(
         tmp_path_factory, cap, shut, specs):
     """Differential, the daemon's detached pass against `tests/admission_model.run_pass` on the view the
