@@ -92,8 +92,9 @@ def _passed_clocked_waiters(policy: dict, view: dict, jobs: list[dict], result) 
                         and _competes(policy, view, job, older)):
                     found.append((row.job_id, older["job_id"]))
         outcome = row.hold
-        if (job.get("capacity_look") == "clock" and outcome in ("capacity", "behind-older-job")
-                and not scheduler.unadmittable(policy, view, job)):
+        # A lease waiter waits for no slot (C-6.9): passing it is no defect, whatever its clock.
+        if (job.get("capacity_look") == "clock" and not job.get("lease_wait")
+                and outcome in ("capacity", "behind-older-job") and not scheduler.unadmittable(policy, view, job)):
             seen.append(job)
     return found
 
@@ -138,7 +139,7 @@ def test_a_hold_runs_through_a_held_job_only_while_its_clock_runs(case):
 
 @SETTINGS
 @given(queues())
-def test_once_every_clock_is_due_no_hold_runs_through_a_held_job(case):
+def test_once_the_held_jobs_clocks_are_due_no_hold_runs_through_them(case):
     """The same queue a clock later: every job held behind another is due now, and while it is still
     held behind one it holds nobody."""
     policy, store, jobs = case

@@ -9,6 +9,14 @@ the daemon's own `_admit_pass`, in-process on the fake providers, takes the mode
 decisions on generated queues: Opus, Astra and Terra jobs and Opus-or-Astra reviews,
 some pinned to a lane, some on their clocks, beside lanes some of which are closed,
 under a fleet cap or none.
+
+What it compares, and what it does not (review of #201 r2): placement and the hold's
+reason with the job it names (`behind`, `kept_for`), which is what C-6.9's hold-back
+decides; not the lane or model chosen, `for_good`, the rest of a hold's detail, or the
+clocks set. It generates no retries and no lease waits; the scenarios in
+`test_admission_properties.py` cover those. The view is built on the wall clock a moment
+before the pass, so a stall longer than `reading_ttl_s` (120 s) between the two would
+let them disagree; the jobs' clocks are 600 s and the closures six hours.
 """
 
 from __future__ import annotations

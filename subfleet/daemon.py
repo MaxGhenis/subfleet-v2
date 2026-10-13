@@ -5534,18 +5534,19 @@ class Daemon:
                              and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
 
             def unadmittable_now():
-                """C-11.8: the standing refusals that keep every lane from this job now, or None,
-                with the lanes its attempts excluded merged in (C-4.5) as its route merges them:
-                a lane re-enrolled since a `limited` attempt is excluded under its successor's id,
-                which only `_retry_pin` knows (review of #201 r1). A merge that cannot be made is
-                its route's problem, settled at its next look (C-6.12), as `unadmittable` answers
-                None for a route it cannot evaluate."""
+                """C-11.8, C-6.12: the standing refusals that keep every lane from this job now (or
+                None), and whether its route can be evaluated. The lanes its attempts excluded are
+                merged in (C-4.5) as its route merges them: a lane re-enrolled since a `limited`
+                attempt is excluded under its successor's id, which only `_retry_pin` knows (review
+                of #201 r1). A merge that cannot be made (a stored exclusion that is not a name) is
+                its route's problem, a `route` wait once it is looked at, which holds nobody: so such
+                a job holds nobody meanwhile either (review of #201 r2)."""
                 try:
                     effective = ({**job, "exclusions": self._merged_exclusions(job, extra_exclusions)}
                                  if extra_exclusions else job)
                 except Unroutable:
-                    return None
-                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo)
+                    return None, False
+                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo), True
             behind = ahead(models, lanes)
             for_good = None
             if (behind and not saturated.get(pool) and job["wait_reason"] == "capacity"
@@ -5561,11 +5562,12 @@ class Daemon:
                 # again (a let-go retry's due look evaluates its pair, which may let the pin go and
                 # set the next clock, C-6.12). A lease wait still holds nobody (`ahead`; the lease's
                 # queue keeps its place), nor does a job no lane can admit (C-11.8), which its hold
-                # says (C-6.11), lease wait or not. As before this change, a job held here is not put
-                # in a probe's line: it carries no probe on this pass.
+                # says (C-6.11), lease wait or not, nor one whose route cannot be evaluated (C-6.12).
+                # As before this change, a job held here is not put in a probe's line: it carries no
+                # probe on this pass.
                 held = self._capacity_waits.get(job["job_id"])
-                for_good = unadmittable_now()
-                if not for_good and not (held and held["hold"].get("reason") == "lease-held"):
+                for_good, routable = unadmittable_now()
+                if routable and not for_good and not (held and held["hold"].get("reason") == "lease-held"):
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
@@ -5602,8 +5604,8 @@ class Daemon:
                 # model and job shape per pass.
                 lease_held = bool(known and known["hold"].get("reason") == "lease-held")
                 asked = job["wait_reason"] == "capacity" and (scope is not None or lease_held)
-                for_good = unadmittable_now() if asked else None
-                if job["wait_reason"] == "capacity" and not for_good:
+                for_good, routable = unadmittable_now() if asked else (None, True)
+                if job["wait_reason"] == "capacity" and routable and not for_good:
                     # C-6.9: a lease wait, those kept for an older job too, is no slot wait.
                     waiting_for = (frozenset([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())])
                                    if lease_held else frozenset())
@@ -5611,7 +5613,7 @@ class Daemon:
                     if probing:
                         probe_line.append((job["job_id"], probing["model"],
                                            self._probe_reach(roster, job, probing["model"], lanes, extra_exclusions)))
-                if lease_held and not for_good:
+                if lease_held and routable and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
                     # Only the keys it takes: one it needs free but does not take (`blocked`,
                     # retention's fence above a writer's folder, say) is never queued for
@@ -5757,7 +5759,11 @@ class Daemon:
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = ahead(models, lanes)
-                    if behind:
+                    # C-6.12: exclusions that cannot be merged are its route's problem, so such a
+                    # job is not held here: the route's preparation below settles it as a `route`
+                    # wait, which holds nobody (review of #201 r2).
+                    for_good, routable = unadmittable_now() if behind else (None, True)
+                    if behind and routable:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
                         # the pass with its own demand, with no git and no scoring.
@@ -5765,7 +5771,6 @@ class Daemon:
                         # neither passes an older job it competes with nor is passed by a younger one":
                         # a waiter with that demand now, as on the passes before its clock is due
                         # (above), unless no lane can admit it as submitted (C-11.8).
-                        for_good = unadmittable_now()
                         if not for_good:
                             wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                         hold = {"reason": "behind-older-job", "behind": behind, "tier": tier,
