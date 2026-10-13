@@ -501,3 +501,108 @@ checkout, shared metadata and existing history are unchanged. No remote or
 sub-agent was used, and nothing was pushed.
 All task-owned runners and preparation commands have ended; nothing remains
 detached or running.
+
+
+## Round 4 fixes (reviewed head `bce9baea5b68`)
+
+Read the full round-four review and its executed lifetime input. Configure now
+exclusively creates a dedicated `.pytest-session` sentinel with a random
+256-bit token. `SUBFLEET_PYTEST_SESSION_ID` records its device, inode and token;
+`SUBFLEET_PYTEST_SESSION` retains the session base path. `under_pytest()` verifies
+the opened sentinel's identity instead of directory existence. Store writes
+cannot revive an expired capture, including a copied `PYTEST_CURRENT_TEST`.
+
+Unconfigure deletes the sentinel before restoring the environment and removing
+stores, so surviving or recreated directories cannot keep a marker active.
+Restoration includes the new identity, preserving absent, empty and configured
+originals. The E2E harness propagates both lifetime variables; `daemon_env()`
+already preserves them. Bare standalone markers retain their guard behavior.
+This supersedes the directory lifetime described in round three.
+
+### Regression evidence
+
+The reviewer input is committed in `tests/unit/test_live_store_guard_round4.py`.
+Before changing production code, **both direct cases failed on `bce9baea5b68`**
+at `settings write revived an expired session`, with and without a captured
+current-test value. After the fix, the child writes retained synthetic settings,
+recreates the old base, remains ordinary, selects fake HOME's login/account,
+and resolves a missing session-store override beneath that fake HOME.
+
+Six additional cases cover sentinel removal, a changed token with the same
+inode, a replacement inode with the same token, missing identity, a surviving
+store directory, and a fresh session at the same path. The replacement test
+keeps the original inode allocated, avoiding reliance on inode reuse.
+
+| Direct validation | Passed |
+| --- | ---: |
+| New round-four lifetime cases | 8 |
+| All retained round-three cases | 22 |
+| Retained guard and credential cases | 39 |
+| E2E propagation and module-name uniqueness | 2 |
+| Release-parity cases after the correction below | 21 |
+| **Total unique direct cases** | **92** |
+
+These are direct calls to committed tests, separate from pytest counts. The
+round-three/round-four replay also verifies exact environment restoration after
+each case. That check caught a new test fixture undo ordering issue; scoped
+patches now restore the synthetic identity before unconfigure restores the
+enclosing session. The complete final replay passes.
+
+### Release-parity correction
+
+The first acquired guard run produced **352 passed, 3 failed**. All failures
+were retained parity cases with literal-tilde HOME and absolute, relative or
+tilde `CLAUDE_CONFIG_DIR`. Python 3.12's `Path.home()` raises for that HOME.
+Release evaluates it eagerly; the assigned head's MCP resolver skipped it when
+an override existed. This MCP function was unchanged from `bce9baea5b68`, and
+the frozen release body matches actual release commit
+`bd4c2cc8f23c8605b8dfac73c09f2fcf60b45266`.
+
+`global_config_path()` now preserves release's eager HOME evaluation outside
+pytest, retaining guarded selection before implicit HOME access during active
+tests. No parity assertion was weakened or skipped. All 21 parity cases pass
+directly, and the full guard/MCP rerun passes below.
+
+### Pytest validation
+
+| Requested group | Final pytest result | Pytest duration |
+| --- | ---: | ---: |
+| Live-store guard, round 3, round 4, module names; MCP resolver and launch | **398 passed** | 29.51 s |
+| `tests/unit/test_cli.py` | **185 passed** | 46.01 s |
+| `tests/unit/test_hooks.py` | **0 executed; unrun: shared lock** | — |
+| Reviewed-head regression baseline | 0 executed; shared lock; direct failures above | — |
+
+The final guard group includes all 355 guard/module-name cases and 43 MCP cases,
+superseding the earlier three parity failures. CLI ran at `e1544fda9`; the later
+MCP correction only restores production HOME evaluation, and active pytest
+selection is unchanged. **583 pytest cases passed in the final successful
+runs.** Hooks still needs a host/hub run after three blocked acquisitions.
+
+Every foreground attempt used its own `sf-r198f4-<pid>/` TMPDIR, fake HOME,
+the prescribed shared lock, and `uv run pytest -q -p no:cacheprovider`.
+Six acquisitions timed out after 50.2–50.3 seconds, before pytest startup: the
+baseline, first guard group, three hooks attempts, and first guard/MCP rerun.
+The acquired runs took 98.4 s (CLI), 78.1 s (initial guard), and 73.7 s (final
+guard/MCP), including acquisition. Each hold was below twenty minutes, with
+no wait for machine load. The supervisor would interrupt at 1,090 seconds and
+finish termination by 1,115 seconds. Each temporary root was removed with the
+required Python `shutil.rmtree` command. Six changed Python files parse, and
+named-file whitespace checks pass.
+
+### Delivery
+
+- `ca41c6732`: reviewer-input regression committed before the production fix.
+- `e1544fda9`: sentinel validation, cleanup, E2E propagation and extra cases.
+- `868ad6ba6`: restore release MCP HOME evaluation for the retained parity cases.
+- This report is delivered in a separate documentation commit.
+
+The shared Git metadata is outside the writable sandbox. As authorized, commits
+are on `fix/test-live-store-guard` in workspace-local `.git-local`, based on
+assigned `bce9baea5b68`; inspect with
+`git --git-dir=.git-local --work-tree=. log`. Only named source, test and report
+files were staged. All commits include the requested co-author trailer.
+Dependencies were prepared offline from cached packages in ignored `.venv`;
+no logs, JSON evidence, dependency files or bundles were staged. Tests used fake
+HOME and recording credential backends. No remote, sub-agent or push was used.
+The caller checkout and shared metadata remain untouched. All task-owned
+runners and preparation commands have ended.
