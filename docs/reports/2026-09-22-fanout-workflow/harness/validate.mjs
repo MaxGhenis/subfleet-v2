@@ -57,7 +57,8 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   chmodSync(join(root, 'bin', 'git'), 0o755)
   const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, FAKE_STATE: root,
     SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0',
-    CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller', ZDOTDIR: join(root, 'empty-home') }
+    CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller', ZDOTDIR: join(root, 'empty-home'),
+    FANOUT_FAKE_REPOSITORY: resolve(harness, '../../../..') }
   delete env.PYTHONPATH
   const args = { label: 't', stateDir: join(root, stateSuffix), items: ['a', 'b', 'c'].map(name => ({ ...ok, name,
     promptPath: join(root, `prompt-${name}.md`), outPath: join(root, `out-${name}.md`) })) }
@@ -91,6 +92,47 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
 }
 
 try {
+  for (const [field, variable] of [['workdir_head', 'FAKE_SUBMIT_HEAD'], ['policy_hash', 'FAKE_SUBMIT_POLICY']]) {
+    for (const lost of ['lose-stdout', 'unknown-c-after-old']) {
+      await test(`round 7 finding 1: ${field} changes at submit (${lost})`, async () => {
+        const c = await make('check-prompts')
+        const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state') })
+        c.step(0, old.commands[0]); assert.match(c.step(1, old.commands[1]).text, /JOBS=3\nUNSETTLED=0/)
+        const before = readFileSync(join(c.root, 'registry.json'), 'utf8')
+        c.env[variable] = 'different-at-submit'; c.env.SCENARIO = `${lost},check-prompts`
+        c.setup()
+        const uncertain = lost === 'lose-stdout' ? 3 : 1
+        assert.match(c.step(1).text, new RegExp(`JOBS=0\nUNSETTLED=${uncertain}`))
+        c.env[field === 'workdir_head' ? 'FAKE_WORKDIR_HEAD' : 'FAKE_POLICY_HASH'] = 'different-at-submit'
+        c.env.SCENARIO = 'check-prompts'
+        const conflict = c.step(1).text
+        assert.match(conflict, new RegExp(`LOOKUP_UNKNOWN[\\s\\S]*JOBS=0\nUNSETTLED=${uncertain}`))
+        assert.doesNotMatch(conflict, /^SUBMITTED /m)
+        c.setup(); assert.match(c.step(1).text, new RegExp(`JOBS=0\nUNSETTLED=${uncertain}`))
+        assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
+        assert.equal(readFileSync(join(c.root, 'registry.json'), 'utf8'), before)
+      })
+    }
+  }
+  for (const [alias, canonical] of [['sol', 'astra'], ['fable', 'opus']]) {
+    await test(`round 7 finding 2: ${alias} alias recovers after lost answers and validation refusal`, async () => {
+      const c = await make('rowless-unknown,check-prompts')
+      c.args.model = alias
+      const rendered = await renderWorkflow(script, c.args)
+      c.step(0, rendered.commands[0]); assert.match(c.step(1, rendered.commands[1]).text, /JOBS=0\nUNSETTLED=3/)
+      unlinkSync(c.args.items[1].promptPath)
+      assert.match(c.step(1, rendered.commands[1]).text, /MANIFEST_REFUSED[\s\S]*JOBS=3\nUNSETTLED=0/)
+      c.step(0, rendered.commands[0]); assert.match(c.step(1, rendered.commands[1]).text, /JOBS=3\nUNSETTLED=0/)
+      const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
+      const snapshots = JSON.parse(readFileSync(join(c.args.stateDir, 'rq-test.submit.1.jsonl.identity.json'), 'utf8'))
+      for (const name of ['a', 'b', 'c']) {
+        assert.equal(snapshots[name].pinned_model, canonical)
+        assert.equal(registry[`rq-test-${['a', 'b', 'c'].indexOf(name) + 1}`].pinned_model, canonical)
+      }
+      assert.equal(c.count('run'), 2)
+      assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
+    })
+  }
   for (const field of ['workdir_head', 'policy_hash']) {
     await test(`round 6 finding 2: reused request id with changed ${field} stays uncertain`, async () => {
       const c = await make('check-prompts')
