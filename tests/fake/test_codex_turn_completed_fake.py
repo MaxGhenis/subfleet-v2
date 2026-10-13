@@ -217,7 +217,9 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
 @pytest.mark.parametrize("kind", ("empty", "directory", "fifo", "symlink", "dangling-symlink"))
-def test_frozen_stream_cannot_accept_later_stdout_completion(state_daemon, monkeypatch, restart, kind):
+@pytest.mark.parametrize("raw_stream", ("stream.jsonl", "custom.jsonl"))
+def test_frozen_stream_cannot_accept_later_stdout_completion(
+        state_daemon, monkeypatch, restart, kind, raw_stream):
     """Review r3/r4/r6: only live stdout changes after the frozen path exists."""
     daemon, harness = state_daemon
     out = harness.root / "out.md"
@@ -225,6 +227,10 @@ def test_frozen_stream_cannot_accept_later_stdout_completion(state_daemon, monke
     adapter = CodexAdapter()
     monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
     launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "success")
+    launch = replace(launch, raw_stream_path=str(adir / raw_stream))
+    saved = asdict(launch)
+    saved.pop("env_add")
+    (adir / "launch.json").write_text(json.dumps(saved))
     interim = b"Interim progress, not a finished turn."
     (adir / "stdout").write_bytes(b"")
     (adir / "stderr").write_text("Your refresh token was revoked.")
@@ -260,6 +266,9 @@ def test_frozen_stream_cannot_accept_later_stdout_completion(state_daemon, monke
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
     assert daemon.store.get_job(job_id)["accepted_attempt_id"] is None
     assert frozen_identity(adir / "stream.jsonl") == identity
+    if raw_stream == "custom.jsonl":
+        with pytest.raises(FileNotFoundError):
+            Path(launch.raw_stream_path).lstat()
     if kind == "empty":
         assert (adir / "stream.jsonl").read_bytes() == b""
     assert (adir / "deliverable.md").read_bytes() == interim
