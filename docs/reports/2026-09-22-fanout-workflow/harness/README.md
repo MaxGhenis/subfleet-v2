@@ -33,6 +33,19 @@ the exact workflow at `c95d10809`, 24 pass and four fail; the round-4 workflow
 passes all 28. The registry and recovery evidence stay in temporary folders
 and are cleaned up after the run.
 
+Round-5 regressions reproduce both findings at `91644430b`: an earlier
+refusal followed by an unanswered invocation that commits the job, and
+request-id reuse by a different manifest followed by validation refusal.
+The fake registry now stores immutable prompt bytes and enforces C-6.2
+payload conflicts. Recovery must verify the daemon's recorded identity
+against an unanswered invocation's snapshot before adopting its id.
+The expanded harness has 37 checks, retaining all 28 existing checks.
+Additional checks exercise per-invocation prompt changes, same names/paths
+with different prompt bytes, verified digest-conflict recovery, all ten
+required metadata fields missing or mismatched, nested online and flat
+offline show responses, cleared caller-session identity, and rejection of
+legacy recovery records without identity proof. Evidence remains temporary.
+
 For an individual command sequence, from this harness directory:
 
 ```sh
@@ -63,6 +76,8 @@ python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "
 - `manifest-refusal-marker`: the same message with exit 1; still a refusal.
 - `rowless-unknown`: commits all jobs to the fake registry, then loses all
   stdout and exits 1 on the first run.
+- `lose-stdout`: commits any new jobs (refusing payload conflicts under
+  existing request ids), then loses all stdout and exits 1 on every run.
 - `check-prompts`: validates that every prompt exists before committing any
   jobs; deleting one prompt produces a whole-manifest refusal.
 - `lookup-down-always`: request-id lookups fail with exit 69.
@@ -77,3 +92,9 @@ python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "
 The fake replays the CLI's row shapes at this PR's base `81d58fe9`.
 It rejects a run without `-d`. Rendered commands and the dispatcher prompt
 are written only to the selected output directory; do not commit them.
+Its `runs show` response is nested under `job` by default, as the daemon
+records it. `FAKE_SHOW_FLAT=1` selects the offline shape;
+`FAKE_SHOW_MISSING=<field>` and `FAKE_SHOW_MISMATCH=<field>` test absent and
+different recorded metadata. The fake rejects `show` if it inherits
+`CLAUDE_CODE_SESSION_ID`, so the harness proves recovery cannot acknowledge
+the caller's notices.

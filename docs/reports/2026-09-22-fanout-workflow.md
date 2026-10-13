@@ -40,8 +40,8 @@ read in `~/subfleet-v2` on the date given; `observed` is this machine's state;
   disagree and 11 hazards for exactly this pattern. All eight findings and four
   of the hazards are fixed in the workflow shipped here, and a second review
   of that version found nine more defects. The next review found seven,
-  and its follow-up found two; these are addressed in the second through
-  fourth rounds below.
+  and each of its next two follow-ups found two; these are addressed in the
+  second through fifth rounds below.
 
 ## The workflow
 
@@ -69,9 +69,15 @@ quoted; the agent retypes them and nothing else.
    needs recovery. A row-less validation refusal is recorded once as
    `MANIFEST_REFUSED`, with the CLI message, and stops new submissions across
    relaunches. Earlier unknown outcomes survive later unsent or refused
-   attempts. After a manifest refusal, `runs --request-id <id>-<n> --json`
-   looks up each earlier unknown request; recovered ids are saved and waited
-   on. Inconclusive lookups keep those entries `OUTCOME_UNKNOWN` and counted
+   attempts; a later unanswered invocation makes a previously refused entry
+   uncertain again. Before every invocation, the helper snapshots each
+   entry's identity and prompt SHA-256 beside the numbered submit log.
+   After a manifest refusal, `runs --request-id <id>-<n> --json` finds each
+   earlier unknown request; `runs show <job> --json` verifies its recorded
+   identity and stored prompt bytes against an unanswered invocation's
+   snapshot. The show subprocess clears `CLAUDE_CODE_SESSION_ID` so it
+   acknowledges no notices. Verified ids are saved and waited on.
+   Inconclusive lookups keep those entries `OUTCOME_UNKNOWN` and counted
    in `UNSETTLED`; only entries without earlier uncertainty become `REFUSED`.
    Submit logs are numbered, never truncated; job ids are written only after a log
    is parsed. Without a request id a relaunch submits nothing and prints the
@@ -93,10 +99,10 @@ Why this shape, against the v1 brief's one-agent-per-item design:
 | v1 brief assumption | subfleet 2.0.0a0 |
 |---|---|
 | One `subfleet run` per job, N dispatchers | `run --batch FILE --json` submits every entry in one call and prints one JSON object per entry with `job_id`, `created`, `rc`, `error` (C-17.7; `cli.py:cmd_run_batch`). One dispatcher. |
-| No result cache; skip when the out file is non-empty | `--request-id ID` names entry *n* `ID-n`; the same manifest resubmitted returns the existing jobs, `created: false` (C-6.2; `Daemon.submit`, `daemon.py:1087-1094` at this PR's base `81d58fe9`; verified live at 14:40:48Z, below). The digest includes the prompt, the workdir's git head and the policy hash of the exact `policy.json` bytes loaded at daemon start (`daemon.py:1071-1094` at `81d58fe9`). A replay after any of these changes returns exit 2 naming the earlier job. If that entry previously had an unknown or missing answer, the helper recovers the named job id and waits on it (same function; the mapping job read it at `daemon.py:723-768` on 2026-09-22). |
+| No result cache; skip when the out file is non-empty | `--request-id ID` names entry *n* `ID-n`; the same manifest resubmitted returns the existing jobs, `created: false` (C-6.2; `Daemon.submit`, `daemon.py:1087-1094` at this PR's base `81d58fe9`; verified live at 14:40:48Z, below). The digest includes the prompt, the workdir's git head and the policy hash of the exact `policy.json` bytes loaded at daemon start (`daemon.py:1071-1094` at `81d58fe9`). A replay after any of these changes returns exit 2 naming the earlier job. If that entry previously had an unknown or missing answer, the helper verifies the named job against an unanswered invocation's identity snapshot before waiting on it (same function; the mapping job read it at `daemon.py:723-768` on 2026-09-22). |
 | The script pools concurrency | The daemon caps and queues in tier order (C-6.4, C-6.9). |
 | Adopt a live run that holds the `-o` path | The refusal is exit 7 and names no job: "out_path is held by a live job" when a queued or running job holds the lease (`daemon.py:1440` at `81d58fe9`), "output path is held by another job" when a finished, lost or quarantined one still does (`daemon.py:1419` at `81d58fe9`). Both are reported as `refused`. |
-| `subfleet notices` shows delivery | Notices are store rows with states `pending`, `offered`, `acknowledged`, `surfaced` (C-15.3). `runs show <job>` acknowledges the caller session's notice (`cli.py:_ack_notices`), and a workflow worker carries the caller's `CLAUDE_CODE_SESSION_ID`, so the dispatcher is forbidden to run it. |
+| `subfleet notices` shows delivery | Notices are store rows with states `pending`, `offered`, `acknowledged`, `surfaced` (C-15.3). `runs show <job>` acknowledges the caller session's notice (`cli.py:_ack_notices`). The helper clears `CLAUDE_CODE_SESSION_ID` for recovery lookups; the dispatcher agent itself runs only the supplied steps. |
 
 Two things about the harness, `observed`:
 
@@ -397,6 +403,88 @@ in `.git-local` on `docs/fanout-workflow-measured`, because the shared Git
 metadata is outside this job's writable sandbox. Temporary fixtures are
 removed with the prescribed Python `shutil.rmtree` command. No real jobs,
 network remotes, live workflow edits or daemon changes were used.
+
+### Fifth round (round 5), 2026-10-12
+
+Review r4 (`~/reviews/fanout-workflow-2026-10-04/review-r4.md`) requested
+changes on `91644430b`, with two medium findings. Both exact reviewer
+sequences are registry-backed harness regressions:
+
+1. **Medium, resolved.** `refuse-b,unknown-c` followed by a full-manifest
+   retry that commits b and loses stdout now makes b uncertain. Deleting
+   b's prompt before the third call causes a manifest validation refusal,
+   then recovery verifies `rq-test-2 = job-b`, reports b as submitted with
+   `JOBS=3`, `UNSETTLED=0`, and includes b in wait. An invocation's refusal
+   cannot settle a later unanswered invocation.
+2. **Medium, resolved.** An older batch and a new state directory reusing
+   its request id and label with different names/output paths no longer
+   share recovered jobs. The fake retains the old registry entries under
+   C-6.2, loses the new invocation's stdout, and then refuses validation
+   after prompt deletion. Recovery reports `JOBS=0`, `UNSETTLED=3`, waits
+   on nothing, and leaves the old registry unchanged.
+
+Before each submission, a sidecar to its numbered log records the entry's
+name, resolved workdir/output path, task, tier, sandbox, model pin and
+SHA-256 of its exact prompt bytes. Only snapshots from unanswered
+invocations are eligible recovery evidence. `Daemon`'s show operation
+returns these job fields and a `prompt_path` pointing to its stored copy;
+the online response wraps them in `job`, while `Offline.show_job` returns
+them flat. The helper handles both and hashes the stored prompt, so deleting
+or editing the caller's prompt does not destroy the original proof. It
+requires matching request/job ids and every identity field before adopting
+or replaying recovered evidence. A C-6.2 conflict supplies a candidate id,
+which undergoes the same verification; the id alone is insufficient.
+`cli.py:session_id` reads `CLAUDE_CODE_SESSION_ID`, and `_ack_notices` returns
+without it. The helper removes that variable only from lookup subprocesses.
+
+Missing/mismatched fields, unreadable stored prompts, unavailable/empty/
+malformed responses, or missing invocation snapshots leave entries unknown.
+Legacy recovery rows without proof are ignored. Direct created/existing
+submission answers remain usable; legacy unknown state cannot be adopted
+from the ledger without its original snapshot. A daemon-resolved model pin
+that differs from the requested spelling also keeps recovery uncertain.
+Verified evidence persists across relaunches, with no extra submission or
+lookup for already known jobs. Each lookup is bounded to 15 seconds and
+the whole recovery pass to 60 seconds.
+
+**Entry state machine.** Submission replay and wait reporting have distinct
+states; an unverified candidate id is only an annotation on an unknown entry.
+
+| State | What enters it and what can move it onward |
+|---|---|
+| Unattempted (`outcome=""`, internal) | Setup keeps the entry. Its first invocation yields a known id, refusal, not-sent or unknown. |
+| `skipped` | With no request id, setup omits an entry whose output is non-empty. It stays skipped across relaunches; explicitly resetting state allows setup to reconsider it. |
+| `refused` | An explicit refusal, or whole-manifest validation refusal with no earlier uncertainty. It triggers no retry. A full-manifest retry driven by another entry can move it to known, not-sent, or unknown, including when its answer is missing. A recorded whole-manifest refusal stops all later submissions. |
+| `not-sent` | A daemon connection refusal with an explicit not-sent row and no earlier unknown. Under a request id it triggers a full-manifest retry. A later answer can move it to known, refused or unknown; a validation refusal settles it as refused. Without a request id, relaunch prints a reset command. |
+| Submission unknown (`outcome="unknown"`, public `submit-unknown`) | An explicit unknown or missing row for an entry with no known id, even after a refusal. Later not-sent/refused rows and validation refusals preserve it. Only a direct job-id answer or verified recovery moves it to known. Failed identity/ledger checks preserve it. |
+| Known (`created`/`existing`, internal; `SUBMITTED` marker) | A direct submission answer or verified recovered id. Full-manifest retries and relaunches preserve the first known id. Wait moves its reported state to running, terminal, or unknown without forgetting the id. |
+| `running` | A wait timeout, an unanswered daemon wait, or a killed wait without markers keeps the job pending. Wait repeats through the configured cap; cap exhaustion returns running with rc 124. A later wait/relaunch can yield a terminal result or unknown. |
+| `succeeded`, `failed`, `cancelled`, `lost` | A terminal wait row reports one of these states with its rc/output evidence. Waiting stops when no ids remain pending. Submission state retains the known id for later inspection/relaunch. |
+| Report unknown (`unknown`) | Failed setup, an omitted dispatcher result, a missing/invalid wait answer, or missing markers. Setup failures stop submission. A later successful setup or wait can resolve the report; an already known id remains in submission state. If the dispatcher dies entirely, the workflow returns `dispatcher: died` with no entry results. |
+
+Validation used only the shipped fake in `PATH`, an empty temporary
+`SUBFLEET_HOME`, `PYTHONPATH` unset, `bun 1.3.12`, `python3 3.14.7`, and
+`zsh -c 'eval "$1"'` for every rendered command:
+
+- Original harness against `91644430b`: **28 passed, zero failed**.
+- Both added reviewer regressions against `91644430b`: **28 passed, two
+  failed**, preserving all existing checks.
+- Expanded harness against the exact exported `91644430b` workflow:
+  **28 passed, nine failed**.
+- Expanded harness against this fix: **37 passed, zero failed**, including
+  all 28 retained checks, ten missing and ten mismatched metadata variants,
+  per-invocation prompt identity, prompt-only collisions, verified C-6.2
+  recovery, both show shapes, caller-session isolation and legacy evidence.
+- `git diff --check` passed.
+
+Commits stage only named workflow, harness and report sources and carry the
+requested coauthor trailer. Shared Git metadata and the worktree's `.git`
+pointer are outside the writable sandbox, so commits use workspace-local
+`.git-local` metadata on `docs/fanout-workflow-measured`; the original
+detached checkout remains at `91644430b`. No logs, JSON evidence or bundles
+are staged. Fixtures are cleaned with the prescribed Python `shutil.rmtree`
+command. No real jobs, network remotes, sub-agents, live workflow edits or
+daemon changes were used.
 
 ## Live check of the shipped commands, 2026-10-04
 
