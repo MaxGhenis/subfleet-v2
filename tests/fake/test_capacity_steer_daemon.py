@@ -229,8 +229,9 @@ def test_c9_5_an_ordinary_transient_keeps_the_same_lane_retry_after_60_s(fleet):
 
 
 def test_c9_5_the_steer_is_the_jobs_and_another_job_still_gets_the_model(fleet):
-    """D-CAP1: capacity is intermittent (of the Sol attempts started within 15 minutes of a
-    refusal on 2026-10-11 to 13, 383 of 423 were served), so one job's refusal moves only that job."""
+    """D-CAP1: capacity is intermittent (of the 390 gpt-6.1-sol attempts started within 15 minutes
+    of a refusal from 2026-10-01 to 2026-10-13, 350 were not refused), so one job's refusal moves
+    only that job."""
     daemon, harness = fleet
     job_id = submit(daemon, harness)
     refuse(daemon, admit(daemon, job_id))

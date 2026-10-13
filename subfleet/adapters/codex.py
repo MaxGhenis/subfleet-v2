@@ -66,6 +66,12 @@ OLD_CLI_RE = re.compile(
     r"(?:unsupported|unrecognized|unexpected|unknown) (?:argument|option|flag)|"
     r"minimum.{0,30}(?:codex|cli|version)|requires? (?:codex )?version", re.I,
 )
+#: C-9.5, D-CAP1: the provider refusing the model itself for want of capacity: "Selected model is
+#: at capacity. Please try a different model." (gpt-6.1-sol, an `error` event and then the
+#: `turn.failed` that ended the turn, 84 attempts from 2026-10-01 to 2026-10-13). Still
+#: `transient`, never a closure: the account and the lane are fine, and so is the model for most
+#: jobs meanwhile. A server's or a gateway's capacity is not the model's.
+MODEL_CAPACITY_RE = re.compile(r"\bmodel(?:[ _](?:is|was))?(?:[ _]currently)?[ _]at[ _]capacity\b", re.I)
 TRANSIENT_RE = re.compile(
     r"\b5\d\d\b|capacity|disconnect|overloaded|timed? ?out|temporarily|"
     r"rate limit|too many requests|\b429\b|\b401\b|unauthorized|"
@@ -646,6 +652,13 @@ class CodexAdapter(Adapter):
                               source, json.dumps(event, ensure_ascii=False) if event else text)
             evidence.update(scope=scope, clock_source=source.value, resets_at=until)
             return result(OutcomeClass.LIMITED, "Codex subscription limit reached", closure)
+        # C-9.5, D-CAP1: the model's capacity refusal before any other transient text, so the
+        # failure that ended the turn answers admission, not a reconnect it recovered from first.
+        for event, text in signals:
+            if MODEL_CAPACITY_RE.search(text):
+                evidence["admission"] = event or text
+                evidence["model_capacity"] = True
+                return result(OutcomeClass.TRANSIENT, "Codex model at capacity: the provider asked for a different model")
         for event, text in signals:
             if TRANSIENT_RE.search(text):
                 evidence["admission"] = event or text

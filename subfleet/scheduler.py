@@ -556,6 +556,19 @@ LANE_FACTS = ("lane_id", "provider", "account_key", "credential_ref", "credentia
               "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email")
 
 
+#: C-9.5: the kinds that continue one native session or are their conversation's to fail over.
+_UNSTEERED_KINDS = frozenset({"turn", "resume", "revive"})
+
+
+def capacity_steerable(job: Any) -> bool:
+    """C-9.5, D-CAP1: may a model-capacity refusal steer this job's next attempt to another model
+    of its chain? Not for a job that names a model or a lane (the operator chose it, and a pinned
+    job evaluates one model, C-11.2), nor a conversation turn (its conversation decides, C-26.7),
+    a resume or a revive (each continues one native session, C-12.3)."""
+    job = _row(job)
+    return not job.get("pinned_model") and not job.get("pinned_lane") and job.get("kind") not in _UNSTEERED_KINDS
+
+
 def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any]:
     """C-11.2, C-26.9: what `evaluate` settles before it looks at any lane.
 
@@ -617,6 +630,15 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
+    # C-9.5, D-CAP1: the models this job's own attempts found at capacity (`capacity_steer`, model
+    # id to the end of its steer, as the daemon read it at the pass's clock) are walked after the
+    # rest of its chain, in their order: another model takes the job when one can, and the model
+    # at capacity when none can, so a steer never holds a job. Nothing is added or dropped.
+    steer = job.get("capacity_steer") or {}
+    steered = ({short: steer[policy["models"][short]["id"]] for short in chain
+                if policy["models"][short]["id"] in steer} if steer and capacity_steerable(job) else {})
+    if steered:
+        chain = [short for short in chain if short not in steered] + list(steered)
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
     # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy
@@ -642,7 +664,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
             "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
             "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
             "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
-            "lane_spread": admission_settings(policy)["lane_spread"]}
+            "lane_spread": admission_settings(policy)["lane_spread"], "steered": steered}
 
 
 def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
@@ -1017,10 +1039,14 @@ def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: l
     return reason
 
 
-def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime) -> str:
-    """C-11.5: a decision's reason: each model's, then, with no lane, the earliest reset."""
+def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime,
+                    steered: Mapping[str, str] | None = None) -> str:
+    """C-11.5: a decision's reason: the models walked last for capacity (C-9.5, `prepare`'s
+    `steered`), each model's, then, with no lane, the earliest reset."""
     evaluations = list(evaluations)
-    messages = [row["reason"] for row in evaluations]
+    messages = [f"{short}: at capacity for this job until {until}, walked last (C-9.5)"
+                for short, until in (steered or {}).items()]
+    messages += [row["reason"] for row in evaluations]
     if chosen_lane is None:
         messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
     return "; ".join(messages)
@@ -1085,7 +1111,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             break
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
-                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now), digest)
+                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now, setup["steered"]), digest)
 
 
 def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[str, Any]], *,

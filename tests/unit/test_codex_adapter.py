@@ -379,7 +379,7 @@ def test_cyber_flag_in_a_completed_answer_is_not_a_refusal(flag, case, before, a
 
 
 # --- the provider refusing the model for capacity (C-9.5, D-CAP1) ------------------------------
-#: Codex's wording on gpt-6.1-sol, 109 attempts from 2026-10-01 to 2026-10-13, each as an `error`
+#: Codex's wording on gpt-6.1-sol, 84 attempts from 2026-10-01 to 2026-10-13, each as an `error`
 #: event and then the `turn.failed` that ended the turn (tests/fixtures/codex/model-at-capacity-sol).
 CAPACITY = "Selected model is at capacity. Please try a different model."
 RECONNECT_503 = ("Reconnecting... 2/5 (unexpected status 503 Service Unavailable: An error occurred while "
