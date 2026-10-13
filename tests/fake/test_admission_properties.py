@@ -18,9 +18,15 @@ Found with the stateful search and the adversarial review of 2026-09-24
 (`~/reviews/formal-verification-2026-09-24/verify-s7-subfleet.md`, M1).
 """
 
+import errno
 import json
+import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from subfleet import scheduler
 from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
@@ -410,6 +416,141 @@ def test_c6_10_a_pass_clears_the_other_kinds_jobs_only_once_they_end(fleet):
     assert ended not in service._recorded_verdicts and ended not in service._capacity_waits
     service._admit_pass({}, {"placed": 0}, kind="detached")
     assert running not in service._recorded_verdicts and running not in service._capacity_waits
+
+
+#: What can happen between two looks at a job alternating between C-6.10's kinds of wait (below).
+BETWEEN_LOOKS = st.lists(st.sampled_from((
+    "filler-ends", "filler-starts",       # the fleet empties and fills: slot-kept <-> lease-held, and the load
+    "lane-closes", "lane-opens",          # the verdict changes
+    "probe-slot-held", "probe-silent",    # its probe's slot is held (a probe's turn), or its probe says nothing
+    "workspace-fails", "route-fails",     # a detour that drops the wait's record (C-6.8, C-6.12)
+)), max_size=2)
+
+
+@settings(max_examples=25, deadline=None, database=None, suppress_health_check=[HealthCheck.too_slow])
+@given(between=st.lists(BETWEEN_LOOKS, min_size=2, max_size=10))
+def test_c6_10_rows_follow_the_verdict_whatever_waits_come_between(between):
+    """C-6.10, C-11.5, as a property over interleavings the stateful machine does not reach (its jobs hold
+    no output path). One job must probe (C-11.4) and its output path is held, so each look at it is held
+    for the slot an older lease waiter keeps (C-6.9), on its lease, for its probe's slot, by its probe's
+    answer, or on a detour, in whatever order the fleet's load, a closure and the faults make. After every
+    look, exactly: a look that offers a verdict (`_record_verdict`) adds a row when, and only when, the
+    verdict is not the job's latest row's, so its latest row is that verdict; a look held for capacity
+    offers one; any other look adds none. Bounded: 25 examples of at most 10 looks, no database."""
+    from subfleet import daemon as daemon_module
+    from subfleet.adapters import registry
+    from subfleet.daemon import Daemon
+    from tests.claude_code import claude_code_active
+    from tests.fake.conftest import Harness
+    from tests.fake_adapter import FakeAdapter
+    base = Path(tempfile.mkdtemp(prefix="c610-"))
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+            patch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+            patch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+            patch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+            claude_code_active(patch, base / "claude")
+            (base / "state").mkdir()
+            harness = Harness(base / "state")
+            service = Daemon(base / "state")
+            try:
+                alternate(service, harness, patch, between)
+            finally:
+                service.close()
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def alternate(service, harness, patch, between):
+    from subfleet import daemon as daemon_module
+    service.policy["caps"].update(max_active_attempts=3, workspace_retry_max=100)   # detours never end the job
+    service.store.put_lane(lane("codex-2", "codex"))
+    for lane_id in ("codex-1", "codex-2"):
+        measured(service, lane_id)
+    kept_out, out = str(harness.root / "kept.md"), str(harness.root / "report.md")
+    keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
+    job = submit(service, harness, pinned_model="terra", out_path=out)
+    for path in (kept_out, out):
+        assert service.store.acquire_lease(f"out:{path}", "another-job")
+    fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
+    real_probe_required = daemon_module.scheduler.probe_required
+    patch.setattr(daemon_module.scheduler, "probe_required",
+                  lambda decision, row: bool(decision.chosen_lane) if row["job_id"] == job
+                  else real_probe_required(decision, row))
+    answers = []
+    service._execute_probe = lambda job_row, lane_row, model, holder: Outcome(
+        answers.pop(0) if answers else OutcomeClass.OK, "fixture", {"rc": 0, "signal": None})
+    offered, real_record = {}, service._record_verdict
+
+    def record(job_id, decision):
+        offered[job_id] = decision
+        return real_record(job_id, decision)
+    service._record_verdict = record
+    real_workspace, real_pick, looks = service._workspace, service._pick, set()
+
+    def seen(row, prepare=real_workspace):
+        looks.add(row["job_id"])                            # a look starts here (C-6.10's cost)
+        return prepare(row)
+    service._admit()                                        # `keeper` and `job` wait on their paths; 2 live
+    for changes in between:
+        held, workspace, pick = [], seen, real_pick
+        for change in changes:
+            live = [filler for filler in fillers if placed_on(service, filler)]
+            if change == "filler-ends" and live:
+                end(service, live[0])
+                fillers.remove(live[0])
+            elif change == "filler-starts":
+                fillers.append(submit(service, harness, pinned_model="terra", tier="hard"))
+            elif change == "lane-closes":
+                closed(service, "codex-2")
+            elif change == "lane-opens":
+                with service.store.transaction("fixture.lifted") as tx:
+                    tx.execute("UPDATE closures SET released_at=? WHERE lane_id='codex-2' AND released_at IS NULL",
+                               (utcnow(),))
+            elif change == "probe-slot-held":
+                held = [f"lane:{lane_id}:slot:0" for lane_id in ("codex-1", "codex-2")
+                        if service.store.acquire_lease(f"lane:{lane_id}:slot:0", "another-job/a1")]
+            elif change == "probe-silent":
+                answers.append(OutcomeClass.UNKNOWN)
+            elif change == "workspace-fails":
+                def workspace(row):
+                    if row["job_id"] == job:
+                        looks.add(job)
+                        raise OSError(errno.EAGAIN, "injected: workspace temporarily unavailable")
+                    return seen(row)
+            elif change == "route-fails":
+                def pick(row, real=real_pick, **options):
+                    if row["job_id"] == job:
+                        raise ValueError("injected: bad reset clock")
+                    return real(row, **options)
+        service._workspace, service._pick = workspace, pick
+        before = rows(service, job)
+        offered.clear()
+        looks.clear()
+        due(service, keeper), due(service, job)
+        service._admit()
+        service._workspace, service._pick = seen, real_pick
+        service.store.release_leases("another-job/a1")
+        answers.clear()
+        current = service.store.get_job(job)
+        assert current["state"] == "waiting", f"the job left its wait: {current['state']}"
+        after_rows, hold = rows(service, job), service._holds[job]
+        added = after_rows[len(before):]
+        assert len(added) <= 1, f"one look added {len(added)} rows"
+        if job in looks and current["wait_reason"] == "capacity" and hold["reason"] not in (
+                "probe-pending", "lease-held", "behind-older-job", "route-moved", "attempt-live"):
+            assert job in offered, f"a look held for capacity ({hold}) offered no verdict"
+        assert job in looks or job not in offered, "a verdict was offered without a look"
+        if job not in offered:
+            assert not added, f"a look held {hold} added a row"
+            continue
+        verdict = scheduler.verdict_signature(offered[job])
+        last = scheduler.verdict_signature(json.loads(before[-1]["decision_json"])) if before else None
+        assert bool(added) == (verdict != last), (
+            f"C-6.10: a look held {hold} offered {'the' if verdict == last else 'a new'} verdict and added "
+            f"{len(added)} rows")
+        assert scheduler.verdict_signature(json.loads(after_rows[-1]["decision_json"])) == verdict
 
 
 # --- found, not fixed: strict xfails ----------------------------------------------------------

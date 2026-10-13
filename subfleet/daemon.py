@@ -5338,10 +5338,11 @@ class Daemon:
         if gone:
             # Asked again, by id: a job submitted after the read above is not gone.
             # A pass clears a job that left the queue only when the job is its own
-            # kind's (C-26.9). Its entries are written by this pass alone, under its
-            # lock, so none is written between the read below and the clearing. One of
-            # the other kind it clears only once the job has ended, since then it never
-            # comes back. The other pass may be writing to a job it reads as gone, one
+            # kind's (C-26.9). A queued or waiting job's entries are written by its own
+            # pass alone, under that pass's lock, so none is written between the read
+            # below and the clearing. (`_withdraw_pin_notice` writes a pin episode from
+            # other threads, but only once the job has ended.) One of the other kind it
+            # clears only once the job has ended, since an ended job never comes back. The other pass may be writing to a job it reads as gone, one
             # whose attempt ended and sent it back to the queue. Review of #202: a turn
             # pass found a detached job running, the job's retry recorded its verdict on
             # the detached pass, the turn pass cleared every table of it, and the next

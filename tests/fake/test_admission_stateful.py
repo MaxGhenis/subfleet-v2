@@ -299,6 +299,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.last_look: dict[str, dict] = {}        # job id -> the hold its last look reported
         self.decided: dict[str, object] = {}        # job id -> the decision this pass's look reached
         self.offered: dict[str, object] = {}        # job id -> the decision its look offered as a row (C-6.10)
+        self.unanswered: dict[str, object] = {}     # job id -> the decision its probe said nothing about (C-11.4)
         self.last_verdict: dict[str, str] = {}      # job id -> the verdict C-6.10 last recorded or repeated
         self.quarantine = False                     # probe containment cannot be verified (C-5.5)
         self.passes = 0
@@ -362,6 +363,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             return job.get("worktree") or job["workdir"], None, None, []
 
         real_pick, real_probe_choice, real_record = service._pick, service._probe_choice, service._record_verdict
+        real_probe_candidate = service._probe_candidate
 
         def pick(job, **options):
             decision = real_pick(job, **options)
@@ -377,8 +379,18 @@ class AdmissionMachine(RuleBasedStateMachine):
 
         def record_verdict(job_id, decision):
             # Which looks offer a row is checked against what held them, not taken from here.
+            assert job_id not in self.offered, f"C-6.10: {job_id}'s look offered two verdicts"
             self.offered[job_id] = decision
             return real_record(job_id, decision)
+
+        def probe_candidate(job, decision, holder):
+            # C-11.4: a probe that ends other than `ok` with a binding identity, `limited` or
+            # `auth-dead` said nothing, and C-6.10's probe wait follows: held by its answer.
+            outcome = real_probe_candidate(job, decision, holder)
+            if not (outcome.cls == OutcomeClass.OK and service._identity_binds(outcome)) and \
+                    outcome.cls not in (OutcomeClass.LIMITED, OutcomeClass.AUTH_DEAD):
+                self.unanswered[job["job_id"]] = decision
+            return outcome
 
         def probe_census(record):
             return Containment(unverifiable=True) if self.quarantine else Containment()
@@ -406,6 +418,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         service._pick = pick
         service._probe_choice = probe_choice
         service._record_verdict = record_verdict
+        service._probe_candidate = probe_candidate
         service._probe_census = probe_census
         service.term_grace_s = 0
         for lane_id, meta in self.metadata.items():
@@ -669,7 +682,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         decisions = self.decision_counts()
         attempts = {row["attempt_id"] for row in self.store.list_attempts()}
         live_before = len(self.live())
-        self.looks, self.decided, self.offered = set(), {}, {}
+        self.looks, self.decided, self.offered, self.unanswered = set(), {}, {}, {}
         try:
             self.service._admit()
         except Exception as exc:
@@ -835,6 +848,11 @@ class AdmissionMachine(RuleBasedStateMachine):
                 # Held for capacity: no lane, the fleet, a slot kept (C-6.10's recording look).
                 assert offered is not None, \
                     f"C-6.10: {job_id} was held for capacity ({hold}) and its verdict was never offered as a row"
+            if job_id in self.unanswered:
+                # Held by its probe's answer (C-6.10's other recording look): the verdict it probed.
+                probed = scheduler.verdict_signature(self.unanswered[job_id])
+                assert offered is not None and scheduler.verdict_signature(offered) == probed, \
+                    f"C-6.10: {job_id}'s probe said nothing ({hold}) and its verdict was not offered as a row"
             if offered is None:
                 # Held on a lease, for a probe's turn, behind an older job, or on its route or its
                 # workspace: what holds the job is not a verdict on its route, nothing is recorded,
