@@ -8,8 +8,8 @@ env -u PYTHONPATH bun docs/reports/2026-09-22-fanout-workflow/harness/validate.m
 
 The validator checks arguments and result shaping, renders the commands with
 a stub `agent()`, and executes every step through `zsh -c 'eval "$1"'`,
-as the review did. It prepends only the fake to `PATH`, sets
-`SUBFLEET_HOME` to an empty temporary directory, sets
+as the review did. It prepends fake Subfleet and Git to `PATH`, sets
+`SUBFLEET_HOME` and `ZDOTDIR` to an empty temporary directory, sets
 `SUBFLEET_RUN_DETACH=0` to verify explicit `-d`, and unsets `PYTHONPATH`.
 It returns a nonzero status for any failed assertion and cleans up with
 Python's `shutil.rmtree`, including on failure. No real jobs are submitted.
@@ -45,6 +45,41 @@ with different prompt bytes, verified digest-conflict recovery, all ten
 required metadata fields missing or mismatched, nested online and flat
 offline show responses, cleared caller-session identity, and rejection of
 legacy recovery records without identity proof. Evidence remains temporary.
+
+Round-6 regressions reproduce all three findings at `cdb451ff9`: synchronized
+calls overwriting one submission log, head-only and policy-only request-id
+collisions, and an original prompt edited between snapshot and submission.
+The four finding checks fail on that exact workflow. The expanded harness
+has 46 checks, retaining all 37 earlier checks. It also kills a lock-owning
+launcher while the child submits, compares snapshots with the repository's
+pure `subfleet.ids.payload_digest`, tests unavailable policy proof, and
+recovers an original unknown after both head and policy move. Missing and
+mismatched show metadata now cover commit, policy and payload digest too.
+
+`replay.py` ships the reviewer's independent sequential oracle: seed 12505,
+20,000 histories and 113,703 entry transitions. Its concurrent mode runs
+64 histories with two actual generated step-1 commands released from a start
+barrier. Seed 12506 chooses mixed success, unknown, refused, not-sent and
+whole-manifest-refusal scenarios. It checks registry existence against
+reported ids, one immutable log per batch CLI call, and preservation of ids
+and log bytes on relaunch. Driver progress is streamed; individual processes
+still have timeouts. The complete validator runs both modes automatically.
+
+To select only the four reviewer regression checks:
+
+```sh
+env -u PYTHONPATH FANOUT_TEST_FILTER='round 6 finding' bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs .claude/workflows/subfleet-fanout.js
+```
+
+To reproduce them on the baseline, from the repository root (exit 1 is
+expected, with zero passed and four failed):
+
+```sh
+TMPDIR=$(mktemp -d)
+git show cdb451ff9:.claude/workflows/subfleet-fanout.js > "$TMPDIR/baseline.js"
+env -u PYTHONPATH FANOUT_TEST_FILTER='round 6 finding' bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs "$TMPDIR/baseline.js"
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$TMPDIR"
+```
 
 For an individual command sequence, from this harness directory:
 
@@ -98,3 +133,12 @@ records it. `FAKE_SHOW_FLAT=1` selects the offline shape;
 different recorded metadata. The fake rejects `show` if it inherits
 `CLAUDE_CODE_SESSION_ID`, so the harness proves recovery cannot acknowledge
 the caller's notices.
+
+The fake's `run --dry-run --json` returns a non-creating placement preview;
+`calls.preview` counts these separately from `calls.run` batch submissions.
+`FAKE_WORKDIR_HEAD` and `FAKE_POLICY_HASH` default to `head-one` and
+`policy-one`. The helper's fake Git and the registry use the same commit.
+`FAKE_POLICY_PROOF=down|bad|missing` tests unavailable, malformed or incomplete
+policy previews. `FAKE_CAPTURE_ATTEMPT=<path>` records prompt hashes read by
+the submitting fake, independently of helper snapshots. All these files stay
+in the validator's temporary fixture directory.

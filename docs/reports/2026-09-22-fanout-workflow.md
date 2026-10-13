@@ -486,6 +486,98 @@ are staged. Fixtures are cleaned with the prescribed Python `shutil.rmtree`
 command. No real jobs, network remotes, sub-agents, live workflow edits or
 daemon changes were used.
 
+### Sixth round (round 6), 2026-10-13
+
+Review r5 (`~/reviews/fanout-workflow-2026-10-04/review-r5.md` and
+`review-r5-full.md`) requested changes on `cdb451ff9`. All three medium
+findings are covered by fake registry regressions:
+
+1. **Overlapping relaunches, resolved.** An advisory `fcntl.flock` lock for
+   each `(stateDir, state key)` spans setup before either heredoc is written,
+   all of step 1, and each wait slice. Submission selection, log reservation,
+   CLI execution, refusal processing, recovery and jobs-file updates occur
+   under that same lock. Logs are reserved with exclusive creation and opened
+   for append. Replay merges every numbered log and verified recovery row.
+   The lock inode remains in place, and the descriptor is inherited by the
+   helper and submitting/waiting CLI. Killing the launcher does not release
+   exclusivity while a surviving child still writes evidence; the kernel
+   releases the lock when its final holder exits. The synchronized creator /
+   validation-refuser regression now registers three jobs, makes only one
+   batch submission, retains `JOBS=3`, `UNSETTLED=0` across relaunch, and waits
+   on all three. It also kills the lock-owning launcher while its child runs.
+2. **Incomplete recovery identity, resolved.** Each invocation captures the
+   workdir's Git head and the loaded daemon policy hash returned by a fresh,
+   non-creating `run --dry-run --json` placement preview. Its sidecar computes
+   the exact canonical C-6.2 payload digest, including staged prompt bytes,
+   resolved paths, head, task, tier, model pin, sandbox and the workflow's
+   implicit lane/exclusions/desktop flags. Recovery requires the recorded
+   `payload_digest`, commit and policy, plus every earlier identity field and
+   request/job id. Missing proof stays uncertain. Separate head-only and
+   policy-only collisions with old jobs now retain `JOBS=0`, `UNSETTLED=3`
+   through digest conflicts and relaunch, without waiting on old jobs. A
+   legitimate earlier unknown still recovers against its original snapshot
+   after both the current head and policy move. Unavailable, malformed or
+   incomplete policy previews cannot retroactively supply missing proof.
+3. **Mutable prompt snapshots, resolved.** Each invocation writes exclusive,
+   read-only prompt copies and a separate staged manifest. The batch CLI
+   reads those staged paths. The regression edits b's original prompt after
+   snapshot capture and independently records the bytes read by the fake;
+   their SHA-256 matches the sidecar. Recovery of the older same-byte job is
+   then valid because that payload was actually attempted. A missing source
+   prompt becomes a missing staged path, preserving CLI validation refusals
+   and every earlier unknown. Staged files stay beside their numbered log,
+   so the existing reset command also removes them.
+
+**Concurrency state machine.** The entry transitions in round 5 remain the
+replay rules. Concurrent calls add a serialized invocation layer:
+
+| Invocation state | Transition and evidence rule |
+|---|---|
+| Waiting for the per-key lock | Changes no state. After acquisition, rereads the complete history before deciding whether to submit. |
+| Setup holds the lock | Checksums and binds the manifest, then reconstructs known ids. A state mismatch or missing `SETUP_OK` stops dispatch. |
+| Step 1 holds the lock | May reserve one new log, stage its bytes and identity, submit the full manifest, merge outcomes, verify recovery and write ids. Known ids remain known; later refusals/not-sent answers preserve earlier uncertainty. Releases only after processing. |
+| Wait holds the lock | Reads a stable ids file, collects one wait slice and reports it before another caller can replace wait files or submission state. |
+| Interrupted invocation | Before log reservation, supplies no new attempt. A reserved unanswered log remains unknown. Surviving children retain the lock; after the last holder exits, relaunch replays all evidence. Lock files are never unlinked during normal operation. |
+
+The harness isolates shell startup with an empty temporary `ZDOTDIR`, puts
+fake Subfleet and fake Git first in `PATH`, sets an empty temporary
+`SUBFLEET_HOME`, and unsets `PYTHONPATH`. This prevents shell configuration
+from moving real Git ahead of the fixture. The digest check also calls the
+repository's pure `subfleet.ids.payload_digest` function to compare the
+snapshot with the daemon implementation; it invokes no daemon.
+
+Validation ran only fake commands through `zsh -c 'eval "$1"'`:
+
+- Four reviewer regressions against the exact exported `cdb451ff9` workflow:
+  **zero passed, four failed**, as expected. The prompt regression also runs
+  through conflict recovery and relaunch before checking its byte proof;
+  the baseline persists the wrong old job, and this stronger replay fails.
+- Expanded harness against the fixed workflow: **46 passed, zero failed**,
+  including all 37 existing checks and the four reviewer regressions. The
+  stronger prompt replay was rerun separately: **one passed, zero failed**.
+- Sequential driver, seed 12505: **20,000 histories and 113,703 entry
+  transitions passed**, with and without request ids.
+- Concurrent driver, seed 12506: **64 histories, 128 overlapping invocations
+  and 121 immutable submission logs passed** in the final full run. An
+  isolated run also passed, with 116 logs. The seed fixes scenario choices;
+  the OS determines lock acquisition order. Each history verifies the
+  registry, counts batch calls against distinct logs, and checks that replay
+  preserves ids and log bytes. The driver streams progress with per-process
+  timeouts; an earlier short overall wrapper timeout was removed.
+- Replay-driver Python syntax validation and `git diff --check` passed.
+
+Run the full suite from the repository root with
+`env -u PYTHONPATH bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs .claude/workflows/subfleet-fanout.js`.
+The harness README gives the selected-regression and baseline commands.
+
+Commits use workspace-local `.git-local` metadata on
+`docs/fanout-workflow-measured`: writing the shared Git index was refused by
+the sandbox. Only named workflow, harness and report source files are staged,
+with the requested coauthor trailer. No logs, JSON evidence or bundles are
+staged. Fixtures are removed with the prescribed Python `shutil.rmtree`
+command. No real jobs, network remotes, sub-agents, live workflow edits or
+daemon changes were used.
+
 ## Live check of the shipped commands, 2026-10-04
 
 The three rendered commands, run by hand against the daemon (release

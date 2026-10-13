@@ -122,16 +122,18 @@ try {
     c.env.SCENARIO = 'lose-stdout,check-prompts'; c.setup(); c.step(1)
     const identity = JSON.parse(readFileSync(join(c.args.stateDir, 'rq-test.submit.1.jsonl.identity.json'), 'utf8'))
     const attempted = JSON.parse(readFileSync(c.env.FAKE_CAPTURE_ATTEMPT, 'utf8'))
-    assert.equal(identity.b.prompt_sha256, attempted.b, 'snapshot must describe the bytes actually submitted')
+    delete c.env.FAKE_EDIT_PROMPT; c.env.SCENARIO = 'check-prompts'
+    const recovered = c.step(1).text
+    c.setup(); const relaunched = c.step(1).text
+    assert.equal(identity.b.prompt_sha256, attempted.b, 'snapshot must describe the bytes actually submitted; recovery and relaunch:\n' + recovered + relaunched)
     const staged = JSON.parse(readFileSync(join(c.args.stateDir, 'rq-test.submit.1.jsonl.manifest.json'), 'utf8'))
     assert.notEqual(staged.jobs[1].prompt, c.args.items[1].promptPath)
     assert.equal(readFileSync(staged.jobs[1].prompt, 'utf8'), 'Review b')
     assert.equal(readFileSync(c.args.items[1].promptPath, 'utf8'), 'Different prompt after snapshot')
     const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
     assert.equal(identity.b.payload_digest, registry['rq-test-2'].payload_digest, JSON.stringify({ identity: identity.b, recorded: registry['rq-test-2'] }))
-    delete c.env.FAKE_EDIT_PROMPT; c.env.SCENARIO = 'check-prompts'
-    assert.match(c.step(1).text, /SUBMITTED name=b job_id=job-b created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
-    c.setup(); assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    assert.match(recovered, /SUBMITTED name=b job_id=job-b created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
+    assert.match(relaunched, /JOBS=3\nUNSETTLED=0/)
   })
   await test('round 6 finding 1: synchronized submissions preserve successful evidence', async () => {
     for (const killOwner of [false, true]) {
