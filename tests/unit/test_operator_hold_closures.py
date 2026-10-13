@@ -38,7 +38,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from hypothesis import HealthCheck, example, given, settings, strategies as st
+from hypothesis import HealthCheck, example, find, given, settings, strategies as st
 
 import subfleet.store as store_module
 from subfleet import daemon as daemon_module
@@ -410,7 +410,7 @@ HOLD_THEN_GUESSED_LIMIT_THEN_RELEASE_LIMITS = [("hold", 2), ("attempt-limit", 7,
 SHAPES = (HOLD_THEN_LIMIT_THEN_RESET, HOLD_THEN_LIMIT_THEN_TIMER_READ, HOLD_THEN_SHORTER_LIMIT_THEN_RELEASE,
           HOLD_THEN_GUESSED_LIMIT_THEN_RELEASE_LIMITS)
 
-PROPERTY = settings(max_examples=int(os.environ.get("SUBFLEET_HOLD_EXAMPLES", "60")), deadline=None,
+PROPERTY = settings(max_examples=int(os.environ.get("SUBFLEET_HOLD_EXAMPLES", "100")), deadline=None,
                     database=None, suppress_health_check=[HealthCheck.too_slow])
 
 
@@ -435,3 +435,13 @@ def test_the_property_catches_the_merge_it_replaced(shape, monkeypatch):
     assert not play(shape)
     monkeypatch.setattr(store_module, "HOLD_REASONS", ())
     assert play(shape)
+
+
+def test_the_generator_alone_finds_the_merge_it_replaced(monkeypatch):
+    """Not vacuous by generation either: with the old merge back and no explicit shape, generated
+    interleavings reach a counterexample (in about 40 to 75 of them when measured, well inside 300)."""
+    monkeypatch.setattr(store_module, "HOLD_REASONS", ())
+    found = find(st.lists(STEPS, min_size=1, max_size=10), lambda steps: bool(play(steps)),
+                 settings=settings(max_examples=300, deadline=None, database=None,
+                                   suppress_health_check=list(HealthCheck)))
+    assert play(found)
