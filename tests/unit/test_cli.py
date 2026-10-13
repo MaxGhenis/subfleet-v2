@@ -1156,16 +1156,17 @@ def test_an_unclosed_response_line_does_not_hang(daemon, capsys, workdir):
 
 
 def test_a_request_id_can_never_name_a_path(daemon, root, workdir, capsys):
-    """C-2.1, C-1.5 path-like ids are refused before staging or transport."""
+    """C-2.1, C-1.5: path-like keys stage only under a hashed inbox filename."""
     server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
     victim = root / "victim.md"
     victim.write_text("do not truncate me\n")
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
-                    "--request-id", "../victim", "hi"]) == 2
+                    "--request-id", "../victim", "hi"]) == 0
     assert victim.read_text() == "do not truncate me\n"
-    assert not (root / "inbox").exists()
-    assert not server.requests
-    assert "--request-id" in capsys.readouterr().err
+    staged = list((root / "inbox").glob("*.md"))
+    assert len(staged) == 1 and staged[0].parent == root / "inbox"
+    assert server.args("submit")["request_id"] == "../victim"
+    capsys.readouterr()
 
 
 @pytest.mark.parametrize("identity", ("Caller-ID_09", "a" * 128))
@@ -1177,6 +1178,35 @@ def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys
     assert server.args("submit")["request_id"] == identity
     assert next(request.id for request in server.requests if request.op == "submit") == identity
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("identity", [
+    "Caller:ID_09", "/victim", "folder/file", "folder\\file", "clé:résumé / 1",
+])
+def test_submission_request_id_is_separate_from_correlation_id(
+        daemon, root, workdir, capsys, identity):
+    """C-6.2: caller keys keep punctuation/Unicode while wire ids stay safe."""
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", identity, "hi"]) == 0
+    request = next(request for request in server.requests if request.op == "submit")
+    assert request.args["request_id"] == identity
+    assert request.id and protocol.correlation_id(request.id) == request.id
+    assert request.id != identity
+    assert len(list((root / "inbox").glob("*.md"))) == 1
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("argv", [
+    ["run", "-m", "opus", "hello"],
+    ["resume", JOB],
+    ["handoff", "--last", "--to", "astra"],
+])
+@pytest.mark.parametrize("identity", ["Caller:ID_09", "../victim", "clé:résumé / 1"])
+def test_submission_commands_accept_opaque_request_ids(argv, identity):
+    """C-6.2: run, resume and handoff share the submission-key rule."""
+    parsed = cli.build_parser().parse_args([*argv, "--request-id", identity])
+    assert parsed.request_id == identity
 
 
 @pytest.mark.parametrize("second_prompt", ["first prompt", "different prompt"])
@@ -1196,7 +1226,7 @@ def test_pending_submission_prompts_never_overwrite_each_other(root, second_prom
     ["resume", JOB],
     ["handoff", "--last", "--to", "astra"],
 ])
-@pytest.mark.parametrize("identity", ["", "x" * 129, "../victim", "/victim", "folder/file", "folder\\file",
+@pytest.mark.parametrize("identity", ["", "x" * 129,
                                       "password=SECRET7-left", "ghp_" + "A" * 36])
 def test_invalid_request_ids_are_rejected_without_truncation(
         argv, identity, root, monkeypatch, capsys):

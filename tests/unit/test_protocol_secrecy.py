@@ -144,7 +144,7 @@ def test_bounded_correlation_tokens_are_preserved_on_success_and_refusal(id):
 
 
 @pytest.mark.parametrize("id", (VALUE, "a" * 129, "界", None, True, 1.5, -1, 10 ** 128, [], {},
-                                "ghp_" + "A" * 36))
+                                "ghp_" + "A" * 36, "Caller:ID_09"))
 def test_invalid_correlation_id_is_omitted_before_routing(id):
     class NeverRoute:
         def respond(self, *args):

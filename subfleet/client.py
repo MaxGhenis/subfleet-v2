@@ -38,15 +38,16 @@ import re
 import socket
 import subprocess
 import time
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from . import boot_identity
+from . import boot_identity, ids
 
 from .contracts import Exit
 from .protocol import (PROTOCOL_VERSION, ListArgs, ProtocolError, Request, Response,
-                        decode_response, encode)
+                        correlation_id, decode_response, encode)
 
 TABLE_CODES = {int(code) for code in Exit}          # C-17.3
 
@@ -454,9 +455,18 @@ class Client:
                    request_id: str, timeout: float, stated: float) -> dict[str, Any]:
         """One connection and one request; `timeout` bounds it, `stated` is the
         caller's deadline, which a lost answer's message names."""
+        wire_id = request_id
+        if op == "submit" and request_id:
+            ids.request_id(request_id)
+            try:
+                correlation_id(request_id)
+            except ProtocolError:
+                # C-6.2 keys can contain punctuation or Unicode; the reflected
+                # protocol id has its own alphabet and never changes that key.
+                wire_id = str(uuid.uuid4())
         self.check_available()
         deadline = timeout
-        request = Request(op=op, args=args or {}, id=request_id)
+        request = Request(op=op, args=args or {}, id=wire_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(deadline)
         try:

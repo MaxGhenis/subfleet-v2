@@ -134,6 +134,26 @@ def test_identifier_formats_and_collision():
         request_id("x" * 129)
 
 
+@pytest.mark.parametrize("identity", [
+    "turn:12345678-1234-4234-8234-123456789abc:0",
+    "gate:sample:round:1:12345678123442348234123456789abc",
+    "../victim", "clé:résumé / 1", "界" * 128,
+])
+def test_submission_request_id_preserves_opaque_strings(identity):
+    """C-1.5, C-6.2: length bounds apply to strings, without token restrictions."""
+    assert request_id(identity) == identity
+
+
+@pytest.mark.parametrize("identity", ["", "x" * 129, 1, True, [],
+                                      "password=SECRET7-left", "ghp_" + "A" * 36])
+def test_submission_request_id_refuses_invalid_values_without_echo(identity):
+    """C-1.5, C-6.2: malformed keys and credentials have fixed refusals."""
+    with pytest.raises(ValueError) as refused:
+        request_id(identity)
+    assert str(refused.value) in {"request id must contain 1 to 128 characters",
+                                 "request id cannot be a credential"}
+
+
 def test_payload_digest_canonical_and_payload_sensitive(tmp_path):
     """C-6.2: canonical payloads have stable SHA-256 digests sensitive to every pin."""
     kwargs = dict(workdir=tmp_path, workdir_head="head", sandbox="read-only", policy_hash="policy")

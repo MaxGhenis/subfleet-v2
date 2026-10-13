@@ -48,11 +48,12 @@ def request_id(value: str | None = None) -> str:
         return str(uuid.uuid4())
     if not isinstance(value, str) or not value or len(value) > REQUEST_ID_MAX:
         raise ValueError(f"request id must contain 1 to {REQUEST_ID_MAX} characters")
-    from .protocol import ProtocolError, correlation_id
-    try:
-        correlation_id(value)
-    except ProtocolError:
-        raise ValueError("request id must be a safe ASCII token") from None
+    # Submission keys are opaque caller strings, unlike the reflected wire id.
+    # Keep credential refusal without imposing the correlation token alphabet.
+    from .sessions.handoff import scrub_secrets
+    clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
+    if count or clean != value:
+        raise ValueError("request id cannot be a credential")
     return value
 
 
@@ -63,7 +64,7 @@ def request_id_arg(value: str) -> str:
         return request_id(value)
     except ValueError:
         raise argparse.ArgumentTypeError(
-            f"request id must contain 1 to {REQUEST_ID_MAX} ASCII letters, digits, '-' or '_' "
+            f"request id must contain 1 to {REQUEST_ID_MAX} characters "
             "and cannot be a credential") from None
 
 
