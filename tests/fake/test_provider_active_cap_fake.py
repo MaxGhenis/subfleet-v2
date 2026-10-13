@@ -7,7 +7,7 @@ import tempfile
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import cli, protocol, scheduler
+from subfleet import cli, folders, protocol, scheduler
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, attempt_dir
 from subfleet.daemon import after, utcnow
 from subfleet.procs import Containment
@@ -308,7 +308,11 @@ def test_quarantine_retains_provider_slot_until_contained_or_released(
         # Resolution must wake them even with no remaining leases to release.
         assert not service.store.list_leases(attempt["attempt_id"])
         if first_pool == "detached":
-            assert not service.store.list_leases(first)
+            # C-8.4 (#140): a detached job keeps its job-held reader row on its run
+            # folder for the whole lease lifetime, quarantine included. Only that
+            # pin may remain; no slot or write lease does.
+            assert all(row["lease_key"].startswith(folders.READER)
+                       for row in service.store.list_leases(first))
         assert "codex: 1 of 1 running" in service.dispatch("daemon.status", {})["status"]
         monkeypatch.setattr(service, "_contain", lambda a: census)
         service._resolve_quarantine(attempt, protocol.KillArgs(first, confirm_dead=True))
