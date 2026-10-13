@@ -124,7 +124,7 @@ def test_d_cen1_a_retitled_child_alive_after_the_exit_receipt_is_not_released(da
     stand-in: it writes the title and NULs over its own argv area through ctypes."""
     if scenario == "retitled-node" and not NODE:
         pytest.skip("node is not installed; retitled-nul covers the same argv layout")
-    daemon.start()
+    daemon.start(rooted=True)
     job_id, marker = submit_escaper(daemon, scenario)
     escaper = None
     try:
@@ -155,7 +155,7 @@ def test_d_cen1_a_renamed_setsid_escaper_is_found_by_responsibility_and_released
     root's marker for another attempt (`<attempt>0`), is never counted. Once the escaper
     exits, `kill --confirm-dead` finds the census verified empty and releases, with the
     stranger still running."""
-    daemon.start()
+    daemon.start(rooted=True)
     job_id, marker = submit_escaper(daemon, "perl-escape")
     escaper = stranger = None
     stranger_pid = None
@@ -213,7 +213,7 @@ def test_d_cen1_an_escaper_seen_through_the_guardian_stays_counted_after_the_kil
     which the kernel names the escaper as its own responsible process. The recorded
     identity keeps it counted, so the attempt is quarantined, not released, and the
     escaper is never signalled: a responsibility member gains no signal authority."""
-    daemon.start()
+    daemon.start(rooted=True)
     job_id, marker = submit_escaper(daemon, "perl-escape", hold_s=30)
     escaper = None
     try:

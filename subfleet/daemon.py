@@ -71,6 +71,14 @@ from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
 
+
+def spawn_guardian(command: list[str], *, disclaim: bool, **options):
+    """The injectable guardian launch boundary, with Popen's actual options."""
+    if disclaim:
+        return procs.spawn_disclaimed(command, env=options["env"], cwd=options["cwd"],
+                                     pass_fds=options["pass_fds"])
+    return subprocess.Popen(command, **options)
+
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
 
@@ -663,6 +671,7 @@ class Daemon:
         # Guardians this daemon started (`procs.spawn_disclaimed`), by attempt id.
         self._children: dict[str, procs.Spawned | subprocess.Popen] = {}
         self._unrooted_logged = False        # D-CEN1: said once that guardians start without a root
+        self._disclaim_guardians = procs.guardian_disclaim_allowed()
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
@@ -7329,10 +7338,13 @@ class Daemon:
         its own responsible process, and return it with the root to record beside its
         identity: `{"pid", "unique_id"}`, or None when this macOS cannot disclaim, in
         which case its censuses keep three sources. Only the guardian is disclaimed: the
-        provider it starts names it, so a privacy check (TCC) still asks about the
-        daemon's own executable, which the guardian runs (`sys.executable`)."""
+        provider it starts names it. Disclaim only from a self-responsible daemon;
+        terminal-started daemons preserve their inherited privacy attribution."""
         env = {**env, "SUBFLEET_EXIT_SETTLE_S": str(getattr(self, "exit_settle_s", EXIT_SETTLE_S))}
-        child = procs.spawn_disclaimed(command, env=env, cwd=package_root, pass_fds=(read_fd,))
+        child = spawn_guardian(command, disclaim=getattr(self, "_disclaim_guardians", True),
+                               env=env, cwd=package_root, pass_fds=(read_fd,),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, close_fds=True)
         root = None
         if isinstance(child, procs.Spawned):
             try:

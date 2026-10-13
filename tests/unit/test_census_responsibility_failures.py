@@ -203,3 +203,33 @@ def test_a_quarantined_lingering_guardian_is_reaped_by_the_next_spawn(monkeypatc
     procs.spawn_disclaimed(["next-guardian"], env={}, cwd="/")
     assert waited == [(42, procs.os.WNOHANG)]
     assert procs._abandoned == []
+
+
+@pytest.mark.parametrize("responsible", [42, 7, None, procs.InspectionError("unavailable")])
+def test_only_a_self_responsible_daemon_disclaims_guardians(monkeypatch, responsible):
+    def read(pid):
+        assert pid == 42
+        if isinstance(responsible, Exception):
+            raise responsible
+        return responsible
+
+    monkeypatch.setattr(procs, "disclaim_available", lambda: True)
+    monkeypatch.setattr(procs.os, "getpid", lambda: 42)
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(responsible=read))
+    assert procs.guardian_disclaim_allowed() is (responsible == 42)
+
+
+def test_a_terminal_started_daemon_keeps_the_popen_privacy_identity(monkeypatch):
+    from subfleet import daemon
+    calls = []
+    monkeypatch.setattr(daemon.subprocess, "Popen",
+                        lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(pid=60))
+    monkeypatch.setattr(procs, "spawn_disclaimed", lambda *args, **kwargs: pytest.fail("disclaimed terminal"))
+    core = SimpleNamespace(_disclaim_guardians=False, _unrooted_logged=False, exit_settle_s=4,
+                           log=SimpleNamespace(warning=lambda *args: None))
+    child, root = Daemon._spawn_guardian(core, ["python", "-m", "subfleet.guardian"], {"SECRET": "env-only"}, 9, "/pkg")
+    assert child.pid == 60 and root is None
+    assert calls == [(["python", "-m", "subfleet.guardian"], {
+        "env": {"SECRET": "env-only", "SUBFLEET_EXIT_SETTLE_S": "4"}, "cwd": "/pkg", "pass_fds": (9,),
+        "stdin": daemon.subprocess.DEVNULL, "stdout": daemon.subprocess.DEVNULL,
+        "stderr": daemon.subprocess.DEVNULL, "close_fds": True})]

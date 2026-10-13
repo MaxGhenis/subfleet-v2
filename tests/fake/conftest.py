@@ -51,7 +51,7 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str, open_files: int | None = None) -> Harness:
+    def start(self, *options: str, open_files: int | None = None, rooted: bool = False) -> Harness:
         """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
@@ -60,11 +60,19 @@ class Harness:
         def limit():
             import resource
             resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
-        self.process = subprocess.Popen(
-            [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
-             *options], cwd=REPO, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-            preexec_fn=limit if open_files is not None else None,
-        )
+        command = [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root), *options]
+        if rooted:
+            # Model launchd's self-responsible daemon using only our own process.
+            # The shell exec preserves its pid and sends diagnostics to our log.
+            from subfleet import procs
+            assert open_files is None
+            env["SUBFLEET_TEST_DAEMON_LOG"] = str(log.name)
+            self.process = procs.spawn_disclaimed(
+                ["/bin/sh", "-c", 'exec "$@" > "$SUBFLEET_TEST_DAEMON_LOG" 2>&1', "rooted-daemon", *command],
+                cwd=str(REPO), env=env)
+        else:
+            self.process = subprocess.Popen(command, cwd=REPO, env=env, stdin=subprocess.DEVNULL,
+                stdout=log, stderr=log, preexec_fn=limit if open_files is not None else None)
 
         def ready():
             if self.process.poll() is not None:

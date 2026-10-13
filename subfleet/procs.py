@@ -996,6 +996,18 @@ def disclaim_available() -> bool:
     return bool(_spawn.available)
 
 
+def guardian_disclaim_allowed() -> bool:
+    """Disclaim only from a self-responsible daemon. A daemon started by a
+    terminal must preserve that terminal's responsibility and privacy grants.
+    An unreadable identity cannot authorize changing that attribution."""
+    if not disclaim_available():
+        return False
+    try:
+        return kernel.responsible(os.getpid()) == os.getpid()
+    except InspectionError:
+        return False
+
+
 class Spawned:
     """A process `spawn_disclaimed` started: the part of `subprocess.Popen` the daemon
     and its tests use (`pid`, `args`, `returncode`, `poll`, `wait`, `send_signal`,
