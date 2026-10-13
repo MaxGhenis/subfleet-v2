@@ -6,8 +6,9 @@ and the sidebar shows only the folder of the account that is currently logged
 in — so every session vanishes when Max switches accounts, which he does daily.
 The transcript itself lives in `~/.claude/projects/<slug(cwd)>/<cli>.jsonl` and is
 account-agnostic: only the folder an index file sits in decides which account
-"owns" a session. The mechanism is to copy each index file into every folder;
-there is no provider call anywhere in this module (plan decision 8, C-23.28).
+"owns" a session. The mechanism is to copy each index file into every folder
+where it belongs (C-23.28a); there is no provider call anywhere in this module
+(plan decision 8, C-23.28).
 
 **A copy reaches a sidebar only at the app's next load of that folder.** The
 app lists `local_*.json` into memory only when it initializes a folder: at
@@ -62,6 +63,15 @@ the mirror, whose passes were then taking up to two hours, copied them at
   and spreads it; telling the two apart needs knowledge the mirror does not
   reliably have (three review rounds found holes in each attempt), so this
   stays a known limit, recorded in the 2026-09-24 report.
+* **Only where it belongs** (C-23.28a). Copying everything everywhere had
+  grown the store to 227,924 files in 120 folders by 2026-09-25, 103 of them
+  folders nobody's sidebar shows. `prune.py` decides each session's scope:
+  never a switch folder the app only passes through mid-switch
+  (`folder_kinds.py`), and only the home folder for a session archived and
+  quiet `mirror_archive_days`. Both passes spread only into a session's
+  scope. With `mirror_prune` on, the full pass also removes copies outside
+  it, never the session's newest, never in the loaded folder or the home,
+  and only the very file it checked (`_remove`).
 
 Ported from v1 `bin/subfleet-mirror` v5.0, whose hard-won identity rules survive
 intact:
@@ -150,7 +160,8 @@ DEFAULT_STALL_MIN = 10.0
 # were measured on 2026-09-24, growing by 4.7k-10k entries a day (every new
 # session copied into 120 folders), so the entry limit is months, not years,
 # away. Past it, folders with uncached entries are re-listed every pass:
-# slower, never wrong. The store's growth itself needs pruning before then.
+# slower, never wrong. The store's growth is bounded by the scope rules
+# (C-23.28a, `prune.py`) once removal is on.
 ENTRY_CACHE_LIMIT = 1_000_000
 PAYLOAD_CACHE_BYTES = 128 * 1024 * 1024
 PROGRESS_INTERVAL_S = 5.0
@@ -2137,7 +2148,8 @@ class Mirror:
             except OSError:
                 mtime = 0.0
         return prune_rules.Copy(
-            folder=f"{path.parent.name}/{path.name}", name=name,
+            # Interned: 228k copies on 2026-09-25 named 120 folders.
+            folder=sys.intern(f"{path.parent.name}/{path.name}"), name=name,
             identity=str(data.get("cliSessionId") or ""),
             archived=bool(data.get("isArchived")), starred=bool(data.get("isStarred")),
             activity_ms=_activity_ms(data), mtime=mtime)
