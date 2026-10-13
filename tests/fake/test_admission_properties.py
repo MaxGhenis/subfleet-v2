@@ -435,8 +435,9 @@ def test_c6_10_rows_follow_the_verdict_whatever_waits_come_between(between):
     for the slot an older lease waiter keeps (C-6.9), on its lease, for its probe's slot, by its probe's
     answer, or on a detour, in whatever order the fleet's load, a closure and the faults make. After every
     look, exactly: a look that offers a verdict (`_record_verdict`) adds a row when, and only when, the
-    verdict is not the job's latest row's, so its latest row is that verdict; a look held for capacity
-    offers one; any other look adds none. Bounded: 25 examples of at most 10 looks, no database."""
+    verdict is not the job's latest row's, so its latest row is that verdict; a look held for capacity, or
+    by a probe that said nothing, offers one; any other look adds none. Bounded: 25 examples of at most 10
+    looks, no database."""
     from subfleet import daemon as daemon_module
     from subfleet.adapters import registry
     from subfleet.daemon import Daemon
@@ -481,12 +482,18 @@ def alternate(service, harness, patch, between):
     answers = []
     service._execute_probe = lambda job_row, lane_row, model, holder: Outcome(
         answers.pop(0) if answers else OutcomeClass.OK, "fixture", {"rc": 0, "signal": None})
-    offered, real_record = {}, service._record_verdict
+    offered, unanswered, real_record, real_candidate = {}, {}, service._record_verdict, service._probe_candidate
 
     def record(job_id, decision):
         offered[job_id] = decision
         return real_record(job_id, decision)
-    service._record_verdict = record
+
+    def candidate(row, decision, holder):
+        outcome = real_candidate(row, decision, holder)
+        if outcome.cls == OutcomeClass.UNKNOWN:             # C-11.4: the probe said nothing
+            unanswered[row["job_id"]] = decision
+        return outcome
+    service._record_verdict, service._probe_candidate = record, candidate
     real_workspace, real_pick, looks = service._workspace, service._pick, set()
 
     def seen(row, prepare=real_workspace):
@@ -527,6 +534,7 @@ def alternate(service, harness, patch, between):
         service._workspace, service._pick = workspace, pick
         before = rows(service, job)
         offered.clear()
+        unanswered.clear()
         looks.clear()
         due(service, keeper), due(service, job)
         service._admit()
@@ -542,6 +550,9 @@ def alternate(service, harness, patch, between):
                 "probe-pending", "lease-held", "behind-older-job", "route-moved", "attempt-live"):
             assert job in offered, f"a look held for capacity ({hold}) offered no verdict"
         assert job in looks or job not in offered, "a verdict was offered without a look"
+        if job in unanswered:                               # held by its probe's answer: it offers that verdict
+            assert job in offered and scheduler.verdict_signature(offered[job]) == \
+                scheduler.verdict_signature(unanswered[job]), f"its probe said nothing ({hold}) and it offered no verdict"
         if job not in offered:
             assert not added, f"a look held {hold} added a row"
             continue
