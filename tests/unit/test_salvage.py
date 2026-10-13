@@ -736,10 +736,13 @@ def _checkout_newer(repo, worktrees):
         git(worktree, "checkout", "-q", "--detach", "newer")
 
 
-@pytest.mark.parametrize("broken", [("ls-files", "-s"), ("ls-tree", "-r"), ("update-index", "--index-info"),
-                                    ("update-index", "--skip-worktree")])
+@pytest.mark.parametrize(("broken", "message"), [
+    (("ls-files", "-s"), "could not read the sparse checkout's index"),
+    (("ls-tree", "-r"), "could not list the baseline"),
+    (("update-index", "--index-info"), "could not build the index"),
+    (("update-index", "--skip-worktree"), "could not mark")])
 def test_c13_1_sparse_a_snapshot_that_cannot_keep_the_files_left_out_fails(sparse_pair, monkeypatch,
-                                                                             broken):
+                                                                             broken, message):
     """C-13.1 fails closed: when the real index cannot be listed, the baseline
     cannot be listed, the entries cannot be written into an index of their own,
     or their bits cannot be set in the temporary one, the snapshot raises. Going
@@ -754,7 +757,7 @@ def test_c13_1_sparse_a_snapshot_that_cannot_keep_the_files_left_out_fails(spars
         refused = args[0] == broken[0] and broken[1] in args
         return None if refused else real(workdir, *args, **kwargs)
     monkeypatch.setattr(salvage_module, "_git_bytes", git_bytes)
-    with _empty_index_read(), pytest.raises(SalvageError, match="sparse checkout|baseline"):
+    with _empty_index_read(), pytest.raises(SalvageError, match=message):
         salvage(sparse, baseline, 1)
     assert git(repo, "for-each-ref", "refs/subfleet-salvage/") == ""
 
@@ -1024,6 +1027,16 @@ def test_c13_1_sparse_index_mode_holds_a_directory_and_its_real_index_is_untouch
     before = _real_index(sparse).read_bytes()
     assert working_tree(sparse, git_head(sparse)) == git(sparse, "rev-parse", "HEAD^{tree}")
     assert _real_index(sparse).read_bytes() == before
+
+
+def test_c13_1_sparse_records_are_read_one_at_a_time_whatever_ends_the_listing():
+    """C-13.1 `_records` yields what `split(b"\\0")` yields, less the empty tail a
+    NUL-terminated listing leaves, and keeps a last record with no NUL."""
+    for data in (b"", b"a\0", b"a\0bb\0", b"a\0bb", b"\0x\0", b"\0\0", b"tab\there\0new\nline\0"):
+        expected = data.split(b"\0")
+        if expected and expected[-1] == b"":
+            expected.pop()
+        assert list(salvage_module._records(data)) == expected, data
 
 
 def test_c13_1_sparse_only_a_skip_worktree_entry_whose_file_is_gone_counts_as_off_disk(sparse_pair,
