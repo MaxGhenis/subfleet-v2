@@ -34,6 +34,12 @@ BIG = 64 * 1024     # big enough that a clone's shared blocks are measurable
 REAL_GIT = shutil.which("git")
 
 
+@pytest.fixture(autouse=True)
+def any_size_clones(monkeypatch):
+    """These trees are small; the size floor is tested on its own."""
+    monkeypatch.setattr(wc, "CLONE_MIN_BYTES", 0)
+
+
 def git(path, *args, check=True, env=None):
     return subprocess.run(["git", "-C", str(path), *args], check=check, capture_output=True, text=True,
                           env=env).stdout
@@ -196,6 +202,24 @@ def test_c6_6a_a_cloned_worktree_is_the_plain_worktree_and_shares_its_blocks(tmp
     assert os.stat(tmp_path / "cloned" / "bin/run.sh").st_mode & 0o111
 
 
+def test_c6_6a_a_small_checkout_gets_the_one_plain_add(tmp_path, monkeypatch):
+    """Below `CLONE_MIN_BYTES` the plain add is used: one size listing, then the add."""
+    source = make_repo(tmp_path / "repo", FILES)
+    monkeypatch.setattr(wc, "CLONE_MIN_BYTES", 10 * BIG)
+    commands = []
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        commands.append(cmd)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(wc.subprocess, "run", run)
+    allocation = clone_add(source, tmp_path / "cloned", "HEAD")
+    assert allocation.result.returncode == 0 and allocation.method == "plain"
+    assert allocation.reason == "a small checkout"
+    assert len(commands) == 2 and "ls-tree" in commands[0]
+    assert commands[1] == ["git", "-C", str(source), "worktree", "add", "--detach", str(tmp_path / "cloned"), "HEAD"]
+
+
 def test_c6_6a_a_caller_in_a_subdirectory_clones_from_its_checkouts_top(tmp_path):
     source = make_repo(tmp_path / "repo", FILES)
     expected, got, allocation = both(tmp_path, source / "docs" / "deep")
@@ -315,6 +339,53 @@ def test_c6_6a_the_raw_blob_hash_alone_rejects_bytes_a_refresh_would_accept(tmp_
     assert "f" not in allocation.cloned_paths and allocation.skipped["not the blob's bytes"] == 1
 
 
+@pytest.mark.parametrize("source", ["attr.tree", "GIT_ATTR_SOURCE"])
+def test_c6_6a_attributes_read_from_another_tree_leave_the_checkout_to_git(tmp_path, monkeypatch, source):
+    """Review of eb8d62d8: with `attr.tree` (or `GIT_ATTR_SOURCE`) git's checkout
+    reads attributes from that tree, not the index `check-attr --cached` reads,
+    so an LF clone stood where git writes CRLF. The stage stands aside."""
+    source_repo = make_repo(tmp_path / "repo", {"a.txt": b"one\ntwo\n" * 2000})
+    blob = subprocess.run(["git", "-C", str(source_repo), "hash-object", "-w", "--stdin"], input=b"* text eol=crlf\n",
+                          capture_output=True, check=True).stdout.decode().strip()
+    tree = subprocess.run(["git", "-C", str(source_repo), "mktree"], input=f"100644 blob {blob}\t.gitattributes\n".encode(),
+                          capture_output=True, check=True).stdout.decode().strip()
+    if source == "attr.tree":
+        git(source_repo, "config", "attr.tree", tree)
+    else:
+        monkeypatch.setenv("GIT_ATTR_SOURCE", tree)
+    expected, got, allocation = both(tmp_path, source_repo)
+    assert got == expected and b"\r\n" in (tmp_path / "plain" / "a.txt").read_bytes()
+    assert allocation.reason == "attributes from another tree" and allocation.cloned == 0
+
+
+def test_c6_6a_hashing_a_clone_stops_at_the_stages_share(tmp_path):
+    """The in-process hash checks the stage's deadline between chunks, so a large
+    file cannot carry the stage past its share."""
+    big = tmp_path / "big"
+    big.write_bytes(b"x" * (3 * rfs.CHUNK))
+
+    class Expiring:
+        calls = 0
+
+        def left(self):
+            self.calls += 1
+            return 1.0 if self.calls == 1 else 0.0
+    fd = os.open(big, os.O_RDONLY)
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            wc._blob_id(fd, 3 * rfs.CHUNK, "sha1", Expiring())
+    finally:
+        os.close(fd)
+
+
+def test_c6_6a_a_stage_with_no_share_left_writes_everything_through_git(tmp_path, monkeypatch):
+    source = make_repo(tmp_path / "repo", FILES)
+    monkeypatch.setattr(wc, "CLONE_SHARE", 1e-9)
+    expected, got, allocation = both(tmp_path, source)
+    assert got == expected and allocation.cloned == 0
+    assert allocation.reason == "clone stage reached its share of the cap"
+
+
 @pytest.mark.parametrize("config", [
     {"core.ignoreStat": "true"},
     {"core.trustctime": "false"},
@@ -379,6 +450,24 @@ def test_c6_6a_an_fsmonitor_starts_nothing_in_the_caller_and_leaves_the_checkout
         assert not (source / ".git" / "fsmonitor--daemon").exists()
     finally:
         for name in ("plain", "cloned", "repo"):
+            if (tmp_path / name).exists():
+                git(tmp_path / name, "fsmonitor--daemon", "stop", check=False)
+
+
+def test_c6_6a_an_fsmonitor_only_the_caller_has_is_never_started_by_its_index_read(tmp_path):
+    """Review of eb8d62d8, finding 6: with fsmonitor on for the caller's branch
+    only, the new detached tree has none, so the stage runs and reads the
+    caller's index; that read must start no daemon and write nothing there."""
+    source = make_repo(tmp_path / "repo", FILES)
+    (tmp_path / "on-branch.cfg").write_text("[core]\n\tfsmonitor = true\n")
+    git(source, "config", "includeIf.onbranch:task/example.path", str(tmp_path / "on-branch.cfg"))
+    try:
+        expected, got, allocation = both(tmp_path, source)            # the caller is unchanged
+        assert got == expected and allocation.method == "clone" and allocation.cloned == 6
+        assert not (source / ".git" / "fsmonitor--daemon").exists()
+        assert "is watching" not in git(source, "fsmonitor--daemon", "status", check=False)
+    finally:
+        for name in ("repo", "plain", "cloned"):
             if (tmp_path / name).exists():
                 git(tmp_path / name, "fsmonitor--daemon", "stop", check=False)
 
@@ -522,11 +611,11 @@ def test_c6_6a_a_post_checkout_hook_gets_the_plain_add_and_runs_as_git_runs_it(t
         assert plain[0] == 42
 
 
-@pytest.mark.parametrize("kind", ["hooks directory", "relative hooks path", "configured"])
-def test_c6_6a_hooks_that_fire_during_the_checkout_fire_as_in_the_plain_add(tmp_path, kind):
-    """No post-checkout hook, so the clone path runs. Its own index writes fire
-    no hook; git's checkout runs as `worktree add` runs it (same environment,
-    same directory), so a `post-index-change` hook sees the same runs."""
+@pytest.mark.parametrize("kind", ["hooks directory", "relative hooks path", "configured", "reference-transaction"])
+def test_c6_6a_hooks_that_fire_during_the_add_get_the_plain_add(tmp_path, kind):
+    """Review of eb8d62d8: a hook the add's checkout or ref updates fire ran a
+    second time when the allocation fell back. Any hook for an event `worktree
+    add` fires gets the plain add, so every hook runs once, as git runs it."""
     source = make_repo(tmp_path / "repo", FILES)
     log = tmp_path / "hook.log"
     if kind == "hooks directory":
@@ -537,12 +626,40 @@ def test_c6_6a_hooks_that_fire_during_the_checkout_fire_as_in_the_plain_add(tmp_
         git(source, "commit", "-q", "-m", "hooks")
         git(source, "config", "core.hooksPath", ".hooks")
         log.unlink(missing_ok=True)
-    else:
+    elif kind == "configured":
         hook(tmp_path / "hook-a", LOG_HOOK.format(log=log))
         git(source, "config", "hook.a.command", str(tmp_path / "hook-a"))
         git(source, "config", "hook.a.event", "post-index-change")
+    else:
+        hook(source / ".git" / "hooks" / "reference-transaction", 'echo "$1" >> "' + str(log) + '"\n')
     plain, cloned, allocation = runs(tmp_path, source, log)
     assert cloned == plain and plain[1]
+    assert allocation.method == "plain" and allocation.reason.endswith("hook")
+    assert checkout_state(tmp_path / "cloned") == checkout_state(tmp_path / "plain")
+
+
+def test_c6_6a_a_hook_only_the_new_trees_config_selects_gets_the_plain_add(tmp_path, monkeypatch):
+    """A hook that only the new tree's own config selects would fire in the
+    add's checkout (git 2.55's conditional includes do not select by a linked
+    worktree's own git directory, so this is driven through `_hooked`). The
+    allocation asks after `--no-checkout`, before anything has fired, removes
+    only its own registration and hands the job the plain add."""
+    source = make_repo(tmp_path / "repo", FILES)
+    real = wc._hooked
+    asked = []
+
+    def hooked(where, env, deadline):
+        asked.append(where)
+        return "post-index-change" if where == str(tmp_path / "cloned") else real(where, env, deadline)
+    monkeypatch.setattr(wc, "_hooked", hooked)
+    assert plain_add(source, tmp_path / "plain", "HEAD").returncode == 0
+    before = source_state(source)
+    allocation = clone_add(source, tmp_path / "cloned", "HEAD")
+    assert allocation.result.returncode == 0 and allocation.method == "plain"
+    assert allocation.reason == "post-index-change hook in the new tree"
+    assert asked == [str(source), str(tmp_path / "cloned")]
+    assert source_state(source) == before
+    assert sorted(p.name for p in (source / ".git" / "worktrees").iterdir()) == ["cloned", "plain"]
     assert checkout_state(tmp_path / "cloned") == checkout_state(tmp_path / "plain")
 
 
@@ -570,10 +687,34 @@ def test_c6_6a_a_tree_that_is_not_clean_hands_the_job_the_plain_add(tmp_path):
     git(source, "commit", "-q", "-m", "case pair")
     git(source, "checkout", "-q", "-f", "HEAD")
     allocation = clone_add(source, tmp_path / "cloned", "HEAD")
-    assert allocation.result.returncode == 0 and allocation.method == "plain"
-    assert "not clean" in allocation.reason
+    assert allocation.result.returncode == 0
+    assert allocation.reason == "names that fold together" and allocation.cloned == 0
     plain_add(source, tmp_path / "plain", "HEAD")
     assert checkout_state(tmp_path / "cloned")[0] == checkout_state(tmp_path / "plain")[0]
+
+
+def test_c6_6a_directory_names_that_fold_together_are_named_as_git_names_them(tmp_path):
+    """Review of eb8d62d8: with `Dir/a` and `dir/b` tracked, git names the one
+    directory after the first entry it writes; a clone stage that skipped `Dir/a`
+    named it `dir`. The stage stands aside for any names that fold together."""
+    probe = tmp_path / "Case"
+    probe.write_text("")
+    if not (tmp_path / "case").exists():
+        pytest.skip("case-sensitive volume")
+    probe.unlink()
+    source = make_repo(tmp_path / "repo", {"x": b"x" * BIG})
+    blob = subprocess.run(["git", "-C", str(source), "hash-object", "-w", "--stdin"], input=b"y" * BIG,
+                          capture_output=True, check=True).stdout.decode().strip()
+    git(source, "update-index", "--add", "--cacheinfo", f"100644,{blob},Dir/a")
+    git(source, "update-index", "--add", "--cacheinfo", f"100644,{blob},dir/b")
+    git(source, "commit", "-q", "-m", "two spellings")
+    git(source, "checkout", "-q", "-f", "HEAD")
+    (source / "Dir" / "a").write_bytes(b"z" * BIG)        # so a clone stage would skip Dir/a
+    assert plain_add(source, tmp_path / "plain", "HEAD").returncode == 0
+    allocation = clone_add(source, tmp_path / "cloned", "HEAD")
+    assert allocation.result.returncode == 0 and allocation.reason == "names that fold together"
+    assert sorted(os.listdir(tmp_path / "cloned")) == sorted(os.listdir(tmp_path / "plain"))
+    assert tree_state(tmp_path / "cloned") == tree_state(tmp_path / "plain")
 
 
 def missing_registration(source: Path, tmp_path: Path) -> tuple[str, Path]:
@@ -626,6 +767,28 @@ def test_c6_6a_a_fallback_that_cannot_remove_its_tree_raises_and_never_adds_over
     assert len(adds) == 1 and "--no-checkout" in adds[0]
 
 
+@pytest.mark.parametrize("returncode", [-9, 128])
+def test_c6_6a_a_git_directory_lookup_that_fails_is_the_adds_failure(tmp_path, monkeypatch, returncode):
+    """Review of eb8d62d8: a signal-killed lookup of the new tree's git directory
+    left the fallback with no precise cleanup and a refusal that hid the signal.
+    The lookup's own result is returned as the add's, so the daemon reads a
+    signal as transient, and no second add runs."""
+    source = make_repo(tmp_path / "repo", FILES)
+    real_run = subprocess.run
+    adds = []
+
+    def run(cmd, *args, **kwargs):
+        if cmd[3:5] == ["worktree", "add"]:
+            adds.append(cmd)
+        if "--absolute-git-dir" in cmd:
+            return subprocess.CompletedProcess(cmd, returncode, b"", b"" if returncode < 0 else b"fatal: broken\n")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(wc.subprocess, "run", run)
+    allocation = clone_add(source, tmp_path / "cloned", "HEAD")
+    assert allocation.result.returncode == returncode and isinstance(allocation.result.stderr, str)
+    assert len(adds) == 1
+
+
 def test_c6_6a_a_refused_add_is_returned_as_the_plain_add_returns_it(tmp_path):
     source = make_repo(tmp_path / "repo", FILES)
     plain = plain_add(source, tmp_path / "plain", "no-such-commit")
@@ -669,6 +832,91 @@ def test_c6_6a_one_deadline_covers_every_step(tmp_path, monkeypatch, fallback):
     except subprocess.TimeoutExpired as exc:
         assert exc.cmd[3:5] == ["worktree", "add"] and exc.timeout == cap
     assert time.monotonic() - started < cap + 0.5
+
+
+def test_c6_6a_no_call_is_given_time_past_the_deadline_even_in_the_fallback(tmp_path, monkeypatch):
+    """Review of eb8d62d8, finding 6: the deadline test allowed wall slack, so a
+    fallback add given a second past the deadline went unnoticed. Every git call's
+    granted timeout must end by the deadline; the fallback starts 0.3 s before it."""
+    source = make_repo(tmp_path / "repo", FILES)
+    granted = []
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        granted.append((time.monotonic() + kwargs["timeout"], cmd))
+        return real_run(cmd, *args, **kwargs)
+
+    def late_and_unclean(path, env, deadline):
+        time.sleep(max(0.0, deadline.left() - 0.3))
+        return False
+    monkeypatch.setattr(wc.subprocess, "run", run)
+    monkeypatch.setattr(wc, "_clean", late_and_unclean)
+    cap = 20.0
+    end = time.monotonic() + cap
+    try:
+        clone_add(source, tmp_path / "cloned", "HEAD", timeout_s=cap)
+    except subprocess.TimeoutExpired:
+        pass
+    assert granted and any(c[3:5] == ["worktree", "add"] and "--no-checkout" not in c for _, c in granted)
+    late = [(round(t - end, 3), c[3:6]) for t, c in granted if t > end + 0.05]
+    assert late == []
+
+
+def test_c6_6a_hashing_a_large_clone_ends_with_the_stages_share(tmp_path, monkeypatch):
+    """Review of eb8d62d8, finding 3: one large file's raw hash ran three times
+    past the cap. With reads slowed, the stage stops at its share, git writes
+    everything, and the allocation ends inside the cap (or raises at it)."""
+    source = make_repo(tmp_path / "repo", {"big.bin": b"\x00" * (64 * rfs.CHUNK), "small": b"s"})
+    real_pread = os.pread
+
+    def slow_pread(fd, n, offset):
+        time.sleep(0.05)
+        return real_pread(fd, n, offset)
+    monkeypatch.setattr(wc.os, "pread", slow_pread)
+    cap = 6.0
+    started = time.monotonic()
+    try:
+        allocation = clone_add(source, tmp_path / "cloned", "HEAD", timeout_s=cap)
+        assert allocation.result.returncode == 0
+        assert allocation.reason == "clone stage reached its share of the cap"
+        assert "big.bin" not in allocation.cloned_paths
+        assert private(tmp_path / "cloned" / "big.bin") > 0
+    except subprocess.TimeoutExpired as exc:
+        assert exc.cmd[3:5] == ["worktree", "add"]
+    assert time.monotonic() - started < cap + 0.5
+
+
+def test_c6_6a_a_checkout_that_fails_leaves_no_tree_or_registration_as_git_leaves_none(tmp_path, monkeypatch):
+    """Review of eb8d62d8, finding 9: `worktree add` removes its junk when its
+    checkout fails; so does the allocation."""
+    source = make_repo(tmp_path / "repo", FILES)
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "reset" in cmd:
+            return subprocess.CompletedProcess(cmd, 128, "", "error: unable to create file\nfatal: could not reset\n")
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(wc.subprocess, "run", run)
+    allocation = clone_add(source, tmp_path / "cloned", "HEAD")
+    assert allocation.result.returncode == 128 and "could not reset" in allocation.result.stderr
+    assert not (tmp_path / "cloned").exists()
+    assert not (source / ".git" / "worktrees" / "cloned").exists()
+
+
+def test_c6_6a_a_filter_git_runs_in_the_checkout_sees_the_plain_adds_environment(tmp_path):
+    """Review of eb8d62d8, finding 8: under the plain add, what git's checkout
+    starts sees git's exec path twice at the front of PATH (the add's, then the
+    checkout's). A smudge filter logs its environment in both."""
+    log = tmp_path / "filter.log"
+    script = tmp_path / "smudge"
+    script.write_text(f'#!/bin/sh\necho "PATH=$PATH GIT_DIR=${{GIT_DIR-unset}} PWD=$(basename "$PWD")" >> "{log}"\ncat\n')
+    script.chmod(0o755)
+    source = make_repo(tmp_path / "repo", {**FILES, "w.f": b"filtered\n"}, "*.f filter=x\n")
+    git(source, "config", "filter.x.smudge", str(script))
+    git(source, "config", "filter.x.clean", "cat")
+    plain, cloned, allocation = runs(tmp_path, source, log)
+    assert allocation.method == "clone" and allocation.cloned == 6
+    assert cloned == plain and plain[1]
 
 
 def test_c6_6a_a_refresh_cut_short_leaves_git_to_write_everything(tmp_path, monkeypatch):
@@ -768,9 +1016,10 @@ def _valid(files: dict) -> bool:
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(files=st.dictionaries(NAMES, ENTRY, min_size=1, max_size=8).filter(_valid),
        changes=st.lists(CHANGE, min_size=8, max_size=8), attributes=ATTRIBUTES, dirty=DIRTY_ATTRIBUTES,
-       autocrlf=AUTOCRLF, mask=st.sampled_from([0o022, 0o027, 0o002]))
+       autocrlf=AUTOCRLF, mask=st.sampled_from([0o022, 0o027, 0o002]),
+       attr_tree=st.sampled_from([None, "* text eol=crlf\n", "* -text\n"]))
 def test_c6_6a_property_whatever_the_caller_holds_the_worktree_is_the_plain_worktree(
-        tmp_path_factory, files, changes, attributes, dirty, autocrlf, mask):
+        tmp_path_factory, files, changes, attributes, dirty, autocrlf, mask, attr_tree):
     """For every tree, attribute set, `core.autocrlf` and umask, and whatever the
     caller's checkout has done to its files and its attributes file since (a
     clean filter that maps the edit back to the blob included): the allocated
@@ -781,6 +1030,12 @@ def test_c6_6a_property_whatever_the_caller_holds_the_worktree_is_the_plain_work
     git(source, "config", "filter.low.clean", "tr A-Z a-z")
     if autocrlf is not None:
         git(source, "config", "core.autocrlf", autocrlf)
+    if attr_tree is not None:
+        blob = subprocess.run(["git", "-C", str(source), "hash-object", "-w", "--stdin"], input=attr_tree.encode(),
+                              capture_output=True, check=True).stdout.decode().strip()
+        tree = subprocess.run(["git", "-C", str(source), "mktree"], input=f"100644 blob {blob}\t.gitattributes\n".encode(),
+                              capture_output=True, check=True).stdout.decode().strip()
+        git(source, "config", "attr.tree", tree)
     for (rel, value), change in zip(sorted(files.items()), changes):
         path = source / rel
         if change == "rewrite" and not path.is_symlink():
