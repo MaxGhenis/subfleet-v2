@@ -3,12 +3,12 @@ export const meta = {
   description: 'Fan jobs out through subfleet: one Haiku dispatcher submits a batch manifest, then loops subfleet wait in 540 s slices until no job is pending and reports every job',
   whenToUse: 'Script control flow over heavy workers. The workers run on subfleet lanes (another account or model); only one thin dispatcher spends this login. Check `subfleet status` first: a queued batch costs about 90,000 login tokens per 540 s wait slice for a small batch, more as the manifest grows. args: [{task, tier, dir, promptPath, outPath, name, model?, sandbox?}], or {items, label, requestId, stateDir, maxWaitLoops, allowTmp, model?, sandbox?} (top-level model/sandbox are defaults for every item). Pass requestId to make a relaunch idempotent and resumable. Call it from another script with workflow("subfleet-fanout", args).',
   phases: [
-    { title: 'Dispatch', detail: 'one agent: write a checksummed helper and manifest, subfleet run --batch once (again only for entries the daemon never answered), then subfleet wait --timeout 540 until PENDING_COUNT is 0', model: 'haiku' },
+    { title: 'Dispatch', detail: 'one agent: write a checksummed helper and manifest, subfleet run --batch (retry only for not-sent, unknown or missing answers under a request id, at most 3 calls), then subfleet wait --timeout 540 until PENDING_COUNT is 0', model: 'haiku' },
   ],
 }
 
-// Why the dispatcher looks like this (subfleet 2.0.0a0 on main at 2441fbea,
-// read 2026-10-04; the measured run and two review rounds are in
+// Why the dispatcher looks like this (subfleet 2.0.0a0 at this PR's base 81d58fe9,
+// read 2026-10-04; the measured run and three review rounds are in
 // docs/reports/2026-09-22-fanout-workflow.md):
 // - `run --batch FILE --json -d` submits every manifest entry in one call and
 //   prints one JSON object per entry: job_id with outcome `created` or
@@ -20,9 +20,12 @@ export const meta = {
 //   returns the existing jobs with created:false (C-6.2; Daemon.submit). The
 //   index is part of the id, so with a request id the FULL manifest is always
 //   submitted and the daemon dedupes; dropping delivered items would shift
-//   every later entry onto another entry's id. A not-sent or unknown entry is
-//   settled by submitting again under the same id, which the helper allows
-//   only for those entries and only with a request id. Without one, items
+//   every later entry onto another entry's id. A not-sent, unknown or missing
+//   answer triggers RETRY_STEP1 under a request id (at most 3 calls per run);
+//   a refused entry never triggers retries. A row-less validation refusal is
+//   terminal for the whole manifest. After a lost answer, a digest conflict
+//   naming the earlier job settles its id even if the prompt, workdir head
+//   or policy.json changed. Without a request id, items
 //   whose outPath is already non-empty are dropped before the first submission
 //   as a heuristic (the daemon never clears a stale -o file), and a relaunch
 //   refuses to submit again and prints the command that resets its state.
@@ -149,10 +152,11 @@ const files = {
   helper: `${key}.fanout.py`, all: `${key}.manifest.all.json`, incoming: `${key}.manifest.new.json`,
   manifest: `${key}.manifest.json`, submitPrefix: `${key}.submit.`, submitErr: `${key}.submit.err`,
   jobs: `${key}.jobs.txt`, wait: `${key}.wait.jsonl`, waitErr: `${key}.wait.err`,
+  refusal: `${key}.submit.refusal.json`,
 }
 const HD = 'FANOUT_PY_EOF'
 const HM = 'FANOUT_MANIFEST_EOF'
-const helper = `import glob, json, os, sys, time, zlib
+const helper = `import glob, json, os, re, shlex, sys, time, zlib
 KEY = ${JSON.stringify(key)}
 REQUEST_ID = ${JSON.stringify(requestId || '')}
 F = ${JSON.stringify(files)}
@@ -199,26 +203,42 @@ def submit_logs():
     found = glob.glob(F["submitPrefix"] + "*.jsonl")
     return sorted(found, key=lambda p: int(p[len(F["submitPrefix"]):-6]))
 
-def submit_rows():
-    found = []
-    for path in submit_logs():
-        found.extend(rows(path, "SUBMIT"))
-    return found
-
 def settled(manifest_names):
     """Per name: the job id from any row that has one, else the latest outcome."""
     state = {name: {"job_id": "", "outcome": "", "row": {}} for name in manifest_names}
-    for row in submit_rows():
-        name = row.get("name")
-        if name not in state:
-            continue
-        outcome = row.get("outcome") or ("created" if row.get("job_id") else "refused")
-        if row.get("job_id") and not state[name]["job_id"]:
-            state[name]["job_id"] = row["job_id"]
-            state[name]["created"] = row.get("created")
-        state[name]["outcome"] = outcome
-        state[name]["row"] = row
+    for attempt, path in enumerate(submit_logs()):
+        answered = set()
+        for row in rows(path, "SUBMIT"):
+            name = row.get("name")
+            if name not in state:
+                continue
+            answered.add(name)
+            s = state[name]
+            outcome = row.get("outcome") or ("created" if row.get("job_id") else "refused")
+            jid = row.get("job_id")
+            conflict = re.search(r"request id already used with a different payload by job (\\S+)", row.get("error") or "")
+            if not jid and REQUEST_ID and attempt > 0 and s["outcome"] in ("", "unknown") and conflict:
+                jid = conflict.group(1)
+                row = {**row, "job_id": jid, "created": False}
+                outcome = "existing"
+            if jid and not s["job_id"]:
+                s["job_id"] = jid
+                s["created"] = row.get("created")
+            s["outcome"] = outcome
+            s["row"] = row
+        for name, s in state.items():
+            if name not in answered and not s["job_id"] and s["outcome"] != "refused":
+                s["outcome"] = "unknown"
+                s["row"] = {"rc": -1, "error": "no row", "request_id": (REQUEST_ID + "-?") if REQUEST_ID else ""}
+    if os.path.isfile(F["refusal"]):
+        refusal = load(F["refusal"])
+        for s in state.values():
+            if not s["job_id"]:
+                s["outcome"], s["row"] = "refused", refusal
     return state
+
+def retry_names(state):
+    return [name for name, s in state.items() if not s["job_id"] and s["outcome"] in ("", "not-sent", "unknown")]
 
 def write_jobs(ids):
     with open(F["jobs"], "w", encoding="utf-8") as fh:
@@ -275,7 +295,7 @@ def cmd_should_submit():
     if not logs:
         sys.exit(0)
     state = settled(names)
-    missing = [name for name in names if not state[name]["job_id"]]
+    missing = retry_names(state)
     if REQUEST_ID and missing:
         out("RESUBMIT names=%s" % ",".join(missing))
         latest = [r for r in rows(logs[-1], "SUBMIT") if (r.get("outcome") or "") in ("not-sent", "unknown")]
@@ -285,19 +305,27 @@ def cmd_should_submit():
         sys.exit(0)
     out("ALREADY_SUBMITTED")
     if missing:
-        out("RESET rm -f %s.*   # %s entr%s never got a job id and there is no request id to settle them" % (os.path.join(os.getcwd(), KEY), len(missing), "y" if len(missing) == 1 else "ies"))
+        out("RESET rm -f %s/%s.*   # %s entr%s never got a job id and there is no request id to settle them" % (shlex.quote(os.getcwd()), KEY, len(missing), "y" if len(missing) == 1 else "ies"))
     sys.exit(1)
 
 def cmd_next_log():
     print(F["submitPrefix"] + str(len(submit_logs()) + 1) + ".jsonl")
 
-def cmd_post_submit():
+def cmd_post_submit(rc):
     everything = load(F["all"])["jobs"]
     names = [job["name"] for job in load(F["manifest"])["jobs"]] if os.path.isfile(F["manifest"]) else []
-    state = settled(names)
     logs = submit_logs()
-    if logs and not rows(logs[-1], "SUBMIT") and os.path.isfile(F["submitErr"]):
-        out("SUBMIT_ERR " + tail(F["submitErr"]))
+    error = tail(F["submitErr"])
+    if logs and not rows(logs[-1], "SUBMIT"):
+        if error:
+            out("SUBMIT_ERR " + error)
+        if rc == 2 or "nothing was submitted" in error:
+            with open(F["refusal"], "w", encoding="utf-8") as fh:
+                json.dump({"rc": 2, "error": error or "run --batch refused the manifest (exit 2)"}, fh)
+    state = settled(names)
+    if os.path.isfile(F["refusal"]):
+        refusal = load(F["refusal"])
+        out("MANIFEST_REFUSED rc=%s error=%s" % (refusal["rc"], refusal["error"]))
     ids, unsettled, batch = [], 0, ""
     for job in everything:
         name = job["name"]
@@ -322,10 +350,13 @@ def cmd_post_submit():
     out("REQUEST_ID=%s" % (REQUEST_ID or (batch if ids else "")))
     out("JOBS=%s" % len(ids))
     out("UNSETTLED=%s" % unsettled)
+    if REQUEST_ID and retry_names(state):
+        out("RETRY_STEP1")
 
 def cmd_post_wait(rc, started):
     out("WAIT_RC=%s" % rc)
-    names = {r["job_id"]: r.get("name") for r in submit_rows() if r.get("job_id")}
+    manifest_names = [job["name"] for job in load(F["manifest"])["jobs"]]
+    names = {s["job_id"]: name for name, s in settled(manifest_names).items() if s["job_id"]}
     outs = {job["name"]: job["out"] for job in load(F["all"])["jobs"]}
     ids = lines(F["jobs"])
     seen, pending = set(), 0
@@ -372,7 +403,7 @@ elif verb == "should-submit":
 elif verb == "next-log":
     cmd_next_log()
 elif verb == "post-submit":
-    cmd_post_submit()
+    cmd_post_submit(num(sys.argv[2] if len(sys.argv) > 2 else None, -1))
 elif verb == "post-wait":
     cmd_post_wait(num(sys.argv[2] if len(sys.argv) > 2 else None, -1), num(sys.argv[3] if len(sys.argv) > 3 else None, 0))
 else:
@@ -385,8 +416,8 @@ for (const [text, marker] of [[helper, HD], [manifestText, HM], [helper, HM], [m
 
 const H = q(files.helper)
 const runFlags = `--json -d${allowTmp ? ' --allow-tmp' : ''}${requestId ? ` --request-id ${q(requestId)}` : ''}`
-const step0 = `mkdir -p ${q(stateDir)} && cd ${q(stateDir)} && cat > ${H} <<'${HD}'\n${helper}${HD}\ncat > ${q(files.incoming)} <<'${HM}'\n${manifestText}${HM}\npython3 -u ${H} check ${crc32(helper)} ${crc32(manifestText)} && python3 -u ${H} setup`
-const step1 = `cd ${q(stateDir)} && if python3 -u ${H} should-submit; then subfleet run --batch ${q(files.manifest)} ${runFlags} > "$(python3 ${H} next-log)" 2> ${q(files.submitErr)}; echo "SUBMIT_RC=$?"; fi; python3 -u ${H} post-submit`
+const step0 = `mkdir -p ${q(stateDir)} && cd ${q(stateDir)} && cat > ${H} <<'${HD}' && cat > ${q(files.incoming)} <<'${HM}' && python3 -u ${H} check ${crc32(helper)} ${crc32(manifestText)} && python3 -u ${H} setup\n${helper}${HD}\n${manifestText}${HM}`
+const step1 = `cd ${q(stateDir)} && { SUBMIT_RESULT=-1; if python3 -u ${H} should-submit; then subfleet run --batch ${q(files.manifest)} ${runFlags} > "$(python3 ${H} next-log)" 2> ${q(files.submitErr)}; SUBMIT_RESULT=$?; echo "SUBMIT_RC=$SUBMIT_RESULT"; fi; python3 -u ${H} post-submit "$SUBMIT_RESULT"; }`
 const step2 = `cd ${q(stateDir)} && if [ -s ${q(files.jobs)} ]; then T0=$(date +%s); subfleet wait $(cat ${q(files.jobs)}) --timeout ${WAIT_S} --json > ${q(files.wait)} 2> ${q(files.waitErr)}; python3 -u ${H} post-wait $? $T0; else echo "NOTHING_TO_WAIT"; echo "PENDING_COUNT=0"; fi`
 
 const STATES = ['skipped', 'refused', 'not-sent', 'submit-unknown', 'succeeded', 'failed', 'cancelled', 'lost', 'running', 'unknown']
@@ -415,7 +446,7 @@ const RESULT_SCHEMA = {
         required: ['name', 'job_id', 'state', 'rc', 'out_bytes', 'notes'],
       },
     },
-    notes: { type: 'string', description: 'anything unexpected: CHECKSUM_MISMATCH, STATE_MISMATCH, SUBMIT_ERR, DAEMON_UNREACHABLE, RESET or BAD_*_LINE lines, a step whose marker lines were missing, a killed call; else empty' },
+    notes: { type: 'string', description: 'anything unexpected: CHECKSUM_MISMATCH, STATE_MISMATCH, MANIFEST_REFUSED, SUBMIT_ERR, DAEMON_UNREACHABLE, RESET or BAD_*_LINE lines, a step whose marker lines were missing, a killed call; else empty' },
   },
   required: ['setup_ok', 'already_submitted', 'submit_calls', 'submit_rc', 'request_id', 'wait_loops', 'last_wait_rc', 'jobs', 'notes'],
 }
@@ -428,12 +459,12 @@ Run only the Bash commands below, exactly as written, character for character, w
 STEP 0. One Bash call. It writes a helper and the manifest, checks that both were typed exactly, and prints CHECKSUM_OK then SETUP_OK:
 ${step0}
 
-If it prints CHECKSUM_MISMATCH or STATE_MISMATCH instead, stop: report setup_ok false, every job as state "unknown" with rc -1, and that line in notes.
+If step 0 does not print SETUP_OK, stop: report setup_ok false, every job as state "unknown" with rc -1, and its output or missing marker in notes. CHECKSUM_MISMATCH and STATE_MISMATCH also mean stop.
 
-STEP 1. One Bash call. It submits the batch (or only the entries the daemon never answered) and prints SUBMITTED, REFUSED, NOT_SENT, OUTCOME_UNKNOWN or SKIP lines, then SUBMIT_RC, REQUEST_ID, JOBS and UNSETTLED:
+STEP 1. One Bash call. It submits the full manifest when should-submit allows it and prints SUBMIT_RC when a submission ran, then SUBMITTED, REFUSED, NOT_SENT, OUTCOME_UNKNOWN or SKIP lines, REQUEST_ID, JOBS and UNSETTLED:
 ${step1}
 
-Run step 1 again while it prints UNSETTLED greater than 0 and a RESUBMIT line, at most 3 step 1 calls in total. If JOBS=0, skip step 2.
+Run step 1 again while it prints RETRY_STEP1, at most 3 step 1 calls in total. This marker requires a request id and a not-sent, unknown or missing answer; a refused entry never triggers it. MANIFEST_REFUSED is one refusal of the whole manifest; record its CLI message in notes and each REFUSED entry as refused, then stop submitting. After the last step 1 call, if JOBS=0, skip step 2.
 
 STEP 2. One Bash call per loop. It waits up to 540 s and prints DONE, PENDING or UNKNOWN lines and PENDING_COUNT:
 ${step2}

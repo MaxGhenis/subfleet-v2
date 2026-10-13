@@ -1,9 +1,10 @@
 #!/bin/bash
 # Fake subfleet for the fanout harness. Never touches the daemon. Replays the
 # row shapes of `subfleet run --batch --json` and `subfleet wait --json` on
-# main at 2441fbea (cli.py cmd_run_batch, wait_jobs).
+# this PR's base 81d58fe9 (cli.py cmd_run_batch, wait_jobs).
 # SCENARIO: comma list of refuse-b, submit-down, unknown-c, wait-down-first,
-#   lost-c, failed-a, unknown-id, no-name
+#   submit-down-always, manifest-refusal, manifest-refusal-marker,
+#   rowless-unknown, digest-conflict-c, lost-c, failed-a, unknown-id, no-name
 S=",${SCENARIO:-},"; C="$FAKE_STATE/calls.$1"; n=$(cat "$C" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$C"
 echo "fake subfleet $*" >&2
 case "$1" in
@@ -13,12 +14,20 @@ case "$1" in
     SCEN="$S" RID="$rid" N="$n" python3 - "$m" <<'PY'
 import json,sys,os
 doc=json.load(open(sys.argv[1])); S=os.environ["SCEN"]; rid=os.environ["RID"] or "auto-uuid"; n=int(os.environ["N"]); worst=0
-down = ",submit-down," in S and n == 1
+if ",manifest-refusal," in S or ",manifest-refusal-marker," in S:
+    print("subfleet: run: -C /missing is not a directory", file=sys.stderr)
+    print("subfleet run --batch: jobs[1] (a) is invalid; nothing was submitted", file=sys.stderr)
+    sys.exit(1 if ",manifest-refusal-marker," in S else 2)
+if ",rowless-unknown," in S and n == 1:
+    print("subfleet: run: outcome unknown: no response line", file=sys.stderr)
+    sys.exit(1)
+down = (",submit-down," in S and n == 1) or ",submit-down-always," in S
 for i,job in enumerate(doc['jobs'],1):
     row={"batch":rid,"label":doc['label'],"index":i,"name":job['name'],"workdir":job['workdir'],"request_id":f"{rid}-{i}"}
     if down: row.update(job_id=None, outcome="not-sent", rc=69, error="daemon unavailable: connection refused", fix="start the daemon and rerun the same manifest with the same --request-id"); worst=worst or 69
     elif ",refuse-b," in S and job['name']=='b': row.update(job_id=None, outcome="refused", rc=7, error="output path is held by another job", fix="use a different -o path"); worst=worst or 7
     elif ",unknown-c," in S and job['name']=='c' and n == 1: row.update(job_id=None, outcome="unknown", rc=1, error="outcome unknown: no response line (request "+row["request_id"]+")", fix="rerun with the same --request-id"); worst=worst or 1
+    elif ",digest-conflict-c," in S and job['name']=='c': row.update(job_id=None, outcome="refused", rc=2, error="request id already used with a different payload by job job-c"); worst=worst or 2
     else: row.update(job_id=f"job-{job['name']}", created=(n == 1), outcome=("created" if n == 1 else "existing"), out=job['out'], log="/x/lane.log", rc=0)
     print(json.dumps(row, sort_keys=True))
 sys.exit(worst)

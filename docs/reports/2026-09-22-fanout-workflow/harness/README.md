@@ -1,23 +1,63 @@
 # Offline harness for subfleet-fanout.js
 
-Runs the workflow script with a stub `agent()` to render the three Bash
-commands, then executes them against `fake-subfleet.sh`, which replays the
-JSON shapes `subfleet run --batch --json` and `subfleet wait --json` printed
-on 2026-09-22 and 2026-10-04 and never touches the daemon. Needs `bun`.
+Needs `bun`, `python3` and `zsh`. From the repository root, run:
 
 ```sh
-H=$(mktemp -d); mkdir -p "$H/bin"; cp fake-subfleet.sh "$H/bin/subfleet"; chmod +x "$H/bin/subfleet"
-export PATH="$H/bin:$PATH" FAKE_STATE="$H" SUBFLEET_FANOUT_RETRY_S=1
-bun validate.mjs ../../../../.claude/workflows/subfleet-fanout.js        # argument validation and result shaping
-bun render.mjs ../../../../.claude/workflows/subfleet-fanout.js "$H" '{"label":"t","requestId":"rq-1","stateDir":"'"$H"'/s","items":[{"task":"review","tier":"standard","dir":"/Users/me/repo","promptPath":"/p.md","outPath":"'"$H"'/s/out-a.md","name":"a"}]}'
-bash "$H/step0.sh"; bash "$H/step1.sh"; bash "$H/step2.sh"; bash "$H/step2.sh"
+env -u PYTHONPATH bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs .claude/workflows/subfleet-fanout.js
 ```
 
-`SCENARIO` on the fake selects a failure: `refuse-b` (entry b refused, exit
-7), `submit-down` (every entry `not-sent`, exit 69, on the first `run` call
-only), `unknown-c` (entry c `unknown` on the first call, `existing` on the
-next), `wait-down-first` (exit 69 on the first wait), `lost-c` (job c ends
-`lost`, exit 125), `failed-a` (job a ends `failed` with rc 1, exit 1),
-`unknown-id` (exit 2), `no-name` (wait rows without `name`). The fake refuses
-a `run` without `-d`. The scenario matrix run on 2026-10-04 is described in
-the report; the two review rounds' findings each have a scenario here.
+The validator checks arguments and result shaping, renders the commands with
+a stub `agent()`, and executes every step through `zsh -c 'eval "$1"'`,
+as the review did. It prepends only the fake to `PATH`, sets
+`SUBFLEET_HOME` to an empty temporary directory, sets
+`SUBFLEET_RUN_DETACH=0` to verify explicit `-d`, and unsets `PYTHONPATH`.
+It returns a nonzero status for any failed assertion and cleans up with
+Python's `shutil.rmtree`, including on failure. No real jobs are submitted.
+
+Round-3 regressions cover all seven findings: marker-driven retries capped
+at three calls; terminal whole-manifest refusals; recovery of an earlier
+unknown job from a digest-conflict answer; failed setup without stray files;
+execution of a safely quoted reset command; no retries triggered by refused
+entries; and citation/cache-token checks against the report and CSV.
+The earlier scenarios remain covered, including wait failures, nameless rows,
+checksums, state mismatch, separate state keys, skipped outputs and the wait
+sleep cap. The report records the baseline and final results.
+
+For an individual command sequence, from this harness directory:
+
+```sh
+TMPDIR=$(mktemp -d)
+mkdir -p "$TMPDIR/bin" "$TMPDIR/empty-home"
+cp fake-subfleet.sh "$TMPDIR/bin/subfleet"
+chmod +x "$TMPDIR/bin/subfleet"
+export PATH="$TMPDIR/bin:$PATH" FAKE_STATE="$TMPDIR" SUBFLEET_HOME="$TMPDIR/empty-home" SUBFLEET_FANOUT_RETRY_S=0
+unset PYTHONPATH
+bun render.mjs ../../../../.claude/workflows/subfleet-fanout.js "$TMPDIR" '{"label":"t","requestId":"rq-1","stateDir":"'"$TMPDIR"'/s","items":[{"task":"review","tier":"standard","dir":"/Users/me/repo","promptPath":"/p.md","outPath":"'"$TMPDIR"'/out-a.md","name":"a"}]}'
+zsh -c 'eval "$1"' fanout-harness "$(cat "$TMPDIR/step0.sh")"
+zsh -c 'eval "$1"' fanout-harness "$(cat "$TMPDIR/step1.sh")"
+zsh -c 'eval "$1"' fanout-harness "$(cat "$TMPDIR/step2.sh")"
+zsh -c 'eval "$1"' fanout-harness "$(cat "$TMPDIR/step2.sh")"
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$TMPDIR"
+```
+
+`SCENARIO` is a comma-separated list:
+
+- `refuse-b`: entry b refused, exit 7.
+- `submit-down`: all entries not-sent on the first run, exit 69.
+- `submit-down-always`: all entries not-sent on every run.
+- `unknown-c`: entry c unknown on the first run, existing on the next.
+- `digest-conflict-c`: c refused with a message naming the earlier job.
+  Combine with `unknown-c` or `rowless-unknown` to test lost-answer recovery.
+- `manifest-refusal`: no rows, exit 2, CLI validation message saying
+  "nothing was submitted".
+- `manifest-refusal-marker`: the same message with exit 1; still a refusal.
+- `rowless-unknown`: no rows, exit 1, lost-answer message on the first run.
+- `wait-down-first`: first wait cannot reach the daemon, exit 69.
+- `lost-c`: c finishes lost, exit 125.
+- `failed-a`: a finishes failed with rc 1, exit 1.
+- `unknown-id`: wait returns no rows, exit 2.
+- `no-name`: wait rows omit names.
+
+The fake replays the CLI's row shapes at this PR's base `81d58fe9`.
+It rejects a run without `-d`. Rendered commands and the dispatcher prompt
+are written only to the selected output directory; do not commit them.
