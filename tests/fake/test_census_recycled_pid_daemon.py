@@ -138,9 +138,13 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
     """C-5.5: exit supplies the child PID; only a recorded identity can prove reuse."""
     daemon, harness = state_daemon
     _, attempt, _ = recycled_attempt(daemon, harness, monkeypatch, CASES[0])
-    attempt["child_pid"] = None
+    # The claim-aware deciding census refreshes the actual attempt row. Keep
+    # this publication gap in that row, rather than only in a stale dict.
+    updates = {"child_pid": None}
     if not recorded:
-        attempt["evidence_json"] = "{}"
+        updates["evidence_json"] = "{}"
+    daemon.store.update_attempt(attempt["attempt_id"], **updates)
+    attempt = daemon.store.get_attempt(attempt["attempt_id"])
     result = daemon._contain(attempt)
     if recorded:
         assert result.verified_empty

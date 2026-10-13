@@ -383,3 +383,20 @@ lines reintroduced. All 212 changed files checked, including automatic merges:
 file. The four conflict files' rewritten lines are accounted for above; they
 are combinations of the competing APIs, loops, serialization and contract
 paragraphs, not discarded guarantees. No auto-merged hunk lost an addition.
+
+Post-merge fixture integration
+------------------------------
+Release's two unit kill worlds used SimpleNamespace daemons lacking #131's
+claim methods, fresh Store row lookup and authorize keyword. They now retain
+the actual Daemon and signal_process, with only the empty synthetic foreign
+claim oracle, synthetic Store lock and scalar/kernel reads replaced. Recycled
+identities therefore fail the real scalar signal boundary; no stub silently
+ignores authorization. Every group syscall fails explicitly. The survivor
+world pins the entire individual TERM/KILL/KILL protocol, then retains the
+release assertion for the final survivor phase. Its saved ownership and
+quarantine assertions are unchanged. The exit-receipt publication-gap fixture
+now persists its missing PID/identity to the actual Store, so the deciding
+fresh-row census sees exactly the intended missing evidence.
+AST assertion audit versus release: all 44 recycled-PID unit assertions, all
+21 survivor unit assertions and all 24 daemon assertions remain byte-for-byte
+in AST form; one full-delivery assertion is added. No oracle is weakened.
