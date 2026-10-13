@@ -164,7 +164,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 - **C-1.2** An attempt id is `<job id>/a<seq>` with `seq` starting at 1.
 - **C-1.3** A lane id is `<provider>-<n>` (`codex-4`, `claude-3`). Lane ids are stable; a lane whose account or credential is rebound gets a new id and the old one is disabled.
 - **C-1.4** An account key is `<provider>:<account id>`. For Codex the account id is the `account_id` from the home's `auth.json` claims when present, else the email; For Claude it is `<account_uuid>:<org_uuid>` as returned by the provider profile endpoint (C-10.6) for the lane's own credential; the email is a display label and never the key.
-- **C-1.5** A request id is a caller-supplied string or a CLI-generated UUID4, at most 128 characters, printed back on submission.
+- **C-1.5** A request id is a nonempty caller-supplied ASCII letter/digit/`-_` token of at most 128 characters or a CLI-generated UUID4, printed back on submission. A valid caller id reaches the wire unchanged; validation never rewrites it. Path-like ids and recognized credentials are refused, exit 2, before the CLI stages a prompt or contacts the daemon, without printing the rejected value.
 - **C-1.6** Providers are exactly `codex` and `claude`. Model names in policy are short names (`astra`, `opus`) mapped to provider model ids in `policy.json`.
 - **C-1.7** Timestamps in the store are ISO 8601 UTC with a `Z` suffix and second precision unless a column says otherwise. Epoch seconds from providers are converted on write.
 
