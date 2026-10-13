@@ -828,6 +828,22 @@ def test_off_macos_the_lock_lives_in_a_private_directory_of_the_users(
         "the store's removal lock has no private directory to live in"}
 
 
+def test_a_lock_that_cannot_be_taken_is_not_called_busy(world, tmp_path, monkeypatch):
+    """C-23.28a, review r2 N3: a lock file that cannot be opened (here a
+    directory stands at its name) holds every removal, and the account says
+    so rather than blaming another mirror."""
+    monkeypatch.setattr(mirror, "store_lock_dir", lambda: tmp_path)
+    running = engine(world)
+    first = running._store_lock()                       # noqa: SLF001
+    assert first is not None
+    first.close()
+    [lock] = tmp_path.glob("subfleet-mirror-store-*.lock")
+    lock.unlink()
+    lock.mkdir()
+    assert running._store_lock() is None                # noqa: SLF001
+    assert running._store_lock_why.startswith(f"the store's removal lock {lock} cannot be taken")  # noqa: SLF001
+
+
 def test_a_blocked_pass_does_not_take_the_store_lock(world, monkeypatch):
     """C-23.28a, review r2 N9: a pass that will remove nothing leaves the lock
     to another mirror that would."""
