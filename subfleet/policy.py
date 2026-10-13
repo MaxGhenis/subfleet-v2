@@ -185,7 +185,7 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     return min(limits) if limits else None
 
 
-#: `admission.*` (C-6.9, C-6.13, C-6.17, C-10.3, C-11.3): how admission orders and places
+#: `admission.*` (C-6.9, C-6.13, C-6.17, C-6.18, C-10.3, C-11.3): how admission orders and places
 #: work once no count caps it (2026-09-27).
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
@@ -236,6 +236,15 @@ DISK_DEFAULTS: dict[str, Any] = {
     "min_floor_gb": 20,
     "max_lower_h": 16,
 }
+#: C-6.18: count committed detached starts in a sliding window, including
+#: retries and priority placements. The hub opts in through its live policy.
+#: The loader requires `per_minute * window_s` to be a multiple of 60, so each
+#: window allows a whole number of starts.
+RAMP_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "per_minute": 12,
+    "window_s": 60,
+}
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
     "weekly_reserve": 0.02,
@@ -243,6 +252,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "desktop_recent_s": 1800,
     "machine_guard": None,
     "disk": DISK_DEFAULTS,
+    "ramp": RAMP_DEFAULTS,
     "priority_callers": None,
     "pin_grace_s": 1800,
     "pin_hold_far_s": 7 * 86400,
@@ -261,6 +271,11 @@ def disk_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     return {**DISK_DEFAULTS, **((policy.get("admission") or {}).get("disk") or {})}
 
 
+def ramp_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-6.18: omitted ramp settings leave admission off, including raw policies."""
+    return {**RAMP_DEFAULTS, **((policy.get("admission") or {}).get("ramp") or {})}
+
+
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
 GUARDED_CLASSES = ("session", "background")
@@ -269,7 +284,8 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
-    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}), "disk": disk_settings(policy)}
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}),
+            "disk": disk_settings(policy), "ramp": ramp_settings(policy)}
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -467,6 +483,30 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if disk[key] is not None and (not _name(disk[key]) or not Path(disk[key]).is_absolute()):
             fail(f"admission.disk.{key}", "must be a nonempty absolute path string, or null")
     settings["disk"] = disk
+    ramp = settings["ramp"]
+    if not isinstance(ramp, dict):
+        fail("admission.ramp", "must be an object")
+    for key in ramp:
+        if key not in RAMP_DEFAULTS:
+            fail(f"admission.ramp.{key}", "is not a placement ramp setting")
+    ramp = {**RAMP_DEFAULTS, **ramp}
+    if not isinstance(ramp["enabled"], bool):
+        fail("admission.ramp.enabled", "must be a boolean")
+    for key in ("per_minute", "window_s"):
+        item = ramp[key]
+        # Positive Python integers are finite, including values too large for
+        # isfinite's implicit float conversion; floats and booleans are refused.
+        if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+            fail(f"admission.ramp.{key}", "must be a positive finite integer")
+    if ramp["per_minute"] * ramp["window_s"] % 60:
+        # A placement commits while starts < per_minute * window_s / 60, so a
+        # fractional allowance admits its ceiling: 1 per minute over a 1-second
+        # window would place a job every second, 60 a minute. Refused whether
+        # or not the ramp is enabled, so enabling it later cannot do that.
+        fail("admission.ramp.window_s",
+             f"per_minute * window_s must be a multiple of 60, so that each window allows a whole "
+             f"number of starts (per_minute {ramp['per_minute']}, window_s {ramp['window_s']})")
+    settings["ramp"] = ramp
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
