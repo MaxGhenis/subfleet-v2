@@ -327,3 +327,94 @@ trailer, and only named source, test and report files are staged.
 - `9d2485f71`: interrupt before acceptance on both success and retry paths.
 - `dd27b6a08`: reconcile pending verdicts and guard the frozen success evidence.
 - `1346fc157`: pin replay consistency and captured-evidence ownership.
+
+## Fix round 4
+
+Review r3 P1 found that `_stream_path` skipped an existing zero-byte frozen
+stream. Reconciliation then scanned changed live stdout, promoting a cut-off
+cached `auth-dead` verdict to `ok` and exporting its captured interim text.
+The selector now uses regular-file presence, regardless of size. Its three
+readers (`completion_evidence`, `classify`, and stream-based `deliverable`)
+share that rule; none adds a size-based fallback. Missing frozen artifacts
+retain the legacy stdout fallback.
+
+The regression ports the review's empty stdout, rc-0 signal-free receipt,
+nonblank interim `last.md`, revoked-token stderr and cached `auth-dead` verdict.
+It interrupts `_finalize` before acceptance, freezes an empty stream and the
+interim deliverable, then appends `turn.completed` to stdout only. Both replay
+and restart must keep `auth-dead`, leave acceptance/export absent, and preserve
+all frozen files byte-for-byte. Classification, attestation and captured
+extraction are forbidden from repeating. Authentication rejection retains the
+existing C-4.5 behavior: disable that lane and wait without counting the attempt.
+Four unit cases exercise all stream readers, including custom and legacy raw
+paths; three controls verify fallback when the frozen artifact is absent.
+
+The new replay and restart assertions fail against the exact assigned
+`e3a3aeef1` production code: **2 failed, 73 deselected**, 4.22 seconds. Both
+observe `auth-dead` followed by `ok`, after verifying that the frozen inputs
+are unchanged. At the fixed head both pass in the full fake suite.
+
+Restoring only the size predicate in a disposable copy produces **2 failed,
+73 deselected**, 30.84 seconds, at the same deciding-class assertions. The
+mutant selector's AST matches the exact assigned selector; the tracked fixed
+source is never changed. This confirms both regressions kill the mutation.
+
+Each pytest run uses its own foreground `/usr/bin/lockf -k` acquisition of
+`/private/tmp/claude-501/subfleet-suites.lock`, followed by `uv run pytest -q
+-p no:cacheprovider`. Only one pytest acquisition request runs at a time. Each request
+uses a fresh `sf-r195f4-<pid>/` TMPDIR and a 1,100-second total bound with at
+most five seconds of termination grace; the final extra-control retry also
+sets a 60-second acquisition timeout. The prescribed Python/shutil command
+removes that TMPDIR even on failure. No waiting for host load occurs under
+the lock.
+
+| Required file | Passed | Failed | Pytest seconds | Acquisition/run/cleanup seconds |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 10.71 | 19.13 |
+| `tests/fake/test_codex_turn_completed_fake.py` | 75 | 0 | 30.27 | 186.61 |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 | 6.44 | 11.94 |
+| `tests/unit/test_codex_adapter.py` | 93 | 0 | 43.72 | 897.37 |
+
+Thus all four required files execute: **219 passed, 0 failed**. The completion
+unit suite has one existing pytest deprecation warning about zip-based
+parametrization. The first fixed fake run had **73 passed, 2 failed** solely
+because the new assertion expected terminal failure instead of C-4.5's
+waiting state; both deciding classes were already `auth-dead`. Commit
+`019183173` corrects that assertion and also checks that the lane is disabled.
+The corrected full run passes all 75 cases. Baseline and mutation requests
+finish in 19.09 and 163.35 seconds respectively, including cleanup.
+
+Round 3's four authentication replay/restart regressions, both fresh controls,
+seven success-proof guards, all 16 I3 combinations and the full 48-case daemon
+matrix pass within the required suites above.
+
+A disposable pytest wrapper also prepared the review's 95 passing direct inputs
+plus one exact legacy-serialization comparison: **96 additional checks unrun**.
+The first request reached its 1,100-second total bound before pytest started
+(empty log), ending in 1,101.48 seconds with rc -15. One final request used
+`lockf -k -t 60` and was denied before pytest started: exit 75, 61.36 seconds.
+Neither request acquired a hold or contributed pytest counts. This broader
+wrapper includes the review's independent frozen-evidence boundaries, quota
+and stale-closure checks, structured rejections, terminal-job exclusions, and
+previous-finalizer/process-local controls. Their full repeat remains unrun;
+the required suites' passing controls are not presented as 95 direct checks.
+
+Broader e2e, process, CA, state-contract, CLI and module-name suites are not
+rerun in this round. All three edited Python files parse, and `git diff
+--check` passes. All runners ended. Every requested TMPDIR was removed with Python/shutil;
+the disposable mutant, review helpers and validation logs were also removed.
+Seven actual shared-lock holds completed; each entire acquisition/run/cleanup
+finished below 20 minutes. The two additional acquisition failures held no lock.
+
+Commits use workspace-local `.git-local` metadata on
+`fix/codex-turn-completed`, based on assigned `e3a3aeef1c3a`, because the shared
+index and refs are outside the writable sandbox. The original `.git` pointer
+and caller's checkout remain untouched. Only named source, test and report
+files are staged; logs, JSON evidence, dependencies and disposable helpers are
+excluded. Every commit has the required co-author trailer. No remote, sub-agent,
+live store or live process was accessed.
+
+- `d4ecc02b0`: port the empty-stream replay/restart regression and reader controls.
+- `ce98ef169`: make empty frozen streams authoritative.
+- `019183173`: retain authentication rejection's waiting/disabled-lane behavior
+  in the regression assertion.
