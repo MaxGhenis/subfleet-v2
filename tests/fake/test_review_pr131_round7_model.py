@@ -265,8 +265,10 @@ def test_fresh_leader_confirmation_respects_member_identity(consumer, source):
             machine.world.processes[200].marked = source == "marker"
             machine.world.processes[200].cwd = source == "cwd"
         # SIGTERM may be handled/ignored; this precedes the child's first
-        # SIGKILL and requires no post-SIGKILL execution.
-        machine.world.hooks.append(("signal_group", 1, lambda: machine.world.change("setsid", 200)))
+        # SIGKILL and requires no post-SIGKILL execution. Delivery is per
+        # identity since round 14 (8d7b6a7e7), so the escape follows the first
+        # delivered signal, as in the primary model's twin scenarios (0b99d0b4f).
+        machine.world.hooks.append(("signal", 1, lambda: machine.world.change("setsid", 200)))
         machine.kill(consumer)
         assert machine.world.processes[200].pgid == 200
         killed = any(pid == 200 and sig == 9 for pid, _, sig in machine.world.signals)
