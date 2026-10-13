@@ -7517,6 +7517,11 @@ class Daemon:
         # An exit-only PID is a conservative root, never signal authority.
         child_pid = a.get("child_pid") or start.get("child_pid") or receipt.get("child_pid")
         child = evidence.get("child_identity") or start.get("child_identity")
+        # A published identity carries its own PID even when a probe record
+        # predates the separate child_pid field. Conflicting publications still
+        # fail the identity union below; this fallback grants no signal authority.
+        if not child_pid and child:
+            child_pid = child["pid"]
         guardian_pid = a.get("guardian_pid") or start.get("guardian_pid")
         launch_boot = a.get("boot_id") or start.get("boot_id")
         began = a.get("proc_start") or start.get("proc_start")
