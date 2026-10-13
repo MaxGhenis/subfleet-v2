@@ -424,7 +424,6 @@ def test_c9_5_the_incident_attempt_replays_to_a_marked_capacity_refusal():
     RECONNECT_503, "Server returned HTTP 503 Service Unavailable", "HTTP 500 Internal Server Error",
     "stream disconnected before completion: websocket closed by server",
     "Reconnecting... 3/5 (workspace routing discovery timed out)",
-    "Reconnecting... 1/5 (We’re currently experiencing high demand, which may cause temporary errors.)",
     "Our servers are at capacity right now; retry shortly", "capacity exceeded on the upstream gateway",
     "DNS resolution failed for chatgpt.com", "unexpected status 401 Unauthorized from responses endpoint",
 ])
@@ -438,6 +437,21 @@ def test_c9_5_other_transient_failures_stay_unmarked(tmp_path, message, as_event
     assert outcome.cls == OutcomeClass.TRANSIENT
     assert outcome.closure is None
     assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("line", [
+    # A reconnect Codex printed during the incident's turns; as a last word it reads `unknown`.
+    "Reconnecting... 1/5 (We’re currently experiencing high demand, which may cause temporary errors.)",
+    # Codex's tool router echoing a file of the job's own (seen on stderr, 2026-10-12).
+    "ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected "
+    "lines in scripts/joint-capacity-use.ts",
+    "capacity planning: the model reads at 40% of capacity",
+])
+def test_c9_5_text_that_is_not_the_models_refusal_never_marks_it(tmp_path, line):
+    """C-9.5: whatever class these get, none is the model refusing the job for capacity."""
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, stderr=line + "\n"), _exit(1))
+    assert "model_capacity" not in outcome.evidence
+    assert outcome.closure is None
 
 
 @pytest.mark.parametrize("message,expected", [
