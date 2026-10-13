@@ -617,14 +617,18 @@ def test_daemon_error_response_carries_its_exit_code(daemon, capsys, root, workd
     assert "refused" in captured.err and "--allow-tmp" in captured.err
 
 
-def test_malformed_response_is_an_operational_error(daemon, capsys, root, workdir):
-    """C-16.1, C-17.3 a malformed response line is exit 1, not a traceback."""
-    server = daemon({"submit": lambda request: b"{password=SECRET7-left\n"})
+@pytest.mark.parametrize("body", (b"{not json at all\n", b"{password=SECRET7-left\n"))
+def test_malformed_response_is_an_operational_error(daemon, capsys, root, workdir, body):
+    """C-16.3 malformed replies resend once and name the unsettled submission."""
+    server = daemon({"submit": lambda request: body})
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
     err = capsys.readouterr().err
     assert "malformed response" in err
-    assert "SECRET7-left" not in err and "sending the same submission again" not in err
-    assert len([request for request in server.requests if request.op == "submit"]) == 1
+    assert "SECRET7-left" not in err and "sending the same submission again" in err
+    submits = [request for request in server.requests if request.op == "submit"]
+    assert len(submits) == 2 and submits[0].args == submits[1].args
+    assert "outcome unknown" in err and submits[0].args["request_id"] in err
+    assert "--request-id" in err
 
 
 def test_empty_response_is_an_operational_error(daemon, capsys, root, workdir):
@@ -1134,8 +1138,11 @@ def test_a_wrong_shaped_response_is_exit_one(daemon, capsys, workdir, body):
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
     err = capsys.readouterr().err
     assert "malformed response" in err
-    assert "SECRET7-left" not in err and "sending the same submission again" not in err
-    assert len([request for request in server.requests if request.op == "submit"]) == 1
+    assert "SECRET7-left" not in err and "sending the same submission again" in err
+    submits = [request for request in server.requests if request.op == "submit"]
+    assert len(submits) == 2 and submits[0].args == submits[1].args
+    assert "outcome unknown" in err and submits[0].args["request_id"] in err
+    assert "--request-id" in err
 
 
 def test_a_response_from_another_protocol_version_is_refused(daemon, capsys, workdir):

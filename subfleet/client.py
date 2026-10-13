@@ -46,7 +46,8 @@ from typing import Any, Callable, Iterable
 from . import boot_identity, ids
 
 from .contracts import Exit
-from .protocol import (PROTOCOL_VERSION, ListArgs, ProtocolError, Request, Response,
+from .protocol import (PROTOCOL_VERSION, REFUSAL_MESSAGES, ListArgs, ProtocolError,
+                        Request, Response,
                         correlation_id, decode_response, encode)
 
 TABLE_CODES = {int(code) for code in Exit}          # C-17.3
@@ -163,8 +164,7 @@ class ResponseLost(ProtocolError):
     Raised for every failure after `connect` succeeded: a timeout while sending
     or reading, a reset or broken pipe (even a `sendall` that fails part-way may
     have delivered the whole line), a close with no line, a line past
-    `MAX_RESPONSE_BYTES`. A complete malformed reply is an operational error
-    and must never trigger a resend. The daemon may have
+    `MAX_RESPONSE_BYTES`, or a complete line that does not decode. The daemon may have
     done the work, so the outcome is unknown, never "not done". It is a
     `ProtocolError` with exit 1 and the message the CLI has always printed, so
     every handler written before it still reports it.
@@ -504,10 +504,11 @@ class Client:
                                op=op, request_id=request_id)
         try:
             response: Response = decode_response(line)
-        except (AttributeError, TypeError, ValueError):
-            # A reply arrived: never resend or render its fields/exceptions.
-            from .protocol import request_error
-            raise request_error("malformed-response", Exit.OPERATIONAL) from None
+        except (ProtocolError, AttributeError, TypeError, ValueError):
+            # An undecodable reply settles nothing (C-16.3). Keep its contents
+            # and parser exceptions out of the diagnostic used for the retry.
+            raise ResponseLost(REFUSAL_MESSAGES["malformed-response"],
+                               op=op, request_id=request_id) from None
         if response.v != PROTOCOL_VERSION:
             raise ProtocolError(
                 f"the daemon speaks protocol version {response.v}; this CLI speaks "
