@@ -264,6 +264,10 @@ def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     (adir / "stdout").write_bytes(stdout)
     (adir / "stderr").write_bytes(b"")
     (adir / "lane.log").write_bytes(b"")
+    if not (adir / "launch.json").exists():
+        # No real adapter launch was staged: this is an exited generic fake,
+        # whose success must carry the daemon's detached Codex completion proof.
+        (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n' if rc == 0 else '')
     receipt = {"rc": rc, "signal": None, "wall_s": .1, "child_pid": None,
                "finished_at": daemon_module.utcnow()}
     (adir / "exit.json").write_text(json.dumps(receipt))

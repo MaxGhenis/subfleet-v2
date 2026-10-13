@@ -78,6 +78,7 @@ def main() -> int:
         )
     if scenario == "qos":
         print(json.dumps(qos_report()), flush=True)
+        completed()
         return 0
     if scenario == "ca-environment":
         keys = ("SSL_CERT_FILE", "SSL_CERT_DIR")
@@ -87,6 +88,7 @@ def main() -> int:
             text=True, capture_output=True, check=True)
         print(json.dumps({"provider": {k: os.environ[k] for k in keys if k in os.environ},
                           "tool": json.loads(child.stdout)}), flush=True)
+        completed()
         return 0
     print(f"fake provider ready: {scenario}", flush=True)
     if scenario in {"ignore-sigterm", "nested-setsid"}:
@@ -110,7 +112,14 @@ def main() -> int:
         # The adapter maps this scenario to a missing executable before launch.
         raise RuntimeError("spawn-fail must be selected by FakeAdapter")
     print("fake deliverable: " + prompt.strip(), flush=True)
+    completed()
     return 0
+
+
+def completed() -> None:
+    """The generic fake's success also satisfies the Codex acceptance rule."""
+    if stream := os.environ.get("SUBFLEET_FAKE_STREAM"):
+        Path(stream).write_text('{"type":"turn.completed"}\n')
 
 
 if __name__ == "__main__":

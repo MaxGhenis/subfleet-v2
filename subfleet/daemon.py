@@ -231,6 +231,10 @@ LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+#: C-9.2, C-4.3: `finalization.json`'s `rule` when this daemon classified the
+#: attempt. Every replay keeps such a verdict as its first pass decided it; only a
+#: verdict an older daemon recorded, without it, is reconciled with completion proof.
+FINALIZATION_RULE = "verified-success-first"
 #: C-6.14: the event that records a model answering on a lane (`_record_answer`),
 #: and how many of the newest a starting daemon reads to remember what was proven.
 ANSWER_EVENT = "lane.answered"
@@ -3423,11 +3427,22 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        # D-SHUT1: the routing walk alone cannot explain an rc-0 cut-off turn.
+        # Read the latest attempt's recorded verdict, without reclassifying it.
+        last = self.store.one("SELECT seq,outcome_detail,evidence_json FROM attempts WHERE job_id=? "
+                              "ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+        classification = json.loads(last["evidence_json"] or "{}").get("classification", {}) if last else {}
+        attempt_explanation = None
+        if classification.get("turn_completed") is False and classification.get("rc") == 0:
+            event_type = classification.get("last_event_type") or "none read"
+            attempt_explanation = f"Last attempt a{last['seq']}: {last['outcome_detail']} (last event: {event_type})"
+            lines.append(attempt_explanation)
         disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
         if disk_reading is not None and (hold or {}).get("reason") != "disk":
             lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                "route_error": route_error, "refused": refused, "attempt_explanation": attempt_explanation,
+                "text": "\n".join(lines),
                 **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:
@@ -4240,12 +4255,16 @@ class Daemon:
         The wait records are in memory, so nothing could bring a persisted wait
         forward when capacity came free, and what each job was waiting for may
         have changed while no daemon ran. A route wait (C-6.12) is looked at too:
-        a restart is how the fix for what it met arrives.
+        a restart is how the fix for what it met arrives. A latest transient
+        attempt instead has C-4.5's durable retry deadline; restarting must not
+        bring that wait forward, including legacy rows.
         """
         now = utcnow()
         with self.store.transaction("admission.recovered") as tx:
             tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason IN ('capacity','route') "
-                       "AND next_check_at>?", (now, now))
+                       "AND next_check_at>? AND (wait_reason='route' OR NOT EXISTS ("
+                       "SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.outcome_class='transient' "
+                       "AND a.seq=(SELECT MAX(seq) FROM attempts WHERE job_id=jobs.job_id)))", (now, now))
 
     def _timer_turn(self, lane: Lane, purpose: str, holder: str, *, cancel, deadline) -> Outcome:
         if cancel.is_set() or time.monotonic() >= deadline:
@@ -7913,6 +7932,7 @@ class Daemon:
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
+        older_verdict = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
                               else "guardian exit receipt has no return code")
@@ -7926,8 +7946,13 @@ class Daemon:
                 if exit_info.spawn_error:
                     outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                 attest = adapter.attest(adir, launch, outcome, a["model_requested"])
-                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest)}
+                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
+                          "rule": FINALIZATION_RULE}
                 self._publish("finalization", result_path, json_bytes(result))
+            # A replay of this daemon's own verdict must reach its first pass's
+            # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
+            # is finalized again and still retries.
+            older_verdict = result.get("rule") != FINALIZATION_RULE
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
@@ -7936,12 +7961,31 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
-        # The daemon's two overrides of the adapter's `ok`. finalization.json
-        # keeps the adapter's verdict; both are recomputed from the attempt row
-        # and the captured deliverable on every (re)finalization, so a replay
-        # reaches the same class (C-4.3), and the adapter's verdict is kept in
-        # the attempt's evidence beside the class that decided.
+        # finalization.json keeps the adapter's verdict. Reconciliation and
+        # overrides use the frozen stream, captured deliverable, exit receipt
+        # and attempt row on every replay (C-4.3), before any lane, closure or
+        # acceptance effect. Keep the original verdict beside the deciding class.
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
+        if not lost and lane.provider == "codex" and job["kind"] != "turn":
+            from .adapters.codex import completion_evidence
+            completion = completion_evidence(adir, launch)
+            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
+            spawn_error = receipt.get("spawn_error") or outcome.evidence.get("spawn_error")
+            if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
+                    and completion["turn_completed"] and not completion["turn_failed"]
+                    and not spawn_error and not actual.get("killed_by")
+                    and deliverable and read_regular(deliverable_path).strip()):
+                # C-9.2: an older daemon's authentication/text verdict can precede
+                # verified success. The captured bytes decide presence; never
+                # reclassify or re-extract a result already frozen on disk.
+                # Claude's structured admission verdicts and conversation
+                # driver outcomes are outside this detached Codex rule.
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.OK,
+                                              detail="Codex completed with a deliverable", closure=None,
+                                              evidence={**outcome.evidence, "admission": "deliverable with exit 0"})
+            if outcome.cls == OutcomeClass.OK and (completion["turn_failed"] or spawn_error):
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN,
+                                              detail=spawn_error or "Codex turn failed without a verified deliverable")
         if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
             # C-9.2: an attempt the daemon signalled (an operator's kill, the
             # wall limit, recovery) did not finish, whatever its rc and its
@@ -7959,6 +8003,13 @@ class Daemon:
                 outcome, cls=OutcomeClass.UNKNOWN,
                 detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
                        f"is not a finished deliverable")
+        if outcome.cls == OutcomeClass.OK and lane.provider == "codex" and job["kind"] != "turn":
+            # C-9.2, D-SHUT1: a cached verdict can predate the adapter's rule.
+            # Acceptance always needs proof from this attempt's frozen stream,
+            # never last.md or a receipt's claimed completion evidence.
+            if not completion["turn_completed"]:
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
+                                              detail="Codex exited before its turn completed")
         if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if not lost and self._answered(outcome, provider_verdict["class"]):
