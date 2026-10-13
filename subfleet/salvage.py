@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -159,46 +160,61 @@ def working_tree(workdir: str | Path, baseline_commit: str, *,
     nobody edited dropped every such file. So each real index entry that is
     skip-worktree and absent from disk (`_off_disk`) is not a deletion: git
     reports it unchanged, with the entry's content, and so does the snapshot.
-    It is written into the temporary index as the real index holds it, its
-    bit set, which ``add -A --sparse`` leaves alone (`_overlay`); every other
-    bit is cleared as above, so a file written outside the patterns is read
-    from disk. The snapshot is the one a full checkout with the same edits
-    gives, and a sparse worktree nobody changed snapshots to its baseline.
-    Both reads, seeded and empty, take those entries from the real index, so
-    they still agree. A checkout that is not sparse is read exactly as
-    before. Observed with git 2.55; ``add --sparse`` is git 2.34's.
+    The temporary index takes those entries as the real index holds them
+    (`_sparse_base`), with their bits set, which ``add -A --sparse`` leaves
+    alone; every other bit is cleared as above, so a file written outside the
+    patterns is read from disk. Both reads, seeded and empty, take the same
+    entries, so they still agree, and a sparse worktree nobody changed
+    snapshots to its baseline.
+
+    A file the patterns keep off disk is recorded as the real index holds it
+    and is not read, so two things a full checkout records are not recorded
+    here, and ``git status`` reports neither: its removal (written and then
+    removed, or gone with its directory, as when a repository is cloned where
+    the directory was; a file or link written there does replace it, and
+    ``git rm --sparse`` removes the entry, which is recorded), and a change of
+    attributes or filters that a full checkout would apply to it on disk
+    (review of the first version).
 
     The temporary index of a sparse checkout is always a full one
-    (`_full_index`), whatever the real index is.
+    (`_full_index`), whatever the real index is. A checkout that is not sparse
+    is read exactly as before. Observed with git 2.55; ``add --sparse`` is
+    git 2.34's.
     """
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     sparse = sparse_checkout(workdir, timeout_s=timeout_s)
-    off_disk = _off_disk(workdir, timeout_s=timeout_s) if sparse else []
-    keep = frozenset(path for _, _, path in off_disk)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         index = Path(temporary) / "index"
         env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        base, keep = baseline_commit, {}
         if sparse:
             env = _full_index(env)
+            keep = _off_disk(workdir, Path(temporary) / "listed", timeout_s=timeout_s)
+            base = _sparse_base(workdir, env, Path(temporary) / "base", baseline_commit, keep,
+                                timeout_s=timeout_s)
         seeded = (_seed_index(workdir, index, timeout_s=timeout_s)
-                  and _git(workdir, "read-tree", "-m", baseline_commit, env=env,
+                  and _git(workdir, "read-tree", "-m", base, env=env,
                            optional=True, timeout_s=timeout_s) is not None
-                  and _overlay(workdir, env, off_disk, timeout_s=timeout_s)
                   and _clear_skip_bits(workdir, env, keep=keep, timeout_s=timeout_s))
         if not seeded:
             index.unlink(missing_ok=True)
-            _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
-            if not _overlay(workdir, env, off_disk, timeout_s=timeout_s):
-                # Without them `add -A --sparse` records each as deleted.
-                raise SalvageError("could not record the files the sparse checkout keeps off disk")
+            _git(workdir, "read-tree", base, env=env, timeout_s=timeout_s)
+            if keep and not _clear_skip_bits(workdir, env, keep=keep, timeout_s=timeout_s):
+                # Without their bits `add -A --sparse` records each as deleted.
+                raise SalvageError("could not mark the files the sparse checkout keeps off disk")
         _git(workdir, "add", "-A", *(("--sparse",) if sparse else ()), env=env, timeout_s=timeout_s)
         return _git(workdir, "write-tree", env=env, timeout_s=timeout_s)
 
 
 def sparse_checkout(workdir: str | Path, *, timeout_s: float | None = None) -> bool:
-    """Whether ``core.sparseCheckout`` is on for this worktree (cone patterns or not)."""
-    return _git(workdir, "config", "--type=bool", "--get", "core.sparseCheckout",
-                optional=True, timeout_s=timeout_s) == "true"
+    """Whether ``core.sparseCheckout`` is on for this worktree (cone patterns or not).
+
+    An unset key is ``false`` (``--default``), so any other failure to read it
+    raises: read as "not sparse", it took the snapshot that loses a file a job
+    wrote outside the patterns (review of the first version).
+    """
+    return _git(workdir, "config", "--type=bool", "--default=false", "--get",
+                "core.sparseCheckout", timeout_s=timeout_s) == "true"
 
 
 def _full_index(env: dict[str, str]) -> dict[str, str]:
@@ -207,88 +223,150 @@ def _full_index(env: dict[str, str]) -> dict[str, str]:
 
     A sparse index (``git sparse-checkout set --sparse-index``) holds one
     directory entry in place of the files under a directory outside the cone,
-    and the temporary index, a copy of it, did too. ``update-index
-    --index-info`` then added a file beside the directory entry that already
-    stood for it, and ``write-tree`` wrote a tree naming that directory twice,
-    which ``git fsck`` calls ``duplicateEntries`` (git 2.55; found by the
-    property that a sparse worktree nobody edited snapshots to its baseline,
-    in a repository whose one file is outside the cone). With the setting off,
-    git expands such an index as it reads it and writes a full one. The real
-    index is only read, and stays as it is.
+    and the temporary index, a copy of it, did too. Writing a file entry
+    under such a directory left the directory entry beside it, and
+    ``write-tree`` wrote a tree naming that directory twice, which ``git
+    fsck`` calls ``duplicateEntries`` (git 2.55; found by the property that a
+    sparse worktree nobody edited snapshots to its baseline, in a repository
+    whose one file is outside the cone). With the setting off, git expands
+    such an index as it reads it and writes a full one. The real index is
+    only read, and stays as it is.
+
+    The setting goes last in ``GIT_CONFIG_PARAMETERS``, where ``git -c`` puts
+    its own: git takes the last value given there over any other source. A
+    value inherited there, or in ``GIT_CONFIG_COUNT``, cannot turn it back on
+    (review of the first version: ``GIT_CONFIG_PARAMETERS="'index.sparse=true'"``
+    did, and the snapshot was the malformed tree again).
     """
-    try:
-        count = int(env.get("GIT_CONFIG_COUNT", "0"))
-    except ValueError:
-        count = 0
-    return {**env, "GIT_CONFIG_COUNT": str(count + 1),
-            f"GIT_CONFIG_KEY_{count}": "index.sparse", f"GIT_CONFIG_VALUE_{count}": "false"}
+    inherited = env.get("GIT_CONFIG_PARAMETERS", "").strip()
+    return {**env, "GIT_CONFIG_PARAMETERS": f"{inherited} 'index.sparse=false'".lstrip()}
 
 
-def _off_disk(workdir: str | Path, *,
-              timeout_s: float | None = None) -> list[tuple[bytes, bytes, bytes]]:
-    """``(mode, object, path)`` for each real index entry a sparse checkout keeps
-    off disk: marked skip-worktree (``S``, or ``s`` when also assume-unchanged),
-    at stage 0, its file absent. Paths are relative to the top level. git 2.55
-    lists an unmerged entry as ``M`` and will not mark one skip-worktree, so the
-    stage only guards against an index git did not write.
+def _records(data: bytes):
+    """The NUL-terminated records of a git listing, one at a time: chief-of-staff's
+    index lists 332,000, and a list of them all doubles what the listing holds."""
+    start = 0
+    while start < len(data):
+        end = data.find(b"\0", start)
+        if end == -1:
+            end = len(data)
+        yield data[start:end]
+        start = end + 1
 
-    Raises when the index cannot be read: a snapshot of a sparse checkout taken
-    without these entries reads every file outside the patterns as deleted.
+
+def _off_disk(workdir: str | Path, copy: Path, *,
+              timeout_s: float | None = None) -> dict[bytes, bytes]:
+    """The real index entries a sparse checkout keeps off disk, each path (from
+    the top level) to its ``<mode> <object>``, in index order: marked
+    skip-worktree (``S``, or ``s`` when also assume-unchanged), at stage 0, the
+    file absent. git 2.55 lists an unmerged entry as ``M`` and will not mark
+    one skip-worktree, so the stage only guards against an index git did not
+    write.
+
+    The entries are listed from ``copy``, a private copy of the real index
+    (`_copy_index`), so one read of the real index decides them: an index
+    removed or replaced while they were listed was read as one with no entries,
+    and every file the patterns leave out was recorded as deleted (review of
+    the first version). Raises when there is no index to copy, or the copy
+    cannot be listed, for the same reason.
     """
     top = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=timeout_s)
     top = top[:-1] if top and top.endswith(b"\n") else top
     if not top:
         raise SalvageError("could not find the sparse checkout's top level")
-    index = _git(workdir, "rev-parse", "--git-path", "index", timeout_s=timeout_s)
-    if not os.path.isfile(index if os.path.isabs(index) else os.path.join(workdir, index)):
+    if not _copy_index(workdir, copy, timeout_s=timeout_s):
         # With no index, git itself reads every file off disk as deleted; the
         # snapshot refuses rather than record that for the files left out.
         raise SalvageError("the sparse checkout has no index to say which files it keeps off disk")
-    # From the top level, as in `_clear_skip_bits`. Without `--sparse`, ls-files
-    # lists a sparse index's directory entries as the files they stand for.
-    listed = _git_bytes(os.fsdecode(top), "ls-files", "-s", "-v", "-z", timeout_s=timeout_s)
+    try:
+        # From the top level, as in `_clear_skip_bits`. Without `--sparse`, ls-files
+        # lists a sparse index's directory entries as the files they stand for.
+        listed = _git_bytes(os.fsdecode(top), "ls-files", "-s", "-v", "-z",
+                            env={**os.environ, "GIT_INDEX_FILE": str(copy)}, timeout_s=timeout_s)
+    finally:
+        copy.unlink(missing_ok=True)
     if listed is None:
         raise SalvageError("could not read the sparse checkout's index")
-    off_disk: list[tuple[bytes, bytes, bytes]] = []
-    for record in listed.split(b"\0"):
+    off_disk: dict[bytes, bytes] = {}
+    for record in _records(listed):
         if record[:2] not in (b"S ", b"s "):
             continue
         meta, _, path = record[2:].partition(b"\t")
-        fields = meta.split()
-        if (len(fields) == 3 and fields[2] == b"0" and path
+        mode, _, rest = meta.partition(b" ")
+        oid, _, stage = rest.partition(b" ")
+        if (mode and oid and stage == b"0" and path
                 and not os.path.lexists(os.path.join(top, path))):
-            off_disk.append((fields[0], fields[1], path))
+            off_disk[path] = mode + b" " + oid
     return off_disk
 
 
-def _overlay(workdir: str | Path, env: dict[str, str],
-             entries: list[tuple[bytes, bytes, bytes]], *,
-             timeout_s: float | None = None) -> bool:
-    """Write `_off_disk`'s entries into the temporary index, each with its
-    skip-worktree bit; False when git refuses.
+def _sparse_base(workdir: str | Path, env: dict[str, str], scratch: Path, baseline: str,
+                 off_disk: dict[bytes, bytes], *, timeout_s: float | None = None) -> str:
+    """What the temporary index of a sparse checkout reads before ``add -A``:
+    ``baseline``, with `_off_disk`'s entries as the real index holds them.
 
-    ``--index-info`` writes an entry with no bits, so the bit is set after it.
-    An entry it writes displaces a baseline path it conflicts with (a file where
-    the real index has a directory, or the reverse): the real index is the
-    job's state.
+    When every such entry is the baseline's (no job moved the index past it),
+    that is ``baseline`` itself. Otherwise it is a tree written from
+    ``scratch``, an index built from one stream in index order: the entries,
+    and the baseline's other entries, less any whose path is one of theirs,
+    lies under one of them, or holds one of them (a file where the real index
+    has a directory, or the reverse: the real index is the job's state).
+
+    One stream in index order appends every entry. The first version wrote
+    the entries into an index already holding the baseline, and git moved the
+    rest of the index for each one it inserted: 21 s for 332,176 paths the
+    baseline did not have (review of the first version). Raises when git
+    cannot list the baseline or write the tree.
     """
-    if not entries:
-        return True
-    top = _git_bytes(workdir, "rev-parse", "--show-toplevel", env=env, timeout_s=timeout_s)
-    top = top[:-1] if top and top.endswith(b"\n") else top
+    raw = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=timeout_s)
+    top = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
     if not top:
-        return False
-    where = os.fsdecode(top)
-    info = b"".join(mode + b" " + oid + b"\t" + path + b"\0" for mode, oid, path in entries)
-    if _git_bytes(where, "update-index", "-z", "--index-info", stdin=info, env=env,
-                  timeout_s=timeout_s) is None:
-        return False
-    paths = b"".join(path + b"\0" for _, _, path in entries)
-    return _git_bytes(where, "update-index", "--skip-worktree", "-z", "--stdin", stdin=paths,
-                      env=env, timeout_s=timeout_s) is not None
+        raise SalvageError("could not find the sparse checkout's top level")
+    listed = _git_bytes(top, "ls-tree", "-r", "-z", "--full-tree", baseline, timeout_s=timeout_s)
+    if listed is None:
+        raise SalvageError(f"could not list the baseline {baseline}")
+
+    def entries():
+        """The baseline's ``(path, <mode> <object>)``, from ``mode type object\tpath``."""
+        for record in _records(listed):
+            meta, _, path = record.partition(b"\t")
+            mode, _, rest = meta.partition(b" ")
+            oid = rest.partition(b" ")[2]
+            if mode and oid and path:
+                yield path, mode + b" " + oid
+    if sum(off_disk.get(path) == meta for path, meta in entries()) == len(off_disk):
+        return baseline
+    held = {parent for path in off_disk for parent in _parents(path)}
+
+    def kept(path: bytes) -> bool:
+        return (path not in off_disk and path not in held
+                and not any(parent in off_disk for parent in _parents(path)))
+    stream = sorted([entry for entry in entries() if kept(entry[0])] + list(off_disk.items()))
+    scratch_env = {**env, "GIT_INDEX_FILE": str(scratch)}
+    try:
+        if _git_bytes(top, "update-index", "-z", "--index-info", env=scratch_env, timeout_s=timeout_s,
+                      stdin=b"".join(meta + b"\t" + path + b"\0" for path, meta in stream)) is None:
+            raise SalvageError("could not build the index of the files the sparse checkout keeps off disk")
+        return _git(top, "write-tree", env=scratch_env, timeout_s=timeout_s)
+    finally:
+        scratch.unlink(missing_ok=True)
+
+
+def _parents(path: bytes):
+    """Each directory above ``path``, nearest the top first: ``a``, ``a/b`` for ``a/b/c``."""
+    at = path.find(b"/")
+    while at != -1:
+        yield path[:at]
+        at = path.find(b"/", at + 1)
 
 
 def _seed_index(workdir: str | Path, index: Path, *,
+                timeout_s: float | None = None) -> bool:
+    """The seed of the temporary index (`working_tree`): `_copy_index`."""
+    return _copy_index(workdir, index, timeout_s=timeout_s)
+
+
+def _copy_index(workdir: str | Path, index: Path, *,
                 timeout_s: float | None = None) -> bool:
     """Copy the real index to ``index``; False when there is none to copy.
 
@@ -314,14 +392,15 @@ def _seed_index(workdir: str | Path, index: Path, *,
 
 
 def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
-                     keep: frozenset[bytes] = frozenset(),
+                     keep: Collection[bytes] = frozenset(),
                      timeout_s: float | None = None) -> bool:
     """Clear assume-unchanged and skip-worktree bits in the temporary index,
-    except the skip-worktree bits of ``keep``: the entries a sparse checkout
-    keeps off disk (`_off_disk`).
+    except the skip-worktree bits of ``keep``, the entries a sparse checkout
+    keeps off disk (`_off_disk`), which it sets where they are not set.
 
     Flipping a bit hashes nothing. ``update-index`` applies only the first
-    of the two options it is given, so each bit gets its own call.
+    of the options it is given, so each gets its own call. False, as for any
+    failure, when the index does not hold every entry of ``keep``.
     """
     # From the toplevel: from a subdirectory, ls-files lists only that
     # subdirectory's entries, and add -A still records the whole tree.
@@ -333,16 +412,26 @@ def _clear_skip_bits(workdir: str | Path, env: dict[str, str], *,
         return False
     assumed: list[bytes] = []
     skipped: list[bytes] = []
-    for record in listed.split(b"\0"):
+    unmarked: list[bytes] = []
+    kept = 0
+    for record in _records(listed):
         if len(record) < 3:
             continue
         tag, path = record[:1], record[2:]
         if tag.islower():
             assumed.append(path)
-        if tag in (b"S", b"s") and path not in keep:
+        if path in keep:
+            kept += 1
+            if tag not in (b"S", b"s"):
+                unmarked.append(path)
+        elif tag in (b"S", b"s"):
             skipped.append(path)
+    if kept != len(keep):
+        # An entry of `keep` the index does not hold would be read as deleted.
+        return False
     for option, paths in (("--no-assume-unchanged", assumed),
-                          ("--no-skip-worktree", skipped)):
+                          ("--no-skip-worktree", skipped),
+                          ("--skip-worktree", unmarked)):
         if paths and _git_bytes(top, "update-index", option, "-z", "--stdin",
                                 stdin=b"\0".join(paths) + b"\0", env=env,
                                 timeout_s=timeout_s) is None:
