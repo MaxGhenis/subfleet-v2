@@ -52,7 +52,8 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   copyFileSync(join(harness, 'fake-subfleet.sh'), join(root, 'bin', 'subfleet'))
   chmodSync(join(root, 'bin', 'subfleet'), 0o755)
   const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, FAKE_STATE: root,
-    SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0' }
+    SCENARIO: scenario, SUBFLEET_HOME: join(root, 'empty-home'), SUBFLEET_FANOUT_RETRY_S: '0', SUBFLEET_RUN_DETACH: '0',
+    CLAUDE_CODE_SESSION_ID: 'fanout-harness-caller' }
   delete env.PYTHONPATH
   const args = { label: 't', stateDir: join(root, stateSuffix), items: ['a', 'b', 'c'].map(name => ({ ...ok, name,
     promptPath: join(root, `prompt-${name}.md`), outPath: join(root, `out-${name}.md`) })) }
@@ -128,6 +129,87 @@ try {
     assert.equal(c.count('run'), 3)
     assert.equal(c.count('wait'), 0)
     assert.equal(readFileSync(join(c.root, 'registry.json'), 'utf8'), registryBefore)
+  })
+  await test('round 5: each unanswered retry captures its own prompt identity', async () => {
+    const c = await make('refuse-b,unknown-c'); c.setup(); c.step(1)
+    writeFileSync(c.args.items[1].promptPath, 'New prompt for the later invocation')
+    c.env.SCENARIO = 'lose-stdout,check-prompts'; c.step(1)
+    unlinkSync(c.args.items[1].promptPath)
+    c.env.SCENARIO = 'check-prompts'
+    assert.match(c.step(1).text, /SUBMITTED name=b job_id=job-b created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
+    assert.match(c.wait(), /DONE name=b job_id=job-b state=succeeded/)
+  })
+  await test('round 5: same paths and names with different prompt bytes cannot recover old jobs', async () => {
+    const c = await make('check-prompts')
+    const old = await renderWorkflow(script, { ...c.args, stateDir: join(c.root, 'old-state') })
+    c.step(0, old.commands[0]); c.step(1, old.commands[1])
+    for (const item of c.args.items) writeFileSync(item.promptPath, `Different prompt for ${item.name}`)
+    c.env.SCENARIO = 'lose-stdout,check-prompts'; c.setup(); c.step(1)
+    // A C-6.2 conflict names the old job but does not prove it belongs here.
+    c.env.SCENARIO = 'check-prompts'
+    const conflict = c.step(1).text
+    assert.match(conflict, /LOOKUP_UNKNOWN[\s\S]*JOBS=0\nUNSETTLED=3/)
+    assert.doesNotMatch(conflict, /^SUBMITTED |^REFUSED /m)
+    unlinkSync(c.args.items[1].promptPath)
+    assert.match(c.step(1).text, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/)
+    assert.equal(c.count('wait'), 0)
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))).length, 3)
+  })
+  await test('round 5: C-6.2 conflict after a prompt edit verifies the original unknown job', async () => {
+    const c = await make('unknown-c'); c.setup(); c.step(1)
+    writeFileSync(c.args.items[2].promptPath, 'Edited after the answer was lost')
+    c.env.SCENARIO = ''
+    const conflict = c.step(1).text
+    assert.match(conflict, /SUBMITTED name=c job_id=job-c created=False[\s\S]*JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('show'), 1)
+    assert.equal(c.count('runs'), 0)
+    c.setup(); c.step(1)
+    assert.equal(c.count('run'), 2)
+    assert.equal(c.count('show'), 1)
+    assert.match(c.wait(), /DONE name=c job_id=job-c state=succeeded/)
+  })
+  for (const mode of ['MISSING', 'MISMATCH']) {
+    await test(`round 5: ${mode.toLowerCase()} recorded identity fields keep jobs uncertain`, async () => {
+      for (const field of ['job_id', 'request_id', 'name', 'workdir', 'out_path', 'task', 'tier', 'sandbox', 'pinned_model', 'prompt_path']) {
+        const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
+        unlinkSync(c.args.items[1].promptPath)
+        c.env[`FAKE_SHOW_${mode}`] = field
+        const refusal = c.step(1).text
+        assert.match(refusal, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/, `${mode} ${field}: ${refusal}`)
+        assert.equal((refusal.match(/^LOOKUP_UNKNOWN name=/gm) || []).length, 3)
+        assert.doesNotMatch(refusal, /^SUBMITTED |^REFUSED |RETRY_STEP1/m)
+        assert.match(c.step(2).text, /NOTHING_TO_WAIT/)
+        delete c.env[`FAKE_SHOW_${mode}`]
+        c.setup()
+        assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+        assert.equal(c.count('run'), 2)
+      }
+    })
+  }
+  await test('round 5: flat offline show metadata is verified without acknowledging caller notices', async () => {
+    const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
+    unlinkSync(c.args.items[1].promptPath)
+    c.env.FAKE_SHOW_FLAT = '1'
+    assert.match(c.step(1).text, /JOBS=3\nUNSETTLED=0/)
+    assert.equal(c.count('show'), 3)
+    assert.equal(c.env.CLAUDE_CODE_SESSION_ID, 'fanout-harness-caller')
+    c.setup(); c.step(1)
+    assert.equal(c.count('show'), 3)
+    assert.equal(c.count('run'), 2)
+  })
+  await test('round 5: legacy recovery records without invocation identity cannot settle jobs', async () => {
+    const c = await make('rowless-unknown,check-prompts'); c.setup(); c.step(1)
+    unlinkSync(c.args.items[1].promptPath)
+    const registry = JSON.parse(readFileSync(join(c.root, 'registry.json'), 'utf8'))
+    writeFileSync(join(c.args.stateDir, 'rq-test.recovered.jsonl'), Object.values(registry).map(row => JSON.stringify(row)).join('\n') + '\n')
+    const identityPath = join(c.args.stateDir, 'rq-test.submit.1.jsonl.identity.json')
+    if (existsSync(identityPath)) unlinkSync(identityPath)
+    const refusal = c.step(1).text
+    assert.match(refusal, /MANIFEST_REFUSED[\s\S]*JOBS=0\nUNSETTLED=3/)
+    assert.doesNotMatch(refusal, /^SUBMITTED |^REFUSED /m)
+    c.setup()
+    assert.match(c.step(1).text, /JOBS=0\nUNSETTLED=3/)
+    assert.equal(c.count('run'), 2)
   })
   await test('round 4 finding 1: unknown survives not-sent before digest-conflict recovery', async () => {
     const c = await make('unknown-c'); c.setup()

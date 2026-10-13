@@ -82,7 +82,7 @@ job=next((row.copy() for row in registry.values() if row["job_id"] == sys.argv[2
 if job is None: sys.exit(2)
 if os.environ.get("FAKE_SHOW_MISSING"): job.pop(os.environ["FAKE_SHOW_MISSING"], None)
 if os.environ.get("FAKE_SHOW_MISMATCH"): job[os.environ["FAKE_SHOW_MISMATCH"]]="different"
-print(json.dumps(job, sort_keys=True))
+print(json.dumps(job if os.environ.get("FAKE_SHOW_FLAT") else {"job":job, "notices":[]}, sort_keys=True))
 PY
       exit $?;
     fi

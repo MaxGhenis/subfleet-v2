@@ -8,7 +8,7 @@ export const meta = {
 }
 
 // Why the dispatcher looks like this (subfleet 2.0.0a0 at this PR's base 81d58fe9,
-// read 2026-10-04; the measured run and four review rounds are in
+// read 2026-10-04; the measured run and five review rounds are in
 // docs/reports/2026-09-22-fanout-workflow.md):
 // - `run --batch FILE --json -d` submits every manifest entry in one call and
 //   prints one JSON object per entry: job_id with outcome `created` or
@@ -22,13 +22,15 @@ export const meta = {
 //   submitted and the daemon dedupes; dropping delivered items would shift
 //   every later entry onto another entry's id. A not-sent, unknown or missing
 //   answer triggers RETRY_STEP1 under a request id (at most 3 calls per run);
-//   a refused entry never triggers retries. Unknown outcomes survive later
+//   a refused entry never triggers retries. A later unanswered invocation
+//   makes even a previously refused entry unknown. Unknowns survive later
 //   not-sent or refused attempts. A row-less validation refusal stops new
 //   submissions; earlier unknown requests are looked up with `runs
 //   --request-id ID --json`, and remain unsettled if lookup is inconclusive.
-//   After a lost answer, a digest conflict
-//   naming the earlier job settles its id even if the prompt, workdir head
-//   or policy.json changed. Without a request id, items
+//   Recovery (including C-6.2 digest conflicts) verifies recorded job identity
+//   against a snapshot from an unanswered invocation before adopting an id.
+//   This still works after prompt deletion or workdir head/policy changes.
+//   Without a request id, items
 //   whose outPath is already non-empty are dropped before the first submission
 //   as a heuristic (the daemon never clears a stale -o file), and a relaunch
 //   refuses to submit again and prints the command that resets its state.
@@ -52,9 +54,9 @@ export const meta = {
 //   slice re-writes the dispatcher's whole context, twice (about 45,000
 //   tokens each for a small batch, observed 2026-09-22). Queue time counts:
 //   with no open lane a batch waited 3.7 h before its first job started.
-// - The dispatcher never runs `runs show`: that acknowledges the job's notice
-//   for the caller session (C-15.3, cli.py _ack_notices), and the dispatcher
-//   shares the launching session's CLAUDE_CODE_SESSION_ID.
+// - Recovery alone uses `runs show --json`, with CLAUDE_CODE_SESSION_ID removed
+//   from the child environment so cli.py _ack_notices returns without
+//   acknowledging the launching session's notices (C-15.3).
 
 const TASKS = ['lookup', 'research', 'sweep', 'review', 'build', 'authored-prose', 'strategy', 'adjudication']
 const TIERS = ['trivial', 'easy', 'standard', 'hard']
@@ -159,7 +161,7 @@ const files = {
 }
 const HD = 'FANOUT_PY_EOF'
 const HM = 'FANOUT_MANIFEST_EOF'
-const helper = `import glob, json, os, re, shlex, subprocess, sys, time, zlib
+const helper = `import glob, hashlib, json, os, re, shlex, subprocess, sys, time, zlib
 KEY = ${JSON.stringify(key)}
 REQUEST_ID = ${JSON.stringify(requestId || '')}
 F = ${JSON.stringify(files)}
@@ -206,18 +208,49 @@ def submit_logs():
     found = glob.glob(F["submitPrefix"] + "*.jsonl")
     return sorted(found, key=lambda p: int(p[len(F["submitPrefix"]):-6]))
 
+IDENTITY_FIELDS = ("name", "workdir", "out_path", "task", "tier", "sandbox", "pinned_model")
+
+def prompt_digest(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+def entry_identity(job):
+    return {"name": job["name"], "workdir": os.path.realpath(job["workdir"]),
+            "out_path": os.path.realpath(job["out"]), "task": job["task"], "tier": job["tier"],
+            "sandbox": job.get("sandbox", "read-only"), "pinned_model": job.get("model"),
+            "prompt_sha256": prompt_digest(job["prompt"])}
+
+def recorded_identity(row, digest):
+    # Missing fields are not evidence, including a missing null model pin.
+    if any(field not in row for field in IDENTITY_FIELDS):
+        return None
+    return {**{field: row[field] for field in IDENTITY_FIELDS}, "prompt_sha256": digest}
+
+def recovery_matches(row, s):
+    identity = row.get("identity")
+    return (isinstance(identity, dict) and identity in s["identities"]
+            and recorded_identity(row, identity.get("prompt_sha256")) == identity
+            and row.get("request_id") == s["request_id"]
+            and isinstance(row.get("job_id"), str) and bool(row["job_id"]))
+
 def settled(manifest_names):
     """Keep a job id or unresolved uncertainty across all submission attempts."""
-    state = {name: {"job_id": "", "outcome": "", "row": {},
+    state = {name: {"job_id": "", "outcome": "", "row": {}, "identities": [],
                     "request_id": (REQUEST_ID + "-" + str(i)) if REQUEST_ID else ""}
              for i, name in enumerate(manifest_names, 1)}
     logs = submit_logs()
     refusal = load(F["refusal"]) if os.path.isfile(F["refusal"]) else None
     # Older helpers omitted the log name; their refusal belongs to the last log.
     refused_log = refusal.get("log", logs[-1] if logs else "") if refusal else ""
-    for attempt, path in enumerate(logs):
+    for path in logs:
         if path == refused_log:
             continue  # This invocation sent nothing; it cannot erase earlier unknowns.
+        try:
+            identities = load(path + ".identity.json")
+        except (OSError, ValueError):
+            identities = {}  # Legacy state cannot prove an entry's original prompt.
+        if not isinstance(identities, dict):
+            identities = {}
         answered = set()
         for row in rows(path, "SUBMIT"):
             name = row.get("name")
@@ -225,64 +258,88 @@ def settled(manifest_names):
                 continue
             answered.add(name)
             s = state[name]
+            if s["job_id"]:
+                continue  # A known job remains known across full-manifest retries.
             outcome = row.get("outcome") or ("created" if row.get("job_id") else "refused")
             jid = row.get("job_id")
             conflict = re.search(r"request id already used with a different payload by job (\\S+)", row.get("error") or "")
-            if not jid and REQUEST_ID and attempt > 0 and s["outcome"] in ("", "unknown") and conflict:
-                jid = conflict.group(1)
-                row = {**row, "job_id": jid, "created": False}
-                outcome = "existing"
+            if not jid and REQUEST_ID and s["outcome"] == "unknown" and conflict:
+                s["candidate_job_id"] = conflict.group(1)  # Verify before adoption.
             if jid and not s["job_id"]:
                 s["job_id"] = jid
                 s["created"] = row.get("created")
             if not jid and s["outcome"] == "unknown":
+                if outcome == "unknown" and identities.get(name):
+                    s["identities"].append(identities[name])
                 continue  # A later refusal or unsent attempt cannot settle the first.
             s["request_id"] = row.get("request_id") or s["request_id"]
             s["outcome"] = outcome
             s["row"] = row
+            if outcome == "unknown" and identities.get(name):
+                s["identities"].append(identities[name])
         for name, s in state.items():
-            if name not in answered and not s["job_id"] and s["outcome"] != "refused":
+            if name not in answered and not s["job_id"]:
                 s["outcome"] = "unknown"
                 s["row"] = {"rc": -1, "error": "no row", "request_id": s["request_id"]}
+                if identities.get(name):
+                    s["identities"].append(identities[name])
     if refusal:
         for s in state.values():
             if not s["job_id"] and s["outcome"] != "unknown":
                 s["outcome"], s["row"] = "refused", refusal
     for row in rows(F["recovered"], "RECOVERY"):
         s = state.get(row.get("name"))
-        if s and not s["job_id"] and row.get("request_id") == s["request_id"] and row.get("job_id"):
+        if s and not s["job_id"] and recovery_matches(row, s):
             s.update(job_id=row["job_id"], created=False, outcome="existing", row=row)
     return state
 
 def recover_unknown(state):
-    """Read the request ledger after a validation refusal; persist learned ids."""
+    """Verify ledger/conflict candidates against unanswered invocation snapshots."""
     deadline = time.monotonic() + 60
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
     for name, s in state.items():
         if s["job_id"] or s["outcome"] != "unknown" or not s["request_id"]:
+            continue
+        jid = s.get("candidate_job_id")
+        if not jid and not os.path.isfile(F["refusal"]):
             continue
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         rid = s["request_id"]
         try:
-            result = subprocess.run(["subfleet", "runs", "--request-id", rid, "--json"],
-                                    capture_output=True, text=True, timeout=min(15, remaining))
+            if not jid:
+                result = subprocess.run(["subfleet", "runs", "--request-id", rid, "--json"],
+                                        capture_output=True, text=True, timeout=min(15, remaining), env=env)
+                if result.returncode != 0:
+                    raise ValueError("request lookup rc=%s: %s" % (result.returncode, result.stderr.strip()))
+                found = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+                matches = [row for row in found if isinstance(row, dict) and row.get("request_id") == rid
+                           and isinstance(row.get("job_id"), str) and row["job_id"]]
+                if len(matches) != 1:
+                    # An empty offline store cannot prove the request never ran.
+                    raise ValueError("no unique matching job; earlier outcome remains unknown")
+                jid = matches[0]["job_id"]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            result = subprocess.run(["subfleet", "runs", "show", jid, "--json"],
+                                    capture_output=True, text=True, timeout=min(15, remaining), env=env)
             if result.returncode != 0:
-                out("LOOKUP_UNKNOWN name=%s request_id=%s rc=%s error=%s" %
-                    (name, rid, result.returncode, " | ".join(result.stderr.splitlines()[-3:])))
-                continue
-            found = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+                raise ValueError("show rc=%s: %s" % (result.returncode, result.stderr.strip()))
+            row = json.loads(result.stdout)
+            # Online show wraps metadata in job; the offline CLI emits it flat.
+            if isinstance(row, dict) and isinstance(row.get("job"), dict):
+                row = row["job"]
+            if not isinstance(row, dict) or row.get("job_id") != jid or row.get("request_id") != rid:
+                raise ValueError("show identity missing or mismatched")
+            identity = recorded_identity(row, prompt_digest(row["prompt_path"]))
+            row = {**row, "identity": identity, "created": False, "outcome": "existing"}
+            if not recovery_matches(row, s):
+                raise ValueError("job does not match an unanswered manifest entry snapshot")
+        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
             out("LOOKUP_UNKNOWN name=%s request_id=%s error=%s" % (name, rid, str(exc).split(NL)[0]))
             continue
-        matches = [row for row in found if isinstance(row, dict) and row.get("request_id") == rid
-                   and isinstance(row.get("job_id"), str) and row["job_id"]]
-        if len(matches) != 1:
-            # runs can fall back to an offline store; an empty result is not
-            # a positive daemon answer that the unanswered request never ran.
-            out("LOOKUP_UNKNOWN name=%s request_id=%s error=no unique matching job; earlier outcome remains unknown" % (name, rid))
-            continue
-        row = {**matches[0], "name": name, "created": False, "outcome": "existing"}
         with open(F["recovered"], "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + NL)
         s.update(job_id=row["job_id"], created=False, outcome="existing", row=row)
@@ -362,7 +419,16 @@ def cmd_should_submit():
     sys.exit(1)
 
 def cmd_next_log():
-    print(F["submitPrefix"] + str(len(submit_logs()) + 1) + ".jsonl")
+    path = F["submitPrefix"] + str(len(submit_logs()) + 1) + ".jsonl"
+    identities = {}
+    for job in load(F["manifest"])["jobs"]:
+        try:
+            identities[job["name"]] = entry_identity(job)
+        except OSError:
+            pass  # A missing prompt cannot supply proof for recovery.
+    with open(path + ".identity.json", "w", encoding="utf-8") as fh:
+        json.dump(identities, fh)
+    print(path)
 
 def cmd_post_submit(rc):
     everything = load(F["all"])["jobs"]
@@ -379,7 +445,7 @@ def cmd_post_submit(rc):
     if os.path.isfile(F["refusal"]):
         refusal = load(F["refusal"])
         out("MANIFEST_REFUSED rc=%s error=%s" % (refusal["rc"], refusal["error"]))
-        recover_unknown(state)
+    recover_unknown(state)
     ids, unsettled, batch = [], 0, ""
     for job in everything:
         name = job["name"]
