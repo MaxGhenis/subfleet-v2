@@ -369,7 +369,7 @@ def validate_write_location(workdir: Path) -> None:
         check_object_store(workdir, in_place=True, _look=look)
     except Exception as exc:  # noqa: BLE001 - every refusal is this job's, never the pass's
         raise AdapterError(f"workspace refused: {_reason(exc)}", code=7,
-                           fix="choose a committed feature branch in a full clone") from exc
+                           fix="choose a committed feature branch in a full clone", reason="push-location") from exc
 
 
 def _reason(exc: BaseException) -> str:
@@ -580,7 +580,8 @@ def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_
         return remote, head, default, current, top
     except (ValueError, OSError, configparser.Error) as exc:
         raise AdapterError(f"host push refused: {exc}", code=7,
-                           fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy") from exc
+                           fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy",
+                           reason="push-refused") from exc
 
 
 def _open_directory(root: Path) -> int:
@@ -865,7 +866,7 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
 def _workspace_refused(exc: BaseException) -> AdapterError:
     return AdapterError(f"host push workspace refused: {_reason(exc)}", code=7,
                         fix="resubmit from a full clone whose origin and HEAD still name the commit "
-                            "to start from, or omit --push-branch")
+                            "to start from, or omit --push-branch", reason="push-checkout")
 
 
 def _clone_object(source_fd: int, target: Path) -> bool:

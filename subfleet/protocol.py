@@ -74,16 +74,17 @@ _CORRELATION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 
 
 class ProtocolError(Exception):
-    """Raised on a malformed line; carries the exit code the CLI should use."""
+    """A request or handler refusal carrying the exit code the CLI should use."""
 
     def __init__(self, message: str, code: Exit = Exit.INVALID_INPUT, fix: str | None = None,
-                 *, reason: str = "refused-args"):
+                 *, reason: str | None = None, details: dict[str, Any] | None = None):
         super().__init__(message)
         self.code = code
         self.fix = fix
-        # Message/fix can come from adapters or old call sites. Only this enum
-        # selects the public protocol refusal; never render the exception.
-        self.reason = reason if type(reason) is str and reason in REFUSAL_MESSAGES else "refused-args"
+        # Decoding/argument errors are tagged by request_error. Handler errors
+        # carry separate reasons and checked structural detail, never prose.
+        self.reason = reason
+        self.details = details
 
 
 def request_error(reason: str, code: Exit = Exit.INVALID_INPUT) -> ProtocolError:
@@ -517,15 +518,22 @@ def fail(req_id: str, code: Exit | int, message: str, fix: str | None = None) ->
 
 
 def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -> Response:
-    """The generic request boundary: enum templates and validated exit codes.
+    """Request and handler boundaries: closed templates and checked exit codes.
 
+    A decoding or argument error (`request_error`) reads its template here; a
+    handler refusal reads its own by reason and checked details (`refusals`).
     Exception messages, args and optional repair text are never wire inputs.
     """
-    if isinstance(error, ProtocolError):
-        reason = error.reason
-    if type(reason) is not str or reason not in REFUSAL_MESSAGES:
-        reason = "invalid-args"
+    if isinstance(error, ProtocolError) and type(error.reason) is str and error.reason in REFUSAL_MESSAGES:
+        message, fix = REFUSAL_MESSAGES[error.reason], None
+    elif isinstance(error, ProtocolError) or hasattr(error, "code"):
+        from .refusals import handler_refusal
+        message, fix = handler_refusal(error)
+    else:
+        if type(reason) is not str or reason not in REFUSAL_MESSAGES:
+            reason = "invalid-args"
+        message, fix = REFUSAL_MESSAGES[reason], None
     code = getattr(error, "code", Exit.INVALID_INPUT)
     if type(code) not in (int, Exit) or code not in tuple(Exit):
         code = Exit.INVALID_INPUT
-    return fail(req_id, code, REFUSAL_MESSAGES[reason])
+    return fail(req_id, code, message, fix)

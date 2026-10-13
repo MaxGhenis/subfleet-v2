@@ -30,7 +30,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import descriptors, protocol
+from .. import descriptors, protocol, refusals
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
@@ -288,7 +288,8 @@ class ConversationService:
                 response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
                                          suggestions.error_fix(exc))
             else:
-                response = protocol.refuse(req.id, exc, reason="refused-args")
+                response = protocol.refuse(req.id, exc)
+                refusals.log_detail(self.log, req.op, exc)
         except (ValueError, TypeError, KeyError) as exc:
             message = (suggestions.scrub_error(exc, prefix="invalid arguments: ")
                        if req.op in suggestions.SUGGESTION_OPS else
@@ -1560,7 +1561,7 @@ class ConversationService:
             raise ConversationError("stale-approval", "the approval shown is not the one pending")
         decision = args.get("decision")
         if decision not in approval["options"]:
-            raise ConversationError("bad-decision", f"{decision!r} is not offered here")
+            raise ConversationError("bad-decision", "decision is not offered here")
         answers = args.get("answers")
         if decision == "answer" and not (isinstance(answers, dict) and answers):
             # Refused here, not by the driver after the answer is recorded (and its
@@ -1643,7 +1644,7 @@ class ConversationService:
         except turn_diff.Unavailable as exc:
             return _unavailable(exc.reason, str(exc))
         except SalvageError as exc:
-            raise ConversationError("diff-failed", str(exc), code=1,
+            raise ConversationError("diff-failed", "the workspace diff could not be read", code=1,
                                     fix="try again" if exc.transient else "check the workspace's repository")
         return {"available": True, "path": path, "from": start, "to": end, **result}
 
@@ -1957,8 +1958,8 @@ class ConversationService:
         try:
             session_id = (session_handoff.canonical_session_id(session_id) if provider == "claude"
                           else codex_brief.canonical_thread_id(session_id))
-        except session_handoff.HandoffError as exc:
-            raise ConversationError("bad-native", str(exc)) from exc
+        except session_handoff.HandoffError:
+            raise ConversationError("bad-native", "native session_id is invalid") from None
         return self.store.by_native(provider, session_id), provider, session_id, native.get("home")
 
     def _handoff_history(self, conversation: dict | None, provider: str, session_id: str,
@@ -1969,7 +1970,8 @@ class ConversationService:
                 return self._claude_source(conversation, session_id)
             return self._codex_source(conversation, session_id, home)
         except session_handoff.HandoffError as exc:
-            raise ConversationError("handoff-source", str(exc), code=exc.code, fix=exc.fix) from exc
+            raise ConversationError("handoff-source", "the native handoff history could not be read",
+                                    code=exc.code, fix="check the source session and try again") from None
 
     def _claude_source(self, conversation: dict | None, session_id: str) -> dict:
         path = transcripts.transcript_path(session_id)
@@ -2085,7 +2087,8 @@ class ConversationService:
             return build(source["native_session_id"], Path(source["transcript"]), Path(workspace),
                          source["source_cwd"], caps, repository=False)
         except session_handoff.HandoffError as exc:
-            raise ConversationError("handoff-source", str(exc), code=exc.code, fix=exc.fix) from exc
+            raise ConversationError("handoff-source", "the native handoff brief could not be built",
+                                    code=exc.code, fix="check the source session and try again") from None
 
     def _cancelled_by(self, job_id: str, marker: dict) -> bool:
         """Did the cancel recorded for this job carry `marker` (a handoff's own)?"""
@@ -3148,12 +3151,13 @@ class ConversationService:
         manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
         turn = manifest.get(TURN_MANIFEST_KEY)
         if not turn:
-            raise AdapterError("turn job has no turn manifest", fix="the dispatcher creates turn jobs")
+            raise AdapterError("turn job has no turn manifest", fix="the dispatcher creates turn jobs",
+                               reason="turn-manifest")
         if lane.provider == "claude":
             return claude_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                                  credential_env=credential_env, model_id=model_id)
         if guard_result is None or not guard_result.override:
-            raise AdapterError("a Codex turn needs the verified never-rules guard", code=7)
+            raise AdapterError("a Codex turn needs the verified never-rules guard", code=7, reason="turn-guard")
         launch = codex_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                               credential_env=credential_env, model_id=model_id,
                               executable=guard_result.executable or "codex", override=guard_result.override,

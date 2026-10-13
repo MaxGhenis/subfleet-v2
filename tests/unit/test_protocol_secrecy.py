@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from subfleet import descriptors, protocol
+from subfleet import descriptors, protocol, refusals
 from subfleet.adapters.base import AdapterError
 from subfleet.daemon import Daemon
 from subfleet.conversations import suggestions
@@ -166,7 +166,7 @@ class UnrenderableFailure(TypeError):
 
 @pytest.mark.parametrize("error", (
     ValueError(VALUE), TypeError({"x": VALUE}), KeyError((5, VALUE)),
-    protocol.ProtocolError(VALUE, fix=VALUE), AdapterError(VALUE, fix=VALUE), UnrenderableFailure(VALUE),
+    protocol.request_error("invalid-args"), UnrenderableFailure(VALUE),
 ))
 @pytest.mark.parametrize("conversation", (False, True))
 def test_generic_argument_refusals_exclude_exception_and_repair_text(error, conversation):
@@ -182,6 +182,161 @@ def test_generic_argument_refusals_exclude_exception_and_repair_text(error, conv
     assert_secret_absent(response, VALUE)
     assert response["error"]["message"].startswith("args:")
     assert response["error"]["fix"] is None
+
+
+@pytest.mark.parametrize("error", (protocol.ProtocolError(VALUE, fix=VALUE), AdapterError(VALUE, fix=VALUE),
+                                   AdapterError(VALUE, fix=VALUE, reason=VALUE),
+                                   protocol.ProtocolError(VALUE, fix=VALUE, reason=["unknown-job"])))
+@pytest.mark.parametrize("conversation", (False, True))
+def test_unstructured_handler_refusals_have_an_operation_fallback(error, conversation):
+    """C-25.7 a handler refusal is not an argument error (review r5 P1). One with no
+    known reason still cannot expose its prose or repair text on either responder."""
+    if conversation:
+        with fixture() as service:
+            def fail(*args, **kwargs):
+                raise error
+            service.handle = fail
+            response = wire_reply(service, op="conversation.create")
+    else:
+        response = wire_reply(op="submit", error=error)
+    assert response["error"]["message"] == "operation: request was refused"
+    assert response["error"]["fix"] is None
+    assert_secret_absent(response, VALUE)
+
+
+@pytest.mark.parametrize("error,expected,fix", (
+    (protocol.ProtocolError(VALUE, fix=VALUE, reason="unknown-job",
+                            details={"job_id": "20260925-000000-none"}),
+     "unknown job 20260925-000000-none", None),
+    (protocol.ProtocolError(VALUE, fix=VALUE, reason="different-payload",
+                            details={"job_id": "20260925-000000-build"}),
+     "request id already used with a different payload by job 20260925-000000-build", None),
+    (protocol.ProtocolError(VALUE, fix=VALUE, reason="unknown-lane",
+                            details={"action": "release --limits", "lane_id": "codex-99"}),
+     "lanes release --limits: unknown lane codex-99", "subfleet lanes list"),
+    (AdapterError(VALUE, fix=VALUE, reason="isolation-env",
+                  details={"variable": "CLAUDE_CODE_MANAGED_SETTINGS_PATH"}),
+     "isolated review inherits CLAUDE_CODE_MANAGED_SETTINGS_PATH",
+     "use an unmanaged review environment without CLAUDE_CODE_MANAGED_SETTINGS_PATH"),
+    (AdapterError(VALUE, fix=VALUE, reason="isolation-layer", details={"layer": "project"}),
+     "isolated Codex review has an unsupported project configuration layer",
+     "use a lane with no managed or nonempty project configuration layer"),
+    (AdapterError(VALUE, fix=VALUE, reason="policy-workdir",
+                  details={"repository": "this directory is not a git repository", "task": "build"}),
+     "build jobs write by policy, and this directory is not a git repository",
+     "commit a baseline or run it from a repository, or pass -s read-only to run it here without writing"),
+    (AdapterError(VALUE, fix=VALUE, reason="other-writer",
+                  details=refusals.by_policy({"job_id": "20260925-000000-astra"}, "build")),
+     "session already has a live writable job (20260925-000000-astra) from another instance "
+     "(build jobs write by policy)",
+     "dispatch from that instance, or wait for or kill 20260925-000000-astra; or pass -s read-only"),
+))
+@pytest.mark.parametrize("conversation", (False, True))
+def test_handler_templates_keep_checked_detail_and_ignore_exception_prose(error, expected, fix, conversation):
+    """C-11.1, C-16.3, C-23.3 the job id, lane id, policy fix and isolation name survive."""
+    if conversation:
+        with fixture() as service:
+            def fail(*args, **kwargs):
+                raise error
+            service.handle = fail
+            response = wire_reply(service, op="conversation.create")
+    else:
+        response = wire_reply(op="submit", error=error)
+    assert response["error"]["message"] == expected
+    assert response["error"]["fix"] == fix
+    assert_secret_absent(response, VALUE)
+
+
+@pytest.mark.parametrize("reason,field,expected", (
+    ("unknown-job", "job_id", "unknown job"),
+    ("different-payload", "job_id", "request id already used with a different payload"),
+    ("unknown-lane", "lane_id", "lanes release: unknown lane"),
+    ("isolation-env", "variable", "isolated review inherits a managed settings variable"),
+    ("isolation-layer", "layer", "isolated Codex review has an unsupported configuration layer"),
+    ("policy-workdir", "repository", "these jobs write by policy, outside a committed repository"),
+    ("other-writer", "job_id", "session already has a live writable job from another instance"),
+))
+@pytest.mark.parametrize("value", (VALUE, {"x": VALUE}, True, None, "ghp_" + "A" * 36,
+                                   "20260925-000000-" + "a" * 41, "20260925-000000-Astra", "codex-1\n" + VALUE))
+def test_handler_template_fields_cannot_carry_free_text(reason, field, expected, value):
+    """C-25.7 a value that fails its check is left out; the refusal keeps its kind and fix."""
+    error = protocol.ProtocolError(VALUE, fix=VALUE, reason=reason,
+                                   details={"action": "release", field: value})
+    response = wire_reply(op="submit", error=error)
+    assert response["error"]["message"] == expected
+    assert VALUE not in (response["error"]["fix"] or "")
+    assert_secret_absent(response, VALUE)
+    assert not isinstance(value, str) or value not in json.dumps(response)
+
+
+@pytest.mark.parametrize("variable", ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
+                                      "CLAUDE_CODE_MOCK_REMOTE_SETTINGS"))
+def test_isolation_refusal_names_the_variable_without_its_value(variable):
+    """C-23.3 the actual isolation check preserves the variable and repair."""
+    from subfleet.adapters.isolation import validate_isolated_review
+    with pytest.raises(AdapterError) as caught:
+        validate_isolated_review("read-only", "review-root", env={variable: VALUE})
+    response = wire_reply(op="submit", error=caught.value)
+    assert variable in response["error"]["message"] and variable in response["error"]["fix"]
+    assert_secret_absent(response, VALUE)
+
+
+@pytest.mark.parametrize("layer", ("system", "project", "mdm", VALUE))
+def test_isolation_refusal_names_checked_layers_without_configuration_values(layer):
+    """C-23.3 config metadata cannot turn the layer name into caller prose."""
+    from subfleet.adapters.isolation import validate_codex_metadata
+    with pytest.raises(AdapterError) as caught:
+        validate_codex_metadata({"requirements": None},
+                                {"layers": [{"name": {"type": layer}, "config": {"password": VALUE}}]}, [])
+    response = wire_reply(op="submit", error=caught.value)
+    named = f"{layer} " if layer != VALUE else ""
+    assert response["error"]["message"] == f"isolated Codex review has an unsupported {named}configuration layer"
+    assert_secret_absent(response, VALUE)
+
+
+@pytest.mark.parametrize("boundary", ("approval", "diff", "native", "handoff", "brief"))
+def test_conversation_refusals_exclude_caller_values_and_exception_prose(monkeypatch, boundary):
+    """C-25.7 the four review-r5 conversation seams, and the handoff brief's, use fixed diagnostics."""
+    from subfleet.conversations import service as module
+    from subfleet.salvage import SalvageError
+    from subfleet.sessions.handoff import HandoffError
+
+    def fail(*args, **kwargs):
+        if boundary == "diff":
+            raise SalvageError(VALUE)
+        raise HandoffError(VALUE, code=7, fix=VALUE)
+
+    with fixture() as service:
+        if boundary == "approval":
+            monkeypatch.setattr(service.store, "approval", lambda _: {
+                "state": "pending", "nonce": "nonce", "request_sha256": "sha", "options": ["allow"],
+            })
+            response = wire_reply(service, op="approval.respond", args={
+                "approval_id": "fixture", "nonce": "nonce", "request_sha256": "sha", "decision": VALUE,
+            })
+            expected = "bad-decision: decision is not offered here"
+        else:
+            if boundary == "diff":
+                monkeypatch.setattr(module.turn_diff, "build", fail)
+                invoke = lambda: service._compare("fixture", {"tree": "before"}, {"tree": "after"}, None)
+                expected = "diff-failed: the workspace diff could not be read"
+            elif boundary == "native":
+                monkeypatch.setattr(module.session_handoff, "canonical_session_id", fail)
+                invoke = lambda: service._handoff_origin({"native": {"provider": "claude", "session_id": VALUE}})
+                expected = "bad-native: native session_id is invalid"
+            elif boundary == "brief":
+                monkeypatch.setattr(module.session_handoff, "build_brief", fail)
+                invoke = lambda: service._handoff_brief({"provider": "claude", "native_session_id": "fixture",
+                                                         "transcript": VALUE, "source_cwd": None}, VALUE)
+                expected = "handoff-source: the native handoff brief could not be built"
+            else:
+                monkeypatch.setattr(service, "_claude_source", fail)
+                invoke = lambda: service._handoff_history(None, "claude", "fixture", None)
+                expected = "handoff-source: the native handoff history could not be read"
+            monkeypatch.setattr(service, "handle", lambda *args, **kwargs: invoke())
+            response = wire_reply(service, op="conversation.handoff")
+        assert response["error"]["message"] == expected
+        assert_secret_absent(response, VALUE)
 
 
 @pytest.mark.parametrize("line", (

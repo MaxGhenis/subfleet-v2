@@ -541,7 +541,8 @@ def validate_writable_workdir(workdir: str | Path, *, timeout_s: float | None = 
     branch = git_branch(workdir, timeout_s=timeout_s)
     if branch in {"main", "master"}:
         raise AdapterError(f"writable job refused on {branch}", code=7,
-                           fix="Check out a task branch before submitting a writable job.")
+                           fix="Check out a task branch before submitting a writable job.",
+                           reason="writable-branch", details={"branch": branch})
 
 
 @dataclass(frozen=True)

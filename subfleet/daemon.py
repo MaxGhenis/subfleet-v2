@@ -38,7 +38,7 @@ from typing import Any, Callable
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, render, route_check, scheduler
-from . import resource_leases
+from . import refusals, resource_leases
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .adapters import claude_mcp
@@ -531,7 +531,8 @@ def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
     """d261: a writer's refusal of a job the caller did not ask to write: say who
     did, and the way out."""
     return AdapterError(f"{exc} ({task or 'these'} jobs write by policy)", code=exc.code,
-                        fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only")
+                        fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only",
+                        reason=exc.reason, details=refusals.by_policy(exc.details, task))
 
 
 def _git_prefix(workdir: str, cap: float) -> str | None:
@@ -1011,7 +1012,7 @@ class Daemon:
         text = (a.credential or "").strip()
         if not text:
             raise protocol.ProtocolError("lanes enroll: name a credential (a home directory or a "
-                                         "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
+                                         "claude-quota-<email> keychain item)", Exit.INVALID_INPUT, reason="enroll-name")
         path = Path(text).expanduser()
         if path.is_dir():
             path = path.resolve()
@@ -1022,11 +1023,11 @@ class Daemon:
         else:
             raise protocol.ProtocolError(
                 f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
-                Exit.INVALID_INPUT)
+                Exit.INVALID_INPUT, reason="enroll-credential")
         try:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
-            raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT) from None
+            raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT, reason="enroll-owner") from None
         bindings = self.store.query("SELECT * FROM lanes WHERE credential_ref=? ORDER BY created_at,rowid", (credential.ref,))
         existing = bindings[-1] if bindings else None
         enrollment_holder = None
@@ -1034,11 +1035,12 @@ class Daemon:
             if any(row['enabled'] for row in bindings):
                 raise protocol.ProtocolError(
                     f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
-                    Exit.INVALID_INPUT, "subfleet lanes list")
+                    Exit.INVALID_INPUT, "subfleet lanes list", reason="enroll-bound",
+                    details={"lane_id": existing['lane_id']})
             if existing['desktop'] or existing['owner'] != 'v2':
-                raise protocol.ProtocolError('re-enrollment requires a non-desktop v2-owned lane', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment requires a non-desktop v2-owned lane', Exit.REFUSED, reason="reenroll-desktop")
             if a.owner is not None and a.owner != existing['owner']:
-                raise protocol.ProtocolError('re-enrollment cannot change ownership; use lanes transfer', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment cannot change ownership; use lanes transfer', Exit.REFUSED, reason="reenroll-owner")
             owner = LaneOwner(existing['owner'])
             credential = dataclasses.replace(credential, epoch=max(row['credential_epoch'] for row in bindings) + 1)
             enrollment_holder = 'probe:timer:enroll:' + str(uuid4())
@@ -1048,12 +1050,12 @@ class Daemon:
                     for row in bindings:
                         current = self.store.get_lane(row['lane_id'])
                         if current.enabled or current.desktop or current.owner != owner:
-                            raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                            raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED, reason="reenroll-changed")
                         if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
                                           "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
-                            raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                            raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED, reason="reenroll-live-attempt")
                         if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ?", (f"lane:{row['lane_id']}:slot:%",)):
-                            raise protocol.ProtocolError('lane still has an execution lease', Exit.REFUSED)
+                            raise protocol.ProtocolError('lane still has an execution lease', Exit.REFUSED, reason="reenroll-lease")
                     for row in bindings:
                         self.store.acquire_lease(f"lane:{row['lane_id']}:slot:0", enrollment_holder)
             except BaseException:
@@ -1070,12 +1072,13 @@ class Daemon:
                                 existing['lane_id'], enrollment_holder, argv, **kwargs))
                 info = adapter.enroll(credential)
             except AdapterError as exc:
-                raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+                raise protocol.ProtocolError(str(exc), exc.code, exc.fix,
+                                             reason=exc.reason, details=exc.details) from None
             if existing and existing.get('identity') and (
                     info.identity_status != 'verified' or info.identity != existing['identity']):
-                raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED, reason="reenroll-identity")
             if existing and info.account_key != existing['account_key']:
-                raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED, reason="reenroll-account")
             lane_id = self._next_lane_id(credential.provider)
             lane = Lane(lane_id, credential.provider, info.account_key, credential,
                         info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
@@ -1091,13 +1094,13 @@ class Daemon:
                     if (current is None or current.enabled or current.desktop or current.owner != owner
                             or current.account_key != row['account_key'] or current.identity != row['identity']
                             or current.credential.ref != credential.ref):
-                        raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                        raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED, reason="reenroll-changed")
                     if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
                                       "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
-                        raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                        raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED, reason="reenroll-live-attempt")
                     if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ? AND holder!=?",
                                       (f"lane:{row['lane_id']}:slot:%", enrollment_holder)):
-                        raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED)
+                        raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED, reason="reenroll-leased")
                 self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
                 for reading in info.readings:
                     self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
@@ -1167,9 +1170,9 @@ class Daemon:
             os.close(write_fd)
         safe, receipt = self._await_probe(record, child)
         if not safe:
-            raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7)
+            raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7, reason="enroll-quarantined")
         if not receipt:
-            raise AdapterError('enrollment ended without an exit receipt', code=5)
+            raise AdapterError('enrollment ended without an exit receipt', code=5, reason="enroll-receipt")
         rc = receipt.get('rc')
         if rc is None:
             rc = -receipt['signal'] if receipt.get('signal') else 1
@@ -1182,14 +1185,15 @@ class Daemon:
         still probed, so a held account keeps being measured."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
-                                         Exit.INVALID_INPUT, "subfleet lanes list")
+                                         Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
+                                         details={"action": a.action, "lane_id": a.lane_id})
         if a.action == "hold":
             until = (a.until or "").strip()
             try:
                 instant = datetime.fromisoformat(until.replace("Z", "+00:00"))
             except ValueError:
                 raise protocol.ProtocolError("lanes hold: --until must be an ISO 8601 instant",
-                                             Exit.INVALID_INPUT) from None
+                                             Exit.INVALID_INPUT, reason="hold-until") from None
             if instant.tzinfo is None:
                 instant = instant.replace(tzinfo=timezone.utc)
             until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1210,10 +1214,11 @@ class Daemon:
         """C-9.6: lift guessed clocks only, recording the operator's grounds."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes release --limits: unknown lane {a.lane_id!r}",
-                                         Exit.INVALID_INPUT, "subfleet lanes list")
+                                         Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
+                                         details={"action": "release --limits", "lane_id": a.lane_id})
         note = (a.note or "").strip()
         if not note:
-            raise protocol.ProtocolError("lanes release --limits: --note is required", Exit.INVALID_INPUT)
+            raise protocol.ProtocolError("lanes release --limits: --note is required", Exit.INVALID_INPUT, reason="release-limits-note")
         data = {"note": note, "closure_ids": [], "reported_closure_ids": []}
         with self.store.transaction("lane.limits_released", lane_id=a.lane_id, data=data) as tx:
             now = utcnow()
@@ -1222,12 +1227,12 @@ class Daemon:
                               "AND until_at>? ORDER BY closure_id", (a.lane_id, now)).fetchall()
             if not rows:
                 raise protocol.ProtocolError("lanes release --limits: no open provider-limit or credits closures",
-                                             Exit.INVALID_INPUT)
+                                             Exit.INVALID_INPUT, reason="release-limits-none")
             data["closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "guessed"]
             data["reported_closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "reported"]
             if not data["closure_ids"]:
                 raise protocol.ProtocolError("lanes release --limits: reported clock; provider clocks cannot "
-                                             "be released by hand", Exit.INVALID_INPUT)
+                                             "be released by hand", Exit.INVALID_INPUT, reason="release-limits-reported")
             tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? "
                        "AND reason IN ('provider-limit','credits') AND clock_source='guessed' "
                        "AND released_at IS NULL AND until_at>?", (now, a.lane_id, now))
@@ -1275,7 +1280,8 @@ class Daemon:
     def _job(self, job_id: str) -> dict:
         row = self.store.get_job(job_id)
         if row is None:
-            raise protocol.ProtocolError(f"unknown job {job_id}")
+            raise protocol.ProtocolError(f"unknown job {job_id}", reason="unknown-job",
+                                         details={"job_id": job_id})
         return row
 
     def _spec(self, job: dict, **overrides: Any) -> JobSpec:
@@ -2020,17 +2026,17 @@ class Daemon:
         # Called on a filesystem worker, never on the socket reader pool.
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
-            raise AdapterError("a turn job needs its conversation's turn block", code=7)
+            raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
         if args.push_branch is not None and args.kind != "dispatch":
             raise AdapterError("host push is supported for dispatch jobs", code=7,
-                               fix="submit a dispatch with --push-branch")
+                               fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
         with self._submit_lock:
             reason = args.unmeasured_reserve_reason
             if reason is not None:
                 if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
-                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence")
+                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence", reason="reserve-reason")
                 if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
-                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model")
+                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model", reason="reserve-dispatch")
             batch = self._batch_label(args.batch)
             resume = None
             # C-26.13: a resume or revive continues a native session, and a
@@ -2095,11 +2101,11 @@ class Daemon:
                         raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
                     if self.root not in workdir.parents or git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None:
                         raise AdapterError("gate review cwd must be a neutral directory under the state root",
-                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository")
+                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository", reason="gate-review-cwd")
                 elif args.round_lease:
                     raise ValueError("round_lease is reserved for gate-review jobs")
                 if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
-                    raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir")
+                    raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir", reason="workdir-tmp")
                 # Only a regular file, never waiting in open(): a FIFO (or a device, which
                 # never ends) named here held this submit, `_submit_lock` and every submit after.
                 prompt = read_regular(Path(args.prompt_path).expanduser())
@@ -2111,14 +2117,14 @@ class Daemon:
                     if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
                         raise
                     raise AdapterError(f"cannot resolve output path: {exc}", code=7,
-                                       fix="remove the symlink loop or choose a different -o path") from exc
+                                       fix="remove the symlink loop or choose a different -o path", reason="output-path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 push_remote = push_default = push_head = push_current = push_top = None
                 if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
                     # C-8.5: the job writes its bundle in its own workspace.
                     raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
-                                       code=7, fix="pass -s workspace-write, or omit --push-branch")
+                                       code=7, fix="pass -s workspace-write, or omit --push-branch", reason="push-read-only")
                 if args.push_branch is not None:
                     push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
                         workdir, args.push_branch, self.policy, self.root,
@@ -2126,7 +2132,7 @@ class Daemon:
                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
                     if push_current in ("main", "master"):
                         raise AdapterError("writable in-place jobs require a feature branch", code=7,
-                                           fix="choose a feature branch or omit --in-place")
+                                           fix="choose a feature branch or omit --in-place", reason="push-in-place-main")
                 elif sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
                     # C-13.2: the refusal is about where the job writes. A job that
                     # is not in place writes in a detached worktree the daemon cuts
@@ -2144,8 +2150,9 @@ class Daemon:
                                  else "this directory is not a git repository")
                         raise AdapterError(f"{args.task or 'these'} jobs write by policy, and {where}",
                                            fix="commit a baseline or run it from a repository, or pass -s read-only "
-                                               "to run it here without writing")
-                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
+                                               "to run it here without writing", reason="policy-workdir",
+                                           details={"repository": where, "task": args.task})
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline", reason="writable-repository")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
                 # spelled one way (`folders.canonical`, as a conversation's workspace
@@ -2228,16 +2235,17 @@ class Daemon:
                 # `rev-parse` must not read as "not a repository" or "not on main".
                 self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
-                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
+                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
-                raise protocol.ProtocolError(str(exc)) from exc
+                raise protocol.request_error("invalid-args") from None
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
                 if existing["payload_digest"] != digest:
                     # Named, so a caller settling a lost answer (C-16.3) learns
                     # which job holds the id without another round trip.
                     raise protocol.ProtocolError("request id already used with a different "
-                                                 f"payload by job {existing['job_id']}")
+                                                 f"payload by job {existing['job_id']}", reason="different-payload",
+                                                 details={"job_id": existing['job_id']})
                 return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
                         **self._where_it_writes(existing["job_id"], existing["sandbox"])}
             if fence and accepted:
@@ -2290,7 +2298,7 @@ class Daemon:
                 # Only a retry of an accepted request gets here without entries
                 # (`_mcp_entries`), and only when its job was pruned meanwhile.
                 raise AdapterError(f"--mcp {', '.join(mcp_servers)}: the workdir no longer offers them",
-                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id")
+                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id", reason="mcp-workdir-changed")
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
             if mcp_servers:
@@ -2323,7 +2331,7 @@ class Daemon:
                     shutil.rmtree(jobdir, ignore_errors=True)
                     self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                     raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
-                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
+                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
                 prefix = (None if args.push_branch is not None else _git_prefix(str(workdir), cap)) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
                 if _outside(prefix):
@@ -2453,14 +2461,15 @@ class Daemon:
             raise ValueError("a conversation turn names no MCP servers; its settings decide them (C-12.9)")
         if sandbox != Sandbox.WORKSPACE_WRITE:
             raise AdapterError(f"--mcp {listed}: a read-only job starts no MCP servers (C-12.9)",
-                               fix="pass -s workspace-write for a job that needs them, or drop --mcp")
+                               fix="pass -s workspace-write for a job that needs them, or drop --mcp", reason="mcp-read-only")
         provider = lane.provider if lane else (self.policy["models"][task_model]["provider"] if task_model else None)
         if provider != scheduler.MCP_PROVIDER:
             where = (f"this job runs on {provider}" if provider
                      else "this job's chain from its tier has no Claude model")
             raise AdapterError(f"--mcp {listed}: only a Claude launch starts MCP servers, and {where} (C-12.9)",
                                fix="pin a Claude model (-m opus, -m sonnet) or a --tier whose chain has one, "
-                                   "or drop --mcp")
+                                   "or drop --mcp", reason="mcp-provider" if provider else "mcp-chain",
+                               details={"provider": provider})
 
     def _mcp_entries(self, args: protocol.SubmitArgs, names: tuple[str, ...], workdir: Path,
                      resume: dict | None) -> dict | None:
@@ -2489,7 +2498,7 @@ class Daemon:
                 raise ValueError("an entry is not an object")
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise AdapterError(f"resume: the MCP servers {source_id} named ({', '.join(names)}) cannot be read "
-                               f"from {path}: {exc}", fix="submit a fresh job naming them with --mcp") from None
+                               f"from {path}: {exc}", fix="submit a fresh job naming them with --mcp", reason="resume-mcp-unreadable") from None
         recorded = (self._read_json(self.root / "jobs" / source_id / "manifest.json") or {}).get("mcp")
         recorded = recorded if isinstance(recorded, dict) else {}
         return {"document": claude_mcp.config_document(entries),
@@ -2514,14 +2523,15 @@ class Daemon:
             row = tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
             if row:
                 raise AdapterError(f"resume refused: {args.parent_job_id} is being archived by retention",
-                                   code=int(Exit.OPERATIONAL), fix="retry in a minute")
+                                   code=int(Exit.OPERATIONAL), fix="retry in a minute", reason="resume-retention",
+                                   details={"job_id": args.parent_job_id})
             tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
         return key, holder
 
     def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
         """Resolve the native session on its original lane before persisting a resume."""
         if not args.parent_job_id:
-            raise protocol.ProtocolError("resume requires its source parent_job_id")
+            raise protocol.ProtocolError("resume requires its source parent_job_id", reason="resume-parent")
         source = self._job(args.parent_job_id)
         if source["kind"] == "turn":
             # C-26.3, C-26.13: a turn's session is its conversation's; the next
@@ -2529,23 +2539,23 @@ class Daemon:
             raise AdapterError(
                 f"resume refused: {source['job_id']} is a conversation turn, and a "
                 "conversation's session continues only in its conversation",
-                code=7, fix=CONVERSATION_FIX)
+                code=7, fix=CONVERSATION_FIX, reason="resume-conversation", details={"job_id": source['job_id']})
         if source["state"] not in TERMINAL or self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                 "('reserved','starting','running','finalizing','quarantined')", (source["job_id"],)):
             raise AdapterError("source job is still active or quarantined",
-                               fix="wait for its completion or resolve containment before resuming")
+                               fix="wait for its completion or resolve containment before resuming", reason="resume-source-active")
         if source["isolated_review"]:
             raise AdapterError("isolated review cannot resume a contextual session",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume")
         attempt = (self.store.get_attempt(source["accepted_attempt_id"])
                    if source["accepted_attempt_id"] else self.store.one(
                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (source["job_id"],)))
         if not attempt:
-            raise AdapterError("source job has no provider attempt", fix="submit a fresh job")
+            raise AdapterError("source job has no provider attempt", fix="submit a fresh job", reason="resume-no-attempt")
         native = attempt["native_session_id"] or self._legacy_resume_identity(attempt)
         if not native:
-            raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job")
+            raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job", reason="resume-no-session")
         # C-26.13: a detached job's session a person has since opened as a
         # conversation (`conversation.open` with `native`) is the conversation's.
         # `submit` refuses it, after C-6.2's retry check (`_accepted_request`).
@@ -2559,11 +2569,11 @@ class Daemon:
         try:
             asked = claude_mcp.validate_names(args.mcp_servers or ())
         except ValueError as exc:
-            raise protocol.ProtocolError(str(exc)) from exc
+            raise protocol.request_error("invalid-args") from None
         if asked and asked != recorded:
             raise AdapterError(f"a resume starts its source's MCP servers ({', '.join(recorded) or 'none'}), "
                                f"not {', '.join(asked)} (C-12.9)",
-                               fix="resume without --mcp, or submit a fresh job naming the servers it needs")
+                               fix="resume without --mcp, or submit a fresh job naming the servers it needs", reason="resume-mcp-mismatch")
         source_manifest = self._read_json(self.root / "jobs" / source["job_id"] / "manifest.json") or {}
         preamble = source_manifest.get("preamble")
         if preamble is None:
@@ -2627,16 +2637,16 @@ class Daemon:
         if value is None:
             return None
         if not isinstance(value, dict):
-            raise protocol.ProtocolError("batch must be an object with id, label, index and size")
+            raise protocol.ProtocolError("batch must be an object with id, label, index and size", reason="batch-object")
         ident, label = value.get("id"), value.get("label")
         index, size = value.get("index"), value.get("size")
         if not isinstance(ident, str) or not 1 <= len(ident) <= 128:
-            raise protocol.ProtocolError("batch.id must contain 1 to 128 characters")
+            raise protocol.ProtocolError("batch.id must contain 1 to 128 characters", reason="batch-id")
         if not isinstance(label, str) or not 1 <= len(label) <= 80:
-            raise protocol.ProtocolError("batch.label must contain 1 to 80 characters")
+            raise protocol.ProtocolError("batch.label must contain 1 to 80 characters", reason="batch-label")
         if (not all(isinstance(n, int) and not isinstance(n, bool) for n in (index, size))
                 or not 1 <= index <= size <= 256):
-            raise protocol.ProtocolError("batch.index and batch.size must satisfy 1 <= index <= size <= 256")
+            raise protocol.ProtocolError("batch.index and batch.size must satisfy 1 <= index <= size <= 256", reason="batch-index")
         return {"id": ident, "label": label, "index": index, "size": size}
 
     def _batches(self, job_ids: list[str]) -> dict[str, dict]:
@@ -2804,10 +2814,12 @@ class Daemon:
                             held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
                 except SalvageError as exc:
                     raise AdapterError(f"could not inspect the worktree of {row['job_id']}: {exc}",
-                                       code=int(Exit.OPERATIONAL), fix="submit again") from exc
+                                       code=int(Exit.OPERATIONAL), fix="submit again", reason="inspect-writer",
+                                       details={"job_id": row['job_id']}) from exc
                 if write_target in held:
                     raise AdapterError(f"worktree {write_target} is held by a live writable job ({row['job_id']})",
-                                       fix="wait for the current writer or choose another worktree")
+                                       fix="wait for the current writer or choose another worktree", reason="worktree-writer",
+                                       details={"job_id": row['job_id']})
         session = job.get("caller_session")
         if not session:
             return frozenset()
@@ -2817,13 +2829,15 @@ class Daemon:
             if job.get("kind") == "revive" or row["kind"] == "revive":
                 # C-23.54: a revive IS another instance of the session it continues.
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and a revive is a second instance of it",
-                                   fix=f"wait for {holder}, or kill it before reviving or dispatching")
+                                   fix=f"wait for {holder}, or kill it before reviving or dispatching", reason="revive-writer",
+                                   details={"job_id": holder})
             theirs = recorded[holder].get("caller_instance")
             if instance is not None and theirs == instance:
                 continue
             if instance is None:
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and the submitting instance cannot be identified",
-                                   fix=f"submit from the session's own shell (CLAUDE_PID), or wait for {holder}")
+                                   fix=f"submit from the session's own shell (CLAUDE_PID), or wait for {holder}",
+                                   reason="unidentified-writer", details={"job_id": holder})
             alive = self._instance_alive(theirs) if theirs else None
             if (alive is True and instance.get("pid") == theirs.get("pid")
                     and instance.get("proc_start") == theirs.get("proc_start")):
@@ -2832,11 +2846,13 @@ class Daemon:
                 continue        # its instance is gone: a resumed session is one instance, not two
             who = f"another live instance (pid {theirs['pid']})" if alive else "an instance that cannot be identified"
             raise AdapterError(f"session {session} already has a live writable job ({holder}) from {who}",
-                               fix=f"dispatch from that instance, or wait for or kill {holder}")
+                               fix=f"dispatch from that instance, or wait for or kill {holder}", reason="other-writer",
+                               details={"job_id": holder})
         limit = policy_cap(self.policy["caps"], "max_writable_per_session")       # C-6.4: none by default
         if limit is not None and len(mine) >= limit:
             raise AdapterError(f"session {session} already holds {len(mine)} live writable jobs (caps.max_writable_per_session {limit})",
-                               fix="wait for one to finish, or raise the cap in policy.json")
+                               fix="wait for one to finish, or raise the cap in policy.json", reason="writer-cap",
+                               details={"count": len(mine), "limit": limit})
         return frozenset(row["job_id"] for row in mine)
 
     def _refuse_second_revive(self, job: dict) -> None:
@@ -2856,7 +2872,8 @@ class Daemon:
                 holder = leases[0][1] if leases else live["job_id"]
                 raise AdapterError(
                     f"session {session} already has a live revive ({holder})", code=7,
-                    fix=f"subfleet runs show {holder}, or kill it before reviving again")
+                    fix=f"subfleet runs show {holder}, or kill it before reviving again", reason="revive-held",
+                    details={"job_id": holder})
 
     def _read_only_clears(self, job: dict, write_target: str | None,
                           output_claim: resource_leases.OutputClaim | None = None) -> bool:
@@ -2880,17 +2897,17 @@ class Daemon:
                 (len(prefix), prefix, job["job_id"]))
             if (lease and lease["holder"] != f"gate-round:{job['job_id']}") or active:
                 raise AdapterError("gate already has a reserved peer round",
-                                   fix="wait for or explicitly abandon the existing gate round")
+                                   fix="wait for or explicitly abandon the existing gate round", reason="gate-round-held")
         if job.get("parent_job_id"):
             parent = self._job(job["parent_job_id"])
             if parent["cancel_requested_at"] and not job.get("independent"):
-                raise AdapterError("parent is cancelled", fix="submit an independent job")
+                raise AdapterError("parent is cancelled", fix="submit an independent job", reason="parent-cancelled")
             limit = policy_cap(self.policy["caps"], "max_child_jobs")                 # C-6.4: none by default
             count = (self.store.one("SELECT count(*) AS n FROM jobs WHERE parent_job_id=?", (parent["job_id"],))["n"]
                      if limit is not None else 0)
             if limit is not None and count >= limit:
                 raise AdapterError("parent child budget exhausted (caps.max_child_jobs)",
-                                   fix="use a new parent job, or raise or remove the cap in policy.json")
+                                   fix="use a new parent job, or raise or remove the cap in policy.json", reason="parent-child-cap")
         self._refuse_second_revive(job)
         conflicts: list[tuple[str, Any, str]] = []
         if job.get("out_path"):
@@ -2898,15 +2915,15 @@ class Daemon:
                 assert not self.store._holds_writer(), "output identity must be prepared outside the transaction"
                 output_claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"], census=True)
             if output_claim.holds(self.store.query):
-                raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine")
+                raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine", reason="out-path-held")
             if output_claim.live_jobs(self.store.query):
-                raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner")
+                raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner", reason="out-path-live")
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
                 for folder in {job["workdir"], write_target or job["workdir"]}:
                     if self.store.one("SELECT * FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),)):
-                        raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                        raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace", reason="worktree-lease")
                     # C-6.5, C-24.5: a writable conversation turn holds its folder with a
                     # row of its own (one live after its job ended, while its attempt is
                     # quarantined, too); a detached writer never joins it there.
@@ -2914,7 +2931,8 @@ class Daemon:
                     if turns:
                         raise AdapterError(f"worktree {folder} is being written by a conversation turn ({turns[0][1]})",
                                            fix="wait for the conversation's turn to end, or run the job in its own "
-                                               "worktree (without --in-place)")
+                                               "worktree (without --in-place)", reason="conversation-writer",
+                                           details={"job_id": turns[0][1]})
             if job.get("caller_session"):
                 # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
                 # in `cleared`; one that is not there was never judged.
@@ -2925,12 +2943,13 @@ class Daemon:
                         (*params, job["job_id"])):
                     if row["job_id"] not in cleared:
                         raise AdapterError(f"session {job['caller_session']} has a live writable job ({row['job_id']}) this submission was not checked against",
-                                           fix="submit again")
+                                           fix="submit again", reason="writer-changed",
+                                           details={"job_id": row['job_id']})
         for column, value, fix in conflicts:
             writable = " AND sandbox='workspace-write'" if column != "out_path" else ""
             if self.store.one(f"SELECT job_id FROM jobs WHERE {column}=? AND state NOT IN "
                               f"('succeeded','failed','cancelled','lost'){writable}", (value,)):
-                raise AdapterError(f"{column} is held by a live job", fix=fix)
+                raise AdapterError(f"{column} is held by a live job", fix=fix, reason="path-lease")
 
     @staticmethod
     def _validate_home(lane: Lane) -> None:
@@ -2943,7 +2962,7 @@ class Daemon:
             auth = None                                            # none there, as `is_file()` had said
         if auth is not None:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
-                raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
+                raise AdapterError("API-key home refused", fix="log this lane into a subscription account", reason="api-key-home")
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
@@ -2973,7 +2992,7 @@ class Daemon:
             from .guard.preflight import preflight
         except ImportError:
             raise AdapterError("Codex guard preflight is not installed", code=7,
-                               fix="install the Codex adapter and reviewed guard files") from None
+                               fix="install the Codex adapter and reviewed guard files", reason="guard-missing") from None
         options = {"state_root": state_root} if state_root is not None else {}
         if env is not None:
             options["env"] = env
@@ -2981,7 +3000,7 @@ class Daemon:
         if recorder is not None:
             recorder(result)
         if not result.ok or not result.override:
-            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor")
+            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor", reason="guard-preflight")
         return result if full else result.override
 
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
@@ -3032,7 +3051,7 @@ class Daemon:
             if (args.get("kind") == "turn" or str(args.get("request_id") or "").startswith("turn:")
                     or "turn" in args):
                 raise AdapterError("conversation turns are created by the daemon, not submitted", code=7,
-                                   fix="send a message with message.submit")
+                                   fix="send a message with message.submit", reason="turn-submit")
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
             a = protocol.coerce_args(protocol.ListArgs, args)
@@ -3050,16 +3069,16 @@ class Daemon:
             # (C-16.3), so the turn default does not apply to it.
             if a.kind is not None:
                 if not isinstance(a.kind, str) or not a.kind:
-                    raise protocol.ProtocolError("kind must name a job kind")
+                    raise protocol.ProtocolError("kind must name a job kind", reason="list-kind")
                 sql += " AND kind=?"; params.append(a.kind)
             elif not isinstance(a.include_turns, bool):
-                raise protocol.ProtocolError("include_turns must be true or false")
+                raise protocol.ProtocolError("include_turns must be true or false", reason="list-include-turns")
             elif not a.include_turns and a.request_id is None:
                 sql += " AND kind<>'turn'"
             sql += " ORDER BY created_at DESC, rowid DESC"
             if a.last is not None:
                 if not isinstance(a.last, int) or a.last < 0:
-                    raise protocol.ProtocolError("last must be a nonnegative integer")
+                    raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
             jobs = self.store.query(sql, params)
             batches = self._batches([row["job_id"] for row in jobs])
@@ -3100,7 +3119,8 @@ class Daemon:
                         self.store, self.root, a.lane_id, a.owner,
                         dry_run=bool(a.dry_run), confirm_v1_edit=bool(a.confirm_v1_edit))
                 except lanes_transfer.TransferError as exc:
-                    raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+                    raise protocol.ProtocolError(str(exc), exc.code, exc.fix, reason=exc.reason,
+                                                 details=exc.details) from None
                 return {"transfer": result,
                         "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
             if a.action == "enroll":
@@ -3142,9 +3162,9 @@ class Daemon:
                 if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
                     raise protocol.ProtocolError(
                         f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
-                        "give one per id, or none")
+                        "give one per id, or none", reason="notice-ack-fingerprints")
                 if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
-                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it", reason="notice-ack-fingerprint-type")
                 unique: dict = {}                       # a repeated id: once, with its first fingerprint
                 for index, notice_id in enumerate(a.notice_ids):
                     unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
@@ -3171,7 +3191,7 @@ class Daemon:
                 # an offer read before a hook surfaced the notice cannot put it
                 # back where the next hook would surface it again.
                 if a.state not in ("offered", "surfaced", "acknowledged"):
-                    raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                    raise protocol.ProtocolError(f"unknown notice state {a.state!r}", reason="notice-state")
                 below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
                 movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
@@ -3192,7 +3212,7 @@ class Daemon:
             text = args.get("text")
             text = "" if text is None else text
             if not isinstance(text, str):
-                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)", reason="ping-text")
             # C-15.8: a notice goes to the session named, else to the configured
             # operator session; there is no default inbox nobody reads. A blank
             # or non-string session names none, and whitespace is no text.
@@ -3205,7 +3225,7 @@ class Daemon:
                     raise protocol.ProtocolError(
                         "ping: no session named, and alerts.operator_session is not set; "
                         "a notice addressed to no session is never read (C-15.8)",
-                        fix="name the session: subfleet ping --session <id> TEXT")
+                        fix="name the session: subfleet ping --session <id> TEXT", reason="ping-session")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -3226,7 +3246,7 @@ class Daemon:
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
-        raise protocol.ProtocolError(f"unknown op {op}")
+        raise protocol.request_error("unknown-op")
 
     def _disk_rows(self) -> list[dict]:
         # C-3.7: only live attempts and the tiny budget, never their full evidence.
@@ -3473,7 +3493,7 @@ class Daemon:
             raise AdapterError(
                 f"{verb} refused: session {session_id} belongs to {binding}, and a "
                 "conversation's session continues only in its conversation",
-                code=7, fix=CONVERSATION_FIX)
+                code=7, fix=CONVERSATION_FIX, reason="conversation-session")
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"
@@ -3504,7 +3524,8 @@ class Daemon:
                     "conversation_sessions": self._conversation_session_ids()}
         if action == "revived":
             if not args.session_id:
-                raise protocol.ProtocolError("sessions revived: session_id is required")
+                raise protocol.ProtocolError("sessions revived: session_id is required", reason="sessions-id",
+                                             details={"action": "revived"})
             # C-23.39: retain the operator's model substitution as history.
             # Admission remains governed by the live lease (C-23.55).
             data = {"session_id": args.session_id, "dedupe_key": args.dedupe_key,
@@ -3515,7 +3536,8 @@ class Daemon:
             return {"session_id": args.session_id, "recorded": True}
         if action in ("retire", "unretire"):
             if not args.session_id:
-                raise protocol.ProtocolError(f"sessions {action}: session_id is required")
+                raise protocol.ProtocolError(f"sessions {action}: session_id is required", reason="sessions-id",
+                                             details={"action": action})
             kind = RETIRE_EVENT if action == "retire" else UNRETIRE_EVENT
             data = {"session_id": args.session_id, "reason": args.reason, **args.detail}
             with self.store.transaction(audit_kind(kind), data=data) as tx:
@@ -3524,7 +3546,8 @@ class Daemon:
             return {"session_id": args.session_id, "action": action, "recorded": True}
         if action == "nudged":
             if not args.session_id:
-                raise protocol.ProtocolError("sessions nudged: session_id is required")
+                raise protocol.ProtocolError("sessions nudged: session_id is required", reason="sessions-id",
+                                             details={"action": "nudged"})
             if self._conversation_binding(args.session_id):
                 # C-26.3, C-26.13, D-17: a nudge would be a second writer in the
                 # session of a conversation, or of a turn that ran there before its
@@ -3559,7 +3582,7 @@ class Daemon:
                            (utcnow(), NUDGE_EVENT, json.dumps(data, sort_keys=True)))
             return {"recorded": True, "session_id": args.session_id,
                     "dedupe_key": args.dedupe_key, "kind": args.kind}
-        raise protocol.ProtocolError(f"unknown sessions action {action!r}")
+        raise protocol.ProtocolError(f"unknown sessions action {action!r}", reason="sessions-action")
 
     def wait(self, args: protocol.WaitArgs, arrived: float | None = None, *,
              client_gone: Callable[[], bool] | None = None) -> dict:
@@ -3571,7 +3594,7 @@ class Daemon:
             deadline = (time.monotonic() if arrived is None else arrived) + max(
                 0, min(float(args.deadline_s), WAIT_POLL_MAX_S))
         except (TypeError, ValueError):
-            raise protocol.ProtocolError("deadline_s must be a number") from None
+            raise protocol.ProtocolError("deadline_s must be a number", reason="wait-deadline") from None
         job_ids = args.job_ids
         if not job_ids:
             job_ids = [j["job_id"] for j in self.dispatch("list", {"mine": args.mine, "last": 1 if args.last else None})["jobs"]]
@@ -3911,13 +3934,13 @@ class Daemon:
             raise protocol.ProtocolError(
                 f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
                 "terminal record and is acknowledged, never withdrawn (C-15.8)",
-                fix=f"subfleet notices --session {a.session_id} --ack")
+                fix=f"subfleet notices --session {a.session_id} --ack", reason="notice-withdraw-job")
         if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
             raise protocol.ProtocolError(
                 f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
-                "give one per id, or none")
+                "give one per id, or none", reason="notice-withdraw-fingerprints")
         if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
-            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it", reason="notice-withdraw-fingerprint-type")
         listed: dict = {}
         for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
             if a.fingerprints:
@@ -4448,7 +4471,7 @@ class Daemon:
                         str(killed) if killed else result.stderr.strip()[-300:] or f"git exited {result.returncode}")
                     if killed or _transient_git(result.stderr):
                         raise SalvageError(error, transient=True)
-                    raise AdapterError(error, fix="check repository and state-root permissions")
+                    raise AdapterError(error, fix="check repository and state-root permissions", reason="workspace-prepare")
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -5609,7 +5632,7 @@ class Daemon:
                     prepared = job.get("worktree") or str(self.root / "worktrees" / job["job_id"])
                     if not Path(prepared).is_dir():
                         raise AdapterError("host push workspace disappeared after preparation", code=7,
-                                           fix="resubmit the job to rebuild its checkout")
+                                           fix="resubmit the job to rebuild its checkout", reason="push-workspace-gone")
                     # Readiness may race cancellation or removal. This local
                     # ownership snapshot keeps _workspace's direct-call fallback
                     # out of admission even if the directory disappears now.
@@ -5622,7 +5645,7 @@ class Daemon:
                     native_session = (manifest.get("resume") or {}).get("native_session_id")
                     if not native_session:
                         raise AdapterError("resume source identity is missing",
-                                           fix="resubmit the resume from the original job")
+                                           fix="resubmit the resume from the original job", reason="resume-identity-missing")
                 if native_session and job["kind"] in ("resume", "revive"):
                     # C-26.13: the session became a conversation's after this job
                     # was submitted (a person opened it in the app). Refused, not
@@ -6721,7 +6744,7 @@ class Daemon:
                 resume = manifest.get("resume")
                 if not resume or not self._resume_lane(resume["lane_id"], lane) or resume["model_id"] != model["id"]:
                     raise AdapterError("resume source identity is missing or does not match this attempt",
-                                       fix="resubmit the resume from the original job")
+                                       fix="resubmit the resume from the original job", reason="resume-identity-mismatch")
             if turn_block is not None:
                 pass
             elif resume or (job["kind"] == "revive" and job["caller_session"]):
@@ -6737,7 +6760,8 @@ class Daemon:
                 if launch is None:
                     raise AdapterError(
                         f"{lane.provider} cannot resume a session in place", code=7,
-                        fix="use `subfleet sessions handoff` to continue this session")
+                        fix="use `subfleet sessions handoff` to continue this session", reason="resume-provider",
+                        details={"provider": lane.provider})
             else:
                 launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
                                               model["id"], model.get("effort"), prompt_path, guard_override)
@@ -8047,7 +8071,8 @@ class Daemon:
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone))
         except (protocol.ProtocolError, AdapterError) as exc:
-            response = protocol.refuse(req.id, exc, reason="refused-args")
+            response = protocol.refuse(req.id, exc)
+            refusals.log_detail(self.log, req.op, exc)
         except (ValueError, TypeError, KeyError) as exc:
             response = protocol.refuse(req.id, exc)
         except Exception as exc:
