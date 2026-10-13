@@ -345,10 +345,10 @@ class ProcessTable:
         if not self.live(known.pid):
             return True
         started = self.rows[known.pid][3]
-        if started and known.proc_start and started != known.proc_start:
-            return True
         if not known.boot_id:
             return False
+        if started and known.proc_start and started != known.proc_start:
+            return True
         try:
             if boot_identity.session_uuid(known.boot_id) and self.boot_matches(known.boot_id) is False:
                 return True
@@ -402,7 +402,7 @@ def protected_pids(table: ProcessTable, records: Sequence[ProcessIdentity]) -> s
         if started and known.proc_start and started != known.proc_start:
             continue
         try:
-            match = boot_identity.matches(known.boot_id, table.boot(), table.legacy_seconds) if known.boot_id else None
+            match = table.boot_matches(known.boot_id) if known.boot_id else None
         except InspectionError:
             match = None
         if match is not False:
@@ -789,6 +789,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     errors: list[str] = []
     recycled: dict[int, dict[str, Any]] = {}
     checked: dict[int, bool] = {}
+    roots_rebooted = False
     # Both APIs contribute observations; a newer observation never overwrites
     # an older one, and census evidence never becomes signal authority.
     recorded = {pid: ([values] if isinstance(values, ProcessIdentity) else list(values))
@@ -824,6 +825,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         needs_comparison = live(pid) or (pid == pgid and bool(seen.group(pgid)))
         reasons = []
         for known in observations:
+            if (roots_rebooted and boot_identity.session_uuid(known.boot_id) is not None
+                    and boot_identity.session_uuid(known.boot_id) == boot_identity.session_uuid(launch_boot_id)):
+                reasons.append("different boot identity")
+                continue
             if not known.boot_id or not known.proc_start:
                 if needs_comparison:
                     errors.append(f"recorded identity unavailable for pid {pid}")
@@ -849,7 +854,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 errors.append(f"boot identity unavailable for root pid {pid}")
                 return False
         if not observations:
-            if needs_comparison:
+            if needs_comparison and not roots_rebooted:
                 errors.append(f"recorded identity unavailable for pid {pid}")
             return False
         try:
@@ -963,6 +968,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 return False
             return current is not None and previous != current
 
+        roots_rebooted = rebooted(launch_boot_id)
         # C-5.3/C-5.7: a PID's new incarnation is not a recorded writer.
         # Read all recorded writers from this same snapshot, including escaped
         # writers whose parent links and markers no longer identify them.
@@ -1008,7 +1014,6 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 errors.append(f"recorded identity inspection unavailable for pid {pid}")
                 if live(pid):
                     uncertain_roots.add(pid)
-        roots_rebooted = rebooted(launch_boot_id)
         if lineage_overflow_boot is not None and not rebooted(lineage_overflow_boot):
             errors.append("lineage root limit exceeded")
         # A verified guardian's direct children establish the legacy provider
@@ -1037,8 +1042,9 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # A matching identity also observes its current group immediately.
         # This keeps the census stable after that observation is persisted and
         # follows a writer that changed groups since the earlier inspection.
+        recorded_groups = set()
         for pid in owned | uncertain_roots:
-            groups.update(seen.group(table[pid][1]))
+            recorded_groups.update(seen.group(table[pid][1]))
         # A sampled group can belong to a different incarnation than its
         # retained identity after a failed bracket. Leader identity/reuse
         # cannot discharge it; hold until the group is empty or rebooted.
@@ -1050,7 +1056,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # still enumerate the guardian and any inherited marker.
         roots = ({pid for pid in {*records_by_pid, guardian_pid, child_pid}
                   if pid and pid > 0 and not is_recycled(pid) and not roots_rebooted}
-                  | owned | groups | uncertain_roots)
+                  | owned | groups | uncertain_roots | recorded_groups)
         groups.difference_update(excluded)
         descendants = set(seen.descendants(tuple(roots), excluded=excluded))
     else:

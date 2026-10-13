@@ -400,3 +400,39 @@ fresh-row census sees exactly the intended missing evidence.
 AST assertion audit versus release: all 44 recycled-PID unit assertions, all
 21 survivor unit assertions and all 24 daemon assertions remain byte-for-byte
 in AST form; one full-delivery assertion is added. No oracle is weakened.
+
+Root-source integration follow-up
+---------------------------------
+The original-attempt group source remains separate from groups freshly learned
+from matching/unknown recorded writers. Those learned groups seed the full
+parent walk immediately and are captured as durable lineage roots, retaining
+exactly the same live PID holds and descendant/group lifetime protection.
+The group_pids field therefore still diagnoses whether #185 discharged the
+original group, even when an independently recorded orphan keeps another
+current group alive. Sampled retained groups remain group sources on later
+censuses. No group of a recorded live writer is dropped from containment.
+
+A freshly confirmed launch reboot is computed before qualifying unrecorded
+old launch roots. It discharges those old PID/group sources without adding a
+false unknown-root error; matching current observations remain independent
+roots. Boot confirmation also qualifies competing-claim protection and retained
+identity resolution, so a stale UUID mismatch cannot silently erase a claim.
+Missing recorded boot identity cannot resolve a live retained identity.
+
+The release generated-table helper now makes fresh proc_start, stat and group
+reads reflect its declared table. Previously it inherited a constant unrelated
+birth time and group=pid from the older generic census stub; #131's fresh late
+marker brackets correctly exposed that inconsistent world. Its complete set
+of 44 original assertions remains unchanged. Existing #131 reboot fixtures now
+supply the fresh boot read their claimed reboot proof requires, retaining every
+existing reboot/group/publication assertion. A new cached-boot retained-root
+witness checks that the writer, original root and claim remain held and that
+all consumers share exactly one fresh boot read.
+
+Additional auto-merge assertion audit: release's unknown-with-missing-record
+assertion supersedes the old live-PID-as-dead expectation; the original exact
+dead assertion is also retained for observed absence. Exact identity errors
+are preserved with release's additional missing-record diagnostic. #131's
+larger group/descendant and either-marker sets retain the stronger writer-hold
+oracles from the first parent; release's narrower pre-#131 sets and group-signal
+protocol are superseded by those documented safety fixes, not relaxed.

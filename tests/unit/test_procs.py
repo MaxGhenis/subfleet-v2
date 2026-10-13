@@ -173,6 +173,7 @@ def test_recorded_writer_from_another_boot_is_gone(monkeypatch):
     old_boot = "11111111-1111-4111-8111-111111111111"
     new_boot = "22222222-2222-4222-8222-222222222222"
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({42: (1, 42, "S", "same-start")}, boot_id=new_boot))
+    monkeypatch.setattr(procs, "boot_id", lambda: new_boot)
     monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
     result = procs.containment(42, 42, None, "job/a1", recorded={42: procs.ProcessIdentity(42, old_boot, "same-start")})
     assert result.verified_empty
@@ -310,6 +311,9 @@ def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
     assert procs.liveness(42, "99", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.liveness(0, "100", "Sat Sep  5 10:00:00 2026") == "dead"
     assert procs.liveness(42, None, None) == "unknown"
+    with monkeypatch.context() as absent:
+        absent.setattr(procs, "identity", lambda _: None)
+        assert procs.liveness(42, None, None) == "dead"
     census(monkeypatch, fail="ps")
     assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.same_process(42, "100", "Sat Sep  5 10:00:00 2026") is False
@@ -757,10 +761,26 @@ def test_proven_reboot_discards_unqualified_old_roots(monkeypatch, root_kind):
     rows = ({500: (1, 500, 'S', 'new-service')} if root_kind == 'child' else
             {200: (1, 100, 'S', 'new-service'), 300: (200, 300, 'S', 'child')})
     monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable(rows, boot_id=BOOT_NEW))
+    monkeypatch.setattr(procs, 'boot_id', lambda: BOOT_NEW)
     monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
     result = procs.containment(100, 100, 500, 'job/a1', launch_boot_id=BOOT_OLD,
                                lineage_boot_ids=(BOOT_OLD,))
     assert result.verified_empty, result.to_dict()
+
+
+def test_cached_reboot_cannot_discharge_a_matching_retained_root(monkeypatch):
+    rows = {200: (1, 200, 'S', 'writer')}
+    known = procs.CensusRoot(200, BOOT_OLD, 'writer', 200)
+    monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable(rows, boot_id=BOOT_NEW))
+    reads = []
+    monkeypatch.setattr(procs, 'boot_id', lambda: (reads.append(1), BOOT_OLD)[1])
+    monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
+    result = procs.containment(200, 200, None, 'job/a1', launch_boot_id=BOOT_OLD,
+                               recorded={200: known.identity}, lineage_roots=(known,))
+    assert not result.verified_empty and result.live_pids == {200}
+    assert not result.recycled and not result.resolved_lineage_roots
+    assert not result.resolved_identities and not result.unverifiable
+    assert reads == [1]
 
 
 @pytest.mark.parametrize('known,current', [(BOOT_OLD, BOOT_OLD), ('1700000000', BOOT_NEW),
@@ -821,6 +841,7 @@ def test_saved_lineage_group_handles_death_pid_reuse_and_reboot(monkeypatch, boo
     if member:
         rows.update({201: (1, 200, "S", "member"), 202: (201, 202, "Ss", "child")})
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, boot_id=boot))
+    monkeypatch.setattr(procs, "boot_id", lambda: boot)
     monkeypatch.setattr(procs, "_read", lambda *args, **kwargs: "")
     result = procs.containment(None, None, None, "a1", lineage_roots=roots)
     assert result.verified_empty is empty, result.to_dict()
@@ -839,6 +860,7 @@ def test_historical_boot_observations_do_not_pin_an_empty_census(monkeypatch):
 @pytest.mark.parametrize('boot,empty', [(BOOT_OLD, False), (BOOT_NEW, True), ('invalid', False)])
 def test_unrecorded_guardian_child_requires_exit_evidence_or_proven_reboot(monkeypatch, boot, empty):
     monkeypatch.setattr(procs, 'snapshot', lambda: procs.ProcessTable({}, boot_id=boot))
+    monkeypatch.setattr(procs, 'boot_id', lambda: boot)
     monkeypatch.setattr(procs, '_read', lambda *args, **kwargs: '')
     result = procs.containment(100, 100, None, 'job/a1', launch_boot_id=BOOT_OLD,
                                child_unrecorded=True)
