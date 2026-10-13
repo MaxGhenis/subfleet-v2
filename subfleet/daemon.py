@@ -2810,6 +2810,11 @@ class Daemon:
                     else submitted.get("folder"))
         # The early look resolves the source; after preparation, a reader or
         # in-place writer rechecks the exact resolved cwd its lease will pin.
+        if not recorded:
+            # Legacy jobs always use their existing canonical/NFC-folded path;
+            # their fence comparison does not depend on an absence answer.
+            now = run_folder if run_folder is not None else folders.canonical(job["workdir"])
+            return [(now, True, None)]
         checked = {} if checked is None else checked
 
         def present(name):
@@ -2818,8 +2823,6 @@ class Daemon:
             return checked[name]
 
         now, now_absent = present(run_folder if run_folder is not None else job["workdir"])
-        if not recorded:
-            return [(now, True, now_absent)]
         # Keep the submitted pathname as a source check even if it now resolves
         # elsewhere; the current resolution is checked separately above.
         _, recorded_absent = present(recorded)
