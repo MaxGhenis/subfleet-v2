@@ -184,7 +184,19 @@ class Registry:
         return 0.0 if self.since is None else max(0.0, now - self.since)
 
     def save(self) -> None:
-        from .mirror import _write_json
+        from .mirror import _load, _write_json
+        # Home records another process wrote since this one read the file (a
+        # one-off `--dead-home` pass beside the daemon) are kept, as older
+        # than this process's own (review r5 P3-2).
+        written = _load(self.path).get("homes")
+        if isinstance(written, dict):
+            merged = {key: folder for key, folder in written.items()
+                      if isinstance(key, str) and isinstance(folder, str)
+                      and key not in self.homes}
+            merged.update(self.homes)
+            self.homes = merged
+            while len(self.homes) > HOMES_KEPT:
+                del self.homes[next(iter(self.homes))]
         self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         _write_json(self.path, self.to_dict())
 

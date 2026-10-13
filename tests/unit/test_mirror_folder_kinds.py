@@ -212,6 +212,28 @@ def test_a_rotation_during_the_replay_counts_as_unread(tmp_path, monkeypatch):
     assert registry.unread == ()
 
 
+def test_a_save_keeps_the_home_records_another_process_wrote(tmp_path):
+    """C-23.28a, review r5 P3-2: a one-off pass records its home while the
+    daemon runs; the daemon's next save keeps that record, as older than its
+    own, rather than writing its memory over it."""
+    path = tmp_path / "registry.json"
+    daemon = folder_kinds.Registry(path)
+    daemon.record_home("org-home", "a/org-home")
+    daemon.save()
+    one_off = folder_kinds.Registry(path)
+    one_off.record_home("b/org-x", "b/org-x")
+    one_off.save()
+    daemon.save()                                    # after learning, say
+    assert list(folder_kinds.Registry(path).homes.items()) == [
+        ("b/org-x", "b/org-x"), ("org-home", "a/org-home")]
+    for number in range(folder_kinds.HOMES_KEPT):    # many one-off values
+        one_off.record_home(f"org-{number}", f"c/org-{number}")
+    one_off.save()
+    daemon.save()
+    homes = folder_kinds.Registry(path).homes
+    assert len(homes) == folder_kinds.HOMES_KEPT and list(homes)[-1] == "org-home"
+
+
 def test_a_log_created_during_the_replay_is_no_rotation(tmp_path, monkeypatch):
     """C-23.28a, review r4 P3-d: the app's first launch creates `main.log`; one
     created while the replay reads moved no file, so the replay counts."""

@@ -246,3 +246,12 @@ same folder kinds.
   for sessions it holds. Retention is 3650 days here, so this is moot; with a
   short `cleanupPeriodDays`, a session kept only in folders the app does not
   load could lose its transcript sooner than before.
+- Accepted minor points from review (five rounds, reports beside the PR):
+  - An unarchive and re-archive inside one pass interval keeps the old
+    archive stamp.
+  - `--status` describes the last pass, so a one-off `sessions mirror` pass in
+    the daemon's state root shows its own warnings until the daemon's next
+    pass (60 s). An empty store clears them.
+  - On an incomplete pass, a home that was really deleted reads as "could not
+    be listed", and an org whose only account failed to list as "no folder";
+    both clear at the next complete pass.
