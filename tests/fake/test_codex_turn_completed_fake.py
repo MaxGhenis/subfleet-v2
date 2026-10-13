@@ -355,8 +355,9 @@ def test_replay_keeps_this_daemons_verdict_and_reconciles_only_an_older_one(
     daemon, harness = state_daemon
     out = harness.root / "out.md"
     out.write_text("previous output\n")
+    # The unmeasured fixture can admit read-only standard work without a probe.
     job_id, attempt, adir = reserve(daemon, harness, out_path=str(out),
-                                    **({"pinned_model": None, "task": "review", "tier": "hard"}
+                                    **({"pinned_model": None, "task": "review", "tier": "standard"}
                                        if model_capacity else {}))
     adapter = CodexAdapter()
     monkeypatch.setattr(module, "get_adapter", lambda _: adapter)

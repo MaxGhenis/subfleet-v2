@@ -142,3 +142,7 @@ The failure at `9c8a4dde7` was a test setup error, not nondeterministic ordering
 The outside-walk regression now steers below-tier Sonnet and off-chain Terra, asserts both hard and standard walks explicitly, and verifies the whole decision stays unchanged. Separate cases prove that steering Opus in the upward walk changes the selected model to Astra, and that steering both models preserves policy order regardless of the steer map's insertion order. No production routing code was changed.
 
 The routing module parses and `git diff --check` passes. Two attempts to execute its pytest file were denied the shared lock after 60 seconds each; no pytest started on either attempt. Additional requested files are being attempted in turn, without parallel pytest processes. Final results are recorded below.
+
+### Replay fixture correction
+
+The first full run of `tests/fake/test_codex_turn_completed_fake.py` finished with **87 passed, 4 failed** in 1048.88 s (17 min 28 s). The four failures were the new marked-transient cases: their unmeasured fixture requested a hard job, so C-11.4 queued a probe and no attempt existed for `reserve` to return. They now request read-only standard work, which the same lane can admit without a probe. This changes only the four added parameter cases; the 87 passing cases are unchanged. A targeted rerun will check all four corrected cases under a separate lock hold.
