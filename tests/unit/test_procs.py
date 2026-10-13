@@ -243,7 +243,7 @@ def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
     assert procs.liveness(42, "100", "Fri Sep  4 09:00:00 2026") == "dead"
     assert procs.liveness(42, "99", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.liveness(0, "100", "Sat Sep  5 10:00:00 2026") == "dead"
-    assert procs.liveness(42, None, None) == "dead"
+    assert procs.liveness(42, None, None) == "unknown"
     census(monkeypatch, fail="ps")
     assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.same_process(42, "100", "Sat Sep  5 10:00:00 2026") is False
@@ -265,7 +265,8 @@ def test_c5_12_a_census_is_two_ps_reads_however_many_processes_it_finds(monkeypa
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities={
+        42: procs.ProcessIdentity(42, "100", START)})
     assert result.group_pids == set(range(42, 63)) and not result.unverifiable
     assert result.identities[50] == procs.ProcessIdentity(50, "100", START)
     assert [os.path.basename(argv[0]) for argv in reads if os.path.basename(argv[0]) == "ps"] == ["ps", "ps"]
@@ -306,7 +307,8 @@ def test_c5_12_a_census_that_finds_nothing_needs_no_boot_identity(monkeypatch):
     result = procs.containment(42, 42, None, "job/a1")
     assert result.unverifiable and result.live_pids == {42, 43}
     assert sorted(result.errors) == ["identity inspection unavailable for pid 42",
-                                     "identity inspection unavailable for pid 43"]
+                                     "identity inspection unavailable for pid 43",
+                                     "recorded identity unavailable for pid 42"]
 
 
 def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(monkeypatch):
@@ -562,6 +564,7 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
 
     Final review of PR #37, 2026-09-26: reading the boot identity before checking the pid is live survived every
     test (mutant M22)."""
+    states = iter(["S", ""])
     def read(argv, *, empty_ok=False):
         if os.path.basename(argv[0]) == "sysctl":
             raise procs.InspectionError("unavailable")
@@ -570,9 +573,9 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
         if "pid=,command=" in argv:
             return "77 provider SUBFLEET_ATTEMPT=job/a1\n"
         if "stat=" in argv:
-            return "S"                                          # alive when the marker scan looked
+            return next(states)  # alive during marker scan, absent at identity capture
         if "lstart=" in argv:
-            return ""                                           # gone by the identity read
+            return ""
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
     result = procs.containment(42, 42, None, "job/a1")
