@@ -125,24 +125,48 @@ From about 06:00Z to after 09:00Z on 2026-10-13 the lock was held, in turn, by o
 
 ## PR #207 fix round 1
 
-Merged the existing local `origin/release/217` ref at `69b119f94007` with a merge commit, preserving both D-CAP1 and #195's C-9.2 completion proof. No remote was contacted. The shared worktree's Git metadata is read-only in this sandbox (`ORIG_HEAD.lock` was rejected), so commits use workspace-local `.git-local` metadata on `fix/model-capacity-steer`; the original `.git` pointer is unchanged. Git commands for this history use `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD"`.
+Merged the existing local `origin/release/217` at `69b119f94007` in `b20791c96`, with parents `9c8a4dde7d5b` and `69b119f94007`. No Git remote was contacted. Both D-CAP1 and #195's C-9.2 completion proof hold:
 
-The combined classifier requires this attempt's `turn.completed`, exit 0, a nonblank deliverable, no `turn.failed` and no spawn error before returning `ok`. A terminal capacity refusal remains `transient`, without a closure, and records `model_capacity: true`, with or without a completion event and even with exit 0. A capacity error or stderr refusal without completion gets the same mark before the generic incomplete-turn fallback. A recovered nonterminal capacity diagnostic followed by a verified successful turn remains `ok` and unmarked. Authentication, old CLI, content and quota retain their precedence when success is unproven.
+- Detached Codex success requires this attempt's `turn.completed`, exit 0, a nonblank deliverable, no `turn.failed` and no spawn error. A terminal capacity refusal remains `transient`, has no closure and records `model_capacity: true`, with or without completion and even with exit 0. A nonterminal capacity refusal without completion gets its mark before the generic incomplete-turn fallback. A recovered diagnostic followed by verified success remains `ok` and unmarked. Stronger authentication, old CLI, content and quota verdicts retain precedence when success is unproven.
+- C-4.3 keeps #195's `FINALIZATION_RULE` (`b3be2b6f0`): a current receipt keeps this daemon's verdict; only an older receipt reconciles with frozen success proof. Regression cases preserve the capacity mark and steer across replay and restart, both completion states, both exit codes and both receipt generations. The current marked transient also retains its class and steer beside a proven completed stream; an older verdict can reconcile to success. Cached classification is never repeated, and later stdout cannot replace the frozen refusal.
+- Both capacity fixtures remain failure streams. The capacity fake copies explicit Codex output to its frozen stream; generic fake successes keep #195's `receipt_fixture` completion proof. Both scenario lists retain the incident and cut-off fixtures.
 
-C-4.3 retains #195's `FINALIZATION_RULE`: replays preserve this daemon's own verdict, and reconcile only an older, unmarked finalization receipt with frozen success evidence (the `b3be2b6f0` rule). Regression cases cover the capacity mark and resulting steer across replay and daemon restart, both completion states, both exit codes and both receipt generations. Another case extends #195's own replay regression with a marked transient beside a proven completed stream: this daemon keeps the mark and steer, while an older verdict can reconcile to success. No cached classification is rerun, and later live stdout cannot replace the frozen stream.
+Ran `contract_merge.py` mid-merge and reviewed C-4.3, C-4.5, C-9.2, C-9.5 and C-11.2 with `contract_wdiff.py` and by reading each clause in full.
 
-Both capacity fixtures remain failure streams; no completion event was invented for them. The fake finalization helper copies explicit Codex output to the attempt's frozen stream, while generic fake successes retain `receipt_fixture`'s completion proof from #195. Both scenario lists retain the incident fixture and all three new cut-off fixtures. The contract helper ran mid-merge, and the merged C-4.3, C-4.5, C-9.2, C-9.5 and C-11.2 clauses were reviewed with `contract_wdiff.py` and read in full.
+### CI correction
 
-Merge validation: `tests/unit/test_codex_adapter.py`: **135 passed** (42.56 s); `tests/fake/test_capacity_steer_daemon.py`: **33 passed** (67.00 s). Each ran alone under its own shared-lock hold, with a fresh TMPDIR cleaned afterward. Python: CPython 3.14.7, free-threaded build. The CI routing correction and remaining validation follow below.
+`994e49a1a` fixes the failing test's setup. A standard build walks `[opus, astra]`, so steering Opus correctly produces `[astra, opus]`. C-11.2 promises this order: `policy.flatten_chain` deduplicates with an insertion-ordered dictionary, and `scheduler.prepare` constructs its steered dictionary in chain order. Production routing was already deterministic.
 
-### CI routing correction
+The outside-walk test now steers below-tier Sonnet and off-chain Terra, asserts both eligible walks and compares whole decisions. Added cases verify that an in-walk steer changes the selected model, and that multiple steers retain policy order regardless of map insertion order. The file passes all **19 tests**, including three 400-example properties.
 
-The failure at `9c8a4dde7` was a test setup error, not nondeterministic ordering. C-11.2 requires flattening the requested tier and all higher tiers in preference order. The test steered Opus while asserting that a standard build's walk was unchanged; that walk is `[opus, astra]`, so steering Opus correctly produces `[astra, opus]`. `policy.flatten_chain` deduplicates with an insertion-ordered dictionary, and `scheduler.prepare` builds its steered dictionary in chain order. Routing therefore already has the deterministic order the contract requires.
+`804545c8b` corrects the four added cached-verdict fixtures to request standard read-only work: an unmeasured hard job requires a C-11.4 probe, so the first full file run had **87 passed, 4 failed** in 1048.88 s (17 min 28 s). The corrected four cases passed separately in **3.31 s**, with 87 deselected; the 87 unchanged cases were already passing. There are **91 passing cases across the two runs**.
 
-The outside-walk regression now steers below-tier Sonnet and off-chain Terra, asserts both hard and standard walks explicitly, and verifies the whole decision stays unchanged. Separate cases prove that steering Opus in the upward walk changes the selected model to Astra, and that steering both models preserves policy order regardless of the steer map's insertion order. No production routing code was changed.
+### Validation
 
-The routing module parses and `git diff --check` passes. Two attempts to execute its pytest file were denied the shared lock after 60 seconds each; no pytest started on either attempt. Additional requested files are being attempted in turn, without parallel pytest processes. Final results are recorded below.
+CPython 3.14.7, free-threaded build; dependencies installed in this workspace with `uv sync --locked --group dev`. One foreground pytest process per shared-lock hold, each with its own fresh TMPDIR and Hypothesis directory, cleaned with the requested Python command. Queue waits were bounded at 60 s, with 180 s attempts for the critical route, corrected replay cases, module names and the final mutation attempt. Every completed hold stayed below 20 minutes; the longest was 17 min 28 s. Lock failures are unrun checks, never passing checks.
 
-### Replay fixture correction
+| File | Result | Test runtime |
+| --- | --- | --- |
+| `tests/unit/test_codex_adapter.py` | 135 passed | 42.56 s |
+| `tests/unit/test_capacity_steer_route.py` | 19 passed | 38.60 s |
+| `tests/fake/test_capacity_steer_daemon.py` | 33 passed | 67.00 s |
+| `tests/unit/test_codex_turn_completed.py` | 41 passed; 1 existing pytest deprecation warning | 15.28 s |
+| `tests/fake/test_codex_turn_completed_fake.py` | 87 passed, then 4 corrected cases passed; 91 distinct cases | 1048.88 s + 3.31 s |
+| `tests/fake/test_finalization_replay.py` | 10 passed | 14.30 s |
+| `tests/unit/test_empty_provider_results.py` | 334 passed | 52.70 s |
+| `tests/unit/test_limit_from_model_text.py` | 95 passed | 25.84 s |
+| `tests/process/test_codex_isolation.py` | 37 passed; 1 detached-grandchild test deselected | 15.96 s |
+| `tests/fake/test_state_contract.py` | 37 passed | 27.07 s |
+| `tests/unit/test_test_module_names.py` | 1 passed | 6.49 s |
 
-The first full run of `tests/fake/test_codex_turn_completed_fake.py` finished with **87 passed, 4 failed** in 1048.88 s (17 min 28 s). The four failures were the new marked-transient cases: their unmeasured fixture requested a hard job, so C-11.4 queued a probe and no attempt existed for `reserve` to return. They now request read-only standard work, which the same lane can admit without a probe. This changes only the four added parameter cases; the 87 passing cases are unchanged. A targeted rerun will check all four corrected cases under a separate lock hold.
+The first mutation attempt was blocked before pytest started; that infrastructure failure was not counted as a kill. The final run completed with **10/10 mutations killed**, each by an actual failing regression. All ten rules still match the merged source, and all source files were restored (`git diff --exit-code` verified). The original tool was invoked through a temporary foreground runner that gives each mutation its own lock hold and TMPDIR, rejects infrastructure failures as mutation kills, and restores source through the tool's existing `finally`. Its E2E cases and the additional replay matrix are excluded from mutation selection: E2E starts detached processes, and the original steering regressions already cover the tool's ten mutations. The full capacity replay matrix passed in the separate 33-case baseline.
+
+The requested files total **833 distinct passing test cases** across their successful runs.
+
+The detached-grandchild process test and E2E files are intentionally unrun under the no-detached-process rule. The full suite and Python 3.12 were not run. `git diff --check` and Python parsing of changed modules pass.
+
+### Local history and delivery
+
+The shared Git metadata rejected `ORIG_HEAD.lock`, and the original `.git` pointer is read-only. Commits therefore use workspace-local `.git-local` metadata on `fix/model-capacity-steer`; the original pointer is unchanged. Use `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD"` for this history. Every commit has the requested co-author trailer. No logs, generated JSON evidence or bundles were staged.
+
+The verified delivery bundle is at `docs/reports/2026-10-13-model-capacity-steer-r207f1.bundle`, ignored by Git, for importing this local commit history. No shared checkout, live state, shared exclude file or remote was changed.
