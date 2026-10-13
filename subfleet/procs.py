@@ -1051,7 +1051,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         for known in lineage_roots:
             if rebooted(known.boot_id):
                 continue
-            groups.update(seen.group(known.pgid))
+            # Sampled groups seed the same descendant walk as groups learned
+            # from recorded writers. Persisting a root must not move unchanged
+            # processes into the original launch-group diagnostic on recheck.
+            recorded_groups.update(seen.group(known.pgid))
         # There is no recorded group before setsid. The two remaining sources
         # still enumerate the guardian and any inherited marker.
         roots = ({pid for pid in {*records_by_pid, guardian_pid, child_pid}
