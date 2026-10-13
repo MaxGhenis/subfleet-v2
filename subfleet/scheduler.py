@@ -259,6 +259,24 @@ def tier_hold(models: frozenset[str] | None, lanes: frozenset[str] | None,
     return None, kept
 
 
+def exact_lanes(models: frozenset[str] | None, lanes: frozenset[str] | None,
+                waiters: Iterable[tuple[str, frozenset[str] | None, frozenset[str] | None]],
+                kept: Mapping[str, str], bound: Iterable[str]) -> frozenset[str]:
+    """C-6.9, C-11.7: the kept lanes whose successor is not kept.
+
+    A lane re-enrolled during a pass is kept as the lane it replaced (`evaluate`),
+    because a competing older job's pin follows it there. A pin bound to the
+    lane id it names (`bound`: an unmeasured-reserve authorization) never
+    follows, so a lane that only such jobs keep keeps only its own id. Any one
+    competing keeper whose pin follows is enough to keep the successor.
+    """
+    bound = set(bound)
+    following = {lane for older, theirs, their_lanes in waiters
+                 if older not in bound and their_lanes and competes(models, theirs, lanes, their_lanes)
+                 for lane in their_lanes}
+    return frozenset(kept) - following
+
+
 def kept_only(decision: Decision | Mapping[str, Any] | None) -> dict[str, str]:
     """C-6.9, C-6.11: the lanes a decision rejected only as kept, each with the older job it is kept for.
 
@@ -436,13 +454,13 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     excluded = job.get("exclusions") or ()
     excluded = set(json.loads(excluded) if isinstance(excluded, str) else excluded)
     kept = dict(job.get("kept_lanes") or {})    # C-6.9: lane id -> the older job pinned there, this pass only
-    exact = set(job.get("kept_exact") or ())    # older jobs whose pin never follows a re-enrolment (C-11.7)
+    exact = set(job.get("kept_exact") or ())    # kept lanes no keeper's pin follows to a successor (C-11.7)
     for lane_id, older in list(kept.items()):
         # C-11.2: admission collected its waiters' lanes before this view was read.
-        # A lane re-enrolled since is the same lane, and the older job's pin now
-        # runs on its successor, so that is kept too, unless that pin is bound to
-        # the lane id it names, as an unmeasured-reserve authorization's is.
-        if older not in exact:
+        # A lane re-enrolled since is the same lane, and an older job's pin now
+        # runs on its successor, so that is kept too, unless every older job
+        # keeping it is bound to the lane id it names (`exact_lanes`).
+        if lane_id not in exact:
             kept.setdefault(current_lane_id(lanes, lane_id), older)
     pin = job.get("pinned_lane")
     task, tier = job.get("task"), job.get("tier")

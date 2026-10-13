@@ -360,7 +360,7 @@ def test_c6_9_evaluate_keeps_the_successor_of_a_kept_lane():
     assert decision.chosen_lane == "claude-11"
     # An older job whose pin never follows (an unmeasured-reserve authorization, C-11.7) keeps only its own id.
     decision = scheduler.evaluate(policy, {"lanes": lanes, "now": utcnow()},
-                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}, "kept_exact": ["w1"]})
+                                  {"pinned_model": "opus", "kept_lanes": {"claude-9": "w1"}, "kept_exact": ["claude-9"]})
     reasons = {row["lane_id"]: row["reasons"] for row in decision.evaluations[0]["rejections"]}
     assert "claude-12" not in reasons and "kept:w1" in reasons["claude-9"]
     assert decision.chosen_lane in ("claude-11", "claude-12")
@@ -379,6 +379,43 @@ def test_c6_9_an_older_authorized_pin_does_not_keep_its_lanes_successor(pinned_f
     service._admit()
     assert attempts_on(service, newer) == ["claude-a2"], service._holds.get(newer)
     assert not service.store.list_attempts(older)
+
+
+def test_c6_9_a_following_keeper_keeps_the_successor_though_an_older_bound_one_does_not(pinned_fleet):
+    """C-6.9, C-11.7 an authorized Opus job and an ordinary Sonnet job both wait for claude-a (they do not
+    compete with each other, so both are waiters); the later job's chain has both models. claude-a is
+    re-enrolled mid-pass. The Sonnet job's pin follows to the successor, so the later job may not take it,
+    though the oldest keeper's pin is bound."""
+    service, harness = pinned_fleet
+    for lane_id in ("claude-b", "codex-1"):
+        close(service, lane_id)
+    bound = submit(service, harness, pinned_model="opus", pinned_lane="claude-a", tier="easy")
+    service.store.update_job(bound, unmeasured_reserve_reason="fixture: a granted authorization")
+    follows = submit(service, harness, pinned_model="sonnet", pinned_lane="claude-a", tier="easy")
+    newer = submit(service, harness, pinned_model=None, task="review", tier="easy")    # sonnet, opus, astra
+    for job_id in (bound, follows):
+        wait_on_capacity(service, job_id, seconds=3600)
+    real = service._workspace
+
+    def workspace(job):
+        if job["job_id"] == newer and not service.store.get_lane("claude-a2"):
+            successor(service, "claude-a", "claude-a2")         # between collecting waiters and evaluating
+        return real(job)
+    service._workspace = workspace
+    service._admit()
+    assert service.store.get_lane("claude-a2") and not service.store.list_attempts(newer), attempts_on(service, newer)
+    assert service._holds[newer]["reason"] == "behind-older-job"
+
+
+def test_c6_9_exact_lanes_are_those_only_bound_keepers_keep():
+    a, b = frozenset({"claude-a"}), frozenset({"claude-b"})
+    opus = frozenset({"opus"})
+    waiters = [("w1", opus, a), ("w2", opus, a), ("w3", opus, b), ("w4", frozenset({"astra"}), b)]
+    kept = {"claude-a": "w1", "claude-b": "w3"}
+    assert scheduler.exact_lanes(opus, None, waiters, kept, {"w1"}) == frozenset()            # w2 follows to a's successor
+    assert scheduler.exact_lanes(opus, None, waiters, kept, {"w1", "w2"}) == {"claude-a"}
+    assert scheduler.exact_lanes(opus, None, waiters, kept, {"w3"}) == {"claude-b"}            # w4 does not compete
+    assert scheduler.exact_lanes(opus, None, waiters, kept, set()) == frozenset()
 
 
 # --- one rule, stated once (C-6.11) -----------------------------------------------------------------
