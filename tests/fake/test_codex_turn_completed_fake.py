@@ -133,6 +133,77 @@ def test_cut_off_verdict_survives_finalization_replay(state_daemon, monkeypatch)
     assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
 
 
+@pytest.mark.parametrize("source", ("error-event", "stderr"))
+@pytest.mark.parametrize("path", ("fresh", "cached", "recovery"))
+def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypatch, source, path):
+    """Review r2 P1: reproduce 4658ea6d2's auth verdict on a completed run."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    job_id, attempt, adir = reserve(daemon, harness, out_path=str(out))
+    adapter = CodexAdapter()
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "success")
+    diagnostic = "Your refresh token was revoked."
+    error = {"type": "error", "message": diagnostic}
+    events = ([error] if source == "error-event" else []) + [
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "Finished."}},
+        {"type": "turn.completed"},
+    ]
+    (adir / "stdout").write_text("".join(json.dumps(event) + "\n" for event in events))
+    (adir / "stderr").write_text(diagnostic if source == "stderr" else "")
+    fresh = adapter.classify(adir, launch, ExitInfo(0, None, .1, None, None))
+    assert fresh.cls == OutcomeClass.OK
+    frozen = None
+    if path != "fresh":
+        # These are the exact fields the pre-merge classifier recorded: it
+        # checked authentication before the same verified-success evidence.
+        legacy = replace(fresh, cls=OutcomeClass.AUTH_DEAD, detail="Subscription authentication rejected",
+                         evidence={**fresh.evidence, "authentication": error if source == "error-event" else diagnostic,
+                                   "admission": None})
+        attest = adapter.attest(adir, launch, legacy, attempt["model_requested"])
+        frozen = json.dumps({"outcome": asdict(legacy), "attestation": asdict(attest)})
+        (adir / "finalization.json").write_text(frozen)
+        monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
+        notice = daemon._notice
+        def crash(*args):
+            raise RuntimeError("interrupted before acceptance")
+        monkeypatch.setattr(daemon, "_notice", crash)
+        with pytest.raises(RuntimeError, match="interrupted before acceptance"):
+            daemon._finalize(finalizing)
+        assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
+        assert (adir / "deliverable.md").read_bytes() == b"Finished."
+        monkeypatch.setattr(daemon, "_notice", notice)
+    successor = None
+    try:
+        if path == "recovery":
+            daemon.close()
+            successor = daemon = Daemon(harness.root)
+            monkeypatch.setattr(daemon, "_launch", lambda *args: pytest.fail("recovery must not launch"))
+            daemon._process_attempt(attempt["attempt_id"])
+        else:
+            daemon._finalize(finalizing)
+        job = daemon.store.get_job(job_id)
+        assert (job["state"], job["accepted_attempt_id"]) == ("succeeded", attempt["attempt_id"])
+        row = daemon.store.get_attempt(attempt["attempt_id"])
+        assert (row["outcome_class"], row["rc"], row["killed_by"]) == ("ok", 0, None)
+        assert out.read_bytes() == b"Finished."
+        assert daemon.store.get_lane(attempt["lane_id"]).enabled
+        assert daemon.store.list_closures() == []
+        evidence = json.loads(row["evidence_json"])
+        assert evidence["classification"]["turn_completed"] is True
+        assert evidence["classification"]["last_event_type"] == "turn.completed"
+        if frozen is not None:
+            assert (adir / "finalization.json").read_text() == frozen
+            assert evidence["provider_verdict"] == {
+                "class": "auth-dead", "detail": "Subscription authentication rejected", "killed_by": None}
+        daemon._finalize(row)  # Terminal attempts stay untouched; no second notice/export.
+        assert daemon.store.get_attempt(attempt["attempt_id"]) == row
+        assert len(daemon.store.list_notices()) == 1
+    finally:
+        if successor is not None:
+            successor.close()
+
+
 @pytest.mark.parametrize("path", ("fresh", "cached", "legacy", "recovery"))
 @pytest.mark.parametrize("complete", (False, True))
 @pytest.mark.parametrize("rc", (0, 1))
