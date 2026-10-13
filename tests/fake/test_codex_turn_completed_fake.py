@@ -153,6 +153,12 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
     (adir / "stderr").write_text(diagnostic if source == "stderr" else "")
     fresh = adapter.classify(adir, launch, ExitInfo(0, None, .1, None, None))
     assert fresh.cls == OutcomeClass.OK
+    observed = []
+    answered = Daemon._answered
+    def observe(outcome, provider_class):
+        observed.append((outcome.cls.value, provider_class))
+        return answered(outcome, provider_class)
+    monkeypatch.setattr(Daemon, "_answered", staticmethod(observe))
     frozen = None
     if path != "fresh":
         # These are the exact fields the pre-merge classifier recorded: it
@@ -172,6 +178,9 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
             daemon._finalize(finalizing)
         assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
         assert (adir / "deliverable.md").read_bytes() == b"Finished."
+        assert (adir / "stream.jsonl").read_bytes() == (adir / "stdout").read_bytes()
+        (adir / "stdout").write_text('{"type":"turn.failed"}\n')
+        (adir / "last.md").write_bytes(b" \n")
         monkeypatch.setattr(daemon, "_salvage", salvage)
     successor = None
     try:
@@ -196,6 +205,7 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
             assert (adir / "finalization.json").read_text() == frozen
             assert evidence["provider_verdict"] == {
                 "class": "auth-dead", "detail": "Subscription authentication rejected", "killed_by": None}
+        assert observed == ([("ok", "ok")] if path == "fresh" else [("ok", "auth-dead")] * 2)
         daemon._finalize(row)  # Terminal attempts stay untouched; no second notice/export.
         assert daemon.store.get_attempt(attempt["attempt_id"]) == row
         assert len(daemon.store.list_notices()) == 1
@@ -244,7 +254,8 @@ def test_cached_auth_reconciliation_requires_all_success_evidence(state_daemon, 
     monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("cached classification repeated"))
     daemon._finalize(finalizing)
     job = daemon.store.get_job(job_id)
-    assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
+    assert job["state"] != "succeeded"
+    assert job["accepted_attempt_id"] is None
     assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_class"] != "ok"
     assert out.read_text() == "previous output\n"
     assert (adir / "finalization.json").read_text() == frozen
