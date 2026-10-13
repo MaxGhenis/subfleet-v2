@@ -206,19 +206,31 @@ def test_c6_12_a_stored_exclusion_that_is_not_a_lane_name_is_its_jobs_problem(ro
                    "the fix adds holds and needs its own review)")
 def test_c6_9_a_waiting_job_held_behind_an_older_one_still_holds_its_own_competitors(fleet):
     """C-6.9 (P2): "A job that cannot be placed on this pass (it is `waiting` on `capacity` with a
-    `next_check_at` still ahead, ...) holds back the later jobs of its tier that compete with it". X waits
-    on capacity with its clock ahead and is held behind W (they share Astra); Y competes with X (Opus)
-    but not with W. Without W, Y is held behind X; with W, Y is placed past X, because `_admit_pass` checks
-    `behind` before it registers a clocked capacity wait as a waiter."""
+    `next_check_at` still ahead, ...) holds back the later jobs of its tier that compete with it". X's
+    own looks find no lane and set its clock; then a cap is set, a Claude lane opens, and X, its clock
+    still ahead, is held behind W (they share Astra). Y competes with X (Opus) but not with W. Without W,
+    Y is held behind X; with W, Y is placed past X, because `_admit_pass` checks `behind` before it
+    registers a clocked capacity wait as a waiter."""
     service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = None    # no job holds another back while X looks
     closed(service, "codex-1")
+    closed(service, "claude-a")
     older = submit(service, harness, pinned_model="astra")
-    waiting(service, older, 600)
     middle = submit(service, harness, pinned_model=None, task="review", tier="standard")   # opus, astra
-    waiting(service, middle, 20)
+    service._admit()
+    for _ in range(3):                                      # X's verdict repeats, so its clock backs off (C-6.10)
+        due(service, middle)
+        service._admit()
+    looked = service.store.get_job(middle)
+    assert (looked["state"], looked["wait_reason"]) == ("waiting", "capacity") and len(rows(service, middle)) == 1
+    assert service._holds[middle]["reason"] == "closed:account" and looked["next_check_at"] > after(5)
+    service.policy["caps"]["max_active_attempts"] = 10     # the operator sets a cap
+    with service.store.transaction("fixture.claude_a_opens") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id='claude-a'", (utcnow(),))
     younger = submit(service, harness, pinned_model="opus")
     service._admit()
-    assert service._holds[middle]["behind"] == older
+    assert service.store.get_job(middle)["next_check_at"] == looked["next_check_at"]   # X was not looked at
+    assert service._holds[middle] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
     assert service._holds.get(younger) == {"reason": "behind-older-job", "behind": middle, "tier": "standard"}
 
 
@@ -252,7 +264,8 @@ def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(rou
     """C-6.10 (P4): "a recheck that reaches the verdict it reached last time adds no decision row". A
     terra job whose output path another job holds waits `lease-held` while the fleet has room and
     `slot-kept` while it does not: an older job waiting for its own output path keeps the last slot
-    (C-6.9, which also says it holds no job back). Every look chooses one lane with one verdict; each
+    (C-6.9, which also says it holds no job back). The job is pinned to codex-1, so every look chooses
+    the same lane and reaches the same verdict (checked at each evaluation, not only in the rows); each
     return to `slot-kept` records it again."""
     service, harness = routing_state
     service.policy["caps"]["max_active_attempts"] = 3
@@ -261,7 +274,15 @@ def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(rou
         measured(service, lane_id)
     kept_out, out = str(harness.root / "kept.md"), str(harness.root / "report.md")
     keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
-    job = submit(service, harness, pinned_model="terra", out_path=out)
+    job = submit(service, harness, pinned_model="terra", pinned_lane="codex-1", out_path=out)
+    verdicts, pick = [], service._pick
+
+    def recording(row, **kwargs):
+        decision = pick(row, **kwargs)
+        if row["job_id"] == job:
+            verdicts.append(scheduler.verdict_signature(decision))
+        return decision
+    service._pick = recording
     assert service.store.acquire_lease(f"out:{kept_out}", "another-job")
     assert service.store.acquire_lease(f"out:{out}", "another-job")
     fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
@@ -275,8 +296,9 @@ def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(rou
         due(service, keeper), due(service, job)
         service._admit()                                    # 1 live at its look; the new filler starts after
         assert service._holds[job]["reason"] == "lease-held"
+    assert len(verdicts) >= 7 and len(set(verdicts)) == 1  # one verdict at every look, on codex-1
     signatures = {scheduler.verdict_signature(json.loads(row["decision_json"])) for row in rows(service, job)}
-    assert len(signatures) == 1
+    assert signatures == set(verdicts)
     assert len(rows(service, job)) == 1
 
 

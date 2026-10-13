@@ -424,8 +424,8 @@ class AdmissionMachine(RuleBasedStateMachine):
                 claude=st.lists(st.sampled_from((None,) + NAMES), min_size=0, max_size=2),
                 codex_email=st.sampled_from((None,) + NAMES), second_codex=st.booleans(),
                 capacity=st.lists(CAPACITY, max_size=4), queue=st.lists(JOB, max_size=6),
-                probe=st.sampled_from(PROBE_MODES))
-    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe):
+                probe=st.sampled_from(PROBE_MODES), prove=st.sampled_from((None, 900)))
+    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove):
         """A fleet (its caps, the reserve (C-11.7) on or off, lanes whose names may collide), the
         capacity it starts with, and a queue submitted before the first pass sees any of it."""
         self.root = self.tmp / "state"
@@ -435,6 +435,9 @@ class AdmissionMachine(RuleBasedStateMachine):
         policy["caps"].update(max_active_attempts=cap, max_in_flight_per_lane=per_lane)
         # C-11.7 reserved Fable until its retirement; the rule is the same for any model, so Opus here.
         policy["reserve"]["models"] = ["opus"] if reserve else []
+        # C-6.14: every lane starts never having answered, so with the pilot hold on (the Harness turns
+        # it off) each takes one detached attempt at a time until one answers.
+        policy["admission"]["prove_idle_s"] = prove
         (self.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         self.service = self.start()
         self.probe_mode = probe
@@ -446,7 +449,8 @@ class AdmissionMachine(RuleBasedStateMachine):
             # C-11.2, the 2026-09-22 roster: a Codex lane answers to the email its usage probe read.
             self.report_email("codex-1", codex_email)
         note(f"fleet: cap={cap} per_lane={per_lane} reserve={reserve} lanes="
-             f"{[(lane['lane_id'], lane['label']) for lane in self.roster()]} codex-1 email={codex_email} probe={probe}")
+             f"{[(lane['lane_id'], lane['label']) for lane in self.roster()]} codex-1 email={codex_email} probe={probe} "
+             f"prove_idle_s={prove}")
         for change in capacity:
             self.change_capacity(change)
         for job in queue:
@@ -707,6 +711,21 @@ class AdmissionMachine(RuleBasedStateMachine):
             # asks again on the job's clock: `next_check_at`, and `for_good`, which "a pass that asks it
             # again on the job's clock replaces ... with its own answer" (C-11.8).
             asked_again = ("next_check_at", "for_good")
+            if reason == "probe-pending":
+                # C-6.9: "each detached pass builds the line again", so whose turn the probe is (`behind`)
+                # is this pass's answer, not the last look's.
+                asked_again += ("behind",)
+                owner = hold.get("behind")
+                if owner is not None:
+                    order = lambda job_id: (self.policy["tiers"].index(tier_of(self.policy, after[job_id])),  # noqa: E731
+                                            self.seq[job_id])
+                    assert owner in self.pending(after) and order(owner) < order(job_id), (
+                        f"C-6.9: {job_id} waits for the probe turn of {owner}, which is not pending ahead of it")
+                    assert holds.get(owner, {}).get("reason") == "probe-pending" and (
+                        not hold.get("model") or not holds[owner].get("model")
+                        or holds[owner]["model"] == hold["model"]), (
+                        f"C-6.9: {job_id} waits for the probe turn of {owner}, whose hold {holds.get(owner)} "
+                        f"waits on no probe of {hold.get('model')}")
             if job_id in self.looks:
                 self.last_look[job_id] = {key: value for key, value in hold.items() if key not in asked_again}
             elif (job_id in self.last_look and "next_check_at" in hold and reason not in HOLD_NOBODY
@@ -759,13 +778,15 @@ class AdmissionMachine(RuleBasedStateMachine):
             live += 1
             job_id = row["job_id"]
             # C-6.9: an older waiter holds back only in a pool with a count cap, and only while it waits for a
-            # slot or a lane (not for a probe's turn, a pilot, a moved route, nor for good).
-            waiting = [older for older in pending
-                       if self.capped() and self.seq[older] < self.seq[job_id]
-                       and tier_of(self.policy, after[older]) == tier_of(self.policy, after[job_id])
-                       and "for_good" not in holds.get(older, {}) and "behind" not in holds.get(older, {})
-                       and holds.get(older, {}).get("reason") not in HOLD_NOBODY | {
-                           "behind-older-job", "waiting", "route-moved", "lane-proving", None}]
+            # slot, a lane or a probe (a pilot's lane and a moved route included, C-6.11, C-6.14), never for
+            # good (C-11.8) and never for a lease, though a lease waiter keeps the last slot.
+            older_jobs = [older for older in pending
+                          if self.capped() and self.seq[older] < self.seq[job_id]
+                          and tier_of(self.policy, after[older]) == tier_of(self.policy, after[job_id])
+                          and "for_good" not in holds.get(older, {})]
+            waiting = [older for older in older_jobs if holds.get(older, {}).get("reason") not in
+                       HOLD_NOBODY | {"behind-older-job", "waiting", None}]
+            keepers = waiting + [older for older in older_jobs if holds.get(older, {}).get("reason") == "lease-held"]
             for older in waiting:
                 assert not all(compete(mine, theirs) for mine in demand[job_id] for theirs in demand[older]), (
                     f"P2, C-6.9: {job_id} was placed past {older}, an older job of its tier that competes with it "
@@ -773,8 +794,8 @@ class AdmissionMachine(RuleBasedStateMachine):
                     f"{ {key: before[older][key] for key in ('state', 'wait_reason', 'next_check_at')} } "
                     f"and {job_id} {self.describe(after[job_id], roster)}; looked at: "
                     f"{sorted(self.looks & {older, job_id})}")
-            if waiting and cap is not None:
-                assert live <= cap - 1, (f"C-6.9: {job_id} passed waiting {waiting} and left no slot free "
+            if keepers and cap is not None:
+                assert live <= cap - 1, (f"C-6.9: {job_id} passed waiting {keepers} and left no slot free "
                                          f"({live} live, max_active_attempts {cap})")
 
     def describe(self, job, roster) -> str:
@@ -834,8 +855,8 @@ class AdmissionMachine(RuleBasedStateMachine):
     # --- P3 and P4 over many passes ---------------------------------------------------------------
 
     def boundaries(self, until: datetime) -> list[datetime]:
-        """The instants at which capacity changes by itself: a reading going stale or resetting, a
-        closure expiring. A verdict may change there, and C-6.10 checks a known reset on time."""
+        """The distinct instants at which capacity changes by itself: a reading going stale or
+        resetting, a closure expiring, a pilot's wait lapsing or a lane's proof going stale. A verdict may change there, and C-6.10 checks a known reset on time."""
         ttl = self.policy["caps"]["reading_ttl_s"]
         instants = []
         for row in self.store.list_readings():
@@ -853,7 +874,13 @@ class AdmissionMachine(RuleBasedStateMachine):
         if wait_s:
             instants += [parse(row["reserved_at"]) + timedelta(seconds=wait_s) for row in self.live()
                          if row.get("reserved_at")]
-        return [instant for instant in instants if self.clock.instant < instant <= until]
+        # C-6.14: a lane is proven for `prove_idle_s` after its last answer; then an attempt in flight
+        # on it that has not answered is its pilot.
+        idle_s = (self.policy.get("admission") or {}).get("prove_idle_s")
+        if idle_s:
+            instants += [datetime.fromtimestamp(last + idle_s, timezone.utc)
+                         for last in self.service._lane_answers.values()]
+        return sorted({instant for instant in instants if self.clock.instant < instant <= until})
 
     @precondition(lambda self: self.service is not None)
     @rule(minutes=st.integers(2, 10))
@@ -865,13 +892,15 @@ class AdmissionMachine(RuleBasedStateMachine):
         end = self.clock.instant + timedelta(minutes=minutes)
         boundaries = len(self.boundaries(end))
         looks, placements, passes = Counter(), 0, 0
-        while self.clock.instant < end and passes < 400:
+        # A step is at least a second, so this many passes always reach the end of the stretch.
+        while self.clock.instant < end and passes <= 60 * minutes:
             placed_before = len(self.store.list_attempts())
             self.admission_pass()
             passes += 1
             placements += len(self.store.list_attempts()) - placed_before
             looks.update(self.looks)
             self.clock.advance(self.next_step(end))
+        assert self.clock.instant >= end, f"P4: the quiet stretch stopped {end - self.clock.instant} short"
         for job_id, count in looks.items():
             if job_id not in self.pending(self.jobs()):
                 continue
@@ -925,9 +954,9 @@ class AdmissionMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.service is not None)
     @rule()
     def fair_capacity_drains_the_queue(self):
-        """P3 (C-6.9): with capacity fair and every attempt ending as soon as it starts, each job some
-        lane would take is placed within a few passes, unless an older job that competes with it can
-        never be placed (a pin that names no lane, exclusions that cover every lane)."""
+        """P3 (C-6.9, C-11.8): with capacity fair and every attempt ending as soon as it starts, each job
+        some lane would take is placed within a few passes. A job no lane can admit (a pin that names
+        no lane, exclusions that cover every lane) holds nobody back and keeps no slot."""
         for _ in range(len(self.pending(self.jobs())) + 4):
             for attempt in self.live():
                 self.finish(attempt, "ok")
@@ -948,47 +977,12 @@ class AdmissionMachine(RuleBasedStateMachine):
         pending = self.pending(jobs)
         placeable = {job_id: self.placeable(job) for job_id, job in pending.items()}
 
-        demands = {job_id: self.demands(job, roster) for job_id, job in pending.items()}
-        known: dict[str, bool] = {}
-
-        def stuck(job_id) -> bool:
-            """Left pending for a reason fair capacity cannot end: the job can never be placed, or the
-            job its hold names is stuck (C-6.9 keeps a competitor behind it, or a slot for it). Holds
-            only ever name older jobs, so this walks a DAG and each answer is kept."""
-            if job_id not in pending:
-                return False
-            if job_id not in known:
-                known[job_id] = not placeable[job_id] or held(job_id)
-            return known[job_id]
-
-        def held(job_id) -> bool:
-            hold = holds.get(job_id, {})
-            if hold.get("reason") in ("behind-older-job", "slot-kept"):
-                return stuck(hold.get("behind") or hold.get("kept_for"))
-            if hold.get("reason") in ("approval", "uncertain", "workspace"):
-                # C-6.11 reports such a wait "even when ... an older job is also ahead of it", so the
-                # hold does not name it: a job held behind one is never looked at, and its wait stays.
-                return any(self.seq[older] < self.seq[job_id]
-                           and tier_of(self.policy, jobs[older]) == tier_of(self.policy, jobs[job_id])
-                           and any(compete(mine, theirs) for mine in demands[job_id] for theirs in demands[older])
-                           and stuck(older) for older in pending)
-            return False
-
         for job_id, lane in placeable.items():
-            if not lane:
-                continue
-            hold = holds.get(job_id, {})
-            older = hold.get("behind") or hold.get("kept_for")
-            assert held(job_id), (
+            # C-6.9, C-11.8: no job waits behind, or is kept out of a slot for, a job that no lane can
+            # admit, and with every attempt ending as it starts the pass order places every other job.
+            assert not lane, (
                 f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} could run on {lane} under fair "
-                f"capacity and is still pending after {self.passes} passes: {hold}")
-            # P3 (C-6.9, C-11.8): a slot is never kept for a job no lane can admit, so slot-keeping never
-            # starves a job that does not compete with the one it is kept for.
-            assert not (hold["reason"] == "slot-kept" and not placeable.get(older) and not any(
-                compete(mine, theirs) for mine in demands[job_id] for theirs in demands[older])), (
-                f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} is starved by the slot kept for "
-                f"{older} {self.describe(jobs[older], roster)}, which can never use it and does not compete "
-                f"with it")
+                f"capacity and is still pending after {self.passes} passes: {holds.get(job_id)}")
 
 
 AdmissionMachine.TestCase.settings = PROFILE
