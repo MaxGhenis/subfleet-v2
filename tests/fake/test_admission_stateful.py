@@ -835,8 +835,17 @@ class AdmissionMachine(RuleBasedStateMachine):
                        HOLD_NOBODY | {"behind-older-job", "waiting", None}]
             keepers = waiting + [older for older in older_jobs if holds.get(older, {}).get("reason") == "lease-held"]
             for older in waiting:
+                wanted = demand[job_id]
+                original = walked_models(self.policy, after[older])
+                remaining = demand[older][0][0]
+                skipped = original - remaining if original is not None and remaining is not None else frozenset()
+                if skipped and any(mine[0] is not None and skipped & mine[0] for mine in wanted):
+                    # C-6.9: a job trying a model steered away from the waiter
+                    # competes on the model actually selected for its attempt.
+                    selected = resolve_model(self.policy, row["model_requested"], note=False)
+                    wanted = [(frozenset({selected}), mine[1]) for mine in wanted]
                 assert not all(self.holds_back(theirs, mine, provider, roster)
-                               for mine in demand[job_id] for theirs in demand[older]), (
+                               for mine in wanted for theirs in demand[older]), (
                     f"P2, C-6.9: {job_id} was placed on {row['lane_id']} past {older}, an older job of its tier "
                     f"that competes with it and could not be placed ({holds[older]}); before the pass {older} was "
                     f"{ {key: before[older][key] for key in ('state', 'wait_reason', 'next_check_at')} } "
