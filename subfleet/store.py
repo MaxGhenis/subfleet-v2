@@ -336,6 +336,7 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
+                    # The schema file creates any table absent from an old store.
                     if not present or column in present:
                         continue
                 self.connection.execute(statement)

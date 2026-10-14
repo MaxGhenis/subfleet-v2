@@ -2657,6 +2657,7 @@ class Daemon:
             pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
+            needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),
             independent=True, allow_tmp=True, no_preamble=not preamble, mcp_servers=list(recorded))
         resume = {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
                   "native_session_id": native, "lane_id": attempt["lane_id"],
@@ -3849,7 +3850,7 @@ class Daemon:
         quarantine's release whose salvage failed or left paths out (C-13.1),
         found after the job's notice went out at the quarantine.
         """
-        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind "
+        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind,sandbox "
                          "FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
         if row is not None and row["kind"] == "turn":
             return      # C-26.12: the conversation, not a notice, carries a turn's end
@@ -3860,7 +3861,7 @@ class Daemon:
             return
         latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
                             (row["job_id"],)).fetchone()
-        notice_job = {**dict(row), "sandbox": job["sandbox"], "attempt": dict(latest) if latest else None}
+        notice_job = {**dict(row), "attempt": dict(latest) if latest else None}
         text = render.notice_header(notice_job, self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))

@@ -220,3 +220,20 @@ def test_shell_requirement_demand_does_not_compete_for_opus():
               'retired': {}, 'tiers': ['hard'], 'chains': {'review': [['opus', 'luna']]}}
     assert scheduler.demand_models(policy, {'task': 'review', 'tier': 'hard',
         'sandbox': 'read-only', 'needs_shell': True}) == frozenset({'luna'})
+
+
+
+def test_resume_keeps_explicit_shell_opt_out(shell_state):
+    service, harness = shell_state
+    source = service.dispatch('submit', harness.submit_args(pinned_model='opus', task='review', needs_shell=False))['job_id']
+    service._admit()
+    attempt, = service.store.list_attempts(source)
+    service.store.update_attempt(attempt['attempt_id'], native_session_id='fixture-native-session')
+    adir = service.root / 'jobs' / source / 'a1'
+    adir.mkdir()
+    service._finalize(receipt_fixture(service, attempt, adir))
+    resumed = service.dispatch('submit', harness.submit_args(kind='resume', parent_job_id=source))['job_id']
+    assert service.store.get_job(resumed)['needs_shell'] is False
+    service._admit()
+    continued, = service.store.list_attempts(resumed)
+    assert continued['lane_id'] == 'claude-10' and continued['has_shell'] is False
