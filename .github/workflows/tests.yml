@@ -16,23 +16,26 @@ jobs:
   tests:
     name: Python ${{ matrix.python }} on macOS, shard ${{ matrix.shard }}
     runs-on: macos-15
-    # The release line's suite outgrew one job. It took 12 min 22 s on 2026-09-27
-    # (6,228 tests), and the limit went 15 -> 30 -> 50 -> 75 as it grew. On
-    # 2026-10-12/13 (12,658 tests) the test step took 64 min at the median and 71
-    # at the 95th percentile of 82 passing jobs, and 3.14 was cancelled at 75
-    # three times (D-CI2). Each job now runs one shard of the suite, serially as before,
-    # so timing-sensitive tests see the same load (pytest-xdist on one runner made
-    # them fail far more often: #94, #98). tools/ci_shard_plugin.py splits the test
-    # files by measured time (.github/test-shards.json) into shards of about 17
-    # minutes. The limit leaves room for one test to hang until its per-test bound.
-    # Add a shard when a shard's 95th percentile passes half the limit.
+    # The release line's suite outgrew one job: 12 min 22 s on 2026-09-27 (6,228
+    # tests), and the limit went 15 -> 30 -> 50 -> 75 as it grew. On 2026-10-12/13
+    # (12,658 tests) the test step took 64 min at the median and 71 at the 95th
+    # percentile of 82 passing jobs, and 3.14 was cancelled at 75 three times
+    # (D-CI2). Each job now runs one shard, serially as before, so timing-sensitive
+    # tests see the same load (pytest-xdist on one runner made them fail far more
+    # often: #94, #98). tools/ci_shard_plugin.py splits the test files by measured
+    # time (.github/test-shards.json). On 2026-10-12/13 five of this repository's
+    # macOS jobs ran at once most of the time while the rest queued, so five
+    # shards per interpreter make two full waves of five jobs.
+    # The limit leaves room for one test to run to its 20-minute bound.
+    # tests/unit/test_ci_shard_plugin.py fails once a predicted shard passes half
+    # the limit: then add a shard and regenerate the map.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
         # Every entry is I/N for one N, I = 1..N (tests/unit/test_ci_shard_plugin.py checks).
-        shard: ["1/4", "2/4", "3/4", "4/4"]
+        shard: ["1/5", "2/5", "3/5", "4/5", "5/5"]
     env:
       SHARD: ${{ matrix.shard }}
     steps:

@@ -3,7 +3,9 @@
 Each test file belongs to exactly one of N shards, so N jobs with I = 1..N run
 every test once, serially, as one job did before (D-CI2). The shard is decided
 per file before pytest imports it (``pytest_ignore_collect``), so a shard only
-collects its own files.
+collects its own files. pytest asks that hook only about files it discovers
+(``testpaths``), so give a shard run no path arguments: a file named on the
+command line always runs.
 
 Where a file goes is a pure function of its path and the checked-in map
 (``.github/test-shards.json``): every shard job of a run computes the same
