@@ -47,7 +47,7 @@ from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
-from .adapters.base import AdapterError
+from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
@@ -8061,7 +8061,11 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            contents = read_regular(path)          # only a regular file is an artifact
+            if role == "raw-stream":
+                with open_stream(path) as stream:
+                    contents = stream.read()
+            else:
+                contents = read_regular(path)      # only a regular file is an artifact
         except (FileNotFoundError, NotRegularFile):
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
@@ -8100,12 +8104,14 @@ class Daemon:
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment when no separate raw file was supplied.
-        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+        # stream once after containment only when both frozen candidates are absent.
+        # Do not shadow an authoritative canonical entry with a new custom file.
+        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
+                                             (launch.raw_stream_path, adir / "stream.jsonl")):
             try:
                 data = read_regular(Path(launch.stdout_path))       # never waiting in open()
             except (FileNotFoundError, NotRegularFile):
-                data = None                                        # none there, as `is_file()` had said
+                data = None                                        # no regular stdout to freeze
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
@@ -8150,6 +8156,13 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
+        # C-12.6: cached acceptance uses the fresh provider's content boundary,
+        # not the artifact's byte count. Preserve the captured payload itself.
+        nonblank_deliverable = False
+        if deliverable:
+            payload = read_regular(deliverable_path)
+            nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
+                                       if lane.provider == "claude" else payload.strip())
         # finalization.json keeps the adapter's verdict. Reconciliation and
         # overrides use the frozen stream, captured deliverable, exit receipt
         # and attempt row on every replay (C-4.3), before any lane, closure or
@@ -8163,7 +8176,7 @@ class Daemon:
             if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
                     and completion["turn_completed"] and not completion["turn_failed"]
                     and not spawn_error and not actual.get("killed_by")
-                    and deliverable and read_regular(deliverable_path).strip()):
+                    and nonblank_deliverable):
                 # C-9.2: an older daemon's authentication/text verdict can precede
                 # verified success. The captured bytes decide presence; never
                 # reclassify or re-extract a result already frozen on disk.
@@ -8199,7 +8212,7 @@ class Daemon:
             if not completion["turn_completed"]:
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
                                               detail="Codex exited before its turn completed")
-        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
+        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and not nonblank_deliverable:
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if not lost and self._answered(outcome, provider_verdict["class"]):
             # C-6.14: before the attempt leaves flight, so a pilot that answered and
