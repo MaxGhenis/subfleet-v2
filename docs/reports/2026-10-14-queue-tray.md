@@ -94,11 +94,16 @@ assertion expected no viewport follow when the live strip appeared, and was
 updated to expect the anchored jump. The final 44-case rerun is queued. The
 final Swift source builds through `app/build.sh` with the release target and
 signing checks. Existing Swift Sendable-capture and unnecessary-await warnings
-remain. Per-file results and the shared-lock omissions are recorded below.
+remain. The first broader batch passed 83 of 84 cases in 19m52s. Its one
+failing approval-timeline property still excluded queued continuations in its
+reference, which conflicts with the required failover fix. Commit `3c0ba3226`
+updates that independent reference from `next_dispatchable`, including missed
+repairs and wakes, and adds a concrete regression. The corrected 41-case file
+is queued for a rerun. Per-file results and shared-lock omissions follow.
 
 Tests run as foreground, one pytest per shared lock hold,
-with temporary Hypothesis storage, bounded 40-example CI profiles and no deep
-profile. The 300-case coverage check runs independent timelines in groups of five
+with temporary Hypothesis storage and no deep profile. New queue properties
+use bounded 40-example CI settings; existing properties keep their bounded settings. The 300-case coverage check runs independent timelines in groups of five
 per native process to avoid excessive launches. Native
 probes host views offscreen and use synthetic state; the app is built but never
 installed or launched.
@@ -126,16 +131,18 @@ reopening the conversation. This is outside the rebuild's requested scope.
 
 ## Counts per file
 
-These are the latest completed runs per file. A pending run is not counted as
-a pass. The broad runner has not acquired the lock for its second batch yet.
+These are the latest completed runs per file as of 12:44 UTC. A pending run
+is not counted as a pass. Foundation and approval-reference reruns and the
+remaining broad batches are still queued. The foreground runner remains active;
+the sandbox denied a signal to its wrapper, so it was left unchanged.
 
 | File | Result |
 | --- | --- |
-| `tests/frontend/test_app_cutover_start.py` | 0 run: shared-lock queue |
-| `tests/frontend/test_conversation_view.py` | 0 run: shared-lock queue |
-| `tests/frontend/test_core_app_cutover_reading.py` | 0 run: shared-lock queue |
-| `tests/frontend/test_core_approval_notification.py` | 0 run: shared-lock queue |
-| `tests/frontend/test_core_approval_reach.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_app_cutover_start.py` | 13 passed |
+| `tests/frontend/test_conversation_view.py` | 6 passed |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 passed |
+| `tests/frontend/test_core_approval_notification.py` | 10 passed |
+| `tests/frontend/test_core_approval_reach.py` | 39 passed, 1 old continuation-reference property failed; corrected; 41-case rerun queued |
 | `tests/frontend/test_core_client.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_diff.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_draft.py` | 0 run: shared-lock queue |
@@ -147,7 +154,7 @@ a pass. The broad runner has not acquired the lock for its second batch yet.
 | `tests/frontend/test_core_protocol.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_question_card.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_queue_engine.py` | 75 passed |
-| `tests/frontend/test_core_queue_tray.py` | 43 passed, 1 stale viewport expectation failed; expectation corrected; final 44-case rerun pending |
+| `tests/frontend/test_core_queue_tray.py` | 43 passed, 1 stale viewport expectation failed; corrected; final 44-case rerun queued |
 | `tests/frontend/test_core_search.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_steer.py` | 43 passed |
 | `tests/frontend/test_core_steer_properties.py` | 0 run: shared-lock queue |
