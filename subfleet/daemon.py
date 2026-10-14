@@ -5911,7 +5911,16 @@ class Daemon:
             turn = (scheduler.probe_turn(probe_line, probing["lane"], probing["model"])
                     if probing and probing.get("behind") else None)
             turn_came = bool(probing and probing.get("behind") and turn is None)
-            hurried = bool(freed and known and known["expedite"]) or turn_came
+            # C-6.9, C-6.11: likewise held behind an older job by its last look (a provider's FIFO,
+            # C-6.4a, or a retry that let its pin go, C-6.12), and that job holds it back on this pass no
+            # longer: it started or ended, it waits for a lease, or no lane can admit it (C-11.8). Its turn
+            # has come. Left to its clock, it repeated a hold naming a job that holds nobody back (stateful
+            # admission properties, P2, 2026-10-14; reachable on release/217).
+            held_for = (known["hold"].get("behind")
+                        if known and known["hold"].get("reason") == "behind-older-job" else None)
+            ahead_gone = bool(held_for and not any(waiter[0] == held_for and not waiter[3]
+                                                   for waiter in older_waiters(tier)))
+            hurried = bool(freed and known and known["expedite"]) or turn_came or ahead_gone
             clocked = bool(job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried)
             if not clocked and not stopped and may_stop:
                 # C-6.10: a lane that opened after this pass began was not offered to
