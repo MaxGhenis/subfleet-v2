@@ -978,3 +978,11 @@ def test_an_admission_reading_with_no_recorded_model_scopes_to_the_account(tmp_p
     )
     assert [r.scope for r in readings] == ["account"]
     assert readings[0].label is ReadingLabel.ADMISSION_OBSERVED
+
+
+@pytest.mark.parametrize('sandbox,expected', [(Sandbox.READ_ONLY, False), (Sandbox.WORKSPACE_WRITE, True)])
+def test_d_sh1_launch_notes_report_actual_shell(adapter, tmp_path, sandbox, expected):
+    launch = _build(adapter, tmp_path, sandbox)
+    assert launch.notes['has_shell'] is expected
+    if not expected:
+        assert 'Bash' not in launch.argv[launch.argv.index('--tools') + 1].split(',')
