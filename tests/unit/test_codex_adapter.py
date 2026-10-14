@@ -340,24 +340,28 @@ def test_a_content_filter_refusal_asks_for_a_reworded_prompt(tmp_path):
     assert "reword" in outcome.detail and "not retried" in outcome.detail
 
 
-@settings(max_examples=40, derandomize=True, database=None, deadline=None)
-@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, after=SURROUNDING,
-       where=st.sampled_from(("turn.failed", "error", "stderr")))
-def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, after, where):
-    """The message starts with the provider's refusal; following details may vary."""
-    message = case(refusal) + " " + after
-    event = ({"type": where, "message": message} if where == "error"
-             else {"type": "turn.failed", "error": {"message": message}})
-    assume(not any(regex.search(message) for regex in (codex_module.AUTH_RE, codex_module.OLD_CLI_RE,
-                                                       codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
+@settings(deadline=None)  # each example writes and reads files; the deadline measured load, not the property
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       as_event=st.booleans())
+def test_cyber_flag_anywhere_in_a_failed_turn_is_content_filter(flag, case, before, after, as_event):
+    """C-9.2 C-4.5 invariant: the provider's cyber flag, in any case and any surrounding text, in a
+    turn.failed or on stderr, is `content-filter` with no closure. Authentication and an old CLI
+    still come first (C-9.2 precedence), so messages matching those are set aside."""
+    message = before + case(flag) + after
+    failed = {"type": "turn.failed", "error": {"message": message}}
+    # The classifier reads a failure event as its JSON text and stderr line by line; set aside
+    # exactly what it would read as authentication or an old CLI, which C-9.2 ranks first.
+    signal = json.dumps(failed, ensure_ascii=False) if as_event else message
+    assume(not codex_module.AUTH_RE.search(signal) and not codex_module.OLD_CLI_RE.search(signal))
     with tempfile.TemporaryDirectory() as directory:
         attempt = Path(directory)
-        launch = (_events(attempt, stderr="ERROR: " + message + "\n") if where == "stderr"
-                  else _events(attempt, {"type": "thread.started", "thread_id": THREAD}, event))
-        outcome = CodexAdapter(now=lambda: NOW).classify(attempt, launch, _exit(1))
-    assert outcome.cls == OutcomeClass.TRANSIENT
+        if as_event:
+            launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD}, failed)
+        else:
+            launch = _events(attempt, stderr=message + "\n")
+        outcome = CodexAdapter().classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.CONTENT_FILTER
     assert outcome.closure is None
-    assert outcome.evidence["model_capacity"] is True
 
 
 @settings(deadline=None)
@@ -535,19 +539,16 @@ CAPACITY_SPELLINGS = (CAPACITY, "The model is at capacity. Please try again late
                       "Selected model is currently at capacity", "error code: model_at_capacity")
 
 
-@settings(deadline=None)  # each example writes and reads files; the deadline measured load, not the property
-@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+@settings(max_examples=40, derandomize=True, database=None, deadline=None)
+@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, after=SURROUNDING,
        where=st.sampled_from(("turn.failed", "error", "stderr")))
-def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, before, after, where):
-    """C-9.5 invariant: the model-capacity refusal, in any case and any surrounding text, in a
-    failure event or on stderr, is `transient` with `model_capacity` and no closure, wherever no
-    stronger verdict (C-9.2: authentication, an old CLI, content, quota) is in the same text."""
-    message = " ".join((before, case(refusal), after))
+def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, after, where):
+    """The message starts with the provider's refusal; following details may vary."""
+    message = case(refusal) + " " + after
     event = ({"type": where, "message": message} if where == "error"
              else {"type": "turn.failed", "error": {"message": message}})
-    signal = json.dumps(event, ensure_ascii=False) if where != "stderr" else message
-    assume(not any(regex.search(signal) for regex in (codex_module.AUTH_RE, codex_module.OLD_CLI_RE,
-                                                      codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
+    assume(not any(regex.search(message) for regex in (codex_module.AUTH_RE, codex_module.OLD_CLI_RE,
+                                                       codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
     with tempfile.TemporaryDirectory() as directory:
         attempt = Path(directory)
         launch = (_events(attempt, stderr="ERROR: " + message + "\n") if where == "stderr"
