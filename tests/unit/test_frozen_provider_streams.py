@@ -205,7 +205,7 @@ def test_replacement_after_type_check_supplies_no_events(tmp_path, monkeypatch, 
     assert len(seen) == 1
 
 
-@pytest.mark.parametrize("error", sorted({errno.ENXIO, errno.EOPNOTSUPP, 102,
+@pytest.mark.parametrize("error", sorted({errno.ENXIO, errno.EOPNOTSUPP, errno.ENOTSUP,
                                          errno.ELOOP, errno.EISDIR, errno.EINVAL}))
 def test_nonregular_open_errors_are_typed(tmp_path, monkeypatch, error):
     from subfleet.adapters.base import open_stream
@@ -230,3 +230,27 @@ def test_stream_open_keeps_unrelated_io_errors(tmp_path, monkeypatch):
         open_stream(frozen)
     assert not isinstance(caught.value, NotRegularFile)
     assert caught.value.errno == errno.EIO
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@pytest.mark.parametrize("source", ("stdout", "stderr", "last.md"))
+@pytest.mark.parametrize("raw", ("stream.jsonl", "custom.jsonl"))
+def test_freeze_detaches_aliases_to_any_writable_artifact(tmp_path, name, source, raw):
+    adapter, launch = provider(tmp_path, name)
+    launch = replace(launch, raw_stream_path=str(tmp_path / raw))
+    payload = encode([MESSAGE, COMPLETED, CLAUDE_RESULT])
+    live = tmp_path / source
+    live.write_bytes(payload)
+    frozen = tmp_path / raw
+    os.link(live, frozen)
+    with live.open("wb", buffering=0) as writer:
+        # Restore after opening in write mode; the descriptor shares the alias.
+        writer.write(payload)
+        launch = freeze(tmp_path, launch)
+        writer.seek(0)
+        writer.truncate()
+        writer.write(b"later provider output\n")
+    assert frozen.read_bytes() == payload
+    assert frozen.stat().st_nlink == 1
+    assert not os.path.samefile(frozen, live)
+    assert completion_evidence(tmp_path, launch)["turn_completed"]
