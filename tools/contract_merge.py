@@ -221,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     msg_path = Path(_git("rev-parse", "--git-path", "MERGE_MSG").stdout.strip())
     msg = msg_path.read_text(encoding="utf-8") if msg_path.exists() else ""
     slugs = {
-        "ours": history.branch_slug(args.ours_branch or history.current_branch() or "ours"),
+        "ours": history.branch_slug(args.ours_branch
+                                    or _git("branch", "--show-current").stdout.strip() or "ours"),
         "theirs": history.branch_slug(args.theirs_branch or theirs_branch(msg) or "theirs"),
     }
     written = write_entries(Path(HISTORY), result.added, slugs,

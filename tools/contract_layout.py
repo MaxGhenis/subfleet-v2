@@ -34,6 +34,8 @@ CONTRACT = REPO / "docs" / "acceptance-contract.md"
 FENCE = re.compile(r"^\s*(```|~~~)")
 TABLE = re.compile(r"^\s*\|")
 HEADING = re.compile(r"^\s{0,3}#{1,6}(\s|$)")
+#: A setext underline or a thematic break: a line of its own, never part of a paragraph.
+RULE = re.compile(r"^ {0,3}(?:=+|-+|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})[ \t]*$")
 ITEM = re.compile(r"^(\s*)([-*+]|\d{1,9}[.)])(\s+)")
 #: What may not begin a continuation line: it would start a block of its own (a list
 #: item, heading, quote, fence, table row, HTML block, or a setext underline) instead of
@@ -114,6 +116,20 @@ def sentences(text: str) -> list[str]:
     return out
 
 
+def _paragraph_end(lines: list[str], start: int) -> int:
+    """The line after the paragraph that starts at `start`."""
+    end = start + 1
+    while end < len(lines):
+        nxt = lines[end]
+        # A line that may start a block of its own (a list item, quote, HTML, a setext
+        # underline) ends the paragraph: relayout never joins it to the line before.
+        if (not nxt.strip() or FENCE.match(nxt) or TABLE.match(nxt) or HEADING.match(nxt)
+                or RULE.match(nxt) or ITEM.match(nxt) or BLOCK_START.match(nxt.lstrip())):
+            break
+        end += 1
+    return end
+
+
 def _paragraphs(lines: list[str]):
     """Yield (start, end) line ranges of the paragraphs relayout may rewrite."""
     i, fenced = 0, False
@@ -123,18 +139,13 @@ def _paragraphs(lines: list[str]):
             fenced = not fenced
             i += 1
             continue
-        if fenced or not line.strip() or TABLE.match(line) or HEADING.match(line):
+        if (fenced or not line.strip() or TABLE.match(line) or HEADING.match(line)
+                or RULE.match(line)):
             i += 1
             continue
-        j = i + 1
-        while j < len(lines):
-            nxt = lines[j]
-            if (not nxt.strip() or FENCE.match(nxt) or TABLE.match(nxt) or HEADING.match(nxt)
-                    or ITEM.match(nxt)):
-                break
-            j += 1
-        yield i, j
-        i = j
+        end = _paragraph_end(lines, i)
+        yield i, end
+        i = end
 
 
 def _prefix(line: str) -> tuple[str, str]:
@@ -150,6 +161,8 @@ def relayout_paragraph(lines: list[str]) -> list[str]:
     """One paragraph's lines, one sentence per line."""
     if any(line.endswith(("  ", "\\")) for line in lines[:-1]) or "\t" in "".join(lines):
         return list(lines)        # a hard line break or a tab: leave it as written
+    if lines[0].startswith("    ") or lines[0].lstrip().startswith((">", "<")):
+        return list(lines)        # maybe code, a quote or HTML: leave it as written
     first, indent = _prefix(lines[0])
     text = " ".join([lines[0][len(first):].strip(), *(line.strip() for line in lines[1:])])
     parts = sentences(text.strip())
@@ -180,25 +193,28 @@ def paragraph_texts(text: str) -> list[str]:
     return texts
 
 
-CLAUSE = re.compile(r"^- \*\*(C-\d+\.\d+[a-z]?)\*\*")
+#: A clause's first line: `- **C-x.y**`, or `- **C-x.y Title.**` as C-8.5 is written.
+CLAUSE = re.compile(r"^- \*\*(C-\d+\.\d+[a-z]?)\b[^*\n]*\*\*")
 
 
 def clauses(text: str) -> dict[str, str]:
     """Each clause's whole text, its line breaks and runs of spaces read as one space.
 
-    A clause is its `- **C-x.y**` list item and every line after it up to the next line
-    that is not blank and not indented: its continuation lines, and any indented
-    paragraphs or tables it holds. Read a clause this way, never by its first line.
+    A clause is its `- **C-x.y**` list item's paragraph, then every line up to the next
+    that is not blank and not indented: its indented paragraphs or tables. Read a clause
+    this way, never by its first line.
     """
-    found, current, lines = {}, None, []
-    for line in text.split("\n") + ["<end>"]:
-        if line.strip() and not line[0].isspace():
-            if current:
-                found[current] = " ".join(" ".join(lines).split())
-            match = CLAUSE.match(line)
-            current, lines = (match.group(1), [line]) if match else (None, [])
-        elif current:
-            lines.append(line)
+    lines, found, i = text.split("\n"), {}, 0
+    while i < len(lines):
+        match = CLAUSE.match(lines[i])
+        if not match:
+            i += 1
+            continue
+        end = _paragraph_end(lines, i)
+        while end < len(lines) and (not lines[end].strip() or lines[end][0].isspace()):
+            end += 1
+        found[match.group(1)] = " ".join(" ".join(lines[i:end]).split())
+        i = end
     return found
 
 

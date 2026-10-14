@@ -171,6 +171,8 @@ def problems(root: Path = HISTORY, contract_path: Path = CONTRACT,
 
     # Every file is an entry, the README, or a migrated entry.
     for path in sorted(root.rglob("*")):
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue                      # .DS_Store and the like are not tracked
         if path.is_dir():
             if path != root / MIGRATED_DIR:
                 found.append(f"{path.relative_to(root)}: no folders but {MIGRATED_DIR}/")
