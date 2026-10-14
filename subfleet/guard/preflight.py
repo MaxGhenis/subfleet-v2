@@ -44,6 +44,7 @@ from typing import Any
 
 from ..policy import PolicyError, load_policy
 from ..provider_env import CA_SOURCES, ProviderEnvironment
+from ..launch_env import build_environment
 
 from ..sessions.transcripts import NotRegularFile, read_regular
 
@@ -420,14 +421,14 @@ def _stderr_tail(stream) -> str:
         return ""
 
 
-def _version(executable: str, *, env: dict[str, str], timeout_s: float) -> tuple[int | None, str, str]:
+def _version(executable: str, *, env: dict[str, str], timeout_s: float, pass_names=()) -> tuple[int | None, str, str]:
     """``codex --version`` in its own session, TERM then KILL at the deadline.
 
     Returns (exit status, stdout, stderr tail); a None status means the deadline
     passed and the launcher and its native child were reaped.
     """
     process = subprocess.Popen([executable, "--version"], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=build_environment(environ=env, pass_names=pass_names),
                                start_new_session=True)
     try:
         stdout, stderr = process.communicate(timeout=timeout_s)
@@ -443,7 +444,7 @@ def _version(executable: str, *, env: dict[str, str], timeout_s: float) -> tuple
 
 
 def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
-                override: str, env: dict[str, str], timeout_s: float) -> tuple[dict[str, Any], dict[str, Any]]:
+                override: str, env: dict[str, str], timeout_s: float, pass_names=()) -> tuple[dict[str, Any], dict[str, Any]]:
     """Ask app-server for hooks/list; return (response, diagnostics).
 
     Diagnostics: the probe pid, elapsed seconds, the request lines sent and the
@@ -457,7 +458,7 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
         {"jsonrpc": "2.0", "method": "initialized", "params": {}},
         {"jsonrpc": "2.0", "id": 2, "method": "hooks/list", "params": {"cwds": [str(workdir)]}},
     ]
-    probe_env = dict(env, CODEX_HOME=str(home))
+    probe_env = build_environment({"CODEX_HOME": str(home)}, environ=env, pass_names=pass_names)
     sent: list[str] = []
     # The lines just before a hang, and the hooks/list answer after a chatty
     # start, are the useful ones: keep the last responses, not the first.
@@ -537,7 +538,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
               trust_path: str | Path | None = None, timeout_s: float | None = None,
               use_cache: bool = True, cache_directory: str | Path | None = None,
               state_root: str | Path | None = None,
-              env: Mapping[str, str] | None = None) -> PreflightResult:
+              env: Mapping[str, str] | None = None, env_pass=()) -> PreflightResult:
     """Fail closed on file, version, override, or runtime hooks trust drift.
 
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
@@ -587,9 +588,11 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                 policy = load_policy(policy_path) if policy_path.exists() else {}
             except PolicyError as exc:
                 raise _Refusal(CONFIG, str(exc), "Correct policy.json, then rerun subfleet doctor.") from None
-            source_env = ProviderEnvironment(policy).build("codex")
-        env = {key_name: value for key_name, value in source_env.items() if key_name not in _SECRET_ENV}
-        status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline)
+            environment = ProviderEnvironment(policy)
+            source_env = environment.build("codex")
+            env_pass = environment.pass_names
+        env = build_environment(removals=_SECRET_ENV, environ=source_env, pass_names=env_pass)
+        status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline, pass_names=env_pass)
         if status is None:
             said = f"; stderr: {_clip(stderr_text.strip(), 400)}" if stderr_text.strip() else ""
             raise _Refusal(TIMEOUT, f"Codex --version did not answer before the {deadline:g}s deadline "
@@ -648,7 +651,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                 (scratch_home / name).chmod(0o600)
             try:
                 response, diagnostics = _hooks_list(executable, home=scratch_home, workdir=cwd,
-                                                    override=override, env=env, timeout_s=deadline)
+                                                    override=override, env=env, timeout_s=deadline, pass_names=env_pass)
             except _ProbeError as exc:
                 diagnostics = exc.diagnostics
                 if exc.timed_out:
