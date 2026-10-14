@@ -7183,7 +7183,11 @@ class Daemon:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
             os.close(write_fd)
             write_fd = -1
-            self._unlaunched(a, f"guardian-identity-unavailable: {type(exc).__name__}: {exc}")
+            # The attempt's detail and notice name an OS error by class and errno
+            # (C-25.7); procs' own messages are ours. Its words go to daemon.log.
+            self.log.error("attempt %s guardian identity unavailable: %s", a["attempt_id"], refusals.scrubbed_words(exc))
+            said = refusals.fixed_error(exc) if isinstance(exc, OSError) else f"{refusals.class_name(exc)}: {exc}"
+            self._unlaunched(a, f"guardian-identity-unavailable: {said}")
             return
         finally:
             os.close(read_fd)
@@ -7748,14 +7752,15 @@ class Daemon:
                 transient = getattr(exc, "transient", False) or transient_os_error(exc)
                 if retry and transient and failures < SALVAGE_TRIES:
                     raise
-                # git's own words: paths and refs, never a credential. A snapshot
-                # already written stands when only reading HEAD after it failed.
-                # Valid UTF-8 whatever it quotes, or the receipt could not be
-                # written, on this try or any other (N1; a `SalvageError` already
-                # is, and this holds for any other error's text).
+                # The receipt reaches the attempt's evidence (`runs show`) and the
+                # job's notice, so it says how git ended, as C-6.8's record does:
+                # what git printed (a repository's own filters print there) goes to
+                # daemon.log only, scrubbed (C-25.7). A snapshot already written
+                # stands when only reading HEAD after it failed. Valid UTF-8, or the
+                # receipt could not be written, on this try or any other (N1).
                 stage = "checkpoint" if result else "salvage"
-                error = utf8_text(f"{stage} failed: {exc}")[:500]
-                self.log.warning("attempt %s %s", a["attempt_id"], error)
+                error = utf8_text(f"{stage} failed: {self._workspace_error(exc)[1]['error']}")[:500]
+                self.log.warning("attempt %s %s failed: %s", a["attempt_id"], stage, refusals.scrubbed_words(exc))
             self._salvage_failures.pop(a["attempt_id"], None)
             # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
             # `os.fsdecode` carries a name that is not UTF-8 in, and a receipt that
@@ -7905,7 +7910,9 @@ class Daemon:
                     transient = getattr(exc, "transient", False) or transient_os_error(exc)
                     if retry and transient and failures < TURN_TREE_TRIES:
                         raise
-                    receipt["error"] = utf8_text(f"end snapshot failed: {exc}")[:500]     # as `_salvage`'s
+                    # As `_salvage`'s: `turn.diff` shows it, so git's own words are logged only.
+                    receipt["error"] = utf8_text(f"end snapshot failed: {self._workspace_error(exc)[1]['error']}")[:500]
+                    self.log.warning("attempt %s end snapshot failed: %s", a["attempt_id"], refusals.scrubbed_words(exc))
             self._tree_failures.pop(a["attempt_id"], None)
             receipt["at"] = utcnow()
             self._publish("trees", path, json_bytes(receipt))
