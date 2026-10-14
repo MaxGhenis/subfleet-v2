@@ -63,8 +63,17 @@ try:
     # falls back to Popen only where responsibility cannot be disclaimed.
     disclaimed = daemon_module.procs.spawn_disclaimed
     def spawn(argv, **kwargs):
-        if list(argv)[1:3] == ["-m", "subfleet.guardian"]:
+        guardian = list(argv)[1:3] == ["-m", "subfleet.guardian"]
+        if guardian:
             result["pass_fds"].append(list(kwargs.get("pass_fds", ())))
+        if guardian and hold:
+            env = dict(kwargs["env"])
+            env["PYTHONPATH"] = hold + os.pathsep + env.get("PYTHONPATH", "")
+            env["SF_TEST_HOLD_RELEASE"] = os.path.join(hold, "release")
+            child = disclaimed(argv, **{**kwargs, "env": env})
+            result.setdefault("launch_groups", []).append([child.pid, os.getpgid(child.pid), os.getpgrp()])
+            Path(hold, "release").write_text("go")
+            return child
         return disclaimed(argv, **kwargs)
     daemon_module.procs.spawn_disclaimed = spawn
 
