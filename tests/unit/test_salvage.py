@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import salvage as salvage_module
+from subfleet import supervisor
 from subfleet.adapters.base import AdapterError
 from subfleet.salvage import SalvageError, git_head, salvage, validate_writable_workdir, working_tree
 
@@ -391,3 +392,39 @@ def test_a_checkout_whose_name_ends_in_a_space_is_found(tmp_path):
     top = git_toplevel(repo / "pkg")
     assert top == os.path.realpath(repo) and os.path.isdir(top)
     assert git_toplevel(tmp_path) is None
+
+
+# --- C-25.3: under a conversation file op, git runs supervised ----------------------
+
+
+def test_a_call_the_closed_conversation_service_refuses_is_never_read_as_an_answer(repository):
+    """C-25.3, C-6.8: under a file op whose service has closed, git is refused before
+    it starts, and an optional probe raises the refusal: like a timeout, it is never
+    "no HEAD", "no branch" or "not a checkout"."""
+    baseline = git_head(repository)
+    closed = supervisor.Supervisor()
+    closed.close(1)
+    with supervisor.supervising(closed):
+        for probe in (git_head, salvage_module.git_branch, salvage_module.git_toplevel):
+            with pytest.raises(supervisor.Closed):
+                probe(repository)
+        with pytest.raises(supervisor.Closed):
+            working_tree(repository, baseline)
+
+
+def test_a_snapshot_taken_under_the_supervisor_names_the_same_tree(repository):
+    """Differential (C-25.3, C-6.8): the snapshot a file op takes under the
+    conversation service's supervisor is the one the daemon takes without it, over
+    an edit, a removal, an untracked file and a nested repository with no commit
+    (which takes `add -A`'s retry and its `--git-dir` lookup)."""
+    baseline = git_head(repository)
+    (repository / "tracked.txt").write_text("changed\n")
+    (repository / "new.txt").write_text("new\n")
+    git(repository, "rm", "-q", "--cached", ".gitignore")
+    subprocess.run(["git", "init", "-q", str(repository / "nested")], check=True, capture_output=True)
+    plain_skipped: list[str] = []
+    plain = working_tree(repository, baseline, left_out=plain_skipped)
+    supervised_skipped: list[str] = []
+    with supervisor.supervising(supervisor.Supervisor()):
+        supervised = working_tree(repository, baseline, left_out=supervised_skipped)
+    assert (supervised, supervised_skipped) == (plain, plain_skipped) and plain_skipped == ["nested/"]

@@ -39,6 +39,7 @@ from pathlib import Path
 
 from . import retention_fs as rfs
 from . import retention_qos as rqos
+from . import supervisor
 
 GIT_CONFIG = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
               "-c", "maintenance.auto=false", "-c", "core.untrackedCache=false")
@@ -75,11 +76,23 @@ def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
 def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = None,
         stdin: bytes | None = None, timeout: float = 120, cancel: threading.Event | None = None,
         env: dict[str, str] | None = None, ok: Iterable[int] = (0,), stdin_file=None) -> subprocess.CompletedProcess:
-    """One git command with a wall cap; cancellation kills it and raises `Cancelled`."""
+    """One git command with a wall cap; cancellation kills it and raises `Cancelled`.
+
+    Under a conversation file op (a worktree create's `discard_registration`), the
+    command runs under the conversation service's supervisor instead, which ends
+    its process group when it exits, at the cap or at `close()` (C-25.3,
+    `subfleet/supervisor.py`). A file op passes neither `cancel` nor `stdin_file`."""
     argv = ["git", *GIT_CONFIG]
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
     argv.extend(args)
+    supervised = supervisor.current()
+    if supervised is not None and cancel is None and stdin_file is None:
+        try:
+            done = supervised.run(rqos.argv(argv), cwd=cwd, env=environment(env), input=stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise GitError(f"git {' '.join(list(args)[:2])} timed out after {timeout:g} s") from None
+        return _checked(args, subprocess.CompletedProcess(argv, done.returncode, done.stdout, done.stderr), ok)
     process = subprocess.Popen(rqos.argv(argv), cwd=cwd, env=environment(env),
                                stdin=stdin_file if stdin_file is not None else (subprocess.PIPE if stdin is not None else subprocess.DEVNULL),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -98,9 +111,12 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
                 if cancel is not None and cancel.is_set():
                     raise Cancelled(f"git {argv[len(GIT_CONFIG) + 1]} cancelled") from None
                 raise GitError(f"git {' '.join(list(args)[:2])} timed out after {timeout:g} s") from None
-    result = subprocess.CompletedProcess(argv, process.returncode, out, err)
+    return _checked(args, subprocess.CompletedProcess(argv, process.returncode, out, err), ok)
+
+
+def _checked(args, result: subprocess.CompletedProcess, ok: Iterable[int]) -> subprocess.CompletedProcess:
     if result.returncode not in tuple(ok):
-        tail = err.decode("utf-8", "replace").strip()[-400:]
+        tail = result.stderr.decode("utf-8", "replace").strip()[-400:]
         raise GitError(f"git {' '.join(list(args)[:2])} exited {result.returncode}: {tail}")
     return result
 

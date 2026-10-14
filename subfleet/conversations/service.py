@@ -28,7 +28,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import descriptors, protocol
+from .. import descriptors, protocol, supervisor
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
@@ -109,6 +109,9 @@ CATALOG_STOP_WAIT_S = 2.0
 # How long close() waits, in all, for the turn runners to finish the iteration they are
 # in. The conversation store refuses what a runner still going after it writes (C-25.3).
 RUNNER_STOP_WAIT_S = 5.0
+# How long close() waits, in all, for the process groups of the file ops' subprocesses
+# still running to end after SIGKILL (C-25.3, `subfleet/supervisor.py`).
+FILE_PROCESS_STOP_WAIT_S = 2.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 # The dispatcher's claim on a queued message while it creates the message's turn job
@@ -138,6 +141,11 @@ class ConversationService:
         self.polls = concurrent.futures.ThreadPoolExecutor(descriptors.CONNECTIONS_CEILING,
                                                            thread_name_prefix="subfleet-poll")
         self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
+        # C-25.3: every process a file op starts (git, and what its hooks and filters
+        # start) runs under this, in a process group that ends with it; none starts
+        # once close() has closed it.
+        self.processes = supervisor.Supervisor(
+            refuse=lambda: ConversationError("store-closed", "the conversation service is closed", code=1))
         self.history_reads = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-history")
         self._moot_next: dict[str, tuple[str, float]] = {}
         self.runners: dict[str, TurnRunner] = {}
@@ -194,6 +202,15 @@ class ConversationService:
         # its caps), as the ops the daemon's own pools wait for are.
         self.files.shutdown(wait=True, cancel_futures=True)
         self.history_reads.shutdown(wait=True, cancel_futures=True)
+        # What those ops ran (git, and a hook's or filter's child) ended with each
+        # command, in its own process group: a child left running had made the
+        # removed root again (2026-10-14). Closing the supervisor starts none after
+        # and ends any group still running, which only an op running past the
+        # wait above could leave.
+        held = self.processes.close(FILE_PROCESS_STOP_WAIT_S)
+        if held:
+            self.log.warning("file-op subprocess groups still not ended %g s after SIGKILL: %s",
+                             FILE_PROCESS_STOP_WAIT_S, ", ".join(map(str, sorted(held))))
         self.wakes.close()
         # A turn runner writes into the state root too: the store, an approval's request,
         # `conversations/models.json`, `turn.json`. One still in its iteration when close()
@@ -267,6 +284,9 @@ class ConversationService:
         handler = getattr(self, "op_" + op.replace(".", "_"))
         if op in POLL_OPS:
             return handler(args, peer, client_gone=client_gone)
+        if op in FILE_OPS:
+            with supervisor.supervising(self.processes):      # C-25.3: what it starts ends with it
+                return handler(args, peer)
         return handler(args, peer)
 
     def _app_executables(self) -> tuple[str, ...]:
@@ -661,8 +681,8 @@ class ConversationService:
 
         def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
             try:
-                return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
-                                      errors="backslashreplace", timeout=cap)
+                return supervisor.run(["git", "-C", str(cwd), *argv], text=True, errors="backslashreplace",
+                                      timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
                                         fix="repeat conversation.create with the same request_id") from exc

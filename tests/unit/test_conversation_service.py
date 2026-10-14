@@ -18,6 +18,7 @@ import logging
 import os
 import random
 import shutil
+import signal
 import sqlite3
 import stat
 import subprocess
@@ -1374,6 +1375,216 @@ def test_an_op_handed_a_fifo_answers_at_once_and_close_returns(tmp_path, op):
         print(json.dumps(outcome, default=repr))
     """)
     assert json.loads(out) is not None, out             # the op's answer, or its refusal
+
+
+# --- a file op's subprocesses end with it (C-25.3, C-6.8, D-16) ----------------------
+#
+# git runs the repository's own hooks and filters, and they may leave a child running
+# after git exits. The conversation service runs every process a file op starts under
+# its supervisor (`subfleet/supervisor.py`): in a process group of its own, which ends
+# when the command does. Each hook or filter below records the pids of what it starts;
+# a test kills only those, at its end, whatever happened.
+
+
+def install_hook(repo: Path, name: str, body: str) -> None:
+    path = repo / ".git" / "hooks" / name
+    path.write_text("#!/bin/sh\n" + body)
+    path.chmod(0o755)
+
+
+def recorded_pids(path: Path) -> list[int]:
+    return [int(word) for word in path.read_text().split()] if path.exists() else []
+
+
+def running(pid: int) -> bool:
+    """Whether `pid` runs: a zombie (killed, not yet reaped by launchd) does not."""
+    state = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+@contextlib.contextmanager
+def ending_recorded(pidfile: Path):
+    """End, at the block's end, the processes a hook or filter recorded in `pidfile`."""
+    try:
+        yield
+    finally:
+        for pid in recorded_pids(pidfile):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+
+
+#: A child that waits (at most 60 s) for `gate` to exist, then makes `dir` and exits;
+#: its output goes nowhere, so it holds none of git's pipes.
+def detached_writer(gate: Path, made: str) -> str:
+    return (f'( i=0; while [ ! -e "{gate}" ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done; '
+            f'[ -e "{gate}" ] && mkdir -p "{made}" ) </dev/null >/dev/null 2>&1 &\n')
+
+
+def test_a_hooks_child_holding_gits_pipes_neither_stalls_the_create_nor_outlives_it(svc, repo, tmp_path):
+    """C-6.8, D-16 (2026-10-14): a post-checkout hook that leaves a child running with
+    git's stdout and stderr (`sleep 60 &`, as a hook that starts a tags build does)
+    made `subprocess.run` wait for those pipes to close until git's cap ran out. A
+    `git worktree add` that had finished in milliseconds failed `worktree-failed` at
+    the cap, and the child lived on. What git leaves in its process group now ends
+    when git exits: the create succeeds at once, and the child is gone when it does."""
+    svc.daemon.policy["caps"]["worktree_add_timeout_s"] = 20
+    pids = tmp_path / "hook.pids"
+    install_hook(repo, "post-checkout", f'sleep 60 &\necho $! >> "{pids}"\n')
+    with ending_recorded(pids):
+        out = svc.pool_for("conversation.create").submit(
+            svc.handle, "conversation.create", file_op_args("conversation.create", tmp_path, repo), None).result(120)
+        left = [pid for pid in recorded_pids(pids) if running(pid)]
+    assert out["conversation"]["worktree"], out
+    assert recorded_pids(pids), "the hook never ran"
+    assert left == [], f"the hook's child outlived the create: {left}"
+
+
+def test_a_hooks_detached_child_never_outlives_the_create_to_remake_a_removed_root(svc, repo, tmp_path):
+    """C-25.3 (Astra's review of cc65f36, finding 1): a hook's child whose output goes
+    elsewhere let git, the create and close() finish, and lived on: once the owner
+    had removed the state root, it wrote into the worktree it had started in, and
+    made the root again. It is in git's process group, which ends when git exits."""
+    pids, gate = tmp_path / "hook.pids", tmp_path / "gate"
+    install_hook(repo, "post-checkout", detached_writer(gate, "$PWD/hook-wrote") + f'echo $! >> "{pids}"\n')
+    root = svc.root
+    with ending_recorded(pids):
+        out = svc.pool_for("conversation.create").submit(
+            svc.handle, "conversation.create", file_op_args("conversation.create", tmp_path, repo), None).result(120)
+        svc.close()
+        shutil.rmtree(root)                 # the owner, once close() has returned
+        gate.touch()                        # a child still running writes now
+        for pid in recorded_pids(pids):
+            until_true(lambda: not running(pid), f"hook child {pid} to finish", timeout=30)
+    assert out["conversation"]["worktree"] and recorded_pids(pids), out
+    assert not root.exists(), f"the removed state root came back holding {tree(root)}"
+
+
+def test_a_create_past_its_cap_ends_the_hook_git_was_waiting_for(svc, repo, tmp_path):
+    """C-6.8, C-25.3: at the cap only git was killed; the hook it was waiting for (a
+    foreground `sleep`, and a child of the hook's own) lived on. The cap ends git's
+    whole process group, within the supervisor's bound for cleanup."""
+    cap = 10.0
+    svc.daemon.policy["caps"]["worktree_add_timeout_s"] = cap
+    pids = tmp_path / "hook.pids"
+    install_hook(repo, "post-checkout", f'sleep 60 &\necho $$ $! >> "{pids}"\nsleep 60\n')
+    with ending_recorded(pids):
+        began = time.monotonic()
+        with pytest.raises(ConversationError) as err:
+            svc.pool_for("conversation.create").submit(
+                svc.handle, "conversation.create", file_op_args("conversation.create", tmp_path, repo), None
+            ).result(120)
+        took = time.monotonic() - began
+        left = [pid for pid in recorded_pids(pids) if running(pid)]
+    assert err.value.reason == "worktree-failed" and len(recorded_pids(pids)) == 2, (err.value, recorded_pids(pids))
+    assert left == [], f"the hook outlived git's cap: {left}"
+    assert took < cap + 20, f"the create took {took:.1f} s past a {cap:g} s cap"
+
+
+def diff_workspace(svc, monkeypatch, tmp_path) -> tuple[str, Path]:
+    """A conversation whose first writable turn started in a checkout under the state
+    root (where a write remakes a removed root), with that turn's start snapshot."""
+    for key, value in {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                       "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.test",
+                       "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.test"}.items():
+        monkeypatch.setenv(key, value)
+    work = svc.root / "workspace"
+    work.mkdir()
+    (work / "file").write_text("base\n")
+    for argv in (["init", "-q", "-b", "feature/x"], ["add", "."], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(work), *argv], check=True, capture_output=True)
+    cid = conversation(svc, workspace=str(work))
+    mid = submit(svc, cid)
+    svc.store.record_trees(attempt_id=f"job-diff/a1", message_id=mid, conversation_id=cid, workspace=str(work),
+                           writable=True, started_at="2026-10-14T00:00:00Z", head_before=git(work, "rev-parse", "HEAD"),
+                           start_tree=git(work, "rev-parse", "HEAD^{tree}"))
+    return cid, work
+
+
+def test_a_clean_filters_child_never_outlives_a_diff_to_remake_a_removed_root(svc, monkeypatch, tmp_path):
+    """C-25.3, C-26.14 (Astra's review of cc65f36, finding 3): `conversation.diff`
+    snapshots the working tree with `git add -A`, which runs the repository's clean
+    filter. A filter that left a child running let the diff and close() finish; once
+    the owner had removed the state root, the child wrote into the checkout's `.git`
+    and made the root again. The diff's git runs under the supervisor too, and its
+    process group ends when it exits."""
+    cid, work = diff_workspace(svc, monkeypatch, tmp_path)
+    pids, gate = tmp_path / "filter.pids", tmp_path / "gate"
+    script = tmp_path / "clean.sh"
+    script.write_text("#!/bin/sh\ncat\n" + detached_writer(gate, f"{work}/.git/filter-wrote")
+                      + f'echo $! >> "{pids}"\n')
+    script.chmod(0o755)
+    git(work, "config", "filter.probe.clean", str(script))
+    (work / ".gitattributes").write_text("file filter=probe\n")
+    (work / "file").write_text("changed\n")
+    root = svc.root
+    with ending_recorded(pids):
+        out = svc.pool_for("conversation.diff").submit(
+            svc.handle, "conversation.diff", {"conversation_id": cid}, None).result(120)
+        svc.close()
+        shutil.rmtree(root)
+        gate.touch()
+        for pid in recorded_pids(pids):
+            until_true(lambda: not running(pid), f"filter child {pid} to finish", timeout=30)
+    assert out["available"] and recorded_pids(pids), out
+    assert not root.exists(), f"the removed state root came back holding {tree(root)}"
+
+
+def test_every_process_a_file_op_starts_runs_under_the_services_supervisor(svc, repo, monkeypatch, tmp_path):
+    """C-25.3: the rule that makes the tests above hold everywhere. Every process a
+    file op starts is spawned behind the service's supervisor's gate, in a group the
+    supervisor ends: here a worktree create that rebuilds a directory left in its
+    way (retention's git helper), a workspace check, a live `conversation.diff` over
+    a nested repository with no commit (the snapshot's retry and its `--git-dir`
+    lookup), and a `turn.diff` of two recorded snapshots (the bounded `diff-tree`)."""
+    from subfleet import supervisor
+    spawned: list[list[str]] = []
+    real = subprocess.Popen
+
+    class Recording(real):
+        def __init__(self, args, *rest, **kwargs):
+            if threading.current_thread().name.startswith("subfleet-files"):
+                spawned.append([os.fsdecode(a) for a in args])
+            super().__init__(args, *rest, **kwargs)
+
+    cid, work = diff_workspace(svc, monkeypatch, tmp_path)
+    (work / "file").write_text("changed\n")
+    subprocess.run(["git", "init", "-q", str(work / "nested")], check=True, capture_output=True)
+    head = git(work, "rev-parse", "HEAD^{tree}")
+    mid = svc.store.first_trees(cid)["message_id"]
+    svc.store.record_trees(attempt_id="job-diff/a1", message_id=mid, conversation_id=cid, workspace=str(work),
+                           writable=True, started_at="2026-10-14T00:00:00Z", head_after=git(work, "rev-parse", "HEAD"),
+                           end_tree=head, ended=True)
+    original = svc.store.update_conversation
+    monkeypatch.setattr(svc.store, "update_conversation", lambda *a, **k: (_ for _ in ()).throw(OSError("cut short")))
+    with pytest.raises(OSError):            # the worktree is added, its record is not
+        create_worktree(svc, repo)
+    monkeypatch.setattr(svc.store, "update_conversation", original)
+    made = next((svc.root / "worktrees").iterdir())
+    (made / ".git").unlink()                # no longer a worktree: the repeat rebuilds it
+    monkeypatch.setattr(subprocess, "Popen", Recording)
+    pool = svc.files
+    calls = [("conversation.create", file_op_args("conversation.create", tmp_path, repo) | {"request_id": "req-1"}),
+             ("workspace.check", {"workspace": str(repo), "workspace_kind": "worktree"}),
+             ("conversation.diff", {"conversation_id": cid}),
+             ("turn.diff", {"message_id": mid})]
+    for op, args in calls:
+        result = pool.submit(svc.handle, op, args, None).result(120)
+        assert result.get("ok", True) is not False and result.get("available", True), (op, result)
+    commands = [" ".join(argv) for argv in spawned]
+    ungated = [c for c in commands if not c.startswith(f"{supervisor.SHELL} -c {supervisor.GATE} ")]
+    assert ungated == [], "a file op started a process outside the supervisor:\n" + "\n".join(ungated)
+    for seen in ("worktree add", "--git-common-dir", "add -A", "--git-dir=", "diff-tree", "--show-toplevel"):
+        assert any(seen in c for c in commands), f"no file op ran {seen!r}; the test covers less than it says"
+
+
+def test_no_file_op_starts_a_process_once_close_has_returned(svc, repo):
+    """C-25.3: `close()` closes the service's supervisor once the file pool has
+    drained, so an op that reaches git after it (here `workspace.check`, which reads
+    no store) is refused before git starts, never answered from a git that ran."""
+    assert svc.handle("workspace.check", {"workspace": str(repo), "workspace_kind": "worktree"}, None)["ok"]
+    svc.close()
+    after = svc.handle("workspace.check", {"workspace": str(repo), "workspace_kind": "worktree"}, None)
+    assert not after["ok"] and after["reason"].startswith("store-closed"), after
 
 
 # --- close() and the turn runners (C-25.3, C-26.6) ---------------------------------------

@@ -41,10 +41,9 @@ from __future__ import annotations
 
 import re
 import subprocess
-import tempfile
-import threading
 from pathlib import Path
 
+from .. import supervisor
 from ..salvage import (
     SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
 )
@@ -417,41 +416,26 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
     (`_git_env`), as the snapshots it compares were taken: under an inherited
     `GIT_LITERAL_PATHSPECS` the `:(top,literal)` path filter matched nothing,
     and a path's diff showed no changes (review of the P3-3 fix).
+
+    git always runs supervised (`subfleet/supervisor.py`): under a file op, by the
+    conversation service's supervisor, which ends it at `close()` (C-25.3); else by
+    one of its own. A cut or the cap ends git's whole process group.
     """
     cap = git_timeout_s(timeout_s)
     verb = next(a for a in args if not a.startswith("-") and "=" not in a)
-    expired = threading.Event()
-    with tempfile.TemporaryFile() as errors:
-        try:
-            process = subprocess.Popen(["git", "-C", str(workdir), *args], stdin=subprocess.DEVNULL,
-                                       stdout=subprocess.PIPE, stderr=errors,
-                                       env={**_git_env(None), "GIT_OPTIONAL_LOCKS": "0"})
-        except OSError as exc:
-            raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc)) from exc
-
-        def expire():
-            expired.set()
-            process.kill()
-
-        timer = threading.Timer(cap, expire)
-        timer.daemon = True
-        timer.start()
-        try:
-            data = process.stdout.read(limit + 1)
-            cut = len(data) > limit
-            if cut:
-                process.kill()
-            process.wait()
-        finally:
-            timer.cancel()
-            process.stdout.close()
-        if expired.is_set():
-            raise SalvageError(f"git {verb} timed out after {cap:g} s", timed_out=True)
-        if not cut and process.returncode:
-            errors.seek(0)
-            message = errors.read(2000).decode("utf-8", errors="replace").strip()
-            raise SalvageError(f"git {verb} failed: {message or f'exit {process.returncode}'}")
-    return data[:limit], cut
+    try:
+        result = (supervisor.current() or supervisor.Supervisor()).run(
+            ["git", "-C", str(workdir), *args], env={**_git_env(None), "GIT_OPTIONAL_LOCKS": "0"},
+            timeout=cap, stdout_limit=limit)
+    except subprocess.TimeoutExpired as exc:
+        raise SalvageError(f"git {verb} timed out after {cap:g} s", timed_out=True) from exc
+    except OSError as exc:
+        raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc)) from exc
+    cut = len(result.stdout) > limit
+    if not cut and result.returncode:
+        message = result.stderr[:2000].decode("utf-8", errors="replace").strip()
+        raise SalvageError(f"git {verb} failed: {message or f'exit {result.returncode}'}")
+    return result.stdout[:limit], cut
 
 
 def toplevel(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:

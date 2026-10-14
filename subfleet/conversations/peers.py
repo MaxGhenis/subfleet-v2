@@ -45,9 +45,10 @@ import ctypes
 import os
 import socket
 import struct
-import subprocess
 from dataclasses import dataclass, field
 from typing import Callable
+
+from .. import supervisor
 
 MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
 APP_EXECUTABLES = ("/Applications/Subfleet.app/Contents/MacOS/Subfleet",)
@@ -115,7 +116,8 @@ def peer_pid(conn: socket.socket) -> int | None:
 
 def _ps(argv: list[str]) -> str:
     env = {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"}
-    return subprocess.run(argv, capture_output=True, text=True, timeout=5, env=env, check=False).stdout
+    # Under a file op (a create's person check), supervised like every process it starts (C-25.3).
+    return supervisor.run(argv, text=True, timeout=5, env=env).stdout
 
 
 def executable_path(pid: int) -> str | None:
