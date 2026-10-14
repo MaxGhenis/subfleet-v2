@@ -149,7 +149,7 @@ Round 9 keeps all 68 checks and adds seven regressions (75 total).
 `FANOUT_TEST_FILTER='round 9'` selects them. The same seven checks fail
 against `3ca9b038e` and pass on the round-9 workflow:
 
-- `fake-ps.zsh` controls process age independently of the host's `ps` access.
+- The inspection fake controls process age independently of the host's `ps` access.
   A hanging inspection, a nonzero exit with plausible output, empty failed
   output and malformed output must all leave a live stale PID `unknown`.
   Real `kill(pid, 0)` still establishes existence or death. The successful
@@ -251,9 +251,16 @@ check with the source-formatter regression and all three shell steps:
   regression and 4,096-string property to fail. Three other mutations
   (epoch bound, component ranges, identity classification) must still fail
   the property.
-- The inspection fake uses `zsh -f`, `zsh/datetime` and shell builtins;
-  normal inspection starts no Python process. Its hanging mode directly
-  execs sleep, so the production **two-second** timeout remains exercised.
+- `inspection_runner.py` executes the unchanged rendered held-lock runner
+  with an in-process fake for successful `ps` transport and a consistent
+  floating-point wall clock. No process starts per successful inspection,
+  even if host scheduling pauses between fake age and identity comparison.
+  Flock, actual PID existence and monotonic time remain real. The hanging
+  mode delegates to `fake-ps.zsh` (`zsh -f`, datetime and shell builtins),
+  which directly execs sleep, so the production **two-second** timeout
+  remains exercised. Every fake call asserts that production still asks
+  for exactly that timeout. The shell fake also serves independent replay
+  and failure-diagnostic probes.
   Inspection assertion failures show the complete step's observed duration
   and a separately measured fresh fake-ps probe versus that timeout.
   Readiness, lock-wait and step-timeout failures also show duration/budget.
