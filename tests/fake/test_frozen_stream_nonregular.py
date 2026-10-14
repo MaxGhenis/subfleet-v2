@@ -226,8 +226,8 @@ def test_authoritative_canonical_stream_is_raw_artifact(state_daemon, monkeypatc
     artifacts = [row for row in daemon.store.list_artifacts(attempt["attempt_id"])
                  if row["role"] == "raw-stream"]
     assert len(artifacts) == 1
-    assert (artifacts[0]["path"], artifacts[0]["bytes"], artifacts[0]["sha256"]) == (
-        artifacts[0]["path"], len(payload), hashlib.sha256(payload).hexdigest())
+    assert (artifacts[0]["bytes"], artifacts[0]["sha256"]) == (
+        len(payload), hashlib.sha256(payload).hexdigest())
     assert Path(artifacts[0]["path"]).read_bytes() == payload
     if raw:
         assert not os.path.lexists(launch.raw_stream_path)
@@ -283,6 +283,55 @@ def test_cached_ok_uses_fresh_deliverable_content_boundary(
         else:
             assert (job["state"], job["accepted_attempt_id"]) == ("succeeded", attempt["attempt_id"])
             assert out.read_bytes() == contents
+    finally:
+        if successor is not None:
+            successor.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("damage", ("delete", "replace", "in-place", "live-alias"))
+def test_lost_frozen_copy_reclassifies_and_extracts_from_scratch(
+        state_daemon, monkeypatch, restart, damage):
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    monkeypatch.setattr(daemon, "_salvage", lambda *args: (_ for _ in ()).throw(RuntimeError("interrupted salvage")))
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    frozen = daemon._freeze_stream(adir, launch)
+    fresh = b'{"type":"item.completed","item":{"type":"agent_message","text":"Fresh interim."}}\n'
+    (adir / "stdout").write_bytes(fresh)
+    if damage != "in-place":
+        frozen.unlink()
+    if damage in ("replace", "in-place"):
+        frozen.write_bytes(b"")
+    elif damage == "live-alias":
+        os.link(adir / "stdout", frozen)
+    if Path(launch.raw_stream_path) != frozen:
+        Path(launch.raw_stream_path).write_bytes(fresh)
+    classified, extracted = [], []
+    classify, deliverable = adapter.classify, adapter.deliverable
+    def classify_again(*args):
+        classified.append(True)
+        return classify(*args)
+    def extract_again(*args):
+        extracted.append(True)
+        return deliverable(*args)
+    monkeypatch.setattr(adapter, "classify", classify_again)
+    monkeypatch.setattr(adapter, "deliverable", extract_again)
+    successor = None
+    try:
+        active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+        successor = active if restart else None
+        assert classified == extracted == [True]
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
+        assert (adir / "deliverable.md").read_bytes() == b"Fresh interim."
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert out.read_bytes() == b"previous export\n"
     finally:
         if successor is not None:
             successor.close()
