@@ -308,6 +308,7 @@ def test_d_cen1_an_unknown_root_unique_id_keeps_every_member(monkeypatch):
     census(monkeypatch, parents=ROWS + f"60 1 60 S {START}\n", session=BOOT_A)
     kernel_with(monkeypatch, processes={60: b""}, responsible={60: 42}, unique={60: 1})
     result = procs.containment(None, None, None, ATTEMPT, root=ROOT,
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, START)},
                                responsible_root=procs.ResponsibleRoot(42, BOOT_A, None))
     assert result.responsible_pids == {60}
 
@@ -547,5 +548,6 @@ def test_d_cen1_a_proven_other_boot_excludes_an_unknown_sequence_root(monkeypatc
     census(monkeypatch, parents=ROWS, session=BOOT_A)
     kernel_with(monkeypatch, processes={60: b""}, responsible={60: 42})
     result = procs.containment(None, None, None, ATTEMPT, root=ROOT,
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, START)},
                                responsible_root=procs.ResponsibleRoot(42, BOOT_B, None))
     assert not result.responsible_pids and result.verified_empty
