@@ -384,7 +384,15 @@ def test_freeze_copy_uses_bounded_reads_from_one_candidate_descriptor(tmp_path, 
     (tmp_path / "stdout").write_bytes(b"x" * (2 * 1024 * 1024 + 3))
     os.link(tmp_path / "stdout", candidate)
     original_stream = module.open_stream
-    opened, sizes = [], []
+    original_open = os.open
+    source_info = candidate.stat()
+    opened, sizes, descriptors = [], [], []
+    def kernel_open(path, *args, **kwargs):
+        fd = original_open(path, *args, **kwargs)
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) == (source_info.st_dev, source_info.st_ino):
+            descriptors.append(fd)
+        return fd
     class Reader:
         def __init__(self, stream):
             self.stream = stream
@@ -405,8 +413,10 @@ def test_freeze_copy_uses_bounded_reads_from_one_candidate_descriptor(tmp_path, 
             return Reader(stream)
         return stream
     monkeypatch.setattr(module, "open_stream", opening)
+    monkeypatch.setattr(os, "open", kernel_open)
     frozen_launch = freeze(tmp_path, launch)
     assert len(opened) == 1
+    assert len(descriptors) == 1
     assert len(sizes) >= 3
     assert Path(frozen_launch.raw_stream_path).read_bytes() == (tmp_path / "stdout").read_bytes()
 
