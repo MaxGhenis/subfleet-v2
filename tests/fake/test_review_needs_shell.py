@@ -24,7 +24,8 @@ def shell_state(state_daemon, monkeypatch):
                                     luna={'provider': 'codex', 'id': 'gpt-6-luna'})
     service.policy['chains']['review'][-1] = ['sol61', 'opus']
     service.policy['requires'] = {'review': ['shell']}
-    service.policy['caps'].update(max_in_flight_per_lane=1, max_in_flight_unmeasured=1)
+    # Keep fixture readings fresh across a Fleet ops pause; this suite tests shell routing.
+    service.policy['caps'].update(max_in_flight_per_lane=1, max_in_flight_unmeasured=1, reading_ttl_s=86400)
     service.store.put_lane(Lane('claude-10', 'claude', 'claude:fixture',
         Credential('claude', '/fake/claude-10', 'home'), '/fake/claude-10', LaneOwner.V2, False))
     for identity in ('codex-1', 'claude-10'):
@@ -228,7 +229,7 @@ def test_resume_keeps_explicit_shell_opt_out(shell_state):
     source = service.dispatch('submit', harness.submit_args(pinned_model='opus', task='review', needs_shell=False))['job_id']
     service._admit()
     attempt, = service.store.list_attempts(source)
-    service.store.update_attempt(attempt['attempt_id'], native_session_id='fixture-native-session')
+    service.store.update_attempt(attempt['attempt_id'], native_session_id='00000000-0000-4000-8000-000000000001')
     adir = service.root / 'jobs' / source / 'a1'
     adir.mkdir()
     service._finalize(receipt_fixture(service, attempt, adir))
