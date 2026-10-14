@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 from unittest.mock import patch
+from etime_formatters import darwin
 
 NOW = 2_000_000_000
 SEED = 12510
@@ -40,7 +41,11 @@ def elapsed(value):
         minutes, seconds = map(int, clock[-2:])
     except ValueError:
         return None
-    if minutes > 59 or seconds > 59 or (len(pieces) == 2 and hours > 23):
+    # Apple's strict > 3600 hour transition emits exactly 60:00. Derive
+    # that exception from its formatter, independently of the runner regex.
+    if minutes > 59 and (len(clock) != 2 or ":".join(clock) != darwin(3600)):
+        return None
+    if seconds > 59 or (len(pieces) == 2 and hours > 23):
         return None
     age = ((days * 24 + hours) * 60 + minutes) * 60 + seconds
     return age if age <= NOW else None
