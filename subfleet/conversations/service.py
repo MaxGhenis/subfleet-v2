@@ -2156,15 +2156,15 @@ class ConversationService:
             try:
                 step()
             except Exception as exc:
-                # daemon.log only: the step's name, then the error's words scrubbed whole
-                # (C-25.7). `suggestions.scrub_error` dropped the step, as a prefix it
-                # does not know, and with it which step stopped or failed.
+                # A control-loop error's fixed diagnostic (C-25.7): the step's name, the
+                # error's class and an OS error's errno. `suggestions.scrub_error` dropped
+                # the step, as a prefix it does not know, and with it which step it was.
                 if self._closed:
                     # close() overtook the step (its store now refuses): no failure of the step's own.
                     self.log.info("conversation tick step %s stopped: the service closed (%s)", step.__name__,
-                                  refusals.scrubbed_words(exc))
+                                  refusals.fixed_error(exc))
                     return
-                self.log.error("conversation tick step %s failed: %s", step.__name__, refusals.scrubbed_words(exc))
+                self.log.error("conversation tick step %s failed: %s", step.__name__, refusals.fixed_error(exc))
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
 
