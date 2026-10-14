@@ -23,6 +23,7 @@ import sqlite3
 import string
 import subprocess
 import tempfile
+import unicodedata
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -217,6 +218,9 @@ def fixture():
     root = folder / "state"
     root.mkdir()
     daemon = FakeDaemon(root)
+    # Keep the real Git checks. Host suspension must not prevent a generated
+    # example from reaching the injected failure whose channels it verifies.
+    daemon.policy["caps"]["workspace_git_timeout_s"] = 120
     service = ConversationService(daemon)
     service._person = lambda peer, what: (Verdict(True, "the Subfleet app", peer) if peer == PERSON else
                                           (_ for _ in ()).throw(ConversationError("person-only", what, code=7)))
@@ -385,7 +389,8 @@ def test_c25_5_a_folder_session_or_job_shaped_like_a_secret_is_refused_and_makes
             except OSError as exc:
                 # APFS rejects some Unicode scalars as filenames. Still send
                 # that path: the service must refuse it without publishing it.
-                if exc.errno != errno.EILSEQ:
+                unassigned = any(unicodedata.category(char) == "Cn" for char in secret)
+                if exc.errno != errno.EILSEQ and not (exc.errno == errno.EPERM and unassigned):
                     raise
             args["workspace"] = str(folder)
         else:

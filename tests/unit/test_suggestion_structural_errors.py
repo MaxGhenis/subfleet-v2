@@ -103,7 +103,7 @@ def test_generated_exception_and_caller_text_never_reaches_any_channel(
         shown = everything_shown(service, sid, cid, "")
         shown.update(wire=response, notice=notice(response["error"]), cli=cli_error(service, response["error"]))
         assert_secret_absent(shown, secret)
-        assert service.suggestions.get(sid)["state"] == suggestions.STARTING
+        assert service.suggestions.get(sid)["state"] == suggestions.STARTING, response
         assert service.captured.lines and any("finishing the start" in line for line in service.captured.lines)
 
         if field in ("limit", "closed_limit", "suggestion_ids"):
