@@ -2,9 +2,12 @@
 
 import os
 from pathlib import Path
+import socket
+import tempfile
 
 
-FROZEN_KINDS = ("empty", "regular", "directory", "fifo", "symlink", "dangling-symlink")
+NONREGULAR_KINDS = ("directory", "fifo", "socket", "symlink", "dangling-symlink")
+FROZEN_KINDS = ("empty", "regular", "hardlink", *NONREGULAR_KINDS)
 
 
 def make_frozen(path: Path, kind: str, contents: bytes = b"") -> None:
@@ -12,6 +15,17 @@ def make_frozen(path: Path, kind: str, contents: bytes = b"") -> None:
         path.mkdir()
     elif kind == "fifo":
         os.mkfifo(path)
+    elif kind == "socket":
+        # Darwin's Unix socket path cap is shorter than pytest's temp paths.
+        with tempfile.TemporaryDirectory(prefix="sf-sock-", dir="/private/tmp") as temporary:
+            source = Path(temporary) / "socket"
+            with socket.socket(socket.AF_UNIX) as sock:
+                sock.bind(str(source))
+            source.rename(path)
+    elif kind == "hardlink":
+        source = path.parent / "stdout"
+        source.write_bytes(contents)
+        os.link(source, path)
     elif kind == "symlink":
         path.symlink_to(path.parent / "stdout")
     elif kind == "dangling-symlink":

@@ -2,6 +2,8 @@
 
 from dataclasses import asdict, replace
 import json
+import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -13,7 +15,7 @@ from subfleet.contracts import Credential, ExitInfo, Outcome, OutcomeClass
 from subfleet.daemon import Daemon
 from tests.conftest import LANE_EMAIL, LANE_IDENTITY
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
-from tests.frozen_streams import frozen_identity, make_frozen
+from tests.frozen_streams import NONREGULAR_KINDS, frozen_identity, make_frozen
 
 
 def stage_provider(daemon, harness, name, out):
@@ -60,7 +62,7 @@ def replay(daemon, harness, attempt, finalizing, restart, monkeypatch):
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
 @pytest.mark.parametrize("checkpoint", ("finalization", "deliverable"))
-@pytest.mark.parametrize("kind", ("empty", "directory", "fifo", "symlink", "dangling-symlink"))
+@pytest.mark.parametrize("kind", ("empty", *NONREGULAR_KINDS))
 def test_claude_frozen_stream_survives_interrupted_finalization(
         state_daemon, monkeypatch, restart, checkpoint, kind):
     daemon, harness = state_daemon
@@ -104,6 +106,91 @@ def test_claude_frozen_stream_survives_interrupted_finalization(
     finally:
         if successor is not None:
             successor.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("raw", ("stream.jsonl", "custom.jsonl", "stdout"))
+def test_writable_stream_alias_cannot_supply_later_completion(
+        state_daemon, monkeypatch, restart, raw):
+    """Port #209's hard-link input: cached auth-dead, rc 0, interim text."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    launch = replace(launch, raw_stream_path=str(adir / raw))
+    saved = asdict(launch)
+    saved.pop("env_add")
+    (adir / "launch.json").write_text(json.dumps(saved))
+    (adir / "stdout").write_bytes(b"")
+    (adir / "stderr").write_bytes(b"Your refresh token was revoked.\n")
+    if raw != "stdout":
+        os.link(adir / "stdout", adir / "stream.jsonl")
+    verdict = Outcome(OutcomeClass.AUTH_DEAD, "cached old authentication rejection")
+    attest = adapter.attest(adir, launch, verdict, attempt["model_requested"])
+    (adir / "finalization.json").write_text(json.dumps({
+        "outcome": asdict(verdict), "attestation": asdict(attest)}))
+    (adir / "deliverable.md").write_bytes(b"Interim progress, not a finished turn.")
+    captured = {p: (adir / p).read_bytes() for p in ("finalization.json", "deliverable.md", "exit.json")}
+    observed = []
+    answered = Daemon._answered
+    def observe(outcome, cls):
+        observed.append(outcome.cls.value)
+        return answered(outcome, cls)
+    monkeypatch.setattr(Daemon, "_answered", staticmethod(observe))
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    # Hold the writer descriptor across write-then-rename, as a provider would.
+    with (adir / "stdout").open("ab", buffering=0) as writer:
+        with pytest.raises(RuntimeError, match="interrupted salvage"):
+            daemon._finalize(finalizing)
+        monkeypatch.setattr(daemon, "_salvage", salvage)
+        writer.write(b'{"type":"turn.completed"}\n')
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert observed == ["auth-dead", "auth-dead"]
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "auth-dead"
+        assert out.read_bytes() == b"previous export\n"
+        frozen = adir / "stream.jsonl"
+        assert frozen.read_bytes() == b""
+        assert frozen.stat().st_nlink == 1
+        assert not os.path.samefile(frozen, adir / "stdout")
+        assert {p: (adir / p).read_bytes() for p in captured} == captured
+        assert not active.store.query("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'",
+                                      (attempt["attempt_id"],))
+        if raw == "custom.jsonl":
+            assert not os.path.lexists(launch.raw_stream_path)
+    finally:
+        if restart:
+            active.close()
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@pytest.mark.parametrize("raw", ("custom.jsonl", None))
+def test_authoritative_canonical_stream_is_raw_artifact(state_daemon, monkeypatch, name, raw):
+    daemon, harness = state_daemon
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(
+        daemon, harness, name, harness.root / "out.md")
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    frozen = adir / "stream.jsonl"
+    payload = (adir / "stdout").read_bytes()
+    frozen.write_bytes(payload)
+    launch = replace(launch, raw_stream_path=str(adir / raw) if raw else None)
+    saved = asdict(launch)
+    saved.pop("env_add")
+    (adir / "launch.json").write_text(json.dumps(saved))
+    daemon._finalize(finalizing)
+    assert daemon.store.get_job(job_id)["state"] == "succeeded"
+    artifacts = [row for row in daemon.store.list_artifacts(attempt["attempt_id"])
+                 if row["role"] == "raw-stream"]
+    assert len(artifacts) == 1
+    assert (artifacts[0]["path"], artifacts[0]["bytes"], artifacts[0]["sha256"]) == (
+        str(frozen), len(payload), hashlib.sha256(payload).hexdigest())
+    if raw:
+        assert not os.path.lexists(launch.raw_stream_path)
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
