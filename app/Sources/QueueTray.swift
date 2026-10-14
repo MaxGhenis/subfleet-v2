@@ -57,8 +57,9 @@ struct ConversationLayout: Equatable {
     var settling: Bool
     /// A page of older history has loaded (the one opening reads).
     var hasHistory: Bool
-    var ownSending: Set<String> = []
+    var ownMessages: Set<String> = []
     var queuedAhead = false
+    var localSend: String? = nil
 
     /// The tray's heading; nil while nothing waits.
     var trayTitle: String? { queueTrayTitle(tray, live: live, held: held, ahead: queuedAhead) }
@@ -67,10 +68,10 @@ struct ConversationLayout: Equatable {
     func followKey(length: (TimelineItem) -> Int) -> FollowKey {
         let last = items.last
         var own = false
-        if case .person(_, _, let state)? = last?.content, state == "sending", let id = last?.messageID { own = ownSending.contains(id) }
+        if case .person(_, _, _)? = last?.content, let id = last?.messageID { own = ownMessages.contains(id) }
         return FollowKey(last: last?.id, lastIsOwnSend: own, followed: followed?.id,
                          followedLength: followed.map(length) ?? 0, tray: tray.map(\.id),
-                         settling: settling, hasHistory: hasHistory)
+                         settling: settling, hasHistory: hasHistory, localSend: localSend)
     }
 }
 
@@ -79,7 +80,7 @@ struct ConversationLayout: Equatable {
 struct FollowKey: Equatable {
     /// The timeline's last row.
     var last: String?
-    /// That row is the person's message not yet received: one they just sent.
+    /// The last row is a message sent locally. `localSend` identifies a new send.
     var lastIsOwnSend: Bool
     /// The newest row of the turn that began last (`Timeline.followedItem`).
     var followed: String?
@@ -91,6 +92,8 @@ struct FollowKey: Equatable {
     var settling: Bool
     /// A page of older history has loaded (the one opening reads).
     var hasHistory: Bool
+    /// Latest local send, even if a receipt arrived before the view drew it.
+    var localSend: String? = nil
 
     /// Before the conversation has a timeline.
     static let empty = FollowKey(last: nil, lastIsOwnSend: false, followed: nil, followedLength: 0, tray: [],
@@ -120,7 +123,8 @@ struct FollowKey: Equatable {
     static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool) -> Move {
         guard old != new else { return .stay }
         if old.settling || new.settling { return .jump }
-        if new.last != old.last && new.lastIsOwnSend { return .glide }
+        if new.last != old.last && new.lastIsOwnSend,
+           new.localSend == nil || new.localSend != old.localSend { return .glide }
         guard atBottom else { return .stay }
         if new.last != old.last || new.followed != old.followed || new.tray != old.tray { return .glide }
         if new.followedLength != old.followedLength || new.hasHistory != old.hasHistory { return .jump }
@@ -187,8 +191,8 @@ extension Timeline {
         let followed = followedItem.flatMap { ids.contains($0.id) ? $0 : nil } ?? shown.last
         return ConversationLayout(items: shown, tray: tray, followed: followed, held: held, live: live,
                                   settling: !caughtUp, hasHistory: historyPagesLoaded > 0,
-                                  ownSending: Set(turns.values.filter { $0.locallySent && $0.state == "sending" }.map(\.messageID)),
-                                  queuedAhead: queue.first.map { !inTray.contains($0) } ?? false)
+                                  ownMessages: Set(turns.values.filter { $0.locallySent }.map(\.messageID)),
+                                  queuedAhead: queue.first.map { !inTray.contains($0) } ?? false, localSend: lastLocalMessageID)
     }
 
     /// A message the person withdrew before it started: `cancelled` by a

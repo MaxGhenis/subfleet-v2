@@ -775,6 +775,9 @@ struct Timeline: Equatable {
         sortOrder()
     }
 
+    /// Retained across receipts, which may beat the first view update.
+    private(set) var lastLocalMessageID: String? = nil
+
     /// A message this app is sending: shown at once, before its receipt (the
     /// composer's optimistic row). With `steer`, sent to steer the running turn.
     mutating func addLocal(messageID: String, text: String, attachments: [String] = [],
@@ -783,6 +786,7 @@ struct Timeline: Equatable {
         guard var turn = turns[messageID] else { return }
         turn.personText = text
         turn.locallySent = true
+        lastLocalMessageID = messageID
         turn.attachments = attachments
         turn.origin = turn.origin ?? "person"
         turn.settings = turn.settings ?? settings

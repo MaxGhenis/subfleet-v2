@@ -53,7 +53,7 @@ WITHDRAWN_REASONS = ("withdrawn", "withdrawn-before-receipt")
 NOTE_PREVIEW = "Note to the next turn: the stopped turn is left, not resumed"
 PREVIEW_LIMIT = 280
 EMPTY_KEY = {"last": None, "last_is_own_send": False, "followed": None, "followed_length": 0, "tray": [],
-             "settling": True, "has_history": False}
+             "settling": True, "has_history": False, "local_send": None}
 
 
 def run_queue(core_probe, steps: list[dict], cid: str = CID) -> dict:
@@ -723,7 +723,7 @@ def ref_move(old: dict, new: dict, at_bottom: bool) -> str:
         return "stay"
     if old["settling"] or new["settling"]:
         return "jump"
-    if new["last"] != old["last"] and new["last_is_own_send"]:
+    if new["last"] != old["last"] and new["last_is_own_send"] and (new.get("local_send") is None or new.get("local_send") != old.get("local_send")):
         return "glide"
     if not at_bottom:
         return "stay"
@@ -838,11 +838,11 @@ def ref_key(layout: dict, caught_up: bool, history_pages: int) -> dict:
     last = items[-1] if items else None
     followed = next((item for item in items if item["id"] == layout["followed"]), None)
     return {"last": last["id"] if last else None,
-            "last_is_own_send": bool(last) and last["type"] == "person" and last["state"] == "sending" and last["message_id"] in layout.get("own_sending", []),
+            "last_is_own_send": bool(last) and last["type"] == "person" and last["message_id"] in layout.get("own_messages", []),
             "followed": layout["followed"],
             "followed_length": len(followed["text"]) if followed and followed["type"] in ("text", "thinking") else 0,
             "tray": [row["id"] for row in layout["tray"]], "settling": not caught_up,
-            "has_history": history_pages > 0}
+            "has_history": history_pages > 0, "local_send": layout.get("local_send")}
 
 
 def replay(steps: list[dict]) -> list[dict]:
@@ -852,6 +852,7 @@ def replay(steps: list[dict]) -> list[dict]:
     timeline began or was focused, and how many history pages have loaded."""
     arrival: dict[str, int] = {}
     cursor, caught_up, pages, out = 0, False, 0, []
+    local_send, own_messages = None, set()
     for step in steps:
         if "page" in step:
             applied = 0
@@ -873,10 +874,13 @@ def replay(steps: list[dict]) -> list[dict]:
         elif "history" in step:
             pages += 1
         elif "local" in step:
+            local_send = step["local"]["message_id"]
+            own_messages.add(local_send)
             arrival.setdefault(step["local"]["message_id"], len(arrival))
         elif step.get("focus"):
             caught_up = False
-        out.append({"arrival": dict(arrival), "caught_up": caught_up, "history_pages": pages})
+        out.append({"arrival": dict(arrival), "caught_up": caught_up, "history_pages": pages,
+                    "local_send": local_send, "own_messages": set(own_messages)})
     return out
 
 
@@ -1180,7 +1184,7 @@ def test_c29_7_property_follow_moves_match_the_rule(core_probe, steps):
     result = run_queue(core_probe, steps)
     old = EMPTY_KEY
     for step, snapshot, known, move in zip(steps, result["snapshots"], replay(steps), result["moves"]):
-        key = ref_key({**snapshot["layout"], "own_sending": [mid for mid, turn in snapshot["timeline"]["turns"].items() if turn["locally_sent"] and turn["state"] == "sending"]}, known["caught_up"], known["history_pages"])
+        key = ref_key({**snapshot["layout"], "own_messages": known["own_messages"], "local_send": known["local_send"]}, known["caught_up"], known["history_pages"])
         assert snapshot["key"] == key
         assert move == ref_move(old, key, step.get("at_bottom", True))
         old = key

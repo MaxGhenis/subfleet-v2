@@ -20,14 +20,14 @@ func project(_ layout: ConversationLayout) -> [String: Any] {
 func project(_ key: FollowKey) -> [String: Any] {
     ["last": key.last as Any? ?? NSNull(), "last_is_own_send": key.lastIsOwnSend,
      "followed": key.followed as Any? ?? NSNull(), "followed_length": key.followedLength, "tray": key.tray,
-     "settling": key.settling, "has_history": key.hasHistory]
+     "settling": key.settling, "has_history": key.hasHistory, "local_send": key.localSend as Any? ?? NSNull()]
 }
 
 func followKey(_ value: JSONValue) -> FollowKey {
     FollowKey(last: value["last"]?.string, lastIsOwnSend: value["last_is_own_send"]?.bool ?? false,
               followed: value["followed"]?.string, followedLength: Int(value["followed_length"]?.double ?? 0),
               tray: value["tray"]?.array?.compactMap(\.string) ?? [], settling: value["settling"]?.bool ?? false,
-              hasHistory: value["has_history"]?.bool ?? false)
+              hasHistory: value["has_history"]?.bool ?? false, localSend: value["local_send"]?.string)
 }
 
 func moveWord(_ move: FollowKey.Move) -> String {
