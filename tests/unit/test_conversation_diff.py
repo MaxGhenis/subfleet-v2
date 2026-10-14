@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+from subfleet import supervisor
 from subfleet.conversations import diff
 from subfleet.salvage import SalvageError
 
@@ -575,3 +576,36 @@ def test_a_credential_two_rules_match_is_counted_once():
     from subfleet.conversations.diff import scrub_diff
     text, count = scrub_diff("@@ -1 +1 @@\n+    token = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789'\n")
     assert "[REDACTED]" in text and "sk-ant" not in text and count == 1
+
+
+# --- C-25.3: under a conversation file op, the diff's git runs supervised -----------
+
+
+def test_a_diff_taken_under_the_supervisor_is_the_diff(repository):
+    """Differential (C-25.3, C-26.14): the live snapshot and the bounded comparison
+    a file op makes under the conversation service's supervisor are the ones made
+    without it, a cut listing included."""
+    _, start = diff.snapshot(repository)
+    (repository / "tracked.txt").write_text("a\nB\nc\nd\n")
+    (repository / "old.txt").unlink()
+    (repository / "added.txt").write_text("new\n")
+    plain = diff.snapshot(repository), diff.build(repository, start, diff.snapshot(repository)[1], max_bytes=40)
+    with supervisor.supervising(supervisor.Supervisor()):
+        supervised = diff.snapshot(repository), diff.build(repository, start, diff.snapshot(repository)[1],
+                                                           max_bytes=40)
+    assert supervised == plain and plain[1]["truncated"]
+
+
+def test_a_diff_the_closed_conversation_service_refuses_raises_the_refusal(repository):
+    """C-25.3: a diff whose service has closed is refused before git starts, never
+    answered as a workspace that is gone, a pruned snapshot or a failed git call."""
+    _, start = diff.snapshot(repository)
+    closed = supervisor.Supervisor()
+    closed.close(1)
+    with supervisor.supervising(closed):
+        with pytest.raises(supervisor.Closed):
+            diff.snapshot(repository)
+        with pytest.raises(supervisor.Closed):
+            diff.build(repository, start, start)
+        with pytest.raises(supervisor.Closed):
+            diff._bounded(repository, ("diff-tree", "-p", start, start), 1000, 30)

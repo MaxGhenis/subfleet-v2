@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import supervisor
 from ..contracts import SCRUB_MAX_CHARS, Sandbox
 from ..protocol import SubmitArgs
 from . import registry, transcripts
@@ -844,8 +845,8 @@ def _read_bounded(path: Path, max_bytes: int = PROGRESS_READ_BYTES) -> str:
 
 def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True,
-                              text=True, timeout=8)
+        # Under a conversation file op, supervised like every process it starts (C-25.3).
+        return supervisor.run(["git", "-C", str(cwd), *args], text=True, timeout=8)
     except (OSError, subprocess.SubprocessError):
         return None
 

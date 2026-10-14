@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import supervisor
 from .adapters.base import AdapterError
 from .contracts import GIT_LOCATION_ENV, GIT_PATHSPEC_ENV
 from .sessions.transcripts import open_regular
@@ -184,11 +185,17 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
     """One capped git call's stdout, stripped. Both streams are read as the file
     system names things (`os.fsdecode`), never as strict UTF-8: a path or ref name
     that is not UTF-8 is carried, where `text=True` raised `UnicodeDecodeError`,
-    which no caller catches (review of cda4c161, N1)."""
+    which no caller catches (review of cda4c161, N1).
+
+    Every git call here starts through `supervisor.run`: under a conversation file
+    op, in a process group the conversation service ends, with what a hook or
+    filter left in it, when git exits, at the cap or at `close()` (C-25.3); and
+    there a call the closed service refuses raises its refusal, never an answer.
+    Elsewhere (the daemon's admission and finalization snapshots) it is the plain
+    `subprocess.run` it was."""
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
-                                capture_output=True, timeout=cap)
+        result = supervisor.run(["git", "-C", str(workdir), *args], env=_git_env(env), timeout=cap)
     except subprocess.TimeoutExpired as exc:
         # Never `optional`: a call that did not finish has not said "no HEAD" or
         # "no branch", and reading it that way admits a writable job with no
@@ -216,8 +223,7 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
     exit. Transient git failures, timeouts and OS errors raise as in ``_git``."""
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin,
-                                capture_output=True, timeout=cap)
+        result = supervisor.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
@@ -394,8 +400,8 @@ def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
     cap = git_timeout_s(timeout_s)
     limit = ("--pathspec-from-file=-", "--pathspec-file-nul") if pathspec is not None else ()
     try:
-        result = subprocess.run(["git", "-C", str(workdir), "add", "-A", *limit], env=_git_env(env),
-                                input=pathspec, capture_output=True, timeout=cap)
+        result = supervisor.run(["git", "-C", str(workdir), "add", "-A", *limit], env=_git_env(env),
+                                input=pathspec, timeout=cap)
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git add timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
@@ -448,8 +454,8 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
     open the repository. `--git-dir` never lets git look above `gitdir`."""
     cap = git_timeout_s(timeout_s)
     try:
-        result = subprocess.run(["git", b"--git-dir=" + gitdir, "rev-parse", "-q", "--verify", "HEAD"],
-                                env=_git_env(env), capture_output=True, timeout=cap)
+        result = supervisor.run(["git", b"--git-dir=" + gitdir, "rev-parse", "-q", "--verify", "HEAD"],
+                                env=_git_env(env), timeout=cap)
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git rev-parse timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
