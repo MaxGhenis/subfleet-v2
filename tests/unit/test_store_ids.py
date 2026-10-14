@@ -7,10 +7,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from uuid import UUID
 
+import string
+
+import hypothesis.strategies as st
 import pytest
+from hypothesis import example, given, settings
 
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner
-from subfleet.ids import attempt_id, canonical_json, job_id, payload_digest, request_id
+from subfleet.ids import attempt_id, canonical_json, holds_credential, job_id, payload_digest, request_id
+from subfleet.sessions.handoff import scrub_secrets
 from subfleet.store import SCHEMA_VERSION, SchemaVersionError, Store
 
 
@@ -176,3 +181,35 @@ def test_reserve_authorization_changes_digest_without_changing_default_requests(
     authorized = payload_digest(b"review", unmeasured_reserve_reason="explicit reason", **kwargs)
     assert authorized != original
     assert authorized != payload_digest(b"review", unmeasured_reserve_reason="new evidence", **kwargs)
+
+
+#: The token families a C-1.1 slug's alphabet (`[a-z0-9-]`) can spell, as C-23.14 reads them.
+SLUG_TOKENS = st.tuples(st.sampled_from(["sk-", "sk-proj-", "sk-ant-", "glpat-", "xoxb-", "xoxp-", "xoxa-"]),
+                        st.text(string.ascii_lowercase + string.digits + "-", min_size=16, max_size=30)).map("".join)
+SLUG_WORDS = st.text(string.ascii_lowercase + string.digits + "-", max_size=30)
+
+
+@given(value=st.text(max_size=40))
+@example(value="sk-" + "a" * 20)
+@example(value="password=SECRET7-left")
+@settings(max_examples=50, deadline=None)
+def test_holds_credential_refuses_all_the_whole_text_scrubber_refused(value):
+    """Invariant (C-1.5, C-25.7): reading from each hyphen and underscore only adds
+    refusals; what the scrubber changes read whole is still refused."""
+    clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
+    if count or clean != value:
+        assert holds_credential(value)
+
+
+@given(before=SLUG_WORDS, joiner=st.sampled_from(["-", "_"]), token=SLUG_TOKENS)
+@example(before="20261013-000000", joiner="-", token="sk-" + "a" * 20)
+@example(before="build", joiner="-", token="glpat-" + "a" * 20)
+@settings(max_examples=60, deadline=None)
+def test_a_token_after_any_hyphen_or_underscore_is_a_credential(before, joiner, token):
+    """Invariant (review r6 of #181, P2): a token the scrubber recognizes alone is a
+    credential wherever a hyphen or underscore puts it, though read whole the
+    scrubber starts no token there; job ids, request ids and correlation ids alike."""
+    value = before + joiner + token                     # at most 69 characters
+    assert holds_credential(value)
+    with pytest.raises(ValueError, match="cannot be a credential"):
+        request_id(value)
