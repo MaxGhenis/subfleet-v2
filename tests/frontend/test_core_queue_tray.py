@@ -235,8 +235,8 @@ def test_c29_7_a_send_behind_a_live_turn_waits_in_the_tray_until_it_starts(core_
     assert tray(started) == [] and started["layout"]["title"] is None
     assert ids(started)[-1] == "person:m2" and shown(started, "person:m2")["state"] == "running"
     assert ids(running)[-1] == "text:m2:0" and running["layout"]["followed"] == "text:m2:0"
-    # Into the tray glides; the receipt and the turn's end move nothing; the start glides.
-    assert result["moves"][3:] == ["glide", "stay", "stay", "glide", "stay", "glide"]
+    # Tray changes glide; the newly pinned live strip jumps to keep the visible end anchored.
+    assert result["moves"][3:] == ["glide", "stay", "stay", "glide", "jump", "glide"]
 
 
 def test_c29_7_a_send_into_an_idle_conversation_shows_in_the_timeline(core_probe):
