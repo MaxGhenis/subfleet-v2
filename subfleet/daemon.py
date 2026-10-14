@@ -211,7 +211,7 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "provider-cap", "provider-slot-kept", "parent-cap", "no-slot", "lease-held",
-                            "probe-pending", "behind-older-job", "route-moved", "machine-busy",
+                            "probe-pending", "behind-older-job", "route-moved", "lane-opened", "machine-busy",
                             "lane-proving", "disk", "ramp"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
@@ -360,6 +360,33 @@ class Unroutable(Exception):
     def __init__(self, cause: BaseException):
         super().__init__(f"{type(cause).__name__}: {cause}")
         self.cause = cause
+
+
+#: C-6.10: what `LaneGates` is read from: the closures in force at an instant, and the lane rows.
+GATE_CLOSURES = "SELECT lane_id,scope FROM closures WHERE released_at IS NULL AND until_at>?"
+GATE_LANES = "SELECT lane_id,enabled,owner,identity_status FROM lanes"
+
+
+@dataclasses.dataclass(frozen=True)
+class LaneGates:
+    """C-6.10: what keeps lanes from taking work at one instant that no slot coming
+    free ends: `closed`, the (lane, scope) of every closure in force, which an
+    operator's release, a reset, a reset credit or its own `until_at` ends; and
+    `usable`, the lanes whose rows let them take work at all (enabled, owned by v2,
+    identity not mismatched, C-10.6), which enrolment or a person re-enabling a lane
+    adds to. Read by `Daemon._lane_gates`."""
+    closed: frozenset[tuple[str, str]]
+    usable: frozenset[str]
+
+    def opened(self, now: LaneGates) -> frozenset[str]:
+        """The lanes `now` has open for some model that these gates did not: usable and
+        under no account-wide closure now, and before either not usable, under an
+        account-wide closure, or under a closure of a scope that has none now. A lane
+        whose model-scoped closure ended under a closure of the whole account is still
+        shut, so it has not opened. `now` read for one lane answers for that lane alone."""
+        return frozenset(lane for lane in now.usable if (lane, "account") not in now.closed and (
+            lane not in self.usable or (lane, "account") in self.closed
+            or any(gate[0] == lane and gate not in now.closed for gate in self.closed)))
 
 #: The sessions kit's durable facts, as `events` kinds (C-23.33, C-23.35). They
 #: are events rather than a table because each is an append-only record of one
@@ -932,6 +959,12 @@ class Daemon:
         # C-6.4a, C-6.10: quarantine can retain a provider slot after its lane
         # lease is gone. Each pool must notice that count freeing independently.
         self._provider_quarantines_seen: dict[str, frozenset[str]] = {}
+        # C-6.10: what kept lanes shut when the last pass of each kind began
+        # (`_lane_gates`). A lane that has opened since is capacity that came free.
+        self._lane_gates_seen: dict[str, LaneGates] = {}
+        # C-6.10: whether the last pass of each kind stopped early because a lane
+        # opened after it began; the pass after such a pass does not stop so.
+        self._pass_stopped: dict[str, bool] = {}
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
@@ -981,6 +1014,9 @@ class Daemon:
         # the job could run on. `scheduler.probe_turn` reads it; each detached pass
         # starts it again, so a job that has stopped waiting on a probe holds nobody.
         self._probe_line: list[tuple[str, str, frozenset[str] | None]] = []
+        # C-6.10: the lanes' gates when the detached pass under way began; a probe
+        # (C-11.4) is never reserved on a lane that has opened since.
+        self._probe_gates: LaneGates | None = None
         # C-6.11: job id -> the probe `_prepare_route` left it waiting on (`lane`,
         # `model`, and `behind` when an older job has the turn), taken by the pass.
         self._probe_notes: dict[str, dict] = {}
@@ -5137,6 +5173,16 @@ class Daemon:
                     lane = self.store.get_lane(decision.chosen_lane)
                     if not lane or lane.owner != "v2" or not lane.enabled:
                         raise _ProbeLaneBusy
+                    # C-6.10: nor on a lane that opened after this pass began, which the
+                    # jobs it passed over on their clocks have not been offered: a probe
+                    # holds its lane from every job while it runs, and this one would
+                    # hold the pass, and the next one that offers the lane in order, up
+                    # to a minute. The pass stops at its next look, unless the pass
+                    # before it stopped so (`_admit_pass`).
+                    gates = self._probe_gates
+                    if gates is not None and decision.chosen_lane in gates.opened(
+                            self._lane_gates(lane_id=decision.chosen_lane)):
+                        raise _ProbeLaneBusy
                     # C-23.44, C-23.47: a credential a timer's read found revoked or
                     # unusable since the evaluation is not probed (review of PR #72).
                     row = self.store.one("SELECT * FROM lanes WHERE lane_id=?", (decision.chosen_lane,))
@@ -5481,6 +5527,17 @@ class Daemon:
         finally:
             self._admission = state
 
+    def _lane_gates(self, read: Callable | None = None, *, lane_id: str | None = None) -> LaneGates:
+        """C-6.10: the lanes' gates now (`LaneGates`), read from the store, or inside a
+        transaction with its `read`; with `lane_id`, that lane's alone. Two indexed reads."""
+        read = read or self.store.query
+        only = (lane_id,) if lane_id is not None else ()
+        closed = frozenset((row["lane_id"], row["scope"]) for row in read(
+            GATE_CLOSURES + (" AND lane_id=?" if only else ""), (utcnow(), *only)))
+        usable = frozenset(row["lane_id"] for row in read(GATE_LANES + (" WHERE lane_id=?" if only else ""), only)
+                           if row["enabled"] and row["owner"] == "v2" and not capacity.identity_blocked(dict(row)))
+        return LaneGates(closed, usable)
+
     def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
         """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
         output_identities: dict[str, str] = {}
@@ -5546,11 +5603,39 @@ class Daemon:
         quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
                                     if scheduler.uncontained_quarantine(row))
                            if scheduler.provider_caps_on(self.policy) else frozenset())
+        # C-6.10: a lane that has opened since the last pass began (an operator's
+        # `lanes release`, a closure a reset or a reset credit released or whose
+        # `until_at` passed, a lane enrolled or enabled) is capacity that came free
+        # too, as a released lease is, so every backed-off capacity wait is looked
+        # at on this pass and C-6.9's order (C-6.16's priority first) decides who
+        # gets it. Before 2026-10-14 such a lane was seen only at each job's next
+        # recheck: the hub's ramp released codex-1 at 02:08:48Z, the jobs whose
+        # clocks were due took 15 starts on it, and the priority caller's job, last
+        # looked at 02:08:38Z on a 30 s clock, was looked at again only at 02:09:36Z,
+        # after the ramp had held the lane again. `gates` is also this pass's
+        # reference for the rest of it: a lane that opens after it was read is
+        # offered by the next pass, not this one.
+        gates = self._lane_gates()
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
             freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now
                          or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
             self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
+            gates_seen = self._lane_gates_seen.get(kind)
+            self._lane_gates_seen = {**self._lane_gates_seen, kind: gates}
+        if kind == "detached":
+            self._probe_gates = gates               # C-6.10: a turn never carries a probe (C-26.9)
+        opened = gates_seen.opened(gates) if gates_seen is not None else frozenset()
+        if opened:
+            freed = True
+            self.log.info("admission: %s opened since the last %s pass; every backed-off capacity wait is "
+                          "looked at on this one (C-6.10)", " ".join(sorted(opened)), kind)
+        # C-6.10: the lanes that opened after this pass began, once it has found one
+        # before a look or at a reservation; from then on it looks at no further job.
+        # It stops so at most every other pass, so a run of openings, each sooner
+        # than a pass takes, never keeps the jobs at the end of the order unlooked.
+        stopped: frozenset[str] = frozenset()
+        may_stop = not self._pass_stopped.get(kind, False)
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
@@ -5827,7 +5912,20 @@ class Daemon:
                     if probing and probing.get("behind") else None)
             turn_came = bool(probing and probing.get("behind") and turn is None)
             hurried = bool(freed and known and known["expedite"]) or turn_came
-            if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
+            clocked = bool(job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried)
+            if not clocked and not stopped and may_stop:
+                # C-6.10: a lane that opened after this pass began was not offered to
+                # the jobs it passed over on their clocks before this one, a priority
+                # caller's first among them (C-6.16): it looks at no further job, and
+                # the next pass, which follows at once, looks at every one of them in
+                # order. A pass that prepares workspaces and probes serially for many
+                # due jobs runs for 30 s or more; it is not left to give the lane to
+                # whichever of them it reaches next.
+                stopped = gates.opened(self._lane_gates())
+                if stopped:
+                    self.log.info("admission: %s opened after this %s pass began; it looks at no further job "
+                                  "(C-6.10)", " ".join(sorted(stopped)), kind)
+            if clocked or stopped:
                 # C-11.8: a job every lane refuses now for a reason no wait ends waits
                 # for nothing another job could take, however its clock was set (a
                 # transient retry's 60 s, or lanes that turned since its last look).
@@ -5852,7 +5950,12 @@ class Daemon:
                     blocked = set(known.get("blocked") or ())
                     queue_for([*(key for key in known["hold"].get("leases") or () if key not in blocked),
                                *(known["hold"].get("queued") or ())], job["job_id"])
-                last = dict(known["hold"]) if known else {"reason": job["wait_reason"] or "waiting"}
+                # C-6.11: the last look's hold, repeated in full; one this pass stopped
+                # before looking at, with no look to repeat, says why.
+                last = (dict(known["hold"]) if known else
+                        {"reason": "lane-opened", "opened": sorted(stopped)}
+                        if stopped and not clocked and job["wait_reason"] != "workspace" else
+                        {"reason": job["wait_reason"] or "waiting"})
                 if turn and turn != last.get("behind"):
                     # C-6.11: whose turn it is now; the job it was held for has started or ended.
                     last["behind"] = turn
@@ -6202,6 +6305,24 @@ class Daemon:
                                                                                 decision.chosen_model)
                         decision = standing
                         self._count_route(**{"reused" if same else "rechosen": 1}, rejudged=judged)
+                        if decision.chosen_lane and decision.chosen_lane in gates.opened(
+                                self._lane_gates(read, lane_id=decision.chosen_lane)):
+                            # C-6.10: the lane opened after this pass began, while this job was
+                            # being looked at (its workspace, a probe), so the jobs the pass
+                            # passed over before it have not been offered it. Read here, under
+                            # the lock that orders it with the release, so no pass places a job
+                            # on a lane that opened after the pass began: the next one, which
+                            # follows at once, offers it in order. The job keeps its place and
+                            # its clock, as a moved route does (C-6.3).
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                            holds[job["job_id"]] = {"reason": "lane-opened", "opened": [decision.chosen_lane]}
+                            self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11
+                            if may_stop and not stopped:
+                                stopped = frozenset({decision.chosen_lane})
+                                self.log.info("admission: %s opened after this %s pass began; it looks at no "
+                                              "further job (C-6.10)", decision.chosen_lane, kind)
+                            status = "held"
+                            break
                         if rotation and (scheduler.promoted_past(decision, rotated[1]) if decision.chosen_lane
                                          else scheduler.left_out_only(decision, rotation)):
                             # C-11.4: the lane `_probe_choice` chose stopped taking the job
@@ -6646,6 +6767,7 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(aid)
             self._notify()
+        self._pass_stopped[kind] = bool(stopped)    # C-6.10: so the next pass of this kind runs to its end
 
     @staticmethod
     def _probes_holding(decision) -> frozenset[tuple[str, str]]:
