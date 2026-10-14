@@ -216,3 +216,94 @@ The fixed mutation tool ran in a temporary `git archive` of `0f8b600f2`, with on
 The restored-fallback mutation was killed by `tests/fake/test_capacity_steer_daemon.py::test_c9_5_with_no_lane_for_the_next_model_the_job_waits_until_the_steer_ends`. The other kills covered removal of the steer, removal of model exclusion, dropping route evidence, restoring a same-lane pin, restoring the 60-second delay, steering pinned jobs, keeping expired steers, missing the refusal, and taking the first signal as admission evidence. Every kill named a failing regression; queue failures and the standalone broken-lock check were not counted.
 
 The final report commit also clarifies that each evaluation consults steer expiry at its own clock; the daemon edits in that step are comments only. `git diff --check` and syntax parsing passed. No logs, JSON evidence or bundles were staged. A portable bundle of this local history is stored at `.git-local/r207f2.bundle` and verified for import against `7cda25c90856`. No shared checkout, live state or remote was changed.
+
+
+## PR #207 fix round 3
+
+Base: `930b7acff53a79d206a370251667afd8182b68f3`, including #209. The assigned workspace started clean. No remote was contacted, and no shared checkout, live store or live process was touched. Commits use workspace-local `.git-local` metadata on `fix/model-capacity-steer`, because the shared Git metadata is outside the sandbox's writable roots. The original `.git` pointer is unchanged. Use `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD"` to inspect this history.
+
+### Findings
+
+1. **P2, steered waiter demand — fixed.** Admission reads the job's recorded steer before C-6.9 hold-back, including a backed-off waiter. `scheduler.demand_models` excludes live steered models. A later unpinned review's full chain can still overlap the waiter's remaining model, so this particular comparison is deferred until model selection and enforced again before reservation. A later Astra attempt can pass a review steered away from Astra; an Opus selection still waits behind that review. Other FIFO comparisons, provider caps, family scope, lease order and the last slot kept for an older waiter remain intact. Demand returns at expiry. Review and single-model build regressions cover expiry priority and unchanged-verdict accounting (C-6.10).
+2. **P2, captured stderr inside error messages — fixed.** C-9.5 now defines the accepted message grammar. After optional whitespace and `ERROR:`, the message must itself begin with the model-capacity refusal, optionally prefixed `Selected ` or `The `, or with `error code: model_at_capacity`. Trailing provider details are allowed. A phrase after another prefix, including a tool failure or captured-output prefix, is excluded. Authentication, old-CLI, content, quota, verified completion and terminal-failure precedence are preserved.
+3. **P2, diagnostic suppresses later provider refusal — fixed.** Each Codex tracing record resets its diagnostic context. A tool diagnostic's quoted continuation, including an `ERROR:` payload, remains excluded; a subsequent independent non-tool record and its refusal are judged independently. Structured failure events remain independent of stderr context.
+
+The earlier steer wait, expiry, pinned retry, quoted-router and verified mutation-accounting fixes are retained. The #209 completion and frozen-stream guarantees are covered again by the requested completion and frozen-stream files.
+
+### Tests first and properties
+
+Seven regression cases reproducing the reviewed message and queue shapes were run against baseline source copied inside `.git-local/baseline`: **all seven failed at the intended assertions** (five classifier cases and review/build hold-back), with no provider-source changes from `930b7acff`. The first baseline attempt timed out in the lock queue. A subsequent collection error exposed an incorrectly selected test-edit block; the cyber-refusal property was restored, the intended capacity property was corrected, and that error is excluded from regression counts.
+
+The queue property uses **40 derandomized examples**, fresh stores, mixed review/build queues, both Astra and Opus targets, and pinned or unpinned later jobs. It checks that an older job's live steer cannot alone hold back a later attempt selected on that model. The classification property uses **60 derandomized examples** of interleaved provider events, independent stderr records, tool diagnostics and quoted payloads; the marker is present exactly when a provider record itself is a refusal. Message-boundary examples test both sides of C-9.5's grammar. Both properties disable the example database and deadline.
+
+The #199 state machine now generates model-capacity refusals through real finalization. Its independent demand oracle removes only live recorded steers, checks the actual selected model for the narrow steering exception, and tests fair progress after the steer ends. Both the ordinary and provider-cap variants use the **CI profile: 40 examples of at most 30 steps**. #199's non-interference, progress and recheck properties and #201's provider admission behavior are checked alongside the new regressions.
+
+
+### Validation discipline
+
+Runs use Python 3.14.7 free threaded, pytest 9.1.1 and Hypothesis 6.168.1 from `uv sync --frozen --group dev`. Every file runs in its own foreground shared-lock hold, one worker, with a task-owned DARWIN_USER_TEMP_DIR temporary directory and Hypothesis storage. No deep profile is used. Queue timeouts run no pytest and are excluded from case counts. A longer queue wait is separate from the duration of a hold; no test hold approached 20 minutes. Temporary test storage is removed after each attempt.
+
+Intermediate failures were corrected in separate commits: the initial wrong property-edit block; the remaining-chain FIFO overlap found by the review regression; and an Opus FIFO safety fixture that accidentally made its older job permanently unadmittable under C-11.8. Editing the temporary test wrapper while a batch was active also caused a parse error after its last file; the wrapper was fixed, and affected outstanding checks were retried. These are excluded from final passing counts.
+
+The first mutation campaign attempt exited **75**, recorded **zero kills**, and verified all three source files restored byte for byte after failing to acquire the shared lock. The committed tool now accepts `SUBFLEET_SUITE_LOCK_WAIT_S` (60-second default) so a foreground campaign may wait longer in the queue. The criterion for a kill remains pytest exit 1 plus a named failed regression in a selected file; infrastructure errors remain errors.
+
+### Commits
+
+- `4b6bf5662`: test: reproduce round-3 capacity steering failures.
+- `6a770e715`: fix: exclude live capacity steers from FIFO model demand.
+- `6ad90f2b1`: fix: classify capacity refusals within provider message records.
+- `703ac34a9`: test: scope the capacity message property to provider refusals.
+- `4b9c0c4be`: test: restore each round-3 bug in the capacity mutation campaign.
+- `f1b823ecc`: test: check FIFO non-interference for either steered model.
+- `90eccd0c3`: test: preserve FIFO on a steered waiter remaining model.
+- `e58721380`: test: judge steered waiter competition on the selected model.
+- `b9140e3e8`: fix: compare steered FIFO waiters against the selected model.
+- `aa092db2d`: test: keep the remaining-model FIFO waiter admissible later.
+- `36c479f31`: test: make the mutation lock queue wait configurable.
+
+### Passing runs
+
+**1,152 passed, 2 skipped, 3 expected failures** across 19 distinct files. Every file had its own shared-lock hold.
+
+| File | Passed | Other |
+| --- | ---: | --- |
+| `tests/fake/test_admission_priority.py` | 32 | — |
+| `tests/fake/test_admission_properties.py` | 14 | 3 expected failures |
+| `tests/fake/test_admission_stateful.py` | 2 | — |
+| `tests/fake/test_admission_visibility.py` | 43 | — |
+| `tests/fake/test_capacity_steer_daemon.py` | 38 | — |
+| `tests/fake/test_codex_turn_completed_fake.py` | 109 | — |
+| `tests/fake/test_frozen_stream_nonregular.py` | 32 | — |
+| `tests/fake/test_provider_active_cap_fake.py` | 60 | — |
+| `tests/fake/test_routing_end_to_end.py` | 14 | 2 skipped |
+| `tests/fake/test_state_contract.py` | 37 | — |
+| `tests/unit/test_capacity_steer_mutations.py` | 8 | — |
+| `tests/unit/test_capacity_steer_route.py` | 22 | — |
+| `tests/unit/test_codex_adapter.py` | 172 | — |
+| `tests/unit/test_codex_turn_completed.py` | 41 | — |
+| `tests/unit/test_empty_provider_results.py` | 334 | — |
+| `tests/unit/test_frozen_provider_streams.py` | 48 | — |
+| `tests/unit/test_limit_from_model_text.py` | 95 | — |
+| `tests/unit/test_provider_active_cap.py` | 50 | — |
+| `tests/unit/test_test_module_names.py` | 1 | — |
+
+The two routing skips require process identity unavailable in this sandbox. The three expected failures are pre-existing admission-property cases. The full suite, detached E2E/process suites and Python 3.12 were not run.
+
+### Mutation results
+
+The final campaign ran committed `36c479f31` in a workspace-owned archive, with `SUBFLEET_SUITE_LOCK_WAIT_S=600` for the lock queue. Result: **14/14 verified named regression kills**, tool exit **0**, with no infrastructure errors in that campaign. Each mutation had its own foreground shared-lock hold and bounded Hypothesis storage. The driver verified that the daemon, scheduler and Codex adapter were restored byte for byte afterward.
+
+| Restored round-3 bug | Regression that killed it |
+| --- | --- |
+| Refused model retained in FIFO demand | `test_r3_steered_waiter_does_not_hold_back_later_jobs_for_the_refused_model[review]` |
+| Remaining-chain overlap blocks a later Astra review | `test_r3_steered_waiter_does_not_hold_back_later_jobs_for_the_refused_model[review]` |
+| Captured stderr inside an error message marks capacity | `test_r3_capacity_quoted_inside_failure_messages_is_not_a_refusal[Tool execution failed with exit code 1. Captured stderr:\n-error]` |
+| A tool diagnostic suppresses all later provider records | `test_r3_independent_provider_record_after_tool_diagnostic_marks_capacity` |
+
+The ten earlier mutations also died: removal of the steer, removal of model exclusion, omitted route evidence, the same-lane pin, the 60-second delay, steering pinned jobs, retaining expired steers, restoring refused-model fallback, missing the classifier marker, and taking the first signal as admission evidence. No queue failure or collection error was counted as a kill.
+
+### Delivery and cleanup
+
+No requested file remains unrun. `git diff --check` and syntax parsing of all changed Python modules pass. Every commit has `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. The final documentation step also corrects the stale duration comment to describe exclusion while the steer is live; the 900-second value is unchanged.
+
+Commits remain on `fix/model-capacity-steer` in workspace-local `.git-local` metadata. The verified portable bundle is `.git-local/r207f3.bundle`, for import against `930b7acff53a`. No logs, JSON evidence, bundles or temporary archives were staged. Test temporary storage and replay archives were cleaned, and no `.hypothesis` directory remains. No push, PR comment or remote operation was performed.
