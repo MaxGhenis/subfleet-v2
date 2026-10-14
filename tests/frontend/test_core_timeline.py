@@ -533,7 +533,9 @@ def test_outside_turns_after_binding_survive_event_replay_and_are_newest_at_bott
 
 def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
     """Receipts order the timeline; a failover continuation and an unblock note read as
-    notices; a tombstone is not shown; a local message shows before its receipt."""
+    notices; a tombstone shows one withdrawn line (C-29.7, the queue tray: a message
+    withdrawn before it was sent keeps a line, with its text when known); a local
+    message shows before its receipt."""
     cid = "cv-1"
     ids = [str(uuid.uuid4()) for _ in range(5)]
     receipt = lambda i, seq, origin, state="complete", **extra: {  # noqa: E731
@@ -547,6 +549,7 @@ def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
     assert result["order"] == [ids[0], ids[1], ids[2], ids[3], ids[4]]
     shown = [(i["type"], i.get("text"), i.get("state")) for i in result["items"]]
     assert shown == [("person", None, "failed"), ("notice", "Continued after a usage limit on b@example.invalid", None),
+                     ("notice", "Withdrawn before it was sent: (message text not available)", None),
                      ("person", None, "queued"), ("person", "typed just now", "sending")]
     assert result["turns"][ids[3]]["status_text"] == "Queued behind the current turn"
     assert result["turns"][ids[0]]["status_text"] == "Failed: limited"
