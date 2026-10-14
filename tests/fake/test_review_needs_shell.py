@@ -113,10 +113,11 @@ def test_unsatisfiable_read_only_pin_refused_before_store(shell_state, changes):
     assert not service.store.list_jobs()
 
 
-def test_unknown_pin_is_daemon_refusal_listing_policy_models(shell_state):
+@pytest.mark.parametrize("bad_model", ["absent", "", False, 0])
+def test_unknown_pin_is_daemon_refusal_listing_policy_models(shell_state, bad_model):
     service, harness = shell_state
     with pytest.raises(AdapterError) as refused:
-        service.dispatch('submit', harness.submit_args(pinned_model='absent'))
+        service.dispatch('submit', harness.submit_args(pinned_model=bad_model, task='review', tier='hard', needs_shell=False))
     assert refused.value.code == 7
     assert all(name in str(refused.value) for name in service.policy['models'])
     assert not service.store.list_jobs()

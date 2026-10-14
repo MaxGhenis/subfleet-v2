@@ -2228,7 +2228,7 @@ class Daemon:
                 # on every folder above it, by string operations alone (`folders.retiring`).
                 folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
                 model = args.pinned_model
-                if model:
+                if model is not None:
                     try:
                         model = resolve_model(self.policy, model)
                     except PolicyError as exc:
