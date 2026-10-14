@@ -3,10 +3,11 @@
 Incident, 2026-10-14 (read from the live store). The hub's lane ramp holds the
 Codex lanes and releases one at a time. It released codex-1 at 02:08:48Z and held
 it again at 02:09:32Z. In between, admission placed 15 jobs on codex-1, each one
-whose backed-off capacity clock (C-6.10) was due, one after another, each behind
-its own admission probe. The live policy's one priority caller (C-6.16) had a job
-waiting for the same lanes: last looked at 02:08:38Z on a 30 s clock, it was not
-looked at again until 02:09:36Z, after the lane was held. A released lease brought
+whose backed-off capacity clock (C-6.10) was due: the first six each behind an
+admission probe of its own (about 6 s each), the last nine within 3 s. The live
+policy's one priority caller (C-6.16) had a job waiting for the same lanes: last
+looked at 02:08:38Z on a 30 s clock, it was not looked at again until 02:09:36Z,
+after the lane was held. A released lease brought
 every backed-off wait forward; a lane opening did not, so "priority first" held
 only among the jobs whose clocks happened to be due.
 
@@ -277,8 +278,8 @@ def test_c6_10_a_lane_that_opens_between_looks_stops_the_pass_before_its_next_lo
 
 
 def test_c6_10_no_probe_runs_on_a_lane_that_opened_after_the_pass_began(fleet):
-    """C-6.10, C-11.4: in the incident every job placed on codex-1 first carried an admission probe there
-    (about 6 s each). A job whose look began before the release does not probe the lane: the probe would
+    """C-6.10, C-11.4: in the incident the first six jobs placed on codex-1 each carried an admission probe
+    there first (about 6 s each). A job whose look began before the release does not probe the lane: the probe would
     hold the lane from every job, and the pass, for up to a minute. The next pass's first probe is the
     priority job's."""
     service, harness = fleet
