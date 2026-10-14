@@ -86,20 +86,18 @@ is retained rather than leaving an old Sending state visible.
 
 ## Validation
 
-Completed passing suites: `test_core_queue_engine.py` 75,
-`test_queue_tray_view.py` 15, `test_core_steer.py` 43, and
-`test_queue_tray_notice.py` 2. The original foundation suite passed all 42 cases.
-The extended foundation suite most recently passed 43 of 44: its remaining
-assertion expected no viewport follow when the live strip appeared, and was
-updated to expect the anchored jump. The final 44-case rerun is queued. The
-final Swift source builds through `app/build.sh` with the release target and
-signing checks. Existing Swift Sendable-capture and unnecessary-await warnings
-remain. The first broader batch passed 83 of 84 cases in 19m52s. Its one
-failing approval-timeline property still excluded queued continuations in its
-reference, which conflicts with the required failover fix. Commit `3c0ba3226`
-updates that independent reference from `next_dispatchable`, including missed
-repairs and wakes, and adds a concrete regression. The corrected 41-case file
-is queued for a rerun. Per-file results and shared-lock omissions follow.
+Completed passing suites: `test_core_queue_tray.py` 44,
+`test_core_queue_engine.py` 75, `test_queue_tray_view.py` 15,
+`test_core_steer.py` 43, and `test_queue_tray_notice.py` 2. The final Swift source
+builds through `app/build.sh` with the release target and signing checks.
+Existing Swift Sendable-capture and unnecessary-await warnings remain. The
+first broader batch passed 83 of 84 cases in 19m52s. Its one failing
+approval-timeline property still excluded queued continuations in its reference,
+which conflicts with the required failover fix. Commit `3c0ba3226` updates that
+independent reference from `next_dispatchable`, including missed repairs and
+wakes, and adds a concrete regression. The corrected 41-case file is queued for
+a rerun; Python syntax validation passes. Per-file results and shared-lock
+omissions follow.
 
 Tests run as foreground, one pytest per shared lock hold,
 with temporary Hypothesis storage and no deep profile. New queue properties
@@ -115,8 +113,9 @@ coverage generator that rarely made an idle send while reading higher up. Both
 were corrected; the CI sampling and coverage batching above bound later runs.
 The repaired two-file run held the lock for 360.9 seconds: foundation 43 passed
 and one stale viewport expectation failed, notice 2 passed. That expectation
-is corrected in `1ea3bf992`; its final rerun and broader checks are pending the
-shared lock. Queue wait is separate from time holding the lock.
+is corrected in `1ea3bf992`; the final 44-case rerun passed in 256.9 seconds
+of pytest time. Broader checks remain queued. Queue wait is separate from time
+holding the lock.
 
 ## Delivery and remaining work
 
@@ -131,8 +130,8 @@ reopening the conversation. This is outside the rebuild's requested scope.
 
 ## Counts per file
 
-These are the latest completed runs per file as of 12:44 UTC. A pending run
-is not counted as a pass. Foundation and approval-reference reruns and the
+These are the latest completed runs per file as of 12:47 UTC. A pending run
+is not counted as a pass. The approval-reference rerun and the
 remaining broad batches are still queued. The foreground runner remains active;
 the sandbox denied a signal to its wrapper, so it was left unchanged.
 
@@ -154,7 +153,7 @@ the sandbox denied a signal to its wrapper, so it was left unchanged.
 | `tests/frontend/test_core_protocol.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_question_card.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_queue_engine.py` | 75 passed |
-| `tests/frontend/test_core_queue_tray.py` | 43 passed, 1 stale viewport expectation failed; corrected; final 44-case rerun queued |
+| `tests/frontend/test_core_queue_tray.py` | 44 passed |
 | `tests/frontend/test_core_search.py` | 0 run: shared-lock queue |
 | `tests/frontend/test_core_steer.py` | 43 passed |
 | `tests/frontend/test_core_steer_properties.py` | 0 run: shared-lock queue |

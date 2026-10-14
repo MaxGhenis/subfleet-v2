@@ -753,7 +753,7 @@ def did_nothing(timeline: dict, mid: str) -> bool:
 
 def waits_in_queue(timeline: dict, mid: str) -> bool:
     turn = timeline["turns"][mid]
-    return (mid != CONVERSATION_KEY and turn["state"] in ("queued", "sending") 
+    return (mid != CONVERSATION_KEY and turn["state"] in ("queued", "sending")
             and turn["first_event"] is None and did_nothing(timeline, mid))
 
 
