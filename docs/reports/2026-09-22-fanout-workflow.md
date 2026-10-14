@@ -974,6 +974,74 @@ deterministic identity checks), `bb731aa99` (lock proof), `69c2ce6ba`
 (recovery diagnostics), and `6da43c90b` (independent oracle and instructions),
 followed by the report commit.
 
+## Round 10: validate and bound process elapsed time, 2026-10-14
+
+Review r9's one low finding is resolved. Numeric `ps` output is now parsed
+as `[[dd-]hh:]mm:ss`: seconds and minutes are each two digits in 0–59, and
+hours must be in 0–23 when days are present. A day prefix without hours is
+invalid. Hours without days may exceed 23. Invalid fields yield `unknown`.
+
+Duration arithmetic stays integer until the total has been bounded by the
+current Unix timestamp. A larger age cannot match a positive recorded spawn
+timestamp and yields `unknown` before float subtraction. Integer conversion
+failures and arithmetic overflow are also caught inside inspection. Both
+`00:99` and 310 nines followed by `:00` now preserve `LOCKED` and exit 75,
+with liveness `unknown`, through all three generated workflow steps.
+The advisory lock, PID/spawn checks, reuse tolerance, inspection timeout,
+recovery identity checks and explained recovery-budget skips are retained.
+
+**Fake-only verification:**
+
+- Against the exact `4c5e61e2316a` workflow, the three new checks give
+  **0 passed, 3 failed**, exit 1 as expected: impossible seconds claim
+  `alive`, overflowing minutes raise `OverflowError` without `LOCKED`, and
+  the property rejects the invalid classification.
+- Against the fixed workflow, the same checks give **3 passed, 0 failed**.
+  The two integration regressions cover **six held-lock step invocations**
+  without submitting a job.
+- The bounded property uses seed **12510**, **4,096 strings** of at most
+  8,192 characters and **12,288 holder classifications**: **2,910 alive,
+  1,452 reused, 7,926 unknown**. The complete rendered runner executes under
+  a real held flock with actual PID existence checks; only `ps` transport
+  and a fixed floating-point wall clock are substituted. An independent
+  split/range oracle checks syntax and age. Every case prints `LOCKED` and
+  exits 75 without an unexpected exception; `alive` requires valid elapsed
+  time matching the recorded spawn. Boundaries, huge hours/days, Python's
+  integer-conversion guard, whitespace, NULs and Unicode are included.
+- Complete validator: **78 passed, 0 failed**, retaining all **75** previous
+  checks and adding the **three** round-10 checks. This includes the
+  conservative bare-PID assertion, all 13 missing/mismatched identity fields
+  for all three jobs under the controlled clock, and both recovery-budget
+  regressions. The per-step timeout remains 240,000 ms.
+- Sequential oracle: **20,000 histories, 113,703 entry transitions**, passed.
+- Shipped concurrent oracle: **104 histories** passed: **64 ordinary,
+  24 HEAD/policy/model perturbations and 16 re-send refusals**. The ordinary
+  run produced **122 immutable submission logs**; all three drivers passed
+  their existence, completeness, immutable-log and relaunch assertions.
+- Separate independent oracle: **32 histories, 31 launcher/helper kills,
+  0 LOCKED peers**, passed.
+- Python AST parsing: **seven sources** (rendered helper, rendered lock
+  runner and five Python harness sources), passed. Fake CLI `bash -n`,
+  **three** rendered `zsh -n` checks and `git diff --check` passed.
+
+The harness README documents the baseline reproduction and final commands.
+All checks use fake Subfleet, temporary registries and empty
+`SUBFLEET_HOME`/`ZDOTDIR`, with `PYTHONPATH` removed. Temporary fixtures are
+removed with the specified Python `shutil.rmtree` command. No real jobs,
+network remotes, sub-agents, detached/background launches, live workflow
+edits or caller-checkout writes were used. Only named source and report
+files are staged; no logs, JSON evidence or bundles are committed.
+
+Shared Git metadata is outside this sandbox's writable roots. Commits use
+workspace-local **`.git-local` metadata** on
+`docs/fanout-workflow-measured`, with read-only access to the original
+objects; the original detached HEAD is unchanged. Inspect them with
+`git --git-dir=.git-local log`. The steps are `bf373616c` (failing
+regressions/property), `7e8ae735a` (elapsed-time validation and bound), and
+`1a4aac48c` (float-clock semantics and reproduction instructions), followed
+by this report commit. Every commit carries the requested co-author
+trailer; no history was rewritten or pushed.
+
 ## Live check of the shipped commands, 2026-10-04
 
 The three rendered commands, run by hand against the daemon (release
