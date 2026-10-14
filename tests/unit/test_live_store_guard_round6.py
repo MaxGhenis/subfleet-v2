@@ -283,6 +283,23 @@ def test_native_binary_spellings_are_refused_at_launch(spelling, event):
     assert SAFETY_HITS[hits:] == []
 
 
+# Each layer of the file match stands alone. Where a stat succeeds the identity
+# also catches every case variant, so only switching it off shows the folding.
+@pytest.mark.parametrize("spelling", ["//usr/bin/security", "/usr/bin/./security",
+                                      "/usr/bin/../bin/security", "/USR/BIN/SECURITY",
+                                      "/usr/bin/ſecurity"])
+def test_the_folded_spelling_matches_without_the_file_identity(spelling):
+    native = credentials._native_keychain_binary()
+    assert credentials._is_keychain_binary(spelling, native, _identity=lambda path: None)
+
+
+@pytest.mark.parametrize("spelling", ["/USR/BIN/SECURITY", "volfs"])
+def test_the_file_identity_matches_without_the_folded_spelling(spelling):
+    path = spelled(spelling)
+    native = credentials._native_keychain_binary()
+    assert credentials._is_keychain_binary(path, native, _fold=lambda path: path)
+
+
 @pytest.mark.parametrize("name,cwd,env,refused", [
     pytest.param("security", None, {"PATH": "/usr/bin"}, True, id="call-path"),
     pytest.param("security", None, {}, True, id="default-search-path"),
