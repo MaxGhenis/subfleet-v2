@@ -1975,8 +1975,8 @@ class Daemon:
         (`_retry_pair_routable`); the pin is a job dict carrying the pair. An
         attempt whose model refused the job for capacity and steered it
         (`capacity_steer`, C-9.5) sets no pin: the same model on any lane would
-        refuse it the same, and the job is routed as submitted, the model walked
-        last while its steer lasts (`_capacity_steer`).
+        refuse it the same, and the job is routed as submitted, the model skipped
+        while its steer lasts (`_capacity_steer`).
         """
         previous = self.store.list_attempts(job["job_id"])
         roster = self._pin_roster() if previous else []
@@ -6017,7 +6017,7 @@ class Daemon:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
-            # C-9.5, D-CAP1: a model the job's own attempt found at capacity is walked last while
+            # C-9.5, D-CAP1: a model the job's own attempt found at capacity is skipped while
             # its steer lasts; read once here, so every evaluation of this look walks one chain.
             decision_job = self._route_job(job, previous)
             turn_block = None
@@ -6327,7 +6327,8 @@ class Daemon:
                             # recorded an unchanged verdict again on each fleet turnover.
                             rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
-                            waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
+                            waiting = scheduler.waiting_metadata(
+                                decision, rechecks=rechecks, capacity_steer=decision_job.get("capacity_steer"))
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",

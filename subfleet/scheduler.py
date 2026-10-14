@@ -659,14 +659,15 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
     # C-9.5, D-CAP1: the models this job's own attempts found at capacity (`capacity_steer`, model
-    # id to the end of its steer, as the daemon read it at the pass's clock) are walked after the
-    # rest of its chain, in their order: another model takes the job when one can, and the model
-    # at capacity when none can, so a steer never holds a job. Nothing is added or dropped.
+    # id to the end of its steer) are excluded while the steer is live. The remaining models
+    # keep chain order. With none admissible the job waits, even for a chain of one model.
     steer = job.get("capacity_steer") or {}
     steered = ({short: steer[policy["models"][short]["id"]] for short in chain
-                if policy["models"][short]["id"] in steer} if steer and capacity_steerable(job) else {})
+                if policy["models"][short]["id"] in steer
+                and _time(steer[policy["models"][short]["id"]]) > now}
+               if steer and capacity_steerable(job) else {})
     if steered:
-        chain = [short for short in chain if short not in steered] + list(steered)
+        chain = [short for short in chain if short not in steered]
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
     # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy
@@ -1132,10 +1133,10 @@ def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: l
 
 def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime,
                     steered: Mapping[str, str] | None = None) -> str:
-    """C-11.5: a decision's reason: the models walked last for capacity (C-9.5, `prepare`'s
+    """C-11.5: a decision's reason: the models skipped for capacity (C-9.5, `prepare`'s
     `steered`), each model's, then, with no lane, the earliest reset."""
     evaluations = list(evaluations)
-    messages = [f"{short}: at capacity for this job until {until}, walked last (C-9.5)"
+    messages = [f"{short}: at capacity for this job until {until}, skipped by capacity steer (C-9.5)"
                 for short, until in (steered or {}).items()]
     messages += [row["reason"] for row in evaluations]
     if chosen_lane is None:
@@ -1325,7 +1326,8 @@ def capacity_recheck_delay(rechecks: int, ceiling_s: float = CAPACITY_RECHECK_CE
 
 
 def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
-                     rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S) -> dict[str, str]:
+                     rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S,
+                     capacity_steer: Mapping[str, str] | None = None) -> dict[str, str]:
     """C-4.1; plan amendment 11: capacity waits always have a recheck clock.
 
     C-6.10: the clock backs off while the verdict repeats, and a known reset
@@ -1336,6 +1338,10 @@ def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
     earliest = _earliest_reset(decision.evaluations, instant)
     if earliest:
         next_check = min(next_check, _time(earliest))
+    for until in (capacity_steer or {}).values():
+        end = _time(until)
+        if end > instant:
+            next_check = min(next_check, end)
     return {"wait_reason": "capacity", "next_check_at": _iso(next_check)}
 
 
