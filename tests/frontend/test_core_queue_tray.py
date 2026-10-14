@@ -1369,3 +1369,26 @@ def test_c29_7_property_order_matches_the_real_daemons_next_dispatchable(core_pr
             harness.close()
         snapshot = run_queue(core_probe, [{"receipts": entries, "held": True}], cid=cid)["snapshots"][0]
     assert tray(snapshot) == expected
+
+
+def test_c29_7_an_own_send_glides_when_its_receipt_beats_the_first_view_update(core_probe):
+    log = Log()
+    result = run_queue(core_probe, [log.page(), history("old reply"), {"at_bottom": False},
+                                   {**local("mine", "next question"), "at_bottom": False},
+                                   {"receipts": [receipt("mine", 1, "queued")], "at_bottom": False}])
+    old, new = result["snapshots"][2]["key"], result["snapshots"][-1]["key"]
+    # SwiftUI can observe local + receipt together, without drawing the sending snapshot.
+    assert queue_words(core_probe, moves=[{"old": old, "new": new, "at_bottom": False}])["moves"] == ["glide"]
+
+
+def test_c29_7_a_queued_send_becoming_the_head_is_not_a_new_own_send(core_probe):
+    log = Log()
+    log.add("host", "accepted")
+    log.add("host", "text", block="0", text="Working")
+    steps = [{"receipts": [receipt("host", 1, "running")]}, log.page(), log.page(),
+             local("mine", "then this"), {"receipts": [receipt("mine", 2, "queued")]}]
+    log.add("host", "turn.completed", state="complete")
+    steps += [log.page(), {"receipts": [receipt("host", 1, "complete")]}]
+    result = run_queue(core_probe, [{**step, "at_bottom": False} for step in steps])
+    assert result["moves"][-1] == "stay"
+    assert "person:mine" in ids(result["snapshots"][-1])
