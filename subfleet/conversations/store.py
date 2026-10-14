@@ -316,8 +316,9 @@ class ConversationStore:
         self.dir = self.root / "conversations"
         self._lock = WatchedLock("conversations")      # C-3.6
         # Held by a file write under the state root (`writing`) and by close(), taken
-        # before `_lock`: close() waits for a write under way, and none starts after it.
-        # Watched like `_lock` (C-3.6): a write can hold it across two fsyncs.
+        # before `_lock`: close() waits for a write under way (with its bound, if given
+        # one), and none starts after it. Watched like `_lock` (C-3.6): a write can hold
+        # it across two fsyncs.
         self._writes = WatchedLock("conversation-files")
         self._closed = False
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -425,14 +426,39 @@ class ConversationStore:
             raise
         self._db.execute("COMMIT")
 
-    def close(self) -> None:
+    def close(self, timeout: float | None = None) -> bool:
         """A file write under way (`writing`) finishes first. Every read, write and
-        file write after this is refused (`store-closed`): a turn runner still going
-        when its service closed wrote into the state root after its owner had removed
-        it, and made the root again (C-25.3)."""
-        with self._writes, self._lock:
+        file write that starts after this is refused (`store-closed`): a turn runner
+        still going when its service closed wrote into the state root after its owner
+        had removed it, and made the root again (C-25.3).
+
+        With `timeout`, the write under way, and then an operation holding the
+        database, get that long in all: an op held inside a write (an fsync on a
+        stalled disk) held close() for good (reviews of 6c1f8bb). Past it the store
+        refuses what starts from then all the same, its connection is left open for
+        the one under way, which may still finish, and close() returns False; True once
+        the connection is closed. A later close() with no timeout waits for that one
+        and closes the connection (the daemon's `drain`, C-5.8a)."""
+        end = None if timeout is None else time.monotonic() + max(0.0, timeout)
+
+        def left() -> float:
+            return -1 if end is None else max(0.0, end - time.monotonic())
+
+        if not self._writes.acquire(timeout=left()):
             self._closed = True
-            self._db.close()
+            return False
+        try:
+            if not self._lock.acquire(timeout=left()):
+                self._closed = True
+                return False
+            try:
+                self._closed = True
+                self._db.close()
+            finally:
+                self._lock.release()
+        finally:
+            self._writes.release()
+        return True
 
     def _open(self) -> None:
         if self._closed:
@@ -447,8 +473,12 @@ class ConversationStore:
     def writing(self) -> Iterator[None]:
         """Hold the store open across a write of files under the state root: close()
         waits for one under way and none starts after it, so none lands in a root its
-        owner removes once close() has returned. The write makes its directories with
-        `subdirectory`, never the root itself."""
+        owner removes once close() has returned. A close() with a bound may return with
+        one still under way, which then finishes; the daemon keeps its lock until it has
+        (C-5.8a). The write makes its directories with `subdirectory`, never the root
+        itself. One that starts after close() is refused before it waits for the guard,
+        which a write close() outlasted may hold."""
+        self._open()
         with self._writes:
             self._open()
             yield
@@ -484,12 +514,14 @@ class ConversationStore:
 
         Any later mutation must recheck its guards in its own transaction.
         """
+        self._open()                        # before a wait behind an op close() outlasted
         with self._lock:
             self._open()
             yield self._db
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
+        self._open()                        # before a wait behind an op close() outlasted
         with self._lock:
             self._open()
             self._db.execute("BEGIN IMMEDIATE")
@@ -507,6 +539,7 @@ class ConversationStore:
             self.changed.notify_all()
 
     def query(self, sql: str, params: tuple = ()) -> list[dict]:
+        self._open()                        # before a wait behind an op close() outlasted
         with self._lock:
             self._open()
             return [dict(r) for r in self._db.execute(sql, params).fetchall()]

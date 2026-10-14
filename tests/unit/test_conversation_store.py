@@ -606,3 +606,144 @@ def test_a_messages_text_reads_with_universal_newlines_as_it_did(tmp_path):
         assert store.message_text(message) == "line one\nline two\nline three\n"
     finally:
         store.close()
+
+
+# --- close() with a bound (C-25.3; reviews of 6c1f8bb and of cc7504e) ------------------
+
+
+class Holder:
+    """A thread holding the store, until `let_go()`: inside a transaction (holding the
+    database lock), or a file write (`writing`, holding the write guard)."""
+
+    def __init__(self, store, how: str):
+        self.entered, self.go, self.outcome = threading.Event(), threading.Event(), []
+
+        def hold():
+            try:
+                if how == "transaction":
+                    with store.transaction() as tx:
+                        self.entered.set()
+                        assert self.go.wait(30)
+                        tx.execute("CREATE TABLE late_writer(x)")
+                else:
+                    with store.writing():
+                        self.entered.set()
+                        assert self.go.wait(30)
+                self.outcome.append("finished")
+            except BaseException as exc:    # noqa: BLE001 - reported by the test
+                self.outcome.append(repr(exc))
+
+        self.thread = threading.Thread(target=hold)
+        self.thread.start()
+        if not self.entered.wait(30):
+            self.let_go()
+            pytest.fail(f"the {how} never began")
+
+    def let_go(self):
+        self.go.set()
+        self.thread.join(30)
+
+
+def bounded_close(store, timeout: float) -> bool | None:
+    """`store.close(timeout)` on a thread of its own, joined with room to spare: None
+    if it is still waiting."""
+    result = []
+    closer = threading.Thread(target=lambda: result.append(store.close(timeout=timeout)))
+    closer.start()
+    closer.join(30)
+    return result[0] if result else None
+
+
+def entered(open_one):
+    """An op that enters one of the store's guards and leaves it at once, so one let
+    through by a regression holds nothing after (a held guard wedged teardown)."""
+    def op(store):
+        with open_one(store):
+            pass
+    return op
+
+
+NEW_OPS = {
+    "query": lambda s: s.query("SELECT 1"),
+    "one": lambda s: s.one("SELECT 1"),
+    "transaction": entered(lambda s: s.transaction()),
+    "read": entered(lambda s: s.read()),
+    "writing": entered(lambda s: s.writing()),
+}
+
+
+def refused_at_once(store, op) -> str:
+    """Run `op` on its own thread: its refusal's reason if it is refused within 5 s, or
+    "waiting" if it is still waiting for what holds the store."""
+    reason = []
+
+    def run():
+        try:
+            NEW_OPS[op](store)
+            reason.append("ran")
+        except ConversationError as exc:
+            reason.append(exc.reason)
+
+    thread = threading.Thread(target=run, daemon=True)  # one that waits ends with its holder
+    thread.start()
+    thread.join(5)
+    return reason[0] if reason else "waiting"
+
+
+@pytest.mark.parametrize("how", ["transaction", "writing"])
+def test_a_bounded_close_gives_up_on_what_holds_the_store_and_refuses_what_starts_after(store, how):
+    """C-25.3 (reviews of 6c1f8bb, and of cc7504e, findings 2 and 3): an op held inside
+    the store (a transaction holding the database lock, a file write holding the write
+    guard, say behind an fsync on a stalled disk) held its close() for good. With a
+    bound, close() gives up when it passes and returns False, the store is closed all
+    the same, and what starts after is refused at once rather than queued behind the
+    holder. The op under way keeps its connection and may still finish."""
+    holder = Holder(store, how)
+    try:
+        assert bounded_close(store, 0.3) is False, "close() waited past its bound"
+        assert store._closed
+        refused = {op: refused_at_once(store, op) for op in NEW_OPS}
+        assert refused == dict.fromkeys(NEW_OPS, "store-closed"), refused
+    finally:
+        holder.let_go()
+    assert holder.outcome == ["finished"]
+    assert store.close() is True            # with no bound: the holder is gone, and the connection closes
+    if how == "transaction":
+        reopened = ConversationStore(store.root)
+        try:
+            assert reopened.query("SELECT name FROM sqlite_master WHERE name='late_writer'")
+        finally:
+            reopened.close()
+
+
+@pytest.mark.parametrize("timeout", [0, 0.0, -5])
+def test_a_close_with_no_time_left_takes_a_free_store_and_gives_up_a_held_one_at_once(tmp_path, timeout):
+    free = ConversationStore(tmp_path / "free")
+    assert free.close(timeout=timeout) is True and free._closed
+    with pytest.raises(ConversationError):
+        free.query("SELECT 1")
+    held = ConversationStore(tmp_path / "held")
+    holder = Holder(held, "writing")
+    try:
+        assert bounded_close(held, timeout) is False and held._closed
+        assert held._writes.waiting == {}   # the timed-out waiter left no record behind (C-3.6)
+    finally:
+        holder.let_go()
+        held.close()
+
+
+@pytest.mark.parametrize("how", ["transaction", "writing"])
+def test_a_close_with_no_bound_still_waits_for_what_holds_the_store(store, how):
+    """C-25.3, C-5.8a: the importer's close() and the daemon's `drain` pass no bound;
+    they wait for the op under way and close the connection."""
+    holder = Holder(store, how)
+    result = []
+    closer = threading.Thread(target=lambda: result.append(store.close()))
+    try:
+        closer.start()
+        closer.join(1.0)
+        assert closer.is_alive(), "close() with no bound returned while the store was held"
+    finally:
+        holder.let_go()
+        closer.join(30)
+    assert result == [True] and holder.outcome == ["finished"]

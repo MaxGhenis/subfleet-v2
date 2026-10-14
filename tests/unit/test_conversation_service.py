@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import random
+import re
 import shutil
 import sqlite3
 import stat
@@ -1197,9 +1198,71 @@ def held_file_op(svc, monkeypatch, tmp_path, repo, op):
         monkeypatch.setattr(attachment_module, "sniff", hold(attachment_module.sniff))
     else:
         monkeypatch.setattr(svc, "_cut_worktree", hold(svc._cut_worktree))
-    future = svc.pool_for(op).submit(svc.handle, op, file_op_args(op, tmp_path, repo), None)
-    assert entered.wait(30), f"{op} never started"
+    args, body_finished = file_op_args(op, tmp_path, repo), threading.Event()
+
+    def body():
+        try:
+            return svc.handle(op, args, None)
+        finally:
+            body_finished.set()             # the op's own end; the future is settled a moment later
+
+    future = svc.pool_for(op).submit(body)
+    future.body_finished = body_finished
+    if not entered.wait(30):
+        go.set()
+        pytest.fail(f"{op} never started")
     return future, go
+
+
+def held_pool_op(pool):
+    """Run a stand-in op on `pool` (the history pool, the wake poller), held until the
+    returned event is set; `future.body_finished` is set as the op itself ends."""
+    entered, go, body_finished = threading.Event(), threading.Event(), threading.Event()
+
+    def body():
+        try:
+            entered.set()
+            assert go.wait(30), "the test never let the op go on"
+            return "done"
+        finally:
+            body_finished.set()
+
+    future = pool.submit(body)
+    future.body_finished = body_finished
+    if not entered.wait(30):
+        go.set()
+        pytest.fail("the op never started")
+    return future, go
+
+
+class WatchedIdle(threading.Condition):
+    """A worker pool's wait condition, recording each bounded wait close() starts on
+    it (how many ops were running, and the timeout the wait itself was given)."""
+
+    def __init__(self, pool):
+        super().__init__(pool._guard)
+        self.pool, self.waits, self.waiting = pool, [], threading.Event()
+
+    def wait_for(self, predicate, timeout=None):
+        self.waits.append((len(self.pool._running), timeout))
+        self.waiting.set()
+        return super().wait_for(predicate, timeout)
+
+
+def watch_file_wait(svc, pool=None) -> WatchedIdle:
+    pool = svc.files if pool is None else pool
+    pool._idle = watched = WatchedIdle(pool)
+    return watched
+
+
+def worker_pool(svc, name):
+    return {"files": svc.files, "history": svc.history_reads, "wakes": svc.wakes.poller}[name]
+
+
+def full_bound(waits, bound) -> bool:
+    """One wait, for one op, given close()'s whole bound (less what the moments before
+    it took): neither none, nor more."""
+    return len(waits) == 1 and waits[0][0] == 1 and bound - 5 < waits[0][1] <= bound
 
 
 def tree(root: Path) -> list[str]:
@@ -1214,45 +1277,33 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     had removed the state root, and made the root again, holding `attachments/<sha>.png`
     (a worktree create did the same with `worktrees/`). close() now returns only once
     the file ops already running have finished, while the root and the store are still
-    there, so removing the root afterwards leaves nothing to bring it back."""
+    there, so removing the root afterwards leaves nothing to bring it back.
+
+    The op is let go only once close() is inside its wait and has handed it that op
+    with the full bound (reviews of 39223c9 and aa41312: a timer, then a signal before
+    the wait, let a close() that did not wait pass)."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 120.0)   # a loaded git must not outlast it here
     root = svc.root
     future, go = held_file_op(svc, monkeypatch, tmp_path, repo, op)
     running_at_return = []
-    shutdowns: list[dict] = []
-    real_shutdown = svc.files.shutdown
-    monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (shutdowns.append(kw), real_shutdown(**kw))[1])
-    # The op is let go only once close() waits for its thread: a signal before the
-    # pool's shutdown call let a shutdown that does not wait, reached late, pass
-    # (review of aa41312, finding 5).
-    joining = threading.Event()
-
-    class Watched:
-        def __init__(self, thread):
-            self.thread = thread
-
-        def join(self, timeout=None):
-            joining.set()
-            return self.thread.join(timeout)
-
-        def __getattr__(self, name):
-            return getattr(self.thread, name)
-
-    svc.files._threads = {Watched(thread) for thread in svc.files._threads}
+    watched = watch_file_wait(svc)
 
     def owner():                            # as a daemon's owner does: close it, then remove its root
         svc.close()
-        running_at_return.append(not future.done())
+        running_at_return.append(not future.body_finished.is_set())
         shutil.rmtree(root)
 
     closer = threading.Thread(target=owner)
     closer.start()
-    until_true(lambda: joining.is_set() or not closer.is_alive(), "close() to wait for the op or return")
-    go.set()
-    closer.join(30)
+    try:
+        until_true(lambda: watched.waiting.is_set() or not closer.is_alive(), "close() to wait for the op or return")
+    finally:
+        go.set()
+        closer.join(30)
     assert not closer.is_alive(), "close() did not return once the op had finished"
     problems = []
-    if not joining.is_set() or [kw.get("wait") for kw in shutdowns] != [True]:
-        problems.append(f"close() never waited for the file pool's threads: shutdown{shutdowns}")
+    if not full_bound(watched.waits, service_module.FILE_OPS_STOP_WAIT_S):
+        problems.append(f"close() did not wait for the op with its full bound: {watched.waits}")
     if running_at_return != [False]:
         problems.append(f"close() returned while {op} was still running")
     try:
@@ -1267,6 +1318,186 @@ def test_close_finishes_the_file_ops_already_running_and_the_removed_root_stays_
     if root.exists():
         problems.append(f"the removed state root came back holding {tree(root)}")
     assert problems == [], "\n".join(problems)
+
+
+@pytest.mark.parametrize("name", ["history", "wakes"])
+def test_close_waits_for_a_history_read_or_a_wake_poll_already_running(svc, monkeypatch, name):
+    """C-25.3: a history read (`conversation.open`, `conversation.history`) and a wake
+    poll (gh, then the store) run on pools of their own, which close() waits for as it
+    does the file pool: within the same bound, and before the store closes. One left
+    out of that wait would meet a closed store, and its daemon would let its lock go
+    under it."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 120.0)
+    pool = worker_pool(svc, name)
+    future, go = held_pool_op(pool)
+    watched = watch_file_wait(svc, pool)
+    running_at_return = []
+    closer = threading.Thread(target=lambda: (svc.close(), running_at_return.append(not future.body_finished.is_set())))
+    closer.start()
+    try:
+        until_true(lambda: watched.waiting.is_set() or not closer.is_alive(), "close() to wait for the op or return")
+        store_open_while_waiting = not svc.store._closed
+    finally:
+        go.set()
+        closer.join(30)
+    assert not closer.is_alive() and future.result(30) == "done"
+    assert full_bound(watched.waits, service_module.FILE_OPS_STOP_WAIT_S), watched.waits
+    assert store_open_while_waiting and running_at_return == [False]
+    with pytest.raises(RuntimeError):
+        pool.submit(lambda: None)           # and the pool takes none after
+
+
+@pytest.mark.parametrize("name", ["files", "history", "wakes"])
+def test_close_waits_for_a_held_pool_op_only_so_long(svc, monkeypatch, caplog, name):
+    """C-25.3 (reviews of 39223c9 and aa41312): close() waited for the ops already
+    running on its pools without a bound of its own, so one that never ends (a walk
+    with no budget, a stalled mount, a store write held inside an fsync) held it for
+    good: `shutdown(wait=True)` for the file and history pools, and the wake engine's
+    own close() for a poll. It now waits FILE_OPS_STOP_WAIT_S, says how many it
+    outlasted, and closes the store under them."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 0.3)
+    future, go = held_pool_op(worker_pool(svc, name))
+    closer = threading.Thread(target=svc.close)
+    try:
+        with caplog.at_level(logging.WARNING, logger="test-conversations"):
+            closer.start()
+            closer.join(30)
+        assert not closer.is_alive(), "close() waited for the held op past its bound"
+        assert not future.body_finished.is_set() and svc.store._closed
+        assert "1 file, history or wake op(s) still running" in caplog.text
+    finally:
+        go.set()
+        closer.join(30)
+    assert future.result(30) == "done"
+
+
+def test_close_shares_one_bound_among_its_pools(svc, monkeypatch, caplog):
+    """C-25.3: one op held on each of two pools holds close() for the bound once, not
+    once per pool: the second pool's wait is given what is left of the first's."""
+    bound = 0.5
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", bound)
+    held = [held_pool_op(svc.files), held_pool_op(svc.history_reads)]
+    watched = [watch_file_wait(svc, svc.files), watch_file_wait(svc, svc.history_reads)]
+    try:
+        with caplog.at_level(logging.WARNING, logger="test-conversations"):
+            svc.close()
+    finally:
+        for _, go in held:
+            go.set()
+    first, second = watched[0].waits, watched[1].waits
+    assert len(first) == 1 and len(second) == 1, (first, second)
+    assert bound - 0.2 < first[0][1] <= bound, first
+    assert second[0][1] <= bound / 2, f"the second pool got a bound of its own: {second}"
+    assert "2 file, history or wake op(s) still running" in caplog.text
+    assert [future.result(30) for future, _ in held] == ["done", "done"]
+
+
+def test_close_waits_for_a_file_op_only_so_long_and_the_op_still_makes_no_root(svc, repo, monkeypatch, tmp_path,
+                                                                             caplog):
+    """C-25.3 (reviews of 39223c9 and aa41312): close() waited for the file ops already
+    running without a bound of its own, so an op that never ends (a walk with no budget,
+    a stalled mount) held it for good. It now waits FILE_OPS_STOP_WAIT_S, says how many
+    ops it outlasted, and closes the store under them. The op, once it goes on, is
+    refused and leaves the root its owner removed gone."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 0.3)
+    root = svc.root
+    future, go = held_file_op(svc, monkeypatch, tmp_path, repo, "attachment.add")
+    closer = threading.Thread(target=svc.close)
+    try:
+        with caplog.at_level(logging.WARNING, logger="test-conversations"):
+            closer.start()
+            closer.join(30)
+        assert not closer.is_alive(), "close() waited for the held op past its bound"
+        assert not future.done() and "1 file, history or wake op(s) still running" in caplog.text
+        shutil.rmtree(root)                 # the owner, once close() has returned
+    finally:
+        go.set()
+        closer.join(30)
+    with pytest.raises(ConversationError) as err:
+        future.result(30)
+    assert err.value.reason in ("state-root-gone", "store-closed") and not root.exists()
+
+
+def test_the_late_op_warning_says_how_long_close_has_run(svc, monkeypatch, caplog):
+    """C-25.3 (review of cc7504e, finding 4): the warning said "10 s into close()",
+    the bound, but the wait begins only after the catalog run is stopped, which takes
+    up to 4 s. It gives the time since close() began."""
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 0.3)
+    real_stop = svc._stop_catalog
+    monkeypatch.setattr(svc, "_stop_catalog", lambda: (time.sleep(0.6), real_stop())[1])
+    future, go = held_pool_op(svc.files)
+    try:
+        with caplog.at_level(logging.WARNING, logger="test-conversations"):
+            svc.close()
+    finally:
+        go.set()
+    said = [float(m.group(1)) for m in re.finditer(r"still running ([0-9.]+) s into close\(\)", caplog.text)]
+    assert len(said) == 1 and said[0] >= 0.9, caplog.text
+    assert future.result(30) == "done"
+
+
+def test_a_file_op_whose_submit_raised_never_runs(svc, monkeypatch):
+    """C-25.3 (reviews of 6c1f8bb): CPython's pool queues an op before it starts a
+    thread for it, so a submit whose thread could not start raised while a worker
+    already there still ran the op later, and close() never counted it. An op counts
+    from when a worker starts it now, and one whose submit raised never runs."""
+    entered, go, ran = threading.Event(), threading.Event(), []
+
+    def held():
+        entered.set()
+        assert go.wait(30)
+        return "held"
+
+    first = svc.files.submit(held)
+    try:
+        assert entered.wait(30), "the first op never started"
+        real_start = threading.Thread.start
+
+        def no_thread(thread):
+            if thread.name.startswith("subfleet-files"):
+                raise RuntimeError("can't start new thread")
+            return real_start(thread)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(threading.Thread, "start", no_thread)
+            with pytest.raises(RuntimeError):
+                svc.files.submit(lambda: ran.append("the op whose submit raised"))
+    finally:
+        go.set()
+    assert first.result(30) == "held"
+    svc.files.shutdown(wait=True)           # the worker drains the queue, that op included
+    assert ran == []
+
+
+def test_close_leaves_a_store_write_that_holds_it_past_its_bound(svc, monkeypatch, caplog):
+    """C-25.3 (reviews of 6c1f8bb): the store's close() waited without a bound for a
+    file write under way, so an op held inside one (an fsync on a stalled disk) held
+    close() for good. Past STORE_CLOSE_WAIT_S the store refuses what starts after all
+    the same and close() returns, saying so."""
+    monkeypatch.setattr(service_module, "STORE_CLOSE_WAIT_S", 0.3)
+    entered, go = threading.Event(), threading.Event()
+
+    def write():
+        with svc.store.writing():
+            entered.set()
+            assert go.wait(30)
+
+    writer = threading.Thread(target=write)
+    writer.start()
+    try:
+        assert entered.wait(30), "the write never began"
+        closer = threading.Thread(target=svc.close)
+        with caplog.at_level(logging.WARNING, logger="test-conversations"):
+            closer.start()
+            closer.join(30)
+        assert not closer.is_alive(), "close() waited for the store's write past its bound"
+        assert "still held the conversation store 0.3 s into its close()" in caplog.text
+        with pytest.raises(ConversationError) as err:
+            svc.store.one("SELECT 1")
+        assert err.value.reason == "store-closed"
+    finally:
+        go.set()
+        writer.join(30)
 
 
 def test_close_never_runs_a_file_op_it_had_not_started(svc, monkeypatch, tmp_path):
@@ -1561,6 +1792,31 @@ def test_a_runner_still_going_when_close_stops_waiting_writes_nothing_more(
     assert problems == [], "\n".join(problems)
 
 
+def test_the_runner_warning_says_how_long_since_close_stopped_them(svc, monkeypatch, tmp_path, caplog):
+    """C-25.3 (reviews of 6c1f8bb): the runners' wait ends RUNNER_STOP_WAIT_S after
+    close() stopped them, and the pools' wait runs meanwhile, so a runner may go on as
+    long as that wait. The warning had said the constant; it gives the time since the
+    runners were stopped."""
+    monkeypatch.setattr(service_module, "RUNNER_STOP_WAIT_S", 0.3)
+    monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 1.0)
+    runner, hold, _ = held_runner(svc, monkeypatch, tmp_path, "approval")
+    try:
+        assert hold.entered.wait(30), "the runner never reached its approval"
+        future, go = held_pool_op(svc.files)    # holds the pools' wait for its whole bound
+        try:
+            with caplog.at_level(logging.WARNING, logger="test-conversations"):
+                svc.close()
+        finally:
+            go.set()
+    finally:
+        hold.go.set()
+        runner.join(30)
+    said = [float(m.group(1)) for m in re.finditer(r"turn runners still going ([0-9.]+) s after close\(\) stopped them",
+                                                   caplog.text)]
+    assert len(said) == 1 and said[0] >= 1.0, caplog.text
+    assert future.result(30) == "done"
+
+
 @pytest.mark.parametrize("when", ["as close() begins", "while close() waits for the file pool"])
 def test_a_runner_adopted_while_close_runs_is_stopped_or_never_started(svc, monkeypatch, tmp_path, when):
     """C-25.3: the control loop's `_adopt_runners` can be building a runner when close()
@@ -1586,8 +1842,8 @@ def test_a_runner_adopted_while_close_runs_is_stopped_or_never_started(svc, monk
         monkeypatch.setattr(svc, "_stop_catalog", lambda: (closing(), real_stop())[1])
     else:
         file_op, closing.go = held_file_op(svc, monkeypatch, tmp_path, None, "attachment.add")
-        real_shutdown = svc.files.shutdown
-        monkeypatch.setattr(svc.files, "shutdown", lambda **kw: (closing.entered.set(), real_shutdown(**kw))[1])
+        monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 120.0)   # the test lets the op go, not the bound
+        closing.entered = watch_file_wait(svc).waiting
     launched_turn(svc, tmp_path, [INIT_OK])
     adopter = threading.Thread(target=svc._adopt_runners)
     adopter.start()
@@ -1822,12 +2078,12 @@ def test_a_closed_store_refuses_every_read_and_write_and_writes_no_file(svc):
 
 
 def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
-    """C-24.3, C-25.3: close() takes the store's write guard, so a message's text being
-    published when it runs has landed by the time close() returns, and nothing lands
-    after. The message's row is committed before the store closes (its receipt may
-    still be refused, as a lost response is: a resend of the same id gets it, C-24.2),
-    or refused (`store-closed`) and its text left with no row, as a crash between the
-    two would leave it."""
+    """C-24.3, C-25.3: close() takes the store's write guard (for up to
+    STORE_CLOSE_WAIT_S), so a message's text being published when it runs has landed
+    by the time close() returns, and nothing lands after. The message's row is
+    committed before the store closes (its receipt may still be refused, as a lost
+    response is: a resend of the same id gets it, C-24.2), or refused (`store-closed`)
+    and its text left with no row, as a crash between the two would leave it."""
     cid = conversation(svc)
     hold = Hold()
     real = store_module._publish
@@ -1845,7 +2101,8 @@ def test_close_waits_for_a_store_file_write_under_way(svc, monkeypatch):
 
     closing = threading.Event()
     real_close = svc.store.close
-    monkeypatch.setattr(svc.store, "close", lambda: (closing.set(), real_close())[1])
+    monkeypatch.setattr(svc.store, "close", lambda **kw: (closing.set(), real_close(**kw))[1])
+    monkeypatch.setattr(service_module, "STORE_CLOSE_WAIT_S", 120.0)   # the test lets the write go, not the bound
     sender = threading.Thread(target=send)
     sender.start()
     assert hold.entered.wait(30), "the text was never published"

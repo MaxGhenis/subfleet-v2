@@ -9139,6 +9139,13 @@ class Daemon:
         self.conversations.close()
         for pool in (self.requests, self.lookups, self.waiters, self.workers, self.pushes):
             pool.shutdown(wait=True, cancel_futures=True)
+        # C-5.8a, C-25.3: the service's close() bounds its waits and may return with a
+        # file op, history read or wake poll still running, or a write still holding
+        # its store. daemon.lock stays this daemon's until they end: freed early, it let
+        # a second daemon start on the root while the old op wrote into it or committed
+        # a held transaction (reviews of cc7504e). No bound here: C-5.8a's ends a stuck
+        # owner with the lock still held.
+        self.conversations.drain()
         self.lock_watch.stop()
         with self._connection_lock:
             # A reader that has not returned by now closes nothing, so its
