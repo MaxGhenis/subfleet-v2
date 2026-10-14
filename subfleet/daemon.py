@@ -8765,8 +8765,9 @@ class Daemon:
             # seen) says nothing about writers: one can take longer than the whole
             # settle window, and a loaded host can time out two in a row, which
             # quarantined finished jobs as `lost` (PR #131 CI, 2026-10-13). It is
-            # re-taken, at most as often as the time since the window began, for
-            # `exit_inspect_s`; only a census that saw a writer ends the window early.
+            # re-taken, no sooner than the window has run again (at least
+            # `inspect_interval_s`), until `exit_inspect_s`; any census that is not
+            # blind (a writer seen, or any other hold) keeps `exit_settle_s`.
             now = time.monotonic()
             since = self._exit_settle.setdefault(a["attempt_id"], now)
             if census.blind and now - since < self.exit_inspect_s:
