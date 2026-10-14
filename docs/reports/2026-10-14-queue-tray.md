@@ -86,11 +86,15 @@ is retained rather than leaving an old Sending state visible.
 
 ## Validation
 
-Focused suites are green: `test_core_queue_tray.py` 42, `test_core_queue_engine.py`
-75, `test_queue_tray_view.py` 15, and `test_core_steer.py` 43. The native app builds
-through `app/build.sh` with the release target and signing checks. Existing
-Swift Sendable-capture and unnecessary-await warnings remain. Broader suite
-and mutation results are recorded below once complete.
+Completed passing suites: `test_core_queue_engine.py` 75,
+`test_queue_tray_view.py` 15, `test_core_steer.py` 43, and
+`test_queue_tray_notice.py` 2. The original foundation suite passed all 42 cases.
+The extended foundation suite most recently passed 43 of 44: its remaining
+assertion expected no viewport follow when the live strip appeared, and was
+updated to expect the anchored jump. The final 44-case rerun is queued. The
+final Swift source builds through `app/build.sh` with the release target and
+signing checks. Existing Swift Sendable-capture and unnecessary-await warnings
+remain. Per-file results and the shared-lock omissions are recorded below.
 
 Tests run as foreground, one pytest per shared lock hold,
 with temporary Hypothesis storage, bounded 40-example CI profiles and no deep
@@ -104,7 +108,10 @@ exceeding the requested 20-minute hold. The run stayed in the foreground and was
 not relaunched. It found a missing viewport-change key during catch-up and a
 coverage generator that rarely made an idle send while reading higher up. Both
 were corrected; the CI sampling and coverage batching above bound later runs.
-Its repaired rerun and broader checks are pending the shared lock.
+The repaired two-file run held the lock for 360.9 seconds: foundation 43 passed
+and one stale viewport expectation failed, notice 2 passed. That expectation
+is corrected in `1ea3bf992`; its final rerun and broader checks are pending the
+shared lock. Queue wait is separate from time holding the lock.
 
 ## Delivery and remaining work
 
@@ -116,3 +123,88 @@ Known separately filed follow-up `task_94fbb104` remains: watch changes update
 only already-known messages, so an externally submitted or daemon-created message (including a CLI send,
 unblock note or continuation not yet known locally) first appears after
 reopening the conversation. This is outside the rebuild's requested scope.
+
+## Counts per file
+
+These are the latest completed runs per file. A pending run is not counted as
+a pass. The broad runner has not acquired the lock for its second batch yet.
+
+| File | Result |
+| --- | --- |
+| `tests/frontend/test_app_cutover_start.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_conversation_view.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_app_cutover_reading.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_approval_notification.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_approval_reach.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_client.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_diff.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_draft.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_idle.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_live.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_live_failure.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_markdown.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_outbox.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_protocol.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_question_card.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_queue_engine.py` | 75 passed |
+| `tests/frontend/test_core_queue_tray.py` | 43 passed, 1 stale viewport expectation failed; expectation corrected; final 44-case rerun pending |
+| `tests/frontend/test_core_search.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_steer.py` | 43 passed |
+| `tests/frontend/test_core_steer_properties.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_store.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_text_scale.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_timeline.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_core_titles.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_disk_ruling.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_menu_view.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_queue_tray_notice.py` | 2 passed |
+| `tests/frontend/test_queue_tray_view.py` | 15 passed |
+| `tests/frontend/test_reading_view.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_review_pr127_timeline.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_status_model.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_progress.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_report_hygiene.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_review_fixes.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_round_five.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_round_four.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_round_three.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_round_two.py` | 0 run: shared-lock queue |
+| `tests/frontend/test_visual_snapshots.py` | 0 run: shared-lock queue |
+| `tests/unit/test_claude_conversation_mcp_scope.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_catalog.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_connections.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_diff.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_fifo_reads.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_handoff.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_handoff_briefs.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_history.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_peers_attachments.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_reconcile.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_redact.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_service.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_state_reads.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_status.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_steer_service.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_store.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_stream_assertion.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_titles.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_waits.py` | 0 run: shared-lock queue |
+| `tests/unit/test_conversation_wakes.py` | 0 run: shared-lock queue |
+| `tests/fake/test_conversation_pools.py` | 0 run: shared-lock queue |
+| `tests/fake/test_conversation_wakes_fake.py` | 0 run: shared-lock queue |
+| `tests/e2e/test_conversation_titles_e2e.py` | 0 run: shared-lock queue |
+| `tests/e2e/test_conversation_wakes_e2e.py` | 0 run: shared-lock queue |
+| `tests/e2e/test_conversations.py` | 0 run: shared-lock queue |
+| `tests/unit/test_desktop_ledger.py` | 0 run: shared-lock queue |
+
+## Commit transfer
+
+All commits are on `feat/queue-tray-217` in workspace-local metadata. An
+incremental, verified bundle is saved at `docs/reports/2026-10-14-queue-tray.bundle`
+(requires the base `5a711114e965`). The bundle is an ignored delivery artifact and
+is never staged. The hub can fetch it locally without a network remote.
