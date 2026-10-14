@@ -427,13 +427,15 @@ class CodexAdapter(Adapter):
             from .isolation import codex_args, validate_isolated_review
             env = {**os.environ, **credential_env}
             validate_isolated_review(sandbox, job.review_root, env)
+            argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
                                inspector=getattr(self, "isolation_inspector", None))
-        if sandbox == Sandbox.READ_ONLY or job.isolated_review:
-            # C-12.3: codex exits outside a git repository ("Not inside a trusted directory")
-            # unless told otherwise. A read-only job (a probe or timer turn included) cannot
-            # change the directory that check protects, and an isolated review's neutral cwd is
-            # never a repository. Decided here only: codex rejects the flag given twice.
+        elif sandbox == Sandbox.READ_ONLY:
+            # A read-only job may read a directory that is not a repository (a
+            # folder of repositories, a review folder). Without this, `codex exec`
+            # exits at once (12 jobs on 2026-09-24: "Not inside a trusted
+            # directory"). The sandbox is unchanged; writable jobs keep C-13.2's
+            # repository requirement.
             argv += ["--skip-git-repo-check"]
         if model_id:
             argv += ["-m", model_id]
