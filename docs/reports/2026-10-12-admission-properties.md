@@ -26,18 +26,21 @@ checked again on release/217 before it was fixed, kept as an `xfail`, or dropped
   the same tier that competes with the held one, by the models routing walks and the lanes the pins
   name, and whose own hold holds others back. A lease, an unadmittable pin and a `for_good` refusal
   hold nobody. In a pool with a count cap, a younger competitor is never placed past an older job
-  of its tier that waits for a slot or a lane, and a job that passes a waiter leaves it a slot. In a
-  pool with no count cap (the default) no job waits behind another.
+  of its tier that waits for a slot, a lane or a probe (a moved route and a lane held for its pilot
+  included, C-6.11, C-6.14), and a job placed past such a waiter, or past a lease waiter, leaves the
+  last slot free. A probe turn's `behind` is rebuilt each pass and must name a job ahead of the held
+  one that waits on a probe. In a pool with no count cap (the default) no job waits behind another.
 - **P3 bounded progress** (C-6.9, C-6.4, C-11.8): the machine makes capacity fair (every lane
   enabled, open and measured with room, every sensor sound) and ends every attempt as soon as it
-  starts. Then each job some lane would take is placed within a bounded number of passes, unless
-  the chain of holds it sits in ends at a job that can never be placed. A slot is never kept for a
-  job that can never use it, and the caps that are set hold.
+  starts. Then each job some lane would take is placed within a bounded number of passes, with no
+  exception: a job no lane can admit holds nobody back and keeps no slot (C-11.8), so it can never
+  be why another waits. The caps that are set hold.
 - **P4 recheck cost** (C-6.10): a look that reaches the verdict (`scheduler.verdict_signature`) its
   last look reached adds no decision row. Every look sets a later clock, no further out than the
   backoff allows. Over quiet stretches of up to ten minutes a job is looked at a bounded number
   of times: about six looks to reach the 30 s ceiling, then two a minute, plus a few after each
-  change the clock itself brings (a reading going stale, a closure ending, a pilot's wait lapsing).
+  distinct instant at which the clock itself changes capacity (a reading going stale, a closure
+  ending, a pilot's wait lapsing, a lane's proof going stale). The stretch always runs to its end.
 
 ## The harness
 
@@ -51,7 +54,7 @@ age (C-6.9).
 It generates:
 
 - policies with no count cap (the default) or `max_active_attempts` 1 to 4, no per-lane cap or one
-  or two slots, and the reserve on or off;
+  or two slots, the reserve on or off, and C-6.14's pilot hold on (`prove_idle_s` 900) or off;
 - lanes whose names collide, including a Codex lane that answers to the email its probe read;
 - queues across every tier. Jobs carry a model (`fable` exercises the retired alias), a task, both,
   a lane pin, an authorization, and legacy raw pins: a name several lanes answer to, a name none
@@ -83,7 +86,7 @@ It is bounded by default, because every example builds a daemon and its store on
 - `deep` is opt-in through `HYPOTHESIS_PROFILE`: 300 random examples of at most 60 steps, about one
   20-minute hold of the host's shared test lock. `HYPOTHESIS_MAX_EXAMPLES` resizes it.
 
-A quiet stretch runs at most 400 passes.
+A quiet stretch of up to ten minutes runs at most one pass a second, so at most 601 passes.
 
 `HYPOTHESIS_NO_SHRINK=1` reports the first failure as found. An example can take a second, so
 shrinking one takes minutes; rerun its seed without the variable to shrink it.
@@ -122,8 +125,9 @@ Each fix was checked as needed on release/217 at 0298332db. Each has a regressio
    inside the reserving transaction, which isolates only route evaluation, and admission stopped
    for everyone. The CLI's `-x` always sends strings, so only a socket client could store such a
    row. Fix: C-6.1 refuses exclusions that are not a list of names (exit 2). The merge
-   (`Daemon._merged_exclusions`) is checked where the route is prepared, so a stored one waits on
-   `route` with deferrals 1, 2, 3. A first version (on main) merged inside the transaction; the
+   (`Daemon._merged_exclusions`) is checked where the route is prepared, so once an attempt has
+   excluded a lane, a stored one fails the merge and waits on `route` with deferrals 1, 2, 3. A job
+   whose attempts excluded no lane never merges, and this change does not alter how it routes. A first version (on main) merged inside the transaction; the
    search found that route preparation had already reset C-6.12's count there, so the job was looked
    at every 5 s (71 looks in six quiet minutes).
 
@@ -148,8 +152,10 @@ makes one pass must remove its marker.
 5. **A capacity waiter held behind an older job holds nobody** (C-6.9; P2). C-6.9 says a job
    "`waiting` on `capacity` with a `next_check_at` still ahead ... holds back the later jobs of its
    tier that compete with it". `_admit_pass` checks `behind` before it registers a clocked capacity
-   wait, so a job held behind W stops holding back the jobs that compete only with it. Adding an
-   older job the younger one does not compete with lets the younger pass the middle one. The fix
+   wait, so a job held behind W stops holding back the jobs that compete only with it. In the test
+   the middle job's own looks find no lane and back its clock off; then a cap is set and a Claude
+   lane opens. With its clock still ahead it is held behind W, and a younger Opus job, which competes
+   with it but not with W, is placed past it. The fix
    adds holds, bounded by the middle job's remaining clock, so it is left for its own change and
    review.
    **Fixed in the follow-up** (branch `fix/c6-9-behind-holds-217`): such a job registers as a waiter
@@ -165,9 +171,10 @@ makes one pass must remove its marker.
    its kind (`lease-held:…`, `probe-pending`, `probe-wait:…`, `retry-let-go:…`). So a job that
    alternates between two kinds with one verdict adds a row each time it returns to the
    verdict-keyed kind. On release/217 the scenario is a terra job whose output path another job
-   holds, in a pool of three. An older job waiting for its own output path keeps the last slot
-   (C-6.9), so the job waits `slot-kept` at two live and `lease-held` at one. Three alternations
-   record one verdict three times. The `probe-pending` path never has the decision in hand, so
+   holds, in a pool of three, pinned to codex-1. An older job waiting for its own output path keeps
+   the last slot (C-6.9), so the job waits `slot-kept` at two live and `lease-held` at one. Every
+   evaluation of the job is recorded and reaches one verdict on codex-1, so the rows are not a
+   changed verdict. Three alternations record that verdict three times. The `probe-pending` path never has the decision in hand, so
    keying on the verdict alone is not a small change.
 
 ### Found on main in September, not re-checked on release/217
@@ -203,15 +210,42 @@ They are split out as their own task.
 On main, one deep run reported a younger job placed past an older job of its tier that competed with
 it and waited `excluded`. Two replays of the saved example did not reproduce it, and a scratch test of
 the plain case held the younger job correctly. It is unexplained. On release/217 the FIFO check runs
-only in a capped pool and only behind a waiter for a slot or a lane; it has not fired there so far.
+only in a capped pool and only behind a waiter for a slot, a lane or a probe.
+
+## Independent review
+
+GPT-6.1 Sol reviewed 977fcc9f3 (Subfleet job `20261012-165823-review-pr199`) by reading the code
+and the contract. It confirmed fixes 1 to 4 and the regressions' premises, and found six faults
+in the tests and the contract text. Each is corrected in the commit after it:
+
+- P1 compared a probe turn's `behind` with the last look's, though C-6.9 builds the probe line
+  again each pass. It now checks the new owner instead.
+- P2 left `route-moved`, `lane-proving` and probe-turn waiters out of capped pools' FIFO check,
+  and lease waiters out of the last-slot check.
+- P3 excused a job held behind one that could never be placed, which C-6.9 and C-11.8 forbid.
+- P4 counted one boundary per reading rather than per instant, so many readings at one instant
+  inflated the bound. Its 400-pass limit could also end a stretch early, and the pilot hold was
+  never on.
+- Finding 5's test set its clocks by hand rather than by a look. Finding 7's job could choose
+  another lane between looks, which is a new verdict.
+- The new C-6.12 sentence promised a `route` wait for a stored exclusion that is not a name even
+  when nothing is merged with it.
 
 ## Does the search have teeth
 
 On main (3f155e5 with the fixes above, 2026-09-27), each bug in the table was put back by hand and
 the `deep` search then ran without shrinking. A clean baseline passed the same search: 1,000
-examples in 18 minutes 44 seconds. The same sweep on release/217 has 15 mutations scripted, including
-three for 217's own rules (an uncapped pool holding jobs, a lease waiter holding others back, a job
-no lane can admit registered as a waiter). It waits for the host's disk pause to lift.
+examples in 18 minutes 44 seconds.
+
+The same sweep for release/217 is `tools/admission_mutations.py` (`--list` names them). It has 17
+bugs: ten of the eleven below, rewritten for 217's code (not the route wait that holds back its
+tier), six for 217's own rules, and #194's wait key (`fix2-provider`, added by the chain merge of
+2026-10-13, `docs/reports/2026-10-13-chain-199.md`). The six are an
+uncapped pool holding jobs, a lease waiter holding others back, a lease waiter keeping no slot, a job
+no lane can admit registered as a waiter, a job waiting on a probe that is no waiter, and a probe
+turn that ignores the probe's model. It has not run on 217. On 2026-10-13 the host's free disk fell
+from 62 GB to 43 GB while the sweep waited for the shared test lock, below the hub's 60 GB line,
+so it was cancelled before it started.
 
 | Bug put back (main) | Caught by | Seconds |
 |---|---|---|
@@ -234,10 +268,15 @@ Every run of more than one file holds the host's shared test lock
 
 ```sh
 T="$(getconf DARWIN_USER_TEMP_DIR)sf-admission-$$"; mkdir -p "$T"
-/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock env TMPDIR="$T/" \
-  uv run pytest -q tests/fake/test_admission_stateful.py tests/fake/test_admission_properties.py
-HYPOTHESIS_PROFILE=deep HYPOTHESIS_MAX_EXAMPLES=300 HYPOTHESIS_NO_SHRINK=1 /usr/bin/lockf -k \
-  /private/tmp/claude-501/subfleet-suites.lock env TMPDIR="$T/" \
-  uv run pytest -x -q -p no:logging tests/fake/test_admission_stateful.py
-rm -rf "$T"
+/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock env -u PYTHONPATH TMPDIR="$T/" \
+  HYPOTHESIS_STORAGE_DIRECTORY="$T/hyp" \
+  uv run --no-sync pytest -q -p no:cacheprovider tests/fake/test_admission_stateful.py tests/fake/test_admission_properties.py
+/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock env -u PYTHONPATH TMPDIR="$T/" \
+  HYPOTHESIS_STORAGE_DIRECTORY="$T/hyp" HYPOTHESIS_PROFILE=deep HYPOTHESIS_NO_SHRINK=1 \
+  uv run --no-sync pytest -x -q -p no:cacheprovider -p no:logging tests/fake/test_admission_stateful.py
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$T"
 ```
+
+The mutation sweep runs the same way, one hold per batch of about six, for example
+`.venv/bin/python tools/admission_mutations.py 150 baseline fix1 fix2 fix3 fix4-merge fix4-submit`
+in place of the `pytest` command.

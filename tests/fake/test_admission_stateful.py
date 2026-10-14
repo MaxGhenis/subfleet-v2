@@ -5,20 +5,25 @@ adapters, stubbed process identity, no guardian, no provider) on a virtual
 clock through random sequences of lanes enrolled and disabled, sensor readings
 fresh and stale, closures, probe reservations, lane pins (a lane id, a name two
 lanes answer to, a name no lane answers to), jobs in every tier, attempts that
-end `ok`, `transient` or `limited`, restarts, and sensors that fail. After each
+end `ok`, `transient` or `limited`, C-6.14's pilot hold on or off, restarts,
+and sensors that fail; `TestAdmissionPassProviderCaps` runs the same machine
+with C-6.4a's count per provider on as well. After each
 admission pass it checks what the pass left against the contract rather than
 against the code that produced it:
 
 - P1 totality (C-6.11, C-6.12): no error from one job's route ends the pass,
   and every job the pass leaves pending has a stated reason.
-- P2 non-interference (C-6.9, C-11.2): `behind-older-job` names an older job of
-  the same tier that competes with the held job, by the models routing walks
-  and the lanes the pins name; a younger job that competes with a waiting job
-  is not placed past it, even when that job is itself held behind an older
-  one, while its capacity clock runs.
-- P3 bounded progress (C-6.9): under fair capacity every job some lane would
-  take is placed within a bounded number of passes unless an older job that
-  competes with it can never be placed, and the fleet stays within its caps.
+- P2 non-interference (C-6.9, C-11.2, C-11.8): `behind-older-job` names an
+  older job of the same tier that competes with the held job, by the models
+  routing walks and the lanes the pins name; in a capped pool a younger job
+  that competes with a job waiting for a slot, a lane or a probe is not placed
+  past it, even when the waiter is itself held behind an older job while its
+  capacity clock runs. One placed past such a waiter or a lease waiter leaves the last
+  slot free.
+- P3 bounded progress (C-6.9, C-11.8): under fair capacity every job some lane
+  would take is placed within a bounded number of passes, with no exception (a
+  job no lane can admit holds nobody back and keeps no slot), and the fleet
+  stays within its caps.
 - P4 recheck cost (C-6.10): a look that repeats its verdict adds no decision
   row and sets a later clock, so a quiet fleet looks at a waiting job a bounded
   number of times however long it waits.
@@ -152,8 +157,20 @@ WAIT_REASONS = {"capacity", "dependency", "approval", "uncertain", "workspace", 
 #: lane can ever admit the job, C-11.8) holds nobody either.
 HOLD_NOBODY = {"route", "approval", "uncertain", "workspace", "attempt-live", "lease-held", "pin-unadmittable",
                "machine-busy", "disk", "conversation-blocked", "message-settled"}
-#: C-6.9, C-6.11: holds that exist only in a pool with a count cap.
-CAPPED_ONLY = {"behind-older-job", "fleet-full", "slot-kept", "parent-cap"}
+#: C-6.9, C-6.11: holds that exist only in a pool with a count cap (C-6.4a's count per provider included).
+CAPPED_ONLY = {"behind-older-job", "fleet-full", "slot-kept", "parent-cap", "provider-cap", "provider-slot-kept"}
+#: One fleet: its caps, the reserve on or off, lanes whose names may collide, the capacity it starts
+#: with, a queue, what probes find, and C-6.14's pilot hold (`AdmissionMachine.fleet`).
+FLEET = dict(cap=st.none() | st.integers(1, 4), per_lane=st.none() | st.integers(1, 2), reserve=st.booleans(),
+             claude=st.lists(st.sampled_from((None,) + NAMES), min_size=0, max_size=2),
+             codex_email=st.sampled_from((None,) + NAMES), second_codex=st.booleans(),
+             capacity=st.lists(CAPACITY, max_size=4), queue=st.lists(JOB, max_size=6),
+             probe=st.sampled_from(PROBE_MODES), prove=st.sampled_from((None, 900)))
+#: What `AdmissionMachine.provider_state` reports of one look, in order.
+PROVIDER_STATE = ("count-full", "reason", "behind", "live")
+#: C-6.4a: a count per provider, shared by all of its lanes; up to six lanes share one of 1 or 2.
+PROVIDER_CAPS = st.one_of(st.fixed_dictionaries({"codex": st.integers(1, 2)}, optional={"claude": st.integers(1, 2)}),
+                          st.fixed_dictionaries({"claude": st.integers(1, 2)}))
 LIVE = ("reserved", "starting", "running", "finalizing")
 
 
@@ -276,6 +293,9 @@ def compete(one, other) -> bool:
 class AdmissionMachine(RuleBasedStateMachine):
     """One fleet, one daemon, one virtual clock; the rules change the world and run passes."""
 
+    #: C-6.4a: provider -> `providers.<provider>.max_active_attempts`; none here, drawn by the variant below.
+    provider_caps: dict[str, int] = {}
+
     def __init__(self):
         super().__init__()
         self.patch = pytest.MonkeyPatch()
@@ -292,6 +312,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.last_look: dict[str, dict] = {}        # job id -> the hold its last look reported
         self.decided: dict[str, object] = {}        # job id -> the decision this pass's look reached
         self.last_verdict: dict[str, str] = {}      # job id -> C-6.10's verdict at its last look
+        self.last_provider_state: dict[str, tuple] = {}  # job id -> its providers' counts and peer at that look
         self.quarantine = False                     # probe containment cannot be verified (C-5.5)
         self.passes = 0
         # `ids` too: job ids carry a timestamp, and a derandomized run should name its jobs alike.
@@ -421,12 +442,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         return lane_id
 
     # C-6.4: no count cap is the default; a cap brings C-6.9's hold-back and slot-keeping.
-    @initialize(cap=st.none() | st.integers(1, 4), per_lane=st.none() | st.integers(1, 2), reserve=st.booleans(),
-                claude=st.lists(st.sampled_from((None,) + NAMES), min_size=0, max_size=2),
-                codex_email=st.sampled_from((None,) + NAMES), second_codex=st.booleans(),
-                capacity=st.lists(CAPACITY, max_size=4), queue=st.lists(JOB, max_size=6),
-                probe=st.sampled_from(PROBE_MODES))
-    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe):
+    @initialize(**FLEET)
+    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove):
         """A fleet (its caps, the reserve (C-11.7) on or off, lanes whose names may collide), the
         capacity it starts with, and a queue submitted before the first pass sees any of it."""
         self.root = self.tmp / "state"
@@ -436,6 +453,11 @@ class AdmissionMachine(RuleBasedStateMachine):
         policy["caps"].update(max_active_attempts=cap, max_in_flight_per_lane=per_lane)
         # C-11.7 reserved Fable until its retirement; the rule is the same for any model, so Opus here.
         policy["reserve"]["models"] = ["opus"] if reserve else []
+        # C-6.14: every lane starts never having answered, so with the pilot hold on (the Harness turns
+        # it off) each takes one detached attempt at a time until one answers.
+        policy["admission"]["prove_idle_s"] = prove
+        for provider, limit in self.provider_caps.items():
+            policy.setdefault("providers", {}).setdefault(provider, {})["max_active_attempts"] = limit
         (self.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
         self.service = self.start()
         self.probe_mode = probe
@@ -447,7 +469,8 @@ class AdmissionMachine(RuleBasedStateMachine):
             # C-11.2, the 2026-09-22 roster: a Codex lane answers to the email its usage probe read.
             self.report_email("codex-1", codex_email)
         note(f"fleet: cap={cap} per_lane={per_lane} reserve={reserve} lanes="
-             f"{[(lane['lane_id'], lane['label']) for lane in self.roster()]} codex-1 email={codex_email} probe={probe}")
+             f"{[(lane['lane_id'], lane['label']) for lane in self.roster()]} codex-1 email={codex_email} probe={probe} "
+             f"prove_idle_s={prove} provider_caps={self.provider_caps}")
         for change in capacity:
             self.change_capacity(change)
         for job in queue:
@@ -630,6 +653,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.service._recover_capacity_waits()
         self.last_look.clear()
         self.last_verdict.clear()           # C-6.10: "a restart therefore forgets it"
+        self.last_provider_state.clear()
         note("restarted")
 
     @rule(seconds=st.sampled_from((1, 2, 5, 16, 31, 61, 121, 301, 3601)))
@@ -646,7 +670,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         before = self.jobs()
         decisions = self.decision_counts()
         attempts = {row["attempt_id"] for row in self.store.list_attempts()}
-        live_before = len(self.live())
+        live_rows = self.live()
+        live_before, provider_before = len(live_rows), self.provider_live(live_rows)
         self.looks, self.decided = set(), {}
         try:
             self.service._admit()
@@ -657,13 +682,14 @@ class AdmissionMachine(RuleBasedStateMachine):
         placed = [row for row in self.store.list_attempts() if row["attempt_id"] not in attempts]
         for row in placed:
             self.last_verdict.pop(row["job_id"], None)   # C-6.10: the record is dropped when the job is placed
+            self.last_provider_state.pop(row["job_id"], None)
         for hold in self.service._holds.values():
             event(f"hold: {hold['reason'].split(':')[0]}")
         event(f"pass placed {min(len(placed), 3)}+ with {min(len(self.pending(after)), 4)}+ pending")
         self.check_totality(before, after, placed)
-        self.check_non_interference(before, after, placed, live_before)
+        self.check_non_interference(before, after, placed, live_before, provider_before)
         self.check_caps()
-        self.check_recheck_cost(before, after, decisions)
+        self.check_recheck_cost(before, after, decisions, provider_before)
 
     def decision_counts(self) -> Counter:
         return Counter(row["job_id"] for row in self.store.query(
@@ -671,7 +697,7 @@ class AdmissionMachine(RuleBasedStateMachine):
 
     def check_totality(self, before, after, placed) -> None:
         """P1 (C-4.1, C-6.11, C-6.12): every job left pending has a stated reason."""
-        holds, cap = self.service._holds, self.policy["caps"]["max_active_attempts"]
+        holds, cap, roster = self.service._holds, self.policy["caps"]["max_active_attempts"], self.roster()
         placed_jobs = {row["job_id"] for row in placed}
         for job_id, job in self.pending(after).items():
             assert job_id not in placed_jobs
@@ -686,10 +712,18 @@ class AdmissionMachine(RuleBasedStateMachine):
                         "slot-kept": {"kept_for", "live", "max_active_attempts", "tier"},
                         "lease-held": {"leases"}, "route": {"error_type", "error", "deferrals", "next_check_at"},
                         "pin-unadmittable": {"lane_id", "reasons", "closures", "since", "fail_at"},
-                        "route-moved": {"tries"}}
+                        "route-moved": {"tries"},
+                        # C-6.4a: "`why` and status name `providers.<provider>.max_active_attempts` and say
+                        # `<provider>: N of N running`, or identify an older peer keeping a slot".
+                        "provider-cap": {"provider", "live", "max_active_attempts", "key"},
+                        "provider-slot-kept": {"provider", "live", "max_active_attempts", "key", "kept_for", "tier"}}
             missing = required.get(reason, set()) - set(hold)
             assert not missing, f"C-6.11: the {reason} hold on {job_id} lacks {sorted(missing)}: {hold}"
-            if not self.capped():
+            if reason in ("provider-cap", "provider-slot-kept"):
+                assert (hold["max_active_attempts"] == self.provider_caps.get(hold["provider"])
+                        and hold["key"] == f"providers.{hold['provider']}.max_active_attempts"), \
+                    f"C-6.4a: {job_id}'s {reason} hold names a count the policy does not set: {hold}"
+            if not self.capped(job, roster):
                 assert reason not in CAPPED_ONLY, (
                     f"C-6.9, C-6.11: {job_id} is held {hold} in a pool with no count cap, where no job waits "
                     f"behind another")
@@ -708,6 +742,21 @@ class AdmissionMachine(RuleBasedStateMachine):
             # asks again on the job's clock: `next_check_at`, and `for_good`, which "a pass that asks it
             # again on the job's clock replaces ... with its own answer" (C-11.8).
             asked_again = ("next_check_at", "for_good")
+            if reason == "probe-pending":
+                # C-6.9: "each detached pass builds the line again", so whose turn the probe is (`behind`)
+                # is this pass's answer, not the last look's.
+                asked_again += ("behind",)
+                owner = hold.get("behind")
+                if owner is not None:
+                    order = lambda job_id: (self.policy["tiers"].index(tier_of(self.policy, after[job_id])),  # noqa: E731
+                                            self.seq[job_id])
+                    assert owner in self.pending(after) and order(owner) < order(job_id), (
+                        f"C-6.9: {job_id} waits for the probe turn of {owner}, which is not pending ahead of it")
+                    assert holds.get(owner, {}).get("reason") == "probe-pending" and (
+                        not hold.get("model") or not holds[owner].get("model")
+                        or holds[owner]["model"] == hold["model"]), (
+                        f"C-6.9: {job_id} waits for the probe turn of {owner}, whose hold {holds.get(owner)} "
+                        f"waits on no probe of {hold.get('model')}")
             if job_id in self.looks:
                 self.last_look[job_id] = {key: value for key, value in hold.items() if key not in asked_again}
             elif (job_id in self.last_look and "next_check_at" in hold and reason not in HOLD_NOBODY
@@ -735,10 +784,12 @@ class AdmissionMachine(RuleBasedStateMachine):
             return [own, pair]
         return [own]
 
-    def check_non_interference(self, before, after, placed, live_before) -> None:
-        """P2 (C-4.1, C-6.9, C-11.2): a hold names an older competitor of the same tier, and a job is not
-        placed past an older competitor that cannot be placed; passing a waiter leaves it a slot."""
+    def check_non_interference(self, before, after, placed, live_before, provider_before) -> None:
+        """P2 (C-4.1, C-6.9, C-11.2, C-6.4a): a hold names an older competitor of the same tier, and a job is
+        not placed past an older competitor that cannot be placed; passing a waiter leaves it a slot, and
+        with a count on the provider it was placed on, a slot of that provider's count."""
         holds, roster, cap = self.service._holds, self.roster(), self.policy["caps"]["max_active_attempts"]
+        lane_provider = {lane["lane_id"]: lane["provider"] for lane in roster}
         pending = self.pending(after)
         demand = {job_id: self.demands(after[job_id], roster) for job_id in set(pending) | {row["job_id"] for row in placed}}
         for job_id, hold in holds.items():
@@ -751,13 +802,13 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert self.seq[older] < self.seq[job_id], f"P2, C-6.9: {job_id} is held behind {older}, which is younger"
             assert holds[older]["reason"] not in HOLD_NOBODY and "for_good" not in holds[older], \
                 f"P2, C-4.1: {job_id} is held behind {older}, whose own hold {holds[older]} holds back nobody"
-            assert any(compete(mine, theirs) for mine in demand[job_id] for theirs in demand[older]), (
+            assert any(self.competes(mine, theirs, roster) for mine in demand[job_id] for theirs in demand[older]), (
                 f"P2, C-6.9: {job_id} is held behind {older} but they cannot compete: "
                 f"{job_id} {self.describe(after[job_id], roster)} vs {older} {self.describe(after[older], roster)}")
 
         def holds_back(older) -> bool:
-            """C-6.9: whether an older job waits for a slot or a lane (not for a probe's turn, a pilot, a moved
-            route, a lease, nor for good). Held behind an older job of its own, it still does while its
+            """C-6.9: whether an older job waits for a slot, a lane or a probe (including a pilot
+            or a moved route), never a lease or for good. Held behind an older job, it still does while its
             capacity clock runs (C-6.9, C-6.12), unless its last look found it waiting for a lease."""
             hold = holds.get(older, {})
             if "for_good" in hold:
@@ -767,54 +818,109 @@ class AdmissionMachine(RuleBasedStateMachine):
                 return (job["state"] == "waiting" and job["wait_reason"] == "capacity" and bool(job["next_check_at"])
                         and parse(job["next_check_at"]) > self.clock.instant
                         and self.last_look.get(older, {}).get("reason") != "lease-held")
-            return "behind" not in hold and hold.get("reason") not in HOLD_NOBODY | {
-                "waiting", "route-moved", "lane-proving", None}
+            return hold.get("reason") not in HOLD_NOBODY | {"waiting", None}
 
-        live = live_before
+        live, provider_live = live_before, Counter(provider_before)
         for row in sorted(placed, key=lambda row: (
                 self.policy["tiers"].index(tier_of(self.policy, after[row["job_id"]])), self.seq[row["job_id"]])):
             live += 1
-            job_id = row["job_id"]
+            job_id, provider = row["job_id"], lane_provider[row["lane_id"]]
+            provider_live[provider] += 1
             # C-6.9: an older waiter holds back only in a pool with a count cap, and only while it waits for a
-            # slot or a lane.
-            waiting = [older for older in pending
-                       if self.capped() and self.seq[older] < self.seq[job_id]
-                       and tier_of(self.policy, after[older]) == tier_of(self.policy, after[job_id])
-                       and holds_back(older)]
+            # slot, a lane or a probe (a pilot's lane and a moved route included, C-6.11, C-6.14), never for
+            # good (C-11.8) and never for a lease, though a lease waiter keeps the last slot.
+            older_jobs = [older for older in pending
+                          if self.seq[older] < self.seq[job_id]
+                          and tier_of(self.policy, after[older]) == tier_of(self.policy, after[job_id])
+                          and "for_good" not in holds.get(older, {})]
+            waiting = [older for older in older_jobs if holds_back(older)]
+            keepers = waiting + [older for older in older_jobs if holds.get(older, {}).get("reason") == "lease-held"]
             for older in waiting:
-                assert not all(compete(mine, theirs) for mine in demand[job_id] for theirs in demand[older]), (
-                    f"P2, C-6.9: {job_id} was placed past {older}, an older job of its tier that competes with it "
-                    f"and could not be placed ({holds[older]}); before the pass {older} was "
+                assert not all(self.holds_back(theirs, mine, provider, roster)
+                               for mine in demand[job_id] for theirs in demand[older]), (
+                    f"P2, C-6.9: {job_id} was placed on {row['lane_id']} past {older}, an older job of its tier "
+                    f"that competes with it and could not be placed ({holds[older]}); before the pass {older} was "
                     f"{ {key: before[older][key] for key in ('state', 'wait_reason', 'next_check_at')} } "
                     f"and {job_id} {self.describe(after[job_id], roster)}; looked at: "
                     f"{sorted(self.looks & {older, job_id})}")
-            if waiting and cap is not None:
-                assert live <= cap - 1, (f"C-6.9: {job_id} passed waiting {waiting} and left no slot free "
+            if keepers and cap is not None:
+                assert live <= cap - 1, (f"C-6.9: {job_id} passed waiting {keepers} and left no slot free "
                                          f"({live} live, max_active_attempts {cap})")
+            limit = self.provider_caps.get(provider)
+            # C-6.4a: "the last fleet slot kept for an older waiter" is kept of the provider's count too, for
+            # an older waiter that could use the provider.
+            sharing = [older for older in keepers
+                       if any(provider in self.providers_of(theirs, roster) for theirs in demand[older])]
+            if limit is not None and sharing:
+                assert provider_live[provider] <= limit - 1, (
+                    f"C-6.4a: {job_id} passed waiting {sharing} on {provider} and left no slot of its count free "
+                    f"({provider_live[provider]} live, providers.{provider}.max_active_attempts {limit})")
 
     def describe(self, job, roster) -> str:
         return (f"(tier={job['tier']}, task={job['task']}, model={job['pinned_model']}, pin={job['pinned_lane']}; "
                 f"demands {self.demands(job, roster)})")
 
-    def capped(self) -> bool:
-        """C-6.9 (`scheduler.hold_scope`): a detached job's pool has a count cap."""
+    def capped(self, job=None, roster=()) -> bool:
+        """C-6.9 (`scheduler.hold_scope`): a detached job's pool has a count cap: the fleet's or a lane's,
+        or (C-6.4a) a count on a provider the job could use."""
         caps = self.policy["caps"]
-        return any(caps.get(key) is not None for key in
-                   ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
+        if any(caps.get(key) is not None for key in
+               ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured")):
+            return True
+        return job is not None and any(set(self.provider_caps) & self.providers_of(demand, roster)
+                                       for demand in self.demands(job, roster))
+
+    def providers_of(self, demand, roster) -> frozenset[str]:
+        """C-6.4a: the providers a demand could use: its models' (every provider's when they cannot be
+        told), narrowed to its lanes' when it names lanes of the roster."""
+        models, lanes = demand
+        providers = {model["provider"] for name, model in self.policy["models"].items()
+                     if models is None or name in models}
+        named = {lane["provider"] for lane in roster if lanes is not None and lane["lane_id"] in lanes}
+        return frozenset(providers & named if named else providers)
+
+    def competes(self, one, other, roster) -> bool:
+        """C-6.9 with C-6.4a: two jobs that could use one capped provider compete whatever their models and
+        lanes, since that provider's count is theirs to share."""
+        return compete(one, other) or bool(set(self.provider_caps) & self.providers_of(one, roster)
+                                           & self.providers_of(other, roster))
+
+    def holds_back(self, theirs, mine, provider, roster) -> bool:
+        """C-6.9: whether an older waiter's demand holds back a job placed on a lane of `provider`. Without
+        counts per provider, when they compete in a capped pool. With them, C-6.4a's order: "fleet/lane/family
+        competition using demand narrowed to the selected provider; competition against older peers of that
+        selected provider": any waiter that could use it holds back a job placed on it, if it is capped."""
+        if not self.provider_caps:
+            return self.capped() and compete(mine, theirs)
+        models, lanes = mine
+        narrowed = (frozenset(name for name, model in self.policy["models"].items()
+                              if model["provider"] == provider and (models is None or name in models)), lanes)
+        return (self.capped() and compete(narrowed, theirs)
+                or provider in self.provider_caps and provider in self.providers_of(theirs, roster))
+
+    def provider_live(self, live=None) -> Counter:
+        """C-6.4a: live attempts per provider. None here is quarantined, and probes hold no attempt."""
+        lanes = {lane["lane_id"]: lane["provider"] for lane in self.store.lane_rows()}
+        return Counter(lanes[row["lane_id"]] for row in (self.live() if live is None else live))
 
     def check_caps(self) -> None:
-        """P3 (C-6.4): the fleet and every lane stay within the caps that are set."""
+        """P3 (C-6.4, C-6.4a): the fleet, every lane and every provider stay within the caps that are set."""
         caps, live = self.policy["caps"], self.live()
         if caps["max_active_attempts"] is not None:
             assert len(live) <= caps["max_active_attempts"], f"C-6.4: {len(live)} live attempts over the cap"
         per_lane = Counter(row["lane_id"] for row in live)
         if caps["max_in_flight_per_lane"] is not None:
             assert all(count <= caps["max_in_flight_per_lane"] for count in per_lane.values()), per_lane
+        per_provider = self.provider_live(live)
+        for provider, limit in self.provider_caps.items():
+            assert per_provider[provider] <= limit, \
+                f"C-6.4a: {per_provider[provider]} live {provider} attempts over providers.{provider}.max_active_attempts {limit}"
 
-    def check_recheck_cost(self, before, after, decisions) -> None:
-        """P4 (C-6.10): a look repeating its verdict adds no row; every look sets a later clock."""
+    def check_recheck_cost(self, before, after, decisions, provider_before) -> None:
+        """P4 (C-6.10): a look repeating its verdict adds no row; every look sets a later clock. Whether a
+        count was full and which job a hold names are not the verdict, C-6.4a's count per provider included."""
         now, waits, counts = self.clock.instant, self.service._capacity_waits, self.decision_counts()
-        pending = self.pending(after)
+        pending, roster = self.pending(after), self.roster()
         for job_id in set(pending) - self.looks:
             assert counts[job_id] == decisions[job_id], f"C-6.10: {job_id} gained a decision row without a look"
         for job_id in self.looks & set(pending):
@@ -825,9 +931,17 @@ class AdmissionMachine(RuleBasedStateMachine):
             if decision is None or self.service._holds.get(job_id, {}).get("reason") in ("route", "workspace"):
                 # A look that ended on its route or its workspace reached no capacity verdict (C-6.12, C-6.8).
                 self.last_verdict.pop(job_id, None)
+                self.last_provider_state.pop(job_id, None)
             else:
                 verdict, kind = scheduler.verdict_signature(decision), wait_kind(wait)
                 last = self.last_verdict.get(job_id)
+                state = self.provider_state(job, roster, provider_before)
+                previous = self.last_provider_state.get(job_id)
+                if self.provider_caps and last and last[0] == verdict and previous and previous != state:
+                    # The case the chain merge of 2026-10-13 settled: #194 keyed the wait on these too.
+                    changed = "+".join(name for name, old, new in zip(PROVIDER_STATE, previous, state) if old != new)
+                    event(f"C-6.4a: a look repeated its verdict with {changed} changed")
+                self.last_provider_state[job_id] = state
                 if counts[job_id] > decisions[job_id] and last and last[0] == verdict:
                     if last[1] != kind:
                         # KNOWN_WAIT_KIND_RESETS: xfailed in test_admission_properties.py.
@@ -846,11 +960,20 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert (parse(job["next_check_at"]) - now).total_seconds() <= ceiling, \
                 f"C-6.10: {job_id}'s recheck is {job['next_check_at']}, later than {ceiling} s after its look"
 
+    def provider_state(self, job, roster, provider_before) -> tuple:
+        """C-6.4a: at a look, whether each capped provider the job could use was at its count when the pass
+        began, and the hold's reason, older job (`behind`) and provider count (`live`)."""
+        providers = set().union(*(self.providers_of(demand, roster) for demand in self.demands(job, roster)))
+        hold = self.service._holds.get(job["job_id"], {})
+        return (tuple(sorted((provider, provider_before[provider] >= limit)
+                             for provider, limit in self.provider_caps.items() if provider in providers)),
+                hold.get("reason"), hold.get("behind"), hold.get("live"))
+
     # --- P3 and P4 over many passes ---------------------------------------------------------------
 
     def boundaries(self, until: datetime) -> list[datetime]:
-        """The instants at which capacity changes by itself: a reading going stale or resetting, a
-        closure expiring. A verdict may change there, and C-6.10 checks a known reset on time."""
+        """The distinct instants at which capacity changes by itself: a reading going stale or
+        resetting, a closure expiring, a pilot's wait lapsing or a lane's proof going stale. A verdict may change there, and C-6.10 checks a known reset on time."""
         ttl = self.policy["caps"]["reading_ttl_s"]
         instants = []
         for row in self.store.list_readings():
@@ -868,7 +991,13 @@ class AdmissionMachine(RuleBasedStateMachine):
         if wait_s:
             instants += [parse(row["reserved_at"]) + timedelta(seconds=wait_s) for row in self.live()
                          if row.get("reserved_at")]
-        return [instant for instant in instants if self.clock.instant < instant <= until]
+        # C-6.14: a lane is proven for `prove_idle_s` after its last answer; then an attempt in flight
+        # on it that has not answered is its pilot.
+        idle_s = (self.policy.get("admission") or {}).get("prove_idle_s")
+        if idle_s:
+            instants += [datetime.fromtimestamp(last + idle_s, timezone.utc)
+                         for last in self.service._lane_answers.values()]
+        return sorted({instant for instant in instants if self.clock.instant < instant <= until})
 
     @precondition(lambda self: self.service is not None)
     @rule(minutes=st.integers(2, 10))
@@ -880,13 +1009,15 @@ class AdmissionMachine(RuleBasedStateMachine):
         end = self.clock.instant + timedelta(minutes=minutes)
         boundaries = len(self.boundaries(end))
         looks, placements, passes = Counter(), 0, 0
-        while self.clock.instant < end and passes < 400:
+        # A step is at least a second, so this many passes always reach the end of the stretch.
+        while self.clock.instant < end and passes <= 60 * minutes:
             placed_before = len(self.store.list_attempts())
             self.admission_pass()
             passes += 1
             placements += len(self.store.list_attempts()) - placed_before
             looks.update(self.looks)
             self.clock.advance(self.next_step(end))
+        assert self.clock.instant >= end, f"P4: the quiet stretch stopped {end - self.clock.instant} short"
         for job_id, count in looks.items():
             if job_id not in self.pending(self.jobs()):
                 continue
@@ -940,9 +1071,9 @@ class AdmissionMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.service is not None)
     @rule()
     def fair_capacity_drains_the_queue(self):
-        """P3 (C-6.9): with capacity fair and every attempt ending as soon as it starts, each job some
-        lane would take is placed within a few passes, unless an older job that competes with it can
-        never be placed (a pin that names no lane, exclusions that cover every lane)."""
+        """P3 (C-6.9, C-11.8): with capacity fair and every attempt ending as soon as it starts, each job
+        some lane would take is placed within a few passes. A job no lane can admit (a pin that names
+        no lane, exclusions that cover every lane) holds nobody back and keeps no slot."""
         for _ in range(len(self.pending(self.jobs())) + 4):
             for attempt in self.live():
                 self.finish(attempt, "ok")
@@ -963,48 +1094,30 @@ class AdmissionMachine(RuleBasedStateMachine):
         pending = self.pending(jobs)
         placeable = {job_id: self.placeable(job) for job_id, job in pending.items()}
 
-        demands = {job_id: self.demands(job, roster) for job_id, job in pending.items()}
-        known: dict[str, bool] = {}
-
-        def stuck(job_id) -> bool:
-            """Left pending for a reason fair capacity cannot end: the job can never be placed, or the
-            job its hold names is stuck (C-6.9 keeps a competitor behind it, or a slot for it). Holds
-            only ever name older jobs, so this walks a DAG and each answer is kept."""
-            if job_id not in pending:
-                return False
-            if job_id not in known:
-                known[job_id] = not placeable[job_id] or held(job_id)
-            return known[job_id]
-
-        def held(job_id) -> bool:
-            hold = holds.get(job_id, {})
-            if hold.get("reason") in ("behind-older-job", "slot-kept"):
-                return stuck(hold.get("behind") or hold.get("kept_for"))
-            if hold.get("reason") in ("approval", "uncertain", "workspace"):
-                # C-6.11 reports such a wait "even when ... an older job is also ahead of it", so the
-                # hold does not name it: a job held behind one is never looked at, and its wait stays.
-                return any(self.seq[older] < self.seq[job_id]
-                           and tier_of(self.policy, jobs[older]) == tier_of(self.policy, jobs[job_id])
-                           and any(compete(mine, theirs) for mine in demands[job_id] for theirs in demands[older])
-                           and stuck(older) for older in pending)
-            return False
-
         for job_id, lane in placeable.items():
-            if not lane:
-                continue
-            hold = holds.get(job_id, {})
-            older = hold.get("behind") or hold.get("kept_for")
-            assert held(job_id), (
+            # C-6.9, C-11.8: no job waits behind, or is kept out of a slot for, a job that no lane can
+            # admit, and with every attempt ending as it starts the pass order places every other job.
+            assert not lane, (
                 f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} could run on {lane} under fair "
-                f"capacity and is still pending after {self.passes} passes: {hold}")
-            # P3 (C-6.9, C-11.8): a slot is never kept for a job no lane can admit, so slot-keeping never
-            # starves a job that does not compete with the one it is kept for.
-            assert not (hold["reason"] == "slot-kept" and not placeable.get(older) and not any(
-                compete(mine, theirs) for mine in demands[job_id] for theirs in demands[older])), (
-                f"P3, C-6.9: {job_id} {self.describe(jobs[job_id], roster)} is starved by the slot kept for "
-                f"{older} {self.describe(jobs[older], roster)}, which can never use it and does not compete "
-                f"with it")
+                f"capacity and is still pending after {self.passes} passes: {holds.get(job_id)}")
 
 
 AdmissionMachine.TestCase.settings = PROFILE
 TestAdmissionPass = AdmissionMachine.TestCase
+
+
+class ProviderCapMachine(AdmissionMachine):
+    """The machine with C-6.4a's count per provider on, one provider's or both, with the fleet's caps or
+    without. Filling and emptying a provider's count, and a new older peer of the provider ahead of a job,
+    change no verdict, so a look that repeats its verdict across them adds no decision row (C-6.10, P4).
+    #194 keyed the wait on both; the chain merge of 2026-10-13 kept the verdict alone."""
+
+    @initialize(**FLEET, provider_caps=PROVIDER_CAPS)
+    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove,
+              provider_caps):
+        self.provider_caps = provider_caps
+        super().fleet(cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove)
+
+
+ProviderCapMachine.TestCase.settings = PROFILE
+TestAdmissionPassProviderCaps = ProviderCapMachine.TestCase

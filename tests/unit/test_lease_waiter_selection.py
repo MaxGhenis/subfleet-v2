@@ -255,8 +255,8 @@ def test_intended_a_waiter_the_lease_hold_masked_now_holds_its_own_competitors()
     held the second behind the first (they compete), so it was no waiter, and the Terra turn,
     which does not compete with the fenced one, was placed. Now the second is looked at,
     waits for its closed lane, and as an older slot waiter holds the Terra turn, which
-    could take a slot it needs (C-6.9). So the new rule places a job the old one did
-    not hold, and holds one the old one placed: not a superset, by design."""
+    could take a slot it needs (C-6.9). So the new rule holds a job the old one placed:
+    not a superset, by design."""
     policy, view = _world("codex-1")
     policy["conversations"]["max_active_turns"] = 3
     fenced = {**JOB, "job_id": "fenced", "created_at": "2026-09-26T11:00:00Z", "pinned_model": "astra",

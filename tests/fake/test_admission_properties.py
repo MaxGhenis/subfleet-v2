@@ -136,6 +136,88 @@ def test_c6_10_a_repeated_verdict_is_not_recorded_again_as_the_fleet_fills_and_e
     assert service._capacity_waits[stuck]["rechecks"] == 6
 
 
+def provider_capped(routing_state, limit):  # noqa: F811
+    """codex-1 to codex-3, measured, under a Codex count (C-6.4a) and no fleet cap."""
+    service, harness = routing_state
+    service.policy["caps"]["max_active_attempts"] = None
+    service.policy["providers"]["codex"]["max_active_attempts"] = limit
+    for lane_id in ("codex-2", "codex-3"):
+        service.store.put_lane(lane(lane_id, "codex"))
+    for lane_id in ("codex-1", "codex-2", "codex-3"):
+        measured(service, lane_id)
+    return service, harness
+
+
+def recording_verdicts(service, job_id):
+    verdicts, pick = [], service._pick
+
+    def recording(row, **kwargs):
+        decision = pick(row, **kwargs)
+        if row["job_id"] == job_id:
+            verdicts.append(scheduler.verdict_signature(decision))
+        return decision
+    service._pick = recording
+    return verdicts
+
+
+def test_c6_10_a_provider_count_filling_and_emptying_records_the_verdict_once(routing_state):  # noqa: F811
+    """C-6.10 with C-6.4a (P4): the verdict is `scheduler.verdict_signature` alone with provider caps
+    on too. #194 keyed the wait on the verdict and whether the pool or the job's provider was at its
+    limit, so a job its pinned lane's closure holds recorded its unchanged verdict again, and went back
+    to a 1 s clock, each time other work filled or emptied the provider's count (chain merge of
+    2026-10-13, `docs/reports/2026-10-13-chain-199.md`)."""
+    service, harness = provider_capped(routing_state, 2)
+    closed(service, "codex-1")
+    stuck = submit(service, harness, pinned_model="terra", pinned_lane="codex-1")
+    verdicts = recording_verdicts(service, stuck)
+    fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
+    service._admit()                                        # stuck looks at no Codex work; the fillers start
+    assert all(placed_on(service, job) for job in fillers)
+    counts = []
+    for _ in range(3):
+        counts.append(scheduler.provider_live(service._capacity_view())["codex"])
+        due(service, stuck)
+        service._admit()                                    # at the provider's count
+        end(service, fillers.pop())
+        fillers.append(submit(service, harness, pinned_model="terra", tier="hard"))
+        counts.append(scheduler.provider_live(service._capacity_view())["codex"])
+        due(service, stuck)
+        service._admit()                                    # below it (the new filler starts after the look)
+    assert counts == [2, 1] * 3
+    assert service._holds[stuck]["reason"].startswith("closed:")
+    assert len(verdicts) == 7 and len(set(verdicts)) == 1
+    assert len(rows(service, stuck)) == 1
+    assert service._capacity_waits[stuck]["rechecks"] == 6
+
+
+def test_c6_10_a_new_provider_peer_ahead_refreshes_the_hold_and_adds_no_row(routing_state):  # noqa: F811
+    """C-6.10 with C-6.4a and C-6.11: which older job of its provider a job waits behind is in its hold,
+    and every look replaces the hold, so `why` names the peer it waits behind now. It is not in the
+    verdict: #194's `:behind:<job>` suffix recorded the verdict again when the peer ahead changed."""
+    service, harness = provider_capped(routing_state, 2)
+    closed(service, "codex-1")
+    closed(service, "codex-3")
+    first = submit(service, harness, pinned_model="terra", pinned_lane="codex-1")
+    second = submit(service, harness, pinned_model="terra", pinned_lane="codex-3")
+    job = submit(service, harness, pinned_model="terra")    # codex-2 would take it
+    verdicts = recording_verdicts(service, job)
+    service._admit()
+    hold = {"reason": "behind-older-job", "behind": first, "tier": "standard", "provider": "codex",
+            "live": 0, "max_active_attempts": 2, "key": "providers.codex.max_active_attempts"}
+    assert {key: service._holds[job].get(key) for key in hold} == hold
+    service.dispatch("kill", {"job_id": first})
+    for job_id in (second, job):
+        due(service, job_id)
+    service._admit()
+    assert {key: service._holds[job].get(key) for key in hold} == {**hold, "behind": second}
+    assert service._capacity_waits[job]["hold"]["behind"] == second
+    why = service.dispatch("why", {"job_id": job})
+    assert why["job"]["hold"]["behind"] == second and f"held behind {second}" in why["text"]
+    assert len(verdicts) == 2 and len(set(verdicts)) == 1
+    assert len(rows(service, job)) == 1
+    assert service._capacity_waits[job]["rechecks"] == 1
+
+
 def test_c4_1_a_probe_that_quarantines_leaves_its_job_uncertain_and_holding_nobody(routing_state):  # noqa: F811
     """C-4.1 "Only `capacity` holds back the jobs behind it in its tier"; C-6.11 "A wait that is a
     person's or a retry's to end (`approval`, `uncertain`, `workspace`) is reported as that". On the
@@ -211,19 +293,31 @@ def transient_on(service, job_id, lane_id="claude-a", model="opus"):
 
 
 def test_c6_9_a_waiting_job_held_behind_an_older_one_still_holds_its_own_competitors(fleet):
-    """C-6.9 (P2): "A job that cannot be placed on this pass for want of a slot or a lane (it is `waiting`
-    on `capacity` with a `next_check_at` still ahead ...) holds back the later jobs of its tier that
-    compete with it". X waits on capacity with its clock ahead and is held behind W (they share Astra);
-    Y competes with X (Opus) but not with W. Without W, Y is held behind X; with W, Y was placed past X,
-    because `_admit_pass` checked `behind` before it registered a clocked capacity wait as a waiter."""
+    """C-6.9 (P2): "A job that cannot be placed on this pass (it is `waiting` on `capacity` with a
+    `next_check_at` still ahead, ...) holds back the later jobs of its tier that compete with it". X's
+    own looks find no lane and set its clock; then a cap is set, a Claude lane opens, and X, its clock
+    still ahead, is held behind W (they share Astra). Y competes with X (Opus) but not with W. Without W,
+    Y is held behind X; with W, Y is placed past X, because `_admit_pass` checks `behind` before it
+    registers a clocked capacity wait as a waiter."""
     service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = None    # no job holds another back while X looks
     closed(service, "codex-1")
+    closed(service, "claude-a")
     older = submit(service, harness, pinned_model="astra")
-    waiting(service, older, 600)
     middle = submit(service, harness, pinned_model=None, task="review", tier="standard")   # opus, astra
-    waiting(service, middle, 20)
+    service._admit()
+    for _ in range(3):                                      # X's verdict repeats, so its clock backs off (C-6.10)
+        due(service, middle)
+        service._admit()
+    looked = service.store.get_job(middle)
+    assert (looked["state"], looked["wait_reason"]) == ("waiting", "capacity") and len(rows(service, middle)) == 1
+    assert service._holds[middle]["reason"] == "closed:account" and looked["next_check_at"] > after(5)
+    service.policy["caps"]["max_active_attempts"] = 10     # the operator sets a cap
+    with service.store.transaction("fixture.claude_a_opens") as tx:
+        tx.execute("UPDATE closures SET released_at=? WHERE lane_id='claude-a'", (utcnow(),))
     younger = submit(service, harness, pinned_model="opus")
     service._admit()
+    assert service.store.get_job(middle)["next_check_at"] == looked["next_check_at"]   # X was not looked at
     assert service._holds[middle] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
     assert service._holds.get(younger) == {"reason": "behind-older-job", "behind": middle, "tier": "standard"}
 
@@ -524,7 +618,8 @@ def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(rou
     """C-6.10 (P4): "a recheck that reaches the verdict it reached last time adds no decision row". A
     terra job whose output path another job holds waits `lease-held` while the fleet has room and
     `slot-kept` while it does not: an older job waiting for its own output path keeps the last slot
-    (C-6.9, which also says it holds no job back). Every look chooses one lane with one verdict; each
+    (C-6.9, which also says it holds no job back). The job is pinned to codex-1, so every look chooses
+    the same lane and reaches the same verdict (checked at each evaluation, not only in the rows); each
     return to `slot-kept` records it again."""
     service, harness = routing_state
     service.policy["caps"]["max_active_attempts"] = 3
@@ -533,7 +628,15 @@ def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(rou
         measured(service, lane_id)
     kept_out, out = str(harness.root / "kept.md"), str(harness.root / "report.md")
     keeper = submit(service, harness, pinned_model="terra", out_path=kept_out)
-    job = submit(service, harness, pinned_model="terra", out_path=out)
+    job = submit(service, harness, pinned_model="terra", pinned_lane="codex-1", out_path=out)
+    verdicts, pick = [], service._pick
+
+    def recording(row, **kwargs):
+        decision = pick(row, **kwargs)
+        if row["job_id"] == job:
+            verdicts.append(scheduler.verdict_signature(decision))
+        return decision
+    service._pick = recording
     assert service.store.acquire_lease(f"out:{kept_out}", "another-job")
     assert service.store.acquire_lease(f"out:{out}", "another-job")
     fillers = [submit(service, harness, pinned_model="terra", tier="hard") for _ in range(2)]
@@ -547,8 +650,9 @@ def test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again(rou
         due(service, keeper), due(service, job)
         service._admit()                                    # 1 live at its look; the new filler starts after
         assert service._holds[job]["reason"] == "lease-held"
+    assert len(verdicts) >= 7 and len(set(verdicts)) == 1  # one verdict at every look, on codex-1
     signatures = {scheduler.verdict_signature(json.loads(row["decision_json"])) for row in rows(service, job)}
-    assert len(signatures) == 1
+    assert signatures == set(verdicts)
     assert len(rows(service, job)) == 1
 
 

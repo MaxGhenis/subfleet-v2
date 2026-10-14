@@ -41,4 +41,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["real_lsof: runs the real process listing retention uses (slow under load)"]
+markers = [
+    "real_lsof: runs the real process listing retention uses (slow under load)",
+    "documented_limitation: asserts a known limitation that a follow-up must deliberately change",
+]
