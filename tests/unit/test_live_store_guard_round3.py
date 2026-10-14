@@ -110,6 +110,9 @@ def test_captured_daemon_environment_expires_after_cleanup(
             captured["PYTEST_CURRENT_TEST"] = "synthetic-test (call)"
         base = config._subfleet_safe_home_base
     assert not base.exists()
+    # The captured session HOME is isolated. An ordinary child may explicitly
+    # choose this synthetic personal home after the session has expired.
+    captured["HOME"] = str(home)
     if remove_overrides:
         for variable in home_paths.SAFE_HOME_PATHS:
             captured.pop(variable, None)

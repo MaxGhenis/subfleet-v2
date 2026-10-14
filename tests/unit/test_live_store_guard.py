@@ -661,6 +661,7 @@ def test_unconfigure_restores_environment_and_expires_captured_child(tmp_path, m
         assert captured[PYTEST_MARKER] == "1"
         assert captured[PYTEST_SESSION] == str(base)
         assert all(name in captured for name in SAFE_HOME_PATHS)
+        captured["HOME"] = str(fake_home)  # ordinary child selects its own home after cleanup
         captured["PYTHONPATH"] = str(REPO)
         probe = '''
 from subfleet import home_paths, capacity
@@ -671,7 +672,7 @@ assert not Path(os.environ["SUBFLEET_DESKTOP_LOGIN"]).parent.exists()
 assert not home_paths.under_pytest()
 assert home_paths.desktop_login_path() == Path.home() / ".claude.json"
 assert home_paths.codex_app_home() == Path.home() / ".codex"
-assert capacity.read_desktop_account() is None  # captured HOME was isolated and is now deleted
+assert capacity.read_desktop_account() == "fixture@example.test"
 '''
         result = subprocess.run([sys.executable, "-c", probe], env=captured,
                                 capture_output=True, text=True, timeout=30)

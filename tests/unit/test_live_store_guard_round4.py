@@ -47,6 +47,7 @@ def test_settings_write_cannot_revive_expired_session(tmp_path, monkeypatch, cap
         finally:
             conftest.pytest_unconfigure(config)
     assert not base.exists()
+    captured["HOME"] = str(home)  # select the ordinary fake home after session cleanup
     captured["PYTHONPATH"] = str(REPO)
     probe = '''
 import os
