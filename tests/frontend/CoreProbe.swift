@@ -180,7 +180,7 @@ func project(_ turn: TurnTimeline) -> [String: Any] {
         "message_id": turn.messageID, "seq": turn.seq as Any? ?? NSNull(), "state": turn.state,
         "continues": turn.continues as Any? ?? NSNull(), "first_event": turn.firstEventSeq as Any? ?? NSNull(),
         "state_reason": turn.stateReason as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
-        "person_text": turn.personText as Any? ?? NSNull(), "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
+        "person_text": turn.personText as Any? ?? NSNull(), "locally_sent": turn.locallySent, "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
         "served": jsonObject(turn.served), "outcome": turn.outcome.map { ["state": $0.state, "reason": $0.reason as Any? ?? NSNull(),
                                                                            "served_model": $0.servedModel as Any? ?? NSNull()] } as Any? ?? NSNull(),
         "limits": turn.limits.map(jsonObject) as Any? ?? NSNull(), "diff": turn.diff as Any? ?? NSNull(),

@@ -219,17 +219,18 @@ def test_c29_7_a_send_behind_a_live_turn_waits_in_the_tray_until_it_starts(core_
     assert tray(answered) == ["m2"]
     assert tray_row(answered, "m2")["sending"] is False and tray_row(answered, "m2")["status"] is None
     assert tray_row(answered, "m2")["withdraw"] == {"action": "cancel", "message_id": "m2"}
-    # The daemon holds it after the turn ended, until the dispatcher sends it.
-    assert tray(completed) == ["m2"] and tray(ended) == ["m2"]
-    assert ended["layout"]["title"] == "1 message queued; it goes next"
-    for snapshot in (sending, answered, completed, ended):
+    # Once the host receipt settles, nothing is ahead: the send stays in the timeline.
+    assert tray(completed) == ["m2"] and tray(ended) == []
+    assert ended["layout"]["title"] is None
+    assert "person:m2" in ids(ended)
+    for snapshot in (sending, answered, completed):
         assert "person:m2" not in ids(snapshot)
         assert snapshot["layout"]["followed"] == "text:m1:0"
     assert tray(started) == [] and started["layout"]["title"] is None
     assert ids(started)[-1] == "person:m2" and shown(started, "person:m2")["state"] == "running"
     assert ids(running)[-1] == "text:m2:0" and running["layout"]["followed"] == "text:m2:0"
     # Into the tray glides; the receipt and the turn's end move nothing; the start glides.
-    assert result["moves"][3:] == ["glide", "stay", "stay", "stay", "glide", "glide"]
+    assert result["moves"][3:] == ["glide", "stay", "stay", "glide", "stay", "glide"]
 
 
 def test_c29_7_a_send_into_an_idle_conversation_shows_in_the_timeline(core_probe):
@@ -250,7 +251,7 @@ def test_c29_7_a_send_into_an_idle_conversation_shows_in_the_timeline(core_probe
     assert tray(second) == ["m3"] and ids(second)[-1] == "person:m2" and "person:m3" not in ids(second)
     assert tray_row(second, "m3")["preview"] == "and another (1 image)"
     assert tray_row(second, "m3")["attachments"] == 1 and tray_row(second, "m3")["status"] == "Sending"
-    assert second["layout"]["title"] == "1 message queued; it goes next"
+    assert second["layout"]["title"] == "1 message queued; it follows the message ahead"
     assert result["moves"][3:] == ["glide", "glide"]
 
 
@@ -312,7 +313,7 @@ def test_c29_7_a_held_conversation_keeps_even_the_first_send_in_the_tray(core_pr
     assert tray(two) == ["m2", "m3"]
     assert two["layout"]["title"] == "2 messages queued; they wait until the conversation can continue"
     assert tray(cleared) == ["m3"] and ids(cleared)[-1] == "person:m2"
-    assert cleared["layout"]["title"] == "1 message queued; it goes next"
+    assert cleared["layout"]["title"] == "1 message queued; it follows the message ahead"
 
 
 def test_c29_7_a_queued_unblock_note_heads_the_tray_and_is_not_withdrawn(core_probe):
@@ -325,6 +326,7 @@ def test_c29_7_a_queued_unblock_note_heads_the_tray_and_is_not_withdrawn(core_pr
     steps = [{"receipts": [receipt("m1", 1, "interrupted"), receipt("m2", 2, "queued"),
                            receipt("m3", 3, "queued", origin="unblock-note", text="(unblock note)"),
                            receipt("m4", 4, "queued")]}, log.page(), log.page()]
+    steps = [{**step, "held": True} for step in steps]
     result = run_queue(core_probe, steps)
     last = result["snapshots"][-1]
     assert tray(last) == ["m3", "m2", "m4"]
@@ -333,11 +335,12 @@ def test_c29_7_a_queued_unblock_note_heads_the_tray_and_is_not_withdrawn(core_pr
         "sending": False, "status": None, "withdraw": {"action": "none"}, "can_withdraw": False,
         "can_steer": False}
     assert [tray_row(last, mid)["withdraw"]["action"] for mid in ("m2", "m4")] == ["cancel", "cancel"]
-    assert last["layout"]["title"] == "A note and 2 messages queued; they go in order"
+    assert last["layout"]["title"] == "A note and 2 messages queued; they wait until the conversation can continue"
     assert ids(last) == ["person:m1"]
     only = run_queue(core_probe, [{"receipts": [receipt("m1", 1, "interrupted"),
                                                 receipt("m3", 3, "queued", origin="unblock-note")]}])
-    assert only["layout"]["title"] == "A note to the next turn is queued; it goes next"
+    assert only["layout"]["title"] is None and tray(only) == []
+    assert shown(only, "person:m3")["type"] == "notice"
 
 
 def test_c29_7_a_queued_failover_continuation_shows_under_its_message(core_probe):
@@ -478,7 +481,7 @@ def test_c29_7_steer_is_offered_only_on_the_head_the_daemon_holds_while_a_turn_i
 
     idle = run_queue(core_probe, [{"receipts": [receipt("m1", 1, "complete"), receipt("m2", 2, "queued")]},
                                   {"steer": True}])["snapshots"][-1]
-    assert tray(idle) == ["m2"] and tray_row(idle, "m2")["can_steer"] is False
+    assert tray(idle) == [] and "person:m2" in ids(idle)
 
 
 # MARK: - Keeping the end in view
@@ -684,7 +687,7 @@ def ref_status_words(reason: str | None) -> str | None:
     return reason[0].upper() + reason[1:].replace("-", " ")
 
 
-def ref_title(origins: list[str | None], live: bool, held: bool) -> str | None:
+def ref_title(origins: list[str | None], live: bool, held: bool, ahead: bool = False) -> str | None:
     if not origins:
         return None
     messages = sum(1 for origin in origins if origin != "unblock-note")
@@ -696,6 +699,8 @@ def ref_title(origins: list[str | None], live: bool, held: bool) -> str | None:
         return what + ("; it waits" if one else "; they wait") + " until the conversation can continue"
     if live:
         return what + ("; it goes when this turn ends" if one else "; they go in order when this turn ends")
+    if ahead:
+        return what + ("; it follows the message ahead" if one else "; they follow the message ahead in order")
     return what + ("; it goes next" if one else "; they go in order")
 
 
@@ -752,6 +757,8 @@ def ref_queue(timeline: dict, arrival: dict[str, int]) -> list[str]:
     turns = timeline["turns"]
     waiting = [mid for mid in turns if waits_in_queue(timeline, mid)]
     return sorted(waiting, key=lambda mid: (turns[mid]["origin"] not in REPAIR_ORIGINS,
+                                            (turns[mid]["state_reason"] or "").startswith("steer-missed:") is False,
+                                            turns[mid]["origin"] == "wake",
                                             math.inf if turns[mid]["seq"] is None else turns[mid]["seq"],
                                             arrival[mid]))
 
@@ -771,7 +778,7 @@ def ref_tray(timeline: dict, arrival: dict[str, int], held: bool) -> list[str]:
 def withdrawn_before_start(timeline: dict, mid: str) -> bool:
     turn = timeline["turns"][mid]
     return (turn["state"] == "cancelled" and turn["state_reason"] in WITHDRAWN_REASONS
-            and did_nothing(timeline, mid))
+            and turn["first_event"] is None and did_nothing(timeline, mid))
 
 
 def person_attachments(timeline: dict, mid: str) -> int:
@@ -829,7 +836,7 @@ def ref_key(layout: dict, caught_up: bool, history_pages: int) -> dict:
     last = items[-1] if items else None
     followed = next((item for item in items if item["id"] == layout["followed"]), None)
     return {"last": last["id"] if last else None,
-            "last_is_own_send": bool(last) and last["type"] == "person" and last["state"] == "sending",
+            "last_is_own_send": bool(last) and last["type"] == "person" and last["state"] == "sending" and last["message_id"] in layout.get("own_sending", []),
             "followed": layout["followed"],
             "followed_length": len(followed["text"]) if followed and followed["type"] in ("text", "thinking") else 0,
             "tray": [row["id"] for row in layout["tray"]], "settling": not caught_up,
@@ -1040,7 +1047,7 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
             continue
         in_timeline, in_tray = f"person:{mid}" in layout_ids, mid in tray_ids
         if turn["origin"] == "tombstone":
-            assert not in_timeline and not in_tray
+            assert in_timeline == withdrawn_before_start(timeline, mid) and not in_tray
         else:
             assert in_timeline != in_tray, mid
     assert layout["items"] == ref_items(timeline, tray_ids)
@@ -1058,7 +1065,7 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
     assert all(row in layout_ids and owners[row] not in tray_ids for row in timeline["pending_items"])
 
     # (4) At most one queue message is in the timeline: a send with nothing ahead of it.
-    in_timeline = [mid for mid in queue if f"person:{mid}" in layout_ids]
+    in_timeline = [mid for mid in queue if f"person:{mid}" in layout_ids and turns[mid]["continues"] is None]
     assert len(in_timeline) <= 1
     if in_timeline:
         assert in_timeline == queue[:1]
@@ -1069,7 +1076,7 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
         and turns[tray_ids[0]]["state"] != "sending" else None
     steer = bool(step.get("steer")) and live
     assert layout["tray"] == [ref_row(timeline, mid, steer and mid == candidate) for mid in tray_ids]
-    assert layout["title"] == ref_title([turns[mid]["origin"] for mid in tray_ids], live, held)
+    assert layout["title"] == ref_title([turns[mid]["origin"] for mid in tray_ids], live, held, bool(queue and queue[0] not in tray_ids))
 
     # (6) The view follows a row of the timeline, never one of a message in the tray.
     followed = ref_followed_item(timeline)
@@ -1171,7 +1178,7 @@ def test_c29_7_property_follow_moves_match_the_rule(core_probe, steps):
     result = run_queue(core_probe, steps)
     old = EMPTY_KEY
     for step, snapshot, known, move in zip(steps, result["snapshots"], replay(steps), result["moves"]):
-        key = ref_key(snapshot["layout"], known["caught_up"], known["history_pages"])
+        key = ref_key({**snapshot["layout"], "own_sending": [mid for mid, turn in snapshot["timeline"]["turns"].items() if turn["locally_sent"] and turn["state"] == "sending"]}, known["caught_up"], known["history_pages"])
         assert snapshot["key"] == key
         assert move == ref_move(old, key, step.get("at_bottom", True))
         old = key
@@ -1283,6 +1290,7 @@ def test_c29_7_a_person_send_waits_behind_a_queued_failover_continuation(core_pr
     last = run_queue(core_probe, steps)["snapshots"][-1]
     assert tray(last) == ["mine"]
     assert "person:repair" in ids(last) and "person:mine" not in ids(last)
+    assert last["layout"]["title"] == "1 message queued; it follows the message ahead"
 
 
 @PROPERTY
@@ -1299,3 +1307,63 @@ def test_c29_7_property_receipts_never_flicker_a_send_out_of_the_timeline(core_p
     for before, after in zip(snaps[::2], snaps[1::2]):
         assert tray(before) == tray(after)
         assert ids(before) == ids(after)
+
+
+def test_c29_7_a_remote_message_does_not_glide_while_reading_further_up(core_probe):
+    log = Log()
+    steps = [log.page(), history("older reply"), {"at_bottom": False}]
+    log.add("remote", "status", phase="starting")
+    steps.append({**log.page(), "at_bottom": False})
+    result = run_queue(core_probe, steps)
+    assert result["moves"][-1] == "stay"
+    assert result["snapshots"][-1]["key"]["last_is_own_send"] is False
+
+
+@pytest.mark.parametrize("host_state", ["waiting", "starting", "running", "approval-needed"])
+@pytest.mark.parametrize("text", ["please do this", "/compact", "!pwd"])
+def test_c29_7_real_store_offers_send_now_only_on_an_eligible_head(core_probe, host_state, text):
+    with tempfile.TemporaryDirectory(prefix="sf-tray-steer-") as scratch:
+        harness = ServiceHarness(Path(scratch))
+        try:
+            conversation = harness.create()
+            cid = conversation["conversation_id"]
+            caps = harness.call("capabilities")
+        finally:
+            harness.close()
+        messages = [receipt("host", 1, host_state), receipt("first", 2, "queued", text=text),
+                    receipt("second", 3, "queued", text="steerable second")]
+        messages = [{**r, "conversation_id": cid} for r in messages]
+        result = run_probe(core_probe, "store", write_json(Path(scratch) / "input.json", {"steps": [
+            {"capabilities": caps, "open": {"conversation": conversation, "messages": messages,
+                                          "pending_approvals": [], "events_cursor": 0}}]}))
+    rows = result["layouts"][cid]["tray"]
+    assert [row["id"] for row in rows] == ["first", "second"]
+    assert [row["can_steer"] for row in rows] == [host_state in ("running", "approval-needed") and text[0] not in "/!", False]
+
+
+@PROPERTY
+@given(origins=st.lists(st.sampled_from(["person", "wake", "unblock-note", "failover"]), min_size=1, max_size=8),
+       missed=st.lists(st.booleans(), min_size=8, max_size=8))
+def test_c29_7_property_order_matches_the_real_daemons_next_dispatchable(core_probe, origins, missed):
+    with tempfile.TemporaryDirectory(prefix="sf-tray-order-") as scratch:
+        harness = ServiceHarness(Path(scratch))
+        try:
+            cid = harness.create()["conversation_id"]
+            entries = []
+            predecessor = None
+            for index, origin in enumerate(origins):
+                mid = str(uuid.uuid4())
+                harness.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=predecessor,
+                    text=f"message {index}", attachments=[], settings=harness.settings(), origin=origin,
+                    state_reason="steer-missed:host" if missed[index] else None)
+                entries.append(harness.call("message.status", message_ids=[mid])["messages"][0])
+                if origin == "person":
+                    predecessor = mid
+            expected = []
+            while rows := harness.store.next_dispatchable(cid):
+                expected.append(rows[0]["message_id"])
+                harness.store.set_state(rows[0]["message_id"], "cancelled", reason="withdrawn")
+        finally:
+            harness.close()
+        snapshot = run_queue(core_probe, [{"receipts": entries, "held": True}], cid=cid)["snapshots"][0]
+    assert tray(snapshot) == expected

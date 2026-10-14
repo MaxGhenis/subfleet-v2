@@ -341,7 +341,7 @@ def test_c29_7_withdraw_send_before_the_daemon_could_have_it(core_probe):
     # It has it, and it is running already: interrupted.
     (["running"], {"turn.interrupt": [stopped()]}, ("stopped", "running"), ["message.status", "turn.interrupt"]),
     # It has it, and it has ended: nothing is stopped.
-    (["complete"], {}, ("stopped", None), ["message.status"]),
+    (["complete"], {}, ("stopped", "complete"), ["message.status"]),
 ], ids=["never-received", "queued", "moved-on", "running", "ended"])
 def test_c29_7_withdraw_send_after_a_lost_answer_asks_the_daemon_first(core_probe, statuses, answers, outcome, calls):
     """C-29.7, D-22 A send whose answer was lost: `message.status` first; a tombstone
@@ -935,3 +935,26 @@ def test_c29_7_focusing_a_new_conversation_creates_its_timeline(core_probe):
     assert read["did"] == "applied:0" and read["caught_up"] is True
     assert none["focused"] is None and "caught_up" not in none
     assert set(out["timelines"]) == {"cv-new"} and out["timelines"]["cv-new"]["caught_up"] is True
+
+
+@pytest.mark.parametrize("state", ["steering", "steered"])
+def test_c29_7_withdraw_of_a_message_in_another_turn_never_interrupts_its_host(core_probe, state):
+    out = engine(core_probe, [cancel()], {
+        "message.cancel": [TOO_LATE],
+        "message.status": [ok({"messages": [receipt(state, steered_into="host-turn")]})],
+    })
+    result = out["results"][0]
+    assert result["error"]["kind"] == "engine"
+    assert ops(result) == ["message.cancel", "message.status"]
+    assert "turn.interrupt" not in " ".join(result["calls"])
+
+
+@PROPERTY
+@given(repeats=st.integers(min_value=2, max_value=8))
+def test_c29_7_property_repeat_withdraw_is_settled_without_stopping_a_turn(core_probe, repeats):
+    out = engine(core_probe, [cancel()] * repeats, {
+        "message.cancel": [withdrawn(), *[TOO_LATE] * (repeats - 1)],
+        "message.status": [status("cancelled")] * (repeats - 1),
+    })
+    assert all("error" not in result and result["receipt"]["state"] == "cancelled" for result in out["results"])
+    assert all("turn.interrupt" not in call for call in out["calls"])

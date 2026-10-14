@@ -147,6 +147,7 @@ func stopAction(for messageID: String, state: String?, outboxEntry: OutboxEntry?
     case .queued: return .cancel(messageID: messageID)
     case .steering: return .cancelSteer(messageID: messageID)
     case .waiting, .starting, .running, .approvalNeeded: return .interrupt(messageID: messageID)
+    case nil where state == "sending": return .withdraw(messageID: messageID)
     default: return .none
     }
 }
@@ -866,6 +867,9 @@ final class ConversationEngine {
     var pollWait: Double = 25
     /// Closed outbox entries kept after each pump (their text feeds the timeline).
     var keptClosedEntries = 200
+    /// A dispatcher may be binding a queued message to its own turn job.
+    var dispatchingRetries: [TimeInterval] = [0.1, 0.25, 0.5, 1]
+    var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
 
     init(client: DaemonCalling, outbox: Outbox) {
         self.client = client
@@ -1036,43 +1040,33 @@ final class ConversationEngine {
         }
     }
 
-    /// Stop a message: cancel it while queued, interrupt it once it runs.
+    enum WithdrawResult: Equatable {
+        case withdrawn(Receipt?)
+        case stopped(Receipt?)
+        case inFlight
+    }
+
+    /// Withdraw through the existing outbox path, then act on its current receipt.
+    func withdrawSend(_ messageID: String) throws -> WithdrawResult {
+        switch try withdraw(messageID) {
+        case .withdrawn(let receipt): return .withdrawn(receipt)
+        case .inDaemon(let receipt):
+            let action = stopAction(for: messageID, state: receipt.state, outboxEntry: nil)
+            return .stopped(action == .none ? receipt : try stop(action))
+        case .inFlight: return .inFlight
+        }
+    }
+
+    /// Stop a message: cancel it while queued, interrupt its own turn once it runs.
     func stop(_ action: StopAction) throws -> Receipt? {
         switch action {
         case .none: return nil
         case .withdraw(let messageID):
-            switch try withdraw(messageID) {
-            case .withdrawn(let receipt): return receipt
-            case .inDaemon(let receipt):
-                return try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil))
+            switch try withdrawSend(messageID) {
+            case .withdrawn(let receipt), .stopped(let receipt): return receipt
             case .inFlight: return nil
             }
-        case .cancel(let messageID):
-            do {
-                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID,
-                                                                                   conversation_id: nil))
-                // Its steer not sent yet would only be refused now (one queue: nothing sends between).
-                try outbox.withdrawSteer(messageID)
-                return receipt
-            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
-                // It left `queued` since the app looked, and the provider may have
-                // it: the daemon's fix is `turn.interrupt` (op_message_cancel). A
-                // message steered meanwhile is in another message's turn, and the
-                // daemon points an interrupt of it at that turn: never interrupt
-                // without knowing (a failed read is thrown, not guessed past), and
-                // interrupt only a message read as its own turn's. One queued again
-                // or settled has no turn to stop, and one queued could be steered by
-                // another client before an interrupt arrived.
-                let now = try status([messageID]).first
-                switch now?.messageState {
-                case .steering, .steered:
-                    throw ConversationEngineError.steerTooLate(messageID)
-                case .waiting, .starting, .running, .approvalNeeded:
-                    return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
-                default:
-                    return now
-                }
-            }
+        case .cancel(let messageID): return try cancel(messageID)
         case .cancelSteer(let messageID):
             do {
                 return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
@@ -1081,6 +1075,40 @@ final class ConversationEngine {
             }
         case .interrupt(let messageID):
             return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+        }
+    }
+
+    /// Withdraw retries a brief dispatch race. A status read on too-late prevents
+    /// stopping a host turn, and treats a second withdrawal as settled already.
+    func cancel(_ messageID: String) throws -> Receipt? {
+        var waits = dispatchingRetries
+        while true {
+            do {
+                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+                try outbox.withdrawSteer(messageID)
+                return receipt
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "dispatching" && !waits.isEmpty {
+                pause(waits.removeFirst())
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                return try stopIfRunning(messageID)
+            }
+        }
+    }
+
+    private func stopIfRunning(_ messageID: String) throws -> Receipt? {
+        guard let receipt = try status([messageID]).first(where: { $0.message_id == messageID }) else {
+            throw DaemonClientError.malformed("message.status left out \(messageID)")
+        }
+        switch receipt.messageState {
+        case .steering, .steered:
+            throw ConversationEngineError.steerTooLate(messageID)
+        case .waiting, .starting, .running, .approvalNeeded:
+            do {
+                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "not-running" {
+                return try status([messageID]).first { $0.message_id == messageID }
+            }
+        default: return receipt
         }
     }
 

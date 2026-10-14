@@ -148,6 +148,7 @@ struct TurnTimeline: Equatable {
     var stateReason: String?
     var settings: ConversationSettings?
     var stopRequested = false
+    var locallySent = false
     var phases: [PhaseStamp] = []
     /// When the person last answered an approval: a tool waiting on it starts then.
     var answeredTS: String?
@@ -781,6 +782,7 @@ struct Timeline: Equatable {
         ensureTurn(messageID)
         guard var turn = turns[messageID] else { return }
         turn.personText = text
+        turn.locallySent = true
         turn.attachments = attachments
         turn.origin = turn.origin ?? "person"
         turn.settings = turn.settings ?? settings
@@ -1119,13 +1121,15 @@ struct Timeline: Equatable {
     /// messages, retaining sequence order within each group (C-24.9).
     var displayOrder: [String] {
         let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
-        func priority(_ id: String) -> Int {
-            if Timeline.repairOrigins.contains(turns[id]?.origin ?? "") { return 0 }
-            if turns[id]?.stateReason?.hasPrefix("steer-missed:") == true { return 1 }
-            return 2
+        func priority(_ id: String) -> (Int, Int, Int, Int) {
+            let turn = turns[id]
+            return (Timeline.repairOrigins.contains(turn?.origin ?? "") ? 0 : 1,
+                    turn?.stateReason?.hasPrefix("steer-missed:") == true ? 0 : 1,
+                    turn?.origin == "wake" ? 1 : 0, turn?.seq ?? Int.max)
         }
         let waiting = queue.enumerated().sorted {
-            (priority($0.element), $0.offset) < (priority($1.element), $1.offset)
+            let left = priority($0.element), right = priority($1.element)
+            return left == right ? $0.offset < $1.offset : left < right
         }.map(\.element)
         let queued = Set(waiting)
         var latest = 0
@@ -1148,10 +1152,10 @@ struct Timeline: Equatable {
     static let repairOrigins: Set<String> = ["unblock-note", "failover"]
 
     /// A message not yet sent to the provider: still queued (or not yet
-    /// received by the daemon), nothing done for it. A continuation belongs
-    /// with the message it continues, which the daemon sends next.
+    /// received by the daemon), nothing done for it. Queued continuations count
+    /// too: next_dispatchable sends repairs ahead of person messages.
     static func waitsInQueue(_ turn: TurnTimeline) -> Bool {
-        turn.messageID != conversationKey && turn.continues == nil && turn.items.isEmpty && turn.firstEventSeq == nil
+        turn.messageID != conversationKey && turn.items.isEmpty && turn.firstEventSeq == nil
             && (turn.state == MessageState.queued.rawValue || turn.state == "sending")
     }
 
@@ -1177,7 +1181,9 @@ struct Timeline: Equatable {
         let id = "person:\(turn.messageID)"
         switch turn.origin {
         case "tombstone":
-            return nil
+            guard Timeline.withdrawnBeforeStart(turn) else { return nil }
+            return TimelineItem(id: id, messageID: turn.messageID,
+                                content: .notice(withdrawnWords(turn)), ts: turn.createdTS)
         case "failover":
             var words = "Continued after a usage limit"
             if let account = turn.served.account ?? turn.served.lane_id { words += " on \(account)" }

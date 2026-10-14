@@ -133,7 +133,7 @@ func runQueueEngine(_ input: JSONValue) throws -> [String: Any] {
     }
     func madeCalls() -> [String] { scripted?.calls ?? calls }
 
-    let outbox = try Outbox(url: nil)
+    let outbox = try Outbox(url: nil, now: { Date(timeIntervalSince1970: 1_790_000_000) })
     let engine = ConversationEngine(client: client, outbox: outbox)
     if let retries = input["dispatching_retries"]?.array {
         engine.dispatchingRetries = retries.compactMap(\.double)
@@ -225,7 +225,9 @@ func runQueueState(_ data: Data) throws -> [String: Any] {
                                   messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "")
             did = "local"
         } else if let id = step["withdraw_local"]?.string {
-            state.withdrawLocal(conversationID: step["conversation_id"]?.string ?? state.focusedConversationID ?? "", messageID: id)
+            let conversationID = step["conversation_id"]?.string
+                ?? state.timelines.first(where: { $0.value.turn(id) != nil })?.key ?? ""
+            state.withdrawLocal(conversationID: conversationID, messageID: id)
             did = "withdraw_local"
         } else if let page = step["page"], let cid = step["conversation_id"]?.string {
             did = pageResult(state.apply(events: try page.decode(EventsPage.self), conversationID: cid))
@@ -243,7 +245,8 @@ func runQueueState(_ data: Data) throws -> [String: Any] {
                 report["move"] = moveWord(FollowKey.move(from: key, to: next, atBottom: true))
             }
             key = next
-            report["scroll"] = follower.target(in: timeline, reveal: false) as Any? ?? NSNull()
+            var reveal = false
+            report["scroll"] = follower.target(in: timeline, reveal: &reveal) as Any? ?? NSNull()
             report["caught_up"] = timeline.caughtUp
             report["tray"] = layout.tray.map(\.id)
             report["items"] = layout.items.map(\.id)

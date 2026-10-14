@@ -361,8 +361,10 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var steerHints: [String: Any] = [:]
     var items: [String: Any] = [:]
     var projected: [String: Any] = [:]
+    var layouts: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
+        layouts[id] = state.layout(conversationID: id).map(project) ?? NSNull()
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
         // C-26.8 (review of 0eac67b4, P2): the composer's options follow a model
         // picked but not yet saved, so its efforts and default are that model's.
@@ -410,6 +412,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
     out["steer_hints"] = steerHints
     out["items"] = items
     out["timeline"] = projected
+    out["layouts"] = layouts
     return out
 }
 
