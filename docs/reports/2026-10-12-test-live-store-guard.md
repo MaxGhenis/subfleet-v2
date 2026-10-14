@@ -865,6 +865,14 @@ stand-in's token in the returned value. The safety net recorded no launch of the
 real binary in either tree. The five cases that pass at both heads are the
 controls: they show what must keep working, not a defect.
 
+This job re-ran that replay, because the first job's evidence was unverified. It
+used a `git archive` of `5f4a5956a` with the current `tests/keychain_standin.py`
+and round-6 file (111 cases), under one hold with a fake HOME. Result: 106
+failed and 5 passed. The 106 are the 98 above, the helper-replacement case and
+the seven layer cases below; those last eight need the new API. The same five
+controls passed. The stand-in's token appears in 84 failure reports, and the
+safety net never tripped.
+
 `367096c25` adds seven cases (now 111 in the file), each showing one layer of
 the file match with the other switched off. The folded spelling alone matches
 doubled slashes, dot segments, `..`, case and the long s. The file identity
