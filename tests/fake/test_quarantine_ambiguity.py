@@ -172,7 +172,7 @@ def test_own_marker_holds_on_fresh_foreign_group_proof_without_a_table_row(
     ours, _ = running(daemon, harness, 200, 201)
     rows = {300: (1, 300, "S", "p300"), 301: (300, 300, "S", "p301"),
             202: (301, 300, "S", "p202")}
-    script_table(monkeypatch, rows, markers=f"202 writer SUBFLEET_ATTEMPT={ours['attempt_id']}\n")
+    script_table(monkeypatch, rows, markers=f"202 writer SUBFLEET_ATTEMPT={ours['attempt_id']} SUBFLEET_ROOT={daemon.root}\n")
     # The marker and scalar reads see the writer after the empty table read.
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({}, boot_id=BOOT))
     census = daemon._contain(ours)

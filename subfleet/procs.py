@@ -1593,10 +1593,25 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # Never retain or report what these reads return but the pids.
         found_marked, found_responsible, failed = _kernel_sources(
             kernel, candidates, wanted, source_root, ours, marked)
-        for pid in sorted(found_marked):
-            observe_later(pid, markers, local_marker=True)
-        for pid in sorted(found_responsible):
-            observe_later(pid, responsible, local_marker=True)
+        # Preserve a known snapshot boot for diagnostics even if the positive
+        # raw match exits before identity capture. Do not read a boot solely
+        # for a process already gone.
+        if (found_marked or found_responsible) and seen is not None and seen.boot_id:
+            observed_boots.add(seen.boot_id)
+        for found, source, name in ((found_marked, markers, "marker"),
+                                    (found_responsible, responsible, "responsibility")):
+            for pid in sorted(found):
+                if pid not in table:
+                    try:
+                        state = _stat(pid)
+                    except InspectionError:
+                        errors.append(f"{name} enumeration unavailable")
+                        # The positive raw observation must still retain an
+                        # identity/group root if its fresh inspection fails.
+                    else:
+                        if not state or state.startswith("Z"):
+                            continue
+                observe_later(pid, source, local_marker=True)
         observed_writer = observed_writer or bool(markers | responsible)
         errors.extend(failed)
     if workdir is not None:
