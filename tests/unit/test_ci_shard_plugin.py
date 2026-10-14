@@ -213,11 +213,22 @@ def test_a_bad_shard_or_map_is_a_usage_error(sharded_project, args):
 # tools/ci_shard_durations.py
 
 
-def write_report(path: Path, records: list[tuple[str, str, float]]) -> Path:
+def write_report(path: Path, records: list[tuple[str, str, float]], exitstatus: int | None = 0,
+                 collected: int | None = None) -> Path:
+    """An outcomes report and its session record (none when exitstatus is None);
+    by default the session collected exactly the tests that finished."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps({"nodeid": node, "when": when, "outcome": "passed", "xfail": False,
                                         "duration": duration}) + "\n" for node, when, duration in records))
+    if exitstatus is not None:
+        finished = sum(1 for _, when, _ in records if when == "teardown")
+        path.with_suffix(".session.json").write_text(json.dumps(
+            {"exitstatus": exitstatus, "collected": finished if collected is None else collected}))
     return path
+
+
+def whole_test(node: str, seconds: float) -> list[tuple[str, str, float]]:
+    return [(node, "setup", 0.0), (node, "call", seconds), (node, "teardown", 0.0)]
 
 
 def test_file_seconds_sum_every_phase_of_a_file(tmp_path):
@@ -262,8 +273,8 @@ def test_the_durations_tool_rewrites_only_seconds_and_source(tmp_path, capsys):
     original = {"comment": "kept", "groups": ["tests/ui/"],
                 "seconds": {"tests/test_a.py": 1.0, "tests/test_kept.py": 7.0, "tests/test_gone.py": 3.0}}
     map_path.write_text(json.dumps(original))
-    write_report(tmp_path / "art/py312-shard-1/first.jsonl", [("tests/test_a.py::t", "call", 10.0)])
-    write_report(tmp_path / "art/py314-shard-1/first.jsonl", [("tests/test_a.py::t", "call", 12.04)])
+    write_report(tmp_path / "art/py312-shard-1/first.jsonl", whole_test("tests/test_a.py::t", 10.0))
+    write_report(tmp_path / "art/py314-shard-1/first.jsonl", whole_test("tests/test_a.py::t", 12.04))
 
     assert durations_tool.main([str(tmp_path / "art"), "--root", str(root), "--shards", "2", "--dry-run"]) == 0
     assert json.loads(map_path.read_text()) == original
@@ -272,3 +283,50 @@ def test_the_durations_tool_rewrites_only_seconds_and_source(tmp_path, capsys):
         "comment": "kept", "groups": ["tests/ui/"], "source": "run 1",
         "seconds": {"tests/test_a.py": 12.0, "tests/test_kept.py": 7.0}}
     assert "kept: tests/test_kept.py" in capsys.readouterr().out
+
+
+def checkout_with_map(tmp_path: Path, seconds: dict[str, float]) -> tuple[Path, Path]:
+    root = tmp_path / "checkout"
+    for path in seconds:
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text("")
+    (root / ".github").mkdir()
+    map_path = root / ".github/test-shards.json"
+    map_path.write_text(json.dumps({"groups": [], "seconds": seconds}))
+    return root, map_path
+
+
+@pytest.mark.parametrize("exitstatus, collected, reason", [
+    (None, None, "no session record"),                  # killed before the session ended
+    (2, None, "exit 2"),                                # interrupted (a cancelled job)
+    (1, 3, "1 of 3 collected tests finished"),          # stopped early, e.g. --maxfail
+])
+def test_a_partial_report_never_replaces_a_files_time(tmp_path, capsys, exitstatus, collected, reason):
+    """Review r1 P3: a cancelled shard's report held only part of a file's time,
+    and regeneration replaced the file's full time with it."""
+    root, map_path = checkout_with_map(tmp_path, {"tests/test_long.py": 900.0, "tests/test_b.py": 5.0})
+    write_report(tmp_path / "art/cancelled/first.jsonl",
+                 [*whole_test("tests/test_long.py::test_one", 0.1), ("tests/test_long.py::test_two", "setup", 0.1)],
+                 exitstatus, collected)
+    write_report(tmp_path / "art/whole/first.jsonl", whole_test("tests/test_b.py::t", 6.0))
+    assert durations_tool.main([str(tmp_path / "art"), "--root", str(root), "--shards", "1"]) == 0
+    assert json.loads(map_path.read_text())["seconds"] == {"tests/test_b.py": 6.0, "tests/test_long.py": 900.0}
+    out = capsys.readouterr().out
+    assert "skipped" in out and reason in out and "1 reports (1 skipped)" in out
+
+
+def test_a_whole_session_with_failures_still_counts(tmp_path):
+    root, map_path = checkout_with_map(tmp_path, {"tests/test_long.py": 900.0})
+    write_report(tmp_path / "first.jsonl", whole_test("tests/test_long.py::t", 30.0), exitstatus=1)
+    assert durations_tool.main([str(tmp_path / "first.jsonl"), "--root", str(root)]) == 0
+    assert json.loads(map_path.read_text())["seconds"] == {"tests/test_long.py": 30.0}
+
+
+def test_no_whole_report_is_an_error_and_writes_nothing(tmp_path):
+    root, map_path = checkout_with_map(tmp_path, {"tests/test_long.py": 900.0})
+    before = map_path.read_text()
+    write_report(tmp_path / "first.jsonl", whole_test("tests/test_long.py::t", 0.1), exitstatus=2)
+    with pytest.raises(SystemExit) as stopped:
+        durations_tool.main([str(tmp_path / "first.jsonl"), "--root", str(root)])
+    assert stopped.value.code == 2
+    assert map_path.read_text() == before

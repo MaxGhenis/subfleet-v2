@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools import ci_retry_known_flakes as retry_tool
+from tools import ci_shard_durations as durations_tool
 
 pytest_plugins = ["pytester"]
 SCRIPT = Path(__file__).resolve().parents[2] / "tools/ci_retry_known_flakes.py"
@@ -145,6 +146,23 @@ def test_a_shard_runs_its_own_files_and_retries_by_node_id(project, tmp_path, cl
     assert f"{WARNING}{flake} (D-TEST)" in result.stdout
     durations = [report["duration"] for report in _reports(tmp_path / "reports/first.jsonl")]
     assert durations and all(isinstance(value, float) and value >= 0 for value in durations)
+    # The session records, and the durations tool reading the plugin's own output as whole.
+    assert json.loads((tmp_path / "reports/first.session.json").read_text()) == {"exitstatus": 1, "collected": 1}
+    assert json.loads((tmp_path / "reports/retry.session.json").read_text()) == {"exitstatus": 0, "collected": 1}
+    assert durations_tool.incomplete(tmp_path / "reports/first.jsonl") is None
+
+
+def test_an_interrupted_session_is_recorded_as_not_whole(project, tmp_path):
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports/first.session.json").write_text('{"exitstatus": 0, "collected": 2}')  # stale
+    result, runs = project("""
+        def test_ok(): pass
+        def test_interrupted(): raise KeyboardInterrupt
+        def test_never_reached(): pass
+    """, cli=True)                      # a real process: in-process, the interrupt would reach this session
+    assert result.returncode == pytest.ExitCode.INTERRUPTED, result.stdout + result.stderr
+    assert json.loads((tmp_path / "reports/first.session.json").read_text())["exitstatus"] == 2
+    assert "exit 2" in durations_tool.incomplete(tmp_path / "reports/first.jsonl")
 
 
 def test_the_retry_rule_holds_within_each_shard(project):
