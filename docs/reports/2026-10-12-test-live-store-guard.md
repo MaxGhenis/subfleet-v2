@@ -723,3 +723,154 @@ test and report files are staged, with the requested co-author trailer. Python
 3.12.14 and locked dependencies were prepared offline in ignored `.venv` from
 workspace copies of cached packages. No remote, sub-agent, push, caller-checkout
 write or personal-store access was used.
+
+## Round 6: refuse by the binary, not the runner (reviewed head `5f4a5956a34f`)
+
+Read `review-r6.md`, `review-r6-full.md` and the probes in `review-r6-evidence/`.
+This round adopts the hub's decision, which is the reviewer's design.
+
+### Cause
+
+Round 5 passed `keychain_command` the callable it would execute. The guard
+still refused only `None` or `_NATIVE_RUNNER`, so any object that handed the
+call on to the real `subprocess.run` was a different object and passed. Such
+objects include a recording pass-through, the suite's selective pass-through
+idiom, a lambda, `functools.partial`, `Mock(wraps=)` and a `Popen`-based wrapper.
+It then ran `security find-generic-password`. The production
+`enrollment_runner` is such a wrapper, and `Daemon._enroll_lane_locked` installs
+it around the adapter's native runner, so a re-enrolment reached `security` with
+no test patch at all. No identity rule can tell a stub from a delegate.
+
+### Fix
+
+`subfleet/credentials.py` adds `install_keychain_exec_guard()`, a `sys.addaudithook`
+hook that judges the program a launch would start:
+
+- **Events:** `subprocess.Popen`, `os.posix_spawn` (which also serves
+  `posix_spawnp`), `os.exec`, and `os.spawn`. `os.spawn` is native only on
+  Windows; elsewhere `os.spawn*` forks, and the child's exec raises `os.exec`.
+- **Finding the program:** a name with a directory is taken relative to the
+  child's working directory (`Popen`'s `cwd`). A bare name is searched as
+  `_posixsubprocess` searches it: the first executable regular file on the call's
+  PATH (`os.get_exec_path(env)`), relative entries again under the child's
+  working directory. `posix_spawn` events are checked both as `posix_spawnp`
+  (the caller's PATH) and as a plain path.
+- **Matching:** the program is the login keychain's reader when its real path,
+  case- and Unicode-folded, is `/usr/bin/security`, or when it is the same file
+  (device and inode). Folding catches `//usr/bin/security`, dot segments,
+  `/USR/BIN/SECURITY` and `/usr/bin/ſecurity`; APFS starts all of these as the
+  same file. The identity catches aliases no spelling reveals, such as
+  `/.vol/<device>/<inode>`.
+- **Refusal:** `KeychainExecRefused`, an `AdapterError` with code 7 and the early
+  refusal's message and fix. Callers already report that error:
+  `resolve_credential` and `_resolve_keychain_token` raise it,
+  `_keychain_blob`, `home_login` and `_plan_from_keychain` return `None`, and the
+  daemon maps it to `ProtocolError`. `Popen` closes its pipes before re-raising,
+  so the refusal never hangs.
+- **When it is active:** when the event fires, `under_pytest()` holds, or the
+  pytest session that was live when the hook was installed still has its
+  sentinel. The pin goes beyond the brief: a test that strips the markers from
+  the session's own environment cannot switch the hook off, and cleanup's
+  deletion of the sentinel still ends it.
+- **Installation:** `tests/conftest.py::pytest_configure` calls it after
+  setting the session markers. `subfleet.credentials` calls it at import when
+  `SUBFLEET_UNDER_PYTEST` or `PYTEST_CURRENT_TEST` is present, which covers
+  Python children such as test daemons. A second call adds no hook; it only pins
+  a newly live session. The hook binds its helpers by default argument, so
+  replacing the module's attributes cannot change it. Only the test stand-in
+  registry is read at event time, and it can only add refusals.
+- **Outside pytest:** nothing installs the hook, and an installed hook is inert
+  without a live session. `keychain_command` still builds every spelling's argv
+  there.
+
+`keychain_command`'s identity check stays as the early refusal that explains
+itself. For P3 it now uses the same file match instead of comparing strings, and
+a bare `security` is still refused by name whatever PATH holds.
+`home_paths.session_alive()` is the sentinel check `under_pytest()` already made,
+factored out so the hook can check its pin.
+
+The round-1 regressions (`test_keychain_after_undo_never_requests_native_command`
+and `test_every_keychain_reader_refuses_default_backend`) again run the real
+default backend. Neither `subprocess.run` nor `_NATIVE_RUNNER` is replaced. A
+recording `security` comes first on PATH, and they assert it never ran and that
+the refusal was code 7. Round 5's captured-runner test uses the same pattern and
+drops its `_NATIVE_RUNNER` substitution. CI's stub tests still pass, because a
+stub never launches.
+
+`tests/keychain_standin.py` holds the recording stand-in and an independent
+safety net. That net is a second audit hook, sharing no code with the guard. It
+refuses and records any launch that still resolves to `/usr/bin/security`, and
+each probe asserts it recorded nothing.
+
+### Invariants
+
+Stated and tested in `test_live_store_guard_round6.py` and, as properties, in
+`test_keychain_exec_guard_properties.py` (Hypothesis, derandomized, no database):
+
+1. While a session is live, no Python launch whose program is
+   `/usr/bin/security` starts, by any spelling or alias, through any runner,
+   wrapper or fixture undo. It raises `KeychainExecRefused` (code 7).
+2. A launch is judged only by its program. A stub that never launches is never
+   refused, and no other program is (every spelling of `/usr/bin/true`).
+3. Differential: for any PATH built from a stand-in, the real directory,
+   `/bin`, a missing directory, a non-executable `security` and a directory
+   named `security`, the guard finds the same program as `shutil.which`, and
+   refuses exactly when that is the real binary.
+4. Outside a live session, the hook is absent (no markers) or inert (expired
+   markers).
+5. Installation is idempotent: one hook per process.
+
+### Regression evidence
+
+`test_live_store_guard_round6.py` ports the reviewer's probes and registers the
+stand-in with the guard, so each refusal it shows is the one the real binary
+gets. Spellings of the real path are checked by name and by synthetic
+`sys.audit` events, which reach every hook and start no program.
+
+| Group | Cases | `5f4a5956a` export with these tests | Head |
+| --- | ---: | --- | --- |
+| p1a: delegating `subprocess.run` patch, 8 wrappers × 5 readers, plus `mock.patch.object(wraps=)` | 41 | 41 failed: the stand-in ran | passed |
+| p1b: explicit delegating runner (`partial`, `Mock(wraps=)`, lambda) × 3 readers | 3 | 3 failed: the stand-in ran | passed |
+| p1e: adapter built under a delegating patch, patch undone, then read | 1 | failed: the stand-in ran | passed |
+| p1f: production `enrollment_runner` around a default adapter | 1 | failed: the stand-in ran | passed |
+| p1g: daemon re-enrols a `claude-quota-…` lane with the default adapter | 1 | failed: the stand-in ran and the lane enrolled | passed: `ProtocolError`, code 7 |
+| Markers stripped inside the session, native and delegating runners | 4 | 4 failed: the stand-in ran | passed |
+| P3 early refusal: 7 spellings × 2 runners | 14 | 14 failed: argv built | passed |
+| P3 at launch: 8 paths × `Popen`, `os.exec`, `os.posix_spawn` (synthetic) | 24 | 24 failed: no guard | passed |
+| Bare names through the call's PATH or the child's working directory | 5 | 5 failed: no guard | passed |
+| Launches that must stay allowed (missing program, `true`, stand-in first) | 3 | passed | passed |
+| CI's stub shape with the stand-in guarded; control showing an unguarded stand-in runs | 2 | passed | passed |
+| Idempotent install; Python child guarded from import; inert outside pytest and after cleanup | 4 | 4 failed: no guard API | passed |
+| Replacing the module's helpers cannot weaken the hook | 1 | not replayed (added after the replay; uses the new API) | passed |
+| **Total** | **104** | **98 failed, 5 passed** of the 103 replayed | **104 passed** |
+
+The replay copied `tests/keychain_standin.py` and the round-6 file into a
+`git archive` of `5f4a5956a` and ran them with this worktree's `.venv`
+(`pythonpath = ["."]` imports the archived tree; every traceback names it).
+All 50 failures of the wrapper, undo, enrolment and marker probes show the
+stand-in's token in the returned value. The safety net recorded no launch of the
+real binary in either tree. The five cases that pass at both heads are the
+controls: they show what must keep working, not a defect.
+
+### Mutation check
+
+MUTATION_TABLE
+
+### Validation
+
+HOLD_TABLE
+
+### Not covered
+
+- **Non-Python children.** A Python audit hook sees only its own process's
+  launches. A shell `-c` string, `env security`, a script whose interpreter is
+  `security`, or a child that never imports `subfleet.credentials` is outside
+  its reach. No test does any of these, and every production path builds the
+  `security` argv itself. The reviewer found the same boundary.
+- **Calls that bypass the audit events**, such as `_posixsubprocess.fork_exec`
+  called directly or `ctypes`, and a copy of the binary under another path.
+- **The full suite and Python 3.14** were not run here.
+
+### Delivery
+
+DELIVERY

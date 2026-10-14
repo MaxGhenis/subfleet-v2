@@ -92,7 +92,8 @@ def test_adapter_guard_checks_captured_runner_after_subprocess_patch(monkeypatch
     """Patching the module later cannot authorize an adapter's native runner.
 
     The adapter captures the real subprocess.run; `standin` puts a recording
-    `security` first on PATH, so a refusal defect would be counted, not run.
+    `security` first on PATH, so a refusal defect would run and count the
+    stand-in, never the real binary.
     """
     assert credentials.subprocess.run is credentials._NATIVE_RUNNER
     adapter = claude.ClaudeAdapter()
