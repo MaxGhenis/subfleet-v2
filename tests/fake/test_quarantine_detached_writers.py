@@ -11,6 +11,7 @@ import time
 import pytest
 from hypothesis import HealthCheck, event as hypothesis_event, given, settings, strategies as st
 
+from tests.fake_kernel import FakeKernel
 from tests.signal_stubs import authorized_signal_stub
 
 from subfleet import daemon as dm, procs
@@ -188,6 +189,7 @@ def test_a_listed_descendant_survives_failed_identity_capture(state_daemon, monk
 
 
 def test_lineage_limit_keeps_newest_and_overflow_holds_until_proven_reboot(monkeypatch):
+    monkeypatch.setattr(procs, "kernel", FakeKernel())
     monkeypatch.setattr(dm, "LINEAGE_ROOT_LIMIT", 2)
     roots = [dataclasses.asdict(procs.CensusRoot(pid, BOOT, str(pid), pid)) for pid in (100, 200, 300)]
     evidence = dm._retain_lineage({}, {"identities": {}, "lineage_roots": roots})
