@@ -13,7 +13,10 @@ PYTEST_SESSION_ID = "SUBFLEET_PYTEST_SESSION_ID"
 PYTEST_SENTINEL = ".pytest-session"
 # An inherited helper may query the person's dedicated keychain. Tests must
 # explicitly install their own stand-in instead of inheriting this executable.
-SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET",)
+# An inherited development build would widen the person boundary (D-21) for
+# every test service, and make each one ask where the person's state root is;
+# a test that means a development build names its own.
+SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET", "SUBFLEET_DEV_APP_EXECUTABLE")
 
 # One registry for the session fixture and every subprocess harness. Values are
 # relative to a temporary base, and must never name the operator's home stores.
@@ -125,19 +128,46 @@ def protected_provider_homes() -> list[Path]:
                                test_only=True)), codex_app_home()]
     if not under_pytest():
         return isolated
+    home = Path.home()
+    if is_account_home(home):
+        return isolated
+    return [home / ".claude", home / ".codex", *isolated]
+
+
+def is_account_home(home: Path) -> bool:
+    """Whether `home` is the account's own home directory, by any spelling.
+
+    Equal spellings decide without a stat. Otherwise the home directories
+    themselves are compared, never a store beneath them.
+    """
     import pwd
 
-    home = Path.home()
     personal = Path(pwd.getpwuid(os.getuid()).pw_dir)
     if home == personal:
-        return isolated
+        return True
     try:
-        if home.samefile(personal):
-            return isolated
+        return home.samefile(personal)
     except OSError:
         # An inaccessible synthetic home must still reach the spelling refusal.
-        pass
-    return [home / ".claude", home / ".codex", *isolated]
+        return False
+
+
+def production_state_root() -> Path:
+    """D-21: the person's production state root, `~/.subfleet`, resolved as
+    release/217 resolves it.
+
+    Under pytest only a test's own HOME may name it: the D-21 tests set HOME and
+    expect `HOME/.subfleet` to be the production root. The provider-home seam is
+    not this root, because pytest points it at the session's own directory, so
+    every test root would count as a development root. A HOME that is still the
+    account's own would resolve the person's live store, so it is refused before
+    anything beneath it is touched (D-ST1).
+    """
+    home = Path.home()
+    if under_pytest() and is_account_home(home):
+        raise RuntimeError("Refusing to resolve the personal state root ~/.subfleet under pytest; "
+                           "set HOME to an isolated test home")
+    return (home / ".subfleet").resolve()
 
 
 def desktop_login_path() -> Path:

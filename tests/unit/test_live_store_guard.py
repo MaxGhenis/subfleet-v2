@@ -313,7 +313,7 @@ def test_guard_never_evaluates_default(monkeypatch, marker_variable, marker):
     ("service-source", "SUBFLEET_CODEX_APP_HOME"),
     ("service-workspace-claude", "CLAUDE_CONFIG_DIR"),
     ("service-workspace-codex", "SUBFLEET_CODEX_APP_HOME"),
-    ("service-app-executables", "SUBFLEET_PROVIDER_HOME"),
+    ("service-app-executables", "HOME"),
     ("timers-identity", "SUBFLEET_CODEX_APP_HOME"),
     ("daemon", "SUBFLEET_HOME"),
     ("importer", "SUBFLEET_HOME"),
@@ -497,6 +497,7 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
             (home_paths.codex_app_home, lambda: Path.home() / ".codex"),
             (home_paths.desktop_login_path, lambda: Path.home() / ".claude.json"),
             (home_paths.provider_home, Path.home),
+            (home_paths.production_state_root, lambda: (Path.home() / ".subfleet").resolve()),
         ]:
             assert outcome(current) == outcome(original)
         # The additional legacy seams also retain the import-time release

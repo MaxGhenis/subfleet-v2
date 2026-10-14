@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import descriptors, protocol
-from ..home_paths import codex_app_home, protected_provider_homes, provider_home
+from ..home_paths import codex_app_home, production_state_root, protected_provider_homes
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
@@ -274,7 +274,7 @@ class ConversationService:
         """C-25.6, D-21: the installed app. A development daemon (any state root but
         ~/.subfleet) also accepts the development build named when it started."""
         dev = os.environ.get("SUBFLEET_DEV_APP_EXECUTABLE")
-        if dev and self.root.resolve() != (provider_home() / ".subfleet").resolve():
+        if dev and self.root.resolve() != production_state_root():
             return (*APP_EXECUTABLES, dev)
         return APP_EXECUTABLES
 

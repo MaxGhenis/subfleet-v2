@@ -543,11 +543,11 @@ def test_a_development_build_counts_as_the_app_only_on_a_development_state_root(
     from subfleet.conversations.service import ConversationService
     dev = "/Users/x/build/Subfleet Dev.app/Contents/MacOS/Subfleet"
     monkeypatch.setenv("SUBFLEET_DEV_APP_EXECUTABLE", dev)
+    # D-ST1: name the person's home; the account's own ~/.subfleet is never resolved.
+    monkeypatch.setenv("HOME", str(tmp_path.parent))
     service = ConversationService.__new__(ConversationService)
     service.root = tmp_path
     assert service._app_executables() == (*APP_EXECUTABLES, dev)
-    monkeypatch.setenv("HOME", str(tmp_path.parent))
-    monkeypatch.setenv("SUBFLEET_PROVIDER_HOME", str(tmp_path.parent))
     service.root = tmp_path.parent / ".subfleet"
     service.root.mkdir(exist_ok=True)
     assert service._app_executables() == APP_EXECUTABLES
