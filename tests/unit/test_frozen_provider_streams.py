@@ -409,3 +409,52 @@ def test_freeze_copy_uses_bounded_reads_from_one_candidate_descriptor(tmp_path, 
     assert len(opened) == 1
     assert len(sizes) >= 3
     assert Path(frozen_launch.raw_stream_path).read_bytes() == (tmp_path / "stdout").read_bytes()
+
+
+@pytest.mark.parametrize("step", ("file-fsync", "rename", "directory-fsync"))
+def test_copy_linked_to_live_output_during_publication_is_not_frozen(tmp_path, monkeypatch, step):
+    adapter, launch = provider(tmp_path, "codex")
+    payload = encode([MESSAGE])
+    candidate, live = tmp_path / "stream.jsonl", tmp_path / "stdout"
+    candidate.write_bytes(payload)
+    live.write_bytes(payload)
+    import tempfile as temporary_files
+    original_mkstemp, original_rename, original_fsync = temporary_files.mkstemp, os.rename, os.fsync
+    outputs, published, fired = {}, [], []
+    def link(path):
+        if fired:
+            return
+        fired.append(step)
+        live.unlink()
+        os.link(path, live)
+    def creating(*args, **kwargs):
+        fd, path = original_mkstemp(*args, **kwargs)
+        if Path(path).name.startswith(".stream.frozen-"):
+            outputs[fd] = path
+        return fd, path
+    def renaming(source, destination, *args, **kwargs):
+        result = original_rename(source, destination, *args, **kwargs)
+        if Path(destination).name.startswith("stream.frozen-"):
+            published.append(destination)
+            if step == "rename":
+                link(destination)
+        return result
+    def syncing(fd):
+        import stat
+        if step == "file-fsync" and fd in outputs:
+            link(outputs[fd])
+        elif (step == "directory-fsync" and published
+              and stat.S_ISDIR(os.fstat(fd).st_mode)):
+            link(published[-1])
+        return original_fsync(fd)
+    monkeypatch.setattr(temporary_files, "mkstemp", creating)
+    monkeypatch.setattr(os, "rename", renaming)
+    monkeypatch.setattr(os, "fsync", syncing)
+    frozen_launch = freeze(tmp_path, launch)
+    assert fired == [step]
+    snapshot = Path(frozen_launch.raw_stream_path)
+    assert not os.path.samefile(snapshot, live)
+    expected = readings(adapter, tmp_path, frozen_launch)
+    live.write_bytes(encode([COMPLETED]))
+    assert snapshot.read_bytes() == payload
+    assert readings(adapter, tmp_path, frozen_launch) == expected
