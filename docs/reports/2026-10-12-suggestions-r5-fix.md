@@ -795,3 +795,87 @@ conversation check, so it never reaches them.
 
 On `169645a48` the new record-secrecy file fails 38 of its 44 tests; the 6
 that pass there are the ordinary-slug cases.
+
+**Tests.** Each hold ran one foreground pytest process under the shared
+lock, with its own `sf-r181f9-$$` TMPDIR and Hypothesis storage, a hard
+deadline well inside 20 minutes, and Python `shutil.rmtree` cleanup. It used
+the caller's `.venv` read-only (Python 3.14.7 free-threaded, Hypothesis
+6.168.1), with `PYTHONPATH` unset and imports from this workspace. The
+lane's own `SUBFLEET_RETENTION_DORMANT=1` made
+`tests/fake/test_native_maintenance_startup.py` fail wholesale, so the
+later fake holds unset it.
+
+| Hold | Head | Passed | Failed |
+| --- | --- | ---: | ---: |
+| `tests/unit/test_protocol_secrecy.py` | `43ab51026` | 322 | 0 |
+| `tests/unit/test_handler_refusals.py`, `tests/unit/test_daemon_refusals_cli.py` | `43ab51026` | 321 | 0 |
+| `tests/unit/test_cli.py` | `43ab51026` | 208 | 0 |
+| `tests/fake/test_request_routing.py` | `43ab51026` | 3 | 0 |
+| `tests/fake/test_lost_acknowledgement.py` | `43ab51026` | 3 | 0 |
+| the 12 suggestion unit files and `tests/fake/test_suggestions_fake.py` | `409fd4915` | 177 | 0 |
+| `tests/e2e/test_suggestions_e2e.py` | `409fd4915` | 1 (1 skipped) | 0 |
+| `tests/unit/test_test_module_names.py` | `409fd4915` | 1 | 0 |
+| `--collect-only`, whole suite | `409fd4915` | 13,176 collected | 0 errors |
+| `test_record_secrecy.py`, `test_workspace_transient.py`, `test_salvage_finalization.py`, `test_notice_header.py`, `test_turn_trees.py`, `test_daemon_launch.py` (fake) | `43ab51026` | 159 | 0 |
+| `test_conversation_service.py`, `test_conversation_steer_service.py`, `test_conversation_reconcile.py`, `test_legacy_hold.py` (unit) | `43ab51026` | 235 | 0 |
+| 16 related unit files (ids, contract indexes, salvage, retention, handoff, outcome-unknown, host-push storage, connections) | `409fd4915` | 501 | 4 |
+| `tests/unit/test_daemon_connections.py` after its helper fix | `43ab51026` | 30 | 0 |
+| 8 admission and workspace fake files | `43ab51026` | 212 | 4 |
+| `tests/fake/test_notice_delivery.py` after its fix | `5404e4709` | 15 | 0 |
+| fake files 1, 4, 7, … (32 files) | `5404e4709` | 518 (1 xfailed) | 6 |
+| `tests/fake/test_salvage_adversarial.py` after its fix | `0010034f2` | 8 | 0 |
+| fake files 2, 5, 8, … (32 files), without the dormant flag | `0010034f2` | 474 | 1 |
+
+The four failures in the related-unit hold are the connection tests, the
+four in the admission hold are the notice-id cases, and the one in the
+second fake third is the descriptor test. All nine fail the same way at
+`169645a48`. The six in the first fake third are the salvage-adversarial
+cases this round's records changed. Each file was fixed and its rerun is in
+the table. An ENOTCONN case of the connection file once failed its 0.2 s
+read under load and passed on the next run of the whole file.
+
+The skipped e2e test is person-only and cannot run inside a Subfleet lane.
+
+**Not run: the lock queue kept these out.** From about 05:57 other sessions
+held the shared lock, one run for more than 30 minutes, with up to eight
+sessions waiting and load between 40 and 170. Each attempt waited about
+seven minutes and exited 75 before pytest started. These are for the hub's
+host run, at the final head:
+
+- `tests/unit/test_store_ids.py`, with its two new properties. Both held
+  when called directly, without pytest, under Hypothesis's engine: the
+  token property's 200 examples took 15 s at load 143. The bounds were then
+  cut to 60 and 50 examples.
+- `tests/fake/test_daemon_descriptors.py`, after its one-assertion fix.
+- The last third of `tests/fake` (31 files).
+- The rest of `tests/unit`, about 10,000 tests, `tests/process` and
+  `tests/frontend`. CI runs the full suite.
+
+Commits on `feat/suggested-conversations` after `169645a48`, all in the
+shared repository (detached in this worktree, kept by Subfleet's salvage
+ref):
+
+- `81422b6ba`, `117b9307a`: the cancelled job's draft, restored unverified;
+- `b765fdf0d`: ids read for credentials from each hyphen and underscore;
+- `28800c97b`: salvage, end-snapshot and launch records;
+- `f6c23e601`: existing record tests and the guard-preflight templates;
+- `97df05b4c`: new record tests and the guard differential;
+- `9bf6542e1`: C-25.7 and C-1.5;
+- `5df63990a`: `state_reason` tests and the tick's log lines;
+- `409fd4915`: the tick's fixed diagnostic;
+- `43ab51026`: the connection tests' correlation token;
+- `5404e4709`: the notice-id test;
+- `0010034f2`: the adversarial salvage tests;
+- `95600a1ba`: C-25.7 names the disk hold;
+- `dcb2d63e2`: the credential properties and the descriptor test;
+- `903c9f2c8` and this commit: this report.
+
+Only named files were staged, and every commit carries the co-author
+trailer. There were no network remotes, pushes or sub-agents, no writes to
+the caller's checkout and no live-state changes. No logs, evidence or
+bundles were staged. The reviewer's probes ran against this tree with their
+temporary roots in this job's TMPDIR, which was removed. Twice, a direct
+call of the new properties outlasted the shell's two-minute cap and moved to
+the background; both finished on their own. The `.hypothesis` folder one of
+them left in the worktree was removed. Three `sf-r181f9-*` folders from
+13 October, which the cancelled job left, were left alone.
