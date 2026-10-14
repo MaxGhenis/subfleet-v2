@@ -287,3 +287,12 @@ def test_a_refusal_s_own_words_go_to_the_daemon_log_scrubbed():
     refusals.log_detail(log, "submit", Unrenderable("x", reason="push-refused"))
     assert len(lines) == 1 and "host push refused: remote token" in lines[0]
     assert token not in lines[0] and "fix: omit --push-branch" in lines[0]
+
+
+def test_the_guard_preflight_templates_keep_the_preflights_own_fixes():
+    """Differential (C-14.2): a timeout or an unusable probe is unverified, not mismatched;
+    its template's fix is `guard.preflight`'s, word for word, and never asks for a restore."""
+    from subfleet.guard import preflight as guard
+    for reason, fix in (("guard-preflight-timeout", guard._TIMEOUT_FIX), ("guard-preflight-probe", guard._PROBE_FIX)):
+        message, shown = refusals.render(reason)
+        assert shown == fix and "unverified, not mismatched" in message and "Restore" not in message + shown

@@ -32,7 +32,7 @@ from hypothesis import HealthCheck, example, given, settings
 from subfleet import daemon as daemon_module, protocol
 from subfleet.adapters.base import AdapterError
 from subfleet.daemon import Daemon
-from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401  (fixture)
+from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401  (fixture)
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_protocol_secrecy import Connection, wire_reply
 from tests.unit.test_suggestion_secret_properties import (
@@ -214,6 +214,52 @@ def test_a_handler_refusal_at_launch_keeps_its_template_not_its_words(state_daem
     assert receipt["spawn_error"] == "API-key home refused; fix: log this lane into a subscription account"
     assert_secret_absent([receipt, stored(daemon)], VALUE)
     assert f"job {job_id} refused (AdapterError): API-key home refused" in log_text(daemon)
+
+
+# --- 2b. what git said at salvage and at a turn's end snapshot ------------------------
+
+#: What a repository's clean filter prints when `git add -A` runs it and it fails.
+FILTER_SAID = f"error: external filter 'leak' failed 1: {VALUE}\nfatal: adding files failed\n"
+
+
+def test_a_salvage_failure_never_puts_what_git_said_in_a_jobs_records(state_daemon, monkeypatch):
+    """C-13.1 with C-25.7, at finalization: the salvage receipt, the attempt's evidence
+    (`show`) and the notice say how git ended; git's words are in daemon.log only."""
+    from tests.fake.test_salvage_finalization import finalizing, job_notices
+    from tests.unit.test_salvage_unindexable import fake_add
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = finalizing(daemon, harness)
+    fake_add(monkeypatch, 128, FILTER_SAID.encode())
+    daemon._finalize(attempt)
+    error = "salvage failed: git add failed (exit 128); daemon.log has its output"
+    assert json.loads((adir / "salvage.json").read_text())["error"] == error
+    assert json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])["salvage_error"] == error
+    [notice] = job_notices(daemon, job_id)
+    assert notice.endswith(f"\n{error}; the worktree is kept: {workdir}")
+    assert_secret_absent([job_views(daemon, job_id), stored(daemon)], VALUE)
+    assert_not_logged(daemon, VALUE)
+    assert "salvage failed: SalvageError: git add failed: error: external filter 'leak' failed 1: " in log_text(daemon)
+
+
+def test_an_end_snapshot_failure_never_puts_what_git_said_in_a_turns_records(state_daemon, monkeypatch):
+    """C-26.14 with C-25.7: a turn's end snapshot fails in the filter. `trees.json`, the
+    conversation store and `turn.diff` say how git ended; git's words are logged only."""
+    from tests.fake.test_turn_trees import writable_turn
+    from tests.unit.test_salvage_unindexable import fake_add
+    daemon, harness = state_daemon
+    job_id, attempt, adir, mid, _, _ = writable_turn(daemon, harness)
+    (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
+    fake_add(monkeypatch, 128, FILTER_SAID.encode())
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    error = "end snapshot failed: git add failed (exit 128); daemon.log has its output"
+    assert json.loads((adir / "trees.json").read_text())["error"] == error
+    assert daemon.conversations.store.turn_trees(mid)["error"] == error
+    diff = wire_reply(daemon.conversations, op="turn.diff", args={"message_id": mid})
+    assert (diff["result"]["reason"], diff["result"]["detail"]) == ("snapshot-failed", error)
+    assert_secret_absent([diff, stored(daemon)], VALUE)
+    assert_not_logged(daemon, VALUE)
+    assert "end snapshot failed: SalvageError: git add failed: error: external filter 'leak' failed 1: " in (
+        log_text(daemon))
 
 
 # --- 3. a job id whose slug is a credential ----------------------------------------
