@@ -415,8 +415,9 @@ def test_r3_steered_waiter_does_not_hold_back_later_jobs_for_the_refused_model(f
 @settings(max_examples=40, derandomize=True, database=None, deadline=None)
 @given(queue=st.lists(st.tuples(st.sampled_from(("review", "build")), st.booleans()),
                      min_size=1, max_size=5),
-       target=st.sampled_from((("astra", ASTRA, "codex"), ("opus", OPUS, "claude"))))
-def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue, target):
+       target=st.sampled_from((("astra", ASTRA, "codex"), ("opus", OPUS, "claude"))),
+       pinned=st.booleans())
+def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue, target, pinned):
     """Every example owns its store. The oracle is the generated job's live steer."""
     with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
         with contextmanager(state_daemon.__wrapped__)(Path(directory), patch) as state:
@@ -435,10 +436,29 @@ def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue, tar
                         steered.add(job)
                 patch.setattr(daemon, "_capacity_steer", lambda job, previous:
                               {model_id: after(600)} if job["job_id"] in steered else {})
-                later = submit(daemon, harness, pinned_model=short, task=None)
+                later = submit(daemon, harness, pinned_model=short if pinned else None,
+                               task=None if pinned else "review")
                 placed = admit(daemon, later)
                 hold = daemon._holds.get(later, {})
                 if hold.get("reason") == "behind-older-job":
                     assert hold["behind"] not in steered
                 assert placed is not None, daemon._holds
                 assert placed["model_requested"] == model_id
+
+
+@pytest.mark.parametrize("pinned", [False, True])
+def test_r3_a_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, pinned):
+    """Trying Astra may pass the waiter; selecting its remaining Opus may not."""
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 2
+    older = submit(daemon, harness, exclusions=["claude-2"])
+    refuse(daemon, admit(daemon, older))
+    daemon.store.update_lane("claude-1", enabled=0)
+    assert admit(daemon, older) is None
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    later = submit(daemon, harness, pinned_model="opus" if pinned else None,
+                   task=None if pinned else "review")
+    assert admit(daemon, later) is None
+    assert daemon._holds[later]["reason"] == "behind-older-job"
+    assert daemon._holds[later]["behind"] == older
