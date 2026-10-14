@@ -41,7 +41,7 @@ def pytest_configure(config):
     """
     config._subfleet_original_home_env = {
         name: os.environ.get(name)
-        for name in (PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+        for name in ("HOME", "PATH", PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
                      *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     }
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
@@ -61,6 +61,15 @@ def pytest_configure(config):
     # subprocess.run (review r6, 2026-10-13). Refuse by the file a launch would
     # start, for this whole session; an audit hook cannot be undone.
     install_keychain_exec_guard()
+    # D-21 compares against HOME/.subfleet. Even a development-build test that
+    # does not select HOME must never resolve the account's production store.
+    os.environ["HOME"] = str(base / "home")
+    # An OS shell's child exec has no Python audit event. Bare-name shell/env
+    # delegation therefore lands on a recording fixture for the whole session.
+    from tests.keychain_standin import StandIn
+    recorder = StandIn(base / "keychain-bin")
+    config._subfleet_keychain_standin = recorder
+    os.environ["PATH"] = recorder.search_path(os.environ.get("PATH", os.defpath))
 
 
 def pytest_unconfigure(config):

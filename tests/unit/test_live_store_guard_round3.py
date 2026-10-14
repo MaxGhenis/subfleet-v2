@@ -44,7 +44,7 @@ def configured_session(tmp_path, monkeypatch):
             removable.setenv("XDG_CONFIG_HOME", str(tmp_path / "per-test-config"))
             removable.setenv("SSH_AUTH_SOCK", str(tmp_path / "per-test-agent.sock"))
             removable.undo()
-            assert os.environ["HOME"] == str(home)
+            assert os.environ["HOME"] == str(config._subfleet_safe_home_base / "home")
             assert home_paths.under_pytest()
             yield home, hold, config
         finally:

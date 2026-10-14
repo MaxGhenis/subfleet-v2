@@ -96,6 +96,11 @@ def _find_program(name, search: list[str] | None, cwd=None) -> str | None:
 
 
 def _launch_targets(event: str, details: tuple, *, _find_program=_find_program) -> list[str | None]:
+    # A later audit hook can mutate PATH after this hook returns. Never approve
+    # the bare reader name; intentional test executables must name their path.
+    program = details[1 if event == "os.spawn" else 0]
+    if os.fsdecode(program) == "security":
+        return ["security"]
     if event == "subprocess.Popen":
         executable, _argv, cwd, env = details
         return [_find_program(executable, os.get_exec_path(env), cwd)]
@@ -130,7 +135,7 @@ def _exec_guard(pins: list[tuple[str, str]]):
             starts = [target for target in _targets(event, details) if target is not None]
         except (OSError, TypeError, ValueError):
             return  # Arguments the launch itself rejects before starting anything.
-        if any(_matches(target, _native) for target in starts) and _active(pins):
+        if any(target == "security" or _matches(target, _native) for target in starts) and _active(pins):
             raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX)
 
     return guard
@@ -138,6 +143,12 @@ def _exec_guard(pins: list[tuple[str, str]]):
 
 def install_keychain_exec_guard() -> bool:
     """Refuse, under pytest, any launch that would start the login keychain's reader.
+
+    Bare `security` launches are refused independently of PATH, including PATH
+    changes by later audit hooks. Explicit paths retain folded-path and identity
+    checks. The test session puts a recording `security` first on PATH to contain
+    accidental shell/env delegation. Deliberate native paths inside shell strings
+    are outside this accidental-reach contract; production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through

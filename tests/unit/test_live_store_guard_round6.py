@@ -306,7 +306,7 @@ def test_the_file_identity_matches_without_the_folded_spelling(spelling):
     pytest.param("./security", "/usr/bin", None, True, id="child-cwd"),
     pytest.param("bin/security", "/usr", None, True, id="child-cwd-relative"),
     pytest.param("Security", None, {"PATH": "/usr/bin"}, True, id="bare-case-alias"),
-    pytest.param("security", None, {"PATH": "/nonexistent-sf-r6"}, False, id="nothing-to-start"),
+    pytest.param("security", None, {"PATH": "/nonexistent-sf-r6"}, True, id="bare-name-with-empty-search"),
     pytest.param("true", None, None, False, id="unrelated-program"),
     pytest.param("standin", None, None, False, id="stand-in-first-on-call-path"),
 ])
@@ -314,7 +314,7 @@ def test_launch_target_is_found_as_the_launch_finds_it(standin, name, cwd, env, 
     if name == "Security" and not os.path.exists("/usr/bin/Security"):
         pytest.skip("needs a case-insensitive system volume")
     if name == "standin":
-        name, env = "security", {"PATH": standin.search_path("/usr/bin")}
+        name, env = str(standin.path), {"PATH": standin.search_path("/usr/bin")}
     details = launch_events(name, cwd=cwd, env=env)["subprocess.Popen"]
     if refused:
         with pytest.raises(credentials.KeychainExecRefused, match=REFUSAL):
@@ -346,9 +346,22 @@ def test_a_stub_never_launches_so_it_still_works(standin, tmp_path, monkeypatch)
 def test_probes_detect_a_launch_that_is_not_refused(standin, tmp_path, monkeypatch):
     """Control: an unregistered stand-in is an ordinary program, and it runs."""
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: REAL_RUN(*a, **k))
-    out = run_reader(readers(tmp_path)["blob"], standin)
+    out = run_reader(lambda: claude._keychain_blob("fixture-ref", security_bin=str(standin.path)), standin)
     assert out == {"ran": 1, "error": None, "value": STANDIN_BLOB}
     assert REAL_RUN(["true"]).returncode == 0
+
+
+def test_an_alias_uses_the_childs_path_even_with_the_bare_reader_rule(standin, tmp_path, monkeypatch):
+    """Keep the round-6 child-PATH property observable through another name."""
+    treat_as_keychain_binary(monkeypatch, standin)
+    safe = StandIn(tmp_path / "safe-reader")
+    for found in (standin, safe):
+        (found.path.parent / "fixture-reader").symlink_to(found.path)
+    monkeypatch.setenv("PATH", safe.search_path())
+    with pytest.raises(credentials.KeychainExecRefused, match=REFUSAL):
+        sys.audit("subprocess.Popen", "fixture-reader", ["fixture-reader"], None,
+                  {"PATH": str(standin.path.parent)})
+    assert safe.count() == standin.count() == 0
 
 
 # --- Installation: once per process, inert outside pytest -------------------------

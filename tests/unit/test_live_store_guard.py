@@ -671,7 +671,7 @@ assert not Path(os.environ["SUBFLEET_DESKTOP_LOGIN"]).parent.exists()
 assert not home_paths.under_pytest()
 assert home_paths.desktop_login_path() == Path.home() / ".claude.json"
 assert home_paths.codex_app_home() == Path.home() / ".codex"
-assert capacity.read_desktop_account() == "fixture@example.test"
+assert capacity.read_desktop_account() is None  # captured HOME was isolated and is now deleted
 '''
         result = subprocess.run([sys.executable, "-c", probe], env=captured,
                                 capture_output=True, text=True, timeout=30)

@@ -2,7 +2,8 @@
 
 For every spelling that names the real `/usr/bin/security` on this volume, both
 the early refusal and the launch guard refuse. For every spelling of another
-program, neither does. A bare name is found as `shutil.which` finds it. Every
+program, neither does. PATH search agrees with `shutil.which`, but bare
+`security` is always refused independently of the search result. Every
 launch here is a synthetic audit event, which starts no program, and the
 safety net in `tests.keychain_standin` stands behind the production guard.
 """
@@ -116,14 +117,14 @@ def search_dirs(tmp_path_factory):
                                        "directory"]), max_size=6),
        name=st.sampled_from(["security", "true", "no-such-program-sf-r6"]))
 def test_a_bare_name_is_found_as_which_finds_it(search_dirs, order, name):
-    """Differential: the guard's PATH search agrees with shutil.which, and only a
-    search that reaches the real reader first is refused."""
+    """The PATH finder agrees with which; bare security cannot be approved even
+    when another hook could change the search result after this check."""
     dirs, found = search_dirs
     path = [dirs[key] for key in order]
     expected = shutil.which(name, path=os.pathsep.join(path))
     assert credentials._find_program(name, path) == expected
     details = (name, [name], None, {"PATH": os.pathsep.join(path)})
-    if expected is not None and identity(expected) == identity(REAL_BINARY):
+    if name == "security" or (expected is not None and identity(expected) == identity(REAL_BINARY)):
         with pytest.raises(credentials.KeychainExecRefused, match=REFUSAL):
             sys.audit("subprocess.Popen", *details)
     else:
