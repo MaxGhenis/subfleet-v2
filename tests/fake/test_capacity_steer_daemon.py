@@ -414,16 +414,19 @@ def test_r3_steered_waiter_does_not_hold_back_later_jobs_for_the_refused_model(f
 
 @settings(max_examples=40, derandomize=True, database=None, deadline=None)
 @given(queue=st.lists(st.tuples(st.sampled_from(("review", "build")), st.booleans()),
-                     min_size=1, max_size=5))
-def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue):
+                     min_size=1, max_size=5),
+       target=st.sampled_from((("astra", ASTRA, "codex"), ("opus", OPUS, "claude"))))
+def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue, target):
     """Every example owns its store. The oracle is the generated job's live steer."""
     with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
         with contextmanager(state_daemon.__wrapped__)(Path(directory), patch) as state:
             with contextmanager(fleet.__wrapped__)(state, patch) as (daemon, harness):
                 daemon.policy["caps"]["max_active_attempts"] = len(queue) + 2
                 daemon.policy["caps"]["max_in_flight_per_lane"] = len(queue) + 2
-                for identity in ("claude-1", "claude-2"):
-                    daemon.store.update_lane(identity, enabled=0)
+                short, model_id, provider = target
+                for lane in daemon.store.list_lanes():
+                    if lane.provider != provider:
+                        daemon.store.update_lane(lane.lane_id, enabled=0)
                 steered = set()
                 for index, (task, steer) in enumerate(queue):
                     job = submit(daemon, harness, task=task)
@@ -431,11 +434,11 @@ def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue):
                     if steer:
                         steered.add(job)
                 patch.setattr(daemon, "_capacity_steer", lambda job, previous:
-                              {ASTRA: after(600)} if job["job_id"] in steered else {})
-                later = submit(daemon, harness, pinned_model="astra", task=None)
+                              {model_id: after(600)} if job["job_id"] in steered else {})
+                later = submit(daemon, harness, pinned_model=short, task=None)
                 placed = admit(daemon, later)
+                hold = daemon._holds.get(later, {})
+                if hold.get("reason") == "behind-older-job":
+                    assert hold["behind"] not in steered
                 assert placed is not None, daemon._holds
-                assert placed["model_requested"] == ASTRA
-                for hold in daemon._holds.values():
-                    if hold.get("reason") == "behind-older-job":
-                        assert hold["behind"] not in steered
+                assert placed["model_requested"] == model_id
