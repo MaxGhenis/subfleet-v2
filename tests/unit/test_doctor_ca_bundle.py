@@ -8,6 +8,7 @@ import pytest
 
 from subfleet.policy import DEFAULT_POLICY_PATH
 from subfleet.provider_env import CA_SOURCES, ProviderEnvironment
+from subfleet.launch_env import ALLOWED_NAMES
 
 
 @pytest.fixture
@@ -48,7 +49,8 @@ def test_doctor_version_check_uses_root_policy_environment(tmp_path, bundle, mon
     if provider == "codex":
         assert ca_values(options.get("env", {})) == {"SSL_CERT_FILE": bundle}
     else:
-        assert "env" not in options
+        assert set(options["env"]) <= ALLOWED_NAMES
+        assert ca_values(options["env"]) == {}
 
 
 @pytest.mark.parametrize("configured", ["custom", "null", "missing"])
