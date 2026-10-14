@@ -4,6 +4,8 @@ import json
 
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 
+from tests.fake_kernel import ScriptedMarkerKernel
+
 from subfleet import procs, protocol
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import BOOT, ORIGINAL_CENSUS, ident, quarantine
@@ -52,6 +54,7 @@ def test_observed_identity_retention_reuse_uncertainty_and_resolver_parity(
         return procs.ProcessTable(rows(), BOOT).identity(pid)
 
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows(), BOOT))
     monkeypatch.setattr(procs, "identity", current)
     monkeypatch.setattr(procs, "_stat", lambda p: "S" if world["phase"] < 3 else None)

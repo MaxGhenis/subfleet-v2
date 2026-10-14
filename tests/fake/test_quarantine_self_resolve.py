@@ -13,6 +13,8 @@ import uuid
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
+from tests.fake_kernel import ScriptedMarkerKernel
+
 from subfleet import daemon as dm, folders, procs, protocol, render
 from subfleet.daemon import Daemon, QUARANTINE_RECHECK_BATCH
 from tests.fake.test_state_contract import state_daemon, reserve  # noqa: F401
@@ -71,6 +73,7 @@ def scripted_census(monkeypatch, daemon, *, writer="old-start", unverifiable=Fal
         # recorded identity is enough to keep its leases.
         return ""
     monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
 
 
@@ -357,6 +360,7 @@ def release_property_sequence(state_daemon, monkeypatch, actions):
         return result
     monkeypatch.setattr(procs, "snapshot", snapshot)
     monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "containment", census)
     try:
         was_released = False
@@ -379,6 +383,7 @@ def release_property_sequence(state_daemon, monkeypatch, actions):
                 current = Daemon(harness.root)
                 current.policy["quarantine_recheck_s"] = 10
                 monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
             elif action == "kill":
                 current._resolve_quarantine({"attempt_id": aid}, protocol.KillArgs(job, confirm_dead=True))
             else:

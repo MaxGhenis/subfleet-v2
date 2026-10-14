@@ -4,6 +4,14 @@ import pytest
 
 from subfleet import daemon, procs
 
+from tests.fake_kernel import ScriptedMarkerKernel
+
+
+@pytest.fixture(autouse=True)
+def scripted_raw_markers(monkeypatch):
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
+
+
 BOOT = "6F1C0F2E-1111-4222-8333-944455556666"
 NEXT_BOOT = "7F1C0F2E-1111-4222-8333-944455556666"
 

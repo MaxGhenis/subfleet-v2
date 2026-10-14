@@ -8,6 +8,8 @@ import json
 
 import pytest
 
+from tests.fake_kernel import ScriptedMarkerKernel
+
 from subfleet import daemon as dm, procs, protocol
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 
@@ -50,6 +52,7 @@ def script_table(monkeypatch, rows, *, markers="", boot=BOOT, table_fails=False,
     monkeypatch.setattr(procs, "process_group", lambda pid: rows[pid][1] if pid in rows else None)
     monkeypatch.setattr(procs, "identity", lambda pid: snapshot().identity(pid))
     monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
 
 

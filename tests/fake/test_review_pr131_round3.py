@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
+from tests.fake_kernel import ScriptedMarkerKernel
+
 from subfleet import daemon as dm, procs, protocol
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.fake.test_review_pr131_probes import (BOOT, NEXT_BOOT, ORIGINAL_CENSUS, confirm_dead, ident,
@@ -210,6 +212,7 @@ def _fork_after_read(daemon, monkeypatch, a, *, child_row, child_markers):
         world[301] = child_row
         return f"301 late-child {child_markers}\n" if child_markers else ""
     monkeypatch.setattr(procs, "_read", marker_read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "_stat", lambda pid: world[pid][2] if pid in world else "")
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT, world[pid][3])
                         if pid in world else None)

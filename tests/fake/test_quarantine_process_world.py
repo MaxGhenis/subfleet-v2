@@ -21,6 +21,8 @@ from hypothesis import Phase, event, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 import pytest
 
+from tests.fake_kernel import ScriptedMarkerKernel
+
 from subfleet import procs, protocol
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import BOOT, ORIGINAL_CENSUS, quarantine
@@ -440,6 +442,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
         self.recorded_only = False
         self.last_verdicts = [False, False]
         self.daemon.term_grace_s = self.daemon.kill_settle_s = 0
+        self.patch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: self.world.read(*a, **kw)))
         self.patch.setattr(procs, "containment", lambda *a, **kw: self.world.census(*a, **kw))
         for name, method in (("snapshot", "snapshot"), ("identity", "identity"),
                              ("process_group", "group"), ("_read", "read"), ("cwd_pids", "cwd")):

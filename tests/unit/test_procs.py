@@ -15,16 +15,15 @@ import pytest
 import os
 
 from subfleet import client, procs
-from tests.fake_kernel import FakeKernel, from_ps_rows
+from tests.fake_kernel import FakeKernel, ScriptedMarkerKernel, from_ps_rows
+
+
+@pytest.fixture(autouse=True)
+def scripted_raw_markers(monkeypatch):
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
 
 
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session=None):
-    # D-CEN1: the marker source reads each process's raw argument buffer in this
-    # process; `markers` keeps its `ps -axEww` rows, now as those buffers, and
-    # failing "pid=,command=" fails that source's listing.
-    monkeypatch.setattr(procs, "kernel", FakeKernel(from_ps_rows(markers),
-                                                    fail={"pids"} if fail == "pid=,command=" else ()))
-
     def read(argv, *, empty_ok=False):
         if fail is not None and any(os.path.basename(str(a)) == fail for a in argv):
             raise procs.InspectionError("unavailable")
@@ -44,6 +43,7 @@ def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session
             return "S"
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "process_group", lambda pid: pid)
 
 
