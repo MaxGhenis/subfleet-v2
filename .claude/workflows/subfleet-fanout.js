@@ -201,10 +201,13 @@ def status(entry):
     try:
         result = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
         etime = result.stdout.strip()
-        fields = re.fullmatch(r"(?:(?:([0-9]+)-)?([0-9]+):)?([0-5][0-9]):([0-5][0-9])", etime)
+        fields = re.fullmatch(r"(?:(?:([0-9]+)-)?([0-9]+):)?([0-9]{2}):([0-5][0-9])", etime)
         if result.returncode != 0 or fields is None:
             return "unknown"
         days, hours, minutes, seconds = (int(n or 0) for n in fields.groups())
+        # Darwin stays in the minutes-only form at exactly one hour: 60:00.
+        if minutes > 59 and (fields[2] is not None or minutes != 60 or seconds != 0):
+            return "unknown"
         if fields[1] is not None and hours > 23:
             return "unknown"
         age = days * 86400 + hours * 3600 + minutes * 60 + seconds
