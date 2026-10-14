@@ -8033,6 +8033,40 @@ class Daemon:
                                          "clock_source": ClockSource(closure["clock_source"])})
         return Outcome(**data)
 
+    def _freeze_stream(self, adir: Path, launch: Launch) -> Path | None:
+        """C-4.3, C-9.2: capture an authoritative stream on an unshared inode.
+
+        Any multiply linked regular entry can alias a provider's writable file;
+        detach it with the same atomic publication used for a first capture.
+        A raw path that names stdout is live, so its snapshot belongs at the
+        canonical path. Replays then reuse that snapshot without copying stdout.
+        """
+        stdout = Path(launch.stdout_path)
+        raw = Path(launch.raw_stream_path) if launch.raw_stream_path else None
+        canonical = adir / "stream.jsonl"
+        if raw is not None and os.path.abspath(raw) == os.path.abspath(stdout):
+            raw = canonical
+        frozen = next((path for path in (raw, canonical)
+                       if path is not None and os.path.lexists(path)), None)
+        if frozen is not None:
+            try:
+                with open_stream(frozen) as stream:
+                    if os.fstat(stream.fileno()).st_nlink <= 1:
+                        return frozen
+                    data = stream.read()
+            except (FileNotFoundError, NotRegularFile):
+                return frozen                       # authoritative, with no events
+            self._publish("raw-stream", frozen, data)
+            return frozen
+        if raw is not None:
+            try:
+                data = read_regular(stdout)         # never waiting in open()
+            except (FileNotFoundError, NotRegularFile):
+                return None
+            self._publish("raw-stream", raw, data)
+            return raw
+        return None
+
     def _finalize(self, a: dict, *, lost: bool = False) -> None:
         job = self._job(a["job_id"])
         actual = self.store.get_attempt(a["attempt_id"])
@@ -8055,17 +8089,10 @@ class Daemon:
             return
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
-        # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment only when both frozen candidates are absent.
-        # Do not shadow an authoritative canonical entry with a new custom file.
-        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
-                                             (launch.raw_stream_path, adir / "stream.jsonl")):
-            try:
-                data = read_regular(Path(launch.stdout_path))       # never waiting in open()
-            except (FileNotFoundError, NotRegularFile):
-                data = None                                        # no regular stdout to freeze
-            if data is not None:
-                self._publish("raw-stream", Path(launch.raw_stream_path), data)
+        frozen_stream = self._freeze_stream(adir, launch)
+        if (frozen_stream is not None and launch.raw_stream_path
+                and os.path.abspath(launch.raw_stream_path) == os.path.abspath(launch.stdout_path)):
+            launch = dataclasses.replace(launch, raw_stream_path=str(frozen_stream))
         lane = self.store.get_lane(a["lane_id"])
         adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
         if job["kind"] == "turn":
