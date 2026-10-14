@@ -211,8 +211,14 @@ def clauses(text: str) -> dict[str, str]:
             i += 1
             continue
         end = _paragraph_end(lines, i)
-        while end < len(lines) and (not lines[end].strip() or lines[end][0].isspace()):
-            end += 1
+        while end < len(lines):
+            line = lines[end]
+            if line.strip() and not line[0].isspace():
+                break                     # the next clause, heading or top-level text
+            if not line.strip() or any(rule.match(line) for rule in (TABLE, FENCE, HEADING, RULE)):
+                end += 1
+            else:                         # a paragraph of the clause, with its lazy lines
+                end = _paragraph_end(lines, end)
         found[match.group(1)] = " ".join(" ".join(lines[i:end]).split())
         i = end
     return found
