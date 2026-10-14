@@ -1132,17 +1132,18 @@ def test_a_worktree_conversation_without_its_worktree_never_runs_in_the_source(s
 def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch):
     """Review of 43b8bf29, F6: `git worktree add` prints a file it could not check out in
     its own bytes; read as strict UTF-8 that raised `UnicodeDecodeError` out of
-    `conversation.create`, not the `worktree-failed` refusal naming the file. The call is
-    faked (APFS refuses such names) and decodes as `subprocess` would."""
-    real = subprocess.run
+    `conversation.create`, not the `worktree-failed` refusal naming the file. git is
+    faked (APFS refuses such names): the call that would add the worktree runs a command
+    that prints those bytes, under the file op's supervisor, which decodes them as
+    `subprocess` would (C-25.3)."""
+    real = service_module.supervisor.run
 
-    def run(cmd, *args, **kwargs):
-        if cmd[3:5] == ["worktree", "add"]:
-            stderr = b"error: unable to create file caf\xe9.txt: Permission denied\nfatal: could not reset\n"
-            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
-            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
-        return real(cmd, *args, **kwargs)
-    monkeypatch.setattr(service_module.subprocess, "run", run)
+    def run(argv, **kwargs):
+        if argv[3:5] == ["worktree", "add"]:
+            argv = ["/bin/sh", "-c", "printf 'error: unable to create file caf\\351.txt: Permission denied\\n"
+                    "fatal: could not reset\\n' >&2; exit 128"]
+        return real(argv, **kwargs)
+    monkeypatch.setattr(service_module.supervisor, "run", run)
     with pytest.raises(ConversationError) as err:
         create_worktree(svc, repo)
     assert err.value.reason == "worktree-failed"

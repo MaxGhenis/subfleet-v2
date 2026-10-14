@@ -204,6 +204,7 @@ def test_a_process_that_leaves_its_group_cannot_hold_the_call(tmp_path):
               f"    open({str(pids)!r}, 'a').write(f'{{os.getpid()}} ')\n"
               "    time.sleep(30)\n"
               "    os._exit(0)\n"
+              f"while not os.path.exists({str(pids)!r}): time.sleep(0.01)   # it has left the group\n"
               "print('before', flush=True)\n")
     with ending(pids):
         began = time.monotonic()
