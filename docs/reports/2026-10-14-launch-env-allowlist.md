@@ -170,7 +170,9 @@ Latest results across all 43 files: **3,405 passed, 8 environment-blocked failur
 | `tests/unit/test_salvage.py` | 31 | 0 | 0 |
 | `tests/unit/test_sessions_handoff.py` | 112 | 0 | 0 |
 | `tests/unit/test_sessions_nudge.py` | 44 | 0 | 0 |
-| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | Each pytest process receives a unique scratch directory and Hypothesis database; the directory is removed after the hold. New properties use bounded deterministic settings (30 lane examples, 20 helper examples); no deep profile is used.
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+
+Each pytest process receives a unique scratch directory and Hypothesis database; the directory is removed after the hold. New properties use bounded deterministic settings (30 lane examples, 20 helper examples); no deep profile is used.
 
 The fake-provider regressions exercise both providers' detached, turn and probe launch environments and a subprocess tool, emitting only a fixed success marker. The daemon tests intercept its real spawn sites. In-memory mutations replace individual subprocess environments with ambient inheritance and must be rejected by the corresponding named regression. No mutation writes a source file or starts another pytest process.
 
@@ -189,4 +191,5 @@ Commit steps before this report:
 - `7fa3d578e`: allowlist, policy, provider/guardian paths, diagnostics and contract.
 - `bb4828879`: guard preflight child selection.
 - `b882a1d95`: doctor environment expectation, all 16 cases passed.
-- This report is committed as the final validation step. An ignored delivery bundle contains only the job commits, with the base commit as its prerequisite.
+- `fa5ec1cb9`: complete audit and validation report.
+- The final documentation step repairs the test-table paragraph boundary. An ignored delivery bundle contains only the job commits, with the base commit as its prerequisite.
