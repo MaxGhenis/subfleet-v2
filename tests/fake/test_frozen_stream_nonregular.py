@@ -109,7 +109,8 @@ def test_claude_frozen_stream_survives_interrupted_finalization(
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
-@pytest.mark.parametrize("raw", ("stream.jsonl", "custom.jsonl", "stdout"))
+@pytest.mark.parametrize("raw", ("stream.jsonl", "custom.jsonl", "stdout", "parent-alias",
+                                 "same-canonical", "post-copy-link", "unlinked-writer", "fstat-link"))
 def test_writable_stream_alias_cannot_supply_later_completion(
         state_daemon, monkeypatch, restart, raw):
     """Port #209's hard-link input: cached auth-dead, rc 0, interim text."""
@@ -118,14 +119,25 @@ def test_writable_stream_alias_cannot_supply_later_completion(
     out.write_bytes(b"previous export\n")
     job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
     monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
-    launch = replace(launch, raw_stream_path=str(adir / raw))
+    live = adir / "stdout"
+    raw_path = adir / raw
+    if raw == "parent-alias":
+        (adir / "alias").symlink_to(adir, target_is_directory=True)
+        raw_path = adir / "alias" / "stdout"
+    elif raw == "same-canonical":
+        live = raw_path = adir / "stream.jsonl"
+    elif raw in ("post-copy-link", "unlinked-writer", "fstat-link"):
+        raw_path = adir / "stream.jsonl"
+    launch = replace(launch, stdout_path=str(live), raw_stream_path=str(raw_path))
     saved = asdict(launch)
     saved.pop("env_add")
     (adir / "launch.json").write_text(json.dumps(saved))
-    (adir / "stdout").write_bytes(b"")
+    live.write_bytes(b"")
     (adir / "stderr").write_bytes(b"Your refresh token was revoked.\n")
-    if raw != "stdout":
-        os.link(adir / "stdout", adir / "stream.jsonl")
+    if raw in ("stream.jsonl", "custom.jsonl", "post-copy-link", "unlinked-writer"):
+        os.link(live, adir / "stream.jsonl")
+    elif raw == "fstat-link":
+        (adir / "stream.jsonl").write_bytes(b"")
     verdict = Outcome(OutcomeClass.AUTH_DEAD, "cached old authentication rejection")
     attest = adapter.attest(adir, launch, verdict, attempt["model_requested"])
     (adir / "finalization.json").write_text(json.dumps({
@@ -143,21 +155,48 @@ def test_writable_stream_alias_cannot_supply_later_completion(
         raise RuntimeError("interrupted salvage")
     monkeypatch.setattr(daemon, "_salvage", interrupt)
     # Hold the writer descriptor across write-then-rename, as a provider would.
-    with (adir / "stdout").open("ab", buffering=0) as writer:
-        with pytest.raises(RuntimeError, match="interrupted salvage"):
-            daemon._finalize(finalizing)
+    with live.open("ab", buffering=0) as writer:
+        writer_identity = os.fstat(writer.fileno())
+        if raw == "unlinked-writer":
+            live.unlink()
+        with pytest.MonkeyPatch.context() as race:
+            if raw == "fstat-link":
+                original_fstat = os.fstat
+                candidate_identity = (adir / "stream.jsonl").stat().st_ino
+                checks = []
+                def link_at_decision(fd):
+                    info = original_fstat(fd)
+                    if info.st_ino == candidate_identity:
+                        checks.append(fd)
+                        if len(checks) == 2:
+                            live.unlink()
+                            os.link(adir / "stream.jsonl", live)
+                    return info
+                race.setattr(os, "fstat", link_at_decision)
+            with pytest.raises(RuntimeError, match="interrupted salvage"):
+                daemon._finalize(finalizing)
         monkeypatch.setattr(daemon, "_salvage", salvage)
-        writer.write(b'{"type":"turn.completed"}\n')
+        if raw == "post-copy-link":
+            (adir / "stream.jsonl").unlink()
+            os.link(live, adir / "stream.jsonl")
+        if raw == "fstat-link":
+            with live.open("ab") as linked_writer:
+                linked_writer.write(b'{"type":"turn.completed"}\n')
+        else:
+            writer.write(b'{"type":"turn.completed"}\n')
     active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
     try:
         assert observed == ["auth-dead", "auth-dead"]
         assert active.store.get_job(job_id)["accepted_attempt_id"] is None
         assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "auth-dead"
         assert out.read_bytes() == b"previous export\n"
-        frozen = adir / "stream.jsonl"
+        artifacts = [row for row in active.store.list_artifacts(attempt["attempt_id"])
+                     if row["role"] == "raw-stream"]
+        assert len(artifacts) == 1
+        frozen = Path(artifacts[0]["path"])
         assert frozen.read_bytes() == b""
         assert frozen.stat().st_nlink == 1
-        assert not os.path.samefile(frozen, adir / "stdout")
+        assert (frozen.stat().st_dev, frozen.stat().st_ino) != (writer_identity.st_dev, writer_identity.st_ino)
         assert {p: (adir / p).read_bytes() for p in captured} == captured
         assert not active.store.query("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'",
                                       (attempt["attempt_id"],))
@@ -188,7 +227,8 @@ def test_authoritative_canonical_stream_is_raw_artifact(state_daemon, monkeypatc
                  if row["role"] == "raw-stream"]
     assert len(artifacts) == 1
     assert (artifacts[0]["path"], artifacts[0]["bytes"], artifacts[0]["sha256"]) == (
-        str(frozen), len(payload), hashlib.sha256(payload).hexdigest())
+        artifacts[0]["path"], len(payload), hashlib.sha256(payload).hexdigest())
+    assert Path(artifacts[0]["path"]).read_bytes() == payload
     if raw:
         assert not os.path.lexists(launch.raw_stream_path)
 

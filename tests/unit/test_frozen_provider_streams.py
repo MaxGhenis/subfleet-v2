@@ -18,7 +18,7 @@ from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.sessions.transcripts import NotRegularFile
 from tests.conftest import make_launch
-from tests.frozen_streams import FROZEN_KINDS, NONREGULAR_KINDS, make_frozen
+from tests.frozen_streams import FREEZE_STEPS, FROZEN_KINDS, NONREGULAR_KINDS, link_during_freeze, make_frozen
 from tests.unit.test_codex_adapter import _exit, _launch
 from tests.unit.test_codex_turn_completed import COMPLETED, MESSAGE, EVENT
 
@@ -49,7 +49,8 @@ def readings(adapter, directory, launch):
 def freeze(directory, launch):
     # Exercise the daemon's capture with its real atomic writer, without a store
     # or worker pool for each generated example.
-    publisher = SimpleNamespace(_publish=lambda role, path, data: atomic_publish(path, data))
+    publisher = SimpleNamespace(_publish=lambda role, path, data: atomic_publish(path, data),
+                                publish_hook=None, _read_json=Daemon._read_json)
     path = Daemon._freeze_stream(publisher, directory, launch)
     return replace(launch, raw_stream_path=str(path) if path else None)
 
@@ -247,6 +248,7 @@ def test_freeze_detaches_aliases_to_any_writable_artifact(tmp_path, name, source
         # Restore after opening in write mode; the descriptor shares the alias.
         writer.write(payload)
         launch = freeze(tmp_path, launch)
+        frozen = Path(launch.raw_stream_path)
         writer.seek(0)
         writer.truncate()
         writer.write(b"later provider output\n")
@@ -254,3 +256,150 @@ def test_freeze_detaches_aliases_to_any_writable_artifact(tmp_path, name, source
     assert frozen.stat().st_nlink == 1
     assert not os.path.samefile(frozen, live)
     assert completion_evidence(tmp_path, launch)["turn_completed"]
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@pytest.mark.parametrize("layout", ("parent-alias", "same-canonical", "unlinked-writer"))
+def test_freeze_identity_detaches_live_names_and_unlinked_writers(tmp_path, name, layout):
+    adapter, launch = provider(tmp_path, name)
+    payload = encode([MESSAGE])
+    live = tmp_path / "stdout"
+    live.write_bytes(payload)
+    if layout == "parent-alias":
+        alias = tmp_path / "alias"
+        alias.symlink_to(tmp_path, target_is_directory=True)
+        launch = replace(launch, raw_stream_path=str(alias / "stdout"))
+    elif layout == "same-canonical":
+        live = tmp_path / "stream.jsonl"
+        live.write_bytes(payload)
+        launch = replace(launch, stdout_path=str(live), raw_stream_path=str(live))
+    else:
+        os.link(live, tmp_path / "stream.jsonl")
+    with live.open("ab", buffering=0) as writer:
+        if layout == "unlinked-writer":
+            live.unlink()
+        frozen_launch = freeze(tmp_path, launch)
+        expected = readings(adapter, tmp_path, frozen_launch)
+        writer.write(encode([COMPLETED, CLAUDE_RESULT]))
+        assert readings(adapter, tmp_path, frozen_launch) == expected
+        assert readings(adapter, tmp_path, freeze(tmp_path, launch)) == expected
+    assert Path(frozen_launch.raw_stream_path).read_bytes() == payload
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@pytest.mark.parametrize("step", FREEZE_STEPS)
+@pytest.mark.parametrize("kind", ("hardlink", "symlink"))
+def test_freeze_authority_and_fallback_equivalence_at_every_link_step(tmp_path, name, step, kind):
+    assert_link_authority(tmp_path, name, step, kind, encode([MESSAGE]), encode([COMPLETED, CLAUDE_RESULT]))
+
+
+def assert_link_authority(directory, name, step, kind, before, after):
+    adapter, launch = provider(directory, name)
+    live, candidate = directory / "stdout", directory / "stream.jsonl"
+    live.write_bytes(before)
+    expected = readings(adapter, directory, launch)  # Legacy stdout fallback.
+    candidate.write_bytes(before)
+    with pytest.MonkeyPatch.context() as patch:
+        with link_during_freeze(patch, candidate, live, step, kind) as fired:
+            frozen_launch = freeze(directory, launch)
+    assert fired == [step]
+    assert readings(adapter, directory, frozen_launch) == expected
+    live.write_bytes(after)
+    assert readings(adapter, directory, frozen_launch) == expected
+    assert readings(adapter, directory, freeze(directory, launch)) == expected
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@settings(max_examples=80, deadline=None, derandomize=True)
+@given(step=st.sampled_from(FREEZE_STEPS), kind=st.sampled_from(("hardlink", "symlink")),
+       before=STREAM, after=STREAM)
+def test_property_frozen_authority_and_fallback_over_link_timing(name, step, kind, before, after):
+    with tempfile.TemporaryDirectory() as temporary:
+        assert_link_authority(Path(temporary), name, step, kind, before, after)
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+def test_freeze_replay_never_recopies_a_replaced_candidate(tmp_path, name):
+    adapter, launch = provider(tmp_path, name)
+    live = tmp_path / "stdout"
+    live.write_bytes(encode([MESSAGE]))
+    os.link(live, tmp_path / "stream.jsonl")
+    frozen_launch = freeze(tmp_path, launch)
+    expected = readings(adapter, tmp_path, frozen_launch)
+    candidate = tmp_path / "stream.jsonl"
+    candidate.unlink()
+    os.link(live, candidate)
+    with live.open("ab") as writer:
+        writer.write(encode([COMPLETED, CLAUDE_RESULT]))
+    assert readings(adapter, tmp_path, freeze(tmp_path, launch)) == expected
+
+
+@pytest.mark.parametrize("error", (errno.ENOENT, errno.EIO, errno.EACCES))
+def test_freeze_propagates_post_check_regular_file_errors(tmp_path, monkeypatch, error):
+    _, launch = provider(tmp_path, "codex")
+    candidate = tmp_path / "stream.jsonl"
+    candidate.write_bytes(b"")
+    original_open = os.open
+    def opening(path, *args, **kwargs):
+        if os.fspath(path) == str(candidate):
+            raise OSError(error, "injected post-check error")
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(os, "open", opening)
+    with pytest.raises(OSError) as caught:
+        freeze(tmp_path, launch)
+    assert not isinstance(caught.value, NotRegularFile)
+    assert caught.value.errno == error
+
+
+@pytest.mark.parametrize("replacement", (False, True), ids=("regular-denial", "mode-000-directory"))
+def test_stream_open_distinguishes_permission_denial_from_nonregular_replacement(tmp_path, monkeypatch, replacement):
+    from subfleet.adapters.base import open_stream
+    candidate = tmp_path / "stream.jsonl"
+    candidate.write_bytes(b"")
+    def opening(*args, **kwargs):
+        if replacement:
+            candidate.unlink()
+            candidate.mkdir(mode=0)
+        raise PermissionError(errno.EACCES, "permission denied", str(candidate))
+    monkeypatch.setattr(os, "open", opening)
+    try:
+        with pytest.raises(NotRegularFile if replacement else PermissionError):
+            open_stream(candidate)
+    finally:
+        if replacement:
+            candidate.chmod(0o700)
+
+
+def test_freeze_copy_uses_bounded_reads_from_one_candidate_descriptor(tmp_path, monkeypatch):
+    from subfleet import daemon as module
+    _, launch = provider(tmp_path, "codex")
+    candidate = tmp_path / "stream.jsonl"
+    # Force the old implementation's copy branch too.
+    (tmp_path / "stdout").write_bytes(b"x" * (2 * 1024 * 1024 + 3))
+    os.link(tmp_path / "stdout", candidate)
+    original_stream = module.open_stream
+    opened, sizes = [], []
+    class Reader:
+        def __init__(self, stream):
+            self.stream = stream
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024
+            sizes.append(size)
+            return self.stream.read(size)
+    def opening(path, *args, **kwargs):
+        stream = original_stream(path, *args, **kwargs)
+        if Path(path) == candidate:
+            opened.append(path)
+            return Reader(stream)
+        return stream
+    monkeypatch.setattr(module, "open_stream", opening)
+    frozen_launch = freeze(tmp_path, launch)
+    assert len(opened) == 1
+    assert len(sizes) >= 3
+    assert Path(frozen_launch.raw_stream_path).read_bytes() == (tmp_path / "stdout").read_bytes()
