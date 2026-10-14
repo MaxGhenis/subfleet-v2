@@ -218,9 +218,9 @@ def test_disabled_sensor_shows_and_alerts_nothing(rig, tmp_path):
     assert render.card_lines(shown) == ["claude reset cards: not read (claude_cards.enabled is false in the policy)"]
 
 
-def test_hold_merged_into_a_provider_limit_still_holds(rig, tmp_path):
-    """C-9.10: a hold whose closure `put_closure` merged into a longer provider limit on the same
-    scope is still read from its `lane.held` event, so no heal is spent under it."""
+def test_hold_beside_a_longer_provider_limit_keeps_its_own_row(rig, tmp_path):
+    """C-9.6, C-9.10 (D-HOLD1): a hold that ends before a provider limit on the same scope keeps a row
+    of its own, so it holds until its end and no longer."""
     timer, store, clock, adapter, enroll = rig
     claude_lane(store, "claude-2", "max@pe.example")
     later = (clock() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -228,6 +228,24 @@ def test_hold_merged_into_a_provider_limit_still_holds(rig, tmp_path):
     soon = (clock() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with store.transaction("lane.held", lane_id="claude-2", data={"until": soon}):
         store.add_closure(Closure("claude-2", "account", soon, ClosureReason.OPERATOR_HOLD, ClockSource.REPORTED, "operator"))
+    assert [row["until_at"] for row in store.query("SELECT until_at FROM closures WHERE reason='operator-hold'")] == [soon]
+    assert timer._card_lanes()[0]["held"] is True
+    clock.advance(2 * 3600)
+    assert timer._card_lanes()[0]["held"] is False
+
+
+def test_hold_merged_into_a_provider_limit_by_an_older_store_still_holds(rig, tmp_path):
+    """C-9.10: in a store written before D-HOLD1's fix, `put_closure` merged a hold into a longer
+    provider limit on the same scope, leaving no `operator-hold` row. Such a hold is still read from its
+    `lane.held` event, so no heal is spent under it."""
+    timer, store, clock, adapter, enroll = rig
+    claude_lane(store, "claude-2", "max@pe.example")
+    later = (clock() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    store.add_closure(Closure("claude-2", "account", later, ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "test"))
+    soon = (clock() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with store.transaction("lane.held", lane_id="claude-2", data={"until": soon}) as tx:
+        # What the older `put_closure` did with it: the limit's row, ending later, rewritten as it was.
+        tx.execute("UPDATE closures SET until_at=until_at WHERE lane_id='claude-2' AND released_at IS NULL")
     assert not store.query("SELECT 1 FROM closures WHERE reason='operator-hold'")      # merged away
     [lane] = timer._card_lanes()
     assert lane["held"] is True
