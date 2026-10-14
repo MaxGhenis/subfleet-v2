@@ -1095,15 +1095,31 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   card back once when the first page of older history that opening loads adds
   rows above it. On 2026-09-27 a card sat above five queued messages and a failover
   turn, and the strip said "Needs your approval" with only a Stop.
-- Display order is the order turns began (each turn's first event), then the
-  messages still queued (or not yet received) in the order the daemon sends
-  them (an unblock note first, C-24.8). Sequence order had put a failover
-  continuation (D-6), which C-26.7 runs ahead of the queue, after the messages
-  queued before the limit, and an unblock note below the turn that ran after
-  it. A message that never began (withdrawn, refused, or a continuation not
-  yet sent) sits right after the latest turn that began among the messages
-  before it. The view follows the newest row of the turn that began last,
-  not the last row, which may be a queued bubble.
+- Display order remains the order turns began (each turn's first event), with
+  the final Timeline API's request-id approval joins and reconciliation. The
+  queue is projected into a compact tray above the composer (C-29.7), rather
+  than full person bubbles below the current turn. A message belongs there
+  exactly while a turn, a conversation block, or an earlier dispatchable
+  message is ahead of it. The idle head stays in the timeline before and after
+  its queued receipt, since every submit first answers queued. Dispatch order
+  puts repairs first, then missed steers, ordinary messages and wakes, retaining
+  sequence order within each group and arrival order for unreceipted sends.
+  A queued failover continuation stays a timeline notice and counts as ahead.
+  Withdraw uses the existing outbox path before receipt and message.cancel
+  afterwards, with bounded dispatching retries and a status read before stopping
+  only that message's own live turn. A second withdrawal is settled already;
+  an unblock note cannot be withdrawn. Pre-start withdrawals, including
+  tombstones, leave one line. Only an eligible head offers Send now, through
+  the existing steer engine; busy rows hide their actions and show a spinner.
+  The tray expands from three rows plus Show N more into a list capped at
+  200 points of rows, and shrinks when fewer rows remain. C-29.17 can attach its
+  existing notice view by message id to the same row, with its actions intact.
+- Conversations get fresh view identity when selected and, on macOS 15+, an
+  initial bottom scroll anchor. While Timeline.startReading's log read settles,
+  changes jump to the end without animation. The person's own new send glides;
+  other changes follow only with the end on screen. Remote event-only turns do
+  not count as the person's own send. Approval positioning on opening also has
+  no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 - ⌘K, and File > Search…, open a quick-switch palette over the window
@@ -1397,4 +1413,4 @@ deduplicated against its event stream. Outside rows survive the first-event
 boundary, read "Made in another app", and merge in timestamp order. If a group
 is larger than the read cap and ownership is unavailable, the older conservative
 filter applies until an earlier page identifies it. Reopening refreshes the
-tail and changing conversations scrolls to the newest row at the bottom.
+tail; changing conversations lands at the bottom without an animated scroll.
