@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import resource_leases
+from . import resource_leases, worktree_clone
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
@@ -4614,13 +4614,17 @@ class Daemon:
                     # `backslashreplace`: git's messages can quote a file name that is
                     # not UTF-8, which a strict read raised as `UnicodeDecodeError`
                     # out of the admission pass on every try (review of cda4c161, N1).
-                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True, errors="backslashreplace",
-                                            env=_git_env(None),
-                                            timeout=self.policy["caps"]["worktree_add_timeout_s"])
+                    # C-6.6a: on APFS the files the caller's checkout already holds are
+                    # clones of it; git checks out the rest, as `worktree add` would.
+                    allocation = worktree_clone.add_worktree(
+                        job["workdir"], workdir, job["workdir_head"], env=_git_env(None),
+                        timeout_s=self.policy["caps"]["worktree_add_timeout_s"])
+                    result = allocation.result
                 except (OSError, subprocess.SubprocessError):
                     self._discard_worktree(job["workdir"], workdir, cap)
                     raise
+                if not result.returncode:
+                    self.log.info("worktree %s: %s", job["job_id"], allocation.summary())
                 if result.returncode:
                     self._discard_worktree(job["workdir"], workdir, cap)
                     # A git killed by a signal did not finish, as a timed-out one did not.
