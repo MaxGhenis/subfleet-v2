@@ -97,7 +97,7 @@ def check(command):
     lock = command.parent / "property.lock"
     checked = alive = reused = unknown = 0
     with lock.open("w+") as holder, patch.dict(os.environ, SUBFLEET_FANOUT_LOCK_WAIT_S="0"), \
-            patch("sys.argv", ["lock-runner", str(lock)]), patch("time.time", return_value=NOW):
+            patch("sys.argv", ["lock-runner", str(lock)]), patch("time.time", return_value=float(NOW)):
         fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
         for value in corpus():
             age = elapsed(value)

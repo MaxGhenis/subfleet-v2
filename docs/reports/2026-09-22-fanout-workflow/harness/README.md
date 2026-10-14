@@ -193,6 +193,45 @@ env -u PYTHONPATH FANOUT_TEST_FILTER='round 9' bun docs/reports/2026-09-22-fanou
 python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$FANOUT_TMP"
 ```
 
+Round 10 retains all 75 checks and adds three (78 total).
+`FANOUT_TEST_FILTER='round 10'` selects them:
+
+- Successful fake `ps` output `00:99` and 310 nines followed by `:00` must
+  leave a held lock `unknown`, print `LOCKED` and exit 75 in all three
+  generated workflow steps. No submission occurs.
+- `lock_checks.py` checks the complete rendered runner under a real held
+  `flock`, with real PID existence checks. It replaces only `ps` transport
+  and the wall clock (a fixed float), then checks **4,096 strings** of at
+  most 8,192 characters, seed **12510**, across launcher/helper/CLI records:
+  **12,288 holder classifications**. A separate split/range oracle checks
+  format, component ranges and the total. Invalid inspection must remain
+  `unknown`; valid ages matching the recorded spawn are `alive`, while a
+  process born after its record is `reused`. Every string must retain
+  `LOCKED`/exit 75 without raising an unexpected exception. Cases include
+  day-prefixed hour boundaries, unrestricted hours without days, enormous
+  numeric fields, integer-conversion guards, epoch boundaries, whitespace,
+  separators, NULs and Unicode. No subprocess is needed for this property.
+
+Elapsed seconds and minutes must each have two digits in 0–59. A day
+prefix requires hours, in 0–23; hours without days may exceed 23. Durations
+older than the Unix epoch cannot match a positive recorded spawn timestamp
+and report `unknown` before float subtraction. Conversion failures also
+report `unknown`.
+
+To reproduce round 10 on the exact baseline (exit 1, three failures expected):
+
+```sh
+FANOUT_TMP=$(mktemp -d)
+git show 4c5e61e2316a:.claude/workflows/subfleet-fanout.js > "$FANOUT_TMP/baseline.js"
+env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 FANOUT_TEST_FILTER='round 10' bun docs/reports/2026-09-22-fanout-workflow/harness/validate.mjs "$FANOUT_TMP/baseline.js"
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$FANOUT_TMP"
+```
+
+The same filtered call against `.claude/workflows/subfleet-fanout.js` must
+pass all three checks. The complete validator includes them alongside the
+20,000 sequential and 104 shipped concurrent histories; run the separate
+32-history independent oracle with the command above.
+
 **Upgrading:** install a new helper between batches. A state folder started
 by the `8d074a715` (round 6) helper has snapshots and recovery records with
 no creation mark. This helper cannot re-prove them, and reports them
