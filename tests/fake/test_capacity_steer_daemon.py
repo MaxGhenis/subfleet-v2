@@ -31,7 +31,7 @@ from hypothesis import given, settings, strategies as st
 from subfleet import daemon as daemon_module
 from subfleet.adapters.codex import CodexAdapter
 from subfleet.adapters.registry import register
-from subfleet.contracts import (MODEL_CAPACITY_STEER_S, TRANSIENT_RETRY_DELAY_S, Credential, Lane, LaneOwner,
+from subfleet.contracts import (MODEL_CAPACITY_STEER_S, TRANSIENT_RETRY_DELAY_S, ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
                                 Outcome, OutcomeClass, Reading, ReadingLabel)
 from subfleet.daemon import after, utcnow
 from subfleet.daemon import Daemon
@@ -455,8 +455,11 @@ def test_r3_a_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, pinned):
     refuse(daemon, admit(daemon, older))
     daemon.store.update_lane("claude-1", enabled=0)
     assert admit(daemon, older) is None
+    # Keep a future admissible Astra lane for the older job. Disabling both
+    # would make it for_good under C-11.8, which correctly holds nobody back.
     for identity in ("codex-1", "codex-2"):
-        daemon.store.update_lane(identity, enabled=0)
+        daemon.store.add_closure(Closure(identity, ASTRA, after(600), ClosureReason.PROVIDER_LIMIT,
+                                         ClockSource.REPORTED, "temporary test closure"))
     later = submit(daemon, harness, pinned_model="opus" if pinned else None,
                    task=None if pinned else "review")
     assert admit(daemon, later) is None
