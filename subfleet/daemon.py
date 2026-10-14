@@ -49,7 +49,7 @@ from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
-from .adapters.base import AdapterError
+from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
@@ -194,6 +194,13 @@ def _retain_lineage(evidence: dict, census: dict) -> dict:
             # Collision holds must survive restart and disappearing foreign history.
             result[key] = ordered_records if key == "ambiguous_identities" else ordered_records[-LINEAGE_ROOT_LIMIT:]
     return result
+
+def spawn_guardian(command: list[str], *, disclaim: bool, **options):
+    """The injectable guardian launch boundary, with Popen's actual options."""
+    if disclaim:
+        return procs.spawn_disclaimed(command, env=options["env"], cwd=options["cwd"],
+                                     pass_fds=options["pass_fds"])
+    return subprocess.Popen(command, **options)
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -839,7 +846,10 @@ class Daemon:
         self._quarantine_resolve_lock = threading.Lock()
         self._quarantine_next_pass = 0.0
         self._launches: dict[str, Launch] = {}
-        self._children: dict[str, subprocess.Popen] = {}
+        # Guardians this daemon started (`procs.spawn_disclaimed`), by attempt id.
+        self._children: dict[str, procs.Spawned | subprocess.Popen] = {}
+        self._unrooted_logged = False        # D-CEN1: said once that guardians start without a root
+        self._disclaim_guardians = procs.guardian_disclaim_allowed()
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
@@ -1343,10 +1353,7 @@ class Daemon:
                    '--launch-fd', str(read_fd), '--', *argv]
         child = None
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root,
-                                     start_new_session=True)       # C-5.1, as `_launch`'s
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -1356,6 +1363,8 @@ class Daemon:
                 raise procs.InspectionError('enrollment guardian identity is absent')
             record.update(state='starting', guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if root:
+                record['responsible_root'] = root      # D-CEN1, beside the identity
             self._save_probe(record)
             if not self.stopping.is_set():
                 os.write(write_fd, b'1')
@@ -1375,8 +1384,11 @@ class Daemon:
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
         scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
-        every open operator hold. A held lane is never a candidate (C-11.2) but is
-        still probed, so a held account keeps being measured."""
+        every open operator hold. A held lane is never a candidate (C-11.2), and no
+        timer reads it while the hold is in force (C-18.1); an attempt already
+        running on it can still report a limit. The hold keeps a row of its own
+        (`Store.put_closure`): no limit, reset or reset credit ends it before its
+        `until`, and its release leaves any limit on the lane in force."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list")
@@ -2292,6 +2304,9 @@ class Daemon:
                 args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
                 sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
@@ -5085,10 +5100,7 @@ class Daemon:
         command += ["--", *launch.argv]
         child = None
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root,
-                                     start_new_session=True)       # C-5.1, as `_launch`'s
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -5098,6 +5110,8 @@ class Daemon:
                 raise procs.InspectionError("probe guardian identity is absent")
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if root:
+                record["responsible_root"] = root      # D-CEN1, beside the identity
             self._save_probe(record)
             # Ownership has committed. Serialize the gate decision and byte with
             # cancellation too: a completed queued cancel must start no provider.
@@ -5956,11 +5970,48 @@ class Daemon:
                              if not waiter[3]
                              and scheduler.competes(models, waiter[1], lanes, waiter[2])
                              and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
+
+            def unadmittable_now():
+                """C-11.8, C-6.12: the standing refusals that keep every lane from this job now (or
+                None), and whether its route can be evaluated. The lanes its attempts excluded are
+                merged in (C-4.5) as its route merges them: a lane re-enrolled since a `limited`
+                attempt is excluded under its successor's id, which only `_retry_pin` knows (review
+                of #201 r1). A merge that cannot be made (a stored exclusion that is not a name) is
+                its route's problem, a `route` wait once it is looked at, which holds nobody: so such
+                a job holds nobody meanwhile either (review of #201 r2)."""
+                try:
+                    effective = ({**job, "exclusions": self._merged_exclusions(job, extra_exclusions)}
+                                 if extra_exclusions else job)
+                except Unroutable:
+                    return None, False
+                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo), True
             behind = None if defer_fifo else ahead(models, lanes)
+            for_good = None
+            if (behind and not saturated.get(pool) and job["wait_reason"] == "capacity"
+                    and job["next_check_at"] and job["next_check_at"] > utcnow()):
+                # C-6.9, C-6.12: a job held behind an older one while its capacity clock runs still
+                # cannot be placed on this pass for want of a slot or a lane, so it still holds back
+                # the later jobs of its tier that compete with it, with the demand it has while that
+                # clock runs (its own once a look has let a retry's pin go), as it would were nothing
+                # ahead of it (below). Before, it registered nothing here, and a younger job that
+                # competes with it but not with the older one was placed past it. This adds holds
+                # only while the clock runs: a job held here gets no look, so nothing starts it a new
+                # clock, and once that clock is due it holds nobody unless a look finds it waiting
+                # again (a let-go retry's due look evaluates its pair, which may let the pin go and
+                # set the next clock, C-6.12). A lease wait still holds nobody (`ahead`; the lease's
+                # queue keeps its place), nor does a job no lane can admit (C-11.8), which its hold
+                # says (C-6.11), lease wait or not, nor one whose route cannot be evaluated (C-6.12).
+                # As before this change, a job held here is not put in a probe's line: it carries no
+                # probe on this pass.
+                held = self._capacity_waits.get(job["job_id"])
+                for_good, routable = unadmittable_now()
+                if routable and not for_good and not (held and held["hold"].get("reason") == "lease-held"):
+                    wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
-                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                                        {"reason": "behind-older-job", "behind": behind, "tier": tier,
+                                         **({"for_good": for_good} if for_good else {})})
                 older_hold = holds.get(behind, {})
                 if older_hold.get("key", "").startswith("providers."):
                     holds[job["job_id"]].update({key: older_hold[key] for key in
@@ -5995,8 +6046,8 @@ class Daemon:
                 # model and job shape per pass.
                 lease_held = bool(known and known["hold"].get("reason") == "lease-held")
                 asked = job["wait_reason"] == "capacity" and (scope is not None or lease_held)
-                for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo) if asked else None
-                if job["wait_reason"] == "capacity" and not for_good:
+                for_good, routable = unadmittable_now() if asked else (None, True)
+                if job["wait_reason"] == "capacity" and routable and not for_good:
                     # C-6.9: a lease wait, those kept for an older job too, is no slot wait.
                     waiting_for = (frozenset([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())])
                                    if lease_held else frozenset())
@@ -6004,7 +6055,7 @@ class Daemon:
                     if probing:
                         probe_line.append((job["job_id"], probing["model"],
                                            self._probe_reach(roster, job, probing["model"], lanes, extra_exclusions)))
-                if lease_held and not for_good:
+                if lease_held and routable and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
                     # Only the keys it takes: one it needs free but does not take (`blocked`,
                     # retention's fence above a writer's folder, say) is never queued for
@@ -6200,11 +6251,22 @@ class Daemon:
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = None if defer_fifo else ahead(models, lanes)
-                    if behind:
+                    # C-6.12: exclusions that cannot be merged are its route's problem, so such a
+                    # job is not held here: the route's preparation below settles it as a `route`
+                    # wait, which holds nobody (review of #201 r2).
+                    for_good, routable = unadmittable_now() if behind else (None, True)
+                    if behind and routable:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
                         # the pass with its own demand, with no git and no scoring.
-                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier}
+                        # C-6.12: its demand is its own on this pass and while that clock runs, "so it
+                        # neither passes an older job it competes with nor is passed by a younger one":
+                        # a waiter with that demand now, as on the passes before its clock is due
+                        # (above), unless no lane can admit it as submitted (C-11.8).
+                        if not for_good:
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier,
+                                **({"for_good": for_good} if for_good else {})}
                         rechecks = self._capacity_wait(job["job_id"], f"retry-let-go:behind:{behind}", hold)
                         next_check = after(scheduler.capacity_recheck_delay(rechecks))
                         with self.store.transaction("job.retry_let_go", job_id=job["job_id"]) as tx:
@@ -6214,6 +6276,10 @@ class Daemon:
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
+                if extra_exclusions:
+                    # C-6.12: checked where the route is prepared, so a failure here counts
+                    # toward the deferral backoff instead of following a reset of it.
+                    self._merged_exclusions(job, extra_exclusions)
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
                 self._early_routes.pop(job["job_id"], None)
@@ -6225,15 +6291,21 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
+                current = self._job(job["job_id"])
+                if current["state"] in TERMINAL or current["cancel_requested_at"]:
+                    continue
+                if current["wait_reason"] in ("approval", "uncertain"):
+                    # C-4.1, C-6.11: preparing the route quarantined its probe, so the job now
+                    # waits on a person. It holds back nobody and says so on this pass too.
+                    holds[job["job_id"]] = {"reason": current["wait_reason"]}
+                    continue
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 # C-6.11: which probe, and whose turn it is when it is not this job's.
                 hold = holds[job["job_id"]] = {"reason": "probe-pending", **(probe_note or {})}
-                current = self._job(job["job_id"])
-                live = current["state"] not in TERMINAL and not current["cancel_requested_at"]
                 # A probe that ran set the job's clock itself (C-6.10), which is due
                 # at once when the probe used the whole of it.
                 clocked = "next_check_at" in hold or (current["next_check_at"] and current["next_check_at"] > utcnow())
-                if live and not clocked:
+                if not clocked:
                     # C-6.10: the route could not be prepared and nothing set a
                     # clock (the probe's slot is held, the lane changed hands, an
                     # older job has the turn at the probe). The job would otherwise
@@ -6252,9 +6324,9 @@ class Daemon:
                 elif clocked:
                     hold.setdefault("next_check_at", current["next_check_at"])
                     self._refresh_hold(job["job_id"], hold)
-                if live and kind == "detached" and hold.get("model") and current["wait_reason"] != "uncertain":
-                    # C-6.9: it waits on this probe, so it carries the next one; a job
-                    # whose probe was quarantined waits on an operator and holds nobody.
+                if kind == "detached" and hold.get("model"):
+                    # C-6.9: it waits on this probe, so it carries the next one (a job
+                    # whose probe was quarantined waits on an operator and left above).
                     probe_line.append((job["job_id"], hold["model"],
                                        self._probe_reach(roster, job, hold["model"], lanes, extra_exclusions)))
                 continue
@@ -6364,7 +6436,7 @@ class Daemon:
                             status = "held"
                             break
                         if extra_exclusions:
-                            job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                            job["exclusions"] = self._merged_exclusions(job, extra_exclusions)
                             tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                         needs_probe = self._needs_probe(decision, job)
                         live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
@@ -6470,10 +6542,12 @@ class Daemon:
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
-                            signature = f"{scheduler.verdict_signature(decision)}:{at_limit or provider_at_limit}"
-                            if fifo_behind or provider_behind:
-                                signature += f":behind:{fifo_behind or provider_behind}"
-                            rechecks = self._capacity_wait(job["job_id"], signature, hold,
+                            # The verdict alone keys the wait (C-6.10). Whether the pool or
+                            # the provider was at its limit, and which older job this one is
+                            # behind (C-6.4a, C-6.9), go in the hold, which every look
+                            # replaces, so `why` reports them; as part of the key they
+                            # recorded an unchanged verdict again on each fleet turnover.
+                            rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
@@ -6956,6 +7030,18 @@ class Daemon:
             rows.sort(key=lambda row: row["closure_id"])
         return rows
 
+    @staticmethod
+    def _merged_exclusions(job: dict, extra: tuple[str, ...]) -> str:
+        """C-4.5, C-6.12: the job's exclusions with the lanes its attempts added, as stored.
+
+        A stored exclusion that is not a lane name (submit refuses one; an older row
+        may hold one) cannot be merged. That is this job's problem, never the pass's.
+        """
+        try:
+            return json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra)))
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
+
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
         """C-6.12: an `Unroutable` from the block settles this job and ends the block, not the pass.
@@ -7427,16 +7513,7 @@ class Daemon:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
         command += ["--", *launch.argv]
         try:
-            # C-5.1: the guardian leads its own session and group before it execs.
-            # Its own `os.setsid()` ran only once its interpreter had started, and a
-            # table read in between (a slow start on a loaded host) showed it in
-            # this daemon's group, which C-5.5 then kept as the attempt's lineage
-            # group: one that never empties while the daemon lives, so the finished
-            # run was quarantined and recorded `lost` (PR #131 CI, 2026-10-14).
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root,
-                                     start_new_session=True)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             self._children[a["attempt_id"]] = child
             # ps can miss a pid for a few milliseconds after fork, and it is
             # slow under load; retry briefly while the guardian is alive. The
@@ -7456,6 +7533,16 @@ class Daemon:
                     raise procs.InspectionError("cancelled during launch")
                 tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
                            (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
+                if root:
+                    # D-CEN1: committed with the identity, before the gate opens, so
+                    # every census of this attempt, after a restart too, has its root.
+                    row = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=? AND state='starting'",
+                                     (a["attempt_id"],)).fetchone()
+                    if row is not None:
+                        evidence = json.loads(row[0] or "{}")
+                        evidence["responsible_root"] = root
+                        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                                   (json.dumps(evidence), a["attempt_id"]))
             os.write(write_fd, b"1")
         except (OSError, procs.InspectionError) as exc:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
@@ -7662,6 +7749,35 @@ class Daemon:
         else:
             self._lost(a)
         return True
+
+    def _spawn_guardian(self, command: list[str], env: dict[str, str], read_fd: int, package_root: str):
+        """C-5.1, D-CEN1: start a guardian (an attempt's, a probe's or a re-enrolment's) as
+        its own responsible process, and return it with the root to record beside its
+        identity: `{"pid", "unique_id"}`, or None when this macOS cannot disclaim, in
+        which case its censuses keep three sources. Only the guardian is disclaimed: the
+        provider it starts names it. Disclaim only from a self-responsible daemon;
+        terminal-started daemons preserve their inherited privacy attribution."""
+        env = {**env, "SUBFLEET_EXIT_SETTLE_S": str(getattr(self, "exit_settle_s", EXIT_SETTLE_S))}
+        child = spawn_guardian(command, disclaim=getattr(self, "_disclaim_guardians", True),
+                               env=env, cwd=package_root, pass_fds=(read_fd,),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        root = None
+        if isinstance(child, procs.Spawned):
+            try:
+                root = procs.responsibility_root(child.pid)
+            except procs.InspectionError:
+                pass
+            if root is None:
+                # posix_spawn accepted the disclaim attribute. A failed metadata
+                # read must not silently downgrade this attempt to three sources.
+                root = {"pid": child.pid, "unique_id": None}
+        if root is None and not self._unrooted_logged:
+            self._unrooted_logged = True
+            self.log.warning("guardian %s started without a responsibility root (disclaim available: %s); "
+                             "censuses of what it starts read three sources (C-5.5, D-CEN1)",
+                             child.pid, procs.disclaim_available())
+        return child, root
 
     def _seed_process_claim_receipts(self) -> None:
         """Enumerate legacy work once; complete only after every import resolves.
@@ -7945,6 +8061,13 @@ class Daemon:
         recorded = _identity_union(provider_records, evidence.get("owned_identity_history", {}), evidence.get("owned_identities", {}),
                                    held.get("identity_history", {}), held.get("identities", {}), guardian,
                                    {str(child_pid): child} if child else {})
+        named = evidence.get("responsible_identities", {})
+        for pid, values in _identity_union(named).items():
+            observations = recorded.setdefault(pid, [])
+            observations.extend(value for value in values if value not in observations)
+        rooted = evidence.get("responsible_root")
+        responsible = (procs.ResponsibleRoot(guardian_pid, launch_boot, rooted.get("unique_id"))
+                       if isinstance(rooted, dict) and guardian_pid and rooted.get("pid") == guardian_pid else None)
         local_records = _local_process_records(evidence)
         ambiguous = tuple(procs.ProcessIdentity(**value) for value in evidence.get("ambiguous_identities", []))
         for known in ambiguous:
@@ -7986,9 +8109,15 @@ class Daemon:
                                        {**a, "attempt_id": owner, "evidence_json": json.dumps(evidence)}, table),
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
-                                   finished_at=receipt.get("finished_at"))
+                                   finished_at=receipt.get("finished_at"), responsible_root=responsible)
+        fresh = {str(pid): dataclasses.asdict(census.identities[pid])
+                 for pid in sorted(census.responsible_pids)
+                 if guardian_pid not in census.recycled and pid not in census.recycled
+                 and pid != guardian_pid and pid in census.identities}
         if probe:
             retained = _retain_lineage(evidence, census.to_dict())
+            if fresh:
+                retained["responsible_identities"] = {**named, **fresh}
             if census.recycled:
                 retained["recycled"] = {**retained.get("recycled", {}), **census.to_dict()["recycled"]}
             if retained != supplied:
@@ -8007,6 +8136,8 @@ class Daemon:
             actual = self.store.get_attempt(a["attempt_id"])
             previous = json.loads(actual["evidence_json"] or "{}")
             retained = _retain_lineage(self._prune_foreign_lineage(previous, foreign), census.to_dict())
+            if fresh:
+                retained["responsible_identities"] = {**previous.get("responsible_identities", {}), **fresh}
             if child:
                 retained["child_identity"] = child
             if retained != previous:
@@ -8344,6 +8475,9 @@ class Daemon:
                                   (a["attempt_id"],))
             self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + held["summary"]
                          + "; " + _quarantine_guidance(a["job_id"], held["quarantine_recheck_at"]) + earlier)
+        # Terminal attempts are no longer polled. Dropping a running Spawned
+        # hands it to procs._abandoned, which a later spawn polls and reaps.
+        self._children.pop(a["attempt_id"], None)
         self._notify()
 
     def _offer_quarantine_recheck(self) -> None:
@@ -8738,7 +8872,11 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            contents = read_regular(path)          # only a regular file is an artifact
+            if role == "raw-stream":
+                with open_stream(path) as stream:
+                    contents = stream.read()
+            else:
+                contents = read_regular(path)      # only a regular file is an artifact
         except (FileNotFoundError, NotRegularFile):
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
@@ -8793,12 +8931,14 @@ class Daemon:
         self._exit_recensus.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment when no separate raw file was supplied.
-        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+        # stream once after containment only when both frozen candidates are absent.
+        # Do not shadow an authoritative canonical entry with a new custom file.
+        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
+                                             (launch.raw_stream_path, adir / "stream.jsonl")):
             try:
                 data = read_regular(Path(launch.stdout_path))       # never waiting in open()
             except (FileNotFoundError, NotRegularFile):
-                data = None                                        # none there, as `is_file()` had said
+                data = None                                        # no regular stdout to freeze
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
@@ -8843,6 +8983,13 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
+        # C-12.6: cached acceptance uses the fresh provider's content boundary,
+        # not the artifact's byte count. Preserve the captured payload itself.
+        nonblank_deliverable = False
+        if deliverable:
+            payload = read_regular(deliverable_path)
+            nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
+                                       if lane.provider == "claude" else payload.strip())
         # finalization.json keeps the adapter's verdict. Reconciliation and
         # overrides use the frozen stream, captured deliverable, exit receipt
         # and attempt row on every replay (C-4.3), before any lane, closure or
@@ -8856,7 +9003,7 @@ class Daemon:
             if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
                     and completion["turn_completed"] and not completion["turn_failed"]
                     and not spawn_error and not actual.get("killed_by")
-                    and deliverable and read_regular(deliverable_path).strip()):
+                    and nonblank_deliverable):
                 # C-9.2: an older daemon's authentication/text verdict can precede
                 # verified success. The captured bytes decide presence; never
                 # reclassify or re-extract a result already frozen on disk.
@@ -8892,7 +9039,7 @@ class Daemon:
             if not completion["turn_completed"]:
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
                                               detail="Codex exited before its turn completed")
-        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
+        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and not nonblank_deliverable:
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if not lost and self._answered(outcome, provider_verdict["class"]):
             # C-6.14: before the attempt leaves flight, so a pilot that answered and

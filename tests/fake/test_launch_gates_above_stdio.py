@@ -59,6 +59,14 @@ try:
         return subprocess.Popen(argv, **kwargs)
     # Only the daemon's own launches are observed; they still spawn for real.
     daemon_module.subprocess = types.SimpleNamespace(**{**vars(subprocess), "Popen": popen})
+    # D-CEN1: guardians are started by `procs.spawn_disclaimed` (posix_spawn), which
+    # falls back to Popen only where responsibility cannot be disclaimed.
+    disclaimed = daemon_module.procs.spawn_disclaimed
+    def spawn(argv, **kwargs):
+        if list(argv)[1:3] == ["-m", "subfleet.guardian"]:
+            result["pass_fds"].append(list(kwargs.get("pass_fds", ())))
+        return disclaimed(argv, **kwargs)
+    daemon_module.procs.spawn_disclaimed = spawn
 
     def held(fd):
         try:

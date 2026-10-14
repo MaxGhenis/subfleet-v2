@@ -279,3 +279,20 @@ def adapter(tmp_path):
         new_session_id=lambda: "00000000-0000-4000-8000-000000000000",
         projects_dir=projects,
     )
+
+
+@pytest.fixture(autouse=True)
+def guardian_launch_standins(monkeypatch):
+    """Keep existing Popen stand-ins at the single guardian launch boundary.
+    They receive the same command, gate, credentials and descriptor options that
+    production passes, including when this host permits disclaimed spawning.
+    Real launches and explicit replacements of spawn_guardian keep their path."""
+    from subfleet import daemon
+    popen, spawn = daemon.subprocess.Popen, daemon.spawn_guardian
+
+    def launch(command, *, disclaim, **options):
+        if daemon.subprocess.Popen is not popen:
+            return daemon.subprocess.Popen(command, **options)
+        return spawn(command, disclaim=disclaim, **options)
+
+    monkeypatch.setattr(daemon, "spawn_guardian", launch)

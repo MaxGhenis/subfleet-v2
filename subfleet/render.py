@@ -343,15 +343,23 @@ _PIN_REFUSALS = {
 
 def pin_refusals(stuck: Mapping[str, Any]) -> str:
     """C-11.8: why a pinned lane can never admit its job, in words: each standing
-    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named."""
+    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named.
+
+    A hold and a limit keep separate rows (C-9.6), so two closures can share a
+    scope and an end, and `scheduler.judge_lane` then names that refusal once
+    per row: it is said once, with every row's reason (review of PR #208)."""
     lane = stuck.get("lane_id") or "the lane"
-    closures = {f"closed:{row['scope']}:{row['until_at']}": row for row in stuck.get("closures") or ()}
+    closures: dict[str, list[Mapping[str, Any]]] = {}
+    for row in stuck.get("closures") or ():
+        closures.setdefault(f"closed:{row['scope']}:{row['until_at']}", []).append(row)
     parts = []
-    for reason in stuck.get("reasons") or ():
-        closure = closures.get(reason)
-        if closure is not None:
-            parts.append(f"{lane} is closed for {closure['scope']}"
-                         + (f" ({closure['reason']})" if closure.get("reason") else "") + f" until {closure['until_at']}")
+    for reason in dict.fromkeys(stuck.get("reasons") or ()):
+        rows = closures.get(reason)
+        if rows:
+            why = ", ".join(dict.fromkeys(str(getattr(row["reason"], "value", row["reason"]))
+                                          for row in rows if row.get("reason")))
+            parts.append(f"{lane} is closed for {rows[0]['scope']}" + (f" ({why})" if why else "")
+                         + f" until {rows[0]['until_at']}")
         elif str(reason).startswith("closed:"):
             parts.append(f"{lane} is {reason}")
         else:

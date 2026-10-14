@@ -117,6 +117,21 @@ def store(root):
     return root
 
 
+@pytest.fixture
+def gone_guardian(store, monkeypatch):
+    """Declare the fixture pid absent even when the host cannot inspect processes."""
+    def absent(pid):
+        assert pid == 999999
+        return ""                      # client.proc_start's confirmed-absence result
+
+    def must_not_signal(*args):
+        pytest.fail("an absent guardian must never be signalled")
+
+    monkeypatch.setattr("subfleet.client.proc_start", absent)
+    monkeypatch.setattr(os, "killpg", must_not_signal)
+    return store
+
+
 # --- reads (C-17.5, C-3.4) ----------------------------------------------------
 
 def test_runs_renders_from_the_store_when_the_daemon_is_down(store, capsys):
@@ -213,7 +228,7 @@ def test_offline_kill_refuses_when_identity_cannot_be_verified(root, capsys):
     assert "cannot verify" in captured.err and "C-5.3" in captured.err
 
 
-def test_offline_kill_reports_a_gone_guardian_without_signalling(store, capsys):
+def test_offline_kill_reports_a_gone_guardian_without_signalling(gone_guardian, capsys):
     """C-5.3, C-5.4 a recorded pid that is provably gone is never signalled."""
     assert cli.main(["kill", JOB]) == 0
     captured = capsys.readouterr()
@@ -247,7 +262,7 @@ def test_offline_kill_signals_a_verified_process_group(root, capsys, monkeypatch
     assert "until a daemon reconciles it" in captured.err
 
 
-def test_offline_kill_json_emits_one_object(store, capsys):
+def test_offline_kill_json_emits_one_object(gone_guardian, capsys):
     """C-17.4 `--json` emits JSON only, offline as well."""
     assert cli.main(["kill", JOB, "--json"]) == 0
     payload = json.loads(capsys.readouterr().out.strip())

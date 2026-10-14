@@ -1173,8 +1173,11 @@ def import_cooldowns(writer: _Writer, report: StoreReport, *, delegate_state: Pa
                 report.skip("already-imported")
                 continue
             clock_source = "reported" if reported else "guessed"
+            # C-9.6: a cooldown is a limit, so it never extends, replaces or
+            # yields to a hold's row (`Store.put_closure`, D-HOLD1).
             existing = writer.one(
                 "SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL "
+                "AND reason NOT IN ('operator-hold','auth-dead') "
                 "ORDER BY until_at DESC LIMIT 1", (lane_id, model_scope))
             if existing is not None and existing["until_at"] >= until_at:
                 # C-9.6: a new closure on the same lane and scope extends `until`

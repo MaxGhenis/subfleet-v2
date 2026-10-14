@@ -250,20 +250,19 @@ def test_the_measured_shape_a_fenced_turn_holds_no_later_turn_and_keeps_the_last
 
 
 def test_intended_a_waiter_the_lease_hold_masked_now_holds_its_own_competitors():
-    """Property 5, intended. A fenced Astra turn, then a turn whose chain holds Astra and
-    Terra pinned to a closed lane, then a Terra turn. The rule before held the second
-    behind the first (they compete on Astra), so it was no waiter, and the Terra turn,
+    """Property 5, intended. A fenced Astra turn, then a turn pinned to a closed lane with
+    no model, which competes with every job (C-6.9), then a Terra turn. The rule before
+    held the second behind the first (they compete), so it was no waiter, and the Terra turn,
     which does not compete with the fenced one, was placed. Now the second is looked at,
     waits for its closed lane, and as an older slot waiter holds the Terra turn, which
-    could take a slot it needs (C-6.9). So the new rule places a job the old one did
-    not hold, and holds one the old one placed: not a superset, by design."""
+    could take a slot it needs (C-6.9). So the new rule holds a job the old one placed:
+    not a superset, by design."""
     policy, view = _world("codex-1")
     policy["conversations"]["max_active_turns"] = 3
-    policy["chains"]["sweep"] = ["terra", "terra", "terra", "astra"]
     fenced = {**JOB, "job_id": "fenced", "created_at": "2026-09-26T11:00:00Z", "pinned_model": "astra",
               "lease_wait": frozenset({"worktree:/tree"}), "lease_look": "fence"}
     closed = {**JOB, "job_id": "closed", "created_at": "2026-09-26T11:01:00Z", "pinned_model": None,
-              "task": "sweep", "tier": "standard", "pinned_lane": "codex-1"}
+              "pinned_lane": "codex-1"}
     terra = {**JOB, "job_id": "terra", "created_at": "2026-09-26T11:02:00Z", "pinned_model": "terra"}
     assert scheduler.competes(scheduler.demand_models(policy, fenced), scheduler.demand_models(policy, closed))
     assert not scheduler.competes(scheduler.demand_models(policy, fenced), scheduler.demand_models(policy, terra))

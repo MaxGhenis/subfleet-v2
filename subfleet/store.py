@@ -41,6 +41,8 @@ from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, Lane
 from .lockwatch import WatchedLock, thread_name
 
 SCHEMA_VERSION = 8
+#: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
+HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
 
 # Canonical observations use the partial time index; offset/fractional clocks
@@ -909,7 +911,17 @@ class Store:
         return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))
 
     def put_closure(self, closure: Closure) -> int:
-        """One open closure per lane and scope: a later end extends the row in place.
+        """One open closure per lane, scope and kind: a later end extends the row in place.
+
+        C-9.6 (D-HOLD1): a hold (`operator-hold`, `auth-dead`) keeps a row of its
+        own, apart from the limits (`provider-limit`, `credits`, `cooldown`),
+        which share one. A limit never extends or replaces a hold's row, so a
+        reset, a reset credit or `lanes release --limits`, which release limit
+        rows, never end a hold; and a hold never swallows a limit that ends
+        sooner, so `lanes release` leaves the limit in force. Before, a weekly
+        limit reported on a held lane rewrote the hold's row as its own, and the
+        usage read that saw the window reset then opened the lane hours before
+        the hold's end.
 
         Every call leaves a `closure.recorded` event for the lane, including a
         limit reported again that ends no later than the open row's and so
@@ -918,8 +930,12 @@ class Store:
         the closure. The row is rewritten as it is so that the transaction has a
         change to record.
         """
+        reason = str(getattr(closure.reason, "value", closure.reason))
+        kind, values = (("reason=?", (reason,)) if reason in HOLD_REASONS else
+                        (f"reason NOT IN ({','.join('?' * len(HOLD_REASONS))})", HOLD_REASONS))
         with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
-            existing = self.one("SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope))
+            existing = self.one(f"SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL AND {kind} "
+                                "ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope, *values))
             if existing:
                 if closure.until_at > existing["until_at"]:
                     self._update("closures", "closure_id", existing["closure_id"], asdict(closure))
