@@ -473,6 +473,42 @@ def test_c9_5_text_that_is_not_the_models_refusal_never_marks_it(tmp_path, line)
     assert outcome.closure is None
 
 
+@pytest.mark.parametrize("payload", [CAPACITY, "ERROR: " + CAPACITY])
+@pytest.mark.parametrize("multiline", [False, True])
+def test_c9_5_quoted_tool_stderr_never_marks_capacity(tmp_path, payload, multiline):
+    prefix = "ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines:"
+    stderr = prefix + ("\n" if multiline else " ") + payload + "\n"
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}},
+                     stderr=stderr)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("where", ["error", "turn.failed"])
+@pytest.mark.parametrize("payload", ["metadata", "tool_output"])
+def test_c9_5_failure_event_payload_outside_its_message_never_marks_capacity(tmp_path, where, payload):
+    event = {"type": where, payload: CAPACITY}
+    if where == "error":
+        event["message"] = "stream disconnected before completion"
+    else:
+        event["error"] = {"message": "stream disconnected before completion"}
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, event), _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("stderr", ["", "ERROR: " + CAPACITY])
+def test_c9_5_capacity_in_tool_output_never_marks_capacity(tmp_path, stderr):
+    launch = _events(tmp_path,
+                     {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": CAPACITY}},
+                     {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}},
+                     stderr="" if not stderr else "ERROR codex_core::tools::router: tool failed\n" + stderr)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
 @pytest.mark.parametrize("message,expected", [
     ("You've hit your usage limit.", OutcomeClass.LIMITED),
     ("Incorrect API key provided: sk-proj-****", OutcomeClass.AUTH_DEAD),
@@ -518,7 +554,7 @@ def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, b
                                                       codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
     with tempfile.TemporaryDirectory() as directory:
         attempt = Path(directory)
-        launch = (_events(attempt, stderr=message + "\n") if where == "stderr"
+        launch = (_events(attempt, stderr="ERROR: " + message + "\n") if where == "stderr"
                   else _events(attempt, {"type": "thread.started", "thread_id": THREAD}, event))
         outcome = CodexAdapter(now=lambda: NOW).classify(attempt, launch, _exit(1))
     assert outcome.cls == OutcomeClass.TRANSIENT

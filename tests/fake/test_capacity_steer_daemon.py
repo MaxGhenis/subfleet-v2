@@ -10,7 +10,7 @@ model's, not the lane's.
 Now such an attempt (`transient`, `model_capacity` in its classification) of a job with no model
 or lane pin that is no turn, resume or revive records a `capacity_steer` (the model, until
 `MODEL_CAPACITY_STEER_S` after it finished), sets no same-lane retry, and leaves the job due on
-the next pass; until then admission walks that model after the rest of the job's chain. No
+the next pass; until then admission excludes that model from the job's chain. No
 closure, no lane disabled or excluded, no other job touched. A job pinned to the model keeps the
 same-lane retry after 60 s. These drive the daemon's own finalization and admission in-process,
 with the real Codex classifier reading the incident's stream (`tests/fixtures/codex/model-at-capacity-sol`).
@@ -152,7 +152,7 @@ def test_c9_5_a_refused_hard_review_moves_to_its_chains_next_model_on_the_next_p
     assert (second["model_requested"], second["lane_id"][:6]) == (OPUS, "claude")
     decision = json.loads(daemon.store.list_decisions(job_id)[-1]["decision_json"])
     assert decision["chain"] == ["opus"]
-    assert f"astra: at capacity for this job until {steer['until']}, walked last (C-9.5)" in decision["reason"]
+    assert f"astra: at capacity for this job until {steer['until']}, skipped by capacity steer (C-9.5)" in decision["reason"]
     text = daemon.dispatch("why", {"job_id": job_id})["text"]
     assert "at capacity for this job" in text
     finish(daemon, second, FakeAdapter, rc=0)
@@ -225,16 +225,29 @@ def test_c4_3_capacity_mark_and_steer_survive_replay(fleet, monkeypatch, restart
             successor.close()
 
 
-def test_c9_5_with_no_lane_for_the_next_model_the_job_goes_back_to_the_model_at_once(fleet):
-    """C-9.5: a steer never holds a job. With both Claude lanes disabled, a2 is the Codex model
-    again, on the next pass (no 60 s wait), on whichever of its lanes ranks first."""
+def test_c9_5_with_no_lane_for_the_next_model_the_job_waits_until_the_steer_ends(fleet, monkeypatch):
+    """The reviewer's [astra, opus] case never reuses Astra while the steer is live."""
     daemon, harness = fleet
     job_id = submit(daemon, harness)
-    refuse(daemon, admit(daemon, job_id))
+    row = refuse(daemon, admit(daemon, job_id))
+    steer = evidence(row)["capacity_steer"]
     for identity in ("claude-1", "claude-2"):
         daemon.store.update_lane(identity, enabled=0)
-    second = admit(daemon, job_id)
+    assert admit(daemon, job_id) is None
+    waiting = daemon.store.get_job(job_id)
+    assert (waiting["state"], waiting["wait_reason"]) == ("waiting", "capacity")
+    why = daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert "capacity steer" in why and "astra" in why and steer["until"] in why
+    end = datetime.fromisoformat(steer["until"].replace("Z", "+00:00"))
+    with monkeypatch.context() as clocks:
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return end.astimezone(tz) if tz else end.replace(tzinfo=None)
+        clocks.setattr(daemon_module, "datetime", Clock)
+        second = admit(daemon, job_id)
     assert second is not None and second["model_requested"] == ASTRA
+    assert len(daemon.store.list_attempts(job_id)) == 2
 
 
 def test_c9_5_after_the_steer_ends_the_model_is_chosen_again(fleet):
@@ -311,15 +324,14 @@ def test_c9_5_the_steer_is_the_jobs_and_another_job_still_gets_the_model(fleet):
     assert admit(daemon, other)["model_requested"] == ASTRA
 
 
-def test_c9_5_a_build_with_one_model_in_its_chain_retries_it_at_once(fleet):
-    """D-CAP1, pr181-fix8: a `hard` build's chain is the Codex model alone (live `build`: sol61 at
-    `hard`); with nothing to steer to the job runs on it again at the next pass, as routed afresh."""
+def test_c9_5_a_build_with_one_model_in_its_chain_waits(fleet):
     daemon, harness = fleet
     job_id = submit(daemon, harness, task="build")
     row = refuse(daemon, admit(daemon, job_id))
     assert evidence(row)["capacity_steer"]["model_id"] == ASTRA
-    second = admit(daemon, job_id)
-    assert second is not None and second["model_requested"] == ASTRA
+    assert admit(daemon, job_id) is None
+    assert daemon.store.get_job(job_id)["wait_reason"] == "capacity"
+    assert len(daemon.store.list_attempts(job_id)) == 1
 
 
 def test_c4_5_a_refused_job_still_ends_after_max_attempts(fleet):
@@ -327,8 +339,9 @@ def test_c4_5_a_refused_job_still_ends_after_max_attempts(fleet):
     daemon, harness = fleet
     for identity in ("claude-1", "claude-2"):
         daemon.store.update_lane(identity, enabled=0)
-    job_id = submit(daemon, harness)
+    job_id = submit(daemon, harness, pinned_model="astra", task=None, tier=None)
     for _ in range(3):
+        daemon.store.update_job(job_id, next_check_at=utcnow())
         refuse(daemon, admit(daemon, job_id))
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)

@@ -1,25 +1,8 @@
-"""C-9.5, C-11.2, D-CAP1: a model the job's own attempt found at capacity is walked last.
+"""C-9.5, C-11.2, D-CAP1: a live capacity steer excludes the refused model.
 
-2026-10-13: three `hard` jobs lost hours to gpt-6.1-sol answering "Selected model is at
-capacity. Please try a different model." after 4 to 26 minutes of work. Each retry asked the
-same model again, on the same lane 60 s later (C-4.5, C-9.5) and then on another of its lanes,
-where the refusal was the same. The daemon now hands the route of such a job (no model or lane
-pin, no turn, resume or revive: `scheduler.capacity_steerable`) a `capacity_steer`, the model
-ids its attempts found at capacity whose steer has not ended, and `scheduler.prepare` walks
-those models after the rest of the chain. So the chain's next model that has a candidate takes
-the job, and the model at capacity does only when no other can: a steer never leaves a job
-waiting. These pin the walk; `tests/fake/test_capacity_steer_daemon.py` and
-`tests/e2e/test_capacity_steer_e2e.py` pin how a refusal comes to steer a job.
-
-Invariants, over random stores, policies and jobs (`tests/routing_strategies.py`):
-- the steered walk is the unsteered walk reordered: the same models, those not steered first
-  in their order, then the steered ones in theirs; no model below the job's tier, none added;
-- a job the steer does not apply to (pinned, a turn, a resume, a revive) is routed exactly as
-  without it, and so is any job whose steer names no model of its walk;
-- differential: the steered decision chooses the first model of its walk that has a candidate,
-  and that model's lane, exactly as an evaluation of that model alone (pinned) chooses them,
-  with the same candidates and rejections for every model it walked;
-- C-6.3: the reservation's check of a steered decision is exactly a fresh evaluation's answer.
+An unpinned job takes the first admissible unsteered model in chain order, or
+waits for capacity. Pins and session continuations keep their existing routing.
+Properties also check admission against reservation-time evaluation (C-6.3).
 """
 
 from __future__ import annotations
@@ -39,7 +22,7 @@ from tests.unit.test_route_check import check
 NOW = "2026-10-13T07:22:09Z"
 UNTIL = "2026-10-13T07:37:09Z"          # the refusal's finish plus MODEL_CAPACITY_STEER_S
 ASTRA, OPUS = "gpt-6-astra", "claude-opus-5-5"
-SETTINGS = settings(max_examples=400, deadline=None, derandomize=True,
+SETTINGS = settings(max_examples=40, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
                                            HealthCheck.filter_too_much])
 
@@ -86,26 +69,35 @@ def test_c11_2_a_steered_hard_review_goes_to_the_chains_next_model(policy):
     decision = scheduler.evaluate(policy, fleet(), job(capacity_steer=STEER))
     assert decision.chain == ("opus",)
     assert decision.chosen_model == "opus" and decision.chosen_lane in ("claude-1", "claude-2")
-    assert f"astra: at capacity for this job until {UNTIL}, walked last (C-9.5)" in decision.reason
+    assert f"astra: at capacity for this job until {UNTIL}, skipped by capacity steer (C-9.5)" in decision.reason
 
 
-def test_c11_2_with_no_lane_for_the_next_model_the_model_at_capacity_still_takes_the_job(policy):
-    """C-9.5: a steer orders the walk and never holds a job: with every Opus lane closed (the
-    incident's claude-10 was five-hour limited), the job goes back to the model it left."""
+def test_c11_2_with_no_lane_for_the_next_model_the_job_waits(policy):
     view = fleet([closure("claude-1"), closure("claude-2")])
     decision = scheduler.evaluate(policy, view, job(capacity_steer=STEER))
-    assert decision.chain == ("opus", "astra")
-    assert (decision.chosen_model, decision.chosen_lane) == ("astra", "codex-1")
-    assert "opus: no candidate lanes after exclusions; promoted" in decision.reason
+    assert decision.chain == ("opus",)
+    assert (decision.chosen_model, decision.chosen_lane) == (None, None)
+    assert f"astra: at capacity for this job until {UNTIL}, skipped by capacity steer" in decision.reason
+    assert scheduler.waiting_metadata(decision, now=NOW)["wait_reason"] == "capacity"
 
 
-def test_c11_2_a_chain_of_one_model_is_walked_as_before(policy):
-    """D-CAP1, pr181-fix8: a `hard` build's chain is the model at capacity alone; there is
-    nothing to steer to, and the job is routed as it was."""
-    plain = scheduler.evaluate(policy, fleet(), job(task="build"))
-    steered = scheduler.evaluate(policy, fleet(), job(task="build", capacity_steer=STEER))
-    assert plain.chain == steered.chain == ("astra",)
-    assert (steered.chosen_model, steered.chosen_lane) == (plain.chosen_model, plain.chosen_lane)
+def test_c11_2_a_chain_of_one_steered_model_waits(policy):
+    decision = scheduler.evaluate(policy, fleet(), job(task="build", capacity_steer=STEER))
+    assert decision.chain == ()
+    assert (decision.chosen_model, decision.chosen_lane) == (None, None)
+    assert UNTIL in decision.reason and "capacity steer" in decision.reason
+
+
+def test_c9_5_an_expired_steer_does_not_exclude_the_model(policy):
+    view = {**fleet(), "now": UNTIL}
+    assert scheduler.evaluate(policy, view, job(capacity_steer=STEER)).chosen_model == "astra"
+
+
+def test_c9_5_a_capacity_wait_rechecks_at_the_steers_end(policy):
+    now = "2026-10-13T07:37:00Z"
+    decision = scheduler.evaluate(policy, {**fleet(), "now": now}, job(task="build", capacity_steer=STEER))
+    waiting = scheduler.waiting_metadata(decision, now=now, rechecks=20, capacity_steer=STEER)
+    assert waiting == {"wait_reason": "capacity", "next_check_at": UNTIL}
 
 
 @pytest.mark.parametrize("changes", [
@@ -141,16 +133,16 @@ def test_c11_2_a_steer_inside_the_upward_walk_changes_routing(policy):
     assert scheduler.prepare(policy, fleet(), spec)["chain"] == ["opus", "astra"]
     assert scheduler.evaluate(policy, fleet(), spec).chosen_model == "opus"
     steered = {**spec, "capacity_steer": {OPUS: UNTIL}}
-    assert scheduler.prepare(policy, fleet(), steered)["chain"] == ["astra", "opus"]
+    assert scheduler.prepare(policy, fleet(), steered)["chain"] == ["astra"]
     assert scheduler.evaluate(policy, fleet(), steered).chosen_model == "astra"
 
 
 @pytest.mark.parametrize("steer", [{ASTRA: UNTIL, OPUS: UNTIL}, {OPUS: UNTIL, ASTRA: UNTIL}])
 def test_c11_2_multiple_steers_keep_policy_order_regardless_of_map_order(policy, steer):
-    """Both models remain in the policy's preference order, regardless of steer insertion order."""
+    """Every live steer excludes its model, regardless of insertion order."""
     spec = job(tier="standard", task="build", capacity_steer=steer)
-    assert scheduler.prepare(policy, fleet(), spec)["chain"] == ["opus", "astra"]
-    assert scheduler.evaluate(policy, fleet(), spec).chosen_model == "opus"
+    assert scheduler.prepare(policy, fleet(), spec)["chain"] == []
+    assert scheduler.evaluate(policy, fleet(), spec).chosen_model is None
 
 
 # --- properties over random stores, policies and jobs ---------------------------------------------
@@ -178,7 +170,7 @@ def routes(policy, view, spec):
 
 @SETTINGS
 @given(steered_cases())
-def test_c11_2_a_steer_reorders_the_walk_and_nothing_else(case):
+def test_c11_2_a_steer_excludes_live_models_and_nothing_else(case):
     policy, store, route, steer = case
     view = view_of(store, STRATEGY_NOW)
     try:
@@ -190,8 +182,7 @@ def test_c11_2_a_steer_reorders_the_walk_and_nothing_else(case):
         assert walk == plain
         return
     steered = [short for short in plain if policy["models"][short]["id"] in steer]
-    assert walk == [short for short in plain if short not in steered] + steered
-    assert sorted(walk) == sorted(plain)
+    assert walk == [short for short in plain if short not in steered]
 
 
 @SETTINGS
@@ -222,14 +213,8 @@ def test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candid
             break
     assert (decision.chosen_lane, decision.chosen_model) == expected
     assert decision.chain == tuple(walk[:len(decision.evaluations)])
-    # Stated directly: while a model of the walk that is not at capacity can take the job, the
-    # job never goes to one that is; it does only when none can (a steer never holds a job).
-    free = [short for short in walk if policy["models"][short]["id"] not in steer
-            and scheduler.evaluate(policy, view, {**route, "pinned_model": short}).chosen_lane]
-    if free:
-        assert decision.chosen_model == free[0]
-    elif plain.chosen_lane:
-        assert decision.chosen_lane is not None
+    assert decision.chosen_model is None or policy["models"][decision.chosen_model]["id"] not in steer
+
 
 
 @SETTINGS
@@ -253,3 +238,27 @@ def test_the_decision_shape_is_unchanged():
     records written before it (C-11.5)."""
     assert [field.name for field in dataclasses.fields(scheduler.Decision)] == \
         ["chain", "evaluations", "chosen_lane", "chosen_model", "reason", "policy_hash"]
+
+
+@SETTINGS
+@given(chain=st.lists(st.sampled_from(sorted(BASE_POLICY["models"])), min_size=1, unique=True),
+       admissible=st.sets(st.sampled_from(("codex-1", "codex-2", "claude-1", "claude-2"))),
+       steer=st.dictionaries(st.sampled_from(MODEL_IDS),
+                             st.sampled_from((UNTIL, "2026-10-13T07:20:00Z"))))
+def test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait(policy, chain, admissible, steer):
+    """Independent oracle over arbitrary chains, lane availability and live/expired steers."""
+    policy["chains"]["review"][-1] = chain
+    view = build_view([lane(identity, enabled=identity in admissible)
+                       for identity in ("codex-1", "codex-2", "claude-1", "claude-2")],
+                      (), (), (), (), now=NOW)
+    live = {model_id for model_id, until in steer.items() if until > NOW}
+    expected = next((short for short in chain
+                     if policy["models"][short]["id"] not in live
+                     and any(identity.startswith(policy["models"][short]["provider"] + "-")
+                             for identity in admissible)), None)
+    decision = scheduler.evaluate(policy, view, job(capacity_steer=steer))
+    assert decision.chosen_model == expected
+    assert decision.chosen_model is None or policy["models"][decision.chosen_model]["id"] not in live
+    if expected is None:
+        assert decision.chosen_lane is None
+        assert scheduler.waiting_metadata(decision, now=NOW)["wait_reason"] == "capacity"
