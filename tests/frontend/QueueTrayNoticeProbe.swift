@@ -15,9 +15,10 @@ struct QueueTrayNoticeProbe {
                 ("notice", false, "Continuation queued", false),
                 ("notice-status", false, "Continuation queued", true),
             ] {
-                let view = NSHostingView(rootView: ConversationNoticeRow(words: words, withdrawn: withdrawn,
+                let controller = NSHostingController(rootView: ConversationNoticeRow(words: words, withdrawn: withdrawn,
                     status: status ? AnyView(Text("Withdrawn").readingFont(.caption)) : nil))
-                let size = view.sizeThatFits(NSSize(width: width, height: 10_000))
+                let view = controller.view
+                let size = controller.sizeThatFits(in: NSSize(width: width, height: 10_000))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: size.height),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
                 window.contentView = view

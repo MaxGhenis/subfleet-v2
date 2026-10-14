@@ -621,11 +621,14 @@ def test_c29_7_property_withdraw_interrupts_only_what_status_says_runs(core_prob
 
 @pytest.fixture
 def daemon():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-qe-", dir="/tmp")))
-    server = ServiceServer(harness)
-    yield harness, server
-    server.close()
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-qe-") as scratch:
+        harness = ServiceHarness(Path(scratch))
+        server = ServiceServer(harness)
+        try:
+            yield harness, server
+        finally:
+            server.close()
+            harness.close()
 
 
 def live(core_probe, server, steps: list[dict], **extra) -> dict:

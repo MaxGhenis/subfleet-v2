@@ -562,13 +562,11 @@ struct TimelineRow: View {
                 Text((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""))
             }
         case .notice(let words):
-            VStack(alignment: .leading, spacing: Theme.space.step) {
-                NoticeRow(symbol: "info.circle") { Text(words) }
-                if item.id.hasPrefix("person:"), let id = item.messageID,
-                   let turn = model.state.timelines[conversation.conversation_id]?.turn(id) {
-                    TurnStatusLine(model: model, conversation: conversation, turn: turn)
-                }
-            }
+            let turn = item.id.hasPrefix("person:") ? item.messageID.flatMap {
+                model.state.timelines[conversation.conversation_id]?.turn($0)
+            } : nil
+            ConversationNoticeRow(words: words, withdrawn: turn.map(Timeline.withdrawnBeforeStart) ?? false,
+                status: turn.map { AnyView(TurnStatusLine(model: model, conversation: conversation, turn: $0)) })
         case .taskNotification(let notice):
             TaskNotificationView(notice: notice)
         case .steered:

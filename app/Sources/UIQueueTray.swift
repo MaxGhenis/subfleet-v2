@@ -99,4 +99,24 @@ struct QueueTrayRow: View {
         }
     }
 }
+/// A pre-start withdrawal is one compact line; other message notices retain
+/// their existing status and served facts. Values only, for offscreen hosting.
+struct ConversationNoticeRow: View {
+    let words: String
+    var withdrawn = false
+    var status: AnyView? = nil
+
+    var body: some View {
+        if withdrawn {
+            Text(words).readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading).help(words)
+        } else {
+            VStack(alignment: .leading, spacing: Theme.space.step) {
+                NoticeRow(symbol: "info.circle") { Text(words) }
+                if let status { status }
+            }
+        }
+    }
+}
 #endif

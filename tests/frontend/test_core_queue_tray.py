@@ -6,14 +6,12 @@ pinned above the composer, in the order the daemon sends the queue, with
 Withdraw (app/Sources/QueueTray.swift). These tests pin what the conversation
 view reads from the timeline:
 
-- a message waits in the tray when the daemon holds it (`queued`), or, before
-  its receipt, when something is ahead of it: a live turn, a block holding the
-  conversation, or an earlier message still waiting; only a send with nothing
-  ahead shows in the timeline;
-- the tray is in the order the daemon sends the queue (`next_dispatchable`:
-  repair origins first, then sequence), a send with no receipt after those, in
-  the order it was made; a failover continuation shows under the message it
-  continues;
+- a message waits in the tray exactly while something is ahead of it: a live
+  turn, a block, or an earlier dispatchable message; the idle head stays in
+  the timeline before and after a queued receipt;
+- order matches next_dispatchable: repairs, missed steers, ordinary messages,
+  wakes, then sequence, with unreceipted sends in arrival order; a queued
+  failover continuation remains a timeline notice but counts as ahead;
 - a row's Withdraw is `message.cancel` for a message the daemon holds, the
   outbox's withdrawal for one with no receipt, and nothing for an unblock
   note; Steer is offered only on the head, a person's message the daemon
@@ -259,12 +257,14 @@ def test_c29_7_an_idle_send_answered_queued_stays_in_the_timeline(core_probe):
     """C-29.7: a send with nothing ahead starts next; its receipt, which says
     `queued` until the dispatcher claims it, does not move it into the tray
     and back (the flash the tray exists to avoid)."""
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-tray-", dir="/tmp")))
+    scratch = tempfile.TemporaryDirectory(prefix="sf-tray-")
+    harness = ServiceHarness(Path(scratch.name))
     try:
         cid = harness.create()["conversation_id"]
         answer = harness.submit(cid, "hello there")
     finally:
         harness.close()
+        scratch.cleanup()
     if answer["state"] != "queued" or answer["created"] is not True:
         pytest.fail(f"precondition: the daemon's answer to an idle send is a new queued message: {answer}")
     mid = answer["message_id"]
@@ -422,7 +422,8 @@ def test_c29_7_a_cancelled_message_that_did_something_keeps_its_bubble(core_prob
 def test_c29_7_real_daemon_withdrawals_always_leave_one_line(core_probe):
     """C-29.7 with the daemon's own receipts (`message.submit`, `message.cancel`,
     and the tombstone `message.cancel` makes for an id it never received)."""
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-tray-", dir="/tmp")))
+    scratch = tempfile.TemporaryDirectory(prefix="sf-tray-")
+    harness = ServiceHarness(Path(scratch.name))
     try:
         cid = harness.create()["conversation_id"]
         first = harness.submit(cid, "start the migration")
@@ -432,6 +433,7 @@ def test_c29_7_real_daemon_withdrawals_always_leave_one_line(core_probe):
         tombstone = harness.call("message.cancel", message_id=ghost, conversation_id=cid)
     finally:
         harness.close()
+        scratch.cleanup()
     assert (withdrawn["state"], withdrawn["state_reason"], withdrawn["stop_requested"]) == ("cancelled", "withdrawn",
                                                                                             True)
     assert (tombstone["origin"], tombstone["state"], tombstone["state_reason"]) == ("tombstone", "cancelled",
@@ -1041,7 +1043,7 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
     assert timeline["caught_up"] == known["caught_up"] and timeline["history_pages"] == known["history_pages"]
     assert (layout["settling"], layout["has_history"]) == (not known["caught_up"], known["history_pages"] > 0)
 
-    # (1) Every message's person row is in exactly one of the timeline or the tray; a tombstone in neither.
+    # (1) Every message appears once; a pre-start tombstone retains its withdrawn line.
     for mid, turn in turns.items():
         if mid == CONVERSATION_KEY:
             continue
