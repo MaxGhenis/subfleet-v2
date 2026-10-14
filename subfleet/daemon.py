@@ -8204,7 +8204,7 @@ class Daemon:
                      self._artifact(Path(launch.stdin_path), "prompt-sent")
                      if launch.stdin_path and Path(launch.stdin_path).name == "prompt.sent.md" else None,
                      self._artifact(adir / "lane.log", "lane-log"),
-                     self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
+                     self._artifact(frozen_stream, "raw-stream") if frozen_stream is not None else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
