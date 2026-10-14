@@ -13,7 +13,7 @@ import pytest
 
 from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.codex import CodexAdapter, completion_evidence
-from subfleet.contracts import OutcomeClass
+from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.sessions.transcripts import NotRegularFile
@@ -195,7 +195,7 @@ def test_replacement_after_type_check_supplies_no_events(tmp_path, monkeypatch, 
     elif reader.endswith("classify"):
         assert adapter.classify(tmp_path, launch, _exit(0)).cls != OutcomeClass.OK
     elif reader.endswith("deliverable"):
-        assert adapter.deliverable(tmp_path, launch, None) is None
+        assert adapter.deliverable(tmp_path, launch, Outcome(OutcomeClass.UNKNOWN, "replacement")) is None
     elif reader == "claude-raw":
         assert adapter.raw_stream_text(tmp_path, launch) == ""
     elif reader == "claude-summary":
