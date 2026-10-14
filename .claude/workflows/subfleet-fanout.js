@@ -201,13 +201,21 @@ def status(entry):
     try:
         result = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
         etime = result.stdout.strip()
-        if result.returncode != 0 or not re.fullmatch(r"(?:[0-9]+-)?[0-9]+:[0-9]{2}(?::[0-9]{2})?", etime):
+        fields = re.fullmatch(r"(?:(?:([0-9]+)-)?([0-9]+):)?([0-5][0-9]):([0-5][0-9])", etime)
+        if result.returncode != 0 or fields is None:
             return "unknown"
-        days, _, clock = etime.rpartition("-")
-        age = int(days or 0) * 86400 + sum(int(n) * 60 ** i for i, n in enumerate(reversed(clock.split(":"))))
-    except (OSError, subprocess.SubprocessError, ValueError):
+        days, hours, minutes, seconds = (int(n or 0) for n in fields.groups())
+        if fields[1] is not None and hours > 23:
+            return "unknown"
+        age = days * 86400 + hours * 3600 + minutes * 60 + seconds
+        now = time.time()
+        # A duration older than the epoch cannot match a positive spawn stamp.
+        # Bound the integer before float subtraction, including enormous fields.
+        if age > now:
+            return "unknown"
+        return "reused" if now - age > since + 2 else "alive"
+    except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
         return "unknown"
-    return "reused" if time.time() - age > since + 2 else "alive"
 with open(sys.argv[1], "a+") as lock:
     try:
         budget = float(os.environ.get("SUBFLEET_FANOUT_LOCK_WAIT_S", "5"))
