@@ -293,9 +293,10 @@ def test_incident_2026_09_30_replay_a_held_lane_never_takes_a_credit(fleet, ends
     """C-23.16 (e): codex-6, the furthest-out lane, is under an operator hold. The timer spends on the
     waiting job's next lane instead, and the operator's own `reset codex codex-6` is refused.
 
-    `before-the-limit`: the hold ends before the lane's open account limit, so `Store.put_closure`
-    keeps the limit's row and the hold is only its `lane.held` event. `after-the-limit`: the
-    hold's row replaces the limit's."""
+    `before-the-limit`: the hold ends before the lane's open account limit; `after-the-limit`: after
+    it. Either way `Store.put_closure` keeps the hold's row beside the limit's (C-9.6, D-HOLD1);
+    before that fix the first left only the hold's `lane.held` event and the second replaced the
+    limit's row with the hold's."""
     service, http = fleet
     for number in range(1, 7):
         limit(service, number)
