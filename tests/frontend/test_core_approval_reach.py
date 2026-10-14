@@ -383,6 +383,98 @@ def test_c27_5_two_identical_requests_join_their_own_approvals(core_probe, reque
         assert rows_of(result, "m1")[-1] == result["pending_items"][0]
 
 
+# Two pending approvals of one kind with identical displays: on two messages whose
+# providers numbered the request alike (Codex numbers its requests per process), on
+# two messages with their own ids, and twice in one turn.
+SAME_KIND_PAIRS = {
+    "two-turns-one-request-id": (("m1", "900"), ("m2", "900")),
+    "two-turns": (("m1", "900"), ("m2", "901")),
+    "one-turn-twice": (("m1", "900"), ("m1", "901")),
+}
+
+
+def asked_twice(pair: tuple) -> tuple[list[dict], list[str], list[dict]]:
+    """Both requests asked and read before `approval.list` was: the cards carry no
+    approval id yet. Returns the steps, the two card rows and their two views."""
+    log = Log()
+    rows, views = [], []
+    for (mid, request) in pair:
+        if mid not in [e["message_id"] for e in log.events]:
+            log.add(mid, "accepted")
+        rows.append(ask(log, mid, request, "git status"))
+        views.append(listed(f"ap-{mid}-{request}", mid, "git status", len(log.events), request_id=request))
+    mids = sorted({mid for mid, _ in pair})
+    receipts = [receipt(mid, n, "approval-needed") for n, mid in enumerate(mids, start=1)]
+    return [{"receipts": receipts}, log.page(), log.page()], rows, views
+
+
+@pytest.mark.parametrize("listed_first", [0, 1], ids=["first-listed-first", "second-listed-first"])
+@pytest.mark.parametrize("shape", sorted(SAME_KIND_PAIRS))
+def test_c27_5_a_card_answers_its_own_approval_among_two_of_the_same_kind(core_probe, shape, listed_first):
+    """Acting on either card reads `approval.list` and answers that card's approval:
+    the one of its own message and request, in whichever order the list names them.
+    Before 80be501 the app answered the first pending approval of the card's kind in
+    the whole conversation, whichever card the person acted on."""
+    steps, rows, views = asked_twice(SAME_KIND_PAIRS[shape])
+    listed_views = views if listed_first == 0 else views[::-1]
+    for row, view in zip(rows, views):
+        before = fold(core_probe, steps)
+        card = next(item["card"] for item in before["items"] if item["id"] == row)
+        assert card["state"] == "pending" and card["approval_id"] is None
+        result = fold(core_probe, steps + [{"resolve": row, "listed": listed_views}])
+        assert result["results"][-1] == f"resolve:listed:{view['approval_id']}"
+        # Acting on it again needs no list: the card holds its own id now.
+        again = fold(core_probe, steps + [{"resolve": row, "listed": listed_views}, {"resolve": row}])
+        assert again["results"][-1] == f"resolve:known:{view['approval_id']}"
+
+
+@pytest.mark.parametrize("shape", ["two-turns-one-request-id", "two-turns"])
+def test_c27_5_a_stale_card_never_answers_another_turns_approval(core_probe, shape):
+    """The chip's case. m1's request was withdrawn when its turn ended, before the app
+    read that, and m2 asked the same thing. The daemon lists only m2's approval. Acting
+    on m1's card says it no longer waits (and the list withdraws the card); acting on
+    m2's answers m2's own, whether that list read is the one m1's card made (which gave
+    m2's card its id) or its own. The kind-only fallback gave m1's card m2's approval."""
+    steps, (stale, live), (_, view) = asked_twice(SAME_KIND_PAIRS[shape])
+    result = fold(core_probe, steps + [{"resolve": stale, "listed": [view], "snapshot": True},
+                                       {"resolve": live, "listed": [view]}])
+    assert result["results"][-2:] == ["resolve:listed:none", f"resolve:known:{view['approval_id']}"]
+    alone = fold(core_probe, steps + [{"resolve": live, "listed": [view]}, {"resolve": stale, "listed": [view]}])
+    assert alone["results"][-2:] == [f"resolve:listed:{view['approval_id']}", "resolve:not-pending"]
+    cards = {item["id"]: item["card"] for item in result["snapshots"][0]["items"] if item["type"] == "approval"}
+    assert cards[stale]["state"] == "withdrawn" and cards[stale]["approval_id"] is None
+    assert result["pending_items"] == [live]
+
+
+def test_c27_5_an_older_daemons_views_never_answer_an_event_card(core_probe):
+    """Views from a daemon older than `request_id` cannot identify either event card,
+    whatever their message: both say they no longer wait, and each approval is
+    answered on its own approval-id card (C-27.1)."""
+    steps, rows, views = asked_twice(SAME_KIND_PAIRS["two-turns-one-request-id"])
+    legacy = [{key: value for key, value in view.items() if key != "request_id"} for view in views]
+    for row in rows:
+        result = fold(core_probe, steps + [{"resolve": row, "listed": legacy}])
+        assert result["results"][-1] == "resolve:listed:none"
+    result = fold(core_probe, steps + [{"pending": legacy},
+                                       *({"resolve": f"approval:{v['message_id']}:{v['approval_id']}"} for v in legacy),
+                                       *({"resolve": row} for row in rows)])
+    assert result["results"][-4:] == [*(f"resolve:known:{v['approval_id']}" for v in legacy),
+                                      "resolve:not-pending", "resolve:not-pending"]
+
+
+def test_c27_1_a_card_that_names_no_request_is_never_answered_by_a_lookup(core_probe):
+    """An `approval.requested` event without a request id (one a store cut down to its
+    size cap) makes a card nothing identifies: it is not answered through a lookup."""
+    log = Log()
+    log.add("m1", "accepted")
+    log.add("m1", "approval.requested", kind="tool", tool="Bash", input="command: git status",
+            options=["allow", "deny", "cancel-turn"])
+    view = listed("ap-m1", "m1", "git status", 2, request_id="900")
+    result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed")]}, log.page(),
+                               {"resolve": "approval:m1:seq2", "listed": [view]}])
+    assert result["results"][-1] == "resolve:unidentified"
+
+
 def test_c27_5_review_brings_a_question_into_view_and_opens_the_sheet_only_for_a_tool_request(core_probe):
     """The 2.1.10 merge of C-27.5 with the inline cards (C-27.2): the strip's Review
     brings the oldest waiting card into view either way, but opens the request sheet
@@ -710,13 +802,16 @@ def timelines(draw):
         elif action == "tool":
             log.add(mid, "tool.started", id=f"t{len(log.events)}", name="Bash", summary="ls")
         elif action == "ask" and mid not in ended:
-            # A completed turn asks nothing more (its approvals went with it).
-            request = f"r{len(truth)}"
+            # A completed turn asks nothing more (its approvals went with it). Each turn
+            # numbers its requests from r0, as Codex numbers them per process, so request
+            # ids repeat across messages and never within one.
+            request = f"r{sum(a['view']['message_id'] == mid for a in truth.values())}"
             command = draw(st.sampled_from(["git status", "git status", "ls", f"cmd {request}"]))
             ask(log, mid, request, command=command)
-            truth[f"ap-{request}"] = {"view": listed(f"ap-{request}", mid, command, len(log.events),
-                                                     request_id=request if request_ids else None),
-                                      "request": request, "state": "pending"}
+            approval_id = f"ap-{mid}-{request}"
+            truth[approval_id] = {"view": listed(approval_id, mid, command, len(log.events),
+                                                 request_id=request if request_ids else None),
+                                  "request": request, "state": "pending"}
         elif action == "answer" and truth:
             approval = truth[draw(st.sampled_from(sorted(truth)))]
             if approval["state"] == "pending":
@@ -756,7 +851,7 @@ def timelines(draw):
             steps.insert(draw(st.integers(0, len(steps))), {"local": {"message_id": mid, "text": f"local {mid}"}})
     for step in steps:
         step["snapshot"] = True
-    return {"steps": steps, "request_ids": request_ids,
+    return {"steps": steps, "request_ids": request_ids, "truth": truth,
             "pending": {id: a for id, a in truth.items() if a["state"] == "pending"}}
 
 
@@ -908,6 +1003,39 @@ def test_c27_5_property_cards_join_the_daemons_pending_approvals(core_probe, cas
     if case["request_ids"]:
         for row in result["pending_items"]:
             assert cards[row]["request_id"] == case["pending"][cards[row]["approval_id"]]["request"]
+
+
+@PROPERTY
+@given(case=timelines())
+def test_c27_5_property_a_card_answers_its_own_approval_or_none(core_probe, case):
+    """Acting on any card just before the daemon's pending set is read again, as the
+    person may: the app answers the approval of the card's own message (and, for an
+    event card, its own request), or says the card no longer waits. Never another
+    approval: not another turn's, whose request id repeats, and not one of identical
+    requests (C-27.1, C-27.5). Where views carry the request id, a card still waiting
+    on a pending approval is answered on that approval."""
+    steps = [dict(step) for step in case["steps"]]
+    last = max(index for index, step in enumerate(steps) if "pending" in step)
+    steps.insert(last, {"resolve_all": steps[last]["pending"], "snapshot": True})
+    result = fold(core_probe, steps)
+    seen = {item["id"]: item for item in result["snapshots"][last]["items"] if item["type"] == "approval"}
+    truth = case["truth"]
+    assert set(result["resolutions"]) == set(seen)
+    for row, outcome in result["resolutions"].items():
+        item, card = seen[row], seen[row]["card"]
+        how, _, approval_id = outcome.partition(":")
+        if how in ("known", "listed") and approval_id != "none":
+            approval = truth[approval_id]
+            assert approval["view"]["message_id"] == item["message_id"], (row, outcome)
+            if card["request_id"] is not None:
+                assert approval["request"] == card["request_id"], (row, outcome)
+            if how == "listed":
+                assert approval["state"] == "pending", (row, outcome)
+        else:
+            assert outcome in ("not-pending", "unidentified", "listed:none"), (row, outcome)
+        own = f"ap-{item['message_id']}-{card['request_id']}"
+        if case["request_ids"] and card["state"] == "pending" and own in case["pending"]:
+            assert outcome in (f"known:{own}", f"listed:{own}"), (row, outcome)
 
 
 @PROPERTY

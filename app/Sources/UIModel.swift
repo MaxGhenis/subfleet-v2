@@ -1028,42 +1028,25 @@ final class UIModel: ObservableObject {
         }
     }
 
-    /// The approval id for a card the events made before `approval.list` was read.
+    /// The approval id for a card the person acts on. A card the events made before
+    /// `approval.list` was read gets its id from a fresh list, joined on the card's own
+    /// message and request; nil, never another approval (`Timeline.listedApprovalID`).
+    /// A missing provider id cannot identify an event card: a legacy approval is
+    /// answered on its own immutable approval-id card (C-27.1).
     func approvalID(for card: ApprovalCard, conversationID: String) async -> String? {
-        guard card.isPending else {
+        switch Timeline.approvalLookup(for: card, in: state.timelines[conversationID]) {
+        case .known(let id): return id
+        case .unidentified: return nil
+        case .notPending:
             problem = "That approval is no longer pending."
             return nil
-        }
-        if let id = card.approvalID { return id }
-        guard let requestID = card.requestID else { return nil }
-        // Provider request ids can repeat across turns. Keep the original
-        // message as well as the request when the approval list fills its id.
-        let owners = state.timelines[conversationID]?.turns.values.filter { turn in
-            turn.pendingApprovals.contains {
-                $0.requestID == requestID && $0.kind == card.kind && $0.display == card.display
-            }
-        } ?? []
-        guard owners.count == 1, let messageID = owners.first?.messageID else {
-            problem = "That approval is no longer pending."
-            return nil
+        case .needsList: break
         }
         guard let engine, let approvals = try? await onOutbox({ try engine.approvals(conversationID: conversationID) }) else {
             return nil
         }
         state.apply(approvals: approvals, conversationID: conversationID)
-        // The card joined to one of the daemon's pending approvals, or none: another
-        // pending approval of the same kind is not this one (C-27.5). A missing
-        // provider id cannot authenticate an event card: its legacy approval is
-        // answered on its own immutable approval-id card (C-27.1).
-        let matches = state.timelines[conversationID]?.turns[messageID]?.pendingApprovals.filter {
-            $0.requestID == requestID && $0.kind == card.kind && $0.display == card.display
-        } ?? []
-        guard matches.count == 1, let id = matches.first?.approvalID,
-              approvals.contains(where: {
-                  $0.approval_id == id && $0.message_id == messageID && $0.conversation_id == conversationID
-                      && $0.requestID == requestID
-                      && $0.state == "pending" && $0.kind == card.kind && $0.display == card.display
-              }) else {
+        guard let id = state.timelines[conversationID]?.listedApprovalID(for: card, listed: approvals) else {
             problem = "That approval is no longer pending."
             return nil
         }

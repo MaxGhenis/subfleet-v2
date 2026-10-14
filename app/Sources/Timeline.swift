@@ -64,6 +64,10 @@ struct ApprovalCard: Equatable {
     var state: State
     /// Answers this app successfully submitted, retained on the settled row.
     var answers: [String: String] = [:]
+    /// The message whose turn asked, set where the timeline makes the card. Provider
+    /// request ids repeat across turns (Codex numbers its requests per process), so a
+    /// card is found by its message and request, never by the request alone (C-27.5).
+    var messageID: String? = nil
 
     var isPending: Bool { state == .pending }
     /// An event summary alone cannot identify the approval the person answers.
@@ -601,7 +605,8 @@ struct Timeline: Equatable {
                 let card = ApprovalCard(requestID: requestID,
                                         approvalID: approvalID,
                                         kind: kind, display: display, options: options, state: .pending,
-                                        answers: approvalID.flatMap { knownApprovalAnswers[$0] } ?? [:])
+                                        answers: approvalID.flatMap { knownApprovalAnswers[$0] } ?? [:],
+                                        messageID: id)
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
             }
@@ -869,7 +874,8 @@ struct Timeline: Equatable {
             } else if approval.state == "pending" {
                 let card = ApprovalCard(requestID: approval.requestID, approvalID: approval.approval_id,
                                         kind: approval.kind, display: approval.display, options: approval.options,
-                                        state: .pending, answers: knownApprovalAnswers[approval.approval_id] ?? [:])
+                                        state: .pending, answers: knownApprovalAnswers[approval.approval_id] ?? [:],
+                                        messageID: approval.message_id)
                 let rowID = "approval:\(approval.message_id):\(approval.approval_id)"
                 turn.items.append(TimelineItem(id: rowID, messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
@@ -913,6 +919,54 @@ struct Timeline: Equatable {
         return knownApprovals.values.first {
             $0.message_id == turn.messageID && $0.requestID == requestID && !held.contains($0.approval_id)
         }?.approval_id
+    }
+
+    // MARK: The approval a card answers
+
+    /// Where a card the person acts on stands before `approval.list` is read
+    /// (`UIModel.approvalID`): the card as the person saw it, this timeline as it is now.
+    enum ApprovalLookup: Equatable {
+        /// The card holds its approval id already.
+        case known(String)
+        /// The card no longer waits, or its own message shows no such pending card.
+        case notPending
+        /// An event card that names no provider request: nothing identifies its approval.
+        case unidentified
+        /// Read the daemon's pending set, apply it, then `listedApprovalID`.
+        case needsList
+    }
+
+    static func approvalLookup(for card: ApprovalCard, in timeline: Timeline?) -> ApprovalLookup {
+        guard card.isPending else { return .notPending }
+        if let id = card.approvalID { return .known(id) }
+        guard card.requestID != nil else { return .unidentified }
+        return timeline?.pendingCards(like: card).count == 1 ? .needsList : .notPending
+    }
+
+    /// The approval id of an event card once the daemon's whole pending set
+    /// (`approvals`) is attached and reconciled: the id joined to the one pending card
+    /// of the card's own message asking its request, kind and display, when that set
+    /// names the approval pending for this conversation, message and request. Otherwise
+    /// nil, and the person is told the card no longer waits: never another message's
+    /// approval, whose request id may be the same, and never a pick between identical
+    /// requests (C-27.1, C-27.5).
+    func listedApprovalID(for card: ApprovalCard, listed approvals: [ApprovalView]) -> String? {
+        let matches = pendingCards(like: card)
+        guard matches.count == 1, let id = matches[0].approvalID, let messageID = card.messageID else { return nil }
+        let named = approvals.filter { $0.approval_id == id }
+        guard named.count == 1, named[0].conversation_id == conversationID, named[0].message_id == messageID,
+              named[0].requestID == card.requestID, named[0].state == "pending", named[0].kind == card.kind,
+              named[0].display == card.display else { return nil }
+        return id
+    }
+
+    /// The pending cards of the card's own message that ask its request: one, unless
+    /// the card is gone or a provider repeated a request id within the message.
+    private func pendingCards(like card: ApprovalCard) -> [ApprovalCard] {
+        guard let messageID = card.messageID, let requestID = card.requestID else { return [] }
+        return turns[messageID]?.pendingApprovals.filter {
+            $0.requestID == requestID && $0.kind == card.kind && $0.display == card.display
+        } ?? []
     }
 
     /// Every card still waiting for the person.
