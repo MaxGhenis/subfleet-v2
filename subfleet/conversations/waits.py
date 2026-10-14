@@ -189,6 +189,8 @@ def hold_reason(hold: Mapping[str, Any], *, describe: Callable[[str], str],
         return "admission: an earlier attempt of this turn is still live or quarantined"
     if reason == "route-moved":
         return "admission: its lane changed while it was being placed; it is looked at again at once"
+    if reason == "lane-opened":
+        return "admission: a lane opened while turns were being placed; it is looked at again at once, in order"
     if reason == "behind-older-job":
         if hold.get("key", "").startswith("providers."):
             return ("capacity: " + render.provider_cap_text(hold) +

@@ -237,6 +237,9 @@ _HOLD_TEXT = {
                        "attempt, never run (C-24.7)",
     "route-moved": "its route could not be settled in {tries} reservations in a row (commits changed it, or its "
                    "clock ran out); it keeps its place and the next pass looks again (C-6.3)",
+    "lane-opened": "{opened} opened after the last admission pass began, so that pass gave it to no job; this job "
+                   "keeps its place, and the next pass, which follows at once, offers it to every waiting job in "
+                   "order (C-6.10)",
     "machine-busy": "the machine is saturated ({machine}) and the guard holds {class} jobs at the door until it "
                     "is not; admission.machine_guard sets the thresholds (C-6.13)",
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
@@ -422,6 +425,7 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
                       **(_retiring(hold) if hold.get("retiring") else {}),
                       "queued": ", ".join(hold.get("queued", ())) or "-",
+                      "opened": ", ".join(hold.get("opened", ())) or "a lane",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
             if reason == "disk" and hold.get("free_gb") is None:

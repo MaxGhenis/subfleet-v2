@@ -26,7 +26,12 @@ against the code that produced it:
   stays within its caps.
 - P4 recheck cost (C-6.10): a look that repeats its verdict adds no decision
   row and sets a later clock, so a quiet fleet looks at a waiting job a bounded
-  number of times however long it waits.
+  number of times however long it waits. A look that a lane opening cut short
+  (`lane-opened`) keeps the job's clock: the next pass looks at once.
+- P5 a lane that opens mid-pass (C-6.10): capacity can change during a look; a
+  lane that opens then goes to no job of that pass, and a pass that may stop
+  looks at no further job (2026-10-14: 15 due jobs took a lane the hub's ramp
+  opened while the priority caller's job waited out its 30 s clock).
 
 Incidents: 2026-09-20 (034d3d3: the `standard` tier held behind an Opus head on
 `reserve:fable:unmeasured` beside eleven free Fable lanes for three hours;
@@ -309,6 +314,11 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.probe_mode = "ok"
         self.next_outcome: Outcome | None = None
         self.looks: set[str] = set()                # jobs whose workspace this pass prepared: a look
+        self.look_order: list[str] = []             # the same, in the order the pass looked
+        # C-6.10: a capacity change to make while the next pass looks at its n-th job, as (n, change),
+        # and the lanes it opened, with how many looks the pass had begun by then.
+        self.mid_pass: tuple[int, tuple] | None = None
+        self.opened_mid_pass: tuple[frozenset[str], int, frozenset[str]] | None = None
         self.last_look: dict[str, dict] = {}        # job id -> the hold its last look reported
         self.decided: dict[str, object] = {}        # job id -> the decision this pass's look reached
         self.last_verdict: dict[str, str] = {}      # job id -> C-6.10's verdict at its last look
@@ -369,6 +379,14 @@ class AdmissionMachine(RuleBasedStateMachine):
         def workspace(job):
             # A look starts here: C-6.10's cost is this preparation and the scoring after it.
             self.looks.add(job["job_id"])
+            self.look_order.append(job["job_id"])
+            if self.mid_pass and len(self.look_order) == self.mid_pass[0] + 1:
+                # C-6.10: a lane opens (or not) while this look is under way, after the pass began.
+                change, self.mid_pass = self.mid_pass[1], None
+                before = service._lane_gates()
+                attempts = frozenset(row["attempt_id"] for row in service.store.list_attempts())
+                self.change_capacity(change)
+                self.opened_mid_pass = (before.opened(service._lane_gates()), len(self.look_order), attempts)
             if job["job_id"] in self.workspace_faults:
                 raise OSError(errno.EAGAIN, "injected: workspace temporarily unavailable")
             assert job["sandbox"] == "read-only", "the machine submits read-only jobs only"
@@ -550,7 +568,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             self.store.add_closure(Closure(lane_id, scope, self.clock.iso(seconds), ClosureReason.PROVIDER_LIMIT,
                                            ClockSource.REPORTED, "fixture"))
         elif kind == "lift":
-            # An operator lifts a lane's closures (C-6.10: seen at the next recheck).
+            # An operator lifts a lane's closures (C-6.10: a lane that opens brings backed-off waits forward).
             with self.store.transaction("fixture.closures_lifted") as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND released_at IS NULL",
                            (self.clock.iso(), lane_id))
@@ -563,7 +581,7 @@ class AdmissionMachine(RuleBasedStateMachine):
         elif kind == "toggle":
             self.store.update_lane(lane_id, enabled=int(rest[0]))
         elif kind == "enroll":
-            # A lane appears (C-6.10: capacity that appears is seen at the next recheck).
+            # A lane appears (C-6.10: a lane enrolled frees capacity too, as one that opens).
             new_provider, label = rest
             if len(self.store.lane_rows()) < 6:
                 new = self.put_lane(new_provider, None if new_provider == "codex" else label)
@@ -656,6 +674,19 @@ class AdmissionMachine(RuleBasedStateMachine):
         self.last_provider_state.clear()
         note("restarted")
 
+    @precondition(lambda self: self.service is not None)
+    @rule(change=CAPACITY, look=st.integers(0, 5))
+    def capacity_changes_during_a_pass(self, change, look):
+        """C-6.10: capacity changes while a pass is under way, during its `look`-th look (after the pass,
+        if it looks at fewer jobs). A pass that prepares workspaces and probes serially runs for 30 s or
+        more under load, so a lane often opens (an operator's release, a lane enabled or enrolled) while
+        one is half done."""
+        self.mid_pass = (look, change)
+        self.admission_pass()
+        if self.mid_pass:
+            self.mid_pass = None
+            self.change_capacity(change)
+
     @rule(seconds=st.sampled_from((1, 2, 5, 16, 31, 61, 121, 301, 3601)))
     def time_passes(self, seconds):
         """Time passes and the next tick runs a pass."""
@@ -672,7 +703,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         attempts = {row["attempt_id"] for row in self.store.list_attempts()}
         live_rows = self.live()
         live_before, provider_before = len(live_rows), self.provider_live(live_rows)
-        self.looks, self.decided = set(), {}
+        self.looks, self.decided, self.look_order, self.opened_mid_pass = set(), {}, [], None
+        may_stop = not self.service._pass_stopped.get("detached", False)
         try:
             self.service._admit()
         except Exception as exc:
@@ -687,6 +719,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             event(f"hold: {hold['reason'].split(':')[0]}")
         event(f"pass placed {min(len(placed), 3)}+ with {min(len(self.pending(after)), 4)}+ pending")
         self.check_totality(before, after, placed)
+        self.check_lane_opened(placed, may_stop)
         self.check_non_interference(before, after, placed, live_before, provider_before)
         self.check_caps()
         self.check_recheck_cost(before, after, decisions, provider_before)
@@ -712,7 +745,7 @@ class AdmissionMachine(RuleBasedStateMachine):
                         "slot-kept": {"kept_for", "live", "max_active_attempts", "tier"},
                         "lease-held": {"leases"}, "route": {"error_type", "error", "deferrals", "next_check_at"},
                         "pin-unadmittable": {"lane_id", "reasons", "closures", "since", "fail_at"},
-                        "route-moved": {"tries"},
+                        "route-moved": {"tries"}, "lane-opened": {"opened"},
                         # C-6.4a: "`why` and status name `providers.<provider>.max_active_attempts` and say
                         # `<provider>: N of N running`, or identify an older peer keeping a slot".
                         "provider-cap": {"provider", "live", "max_active_attempts", "key"},
@@ -768,6 +801,22 @@ class AdmissionMachine(RuleBasedStateMachine):
                     f"C-6.11: {job_id}'s hold degraded between looks: {self.last_look[job_id]} -> {repeated}"
         for job_id in set(self.last_look) - set(self.pending(after)):
             self.last_look.pop(job_id)
+
+    def check_lane_opened(self, placed, may_stop) -> None:
+        """P5 (C-6.10): a lane that opened while this pass was under way went to no job of this pass, which
+        did not offer it to the jobs it had passed over on their clocks; and unless the pass before it
+        stopped so, the pass looked at no job after the look the lane opened during."""
+        if self.opened_mid_pass is None:
+            return
+        opened, at, attempts = self.opened_mid_pass
+        event(f"C-6.10: a change during a look {'opened a lane' if opened else 'opened none'}")
+        late = [(row["job_id"], row["lane_id"]) for row in placed
+                if row["attempt_id"] not in attempts and row["lane_id"] in opened]
+        assert not late, f"P5, C-6.10: {late} placed on {sorted(opened)}, which opened after the pass began"
+        if opened and may_stop:
+            assert not self.look_order[at:], (
+                f"P5, C-6.10: {sorted(opened)} opened during the look of {self.look_order[at - 1]}, and the pass "
+                f"went on to look at {self.look_order[at:]}")
 
     def demands(self, job, roster) -> list[tuple]:
         """What a job could be waiting for: its own demand, or the one retry pinned to its last pair (C-4.5)."""
@@ -925,6 +974,10 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert counts[job_id] == decisions[job_id], f"C-6.10: {job_id} gained a decision row without a look"
         for job_id in self.looks & set(pending):
             job = after[job_id]
+            if self.service._holds.get(job_id, {}).get("reason") == "lane-opened":
+                # C-6.10, intended: a look a lane's opening cut short keeps the job's place and clock, and the
+                # next pass, which follows at once, looks at it in order. Bounded by the openings.
+                continue
             assert job["state"] == "waiting" and job["next_check_at"] and parse(job["next_check_at"]) > now, \
                 f"C-6.10: {job_id} was looked at and left {job['state']} with next_check_at {job['next_check_at']!r}"
             decision, wait = self.decided.get(job_id), waits.get(job_id)

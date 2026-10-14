@@ -218,6 +218,37 @@ def test_c6_10_a_new_provider_peer_ahead_refreshes_the_hold_and_adds_no_row(rout
     assert service._capacity_waits[job]["rechecks"] == 1
 
 
+def test_c6_9_a_job_held_behind_one_that_now_holds_nobody_is_looked_at(routing_state):  # noqa: F811
+    """C-6.9, C-6.11, C-11.8 (P2): with a provider's count (C-6.4a) the FIFO is asked at the reservation,
+    so the `behind-older-job` hold is the look's, and passes that do not look at the job repeat it. When
+    the older job turned unadmittable (every lane it could use refuses it for a standing reason, so it
+    "holds back none"), the younger one went on naming it until its own clock came due. It is now looked
+    at on the first pass on which the older job holds it back no longer, as a job held for an older
+    job's probe turn is. Found by the stateful machine (ProviderCapMachine, 2026-10-14) and reproduced
+    on release/217."""
+    service, harness = provider_capped(routing_state, 1)
+    filler = submit(service, harness, pinned_model="terra", pinned_lane="codex-1")
+    service._admit()
+    assert placed_on(service, filler) == "codex-1"          # the Codex count is full
+    older = submit(service, harness, pinned_model="terra", exclusions=["codex-2", "codex-3"])
+    younger = submit(service, harness, pinned_model="terra")
+    service._admit()
+    assert service._holds[older]["reason"] == "provider-cap"
+    assert service._holds[younger]["reason"] == "behind-older-job"
+    assert service._holds[younger]["behind"] == older
+    for job_id in (older, younger):
+        service.store.update_job(job_id, next_check_at=after(600))   # both clocks run
+    service.store.update_lane("codex-1", enabled=0)          # all the older job could use, refused for good
+    looked = []
+    real = service._workspace
+    service._workspace = lambda job: looked.append(job["job_id"]) or real(job)
+    service._admit()
+    assert sorted(service._holds[older].get("for_good", ())) == ["disabled", "excluded"]
+    assert looked == [younger]
+    assert service._holds[younger].get("behind") != older
+    assert service._holds[younger]["reason"] in ("provider-cap", "provider-slot-kept")
+
+
 def test_c4_1_a_probe_that_quarantines_leaves_its_job_uncertain_and_holding_nobody(routing_state):  # noqa: F811
     """C-4.1 "Only `capacity` holds back the jobs behind it in its tier"; C-6.11 "A wait that is a
     person's or a retry's to end (`approval`, `uncertain`, `workspace`) is reported as that". On the
