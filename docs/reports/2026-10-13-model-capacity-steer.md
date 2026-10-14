@@ -52,9 +52,10 @@ I read every attempt folder under `~/.subfleet/jobs/202610*/` read-only: 5,507 C
 2. **The fleet-wide steer** (every unpinned job skips the model for 15 minutes after any refusal). Rejected on the data. It would have moved the 350 of 390 attempts the model was serving to their second choice, and held every hard build (no second model) for 15 minutes, to spare 40 refusals.
 3. **A per-job steer, derived from the job's own attempts**, beside C-4.5's existing per-job lane exclusions (`_retry_pin`). Chosen: the smallest change that makes admission's next evaluation prefer another model for that job. It needs no schema change, no new closure reason and no in-memory state. It survives a restart because it is read from the attempt row.
 
-### Walk last, never wait
+### Skip while the steer is live (corrected in round 2)
 
-Within the per-job steer, the model at capacity is **walked last**, not excluded. While its steer lasts, `scheduler.prepare` moves it after every other model of the job's chain, keeping their order. Another model takes the job whenever one has a candidate. The model at capacity takes it only when none can. Excluding it outright would hold a job whose chain has no other usable model: every hard build, or a hard review whose Opus lanes are all limited, as pr198-review-r6's claude-10 was. The data says such a wait buys nothing: the same job's repeat rate after a refusal did not fall with the gap. So a steer reorders the walk and never holds a job, and a chain of that one model is walked as before.
+Within the per-job steer, `scheduler.prepare` excludes each refused model while its steer is live. The remaining models keep chain order. Admission chooses the first admissible unsteered model, or the job waits for capacity. This includes single-model chains and reviews whose Claude lanes are all disabled. `why` names the skipped model, the capacity steer and its end. Capacity rechecks stop backing off at the earliest live steer expiry, when that model becomes eligible again. The original fallback interpretation contradicted the hub's D-CAP1 decision and was removed in round 2.
+
 
 ### Which jobs
 
@@ -68,11 +69,11 @@ Within the per-job steer, the model at capacity is **walked last**, not excluded
 
 ### Flow
 
-1. `CodexAdapter.classify` checks `MODEL_CAPACITY_RE` (`model[ is|was][ currently] at capacity`, or `model_at_capacity`) before the other transient texts. It reads Codex's failure events and stderr only (C-9.2), after authentication, old CLI, content and quota. It returns `transient`, writes no closure, sets `evidence.model_capacity = true`, and takes the matching failure as `admission`. The detail reads "Codex model at capacity: the provider asked for a different model". A server's or gateway's "capacity" stays an ordinary transient.
+1. `CodexAdapter.classify` checks `MODEL_CAPACITY_RE` (`model[ is|was][ currently] at capacity`, or `model_at_capacity`) before the other transient texts. It reads only the message of Codex's `turn.failed` or `error` events and top-level provider stderr error lines (C-9.2); tool diagnostics and their continuation lines cannot mark capacity, after authentication, old CLI, content and quota. It returns `transient`, writes no closure, sets `evidence.model_capacity = true`, and takes the matching failure as `admission`. The detail reads "Codex model at capacity: the provider asked for a different model". A server's or gateway's "capacity" stays an ordinary transient.
 2. `Daemon._finalize`, for a steerable job, records `capacity_steer = {model_id, until}`, where `until` is `MODEL_CAPACITY_STEER_S` (900 s) after the attempt's `finished_at`. It sets the retry due at once, not 60 s on. A pinned job's refusal records `model_capacity` and nothing else, and keeps the 60 s retry.
 3. `Daemon._retry_pin` sets no same-lane pin after a steered attempt. The lane exclusions are unchanged: a second transient on one lane still excludes it.
-4. Each admission look builds the job's route with `Daemon._route_job` → `_capacity_steer(job, previous)`: the job's own transient attempts' steers whose `until` is still ahead, read once per look. The look's early evaluation, its probe choice (C-11.4) and its reservation's check (`route_check.still_stands`, C-6.3) all see one job dict, so they walk one chain. A steer that ends between them changes nothing in that look. `_reset_demand` (C-23.16) routes the same way.
-5. `scheduler.prepare` reorders the chain. `decision_reason` prefixes `<model>: at capacity for this job until <t>, walked last (C-9.5)`, which `why` prints. The `Decision` record has no new field.
+4. Each admission look builds the job's route with `Daemon._route_job` → `_capacity_steer(job, previous)`: the job's own transient attempts' steers whose `until` is still ahead, read once per look. The look's early evaluation, its probe choice (C-11.4) and its reservation's check (`route_check.still_stands`, C-6.3) all see the same recorded steers. Each evaluation checks their expiry against its own clock; if expiry changes the walk before reservation, admission evaluates it again. `_reset_demand` (C-23.16) routes the same way.
+5. `scheduler.prepare` excludes live steered models. `decision_reason` prefixes `<model>: at capacity for this job until <t>, skipped by capacity steer (C-9.5)`, which `why` prints. The `Decision` record has no new field.
 
 ### Against the contract
 
@@ -83,7 +84,7 @@ Within the per-job steer, the model at capacity is **walked last**, not excluded
 
 ## The clock: 15 minutes
 
-No provider reports a clock, so this is a guess, marked as one in `contracts.py`. The hazard table puts most of the excess risk in the first 15 minutes after a refusal: 11.5% and 8.8%. After that it is 3 to 6% for the rest of an episode, against 0.2% outside one. Because a steer never holds a job, the clock costs nothing in waiting. It sets how long a refused job prefers its second model:
+No provider reports a clock, so this is a guess, marked as one in `contracts.py`. The hazard table puts most of the excess risk in the first 15 minutes after a refusal: 11.5% and 8.8%. After that it is 3 to 6% for the rest of an episode, against 0.2% outside one. The clock bounds how long a refused job skips that model. A job whose chain has no admissible unsteered model waits through that interval:
 
 - The next attempt starts within seconds, so any clock covers it.
 - If that attempt fails within 15 minutes, the job's next try still avoids the refused model.
@@ -99,8 +100,8 @@ Regressions first: `5c2348290` (tests), then `22d44da` (a test correction), then
 | --- | --- |
 | `tests/fixtures/codex/model-at-capacity-sol` | The incident attempt pr198-review-r6/a1. Events kept verbatim, including the recovered 503; tool transcript removed. |
 | `tests/unit/test_codex_adapter.py` | The refusal from `turn.failed`, an `error` event, stderr, and the incident's order is `transient`, has no closure, and is marked, with the refusal (not the 503) as admission. Other transient texts stay unmarked; stronger verdicts keep precedence; a recovered refusal before a completed turn is `ok`. Two Hypothesis properties: any surrounding text marks the refusal, and the model's own words never mark it. |
-| `tests/unit/test_capacity_steer_route.py` | Live-shaped examples. Three derandomized Hypothesis properties over the routing strategies (400 examples each): the steer only reorders the walk; a differential test against each model evaluated alone; the reservation check of a steered decision equals a fresh evaluation. |
-| `tests/fake/test_capacity_steer_daemon.py` | In-process finalization and admission, with the real Codex classifier on the fixture. A refused hard review runs on Opus at the next pass. With no Opus lane it goes back to the model at once. After the steer ends the model is chosen again. `-m` and lane pins and an ordinary transient keep the 60 s same-lane retry. Another job is unaffected; a hard build retries its only model; `max_attempts` still ends the job; `_capacity_steer` reads only its job's live steers. |
+| `tests/unit/test_capacity_steer_route.py` | Live-shaped examples. Four bounded, derandomized Hypothesis properties (40 examples each): the steer excludes live refused models; arbitrary chains and admissible lane sets choose the first unsteered candidate or wait; a differential test against each model evaluated alone; the reservation check of a steered decision equals a fresh evaluation. |
+| `tests/fake/test_capacity_steer_daemon.py` | In-process finalization and admission, with the real Codex classifier on the fixture. A refused hard review runs on Opus at the next pass. With no Opus lane it waits until the steer ends. After the steer ends the model is chosen again. `-m` and lane pins and an ordinary transient keep the 60 s same-lane retry. Another job is unaffected; a hard build waits while its only model is steered; `max_attempts` still ends the job; `_capacity_steer` reads only its job's live steers. |
 | `tests/e2e/test_capacity_steer_e2e.py` | The real daemon, guardian and adapters, with `tests/bin/codex` replaying the fixture (`SUBFLEET_FAKE_CODEX_SCENARIO`) while Claude answers. The steered hard review runs on Opus in under 60 s and succeeds. A `-m` job retries the same lane and model 60 s on. |
 
 Counts and mutation results: see "Runs" below.
@@ -121,7 +122,7 @@ From about 06:00Z to after 09:00Z on 2026-10-13 the lock was held, in turn, by o
 - **Claude's own capacity refusal.** `adapters/claude.py`'s `TRANSIENT_RE` includes `overload|at capacity`, and that adapter does not set the flag. The four Claude attempts whose streams contain the Codex phrase (`20261006-164039-net-r1-review-pr150` a1 and a2, `20261010-180139-lanes-touch-port-217` a1, `20261013-003522-pr195-review-r4` a1) hold it only in tool results. I did not survey Claude's own overload errors. The flag and the daemon's steer are provider-neutral, so a Claude rule would need only the classifier.
 - **A probe's capacity refusal** steers nothing: a probe is the lane's, not the job's (C-11.4).
 - **"We're currently experiencing high demand, which may cause temporary errors."** classifies `unknown`, not `transient`, when it is the last word: `TRANSIENT_RE` has "temporarily", not "temporary". It appeared only as a recovered reconnect in October. Left as it is; a test pins only that it is never marked.
-- **stderr lines from Codex's tool router** echo the job's own files (for example `joint-capacity-use.ts`). Every text signature already reads stderr whole (C-9.2). A tool error quoting the exact refusal would steer that one job for 15 minutes. That is low harm, but the boundary is worth a separate look for every signature, not just this one.
+- **stderr lines from Codex's tool router** echo the job's own files. Round 2 excludes those diagnostics and their quoted continuation from capacity signals. Other existing classification signatures retain their precedence.
 
 ## PR #207 fix round 1
 
@@ -170,3 +171,48 @@ The detached-grandchild process test and E2E files are intentionally unrun under
 The shared Git metadata rejected `ORIG_HEAD.lock`, and the original `.git` pointer is read-only. Commits therefore use workspace-local `.git-local` metadata on `fix/model-capacity-steer`; the original pointer is unchanged. Use `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD"` for this history. Every commit has the requested co-author trailer. No logs, generated JSON evidence or bundles were staged.
 
 The verified delivery bundle is at `docs/reports/2026-10-13-model-capacity-steer-r207f1.bundle`, ignored by Git, for importing this local commit history. No shared checkout, live state, shared exclude file or remote was changed.
+
+
+## PR #207 fix round 2
+
+Base: `7cda25c90856`, including the hub's #191, #194 and #199 merges. No remote was contacted. All changes are confined to the assigned workspace, with commits on `fix/model-capacity-steer` in workspace-local `.git-local` metadata; the original `.git` pointer and shared Git metadata are unchanged.
+
+### Findings and commits
+
+- `ac9020695`: regressions first. Replaced fallback expectations with capacity waits, added the reviewer's disabled-Claude-lanes case through steer expiry, preserved the pinned retry and terminal-attempt checks, added quoted-stderr and event-payload negatives, and covered broken lock paths and runner failure accounting. Routing properties use 40 bounded examples each.
+- `2b8ea654a`: P2 scheduler finding fixed. Live steered models are excluded, chain order is retained for the remaining models, and capacity waits recheck by steer expiry. C-4.5, C-9.5, C-11.2 and the contract history now state the skip-or-wait rule.
+- `4a4bb4f04`: P2 classifier finding fixed. Capacity matching reads failure-event messages and top-level provider stderr errors. A tool diagnostic preserves its context across following quoted lines, including payloads prefixed `ERROR:`; unrelated failure-event fields and tool output cannot mark capacity. Structured provider errors remain usable after a tool diagnostic.
+- `0f8b600f2`: gave each Hypothesis example a fresh policy, correcting the function-scoped-fixture health-check failure (initial routing run: 21 passed, one health-check failure).
+- `f32d7820e`: refreshed the expiry regression's provider reading after advancing the clock. Its initial run had 32 passes and one failure caused by the fixture becoming stale, which made admission request a probe instead of reserving the next attempt.
+- `e68c66895`: P3 mutation accounting finding fixed. A kill requires pytest exit 1 and a named failure in a selected regression. Lock, collection, termination and other runner errors propagate as nonzero tool failures, with source restored. Each mutation has its own lock hold and temporary Hypothesis storage; detached E2E cases are excluded. The ten mutations include one restoring the refused-model fallback.
+
+### Validation
+
+Final baseline: **1,006 passed, 2 skipped** across the requested files and the new mutation-runner regressions. No requested file remains unrun. Runs use Python 3.14.7 free threaded, pytest 9.1.1 and Hypothesis 6.168.1 from the frozen lockfile, one foreground pytest process per shared-lock hold, one worker, with task-owned TMPDIR and Hypothesis storage. The first two routing attempts timed out in the lock queue without running pytest (120-second queue bounds). Subsequent requested-file attempts use a 60-second queue bound. No deep profile is used. The standalone broken-lock reproduction exited **73**, reported an infrastructure error, counted no kills and restored all source files. Syntax parsing passed for all eight changed Python files.
+
+
+| File | Final result |
+| --- | --- |
+| `tests/unit/test_codex_adapter.py` | 145 passed |
+| `tests/unit/test_capacity_steer_route.py` | 22 passed |
+| `tests/fake/test_capacity_steer_daemon.py` | 33 passed |
+| `tests/unit/test_capacity_steer_mutations.py` | 8 passed |
+| `tests/unit/test_codex_turn_completed.py` | 41 passed |
+| `tests/fake/test_codex_turn_completed_fake.py` | 91 passed |
+| `tests/unit/test_provider_active_cap.py` | 50 passed |
+| `tests/fake/test_provider_active_cap_fake.py` | 60 passed |
+| `tests/fake/test_admission_priority.py` | 32 passed |
+| `tests/fake/test_admission_visibility.py` | 43 passed |
+| `tests/fake/test_routing_end_to_end.py` | 14 passed, 2 skipped |
+| `tests/unit/test_empty_provider_results.py` | 334 passed |
+| `tests/unit/test_limit_from_model_text.py` | 95 passed |
+| `tests/fake/test_state_contract.py` | 37 passed |
+| `tests/unit/test_test_module_names.py` | 1 passed |
+
+The two routing skips require process identity from sysctl/ps, which this sandbox does not permit. The full suite, detached E2E/process suites and Python 3.12 were not run in round 2. Each baseline file had a separate hold; no hold approached 20 minutes. Initial queue failures ran no pytest and are excluded from the counts. Temporary test storage was cleaned after each hold and no `.hypothesis` directory was left.
+
+The fixed mutation tool ran in a temporary `git archive` of `0f8b600f2`, with one foreground pytest process per hold and its own temporary Hypothesis storage. Result: **10/10 verified regression kills**, tool exit **0**, with no infrastructure errors. The driver verified that all three mutated source files were restored byte for byte and removed the archive afterward.
+
+The restored-fallback mutation was killed by `tests/fake/test_capacity_steer_daemon.py::test_c9_5_with_no_lane_for_the_next_model_the_job_waits_until_the_steer_ends`. The other kills covered removal of the steer, removal of model exclusion, dropping route evidence, restoring a same-lane pin, restoring the 60-second delay, steering pinned jobs, keeping expired steers, missing the refusal, and taking the first signal as admission evidence. Every kill named a failing regression; queue failures and the standalone broken-lock check were not counted.
+
+The final report commit also clarifies that each evaluation consults steer expiry at its own clock; the daemon edits in that step are comments only. `git diff --check` and syntax parsing passed. No logs, JSON evidence or bundles were staged. A portable bundle of this local history is stored at `.git-local/r207f2.bundle` and verified for import against `7cda25c90856`. No shared checkout, live state or remote was changed.

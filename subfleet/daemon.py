@@ -2001,7 +2001,8 @@ class Daemon:
         """C-9.5, D-CAP1: the models this job's own attempts found at capacity whose steer has not
         ended at `now` (default: the wall clock), model id to the end of its steer: what admission
         hands `scheduler.prepare` as the job's `capacity_steer`, read once per look so a job's
-        early evaluation and its reservation's check walk one chain (C-6.3). Empty for a job no
+        early evaluation and its reservation's check consult the same recorded steers at their own
+        clocks (C-6.3). Empty for a job no
         steer applies to (`scheduler.capacity_steerable`). Only the job's own `transient` attempts
         count: one job's refusal moves no other job, and no lane or account is touched."""
         if not scheduler.capacity_steerable(job):
@@ -6018,7 +6019,7 @@ class Daemon:
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
             # C-9.5, D-CAP1: a model the job's own attempt found at capacity is skipped while
-            # its steer lasts; read once here, so every evaluation of this look walks one chain.
+            # its steer lasts; read once here, so every evaluation sees the same recorded steers.
             decision_job = self._route_job(job, previous)
             turn_block = None
             if job["kind"] == "turn":
