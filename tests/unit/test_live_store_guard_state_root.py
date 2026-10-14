@@ -13,7 +13,6 @@ says it checks the real one; that test refuses every access before it happens.
 
 from __future__ import annotations
 
-import contextlib
 import os
 import pwd
 from pathlib import Path
@@ -26,6 +25,7 @@ from subfleet import home_paths
 from subfleet.conversations import service
 from subfleet.conversations.peers import APP_EXECUTABLES
 from subfleet.home_paths import SAFE_ENV_REMOVALS
+from tests.live_store_trap import untouchable
 
 DEV = "/Users/x/build/Subfleet Dev.app/Contents/MacOS/Subfleet"
 REFUSAL = "set HOME to an isolated test home"
@@ -55,36 +55,6 @@ def as_account(patch, home):
         return pwd.struct_passwd((*entry[:5], str(home), *entry[6:])) if uid == os.getuid() else entry
 
     patch.setattr(pwd, "getpwuid", lookup)
-
-
-@contextlib.contextmanager
-def untouchable(patch, root):
-    """Refuse, before it happens, any stat, lstat, readlink or listing at or
-    beneath `root`, by any case. Path.resolve and Path.samefile go through these."""
-    forbidden = os.path.normpath(os.fspath(root)).casefold()
-    touched = []
-
-    def reaches(path):
-        # Every directory the lookup walks, so `root/..` counts as well.
-        walked = ""
-        for part in os.fsdecode(path).casefold().split(os.sep):
-            walked = os.path.normpath(os.path.join(walked or os.sep, part)) if part else walked
-            if walked == forbidden or walked.startswith(forbidden + os.sep):
-                return True
-        return False
-
-    def guarded(function):
-        def call(path, *args, **kwargs):
-            if not isinstance(path, int) and reaches(os.path.join(os.getcwd(), os.fsdecode(path))):
-                touched.append(os.fsdecode(path))
-                raise AssertionError(f"touched {os.fsdecode(path)}")
-            return function(path, *args, **kwargs)
-        return call
-
-    with patch.context() as inner:
-        for name in ("stat", "lstat", "readlink", "listdir", "scandir"):
-            inner.setattr(os, name, guarded(getattr(os, name)))
-        yield touched
 
 
 # --- The defect CI found at dbd9c4112 ------------------------------------------

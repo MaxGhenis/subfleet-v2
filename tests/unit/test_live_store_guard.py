@@ -25,6 +25,7 @@ from subfleet.home_paths import (
 )
 from tests.conftest import pytest_configure, pytest_unconfigure
 from tests.keychain_standin import StandIn, standin  # noqa: F401 - the fixture
+from tests.live_store_trap import LIVE_STORES, untouchable
 
 REPO = Path(__file__).resolve().parents[2]
 RESOLVERS = [
@@ -386,7 +387,9 @@ def test_consumers_cannot_bypass_refusal(tmp_path, monkeypatch, consumer, variab
     if consumer == "importer":
         monkeypatch.setattr(importer, "import_legacy_cockpit", lambda *a, **k: pytest.fail("import reached files"))
     monkeypatch.setattr(importer, "_looks_like_v1_root", lambda *a: pytest.fail("import reached files"))
-    with pytest.raises(RuntimeError, match=variable):
+    # A consumer that refuses touches none of the person's stores; one that
+    # regresses fails here before its first access, not after it.
+    with untouchable(monkeypatch, *LIVE_STORES), pytest.raises(RuntimeError, match=variable):
         calls[consumer]()
 
 
