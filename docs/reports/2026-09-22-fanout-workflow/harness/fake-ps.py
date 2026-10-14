@@ -5,6 +5,9 @@ import sys
 import time
 
 mode = os.environ.get("FAKE_PS", "")
+if "FAKE_PS_ETIME" in os.environ:
+    print(os.environ["FAKE_PS_ETIME"])
+    sys.exit(0)
 if mode == "hang":
     os.execvp("sleep", ["sleep", "30"])
 if mode == "nonzero":

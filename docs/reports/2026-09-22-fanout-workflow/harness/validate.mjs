@@ -202,6 +202,31 @@ try {
     writeFileSync(join(c.args.stateDir, 'rq-test.lock'), record)
     return holder
   }
+  for (const [label, value] of [['out-of-range seconds', '00:99'], ['overflowing minutes', '9'.repeat(310) + ':00']]) {
+    await test(`round 10 finding: ${label} preserves LOCKED and reports unknown in every step`, async () => {
+      const c = await make(); c.setup()
+      c.env.SUBFLEET_FANOUT_LOCK_WAIT_S = '0'; c.env.FAKE_PS_ETIME = value
+      const holder = await holdLock(c, JSON.stringify({ launcher: { pid: process.pid, since: Date.now() / 1000 } }))
+      try {
+        for (const i of [0, 1, 2]) {
+          const blocked = c.step(i)
+          assert.equal(blocked.status, 75, blocked.text)
+          assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none$`, 'm'))
+          assert.doesNotMatch(blocked.text, /Traceback|CHECKSUM_OK|SETUP_OK|SUBMIT_RC|JOBS=|WAIT_RC/)
+        }
+        assert.equal(c.count('run'), 0)
+      } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
+    })
+  }
+  await test('round 10 property: arbitrary ps strings retain LOCKED and require valid elapsed-time identity', async () => {
+    const c = await make()
+    const command = join(c.root, 'step1.sh'); writeFileSync(command, c.commands[1])
+    const result = spawnSync('python3', [join(harness, 'lock_checks.py'), command],
+      { env: c.env, encoding: 'utf8', timeout: STEP_TIMEOUT_MS })
+    if (result.error) throw result.error
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    console.log(result.stdout.trim())
+  })
   // Port the reviewer's held-lock probes. Inspection is controlled even on a
   // sandbox that denies real ps; kill(pid, 0) still checks the actual PID.
   for (const mode of ['hang', 'nonzero', 'empty', 'malformed']) {
