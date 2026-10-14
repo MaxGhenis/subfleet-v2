@@ -5745,7 +5745,10 @@ class Daemon:
             verdict = self._retry_verdicts.get(job["job_id"])
             let_go = bool(retry and verdict and verdict[0] == previous[-1]["attempt_id"] and not verdict[1]
                           and job["next_check_at"] and job["next_check_at"] > utcnow())
-            models = scheduler.demand_models(self.policy, job if let_go else retry or job)
+            # C-6.9, C-9.5: FIFO must see the same live steer as routing,
+            # including when a backed-off waiter is not due for evaluation.
+            routed_job = self._route_job(job, previous)
+            models = scheduler.demand_models(self.policy, routed_job if let_go else retry or routed_job)
             lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
             pool = "turn" if job["kind"] == "turn" else "detached"
             pool_cap = turns_cap if pool == "turn" else cap
@@ -6018,9 +6021,9 @@ class Daemon:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
-            # C-9.5, D-CAP1: a model the job's own attempt found at capacity is skipped while
-            # its steer lasts; read once here, so every evaluation sees the same recorded steers.
-            decision_job = self._route_job(job, previous)
+            # Keep the steers read for FIFO above, with the job's current workspace
+            # fields. Each evaluation checks their expiry against its own clock.
+            decision_job = {**job, "capacity_steer": routed_job.get("capacity_steer", {})}
             turn_block = None
             if job["kind"] == "turn":
                 turn_block = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}
@@ -6038,7 +6041,7 @@ class Daemon:
                     # C-4.5 "then next candidate": the pair's lane refuses it for
                     # something a slot will not end, so the job routes as submitted,
                     # and as submitted it keeps C-6.9's place behind older jobs.
-                    models = scheduler.demand_models(self.policy, job)
+                    models = scheduler.demand_models(self.policy, decision_job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = None if defer_fifo else ahead(models, lanes)
                     if behind:

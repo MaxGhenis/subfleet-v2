@@ -372,7 +372,13 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
             chain = flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default))
             if job.get("pinned_lane"):
                 chain = mcp_chain(policy, chain, job)[:1]
-            return frozenset(chain)
+            # C-6.9, C-9.5: a live steer removes this model from the job's
+            # demand as well as its route. Expiry restores its FIFO place.
+            steer = job.get("capacity_steer") or {}
+            now = datetime.now(timezone.utc)
+            return frozenset(short for short in chain if not (
+                capacity_steerable(job) and policy["models"][short]["id"] in steer
+                and _time(steer[policy["models"][short]["id"]]) > now))
     except (PolicyError, ValueError, KeyError):
         pass
     return None
