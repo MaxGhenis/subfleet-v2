@@ -51,6 +51,15 @@ def open_stream(path: Path, mode: str = "rb", **kwargs):
         if exc.errno in (errno.ENXIO, errno.EOPNOTSUPP, errno.ENOTSUP,
                          errno.ELOOP, errno.EINVAL, errno.EISDIR):
             raise NotRegularFile(exc.errno, "not a regular stream", str(path)) from exc
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            # Darwin can deny opening a mode-000 replacement directory. Only
+            # proof of a non-regular entry distinguishes it from a real denial.
+            try:
+                replaced = not stat.S_ISREG(path.lstat().st_mode)
+            except OSError:
+                raise exc
+            if replaced:
+                raise NotRegularFile(exc.errno, "not a regular stream", str(path)) from exc
         raise
 
 

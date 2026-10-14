@@ -59,7 +59,8 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .provider_env import ProviderEnvironment
-from .guardian import atomic_publish
+from .guardian import atomic_publish, stream_digest
+from .frozen_stream import freeze_stream, read_freeze_receipt
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
@@ -8064,14 +8065,12 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            if role == "raw-stream":
-                with open_stream(path) as stream:
-                    contents = stream.read()
-            else:
-                contents = read_regular(path)      # only a regular file is an artifact
+            opener = open_stream if role == "raw-stream" else open_regular
+            with opener(path) as stream:
+                digest = stream_digest(stream)
         except (FileNotFoundError, NotRegularFile):
             return None
-        return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
+        return {"role": role, "path": str(path), **digest}
 
     @staticmethod
     def _restore_outcome(data: dict) -> Outcome:
@@ -8084,39 +8083,9 @@ class Daemon:
                                          "clock_source": ClockSource(closure["clock_source"])})
         return Outcome(**data)
 
-    def _freeze_stream(self, adir: Path, launch: Launch) -> Path | None:
-        """C-4.3, C-9.2: capture an authoritative stream on an unshared inode.
-
-        Any multiply linked regular entry can alias a provider's writable file;
-        detach it with the same atomic publication used for a first capture.
-        A raw path that names stdout is live, so its snapshot belongs at the
-        canonical path. Replays then reuse that snapshot without copying stdout.
-        """
-        stdout = Path(launch.stdout_path)
-        raw = Path(launch.raw_stream_path) if launch.raw_stream_path else None
-        canonical = adir / "stream.jsonl"
-        if raw is not None and os.path.abspath(raw) == os.path.abspath(stdout):
-            raw = canonical
-        frozen = next((path for path in (raw, canonical)
-                       if path is not None and os.path.lexists(path)), None)
-        if frozen is not None:
-            try:
-                with open_stream(frozen) as stream:
-                    if os.fstat(stream.fileno()).st_nlink <= 1:
-                        return frozen
-                    data = stream.read()
-            except (FileNotFoundError, NotRegularFile):
-                return frozen                       # authoritative, with no events
-            self._publish("raw-stream", frozen, data)
-            return frozen
-        if raw is not None:
-            try:
-                data = read_regular(stdout)         # never waiting in open()
-            except (FileNotFoundError, NotRegularFile):
-                return None
-            self._publish("raw-stream", raw, data)
-            return raw
-        return None
+    def _freeze_stream(self, adir: Path, launch: Launch) -> Path:
+        """C-4.3/C-9.2: copy once; replay the recorded daemon-owned inode."""
+        return freeze_stream(adir, launch, self._publish, self.publish_hook, open_stream)
 
     def _finalize(self, a: dict, *, lost: bool = False) -> None:
         job = self._job(a["job_id"])
@@ -8141,9 +8110,11 @@ class Daemon:
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         frozen_stream = self._freeze_stream(adir, launch)
-        if (frozen_stream is not None and launch.raw_stream_path
-                and os.path.abspath(launch.raw_stream_path) == os.path.abspath(launch.stdout_path)):
+        if frozen_stream is not None:
             launch = dataclasses.replace(launch, raw_stream_path=str(frozen_stream))
+        stream_receipt = read_freeze_receipt(adir) or {}
+        stream_token = stream_receipt.get("file")
+        recapture_deliverable = False
         lane = self.store.get_lane(a["lane_id"])
         adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
         if job["kind"] == "turn":
@@ -8165,6 +8136,14 @@ class Daemon:
         else:
             result_path = adir / "finalization.json"
             result = self._read_json(result_path)
+            # Missing/changed copies have no frozen authority. Reclassify and
+            # extract together; a cached interim deliverable is not fresh proof.
+            recapture_deliverable = bool(
+                (result and result.get("stream", stream_token) != stream_token)
+                or (stream_receipt.get("reset_finalization")
+                    and (result is None or result.get("stream") != stream_token)))
+            if recapture_deliverable:
+                result = None
             if result is None:
                 exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
                 outcome = adapter.classify(adir, launch, exit_info)
@@ -8172,7 +8151,7 @@ class Daemon:
                     outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                 attest = adapter.attest(adir, launch, outcome, a["model_requested"])
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
-                          "rule": FINALIZATION_RULE}
+                          "rule": FINALIZATION_RULE, "stream": stream_token}
                 self._publish("finalization", result_path, json_bytes(result))
             # A replay of this daemon's own verdict must reach its first pass's
             # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
@@ -8182,7 +8161,7 @@ class Daemon:
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
         deliverable_path = adir / "deliverable.md"
-        if not deliverable_path.exists() and not lost:
+        if (recapture_deliverable or not deliverable_path.exists()) and not lost:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
@@ -8255,7 +8234,7 @@ class Daemon:
                      self._artifact(Path(launch.stdin_path), "prompt-sent")
                      if launch.stdin_path and Path(launch.stdin_path).name == "prompt.sent.md" else None,
                      self._artifact(adir / "lane.log", "lane-log"),
-                     self._artifact(frozen_stream, "raw-stream") if frozen_stream is not None else None,
+                     self._artifact(frozen_stream, "raw-stream") if stream_receipt.get("events") else None,
                      self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
