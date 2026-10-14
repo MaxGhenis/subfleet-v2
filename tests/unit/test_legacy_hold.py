@@ -593,7 +593,7 @@ def core(tmp_path, monkeypatch):
     daemon._busy_lock, daemon._busy = threading.Lock(), set()
     daemon._pending_launches = set()
     daemon._export_locks = {}
-    daemon._exit_settle = {}
+    daemon._exit_settle, daemon._exit_recensus = {}, {}
     daemon._workspace_deferrals = {}
     daemon._reset_admission_state()
     daemon.log = logging.getLogger("subfleet.test.legacy-hold")

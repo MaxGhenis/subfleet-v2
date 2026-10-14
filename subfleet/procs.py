@@ -649,6 +649,16 @@ def snapshot() -> ProcessTable:
     return ProcessTable(rows)
 
 
+# C-5.5's source reads, named as a census records their failure. A census whose
+# only errors are these, and that shows no live process and no ambiguous identity,
+# saw nothing at all: it is blind, and decides nothing on its own (C-5.9).
+GROUP_UNAVAILABLE = "group enumeration unavailable"
+DESCENDANT_UNAVAILABLE = "descendant enumeration unavailable"
+MARKER_UNAVAILABLE = "marker enumeration unavailable"
+CWD_UNAVAILABLE = "cwd enumeration unavailable"
+ENUMERATION_ERRORS = frozenset({GROUP_UNAVAILABLE, DESCENDANT_UNAVAILABLE, MARKER_UNAVAILABLE, CWD_UNAVAILABLE})
+
+
 @dataclass(frozen=True)
 class Containment:
     group_pids: frozenset[int] = frozenset()
@@ -697,6 +707,13 @@ class Containment:
     @property
     def verified_empty(self) -> bool:
         return not self.unverifiable and not self.errors and not self.live_pids and not self.ambiguous_identities
+
+    @property
+    def blind(self) -> bool:
+        """C-5.9: not verified empty only because a source read failed (a `ps` or
+        the cwd `lsof` timed out or failed), with no process or ambiguity seen."""
+        return (bool(self.errors) and set(self.errors) <= ENUMERATION_ERRORS
+                and not self.live_pids and not self.ambiguous_identities)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -808,8 +825,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         table = seen.rows
     except InspectionError:
         seen, table = None, {}
-        errors.append("group enumeration unavailable")
-        errors.append("descendant enumeration unavailable")
+        errors.append(GROUP_UNAVAILABLE)
+        errors.append(DESCENDANT_UNAVAILABLE)
 
     def live(pid: int) -> bool:
         return pid in table and not table[pid][2].startswith("Z")
@@ -1235,13 +1252,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                         continue
                 observe_later(pid, markers, local_marker=bool(marker.search(command)))
     except (InspectionError, ValueError):
-        errors.append("marker enumeration unavailable")
+        errors.append(MARKER_UNAVAILABLE)
     if workdir is not None:
         try:
             for pid in cwd_pids(workdir):
                 observe_later(pid, cwds, foreign=foreign_attempts.get(pid))
         except InspectionError:
-            errors.append("cwd enumeration unavailable")
+            errors.append(CWD_UNAVAILABLE)
     observed_writer = observed_writer or bool(cwds)
     if observed_writer:
         try:

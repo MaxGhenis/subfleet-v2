@@ -7,18 +7,21 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import signal
 import threading
 import time
 from types import SimpleNamespace
 
+from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 from tests.signal_stubs import authorized_signal_stub
 
 from subfleet import daemon as daemon_module
+from subfleet.cli import exit_for_job
 from subfleet.contracts import (
-    Attestation, AttestationResult, Credential, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    Attestation, AttestationResult, Credential, Exit, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     attempt_dir,
 )
 from subfleet.daemon import Daemon
@@ -37,19 +40,38 @@ GUARDIAN_ONLY = Containment(frozenset({4242}), frozenset({4242}), frozenset(), F
                             {4242: {"ppid": 1, "pgid": 4242, "stat": "S"}})
 UNVERIFIABLE = Containment(unverifiable=True, errors=("group enumeration unavailable",
                                                       "descendant enumeration unavailable"))
+# C-5.9: what a census reads when only its cwd `lsof` timed out (PR #131 CI, 2026-10-13):
+# blind, so it decides nothing for `exit_inspect_s`.
+BLIND_CWD = Containment(unverifiable=True, errors=("cwd enumeration unavailable",))
+# Unverifiable, and not blind: a writer seen while the cwd scan failed, and a hold that
+# is no failed read (the lineage overflow, C-5.5). Each still quarantines past exit_settle_s.
+SEEN_WHILE_BLIND = Containment(frozenset(), frozenset({4243}), frozenset(), True,
+                               {4243: ProcessIdentity(4243, "boot", STARTED)}, ("cwd enumeration unavailable",),
+                               {4243: {"ppid": 1, "pgid": 4243, "stat": "S"}})
+OVERFLOW = Containment(unverifiable=True, errors=("lineage root limit exceeded",))
 EMPTY = Containment()
 
 
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
     """A daemon core with a running attempt and no processes: the census is injected."""
-    root = tmp_path / "state"
+    core = build_core(tmp_path / "state")
+    # No real process is signalled or inspected: the leader is gone, signals succeed.
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
+    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
+    monkeypatch.setattr(daemon_module.procs, "signal_process", authorized_signal_stub(lambda *args, **kwargs: True))
+    yield core
+    core.store.close()
+
+
+def build_core(root) -> Daemon:
+    """The `daemon` fixture's core in its own state root (a property builds one per example)."""
     attempt_dir(root, JOB, 1).mkdir(parents=True)
     core = object.__new__(Daemon)
     core.root, core.store = root, Store(root / "state.sqlite3")
     core.stopping = threading.Event()
-    core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
-    core._exit_settle = {}
+    core.term_grace_s, core.kill_settle_s, core.exit_settle_s, core.exit_inspect_s = .05, .3, .3, 60
+    core._exit_settle, core._exit_recensus = {}, {}
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
@@ -76,12 +98,7 @@ def daemon(tmp_path, monkeypatch):
                            model_requested="astra", state="running", guardian_pid=4242,
                            child_pid=4243, pgid=4242, boot_id="boot", proc_start=STARTED,
                            started_at="2026-09-05T14:00:00Z", evidence_json="{}")
-    # No real process is signalled or inspected: the leader is gone, signals succeed.
-    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
-    monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
-    monkeypatch.setattr(daemon_module.procs, "signal_process", authorized_signal_stub(lambda *args, **kwargs: True))
-    yield core
-    core.store.close()
+    return core
 
 
 def attempt(core) -> dict:
@@ -196,10 +213,11 @@ def test_c5_6_kill_quarantines_only_after_the_settle_window(daemon, monkeypatch)
     assert signals == [(child, signal.SIGTERM), (child, signal.SIGKILL), (child, signal.SIGKILL)]
 
 
-@pytest.mark.parametrize("census", [BUSY, GUARDIAN_ONLY, UNVERIFIABLE],
-                         ids=["survivor", "guardian-only", "unverifiable"])
+@pytest.mark.parametrize("census", [BUSY, GUARDIAN_ONLY, SEEN_WHILE_BLIND, OVERFLOW],
+                         ids=["survivor", "guardian-only", "seen-while-cwd-failed", "unverifiable-hold"])
 def test_c5_9_exit_receipt_census_waits_out_exit_settle_before_quarantining(daemon, census):
     """C-5.9 after exit.json the census may drain for exit_settle_s; past it, writers remain."""
+    assert not census.blind
     daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
     atomic_publish(attempt_dir(daemon.root, JOB, 1) / "exit.json",
                    json.dumps({"rc": 0, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 60,
@@ -314,6 +332,148 @@ def test_c4_2_dead_guardian_without_receipt_runs_containment(daemon, monkeypatch
     daemon._contain = lambda a, foreign_ownership=None: calls.append(1) or EMPTY
     daemon._process_attempt(ATTEMPT)
     assert calls and attempt(daemon)["state"] == "lost"
+
+class HeldMonotonic:
+    """The daemon module's `time` with `monotonic` held where the test puts it; the rest
+    is the real module, so files, stamps and the store are untouched."""
+
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+def finished_run(core, monkeypatch) -> HeldMonotonic:
+    """An attempt whose provider exited 0 with a deliverable, read into `finalizing`."""
+    with_launch(core, monkeypatch)
+    publish_receipt(core, rc=0)
+    core.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
+    clock = HeldMonotonic()
+    monkeypatch.setattr(daemon_module, "time", clock)
+    return clock
+
+
+def scripted(core, clock, script, then=EMPTY) -> list[tuple[float, Containment]]:
+    """Each census takes its seconds on the held clock and returns its verdict (past the
+    script, `then`); what was taken, and when it returned, is listed."""
+    taken: list[tuple[float, Containment]] = []
+
+    def contain(a, foreign_ownership=None):
+        seconds, census = script[len(taken)] if len(taken) < len(script) else (0.0, then)
+        clock.now += seconds
+        taken.append((clock.now, census))
+        return census
+    core._contain = contain
+    return taken
+
+
+def offer(core, clock, every: float = .05) -> None:
+    """The control loop: a pass over the finalizing attempt every `every` seconds."""
+    for _ in range(20000):
+        if attempt(core)["state"] != "finalizing":
+            return
+        core._finalize(attempt(core))
+        clock.now += every
+    raise AssertionError("finalization never ended")
+
+
+def blind_censuses_at_most(core) -> int:
+    """C-5.9's pace: the census after a blind one waits as long as the window has run
+    (at least `inspect_interval_s`), so the window's censuses at least double their age."""
+    return 2 + math.ceil(math.log2(core.exit_inspect_s / core.inspect_interval_s))
+
+
+def test_c5_9_two_timed_out_cwd_scans_in_a_row_do_not_lose_a_finished_run(daemon, monkeypatch):
+    """C-5.9, C-17.3 (PR #131 CI run 38458495060): a run exited 0, and the cwd `lsof` of the
+    census after it ran out its 10 s cap twice in a row, so the second census, past
+    exit_settle_s, quarantined it, the job became `lost` and `subfleet wait` exited 125.
+    A blind census decides nothing; the next one that can read finalizes the run."""
+    clock = finished_run(daemon, monkeypatch)
+    taken = scripted(daemon, clock, [(12.0, BLIND_CWD), (12.0, BLIND_CWD)])
+    offer(daemon, clock)
+    assert [exit_for_job(row) for row in daemon._wait_answer([JOB])["jobs"]] == [Exit.OK]
+    a, job = attempt(daemon), daemon.store.get_job(JOB)
+    assert a["state"] == "succeeded" and a["quarantine_reason"] is None, a
+    assert job["state"] == "succeeded" and job["accepted_attempt_id"] == ATTEMPT
+    assert [census for _, census in taken] == [BLIND_CWD, BLIND_CWD, EMPTY]
+    assert ATTEMPT not in daemon._exit_settle and ATTEMPT not in daemon._exit_recensus
+
+
+def test_c5_9_a_census_blind_for_exit_inspect_s_still_quarantines(daemon, monkeypatch):
+    """C-5.9 the wait is bounded: a census that cannot be read for exit_inspect_s
+    quarantines the attempt as before (never releases it), re-taken on a widening pace."""
+    clock = finished_run(daemon, monkeypatch)
+    taken = scripted(daemon, clock, [], then=BLIND_CWD)
+    offer(daemon, clock)
+    since = taken[0][0]
+    a = attempt(daemon)
+    assert a["state"] == "quarantined"
+    detail = json.loads(a["quarantine_reason"])
+    assert detail["reason"] == "writers remain after exit receipt"
+    assert detail["errors"] == ["cwd enumeration unavailable"]
+    assert taken[-1][0] - since >= daemon.exit_inspect_s
+    assert all(at - since < daemon.exit_inspect_s for at, _ in taken[:-1])
+    assert len(taken) <= blind_censuses_at_most(daemon)
+    assert daemon.store.get_job(JOB)["state"] == "lost"
+    assert ATTEMPT not in daemon._exit_settle and ATTEMPT not in daemon._exit_recensus
+
+
+def test_c5_9_a_writer_seen_after_a_blind_census_ends_the_window_at_exit_settle_s(daemon, monkeypatch):
+    """C-5.9 a census that sees a writer is not blind: past exit_settle_s from the window's
+    first census it quarantines, however long blind censuses had waited before it."""
+    clock = finished_run(daemon, monkeypatch)
+    taken = scripted(daemon, clock, [(12.0, BLIND_CWD), (1.0, SEEN_WHILE_BLIND)], then=BUSY)
+    offer(daemon, clock)
+    assert [census for _, census in taken] == [BLIND_CWD, SEEN_WHILE_BLIND]
+    a = attempt(daemon)
+    assert a["state"] == "quarantined"
+    detail = json.loads(a["quarantine_reason"])
+    assert detail["reason"] == "writers remain after exit receipt" and detail["live_pids"] == [4243]
+
+
+CENSUSES = st.sampled_from([EMPTY, BLIND_CWD, UNVERIFIABLE, BUSY, GUARDIAN_ONLY, SEEN_WHILE_BLIND, OVERFLOW])
+
+
+@settings(max_examples=150, deadline=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(script=st.lists(st.tuples(st.sampled_from([0.0, .2, 1.0, 4.0, 10.0, 12.5]), CENSUSES), max_size=12),
+       then=CENSUSES, every=st.sampled_from([.05, .4, 2.5]))
+def test_c5_9_property_the_exit_window_releases_only_on_verified_empty_and_waits_only_as_long_as_it_says(
+        tmp_path_factory, monkeypatch, script, then, every):
+    """C-5.9, for every sequence of censuses, durations and pass spacing:
+    - finalization ends, and accepts the run only on a verified-empty census;
+    - every census before the last ended inside its window: a blind one before
+      exit_inspect_s from the window's first census, any other before exit_settle_s;
+    - a quarantine follows only a census past its window (blind: exit_inspect_s);
+    - blind censuses are re-taken on the widening pace, not on every pass;
+    - the job `wait` reports is `succeeded` (exit 0) or, from a quarantine, `lost` (125)."""
+    core = build_core(tmp_path_factory.mktemp("settle") / "state")
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
+    try:
+        clock = finished_run(core, monkeypatch)
+        taken = scripted(core, clock, script, then=then)
+        offer(core, clock, every=every)
+        a, last = attempt(core), taken[-1][1]
+        since = taken[0][0]
+        for at, census in taken[:-1]:
+            assert not census.verified_empty
+            assert at - since < (core.exit_inspect_s if census.blind else core.exit_settle_s), (at - since, census)
+        if a["state"] == "succeeded":
+            assert last.verified_empty
+            assert [exit_for_job(row) for row in core._wait_answer([JOB])["jobs"]] == [Exit.OK]
+        else:
+            assert a["state"] == "quarantined" and not last.verified_empty
+            assert taken[-1][0] - since >= (core.exit_inspect_s if last.blind else core.exit_settle_s)
+            assert [exit_for_job(row) for row in core._wait_answer([JOB])["jobs"]] == [Exit.JOB_LOST]
+        assert sum(census.blind for _, census in taken) <= blind_censuses_at_most(core)
+        assert ATTEMPT not in core._exit_settle and ATTEMPT not in core._exit_recensus
+    finally:
+        core.store.close()
+
 
 def table_showing(*rows) -> ProcessTable:
     """A process table of (pid, ppid, pgid, stat) rows, all started at STARTED in boot "boot"."""

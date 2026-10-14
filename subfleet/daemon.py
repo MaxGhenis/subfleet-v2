@@ -53,7 +53,7 @@ from .adapters.base import AdapterError
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
-    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    CAPACITY_RECHECK_CEILING_S, EXIT_INSPECT_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -793,6 +793,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
+                 exit_inspect_s: float = EXIT_INSPECT_S,
                  inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
@@ -806,10 +807,13 @@ class Daemon:
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
+        self.exit_inspect_s = exit_inspect_s
         self.inspect_interval_s = inspect_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
+        # C-5.9: attempt id -> when its census is taken again after a blind one.
+        self._exit_recensus: dict[str, float] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
         # C-13.1: attempt id -> transient failures of its salvage so far.
@@ -8749,19 +8753,34 @@ class Daemon:
             return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
+        if time.monotonic() < self._exit_recensus.get(a["attempt_id"], 0):
+            return                          # C-5.9: a blind census is re-taken on its pace
         census = self._contain(a)
         if not census.verified_empty:
             # The guardian writes the receipt just before it exits, and processes
             # it already reaped can still be leaving the process table under
             # load. Allow a bounded settle window (C-5.9, exit_settle_s), re-running
             # the census on each tick, before declaring that writers remain.
-            since = self._exit_settle.setdefault(a["attempt_id"], time.monotonic())
-            if time.monotonic() - since < self.exit_settle_s:
+            # A blind census (a `ps` or the cwd `lsof` failed, and nothing was
+            # seen) says nothing about writers: one can take longer than the whole
+            # settle window, and a loaded host can time out two in a row, which
+            # quarantined finished jobs as `lost` (PR #131 CI, 2026-10-13). It is
+            # re-taken, at most as often as the time since the window began, for
+            # `exit_inspect_s`; only a census that saw a writer ends the window early.
+            now = time.monotonic()
+            since = self._exit_settle.setdefault(a["attempt_id"], now)
+            if census.blind and now - since < self.exit_inspect_s:
+                self._exit_recensus[a["attempt_id"]] = min(
+                    now + max(self.inspect_interval_s, now - since), since + self.exit_inspect_s)
+                return
+            if not census.blind and now - since < self.exit_settle_s:
                 return
             self._exit_settle.pop(a["attempt_id"], None)
+            self._exit_recensus.pop(a["attempt_id"], None)
             self._quarantine(a, census, "writers remain after exit receipt")
             return
         self._exit_settle.pop(a["attempt_id"], None)
+        self._exit_recensus.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment when no separate raw file was supplied.

@@ -40,7 +40,7 @@ def core(tmp_path, monkeypatch):
     daemon._busy_lock, daemon._busy = threading.Lock(), set()
     daemon._pending_launches = set()
     daemon._export_locks = {}
-    daemon._exit_settle = {}
+    daemon._exit_settle, daemon._exit_recensus = {}, {}
     daemon._workspace_deferrals = {}                      # C-6.8: consecutive transient workspace failures
     daemon._reset_admission_state()                       # C-6.10, C-6.11: what admission remembers between passes
     daemon.log = logging.getLogger("subfleet.test.gate-admission")

@@ -9,6 +9,7 @@ import subprocess
 import threading
 from unittest import mock
 
+from hypothesis import given, settings, strategies as st
 import pytest
 
 import os
@@ -905,6 +906,63 @@ def test_cwd_only_writer_participates_in_verified_empty(monkeypatch):
     result = procs.containment(None, None, None, "a1", workdir="/workdir")
     assert result.cwd_pids == {400}
     assert not result.verified_empty
+
+
+@pytest.mark.parametrize("failure", ["timeout", "exit"])
+def test_c5_9_a_cwd_scan_that_fails_alone_makes_a_blind_census(monkeypatch, failure):
+    """C-5.5, C-5.9 (PR #131 CI, 2026-10-13): the cwd `lsof` running out its 10 s cap (or
+    failing), with nothing else seen, is a blind census: never verified empty, and what
+    finalization waits out for `exit_inspect_s` instead of `exit_settle_s`."""
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable({}, boot_id=BOOT_OLD))
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv == procs.CWD_ARGV:
+            if failure == "timeout":
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            return subprocess.CompletedProcess(argv, 1, "", "lsof: status error\n")
+        return subprocess.CompletedProcess(argv, 0, "", "")      # the marker `ps`: no marker
+    # The real `_read` turns the failure into its InspectionError; nothing else is touched.
+    monkeypatch.setattr(procs, "subprocess", mock.Mock(run=run, SubprocessError=subprocess.SubprocessError))
+    result = procs.containment(None, None, None, "job/a1", root="/fixture", workdir="/workdir")
+    assert procs.CWD_ARGV in calls
+    assert result.errors == (procs.CWD_UNAVAILABLE,) and result.unverifiable
+    assert result.blind and not result.verified_empty
+
+
+def test_c5_9_a_census_that_saw_a_process_or_failed_otherwise_is_not_blind():
+    """C-5.9 only a failed source read that saw nothing is blind; a seen writer, an ambiguous
+    identity or any other hold keeps C-5.9's exit_settle_s window."""
+    ident = procs.ProcessIdentity(400, BOOT_OLD, START)
+    assert procs.Containment(unverifiable=True, errors=tuple(procs.ENUMERATION_ERRORS)).blind
+    assert not procs.Containment().blind
+    assert not procs.Containment(cwd_pids=frozenset({400}), unverifiable=True,
+                                 errors=(procs.CWD_UNAVAILABLE,)).blind
+    assert not procs.Containment(group_pids=frozenset({400}), errors=(procs.MARKER_UNAVAILABLE,)).blind
+    assert not procs.Containment(ambiguous_identities=(ident,), errors=(procs.CWD_UNAVAILABLE,)).blind
+    assert not procs.Containment(errors=(procs.CWD_UNAVAILABLE, "lineage root limit exceeded")).blind
+    assert not procs.Containment(errors=("guardian child publication unavailable",)).blind
+
+
+@settings(max_examples=200, deadline=None, derandomize=True)
+@given(errors=st.lists(st.sampled_from(sorted(procs.ENUMERATION_ERRORS) + [
+           "lineage root limit exceeded", "guardian child publication unavailable",
+           "recorded identity unavailable for pid 7", "identity inspection unavailable for pid 7"]), max_size=4),
+       group=st.frozensets(st.integers(1, 9), max_size=2), descendants=st.frozensets(st.integers(1, 9), max_size=2),
+       markers=st.frozensets(st.integers(1, 9), max_size=2), cwds=st.frozensets(st.integers(1, 9), max_size=2),
+       ambiguous=st.booleans())
+def test_c5_9_property_a_blind_census_saw_nothing_and_never_releases(errors, group, descendants, markers, cwds,
+                                                                     ambiguous):
+    """C-5.5, C-5.9 for every census: blind exactly when it has an error, every error is a
+    failed source read, and it shows no live pid and no ambiguous identity; a blind census
+    is never verified empty, so it can delay a release but never cause one."""
+    census = procs.Containment(group, descendants, markers, bool(errors), errors=tuple(errors), cwd_pids=cwds,
+                               ambiguous_identities=(procs.ProcessIdentity(7, BOOT_OLD, START),) if ambiguous else ())
+    expected = (bool(errors) and set(errors) <= procs.ENUMERATION_ERRORS
+                and not (group | descendants | markers | cwds) and not ambiguous)
+    assert census.blind == expected
+    assert not (census.blind and census.verified_empty)
 
 
 def test_empty_cwd_listing_is_unverifiable(monkeypatch):
