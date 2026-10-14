@@ -367,8 +367,8 @@ def checked(name: str, value: Any) -> bool:
     shape = _SHAPES.get(name)
     if shape is None or shape.fullmatch(value) is None:
         return False
-    # A job id's slug is the caller's name, read alone as well (review r6, P2).
-    return not (ids.job_id_holds_credential(value) if name == "job_id" else ids.holds_credential(value))
+    # Read from each hyphen as well: a job id's slug is the caller's name (review r6, P2).
+    return not ids.holds_credential(value)
 
 
 def render(reason: Any, details: Any = None) -> tuple[str, str | None]:

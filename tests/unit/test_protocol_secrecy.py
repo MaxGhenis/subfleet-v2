@@ -132,7 +132,8 @@ def test_protocol_version_must_be_an_integer(version):
     assert_secret_absent(response, VALUE)
 
 
-@pytest.mark.parametrize("id", ("", 0, 1234, "safe-id_9", "a" * 128, 10 ** 127))
+@pytest.mark.parametrize("id", ("", 0, 1234, "safe-id_9", "a" * 128, 10 ** 127,
+                                "app-d6f1c1d2-8b1e-4a7e-9f00-1234567890ab", "task-" + "a" * 30))
 def test_bounded_correlation_tokens_are_preserved_on_success_and_refusal(id):
     response = wire_reply(id=id)
     assert response["ok"] is True
@@ -144,7 +145,10 @@ def test_bounded_correlation_tokens_are_preserved_on_success_and_refusal(id):
 
 
 @pytest.mark.parametrize("id", (VALUE, "a" * 129, "界", None, True, 1.5, -1, 10 ** 128, [], {},
-                                "ghp_" + "A" * 36, "Caller:ID_09"))
+                                "ghp_" + "A" * 36, "Caller:ID_09",
+                                # Credentials after a hyphen or underscore (review r6 of #181, P2).
+                                "req-sk-" + "a" * 20, "app_glpat-" + "a" * 20,
+                                "20261013-000000-xoxb-" + "a" * 20))
 def test_invalid_correlation_id_is_omitted_before_routing(id):
     class NeverRoute:
         def respond(self, *args):

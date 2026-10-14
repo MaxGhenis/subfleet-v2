@@ -1293,9 +1293,10 @@ class Daemon:
     def _job(self, job_id: str) -> dict:
         row = self.store.get_job(job_id)
         if row is None:
-            # An id whose slug is a credential is not named, even to daemon.log
-            # (`refusals.log_detail`), whose scrubber reads it whole (review r6, P2).
-            named = isinstance(job_id, str) and not ids.job_id_holds_credential(job_id)
+            # An id holding a credential is not named, even to daemon.log
+            # (`refusals.log_detail`), whose scrubber reads it whole only (review r6,
+            # P2). `holds_credential` reads from each hyphen, so the length is bounded.
+            named = isinstance(job_id, str) and len(job_id) <= 200 and not ids.holds_credential(job_id)
             raise protocol.ProtocolError(f"unknown job {job_id}" if named else "unknown job", reason="unknown-job",
                                          details={"job_id": job_id})
         return row

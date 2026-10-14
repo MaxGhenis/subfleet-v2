@@ -33,7 +33,7 @@ from typing import Any, Callable
 from .. import descriptors, protocol, refusals
 from ..adapters.base import AdapterError
 from ..contracts import Exit
-from ..ids import job_id_holds_credential
+from ..ids import holds_credential
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..retention_git import discard_registration
@@ -1050,7 +1050,7 @@ class ConversationService:
         if session is not None and suggestions.holds_secret(session):
             raise ConversationError("bad-session-id", "session_id holds a value shaped like a secret, which a "
                                     "suggestion never shows (C-25.5)")
-        if job is not None and (suggestions.holds_secret(job) or job_id_holds_credential(job)):
+        if job is not None and (suggestions.holds_secret(job) or holds_credential(job)):
             raise ConversationError("bad-calling-job", "calling_job holds a value shaped like a secret, which a "
                                     "suggestion never keeps (C-25.5)")
         provider = args.get("provider") or (origin["provider"] if origin else "claude")

@@ -103,9 +103,8 @@ def correlation_id(value: Any) -> str:
     if type(value) is not str or (value and _CORRELATION_ID.fullmatch(value) is None):
         raise request_error("bad-id")
     if value:
-        from .sessions.handoff import scrub_secrets
-        clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
-        if count or clean != value:
+        from .ids import holds_credential
+        if holds_credential(value):         # read whole and from each `-` and `_` (C-1.5's check)
             raise request_error("bad-id")
     return value
 

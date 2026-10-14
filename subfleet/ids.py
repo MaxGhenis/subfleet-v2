@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import json
 import re
@@ -35,27 +36,33 @@ def job_id(name: str | None = None, *, now: datetime | None = None,
     return candidate
 
 
-#: A job id's part before its slug (C-1.1): `YYYYMMDD-HHMMSS-`.
-_JOB_ID_STAMP = re.compile(r"[0-9]{8}-[0-9]{6}-")
+#: What the C-23.14 scrubber reads as part of a token, so it never starts one
+#: straight after either (`holds_credential`).
+TOKEN_JOINERS = "-_"
 
 
+@functools.lru_cache(maxsize=4096)
 def holds_credential(value: str) -> bool:
-    """Whether the C-23.14 scrubber, reading `value` whole, would change it: what
-    C-1.5 refuses as a request id and C-25.7 as a correlation id."""
+    """Whether the C-23.14 scrubber would change `value` read whole, or read from just
+    after any `-` or `_` in it: what C-1.5 refuses as a request id, C-25.7 as a
+    correlation id, and a refusal will not name as a job id (C-25.7).
+
+    The scrubber will not start a token straight after a letter, digit, `-` or `_`,
+    so `20261013-000000-sk-…` (and its `glpat-` and `xoxb-` forms) read whole was
+    nothing to it: the job id passed as one a refusal could name (review r6 of #181,
+    P2), as `build-sk-…` or `run_sk-…` would. A token runs to the next character
+    outside `[A-Za-z0-9_-]`, so one that starts after a joiner is whole in the text
+    from there; a read that would start on a second joiner adds nothing to the next.
+    Each read is a scrub of what follows: callers bound the length (an id is at most
+    200 characters). Cached, as a reply checks the id its request was admitted with."""
     from .sessions.handoff import scrub_secrets
-    clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
-    return bool(count) or clean != value
 
-
-def job_id_holds_credential(value: str) -> bool:
-    """`holds_credential` for a job id, whose slug (C-1.1: the caller's `-n` name) is
-    also read alone. Read whole, the hyphen the timestamp ends with is a token boundary
-    the scrubber does not cross, so `20261013-000000-sk-…`, `…-glpat-…` and `…-xoxb-…`
-    passed as ids a refusal could name (review r6 of #181, P2)."""
-    if holds_credential(value):
-        return True
-    stamp = _JOB_ID_STAMP.match(value)
-    return stamp is not None and holds_credential(value[stamp.end():])
+    def changed(text: str) -> bool:
+        clean, count = scrub_secrets(text, strip_reminders=True, whole=True)
+        return bool(count) or clean != text
+    return changed(value) or any(
+        changed(value[index:]) for index in range(1, len(value))
+        if value[index - 1] in TOKEN_JOINERS and value[index] not in TOKEN_JOINERS)
 
 
 def attempt_id(job: str, seq: int) -> str:

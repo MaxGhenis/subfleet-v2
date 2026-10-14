@@ -145,7 +145,11 @@ def test_submission_request_id_preserves_opaque_strings(identity):
 
 
 @pytest.mark.parametrize("identity", ["", "x" * 129, 1, True, [],
-                                      "password=SECRET7-left", "ghp_" + "A" * 36])
+                                      "password=SECRET7-left", "ghp_" + "A" * 36,
+                                      # Joined after a hyphen or underscore, where the
+                                      # scrubber reading the whole id starts no token.
+                                      "run-sk-" + "a" * 20, "run_glpat-" + "a" * 20,
+                                      "20261013-000000-xoxb-" + "a" * 20])
 def test_submission_request_id_refuses_invalid_values_without_echo(identity):
     """C-1.5, C-6.2: malformed keys and credentials have fixed refusals."""
     with pytest.raises(ValueError) as refused:

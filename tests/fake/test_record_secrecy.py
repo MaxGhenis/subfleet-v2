@@ -208,7 +208,8 @@ def test_a_handler_refusal_at_launch_keeps_its_template_not_its_words(state_daem
 
 # --- 3. a job id whose slug is a credential ----------------------------------------
 
-@pytest.mark.parametrize("token", ["sk-" + "a" * 20, "glpat-" + "a" * 20, "xoxb-" + "a" * 20, "sk-proj-" + "a" * 16])
+@pytest.mark.parametrize("token", ["sk-" + "a" * 20, "glpat-" + "a" * 20, "xoxb-" + "a" * 20, "sk-proj-" + "a" * 16,
+                                   "build-sk-" + "a" * 20, "r6-glpat-" + "a" * 20])
 @pytest.mark.parametrize("op", ["show", "why", "kill", "wait"])
 def test_a_job_id_whose_slug_is_a_credential_is_refused_without_it(state_daemon, token, op):
     """The review's P2 probe, on every op that looks a job up: refused as `unknown job`,
@@ -221,10 +222,12 @@ def test_a_job_id_whose_slug_is_a_credential_is_refused_without_it(state_daemon,
     assert token not in json.dumps([response, stored(daemon)]) and token not in log_text(daemon)
 
 
-@pytest.mark.parametrize("slug", ["review-r6", "sk-learn", "build-sk-" + "a" * 20, "glpat"])
+@pytest.mark.parametrize("slug", ["review-r6", "sk-learn", "glpat", "task-" + "a" * 30, "risk-" + "a" * 20,
+                                  "pr181-fix9b"])
 def test_an_ordinary_job_slug_is_still_named(state_daemon, slug):
-    """The check reads the slug as C-1.5 reads a request id: what the scrubber does not
-    recognize alone (a short `sk-` word, a token glued after another word) is named."""
+    """The check reads the id as C-1.5 reads a request id, whole and from each hyphen:
+    what the scrubber does not recognize there (a short `sk-` word, `sk` ending a
+    word such as `task` or `risk`) is named."""
     daemon, harness = state_daemon
     job_id = "20261013-000000-" + slug
     response = answer(daemon, "show", {"job_id": job_id})
