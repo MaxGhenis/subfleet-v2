@@ -1105,3 +1105,172 @@ salvage ref. The caller's checkout and its branch were not written. No remote,
 push, sub-agent, or detached or background process was used. The only access to
 a personal store was the one `lstat` under "The trap", and nothing touched the
 keychain or `/usr/bin/security`.
+
+## Round 7: isolated HOME, bare-name launches, and filesystem containment
+
+Base: `ce8121536972` (release/217 merged into `fix/test-live-store-guard`).
+The source-only `review-r7.md` was read before changes. Its author executed no
+probes; this round executed the supplied forms against recording executables and
+synthetic filesystem roots before applying fixes.
+
+### Contract and disposition
+
+D-ST1 covers accidental reach of personal keychains and live stores through
+production readers and fixtures that wrap or replace Python subprocess, os, and
+file APIs. **A test deliberately spelling `/usr/bin/security` inside a shell
+string is outside this contract.** Python audit hooks cannot observe a shell's
+child exec; the test session prepends a recording `security` to PATH for bare-name
+shell and env delegation. Intentional executable stand-ins use explicit paths.
+Non-launching credential stubs remain supported.
+
+| Finding | Executed reproduction at the unchanged production base | Disposition |
+| --- | --- | --- |
+| CI / D-21 | The unmodified startup-freeze identity test raised the account-HOME refusal. | Give the entire session an isolated HOME before collection, preserving it through fixture undo and restoring it at unconfigure. The release test and D-21 production comparison remain unchanged. Explicit account HOME is still refused before store resolution. |
+| P1: shell/env | `sh -c 'security fixture-ref'`, `shell=True`, `/usr/bin/env security fixture-ref`, and a credential runner delegating through a shell each reached the outer recorder once. | Session PATH now prepends its own recorder; all four forms reach that recorder and leave the outer recorder untouched. Source grep found no production keychain path using a shell or env wrapper: the central readers and enrollment wrapper pass argv lists. |
+| P1: PATH race | A later audit hook changed the supplied PATH from an ordinary recorder to a registered guarded recorder; the bare-name launch was approved. | Refuse the bare program `security` independently of PATH for Popen, posix_spawn, exec and spawn. Explicit paths retain resolved-path and identity checks. The new alias-named reader test preserves the earlier child-PATH property under the stronger rule. |
+| P2: io.open | `Path(root/'data').read_text()` reached the underlying io.open. | Patch io.open as well as builtins.open. |
+| P2: destination | `rename(outside, root/'new')` reached the underlying rename. | Check every operand, including keyword destinations and separate source/destination dir_fd arguments for rename, replace and link. |
+| P2: alias | `stat(alias/'data')` passed the lexical check; an alias pointing at a missing target also passed. | Resolve aliases with lexical guards active on realpath's intermediate lstat/readlink calls. A forbidden target is refused before its first underlying stat/lstat/readlink. Canonicalize root parents with those guards installed. |
+| P2: dir_fd | `stat('data', dir_fd=root_fd)` passed the trap. | Obtain the descriptor's pathname (F_GETPATH on macOS, proc-fd readlink on Linux), then check the resolved operand before the file API. Descriptor-valued file operands are checked too. |
+
+The central session baseline is the smallest general HOME fix: it handles the
+release test, collection, fixture undo, and future development-build tests in one
+fixture location. D-21 still compares against the test-selected HOME/.subfleet.
+Expired-child lifecycle tests explicitly select their ordinary synthetic HOME
+after cleanup, keeping their original fixture-login and sentinel-recreation
+assertions.
+
+The trap remains a Python-API test fence. Native libraries which open paths
+without these APIs, such as sqlite3.connect, require isolated inputs. No
+production behavior outside pytest was changed. The existing case-sensitive
+D-21 root comparison remains unchanged.
+
+### Reproduction and mutation evidence
+
+The first executed pytest used Python 3.12.14, unchanged production code, the
+release identity regression, and the 23 round-7 cases: **23 failed, 1 passed** in
+9.79 s. The failures were the CI test plus 22 round-7 regression cases. The
+explicit-path executable control passed. Every reviewer input reproduced; the
+kept forms use only a short fixture reference, temporary recorders, and synthetic
+live roots.
+
+The first fixed guard batch ran all seven earlier guard files plus round 7 and
+its mutation witnesses: **542 passed, 6 failed** in 42.05 s. All new regressions
+and all 23 mutation checks passed. The six failures were older expired-child
+fixtures expecting the pre-session HOME; those fixtures were corrected as
+explained above and rerun.
+
+`test_live_store_guard_round7_mutations.py` runs a fresh Python child for each
+unmutated control and each exact source mutation, with bytecode writes disabled.
+The source lives in a temporary shadow and is restored after every mutation.
+Children are not pytest processes; the whole mutation suite uses one foreground
+pytest under one lock hold. All controls pass, and all mutants fail their
+invariants:
+
+- m01–m12: folding, file identity, session pins, child cwd, child PATH,
+  configure installation, import installation, early file matching, executable
+  search, idempotent installation, posix_spawn coverage, and code-7 AdapterError.
+- m13–m16: HOME as the D-21 root, account-HOME refusal, account directory
+  identity, and removal of inherited development configuration.
+- Seven additions: session HOME, session PATH, unconditional bare-name refusal,
+  io.open coverage, destination operands, realpath aliases, and dir_fd operands.
+
+`tools/run_live_store_guard_tests.py` reproduces the foreground shared-lock
+command without a queue timeout, sets the bounded ci Hypothesis profile, emits
+per-file counts, and removes each run's TMPDIR with shutil.rmtree. It emulates
+native-reader metadata using a temporary file, including folded spellings and
+volume/inode aliases: `/usr/bin/security` is only a string in the probes, and is
+never read, statted or executed. Recording shell/env probes use independent
+executable fixtures. The temporary sitecustomize is restored after each run,
+including children which replace PYTHONPATH. No live store data, real keychain,
+network remote, detached test runner, or sub-agent was used.
+
+### Final validation
+
+The expanded constructor sweep included every file returned by
+`rg -l 'ConversationService\(|_app_executables|dev_app\.ENV' tests`, plus the
+corrected round-3/4 lifecycle fixtures. Both helper modules were explicitly
+collected (zero tests). Result: **1,218 passed, 6 failed** in 731.12 s, within the
+20-minute hold. The unmodified identity file passed all 25 cases and the person
+boundary file passed all 97. The round-3/4 files passed 22 and 8 cases, respectively;
+the main guard file passed all 324.
+
+The six remaining failures were setup failures in the unchanged
+`test_legacy_hold.py`: two dispatch-wait cases and four launch-wait cases.
+The managed sandbox denies `/bin/ps` with EPERM; the native process-identity
+assertions were not reached. The helper catches setup failure, kills and waits
+for its own temporary child; its cleanup regression passed. These native
+assertions require an environment that permits the inspection. No sandbox
+permission escalation, replacement process identity, or test weakening was used.
+
+The compatibility batch passed **34 cases** in 15.33 s (folder spelling 7,
+app cutover 13, policy support 14). The adapter batch passed **177 cases** in
+3.83 s (Claude adapter 170, agent-secret credentials 7).
+
+Python 3.14.7 ran the full guard set, all mutation witnesses, and both person
+boundary files: **670 passed** in 56.87 s. The unmodified CI regression passed
+on both Python 3.12.14 and 3.14.7. The 16 prior rules and seven new rules were
+killed on both interpreters. Every pytest used one foreground lock hold and one
+worker; all executing holds were below 20 minutes. Lock queues were allowed to
+finish without a queue timeout or restarting paused processes.
+
+The final per-file counts below count a file once per interpreter, including
+repeated app-cutover and guard checks only once. Python 3.12 executed **1,594
+unique cases: 1,588 passed, 6 failed at denied native-process setup**. All 28
+requested/added test files were run. Python 3.14 verification covered the guard
+and person-boundary subset; the other files were not run on that interpreter.
+The complete repository suite and an additional release-parent differential
+replay were not requested or rerun. No .hypothesis folder remains.
+
+| File (unit unless marked fake) | Python 3.12.14 | Python 3.14.7 |
+| --- | ---: | ---: |
+| test_agent_secret_credentials.py | 7 passed | not run |
+| test_app_cutover_daemon.py | 13 passed | not run |
+| test_claude_adapter.py | 170 passed | not run |
+| test_conversation_catalog_lifecycle.py | 21 passed | not run |
+| test_conversation_fifo_reads.py | 26 passed | not run |
+| test_conversation_handoff.py | 48 passed | not run |
+| test_conversation_peers_attachments.py | 44 passed | not run |
+| test_conversation_service.py | 97 passed | not run |
+| test_conversation_titles.py | 89 passed | not run |
+| fake/test_folder_spelling.py | 7 passed | not run |
+| test_keychain_exec_guard_properties.py | 3 passed | 3 passed |
+| test_legacy_hold.py | 50 passed, 6 failed | not run |
+| test_live_store_guard.py | 324 passed | 324 passed |
+| test_live_store_guard_round3.py | 22 passed | 22 passed |
+| test_live_store_guard_round4.py | 8 passed | 8 passed |
+| test_live_store_guard_round5.py | 11 passed | 11 passed |
+| test_live_store_guard_round6.py | 112 passed | 112 passed |
+| test_live_store_guard_round7.py | 23 passed | 23 passed |
+| test_live_store_guard_round7_mutations.py | 23 passed | 23 passed |
+| test_live_store_guard_state_root.py | 22 passed | 22 passed |
+| test_person_boundary.py | 97 passed | 97 passed |
+| test_person_boundary_identity.py | 25 passed | 25 passed |
+| test_policy_support.py | 14 passed | not run |
+| test_review_r5_repro.py | 17 passed | not run |
+| test_review_r6_probes.py | 30 passed | not run |
+| test_steer_invariants.py | 248 passed | not run |
+| test_title_review_regressions.py | 4 passed | not run |
+| test_turn_replay.py | 33 passed | not run |
+| unit/no_steer_histories.py | collected: 0 tests | not run |
+| frontend/daemon_harness.py | collected: 0 tests | not run |
+
+### Delivery
+
+Commits were made in workspace-local `.git-local` metadata, on
+`fix/test-live-store-guard`, because the shared worktree Git metadata is outside
+the writable sandbox. The original shared checkout/ref remains untouched.
+The local history retains `ce8121536972` as its ancestor:
+
+- `d5a928e2d`: regressions first, before production changes.
+- `83aba4a97`: reproducible foreground lock runner and metadata stand-in.
+- `f8fbe9bf8`: session HOME/PATH and unconditional bare-reader refusal.
+- `f95e33125`: filesystem trap coverage and mutation witnesses.
+- `e5f5dbc4a`: explicit ordinary HOME in expired-child fixture tests.
+- The final documentation commit contains this round-7 report.
+
+Only named source, test, tool and report files were staged. Logs, JSON evidence,
+bundles, virtual environments and cache directories were not staged. Every
+commit has the requested Claude Opus 5.5 co-author trailer. No history was
+rewritten and nothing was pushed. The hub can read the local branch from
+`.git-local` to integrate these commits.
