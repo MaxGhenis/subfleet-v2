@@ -73,6 +73,13 @@ struct MainWindow: View {
             // conversation) moves the highlight, so clicking a row always selects.
             if let id, selection != "cv:" + id { selection = "cv:" + id }
         }
+        .onChange(of: model.focusReasserted) { _, _ in
+            // A click for the conversation already focused moves no focus, but the
+            // highlight may be on a native session whose open the click dropped:
+            // put it back, or clicking that row again would select nothing new.
+            // `select` then finds the conversation focused and its pages left.
+            if let id = model.state.focusedConversationID, selection != "cv:" + id { selection = "cv:" + id }
+        }
         .foregroundStyle(Theme.text.primary.color)
         .background(Theme.surface.conversation.color)
         .tint(Theme.accent)
@@ -415,6 +422,12 @@ struct ConversationView: View {
                 .disabled(renamedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("Cancel", role: .cancel) {}
         }
+        .onChange(of: conversation.conversation_id) { _, _ in
+            // A request is answered in its own conversation: when another one
+            // replaces it here (a notification's click, C-29.9), its sheet closes,
+            // so an answer never lands on a conversation the window no longer shows.
+            approval = nil
+        }
         .inspector(isPresented: Binding(get: { model.changesScope?.conversationID == conversation.conversation_id },
                                         set: { if !$0 { model.changesScope = nil } })) {
             if let scope = model.changesScope {
@@ -432,9 +445,11 @@ struct ConversationView: View {
 
     /// Opens a card's request for the person to answer.
     private func review(_ card: ApprovalCard) {
+        let conversationID = conversation.conversation_id
         Task {
-            if let id = await model.approvalID(for: card, conversationID: conversation.conversation_id) {
-                approval = (card, id)
+            if let id = await model.approvalID(for: card, conversationID: conversationID) {
+                // Only while its conversation is still the one shown.
+                if model.state.focusedConversationID == conversationID { approval = (card, id) }
             } else {
                 model.problem = "That approval is no longer pending."
             }

@@ -63,6 +63,10 @@ final class UIModel: ObservableObject {
     /// hand badge, the strip's Review); cleared once it is in view.
     @Published private(set) var approvalReveal: ApprovalReveal?
     private var reveals = 0
+    /// Moves on when a notification's click opens the conversation already
+    /// focused, which moves no focus: the sidebar puts its highlight back on that
+    /// conversation, which a native session chosen just before may have taken.
+    @Published private(set) var focusReasserted = 0
     /// What the stale-approvals check last read, per conversation (the daemon's
     /// count and the cards shown), so an unchanged mismatch is read once.
     private var staleRead: [String: [Int]] = [:]
@@ -83,9 +87,15 @@ final class UIModel: ObservableObject {
     private var availabilityChecks = 0
     /// What `lostDaemon` put in the status line, cleared when the daemon is back.
     private var lostProblem: String?
-    private lazy var notificationDelegate = ApprovalNotificationDelegate { [weak self] action, userInfo in
-        self?.handleNotification(action: action, userInfo: userInfo)
-    }
+    /// The notification center's delegate, the only one (C-29.9).
+    private(set) lazy var notificationDelegate = ApprovalNotificationDelegate(
+        receive: { [weak self] action, requestID, userInfo in
+            self?.handleNotification(action: action, requestID: requestID, userInfo: userInfo)
+        },
+        present: { [weak self] requestID, userInfo in
+            self?.showsWhileFrontmost(requestID: requestID, userInfo: userInfo) ?? true
+        })
+    private var notificationsRegistered = false
 
     init(paths: AppPaths = .standard(), client: DaemonCalling? = nil, defaults: UserDefaults = .standard,
          state initialState: ConversationStoreState = ConversationStoreState()) {
@@ -132,7 +142,7 @@ final class UIModel: ObservableObject {
     func start() {
         guard !started, engine != nil else { return }
         started = true
-        notificationDelegate.register()
+        registerNotifications()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -166,13 +176,16 @@ final class UIModel: ObservableObject {
         state = baseline
         state.watchBaselined = true
         startWatchLoop()
+        // A notification clicked before now (the click that launched the app).
+        let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if !newDraft.isPresented,
+        } else if clicked == nil, !newDraft.isPresented,
                   let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
             // A launch that names a conversation opens it (notifications and links reuse this).
             focus(requested)
         }
+        if let clicked { openClicked(clicked) }
     }
 
     func refreshList() async {
@@ -313,11 +326,17 @@ final class UIModel: ObservableObject {
         eventsGeneration += 1
     }
 
-    func focus(_ conversationID: String) {
+    /// What showing a conversation leaves: a failed or new conversation's
+    /// draft, and a locked session's page.
+    private func leavePages() {
         selectedFailedDraftID = nil
         endFailedDraftEditing()
         newDraft.leave()
         lockedEntry = nil
+    }
+
+    func focus(_ conversationID: String) {
+        leavePages()
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
         navigation += 1
@@ -405,6 +424,58 @@ final class UIModel: ObservableObject {
         if let found = try? await onOutbox({ try engine.runs(conversationID: conversationID) }), runs[conversationID] != found {
             runs[conversationID] = found
         }
+    }
+
+    // MARK: Notifications
+
+    /// Clicks, one held until `connect` has its baseline.
+    private var clicks = NotificationClicks()
+
+    /// Makes the model's delegate the notification center's, with its Allow once
+    /// action, once. In the app the call that acts is the app delegate's, in
+    /// `applicationWillFinishLaunching`: the system delivers the click that
+    /// launched the app only to a delegate set before launch ends (C-29.9), and
+    /// `start` runs later, when the main window first appears. `start`'s call
+    /// then does nothing; it acts only in a build with no app delegate (the
+    /// view-test build).
+    func registerNotifications() {
+        guard !notificationsRegistered else { return }
+        notificationsRegistered = true
+        notificationDelegate.register()
+    }
+
+    /// Whether one that arrives while the app is frontmost shows: as it would in
+    /// the background, unless its conversation is the one open by now (D-24).
+    func showsWhileFrontmost(requestID: String, userInfo: [AnyHashable: Any]) -> Bool {
+        NotificationTarget(requestID: requestID, userInfo: userInfo)?
+            .showsWhileFrontmost(focusedConversationID: state.focusedConversationID) ?? true
+    }
+
+    /// A clicked notification (C-29.9): its conversation, and for an approval
+    /// still waiting that conversation's oldest card (C-27.5), which the
+    /// conversation view scrolls to once the card is in its timeline.
+    func show(_ target: NotificationTarget) {
+        if let opening = clicks.click(target, baselined: state.watchBaselined, navigation: navigation,
+                                      pendingApprovals: state.pendingApprovals) {
+            openClicked(opening)
+        }
+    }
+
+    private func openClicked(_ opening: NotificationOpening) {
+        if opening.revealsCard { revealApprovals(in: opening.conversationID) }
+        guard state.focusedConversationID == opening.conversationID else {
+            // `focus` takes a new token, which drops any open still on its way.
+            focus(opening.conversationID)
+            return
+        }
+        // Already focused, where `focus` changes nothing: open it again under a
+        // new token, so the click still drops an open on its way (a native session
+        // chosen just before) and replaces its own conversation's, not loses it.
+        leavePages()
+        focusReasserted += 1
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(opening.conversationID), token: token) }
     }
 
     // MARK: Changes
@@ -640,6 +711,8 @@ final class UIModel: ObservableObject {
         let checkSupported = state.availability.capabilities.map { $0.has("workspace.check.v1") } ?? true
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
+        // A conversation the person starts is newer than any click still held.
+        clicks.drop()
         Task {
             do {
                 try await onReads {
@@ -1143,7 +1216,7 @@ final class UIModel: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = intent.title
             content.body = intent.body
-            content.userInfo = ["conversation_id": intent.conversationID]
+            content.userInfo = intent.userInfo(allowing: nil)
             if intent.kind == .approval, let engine {
                 let detail: ApprovalDetail? = try? await onOutbox {
                     let approvals = try engine.approvals(conversationID: intent.conversationID)
@@ -1153,7 +1226,7 @@ final class UIModel: ObservableObject {
                 }
                 if let detail, let target = ApprovalNotificationTarget(detail: detail) {
                     content.categoryIdentifier = ApprovalNotificationDelegate.categoryID
-                    content.userInfo = target.userInfo
+                    content.userInfo = intent.userInfo(allowing: target)
                     let display = detail.approval.display
                     let summary = display.command ?? display.input ?? display.description ?? display.tool
                     if let summary { content.body += "\n" + summary }
@@ -1164,20 +1237,39 @@ final class UIModel: ObservableObject {
         }
     }
 
-    private func handleNotification(action: String, userInfo: [AnyHashable: Any]) {
+    /// A notification's response (C-29.9). Any but a dismissal opens the main
+    /// window on its conversation, an approval's at the conversation's oldest
+    /// waiting card while one waits (`show`: a response before the first list
+    /// and feed baseline waits for them). Allow once also answers the one
+    /// request the notification advertised (`allowOnce`). Returns Allow once's
+    /// work, for a probe to wait on.
+    @discardableResult
+    func handleNotification(action: String, requestID: String, userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard action != UNNotificationDismissActionIdentifier,
-              let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return }
+              let target = NotificationTarget(requestID: requestID, userInfo: userInfo) else { return nil }
+        show(target)
         #if !SUBFLEET_VIEW_TEST
+        // Nil before the window first appears (the click that launched the app):
+        // the window, the app's first scene, presents itself at launch, and
+        // `connect` opens the held click in it.
         SubfleetAppDelegate.openMain?()
         #endif
         NSApp?.activate(ignoringOtherApps: true)
-        focus(conversationID)
-        guard action == ApprovalNotificationDelegate.allowOnceID else { return }
+        guard action == ApprovalNotificationDelegate.allowOnceID else { return nil }
+        return allowOnce(userInfo)
+    }
+
+    /// Allow once, as release/217's delegate answered it (c3763edba): the request
+    /// the notification advertised is read again and allowed only if it is still
+    /// that pending, unmasked request with an `allow` option; otherwise it is left
+    /// for review in the conversation. Returns the work, for a probe to wait on.
+    @discardableResult
+    func allowOnce(_ userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard let target = ApprovalNotificationTarget(userInfo: userInfo) else {
             problem = "Review the pending request in the conversation."
-            return
+            return nil
         }
-        Task {
+        return Task {
             guard let detail = await approvalDetail(target.approvalID, reveal: false) else { return }
             guard target.canAllow(detail) else {
                 problem = "This request needs review. Use the approval card's details in the conversation."
