@@ -156,13 +156,13 @@ def store_holds(store, *, now: str | datetime) -> dict[str, str]:
     """C-23.16 (e): lane id -> the operator or auth hold in force on it at `now`, read from the store.
 
     An open `operator-hold` or `auth-dead` closure of any scope, and an
-    operator hold's own `lane.held` and `lane.released` events:
-    `Store.put_closure` keeps one open closure per lane and scope, so a hold
-    that ends before an open provider limit on the account scope leaves no
-    `operator-hold` row, though it is in force (as `Timers._card_lanes` reads
-    it). Releasing such a hold changes no row and so writes no `lane.released`
-    event; the hold then lasts until its own end, which errs toward spending
-    nothing.
+    operator hold's own `lane.held` and `lane.released` events.
+    `Store.put_closure` now keeps a hold's row apart from any limit (C-9.6,
+    D-HOLD1), but in a store written before that, a hold that ended before an
+    open provider limit on the account scope left no `operator-hold` row,
+    though it is in force (as `Timers._card_lanes` reads it). Releasing such a
+    hold changes no row and so writes no `lane.released` event; the hold then
+    lasts until its own end, which errs toward spending nothing.
     """
     stamp = _iso(_time(now))
     found = {row["lane_id"]: row["reason"] for row in store.query(

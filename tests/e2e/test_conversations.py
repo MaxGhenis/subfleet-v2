@@ -1,9 +1,11 @@
 """Conversations end to end: the real daemon, guardian, relay, drivers and adapters,
 with the fake interactive providers on PATH (C-24 to C-30, design §4 to §11).
 
-Person-only operations (C-25.6) are sent from a process with a controlling
-terminal, which `script(1)` provides, so the daemon's real peer check decides
-them; nothing here stubs the check.
+Person-only operations (C-25.6) are sent from the development app (D-21): a
+small native client compiled once per session, which the `e2e` fixture names to
+each daemon by `SUBFLEET_DEV_APP_EXECUTABLE`, so the daemon's real peer check
+decides them; nothing here stubs the check. A terminal is not a person (D-PB1,
+2026-10-11): the same request from `script(1)`'s terminal is refused.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import pytest
 
 from subfleet import hooks
 from subfleet.conversations.service import CONTINUATION_TEXT
+from tests.e2e import dev_app as development_app
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID is macOS")
 TERMINAL_JOB_STATES = ("succeeded", "failed", "cancelled", "lost")
@@ -62,14 +65,34 @@ class Conversations:
         return response["result"]
 
     def as_person(self, op: str, **args) -> dict:
-        """The request from a process with a controlling terminal (C-25.6)."""
+        """The request from the development app (C-25.6, D-21), started in a session of
+        its own, so it has no controlling terminal: the app's image alone admits it."""
         if IN_A_SUBFLEET_ATTEMPT:
             # The peer check walks every ancestor, and a Subfleet guardian sits above
             # any process a turn or job starts: its descendants are agents by design
             # (C-25.6), so no person request can be made from here.
             pytest.skip("person-only requests cannot come from inside a Subfleet turn or job; "
-                        "run this test from a terminal")
-        request = json.dumps({"v": 1, "id": "p", "op": op, "args": args})
+                        "run this test outside Subfleet (CI runs it)")
+        app = self.e2e.env.get(development_app.ENV)
+        if not app:
+            # The `e2e` fixture names the stand-in to every daemon it starts
+            # (tests/e2e/conftest.py). Only a host with no C compiler may skip; a stand-in
+            # that did not compile, or a harness made some other way, is a test fault.
+            why = getattr(self.e2e, "no_person", None)
+            if why == development_app.NO_COMPILER:
+                pytest.skip(why)
+            pytest.fail(why or "this daemon was not told of the development app (D-21): make the harness with "
+                        f"the e2e fixture, which names the stand-in in {development_app.ENV}")
+        return development_app.request(app, self.e2e.root / "daemon.sock",
+                                       {"v": 1, "id": "p", "op": op, "args": args})
+
+    def as_terminal(self, op: str, **args) -> dict:
+        """The same request from a process with a controlling terminal, which `script(1)`
+        provides, and no Subfleet ancestry: a person's Terminal, an SSH login, or an
+        orphan an agent left holding a pseudo-terminal look alike here (D-PB1)."""
+        if IN_A_SUBFLEET_ATTEMPT:
+            pytest.skip("inside a Subfleet turn or job the markers refuse first; run this test outside Subfleet")
+        request = json.dumps({"v": 1, "id": "t", "op": op, "args": args})
         out = subprocess.run(["/usr/bin/script", "-q", "/dev/null", sys.executable, "-c", CLIENT,
                               str(self.e2e.root / "daemon.sock"), request],
                              capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -135,6 +158,17 @@ class Conversations:
         turns = {row["pid"] for row in log if "argv" in row
                  and ("--listen" in row["argv"] or "--input-format" in row["argv"])}
         return [json.loads(row["stdin"]) for row in log if "stdin" in row and row.get("pid") in turns]
+
+
+def test_every_e2e_harness_names_the_development_app_to_its_daemon(e2e, dev_app):
+    """C-25.6, D-21: the `e2e` fixture names the compiled stand-in to every daemon it
+    starts, so any module's `Conversations(e2e).as_person` has a person (D-PB1: a
+    terminal is not one). Only a host with no C compiler goes without."""
+    if dev_app == development_app.NO_COMPILER:
+        pytest.skip(dev_app)
+    assert isinstance(dev_app, Path), dev_app                       # it compiled
+    assert e2e.env[development_app.ENV] == str(dev_app) and e2e.no_person is None
+    assert dev_app.is_file() and " " in str(dev_app)                 # a path with spaces, as the build's
 
 
 @pytest.fixture
@@ -381,6 +415,9 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
 
     refused = conv.as_agent("approval.get", approval_id=approval["approval_id"])
     assert not refused["ok"] and "person-only" in refused["error"]["message"]
+    # D-PB1: a terminal with no Subfleet ancestry is not the person either.
+    terminal = conv.as_terminal("approval.get", approval_id=approval["approval_id"])
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     shown = conv.as_person("approval.get", approval_id=approval["approval_id"])
     assert shown["ok"], shown
     detail = shown["result"]
@@ -388,6 +425,8 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
                   request_sha256=detail["request_sha256"])
     agent = conv.as_agent("approval.respond", **answer)
     assert not agent["ok"] and "person-only" in agent["error"]["message"]
+    terminal = conv.as_terminal("approval.respond", **answer)
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     assert conv.message(mid)["state"] == "approval-needed"
 
     person = conv.as_person("approval.respond", **answer)
@@ -556,6 +595,8 @@ def test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_perso
     assert unfinished["available"] and unfinished["files"] == []
     refused = conv.as_agent("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
     assert not refused["ok"]
+    terminal = conv.as_terminal("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     unblocked = conv.as_person("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
     assert unblocked["ok"], unblocked
     assert conv.until_state(nxt, "complete", "failed")["state"] == "complete"
@@ -704,6 +745,8 @@ def test_a_steer_joins_the_running_turn_once_without_its_own_job(conv, provider)
     host = conv.submit(cid, "wait for my correction [fake:steer]")
     conv.until_state(host, "running")
     mid = conv.submit(cid, "include the correction", after_message_id=host)
+    terminal = conv.as_terminal("message.steer", message_id=mid)        # D-PB1
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     receipt = steer_as_person(conv, mid)
     assert receipt["state"] in ("steering", "steered") and receipt["steered_into"] == host
     assert conv.until_state(host, "complete", "failed")["state"] == "complete"
@@ -1019,6 +1062,8 @@ def test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_perso
     assert conv.message(nxt)["state"] == "queued"
     refused = conv.as_agent("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
     assert not refused["ok"] and "person-only" in refused["error"]["message"]
+    terminal = conv.as_terminal("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     resolved = conv.as_person("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
     assert resolved["ok"], resolved
     assert (resolved["result"]["state"], resolved["result"]["state_reason"]) == ("failed", "resolved-not-delivered")

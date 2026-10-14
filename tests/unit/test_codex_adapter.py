@@ -26,6 +26,7 @@ REQUIRED_CASES = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection",
     "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag",
     "stream-disconnect", "model-at-capacity", "spawn-fail", "model-scoped-limit",
+    "cut-off-item-completed", "cut-off-item-started", "cut-off-error",
 )
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
 THREAD = "01991c18-2680-7000-8000-000000000001"
@@ -439,14 +440,18 @@ def test_terminal_failure_wins_over_zero_rc_and_leftover_deliverable(tmp_path, m
     assert outcome.evidence["rc"] == 0
 
 
-@pytest.mark.parametrize("stream", ["", "not json\n", '{"type":"turn.completed"}\n'])
-def test_zero_rc_without_deliverable_is_unknown(tmp_path, stream):
-    """C-12.6: a completion frame cannot manufacture a deliverable."""
+@pytest.mark.parametrize("stream,expected", [
+    ("", OutcomeClass.TRANSIENT), ("not json\n", OutcomeClass.TRANSIENT),
+    ('{"type":"turn.completed"}\n', OutcomeClass.UNKNOWN),
+])
+def test_zero_rc_without_deliverable(tmp_path, stream, expected):
+    """C-9.2 C-12.6 An unfinished turn retries; a completed empty turn stays unknown,
+    and a completion frame cannot manufacture a deliverable."""
     launch = _launch(tmp_path)
     Path(launch.raw_stream_path).write_text(stream)
     (tmp_path / "last.md").write_bytes(b"")
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
-    assert outcome.cls == OutcomeClass.UNKNOWN
+    assert outcome.cls == expected
     assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
     assert outcome.evidence["rc"] == 0
 

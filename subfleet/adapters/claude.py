@@ -52,7 +52,7 @@ from ..contracts import (
     ReadingLabel, Sandbox,
 )
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .base import Adapter, AdapterError
+from .base import Adapter, AdapterError, open_stream, stream_path
 from .claude_stream import (
     AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
     is_synthetic_api_error, model_answered, parse_lines, parse_stream,
@@ -1448,23 +1448,16 @@ class ClaudeAdapter(Adapter):
     def raw_stream_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         """The attempt's stream.
 
-        `--output-format stream-json` puts the stream on stdout, so `stream.jsonl` and
-        `stdout` are the same bytes; whichever the daemon actually produced is read,
-        the dedicated stream file first.
+        `--output-format stream-json` puts the stream on stdout. The first existing
+        frozen entry is authoritative, including an empty or non-regular one;
+        only absent frozen entries permit legacy stdout fallback (C-4.3).
         """
         attempt_dir = Path(attempt_dir)
-        candidates: list[Path] = []
-        if launch is not None and launch.raw_stream_path:
-            candidates.append(Path(launch.raw_stream_path))
-        candidates.append(attempt_dir / "stream.jsonl")
-        if launch is not None and launch.stdout_path:
-            candidates.append(Path(launch.stdout_path))
-        candidates.append(attempt_dir / "stdout")
-        for path in candidates:
-            text = self.read_text(path)
-            if text.strip():
-                return text
-        return ""
+        try:
+            with open_stream(stream_path(attempt_dir, launch)) as handle:
+                return handle.read(4_000_000).decode("utf-8", "replace")
+        except (FileNotFoundError, NotRegularFile):
+            return ""
 
     def stream_summary(self, attempt_dir: Path, launch: Launch | None = None) -> StreamSummary:
         """Parse the complete attempt, including a terminal result beyond 4 MB.
@@ -1473,20 +1466,11 @@ class ClaudeAdapter(Adapter):
         stream reader. Never use it to decide whether a long attempt succeeded.
         """
         attempt_dir = Path(attempt_dir)
-        candidates = [Path(launch.raw_stream_path)] if launch and launch.raw_stream_path else []
-        candidates.append(attempt_dir / "stream.jsonl")
-        if launch and launch.stdout_path:
-            candidates.append(Path(launch.stdout_path))
-        candidates.append(attempt_dir / "stdout")
-        for path in dict.fromkeys(candidates):
-            try:
-                with open_regular(path, "r", encoding="utf-8", errors="replace") as handle:
-                    summary = parse_lines(handle)
-            except (FileNotFoundError, NotRegularFile):
-                continue
-            if summary.lines_total:
-                return summary
-        return parse_stream("")
+        try:
+            with open_stream(stream_path(attempt_dir, launch), "r", encoding="utf-8", errors="replace") as handle:
+                return parse_lines(handle)
+        except (FileNotFoundError, NotRegularFile):
+            return parse_stream("")
 
     def stderr_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         attempt_dir = Path(attempt_dir)

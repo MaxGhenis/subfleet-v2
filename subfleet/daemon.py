@@ -34,16 +34,20 @@ import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
+
+if TYPE_CHECKING:
+    from .conversations.peers import AuditToken
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import refusals, resource_leases
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
+from .conversations.peers import peer_token
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
-from .adapters.base import AdapterError
+from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
@@ -135,6 +139,10 @@ STATUS_JOBS = (
     "SELECT * FROM jobs WHERE state IN ('queued','waiting','running') OR job_id IN "
     "(SELECT job_id FROM attempts WHERE state IN ('reserved','starting','running','finalizing') "
     "UNION ALL SELECT job_id FROM attempts WHERE state='quarantined') ORDER BY +created_at,rowid")
+#: D-RT1: retain containment evidence without expanding ordinary pool counts.
+PROVIDER_QUARANTINES = (
+    "SELECT attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,quarantine_reason "
+    "FROM attempts WHERE state='quarantined' ORDER BY reserved_at,seq")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases) ORDER BY rowid")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
@@ -202,7 +210,7 @@ ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
                            "message-settled")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
-EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "parent-cap", "no-slot", "lease-held",
+EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "provider-cap", "provider-slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
                             "lane-proving", "disk", "ramp"})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
@@ -231,6 +239,10 @@ LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+#: C-9.2, C-4.3: `finalization.json`'s `rule` when this daemon classified the
+#: attempt. Every replay keeps such a verdict as its first pass decided it; only a
+#: verdict an older daemon recorded, without it, is reconciled with completion proof.
+FINALIZATION_RULE = "verified-success-first"
 #: C-6.14: the event that records a model answering on a lane (`_record_answer`),
 #: and how many of the newest a starting daemon reads to remember what was proven.
 ANSWER_EVENT = "lane.answered"
@@ -918,6 +930,9 @@ class Daemon:
         # C-6.10: the leases the last pass of each kind saw that no probe holds.
         # One that has gone since is capacity that came free.
         self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
+        # C-6.4a, C-6.10: quarantine can retain a provider slot after its lane
+        # lease is gone. Each pool must notice that count freeing independently.
+        self._provider_quarantines_seen: dict[str, frozenset[str]] = {}
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
@@ -1194,8 +1209,11 @@ class Daemon:
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
         scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
-        every open operator hold. A held lane is never a candidate (C-11.2) but is
-        still probed, so a held account keeps being measured."""
+        every open operator hold. A held lane is never a candidate (C-11.2), and no
+        timer reads it while the hold is in force (C-18.1); an attempt already
+        running on it can still report a limit. The hold keeps a row of its own
+        (`Store.put_closure`): no limit, reset or reset credit ends it before its
+        `until`, and its release leaves any limit on the lane in force."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
@@ -1334,6 +1352,14 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
+            if scheduler.provider_caps_on(self.policy):
+                quarantines = self.store.query(PROVIDER_QUARANTINES)
+                if route:
+                    rows["attempts"].extend(quarantines)
+                else:
+                    details = {row["attempt_id"]: row["quarantine_reason"] for row in quarantines}
+                    rows["attempts"] = [dict(row, quarantine_reason=details[row["attempt_id"]])
+                                        if row["attempt_id"] in details else row for row in rows["attempts"]]
             if not route:
                 rows["weekly_samples"] = self.store.weekly_projection_samples()
             # Probe reservations are explicit leases, not invented in-flight attempt
@@ -1357,6 +1383,18 @@ class Daemon:
         # `status.json` lays the same leases over the timer's snapshot (C-18.1).
         capacity.mark_probe_leases(view, rows["probe_leases"], rows["probe_records"].get)
         view = self.timers.enrich_view(view, rows["timers"])
+        provider_counts = scheduler.provider_live(view) if scheduler.provider_caps_on(self.policy) else {}
+        probe_counts = dict.fromkeys(provider_counts, 0)
+        for lane in view["lanes"]:
+            if lane.get("probe_holder"):
+                probe_counts[lane["provider"]] = probe_counts.get(lane["provider"], 0) + 1
+        provider_caps = [{"provider": provider, "live": provider_counts.get(provider, 0),
+                          "probes": probe_counts.get(provider, 0),
+                          "max_active_attempts": limit, "key": f"providers.{provider}.max_active_attempts"}
+                         for provider in sorted(self.policy.get("providers") or {})
+                         if (limit := scheduler.provider_cap(self.policy, provider)) is not None]
+        if provider_caps:
+            view["provider_caps"] = provider_caps
         # C-6.14: then each lane's pilot, at the view's clock, as `_route_rows` lays them.
         turns = {row["job_id"] for row in view.get("jobs", ()) if row.get("kind") == "turn"}
         attempts = [{**row, "kind": "turn" if row.get("job_id") in turns else "detached"}
@@ -2096,6 +2134,9 @@ class Daemon:
                 args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
                 sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
@@ -3452,11 +3493,22 @@ class Daemon:
             lines.append(f"Decision: none; this job's route could not be evaluated: {route_error}")
         elif not refused:
             lines.append("No decision recorded.")
+        # D-SHUT1: the routing walk alone cannot explain an rc-0 cut-off turn.
+        # Read the latest attempt's recorded verdict, without reclassifying it.
+        last = self.store.one("SELECT seq,outcome_detail,evidence_json FROM attempts WHERE job_id=? "
+                              "ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+        classification = json.loads(last["evidence_json"] or "{}").get("classification", {}) if last else {}
+        attempt_explanation = None
+        if classification.get("turn_completed") is False and classification.get("rc") == 0:
+            event_type = classification.get("last_event_type") or "none read"
+            attempt_explanation = f"Last attempt a{last['seq']}: {last['outcome_detail']} (last event: {event_type})"
+            lines.append(attempt_explanation)
         disk_reading = self._disk_status() if job["kind"] != "turn" and self._disk.snapshot["enabled"] else None
         if disk_reading is not None and (hold or {}).get("reason") != "disk":
             lines.append(render.disk_line(disk_reading))
         return {"decision": decision, "decision_source": source, "job": standing, "queue": queue,
-                "route_error": route_error, "refused": refused, "text": "\n".join(lines),
+                "route_error": route_error, "refused": refused, "attempt_explanation": attempt_explanation,
+                "text": "\n".join(lines),
                 **({"disk": disk_reading} if disk_reading is not None else {})}
 
     def _admission_status(self, view: dict) -> dict:
@@ -4272,12 +4324,16 @@ class Daemon:
         The wait records are in memory, so nothing could bring a persisted wait
         forward when capacity came free, and what each job was waiting for may
         have changed while no daemon ran. A route wait (C-6.12) is looked at too:
-        a restart is how the fix for what it met arrives.
+        a restart is how the fix for what it met arrives. A latest transient
+        attempt instead has C-4.5's durable retry deadline; restarting must not
+        bring that wait forward, including legacy rows.
         """
         now = utcnow()
         with self.store.transaction("admission.recovered") as tx:
             tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason IN ('capacity','route') "
-                       "AND next_check_at>?", (now, now))
+                       "AND next_check_at>? AND (wait_reason='route' OR NOT EXISTS ("
+                       "SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.outcome_class='transient' "
+                       "AND a.seq=(SELECT MAX(seq) FROM attempts WHERE job_id=jobs.job_id)))", (now, now))
 
     def _timer_turn(self, lane: Lane, purpose: str, holder: str, *, cancel, deadline) -> Outcome:
         if cancel.is_set() or time.monotonic() >= deadline:
@@ -5526,9 +5582,14 @@ class Daemon:
         probes = "holder NOT LIKE 'probe:timer:%'" if kind == "turn" else "holder NOT LIKE 'probe:%'"
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
             f"SELECT lease_key,holder FROM leases WHERE {probes}"))
+        quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
+                                    if scheduler.uncontained_quarantine(row))
+                           if scheduler.provider_caps_on(self.policy) else frozenset())
         with self._admission_lock:                  # the other pass replaces its own entry meanwhile
-            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now)
+            freed = bool(self._leases_seen.get(kind, frozenset()) - leases_now
+                         or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
+            self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
@@ -5699,8 +5760,14 @@ class Daemon:
             # closed, its checkout leased) would otherwise keep every later one
             # waiting while lanes were free. A lease keeps its FIFO below, capped or
             # not, and a job waiting for one holds no later job back (`ahead`).
-            scope = scheduler.hold_scope(self.policy, job)
-            family = self._ancestors(job, ancestry) if scope == "family" else frozenset()
+            scope = scheduler.hold_scope(self.policy, job, roster=roster)
+            # Keep the old fleet/lane/family scope separate from provider FIFO.
+            # With provider caps enabled, narrow demand to the selected provider
+            # before applying either competition rule.
+            fifo_scope = scheduler.hold_scope(self.policy, job, roster=roster, include_providers=False)
+            family = self._ancestors(job, ancestry) if fifo_scope == "family" else frozenset()
+            defer_fifo = any(scheduler.provider_cap(self.policy, provider) is not None
+                             for provider in self.policy.get("providers", {}))
 
             own_here: list[frozenset[str]] = []
 
@@ -5726,17 +5793,58 @@ class Daemon:
                 job has run (review of PR #72: a retrying resume and a newer one of
                 the same native session, the newer ordered first by class, each
                 waited for the other until `max_wall_s`)."""
-                if scope is None:
+                if fifo_scope is None:
                     return None
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
                              and scheduler.competes(models, waiter[1], lanes, waiter[2])
-                             and (scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
-            behind = ahead(models, lanes)
+                             and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
+
+            def unadmittable_now():
+                """C-11.8, C-6.12: the standing refusals that keep every lane from this job now (or
+                None), and whether its route can be evaluated. The lanes its attempts excluded are
+                merged in (C-4.5) as its route merges them: a lane re-enrolled since a `limited`
+                attempt is excluded under its successor's id, which only `_retry_pin` knows (review
+                of #201 r1). A merge that cannot be made (a stored exclusion that is not a name) is
+                its route's problem, a `route` wait once it is looked at, which holds nobody: so such
+                a job holds nobody meanwhile either (review of #201 r2)."""
+                try:
+                    effective = ({**job, "exclusions": self._merged_exclusions(job, extra_exclusions)}
+                                 if extra_exclusions else job)
+                except Unroutable:
+                    return None, False
+                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo), True
+            behind = None if defer_fifo else ahead(models, lanes)
+            for_good = None
+            if (behind and not saturated.get(pool) and job["wait_reason"] == "capacity"
+                    and job["next_check_at"] and job["next_check_at"] > utcnow()):
+                # C-6.9, C-6.12: a job held behind an older one while its capacity clock runs still
+                # cannot be placed on this pass for want of a slot or a lane, so it still holds back
+                # the later jobs of its tier that compete with it, with the demand it has while that
+                # clock runs (its own once a look has let a retry's pin go), as it would were nothing
+                # ahead of it (below). Before, it registered nothing here, and a younger job that
+                # competes with it but not with the older one was placed past it. This adds holds
+                # only while the clock runs: a job held here gets no look, so nothing starts it a new
+                # clock, and once that clock is due it holds nobody unless a look finds it waiting
+                # again (a let-go retry's due look evaluates its pair, which may let the pin go and
+                # set the next clock, C-6.12). A lease wait still holds nobody (`ahead`; the lease's
+                # queue keeps its place), nor does a job no lane can admit (C-11.8), which its hold
+                # says (C-6.11), lease wait or not, nor one whose route cannot be evaluated (C-6.12).
+                # As before this change, a job held here is not put in a probe's line: it carries no
+                # probe on this pass.
+                held = self._capacity_waits.get(job["job_id"])
+                for_good, routable = unadmittable_now()
+                if routable and not for_good and not (held and held["hold"].get("reason") == "lease-held"):
+                    wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
             if saturated.get(pool) or behind:
                 holds[job["job_id"]] = ({"reason": job["wait_reason"]} if job["wait_reason"] in NOT_ADMISSIONS_TO_PLACE else
                                         {"reason": "fleet-full", "max_active_attempts": pool_cap} if saturated.get(pool) else
-                                        {"reason": "behind-older-job", "behind": behind, "tier": tier})
+                                        {"reason": "behind-older-job", "behind": behind, "tier": tier,
+                                         **({"for_good": for_good} if for_good else {})})
+                older_hold = holds.get(behind, {})
+                if older_hold.get("key", "").startswith("providers."):
+                    holds[job["job_id"]].update({key: older_hold[key] for key in
+                                                ("provider", "live", "max_active_attempts", "key")})
                 continue
             if job["wait_reason"] in ("approval", "uncertain"):
                 holds[job["job_id"]] = {"reason": job["wait_reason"]}
@@ -5767,8 +5875,8 @@ class Daemon:
                 # model and job shape per pass.
                 lease_held = bool(known and known["hold"].get("reason") == "lease-held")
                 asked = job["wait_reason"] == "capacity" and (scope is not None or lease_held)
-                for_good = scheduler.unadmittable(self.policy, pin_view(), job, memo=for_good_memo) if asked else None
-                if job["wait_reason"] == "capacity" and not for_good:
+                for_good, routable = unadmittable_now() if asked else (None, True)
+                if job["wait_reason"] == "capacity" and routable and not for_good:
                     # C-6.9: a lease wait, those kept for an older job too, is no slot wait.
                     waiting_for = (frozenset([*(known["hold"].get("leases") or ()), *(known["hold"].get("queued") or ())])
                                    if lease_held else frozenset())
@@ -5776,7 +5884,7 @@ class Daemon:
                     if probing:
                         probe_line.append((job["job_id"], probing["model"],
                                            self._probe_reach(roster, job, probing["model"], lanes, extra_exclusions)))
-                if lease_held and not for_good:
+                if lease_held and routable and not for_good:
                     # C-6.9, C-11.8: nor does such a job keep a lease's place in its queue.
                     # Only the keys it takes: one it needs free but does not take (`blocked`,
                     # retention's fence above a writer's folder, say) is never queued for
@@ -5970,12 +6078,23 @@ class Daemon:
                     # and as submitted it keeps C-6.9's place behind older jobs.
                     models = scheduler.demand_models(self.policy, job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
-                    behind = ahead(models, lanes)
-                    if behind:
+                    behind = None if defer_fifo else ahead(models, lanes)
+                    # C-6.12: exclusions that cannot be merged are its route's problem, so such a
+                    # job is not held here: the route's preparation below settles it as a `route`
+                    # wait, which holds nobody (review of #201 r2).
+                    for_good, routable = unadmittable_now() if behind else (None, True)
+                    if behind and routable:
                         # C-6.10: held after a look, so on a clock like every other
                         # such hold; until it is due the job is held at the top of
                         # the pass with its own demand, with no git and no scoring.
-                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier}
+                        # C-6.12: its demand is its own on this pass and while that clock runs, "so it
+                        # neither passes an older job it competes with nor is passed by a younger one":
+                        # a waiter with that demand now, as on the passes before its clock is due
+                        # (above), unless no lane can admit it as submitted (C-11.8).
+                        if not for_good:
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                        hold = {"reason": "behind-older-job", "behind": behind, "tier": tier,
+                                **({"for_good": for_good} if for_good else {})}
                         rechecks = self._capacity_wait(job["job_id"], f"retry-let-go:behind:{behind}", hold)
                         next_check = after(scheduler.capacity_recheck_delay(rechecks))
                         with self.store.transaction("job.retry_let_go", job_id=job["job_id"]) as tx:
@@ -5985,6 +6104,10 @@ class Daemon:
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
+                if extra_exclusions:
+                    # C-6.12: checked where the route is prepared, so a failure here counts
+                    # toward the deferral backoff instead of following a reset of it.
+                    self._merged_exclusions(job, extra_exclusions)
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
                 self._early_routes.pop(job["job_id"], None)
@@ -5996,15 +6119,21 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
+                current = self._job(job["job_id"])
+                if current["state"] in TERMINAL or current["cancel_requested_at"]:
+                    continue
+                if current["wait_reason"] in ("approval", "uncertain"):
+                    # C-4.1, C-6.11: preparing the route quarantined its probe, so the job now
+                    # waits on a person. It holds back nobody and says so on this pass too.
+                    holds[job["job_id"]] = {"reason": current["wait_reason"]}
+                    continue
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 # C-6.11: which probe, and whose turn it is when it is not this job's.
                 hold = holds[job["job_id"]] = {"reason": "probe-pending", **(probe_note or {})}
-                current = self._job(job["job_id"])
-                live = current["state"] not in TERMINAL and not current["cancel_requested_at"]
                 # A probe that ran set the job's clock itself (C-6.10), which is due
                 # at once when the probe used the whole of it.
                 clocked = "next_check_at" in hold or (current["next_check_at"] and current["next_check_at"] > utcnow())
-                if live and not clocked:
+                if not clocked:
                     # C-6.10: the route could not be prepared and nothing set a
                     # clock (the probe's slot is held, the lane changed hands, an
                     # older job has the turn at the probe). The job would otherwise
@@ -6023,9 +6152,9 @@ class Daemon:
                 elif clocked:
                     hold.setdefault("next_check_at", current["next_check_at"])
                     self._refresh_hold(job["job_id"], hold)
-                if live and kind == "detached" and hold.get("model") and current["wait_reason"] != "uncertain":
-                    # C-6.9: it waits on this probe, so it carries the next one; a job
-                    # whose probe was quarantined waits on an operator and holds nobody.
+                if kind == "detached" and hold.get("model"):
+                    # C-6.9: it waits on this probe, so it carries the next one (a job
+                    # whose probe was quarantined waits on an operator and left above).
                     probe_line.append((job["job_id"], hold["model"],
                                        self._probe_reach(roster, job, hold["model"], lanes, extra_exclusions)))
                 continue
@@ -6135,7 +6264,7 @@ class Daemon:
                             status = "held"
                             break
                         if extra_exclusions:
-                            job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                            job["exclusions"] = self._merged_exclusions(job, extra_exclusions)
                             tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                         needs_probe = self._needs_probe(decision, job)
                         live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
@@ -6150,7 +6279,50 @@ class Daemon:
                         kept = [waiter for waiter in older_waiters(tier) if blocks(waiter)]
                         limit = None if pool_cap is None else pool_cap - 1 if kept else pool_cap
                         at_limit = limit is not None and live >= limit
-                        if not decision.chosen_lane or at_limit:
+                        provider_hold = None
+                        provider_at_limit = False
+                        provider_kept = []
+                        provider_behind = None
+                        fifo_behind = None
+                        provider = None
+                        if decision.chosen_lane:
+                            provider = self.policy["models"][decision.chosen_model]["provider"]
+                        elif defer_fifo:
+                            # A rejected single-provider route still has that one
+                            # provider's FIFO. A mixed route with no selection has
+                            # no provider peer to wait behind yet.
+                            possible = scheduler.demand_providers(self.policy, models, lanes, roster)
+                            if len(possible) == 1:
+                                provider = next(iter(possible))
+                        if provider is not None:
+                            if defer_fifo:
+                                selected_models = (frozenset(name for name in models
+                                                   if self.policy["models"][name]["provider"] == provider)
+                                                   if models is not None else frozenset(
+                                                       name for name, model in self.policy["models"].items()
+                                                       if model["provider"] == provider))
+                                fifo_behind = ahead(selected_models, lanes)
+                            provider_limit = scheduler.provider_cap(self.policy, provider)
+                            if provider_limit is not None:
+                                # C-6.4: both pools share this count. Check inside the
+                                # reserving transaction, before taking ANY lease.
+                                provider_count = tx.execute(
+                                    "SELECT count(*) FROM attempts a JOIN lanes l USING(lane_id) "
+                                    "WHERE a.state IN ('reserved','starting','running','finalizing') "
+                                    "AND l.provider=?", (provider,)).fetchone()[0]
+                                # Separate predicates retain the live/quarantine
+                                # partial indexes instead of scanning history.
+                                provider_count += sum(scheduler.uncontained_quarantine(dict(row)) for row in tx.execute(
+                                    "SELECT a.state,a.quarantine_reason FROM attempts a JOIN lanes l USING(lane_id) "
+                                    "WHERE a.state='quarantined' AND l.provider=?", (provider,)))
+                                provider_kept = [waiter for waiter in kept if provider in
+                                                 scheduler.demand_providers(self.policy, waiter[1], waiter[2], roster)]
+                                provider_behind = next((waiter[0] for waiter in provider_kept if not waiter[3]), None)
+                                provider_at_limit = provider_count >= provider_limit - bool(provider_kept)
+                                provider_hold = {"provider": provider, "live": provider_count,
+                                                 "max_active_attempts": provider_limit,
+                                                 "key": f"providers.{provider}.max_active_attempts"}
+                        if not decision.chosen_lane or at_limit or provider_at_limit or provider_behind or fifo_behind:
                             # C-11.8: a job every lane refuses for a reason no wait ends
                             # (the pinned lane turned so since this pass's check) waits
                             # for no slot, so it holds no later job back (C-6.9).
@@ -6164,24 +6336,47 @@ class Daemon:
                             # 2026-09-20 three such jobs were each re-evaluated every
                             # second for hours: 2.7 rows of 22 KB a second, 681 MB of a
                             # 709 MB store, and a daemon at a full core doing it.
-                            if not decision.chosen_lane:
+                            if fifo_behind or provider_behind:
+                                label = "behind-older-job"
+                            elif not decision.chosen_lane:
                                 label = scheduler.dominant_rejection(decision)
                             else:
                                 # A lane would take it. Either the fleet is at its cap, or
                                 # C-6.9 keeps the last slot for an older job of this tier.
-                                label = "fleet-full" if saturated[pool] else "slot-kept"
+                                label = ("behind-older-job" if fifo_behind or provider_behind else
+                                         "provider-cap" if provider_at_limit and provider_hold["live"] >=
+                                         provider_hold["max_active_attempts"] else
+                                         "provider-slot-kept" if provider_at_limit else
+                                         "fleet-full" if saturated[pool] else "slot-kept")
                             hold = {"reason": label, **({"for_good": for_good} if for_good else {}),
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if label == "provider-cap" and provider_hold is None:
+                                provider_hold = next(row["provider_cap"] for evaluation in decision.evaluations
+                                                     for row in evaluation["rejections"]
+                                                     if row.get("provider_cap") and row["provider_cap"]["live"] >=
+                                                     row["provider_cap"]["max_active_attempts"])
+                            if label in ("provider-cap", "provider-slot-kept"):
+                                hold.update(provider_hold)
+                            if label == "provider-slot-kept":
+                                hold.update(kept_for=provider_kept[0][0], tier=tier)
+                            if fifo_behind or provider_behind:
+                                hold.update(behind=fifo_behind or provider_behind, tier=tier)
+                                if provider_behind:
+                                    hold.update(provider_hold)
                             if kind == "turn" and not decision.chosen_lane:
                                 # C-24.4, C-29.11: what each lane said, for the message's
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
-                            rechecks = self._capacity_wait(
-                                job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
-                                lane_wait=not decision.chosen_lane)
+                            # The verdict alone keys the wait (C-6.10). Whether the pool or
+                            # the provider was at its limit, and which older job this one is
+                            # behind (C-6.4a, C-6.9), go in the hold, which every look
+                            # replaces, so `why` reports them; as part of the key they
+                            # recorded an unchanged verdict again on each fleet turnover.
+                            rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
+                                                           lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
@@ -6623,6 +6818,10 @@ class Daemon:
         attempts = store.query("SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,j.kind,j.parent_job_id "
                                "FROM attempts a JOIN jobs j USING(job_id) "
                                "WHERE a.state IN ('reserved','starting','running','finalizing')")
+        if scheduler.provider_caps_on(self.policy):
+            attempts.extend(store.query(
+                "SELECT a.attempt_id,a.job_id,a.lane_id,a.state,a.reserved_at,a.quarantine_reason,j.kind,j.parent_job_id "
+                "FROM attempts a JOIN jobs j USING(job_id) WHERE a.state='quarantined'"))
         # C-6.14: each lane's pilot, from the attempts in flight now and what has
         # answered by now, as `_capacity_view` lays them: an attempt placed or an
         # answer heard since the early view changes the lane, which is judged again.
@@ -6658,6 +6857,18 @@ class Daemon:
                                      "AND released_at IS NOT NULL", odd)
             rows.sort(key=lambda row: row["closure_id"])
         return rows
+
+    @staticmethod
+    def _merged_exclusions(job: dict, extra: tuple[str, ...]) -> str:
+        """C-4.5, C-6.12: the job's exclusions with the lanes its attempts added, as stored.
+
+        A stored exclusion that is not a lane name (submit refuses one; an older row
+        may hold one) cannot be merged. That is this job's problem, never the pass's.
+        """
+        try:
+            return json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra)))
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
@@ -7933,7 +8144,11 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            contents = read_regular(path)          # only a regular file is an artifact
+            if role == "raw-stream":
+                with open_stream(path) as stream:
+                    contents = stream.read()
+            else:
+                contents = read_regular(path)      # only a regular file is an artifact
         except (FileNotFoundError, NotRegularFile):
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
@@ -7972,12 +8187,14 @@ class Daemon:
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment when no separate raw file was supplied.
-        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+        # stream once after containment only when both frozen candidates are absent.
+        # Do not shadow an authoritative canonical entry with a new custom file.
+        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
+                                             (launch.raw_stream_path, adir / "stream.jsonl")):
             try:
                 data = read_regular(Path(launch.stdout_path))       # never waiting in open()
             except (FileNotFoundError, NotRegularFile):
-                data = None                                        # none there, as `is_file()` had said
+                data = None                                        # no regular stdout to freeze
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
@@ -7993,6 +8210,7 @@ class Daemon:
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
+        older_verdict = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
                               else "guardian exit receipt has no return code")
@@ -8006,8 +8224,13 @@ class Daemon:
                 if exit_info.spawn_error:
                     outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                 attest = adapter.attest(adir, launch, outcome, a["model_requested"])
-                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest)}
+                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
+                          "rule": FINALIZATION_RULE}
                 self._publish("finalization", result_path, json_bytes(result))
+            # A replay of this daemon's own verdict must reach its first pass's
+            # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
+            # is finalized again and still retries.
+            older_verdict = result.get("rule") != FINALIZATION_RULE
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
@@ -8016,12 +8239,38 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
-        # The daemon's two overrides of the adapter's `ok`. finalization.json
-        # keeps the adapter's verdict; both are recomputed from the attempt row
-        # and the captured deliverable on every (re)finalization, so a replay
-        # reaches the same class (C-4.3), and the adapter's verdict is kept in
-        # the attempt's evidence beside the class that decided.
+        # C-12.6: cached acceptance uses the fresh provider's content boundary,
+        # not the artifact's byte count. Preserve the captured payload itself.
+        nonblank_deliverable = False
+        if deliverable:
+            payload = read_regular(deliverable_path)
+            nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
+                                       if lane.provider == "claude" else payload.strip())
+        # finalization.json keeps the adapter's verdict. Reconciliation and
+        # overrides use the frozen stream, captured deliverable, exit receipt
+        # and attempt row on every replay (C-4.3), before any lane, closure or
+        # acceptance effect. Keep the original verdict beside the deciding class.
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
+        if not lost and lane.provider == "codex" and job["kind"] != "turn":
+            from .adapters.codex import completion_evidence
+            completion = completion_evidence(adir, launch)
+            outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
+            spawn_error = receipt.get("spawn_error") or outcome.evidence.get("spawn_error")
+            if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
+                    and completion["turn_completed"] and not completion["turn_failed"]
+                    and not spawn_error and not actual.get("killed_by")
+                    and nonblank_deliverable):
+                # C-9.2: an older daemon's authentication/text verdict can precede
+                # verified success. The captured bytes decide presence; never
+                # reclassify or re-extract a result already frozen on disk.
+                # Claude's structured admission verdicts and conversation
+                # driver outcomes are outside this detached Codex rule.
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.OK,
+                                              detail="Codex completed with a deliverable", closure=None,
+                                              evidence={**outcome.evidence, "admission": "deliverable with exit 0"})
+            if outcome.cls == OutcomeClass.OK and (completion["turn_failed"] or spawn_error):
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN,
+                                              detail=spawn_error or "Codex turn failed without a verified deliverable")
         if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
             # C-9.2: an attempt the daemon signalled (an operator's kill, the
             # wall limit, recovery) did not finish, whatever its rc and its
@@ -8039,7 +8288,14 @@ class Daemon:
                 outcome, cls=OutcomeClass.UNKNOWN,
                 detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
                        f"is not a finished deliverable")
-        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
+        if outcome.cls == OutcomeClass.OK and lane.provider == "codex" and job["kind"] != "turn":
+            # C-9.2, D-SHUT1: a cached verdict can predate the adapter's rule.
+            # Acceptance always needs proof from this attempt's frozen stream,
+            # never last.md or a receipt's claimed completion evidence.
+            if not completion["turn_completed"]:
+                outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
+                                              detail="Codex exited before its turn completed")
+        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and not nonblank_deliverable:
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if not lost and self._answered(outcome, provider_verdict["class"]):
             # C-6.14: before the attempt leaves flight, so a pilot that answered and
@@ -8494,7 +8750,7 @@ class Daemon:
             return None
 
     def _start_request(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
-                       arrived: float, peer: int | None) -> Future | None:
+                       arrived: float, peer: AuditToken | None) -> Future | None:
         """Start one request where it runs (C-16.5, C-25.3): a future, or None when
         it was answered here, on the connection's own thread."""
         if self.conversations.owns(req.op):
@@ -8514,14 +8770,12 @@ class Daemon:
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
         return pool.submit(self._respond, conn, write_lock, req, arrived)
 
-    def _connection(self, conn: socket.socket) -> None:
+    def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()
         pending: list[Future] = []
         reads: set[Future] = set()              # pending futures whose request only reads
         framer = descriptors.LineFramer()
         replied = [0.0]                         # when a reply last finished (monotonic)
-        from .conversations.peers import peer_pid
-        peer = peer_pid(conn)                   # C-25.6: who is asking, read from the socket
 
         def note_reply(_future=None) -> None:
             replied[0] = time.monotonic()
@@ -8615,7 +8869,7 @@ class Daemon:
         service = self.__dict__.get("conversations")       # none yet while __init__ runs
         return service.live_runners() if service is not None else 0
 
-    def _hold_connection(self, conn: socket.socket) -> None:
+    def _hold_connection(self, conn: socket.socket, peer: AuditToken | None = None) -> None:
         """C-16.7: hold a new connection, with a reader of its own, up to the cap.
 
         Each admitted connection gets its own reader thread, so it is read at
@@ -8636,7 +8890,7 @@ class Daemon:
             self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit",
                          "connection over the cap")
             return
-        reader = threading.Thread(target=self._read_connection, args=(conn,),
+        reader = threading.Thread(target=self._read_connection, args=(conn, peer),
                                   name="subfleet-socket", daemon=True)
         with self._connection_lock:
             self._readers.add(reader)
@@ -8652,9 +8906,9 @@ class Daemon:
             self._refuse(conn, "the daemon is busy: it could not start a thread for this connection",
                          "connection no reader thread could start for")
 
-    def _read_connection(self, conn: socket.socket) -> None:
+    def _read_connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         try:
-            self._connection(conn)
+            self._connection(conn, peer)
         finally:
             with self._connection_lock:
                 self._readers.discard(threading.current_thread())
@@ -8743,6 +8997,7 @@ class Daemon:
             while not self.stopping.is_set():
                 try:
                     conn, _ = self._socket.accept()
+                    peer = peer_token(conn)     # C-25.6: first work after accept, before any logging or reader
                 except socket.timeout:
                     continue
                 except OSError as exc:
@@ -8782,7 +9037,7 @@ class Daemon:
                 if failures:
                     self.log.info("accept recovered after %d failures", failures)
                     failures = 0
-                self._hold_connection(conn)
+                self._hold_connection(conn, peer)
         finally:
             self.close()
 

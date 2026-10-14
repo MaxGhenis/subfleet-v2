@@ -443,6 +443,7 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
+    lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
@@ -1682,16 +1683,24 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
 
 
 def _shown_deliverable(job: dict[str, Any]) -> str | None:
-    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
+    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-12.6, C-15.1).
 
-    The recorded artifact, the accepted attempt's first; failing that, the `-o`
-    export, but only of an accepted job. Nothing exported to the `-o` path of
-    a job that was not accepted, so a file there is someone else's or an
-    earlier run's, never this job's output.
+    Only the accepted attempt's recorded artifact can be the result. An
+    attempt's interim text remains in metadata as evidence. With no accepted
+    attempt, `--out` prints nothing and returns Exit.OPERATIONAL (1).
+    An accepted job with no deliverable recorded for any attempt (a v1 import
+    whose run kept only its export) shows its `-o` export, C-8.3's copy of the
+    accepted deliverable, unless that export failed. A deliverable recorded
+    only for another attempt is never the result, and then neither is `-o`.
     """
     merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
-    return _artifact_path(job, "deliverable") or (
-        merged.get("out_path") if merged.get("state") == JobState.SUCCEEDED.value else None)
+    accepted = merged.get("accepted_attempt_id")
+    if not accepted:
+        return None
+    recorded = [artifact for artifact in rows_of(job.get("artifacts")) if artifact.get("role") == "deliverable"]
+    if recorded:
+        return next((artifact.get("path") for artifact in recorded if artifact.get("attempt_id") == accepted), None)
+    return None if merged.get("export_error") else merged.get("out_path")
 
 
 def _cat(label: str, path: str | None, *, header: bool) -> int:
@@ -1832,20 +1841,21 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
                                     header=both))
         return worst
     # C-17.1: the bare form keeps v1's shape, which agents parse today: the
-    # metadata object, then `--- out.md ---` and the deliverable, and with
-    # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
-    # are v2's single-artifact forms.
+    # metadata object, then `--- out.md ---` and the accepted deliverable, or
+    # nothing after it when no result was accepted (C-12.6). Unaccepted
+    # artifacts are evidence paths on stderr, never result text on stdout.
+    # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
-    if path and Path(path).is_file():
-        # v1 printed whatever out.md held, or nothing, and still exited 0; the
-        # explicit `--out` form is the one that fails on a missing artifact.
-        text = Path(path).read_text(errors="replace")
-        sys.stdout.write(text)
-        if text and not text.endswith("\n"):
-            out()
-    return int(Exit.OK)
+    if path:
+        return _cat("deliverable", path, header=False)
+    note("No accepted result; attempt artifacts are unaccepted evidence.")
+    for artifact in rows_of(job.get("artifacts")):
+        if artifact.get("role") == "deliverable":
+            note(f"Unaccepted evidence ({artifact.get('attempt_id') or 'attempt unknown'}): {artifact.get('path')}")
+    merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
+    return int(Exit.OPERATIONAL if merged.get("state") in ("failed", "cancelled", "lost") else Exit.OK)
 
 
 def _same_process():
@@ -2288,6 +2298,9 @@ def cmd_why(args: argparse.Namespace) -> int:
         lines.append(f"Decision: none; this job's route could not be evaluated: {result['route_error']}")
     elif not result.get("refused"):
         lines.append("No decision recorded.")
+    # D-SHUT1: routing fields alone omit why the last attempt was rejected.
+    if result.get("attempt_explanation"):
+        lines.append(result["attempt_explanation"])
     out("\n".join(lines))
     return int(Exit.OK)
 

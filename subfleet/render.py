@@ -142,6 +142,7 @@ def status(view: Mapping[str, Any]) -> str:
                           now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S),
                           weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
+    lines.extend(provider_cap_text(row) for row in view.get("provider_caps", ()))
     if view.get("disk") is not None:
         lines.append(disk_line(view["disk"]))
     if view.get("ramp") is not None:
@@ -214,6 +215,8 @@ _HOLD_TEXT = {
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
     "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
+    "provider-cap": "{provider}: {live} of {max_active_attempts} running ({key}); waiting for a provider slot",
+    "provider-slot-kept": "{provider}: {live} of {max_active_attempts} running ({key}); the last provider slot is kept for {kept_for}, an older {tier} job (C-6.9)",
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "lease-held": "a lease this job needs is held by another job: {leases}",
     "lease-held:retiring": "retention is removing a finished job's worktree{where} ({trees}); it waits until "
@@ -239,6 +242,11 @@ _HOLD_TEXT = {
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
 }
+
+
+def provider_cap_text(row: Mapping[str, Any]) -> str:
+    text = f"{row['provider']}: {row['live']} of {row['max_active_attempts']} running ({row['key']})"
+    return text + (f"; {row['probes']} exempt probe reservations" if row.get("probes") else "")
 
 
 def disk_floor_detail(reading: Mapping[str, Any]) -> str:
@@ -291,15 +299,23 @@ _PIN_REFUSALS = {
 
 def pin_refusals(stuck: Mapping[str, Any]) -> str:
     """C-11.8: why a pinned lane can never admit its job, in words: each standing
-    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named."""
+    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named.
+
+    A hold and a limit keep separate rows (C-9.6), so two closures can share a
+    scope and an end, and `scheduler.judge_lane` then names that refusal once
+    per row: it is said once, with every row's reason (review of PR #208)."""
     lane = stuck.get("lane_id") or "the lane"
-    closures = {f"closed:{row['scope']}:{row['until_at']}": row for row in stuck.get("closures") or ()}
+    closures: dict[str, list[Mapping[str, Any]]] = {}
+    for row in stuck.get("closures") or ():
+        closures.setdefault(f"closed:{row['scope']}:{row['until_at']}", []).append(row)
     parts = []
-    for reason in stuck.get("reasons") or ():
-        closure = closures.get(reason)
-        if closure is not None:
-            parts.append(f"{lane} is closed for {closure['scope']}"
-                         + (f" ({closure['reason']})" if closure.get("reason") else "") + f" until {closure['until_at']}")
+    for reason in dict.fromkeys(stuck.get("reasons") or ()):
+        rows = closures.get(reason)
+        if rows:
+            why = ", ".join(dict.fromkeys(str(getattr(row["reason"], "value", row["reason"]))
+                                          for row in rows if row.get("reason")))
+            parts.append(f"{lane} is closed for {rows[0]['scope']}" + (f" ({why})" if why else "")
+                         + f" until {rows[0]['until_at']}")
         elif str(reason).startswith("closed:"):
             parts.append(f"{lane} is {reason}")
         else:
@@ -391,6 +407,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
     if hold:
         reason = hold.get("reason", "unknown")
         template = _HOLD_TEXT.get(reason)
+        if reason == "behind-older-job" and hold.get("key", "").startswith("providers."):
+            template = "held behind {behind}, an older {tier} job waiting for the same provider's capacity (C-6.9)"
         if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
             # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
             template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
@@ -414,6 +432,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
                  "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "behind-older-job" and hold.get("key", "").startswith("providers."):
+                lines.append(provider_cap_text(hold))
             if reason == "disk" and hold.get("error"):
                 lines.append("Disk reading failed: " + hold["error"])
             if reason == "disk":
