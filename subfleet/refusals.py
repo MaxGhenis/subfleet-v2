@@ -21,6 +21,46 @@ from . import ids
 from .contracts import JOB_ID_SLUG_MAX
 from .sessions.registry import CONVERSATION_FIX
 
+# Checkout checks select these fixed diagnostics and repairs at their raise
+# sites. Neither exception text nor a path is used to select a public message.
+CHECKOUT_REFUSALS = {
+    "checkout-missing": ("push requires a committed Git checkout with an origin (checkout not there)",
+                         "restore the checkout or resubmit from a committed full clone with an origin"),
+    "origin-missing": ("push requires a checkout with an origin URL in its local config",
+                       "restore origin in the checkout, or omit --push-branch"),
+    "baseline-missing": ("push requires a checkout HEAD naming a committed baseline",
+                         "commit a baseline on a feature branch and resubmit"),
+    "shallow": ("push requires a full clone: the checkout is shallow",
+                "run git fetch --unshallow there, or push it yourself"),
+    "alternates": ("the checkout borrows objects through objects/info/alternates",
+                   "run git repack -a -d and remove objects/info/alternates, or pass --in-place"),
+    "partial": ("the checkout is a partial clone with missing objects",
+                "clone it without --filter, or pass --in-place"),
+    "metadata-missing": ("checkout metadata is missing", "restore the checkout metadata and resubmit"),
+    "metadata-symlink": ("checkout metadata is a symlink or symlink loop",
+                         "replace the symlink with regular checkout metadata and resubmit"),
+    "metadata-special": ("checkout metadata is not a regular file",
+                         "restore regular checkout metadata and resubmit"),
+    "metadata-large": ("checkout metadata exceeds its read budget",
+                       "use a checkout with bounded metadata, or omit --push-branch"),
+    "metadata-unreadable": ("checkout metadata cannot be read", "check repository permissions and resubmit"),
+    "gitdir-invalid": ("checkout gitdir is invalid or is a symlink or special file",
+                       "restore a regular gitdir file or directory and resubmit"),
+    "config-utf8": ("checkout metadata is not UTF-8 (UnicodeDecodeError)",
+                    "repair the checkout metadata encoding and resubmit"),
+    "config-header": ("checkout config has a line before its section (MissingSectionHeaderError)",
+                      "repair the checkout config section headers and resubmit"),
+    "config-invalid": ("checkout config cannot be parsed", "repair the checkout config and resubmit"),
+    "protected-branch": ("writable in-place jobs require a feature branch",
+                         "choose a feature branch or omit --in-place"),
+    "object-special": ("baseline object is not a regular file", "resubmit from a full clone with regular objects"),
+    "sparse": ("baseline object is sparse; sparse objects are refused",
+               "resubmit from a full clone without sparse objects, or pass --in-place"),
+    "object-budget": ("baseline object copy exceeds the object budget",
+                      "use a smaller full clone, pass --in-place, or omit --push-branch"),
+    "object-changed": ("baseline object changed while copying", "wait for checkout writes to finish and resubmit"),
+}
+
 # reason -> (message, fix), the most specific form. `{name}` is a checked value.
 HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # Jobs, requests and lists.
@@ -78,7 +118,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                        "submit again"),
     "revive-held": ("session already has a live revive ({job_id})",
                     "subfleet runs show {job_id}, or kill it before reviving again"),
-    "conversation-session": ("session belongs to a conversation and continues only in its conversation",
+    "conversation-session": ("{session_verb} refused: session belongs to a conversation and continues only in its conversation",
                              CONVERSATION_FIX),
     # Parents, gates and reserves.
     "parent-cancelled": ("parent is cancelled", "submit an independent job"),
@@ -142,18 +182,16 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "push-refused": ("host push refused; the daemon log names the check",
                      "omit --push-branch, or choose an unprotected branch in an allowed origin after "
                      "the hub enables push policy"),
-    "push-location": ("workspace refused; the daemon log names the check",
-                      "choose a committed feature branch in a full clone"),
-    "push-checkout": ("host push workspace refused; the daemon log names the check",
-                      "resubmit from a full clone whose origin and HEAD still name the commit to start "
-                      "from, or omit --push-branch"),
+    "push-location": ("workspace refused: {checkout_problem} ({errno_name})", "{checkout_fix}"),
+    "push-checkout": ("host push workspace refused: {checkout_problem} ({errno_name})", "{checkout_fix}"),
     "push-workspace-gone": ("host push workspace disappeared after preparation",
                             "resubmit the job to rebuild its checkout"),
     # Providers, guards and credentials.
     "unknown-provider": ("unknown provider", None),
     "adapter-missing": ("{provider} adapter has no constructor", None),
     "guard-missing": ("Codex guard preflight is not installed", "install the Codex adapter and reviewed guard files"),
-    "guard-preflight": ("Codex guard trust preflight refused the writable job", "rerun subfleet doctor"),
+    "guard-preflight": ("Codex guard trust preflight refused the writable job ({guard_kind}); "
+                        "verify hook SHA-256, TRUST and the pinned Codex version", "rerun subfleet doctor"),
     # A verdict that rests on no answer says so, and never asks for a restore (C-14.2):
     # the fixes are `guard.preflight`'s own (`_TIMEOUT_FIX`, `_PROBE_FIX`).
     "guard-preflight-timeout": ("Guard preflight timed out: guard trust is unverified, not mismatched",
@@ -285,6 +323,13 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
 # reason -> less specific forms, tried in order when a value fails its check.
 # The last form of every reason that names a value names none.
 LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
+    "conversation-session": (("session belongs to a conversation and continues only in its conversation", CONVERSATION_FIX),),
+    "push-location": (("workspace refused: {checkout_problem}", "{checkout_fix}"),
+                      ("workspace refused; the daemon log names the check", "choose a committed feature branch in a full clone")),
+    "push-checkout": (("host push workspace refused: {checkout_problem}", "{checkout_fix}"),
+                      ("host push workspace refused; the daemon log names the check",
+                       "resubmit from a full clone whose origin and HEAD still name the commit to start from, or omit --push-branch")),
+    "guard-preflight": (("Codex guard trust preflight refused the writable job", "rerun subfleet doctor"),),
     "unknown-job": (("unknown job", None),),
     "different-payload": (("request id already used with a different payload", None),),
     "policy-workdir": (("these jobs write by policy, and {repository}", HANDLER_MESSAGES["policy-workdir"][1]),
@@ -349,6 +394,11 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "layer": CODEX_LAYERS,
         "branch": ("main", "master"),
         "provider": ("claude", "codex"),
+        "session_verb": ("resume", "revive"),
+        "guard_kind": ("trust", "version", "config", "environment"),
+        "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
+        "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
+        "errno_name": tuple(errno.errorcode.values()),
     }
 
 

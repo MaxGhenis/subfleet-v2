@@ -3140,7 +3140,8 @@ class Daemon:
             # A timeout or an unusable probe is not a mismatch: its template says so (C-14.2).
             raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor",
                                reason=("guard-preflight-timeout" if result.kind == TIMEOUT else
-                                       "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"))
+                                       "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"),
+                               details={"guard_kind": result.kind})
         return result if full else result.override
 
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
@@ -3672,7 +3673,7 @@ class Daemon:
             raise AdapterError(
                 f"{verb} refused: session {session_id} belongs to {binding}, and a "
                 "conversation's session continues only in its conversation",
-                code=7, fix=CONVERSATION_FIX, reason="conversation-session")
+                code=7, fix=CONVERSATION_FIX, reason="conversation-session", details={"session_verb": verb})
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"

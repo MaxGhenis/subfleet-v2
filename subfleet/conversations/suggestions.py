@@ -202,15 +202,15 @@ ERROR_MESSAGES = {
     "unknown-model": "model must name an active model this fleet routes",
     "no-model": "this fleet routes no model for the suggestion's provider",
     "bad-worktree": "worktree must be true or false",
-    "bad-workspace": "the suggestion needs an existing, safe folder or a new scratch folder",
+    "bad-workspace": "workspace must be an existing directory",
     "bad-settings": "start settings must use the documented model and permission values",
     "person-only": "starting or dismissing a suggestion is a person's decision",
     "confirm-widen": "a policy above Ask needs confirm_widen: true",
-    "codex-read-only": "Codex conversations currently require read-only permission",
+    "codex-read-only": "Codex conversations are read-only until the never-rules hook is shown firing in a live app-server turn",
     "protected-workspace": "the folder is protected from writable conversations",
     "protected-branch": "a writable conversation cannot start on main or master without permission",
     "git-unavailable": "git could not inspect the suggestion's folder",
-    "not-a-repository": "the suggestion needs a git checkout to start in its own worktree",
+    "not-a-repository": "a worktree conversation needs a git repository",
     "worktree-failed": "git worktree add failed",
     "unknown-suggestion": "no such suggestion",
     "unknown-conversation": "no such origin conversation",
@@ -233,8 +233,10 @@ ERROR_FIXES = {
     "confirm-widen": "confirm the permission in the Subfleet app",
     "worktree-failed": "start again to finish the suggestion",
     "git-unavailable": "try again",
-    "bad-workspace": "choose another folder or a new scratch folder",
-    "not-a-repository": "dismiss it or restore its checkout",
+    "bad-workspace": "choose a folder or use a new scratch folder",
+    "not-a-repository": "choose a git checkout, or use the folder in place",
+    "protected-workspace": "choose a narrower directory, or Ask or read-only",
+    "protected-branch": "choose another branch",
     "too-many-suggestions": "withdraw or dismiss stale suggestions",
     "not-creator": "dismiss it in the Subfleet app",
     "unknown-op": "subfleet daemon restart",
@@ -243,6 +245,7 @@ SUGGESTION_OPS = frozenset("suggestion." + action for action in ("create", "list
 # Only these fixed context templates may precede an error. Caller text is ignored.
 _ERROR_PREFIXES = frozenset(("cannot read the brief: ", "cannot resolve the workspace: ",
                              "invalid arguments: "))
+PROTECTED_FOLDERS = frozenset((".claude", ".codex", ".subfleet", "state root", "lane home"))
 
 
 class SuggestionError(ConversationError):
@@ -260,6 +263,10 @@ def error_details(error: Any) -> dict:
     if type(details) is not dict:
         return {}
     reason = error_reason(error)
+    if reason == "protected-workspace":
+        name = details.get("protected_folder")
+        if type(name) is str and name in PROTECTED_FOLDERS:
+            return {"protected_folder": name}
     if reason == "not-open":
         state = details.get("state")
         if type(state) is str and state in CLOSED_STATES:
@@ -273,6 +280,8 @@ def error_details(error: Any) -> dict:
 
 
 def error_message(reason: str, details: dict) -> str:
+    if reason == "protected-workspace" and details:
+        return f"the folder contains protected {details['protected_folder']}; writable conversations cannot start here"
     if reason == "not-open" and details:
         return f"the suggestion was {details['state']}; it cannot start"
     if reason == "too-many-suggestions" and details:

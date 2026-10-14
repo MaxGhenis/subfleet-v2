@@ -1,6 +1,7 @@
 """Checked refusal context keeps the reason and repair without exception text."""
 import errno
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,9 @@ from subfleet import host_push, refusals
 from subfleet.adapters.base import AdapterError
 from subfleet.conversations import suggestions
 from subfleet.conversations.store import ConversationError
+from subfleet.daemon import Daemon
+from subfleet.contracts import Credential, Lane, LaneOwner
+from tests.fake.guard import install_guard
 from tests.unit.test_protocol_secrecy import wire_reply
 
 
@@ -74,4 +78,26 @@ def test_guard_trust_refusal_keeps_the_checked_failure_kind():
     error = AdapterError("password=SECRET7", reason="guard-preflight", details={"guard_kind": "trust"})
     message, fix = refusals.handler_refusal(error)
     assert "SHA-256" in message and "subfleet doctor" in fix
+    assert "SECRET7" not in message + fix
+
+
+def test_actual_guard_hash_mismatch_keeps_the_public_reason_and_fix(tmp_path):
+    _, trust = install_guard(tmp_path)
+    data = json.loads(trust.read_text())
+    data["hook_sha256"] = "0" * 64
+    trust.write_text(json.dumps(data))
+    lane = Lane("codex-1", "codex", "codex:fixture", Credential("codex", str(tmp_path), "home"),
+                str(tmp_path), LaneOwner.V2, False)
+    with pytest.raises(AdapterError) as raised:
+        Daemon._guard_override(SimpleNamespace(codex_bin="unused"), lane, str(tmp_path), state_root=tmp_path)
+    response = wire_reply(op="submit", error=raised.value)
+    assert "SHA-256" in response["error"]["message"]
+    assert "subfleet doctor" in response["error"]["fix"]
+
+
+@pytest.mark.parametrize("verb", ["resume", "revive"])
+def test_conversation_session_refusal_keeps_a_checked_verb(verb):
+    message, fix = refusals.render("conversation-session", {"session_verb": verb})
+    assert message.startswith(verb + " refused:") and "Subfleet app" in fix
+    message, fix = refusals.render("conversation-session", {"session_verb": "password=SECRET7"})
     assert "SECRET7" not in message + fix

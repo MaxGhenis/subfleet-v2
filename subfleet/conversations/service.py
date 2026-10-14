@@ -657,7 +657,7 @@ class ConversationService:
             return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
         except ConversationError as exc:
             return {"ok": False, "reason": suggestions.scrub_error(exc, prefix=f"{exc.reason}: "),
-                    "fix": suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None,
+                    "fix": suggestions.error_fix(exc),
                     "workspace": workspace}
 
     def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
@@ -674,7 +674,8 @@ class ConversationService:
             raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
         self._check_workspace(provider, workspace, settings)
         if kind == "worktree" and self._git_toplevel(workspace) is None:
-            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository",
+                                    fix=suggestions.ERROR_FIXES["not-a-repository"])
         if kind == "in-place" and settings["permission"] != "read-only" and not allow_main:
             from ..salvage import validate_writable_workdir
             try:
@@ -2130,18 +2131,21 @@ class ConversationService:
         writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
-        protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
-        protected += [Path(row["home"]) for row in self.daemon.store.lane_rows() if row.get("home")]
+        protected = [(self.root, "state root"), (Path.home() / ".claude", ".claude"),
+                     (Path.home() / ".codex", ".codex")]
+        protected += [(Path(row["home"]), "lane home") for row in self.daemon.store.lane_rows() if row.get("home")]
         # Both sides spelled one way (`folders.spelling`): on a case-insensitive volume
         # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed
         # it (review of 5e9f2fbd, P3-4). A side whose spelling cannot be established is
         # refused, never compared as typed (review of b0033e5d, P2).
         real = Path(_spelled_or_refused(workspace, workspace))
-        for path in protected:
+        for path, name in protected:
             p = Path(_spelled_or_refused(path, workspace))
             if real == p or real in p.parents:
-                raise ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
-                                        fix="choose a narrower directory, or Ask or read-only")
+                error = ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
+                                          fix="choose a narrower directory, or Ask or read-only")
+                error.suggestion_details = {"protected_folder": name}
+                raise error
 
     # --- the control loop ------------------------------------------------------
 

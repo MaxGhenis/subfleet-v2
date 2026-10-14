@@ -8,11 +8,8 @@ the installed app or live state.
   forged, the CLI and a direct socket request are refused (exit 7) and the
   suggestion stays open.
 - A turn's child that double-forks, is reparented to launchd, calls `setsid` and
-  takes a new pseudo-terminal passes `peers.judge`: its ancestry ends at launchd,
-  it carries no markers, and it has a controlling terminal. That is C-25.6's
-  stated boundary for every person-only op (approvals too), not this PR's, so the
-  probe is kept as a strict expected failure: it starts passing, and must be
-  revisited, the day C-25.6 closes that path.
+  takes a new pseudo-terminal is refused too. Release/217's D-PB1 change requires
+  an admitted app identity or caller ancestry; a terminal grants no permission.
 """
 
 from __future__ import annotations
@@ -112,8 +109,6 @@ os._exit(0)
 '''
 
 
-@pytest.mark.xfail(strict=True, reason="C-25.6's boundary: a reparented process with its own controlling terminal "
-                   "and no markers passes peers.judge, for every person-only op; not this PR's to close")
 @pytest.mark.parametrize("verb", ["start", "dismiss"])
 def test_r1b_a_reparented_child_with_its_own_terminal_cannot_decide(r1b_daemon, verb):
     harness = r1b_daemon
