@@ -1,0 +1,186 @@
+merge	as it was	history out	history out, current layout	both inserted	word-mergeable	same word	subject
+c5278e4c92a115cf9a540a5573e30cb139602dec	3	2	0	0	0	0	Merge release/217 (#208, #201) into fix/model-capacity-steer
+a8efd9e7c3cd6943143c11a9b50de0222ce7dcda	1	0	0	0	0	0	Merge release/217 (#208, #209, #201) into fix/census-responsibility
+ce81215369726f83a2c99320a26df83b0657e4a5	0	0	0	0	0	0	Merge release/217 (#201) into fix/test-live-store-guard
+e0d50b1c85deded34de07a1ddaad36dd4ba90252	1	0	0	0	0	0	Merge release/217 (#201) into fix/frozen-stream-p3
+84495ba4d61873550af857bf4d29f4fb4fbf4bfd	0	0	0	0	0	0	Merge release/217 (#199, #209, #208) into fix/test-live-store-guard
+644b5386eb83f9cd3bf6072b454ba6268c85bbd6	1	0	0	0	0	0	Merge release/217 (#208) into fix/c6-9-behind-holds-217
+930b7acff53a79d206a370251667afd8182b68f3	1	0	0	0	0	0	Merge release/217 (#209) into fix/model-capacity-steer
+241368e96866f3afa2478c33005954d5b17fad81	1	0	0	0	0	0	Merge release/217 (#209) into fix/c6-9-behind-holds-217
+7c563b813de979cbcee7db3ddef673c99c844422	1	0	0	0	0	0	Merge origin/release/217 into fix/d-hold1-operator-hold-survives-limit
+16099ec0127035d189d367401813a710a69a8b14	1	0	0	0	0	0	Merge release/217 (#199) into fix/frozen-stream-nonregular
+7cda25c908569a44dee81d9a7862d42ce0cc29e6	1	0	0	0	0	0	Merge release/217 (#199) into fix/model-capacity-steer
+d449729dba62ab3617c09b09452c7b44accd10eb	1	0	0	0	0	0	Merge release/217 (#199) into fix/census-responsibility
+5b673529c0f5ea5ee01a04c8be05616d3db2518d	1	0	0	0	0	0	Merge release/217 (#191, #194) into fix/frozen-stream-nonregular
+dbd9c41129643d8f6877870aa4da73c3573bfa8d	0	0	0	0	0	0	Merge release/217 (#195, #191, #194) into fix/test-live-store-guard
+00f784a3770b5a734542b466a3c09c34d71a74fd	1	0	0	0	0	0	Merge origin/release/217 into fix/d-hold1-operator-hold-survives-limit
+11f0b32dfbd6fe392e506ae61e4f6515b7205da2	1	0	0	0	0	0	Merge release/217 (#191, #194) into fix/model-capacity-steer
+5de28be9e93c6be62738e65f547eee8980d13227	1	0	0	0	0	0	Merge release/217 (#191, #194) into feat/quarantine-self-resolve
+8cd8903e6ba81c5fded7e1d7584a161bf1fc7be8	1	0	0	0	0	0	Merge release/217 (#191, #194) into fix/census-responsibility
+59330c7a308f3958cfee9004090186c59a4b860c	0	0	0	0	0	0	Merge #194's head 28683b090 (#191 b0b7e6702 with release/217 at #195) into #199
+b20791c96c71844a44bcd4919d111fb429541b2f	0	0	0	0	0	0	Merge origin/release/217: preserve completion proof and model capacity steering
+7b877d2994c7f781eaacaa68726892c418709d15	0	0	0	0	0	0	Merge release/217 (#195) into feat/quarantine-self-resolve
+28683b090c07081d2820bb11add004070a2ad351	0	0	0	0	0	0	Merge #191 (fix/person-boundary-terminal b0b7e6702, with release/217 at #195) into feat/provider-active-cap
+b0b7e6702335b4beb05b7176e72d2fe30e815c06	0	0	0	0	0	0	Merge release/217 (#195 merged, with its round-4 fixes) into fix/person-boundary-terminal
+9c6b234bef822d523162591bceca60f98778a8b0	1	0	0	0	0	0	Merge release/217 (#180, #142) into feat/mirror-prune-policy-217
+ba5b2d098e1f510dda9c5db16e856a67424a1bcb	1	0	0	0	0	0	Merge release/217 (#180, #142) into feat/quarantine-self-resolve
+169645a48ee08df9c4deb777220d28088fe43d22	1	0	0	0	0	0	Merge release/217 (#180, #142) into feat/suggested-conversations
+8d4bfebd4b8b95bfb399cbf5603afd89cc6b9675	1	0	0	0	0	0	Merge release/217 (#180, #142) into fix/census-responsibility
+14cb1d7b636de3adf3ad2cab3e348c811c150916	2	1	0	0	0	0	Merge the hub's chain tip 564a2dcac (#194, with #191, #195, #142 and release/217 at #180) into #199
+564a2dcacf927cbb7cd6be6417143be88a495c5f	2	2	1	0	1	0	Merge #191 (fix/person-boundary-terminal 8fb1a8239, with #195, #142 and release/217 at #180) into feat/provider-active-cap
+8fb1a8239a8c838bdc9ae862fa3e375ef4457918	1	0	0	0	0	0	Merge #195 (fix/codex-turn-completed 323ba4d08, with #142 and release/217 at #180) into fix/person-boundary-terminal
+323ba4d083afca857ce54003a979acea44d2745d	1	1	0	0	0	0	Merge #142 (fix/admission-detached-nested-fence 01d0cb9d5, with release/217 at #180) into fix/codex-turn-completed
+01d0cb9d5cd020832fb30f813a02e059b03c49fe	1	1	0	0	0	0	Merge release/217 (#180) into fix/admission-detached-nested-fence
+9083479328e3d0ea176431a62f056be9cab6ac73	0	0	0	0	0	0	Merge release/217 (#196, #192, #140, #185 and earlier) into fix/admission-detached-nested-fence
+3d12914b5716174dc88030c038b73146ab209828	1	1	0	0	0	0	Merge release/217 (#196, #192, #140, #185) into fix/codex-turn-completed
+e2a979a2bb29da38f73a04d80ebb6e78669ff05d	2	2	1	0	0	1	Merge release/217 into quarantine self-resolution preserving both safety models
+07a9b29e55a325ff169b0f6c3cdc19e1df2e3f33	1	1	0	0	0	0	Merge release/217 (#140, #185, #192, #196, #190, #183, #179) into feat/admission-ramp
+210c8250e4adf50d65a562f38489f1f0d2f9ad00	0	0	0	0	0	0	Merge release/217 into fix/person-boundary-terminal
+728a78a7b1344368e592e1acdc17071791994479	1	1	0	0	0	0	Merge release/217 (#140, #185, #192, #196) into feat/provider-active-cap
+eef1c39dbbf82fedffdcb866174a35fa43bb05dc	1	1	0	0	0	0	Merge release/217 (#140, #185, #192) into fix/c6-9-behind-holds-217
+337063499f1ff31c0155798f62bd7e51c621a481	1	1	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into claude/admission-properties-217
+5bd0a3a674c6aad8fb5d19b9d7d211686e07121a	0	0	0	0	0	0	Merge pull request #185 from MaxGhenis/fix/census-recycled-pid
+f0705c77e0433268a4dfb51157a119a3f84b8d14	1	0	0	0	0	0	Merge release/217 at a62e94c5 into fix/salvage-sparse-checkout-217
+a62e94c5030e9ccbd9ba89fe97b2a13a6d2ea974	0	0	0	0	0	0	Merge pull request #140 from MaxGhenis/fix/admission-writer-nested-fence
+bd4c2cc8f23c8605b8dfac73c09f2fcf60b45266	0	0	0	0	0	0	Merge pull request #192 from MaxGhenis/feat/prune-decisions-217
+97d40d0628fce89186b428352facca09dc013e9b	0	0	0	0	0	0	Merge remote-tracking branch 'origin/claude/admission-properties-217' into fix/c6-10-verdict-across-wait-kinds
+977fcc9f33682035567cdc34302edaa398580d9d	0	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into claude/admission-properties-217
+6ddf13703e5815a1945a6a4b9c747551ffe30315	2	2	1	0	0	1	Merge fix/admission-writer-nested-fence (#140 + release/217) into #142
+e54e4cab4e4ae9c79a1a1f25c25cf5a51d7c62ed	0	0	0	0	0	0	Merge release/217 into fix/test-live-store-guard
+76c7267f5cca1215c913d505173460870d62d3bb	2	2	1	0	0	1	Merge release/217 into fix/codex-turn-completed
+c97299cf99b7bd62ab46b455a07f375d1a7007d8	1	1	0	0	0	0	Merge release/217 into feat/provider-active-cap
+4cd38b44beef0bb7c8b22428224a660f7cb333c5	1	0	0	0	0	0	Merge release/217 into feat/suggested-conversations
+dbc8b726da3ed7419a36ba610f8b9bd3bc2fe209	0	0	0	0	0	0	Merge release/217 into feat/quarantine-self-resolve
+611307d413c8c70061bb4049c7d855d4df7fada8	1	0	0	0	0	0	Merge release/217 (#183, #190, #179) into fix/census-recycled-pid
+1ff349c569ef3c82d7c0c5d342df6c0748cd911a	1	1	0	0	0	0	Merge release/217 (#183, #190, #179) into fix/admission-writer-nested-fence
+b8ba87967ca33bc4899c53cd23a08964c09a875a	0	0	0	0	0	0	Merge release/217 (#183, #190, #179) into feat/admission-ramp
+be66113eaed9c3ee0926f9161f0f81c1be0efe39	0	0	0	0	0	0	Merge pull request #179 from MaxGhenis/fix/reset-credit-demand-only-217
+a0a866fa62fbababb16ad919a6843919ebff533e	0	0	0	0	0	0	Merge pull request #190 from MaxGhenis/fix/codex-ca-bundle
+4005c388c0d722e263195b343e251376bf5c24cc	1	1	0	0	0	0	Merge remote-tracking branch 'origin/main' into claude/zen-raman-35fd55
+c8b9091a93818cd671f394e172f5ad616c29b25f	1	0	0	0	0	0	Merge release/217 (#187, #186) into fix/census-recycled-pid
+7bd47af46622cb6d30e1ef89c0297e895280896b	1	0	0	0	0	0	Merge release/217 (#187, #186) into fix/host-push-p3
+3cbd81d5c7c3d26e7e1e6bfb29b3d1cfe2768142	1	0	0	0	0	0	Merge release/217 (#141, #188, #186, #187) into fix/person-boundary-terminal
+0298332db515b4af1948c3b98119b3143e1af76e	0	0	0	0	0	0	Merge pull request #186 from MaxGhenis/fix/limit-from-model-text
+18a6248b358ce33e17fceb6c4914d6bc4b2bd3d8	0	0	0	0	0	0	Merge pull request #187 from MaxGhenis/fix/replay-answer-order
+32750bcad548ea80aad4e401dfff4f9afd33faef	1	0	0	0	0	0	Merge release/217 (#141, #188) into feat/admission-ramp
+7a86d1e572ac9fa998cf35ad86296f2586851843	4	3	0	0	0	0	Merge release/217 (#141, #188) into fix/host-push-p3
+51194152f93e5cb4694e410fce2168522753f1e0	1	0	0	0	0	0	Merge release/217 (#141, #188) into fix/limit-from-model-text
+51b9df64cfbd366bf10db7a24551dc94f434cf39	1	1	2	0	0	2	Merge the resolved writer fence after #141 into the detached fence
+acdf9f0e25b9b89324833135e10bee4701f03966	1	0	0	0	0	0	Merge release/217 (#141, #188) into fix/census-recycled-pid
+ad06aac26cbb5f505ba56a8c23b2912791735ec3	1	1	3	0	2	1	Merge release/217 after #141 into the nested writer fence
+a6f73092ab260931285db3ab9b7a500d3f176d36	0	0	0	0	0	0	Merge pull request #141 from MaxGhenis/fix/case-alias-race
+ee466fa575965a6440180ef3e8011f306419be2f	1	0	0	0	0	0	Merge origin/main (through #154); keep both sides of the contract change log
+0af129412fec218a28a0917aaae7bd8512ea5809	1	0	0	0	0	0	Merge release/217 (#158, #144, #164, #139) into feat/quarantine-self-resolve
+2cbf6fca1a421a576e90db81e39c67d4ddcb5fbb	3	2	0	0	0	0	Merge release/217 (#158, #144) into fix/case-alias-race
+d836fba0dad8351995df354e089ee575e3f548c3	2	2	0	0	0	0	Merge the nested writer fence (with release/217: #158, #144) into the detached fence
+3f06f9a1b1f6fc3d1a828c07a8bbac26c6d54ddf	1	1	0	0	0	0	Merge release/217 (#158, #144) into the nested writer admission fence
+4c6a8a9c989ee2515f2214d7399eeb860a14f5a1	0	0	0	0	0	0	Merge pull request #144 from MaxGhenis/fix/lease-waiter-keeps-slot
+8004a3749baabc30c5c140fb2323fc643bd979e4	1	1	1	0	0	1	Merge final writer fence contract into detached fence stack
+0664b3f79594d8752c6d016217e1b9b08ff26abb	2	1	0	0	0	0	Merge corrected writer fence head into detached fence stack
+6745abe080f189d1231d0c04450fd56ad72eccf7	2	1	1	0	0	1	Merge release/217 preserving early turn and detached writer fences
+74d49042d86a8ae7710644db238aeeaec35eb9dc	2	1	0	0	0	0	Merge release/217 (#164, #139) into fix/case-alias-race
+1b08df3b48cecdd5b104a7bf0eaa191a25a80e06	1	1	0	0	0	0	Merge release/217 (#164, #139) into feat/host-push
+4f7c645e3def8d18bb1386c531246b4ffa8952e7	0	0	0	0	0	0	Merge pull request #139 from MaxGhenis/fix/fenced-turn-precheck
+c69757256cbc158208a598d903c1c2053364d8b2	0	0	0	0	0	0	Merge pull request #164 from MaxGhenis/feat/disk-admission-overrides
+d061fb9eeb9af560343620902acbdc1317928f5a	0	0	0	0	0	0	Merge release/217 at 738eab31 into #158's line
+0c7bc818885f107089aefc62befbdb8f3a905d97	4	3	3	0	1	2	Merge the refreshed writer fence into detached nested admission
+0c30dd72f7f33376a92516cc55c02acfb7def472	3	2	2	0	2	0	Merge release/217 into the nested writer admission fence
+738eab31424b54ddd6047bd940412c09e98a3b16	0	0	0	0	0	0	Merge pull request #166 from MaxGhenis/fix/status-payload
+2ba0e174c24237f230f821ad459609e37201c3e0	0	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into feat/quarantine-self-resolve
+20d77af30fa8c169c3a99163546004840669925f	1	0	0	0	0	0	Merge final #139 head and record #144 validation
+afa9150b568409ad1c99bf80dcdc4a836c54adf0	2	1	1	0	1	0	Merge updated fenced-turn-precheck into lease-waiter-keeps-slot
+49327d5ac6fbf2b9494f09fccd3e002ba04a71be	2	1	0	0	0	0	Merge release/217 into fix/fenced-turn-precheck
+28d44a968cee0ef357cfb12da4b5fe5afe9fc3af	1	1	0	0	0	0	Merge release/217 at 3f53d6e7 into #158's line
+70c11aa4ce1af70bd92cf30f43c93cd4b0f0a7e8	3	2	2	0	1	1	Merge origin/release/217 into fix/case-alias-race
+3f53d6e776756980263aff4db24608c9d92e9e71	0	0	0	0	0	0	Merge pull request #138 from MaxGhenis/fix/admission-nested-fence
+85012493bd38e785622cc5b2d41392d374949d00	0	0	0	0	0	0	Merge release/217 at 5b92a28e into #131's line
+77444d4efa9cbb1140c7e524dbca79ce88f45646	2	1	0	0	0	0	Merge release/217 at cf3a22e2 into #158's line
+25b8dbecf49c338b3e275417480146924ede77c4	0	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into feat/disk-admission-overrides
+c1b48b0030a04cc46851f6a87929ef7cd70167a2	1	1	0	0	0	0	Merge release/217 at 694723d9 into #161's line
+84bc2e7a4c8b54e8a8c48b1c45cd33c6b45a93e8	2	1	1	0	0	1	Merge release/217 at 694723d9 into #138's line
+7368159467ff72fd4fbb1dedb35c4fe3cce5bd5b	2	1	1	0	1	0	Merge release/217 at 694723d9 into #131's line
+694723d9c0cf4d848ec9b7ae42913111e3d33335	0	0	0	0	0	0	Merge pull request #148 from MaxGhenis/fix/canonical-identity
+40761c5f9cd390baad5c749508d6ed0d390fc3ff	1	1	0	0	0	0	Merge release/217 at 6385d13b into #158's line
+ed54758c9c82bee381045c3c76d04398285611f4	2	1	1	0	1	0	Merge release/217 at d6cc04da into #148's line
+8ccc81e486a6e06b4f451f70c3778c4d690024fb	0	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into HEAD
+bbb1ccd35c2668ad282a86ed7c0111ca76bed07b	0	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into HEAD
+e4a456408ab0b5c97cdb9718176257a43635f2b6	1	0	0	0	0	0	Merge release/217 at d6cc04da into #131's line
+e885a65ab7edb8a75ce92897b2153433a99e429c	0	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into fix/retention-turn-folder-p3
+20b0d92df0ed7b92ec8da780176ab3367bd082fe	1	0	0	0	0	0	Merge origin/release/217 into feat/host-push
+684dc4d130c5ac277b42307be3ca121d8727cdb8	2	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into feat/quarantine-self-resolve
+e5c2c5422db16188c2735ce6edd87e0c339a4b03	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into fix/canonical-identity
+22c10ccb52396a46f8657f3d0d48f896f3f7b544	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into feat/quarantine-self-resolve
+810b7efb3b3476c9e6416e49e3e1a0fd873c8e2a	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into fix/canonical-identity
+a24d4c7956dcb518828b598064f8bb2d144f8860	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into fix/probe-cancel-recheck
+fb50ad18ca68ae34b592a08010a8b6c4b0a9dfcb	0	0	0	0	0	0	Merge release/217 at 581b07b0 (2.1.11, after #129 and #143) into #134's line
+bd97bb156219aa5396a0d2fac051b5232e206b93	1	1	1	1	0	0	Merge remote-tracking branch 'origin/release/217' into fix/claude-refusal-verbatim-217
+5c3a7f8977dfa53133803ccfe431dc54e892e954	0	0	0	0	0	0	Merge remote-tracking branch 'origin/main' into fix/claude-refusal-verbatim
+8b0b913befc99c777ac63927554d029adbd9c2e8	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into feat/quarantine-self-resolve
+60e465155c1ab2809fa77ebab6538f159ac3df95	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into feat/priority-callers
+d24b1a7903c0adc86d8f982cbd5157bbaf17b93f	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into fix/canonical-identity
+9738340f467a29b797527ec284c5cc5b5ab0f78b	1	0	0	0	0	0	Merge remote-tracking branch 'origin/release/217' into fix/probe-cancel-recheck
+49651181620e504a0abe93ab93e53af6cccae957	1	1	1	0	1	0	Merge fix/admission-writer-nested-fence (eb057703: #138's 0d295ff7 with #134 and the 2.1.11 integration, and two writer tests) into the detached fence
+55a37cbaa346c02ecbaa729cc2832f49e2289c84	1	1	1	0	1	0	Merge fix/admission-nested-fence (0d295ff7) into fix/admission-writer-nested-fence
+2a3c1eea670f558d508f9f26440e82257af82e36	1	1	1	0	0	1	Merge remote-tracking branch 'origin/fix/admission-nested-fence' into fix/case-alias-race
+0d295ff77acbad579e874d059ee681b14667dc0f	1	1	1	0	0	1	Merge #134's head (52f6e654) into fix/admission-nested-fence
+8f106c64595c46d522dd0521f55b3cb3b4560e5b	3	2	3	0	1	2	Merge remote-tracking branch 'origin/fix/admission-detached-nested-fence' into fix/retention-dependency-pins
+1e60879dbad9ff3ac504e75db7cd051dcfdcad86	2	1	1	0	1	0	probe merge (local only): #140 c7595627 into case-alias-race 6c95ed087
+ae65a394118b27596d7255d5de4397f54f5996e3	1	1	1	0	0	1	Merge fix/fenced-turn-precheck (0812d5c5: the moved base 5d0d7267, #138) into the detached fence
+c3cf6a55d68911bd6b6a91223a66c5752b58be26	1	1	1	0	0	1	Merge #134's line at e512e338 into #137 (3bbfc31de and the 2.1.11 integration at 58b6eef2)
+0812d5c5b999b4da7cafd35a07ae3452c4996711	1	1	1	0	1	0	Merge fix/admission-nested-fence (5d0d7267) into fix/fenced-turn-precheck
+fb7f6c02b85ddce4a88c87a676e6b2f7c49e6aad	2	1	1	0	0	1	Merge fix/fenced-turn-precheck (497483aa, its review's docstring and tests) into the detached fence
+73384a9ce4e7a3b1db9727d9d828974a40d68b8a	1	1	1	0	1	0	Merge fix/admission-nested-fence (5d0d7267) into fix/admission-writer-nested-fence
+6c95ed087815315151b17fab45644579c6da1d28	1	1	1	1	0	0	Merge remote-tracking branch 'origin/fix/admission-nested-fence' into fix/case-alias-race
+e512e3386b7b3742defe0b68c4814dddd6dad9be	1	1	0	0	0	0	Merge the 2.1.11 integration at 58b6eef2 into #134's line
+bb17e331a904968b890b213133ec0fd12305d621	0	0	0	0	0	0	Merge the cards follow-ups (#133, #135) into the 2.1.11 integration
+f6e0647fd52f65fee060eb2c498dd272dc1d8193	1	1	0	0	0	0	Merge #127 (feat/conversation-continuation 8494bc8e): conversations keep working unattended (C-24.10)
+f90fb4d54e8512ba27643a00e12b5166784288de	1	1	1	0	0	1	Merge #134's head (14e1722d) into fix/admission-nested-fence
+3369021386950d20f55d6892dccf742e991dd24e	0	0	0	0	0	0	Merge integration features before PR 131 safety fixes
+49c37217d3428a5ded350b08464dded076171a5e	2	1	1	0	1	0	Merge fix/fenced-turn-precheck (4dd6a371) into the writer fence (5253faa2)
+eb9c1836e2d1877b9c103f1d524eb4ae87a9a935	1	0	0	0	0	0	Merge integration 2111 features before PR #131 follow-up fixes
+27116b42bdf262183a809688f15559aa6c57777b	1	1	0	0	0	0	Merge integration updates for PR 130 fix
+7075e1e0ce78e69124c25dd513e8d79ee062783f	0	0	0	0	0	0	Merge the 2.1.11 integration at 461c5b0b (after #56) into #113's line
+8bcccb95db0a8db48d78cc13956fac633f7fe6f1	0	0	0	0	0	0	Merge release/217 (6707a31e, after #56) into the 2.1.11 integration
+3c8acb09a75a8533a8cf7e89297f56bff6a82da2	0	0	0	0	0	0	Merge release/217 (6707a31e, after #56) into #132
+4ceb6c5a89660245f4265e7e9a3e1cf88bc54742	8	7	3	0	2	1	Merge 2.1.11 integration and port shared-folder I5 to archive retention
+08d6a09a0d566d2b94e14a109259f23001d95576	0	0	0	0	0	0	Merge #76 (fix/retention-d635 cfcfdf45): retention by archive (C-8.4, C-13.4)
+55599058d849b2d88b04fb6023426e3e2e0bb632	1	1	1	0	1	0	Merge #126 (perf/capacity-view-active-217 d8927afe): a route evaluation reads the active attempts and the jobs it can depend on
+ac11d43fda57b2b61be62e68bf09a240a543fbf7	1	0	0	0	0	0	Merge #110 (perf/tick-reads-217 fef9f22e): the control loop gives a worker only the live attempts a pass could act on
+b9b46449669f21e3797cfe832101f0cf90e59a28	0	0	0	0	0	0	Merge #124 (fix/app-cutover ef50f080): the app's first-use fixes
+313c8671198a77d3a1913b1f3136793bc6e7e0e1	0	0	0	0	0	0	Merge release/217 (3e13ecde) into #127's line
+d9b378cce6d2bb12dadd944a503c64264ddff941	4	3	1	0	1	0	Merge origin/release/217 (3e13ecd: 2.1.9, 2.1.10 and after) into the reconciliation
+d6cb23531f4f851c5e2d22255096c9381a11b2d3	2	2	0	0	0	0	Merge origin/main (through #122) into fix/descriptor-review-followups
+3e13ecde744eb43303c2c4a379bb92650cbb2cc7	0	0	0	0	0	0	Merge pull request #120 from MaxGhenis/feat/rank-earliest-reset
+63d4816eae7927a2b2333adf7ab982fedba7f6f9	0	0	0	0	0	0	Merge release/217 (#121) into the port of #122
+3f66748b25ac87654be64e654a2b87fb69199c85	1	0	0	0	0	0	Merge main (#106, #107, #108, #111); round-2 nits: "its entries" in the change log, one comment re-wrapped (C-23.31)
+be0482c59c983a9224b73d40564a6c5b3fddcbcd	1	1	1	0	0	1	Merge release/217 (18278bff: #121 auth-dead move-on and lane proving) into feat/rank-earliest-reset
+68be4788a96034902891e6c784339b0a36db6d17	0	0	0	0	0	0	Merge remote-tracking branch 'origin/main' into feat/host-pressure-admission
+a3e7f30c93998599476f80d3e0903e1e1aa20a8a	1	0	0	0	0	0	Merge release/217; bring the port up to #108 as reviewed (C-5.10, C-5.11)
+a425c04f8e1b5e6f678b159053e8ea005f254252	1	0	0	0	0	0	Merge main (#111): keep both the tick's and the route view's statements (C-5.11, C-11.2)
+9f1cdfa5077f84e03e4f58950902cc625d22e147	1	0	0	0	0	0	Merge main (#107, #111); the host-pressure hold under the route view (C-6.15, C-11.2)
+454525ecbd82227d8e9b1a06f796212e822795f6	1	0	0	0	0	0	Merge release/217; bring the port up to #107 as merged (C-8.4, C-5.10)
+e1950e902fe6a624e9852c2a7cd6098f26d50181	1	0	0	0	0	0	Merge main (#107); a doubt about v1 ownership gives no pass; round-2 review fixes (C-5.11)
+299574aa089c63992edf199cf4a15e91af77a050	1	0	0	0	0	0	Merge main (#107); say why ROUTE_JOBS carries state (C-11.2)
+79f75e255ad7fe48d9777e165c5ba1cb10d4dabc	1	0	0	0	0	0	Merge main; host-pressure hold: no attempt waiting on a pending job holds; round-2 review fixes (C-6.15)
+139db54d3bebd6feb2b17f2f4534fba292856bb3	1	0	0	0	0	0	Merge main; route view: tests reach the measured branches and odd parents; review fixes (C-11.2)
+067b8e6a95563ff499bd23e88d3f47b389c0a91f	1	0	0	0	0	0	Merge main; tick prefilter: an error in the look offers the attempt; review fixes (C-5.10, C-5.11)
+a17ec0c58515adeefdd07b14aa09694494b42ad9	1	0	0	0	0	0	Merge main; retention pacing: only a pass that pruned is retried; round-2 review fixes (C-8.4)
+75972d4a9506132ac066c2e7474d5a1b9ac20f10	0	0	0	0	0	0	Merge release/217 (f832e6b8: #116, #118) into fix/app-cutover
+c30211edc3751ea6956de833c07f9bc298e75e60	1	1	1	0	0	1	Merge release/217 (f832e6b8) into #76's line
+3809d3e673cf179cd433cfb7370d86b617f70bbc	1	0	0	0	0	0	Merge the retention sweep-race fix (e3a78c6c) into #76's line
+2d4eda0185f82495edaf79052aa810f82a2794ec	0	0	0	0	0	0	Merge release/217 (f832e6b8: #116 service-notice marks, #118 operator notices) into fix/host-shutdown-transient
+026e3db8cc3b89fc9013c6124fe9227c25a6011a	2	2	0	0	0	0	Merge release/217 (f832e6b8: #118 operator alerts) into feat/rank-earliest-reset
+64b4175fcd2b19b24e4015e4ffbeaec42396c74c	0	0	0	0	0	0	Merge release/217 (f3bffcea) into feat/rank-earliest-reset-sol
+b0033e5d3735fa4caec021b5c553b7df97179352	2	1	0	0	0	0	Merge release/217 (c237e9f1) into the shared-folder fix
+f4d41b4190cd295cf4059fb822d65930b951e711	3	1	0	0	0	0	Merge release/217 (c237e9f1: #100 salvage r3, #102 approval commit) into integrate/2110-features
+3e31ab7bd5bf06efbd5aa61592a542e2c7bf4d3d	0	0	0	0	0	0	Merge pull request #100 from MaxGhenis/fix/salvage-r3-cont3
+f8b9ea474fd86991a973176bbf20502e24f13b30	0	0	0	0	0	0	Merge release/217 (807879f6) into fix/core-live-flake
+b7c74c2d5414307ace8eecb4151f8ff0d4cdff7a	0	0	0	0	0	0	Merge release/217 (2e5d8415..807879f6: #89, #99) into fix/salvage-r3-cont3
+807879f685bc39514fdace59cedd53d3c0e59e56	0	0	0	0	0	0	Merge pull request #99 from MaxGhenis/fix/writable-lanes-no-mcp
+b75463e159a9b995538fd2187cab531506042dd6	1	1	0	0	0	0	Merge release/217 (a5d84bbf: #85, #97) into fix/salvage-r3-cont3
+3cc3a1769980285f7c816ebcf280a01fc90346d5	2	1	0	0	0	0	Merge release/217 (a5d84bbf: #85, #97) into fix/writable-lanes-no-mcp
+b68b05168458ae49eec578a8fcf70a956e76ec82	2	1	0	0	0	0	Merge release/217 (a5d84bbf: #85, #97) into fix/status-json-probe-fence-217
+f6f60004717680a2158e01218e3da957f0fac9ce	1	0	0	0	0	0	Merge release/217 into fix/retention-d635
+a5d84bbf105f4d481a161ed022ddc74953e53503	0	0	0	0	0	0	Merge pull request #97 from MaxGhenis/fix/busy-lane-usage-read-217
+de3ecc2908d8c6d459a7cc3ab84144d156e02b62	3	1	1	0	0	1	Merge origin/release/217 (6f95b0f0): #70 mirror, #61 approvals within reach, #72 uncapped admission by priority, #85 unadmittable pin
+86a45fc3ec709d7d72bf36a9bdae420b313b8d90	1	1	1	0	1	0	Merge feat/steer-r2-cont3 (3193ab49): steer round 2, 20 review findings fixed (C-24.5, C-24.7, C-24.9, C-25.2, C-26.5, C-29.7)

@@ -261,3 +261,17 @@ def test_it_refuses_outside_a_merge_and_between_two_old_branches(repo):
     refused = run_tool(repo)
     assert refused.returncode == 2
     assert "both sides still list their changes" in refused.stderr
+
+
+def test_the_replay_sorts_leftover_hunks():
+    """C-20.6 `contract_replay.kinds`: an insert at one place, a word-mergeable hunk, and a
+    word changed on both sides, as the report counts them."""
+    from tools import contract_replay
+    base = "a\nb c d\nx\ne f g\ny\n"
+    ours = "a\nb C d\nx\ne F g\ny\n"
+    theirs = "a\nb c D\nx\ne G g\ny\n"
+    merged, conflicts = merge_tool._merge_file(ours, base, theirs, "--diff3")
+    assert conflicts == 2
+    assert contract_replay.kinds(merged) == {"both inserted": 0, "word-mergeable": 1, "same word": 1}
+    merged, _ = merge_tool._merge_file("a\nours\nz\n", "a\nz\n", "a\ntheirs\nz\n", "--diff3")
+    assert contract_replay.kinds(merged) == {"both inserted": 1, "word-mergeable": 0, "same word": 0}

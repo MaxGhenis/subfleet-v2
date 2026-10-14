@@ -2050,7 +2050,7 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
 - **C-20.6** Changes to this contract are recorded one file per entry under `docs/contract-history/`, never as a list in this file (defect D-MRG3: every pull request prepended to one list here, so each merge made every other open pull request conflict, and GitHub runs no CI on a conflicting pull request).
   A pull request that changes a clause adds `docs/contract-history/<YYYY-MM-DD>-<branch>.md`, one paragraph that names the clauses it changes and gives that date first;
   `python3 tools/contract_history.py` prints every entry, newest first, ending with the 157 entries this file listed before the move, kept in `docs/contract-history/version-3/` in their order and not edited.
-  This file starts a line at each sentence and after each semicolon (`python3 tools/contract_layout.py --write`), because Git merges line by line and conflicts on adjacent lines: replaying the 186 merges since 2026-10-01 in which both sides changed this file, 129 conflicted on it, and in this layout, with the history moved out, 38 would have.
+  This file starts a line at each sentence and after each semicolon (`python3 tools/contract_layout.py --write`), because Git merges line by line and conflicts on adjacent lines: of the 185 merges from 2026-10-01 to 2026-10-14 in which both sides changed this file, 128 conflicted on it, and in this layout, with the history moved out, 37 would have (`docs/reports/2026-10-14-d-mrg3-contract-replay.md`).
   `tests/unit/test_contract_history.py` and `tests/unit/test_contract_layout.py` check both, and `tools/contract_merge.py` merges a branch that still lists its changes here.
 
 ## 21. Milestone acceptance
