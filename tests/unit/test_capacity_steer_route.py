@@ -245,8 +245,10 @@ def test_the_decision_shape_is_unchanged():
        admissible=st.sets(st.sampled_from(("codex-1", "codex-2", "claude-1", "claude-2"))),
        steer=st.dictionaries(st.sampled_from(MODEL_IDS),
                              st.sampled_from((UNTIL, "2026-10-13T07:20:00Z"))))
-def test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait(policy, chain, admissible, steer):
+def test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait(chain, admissible, steer):
     """Independent oracle over arbitrary chains, lane availability and live/expired steers."""
+    policy = copy.deepcopy(BASE_POLICY)
+    policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     policy["chains"]["review"][-1] = chain
     view = build_view([lane(identity, enabled=identity in admissible)
                        for identity in ("codex-1", "codex-2", "claude-1", "claude-2")],
