@@ -65,6 +65,9 @@ def test_protected_folder_context_is_an_allowlisted_name(name):
     message = suggestions.scrub_error(error)
     assert name in message and suggestions.error_fix(error)
     assert "SECRET7" not in message
+    assert suggestions.response_reason(message) == "protected-workspace"
+    assert suggestions.response_details(message) == {"protected_folder": name}
+    assert suggestions.stored_error(message) == message
 
 
 @pytest.mark.parametrize("name", ["/tmp/password=SECRET7", ".claude\nSECRET7", "SECRET7", None, True, {}])
@@ -72,6 +75,9 @@ def test_unchecked_protected_folder_names_are_withheld(name):
     error = ConversationError("protected-workspace", "password=SECRET7", code=7)
     error.suggestion_details = {"protected_folder": name}
     assert suggestions.scrub_error(error) == "protected-workspace: the folder is protected from writable conversations"
+    raw = f"protected-workspace: the folder contains protected {name}; writable conversations cannot start here"
+    assert suggestions.response_reason(raw) is None
+    assert suggestions.stored_error(raw) == "Exception: the suggestion operation failed"
 
 
 def test_guard_trust_refusal_keeps_the_checked_failure_kind():

@@ -311,7 +311,7 @@ def error_fix(error: Any) -> str | None:
 
 
 def scrub_error(error: Any, *, prefix: str = "") -> str:
-    """C-25.7's structural boundary: templates, counts, states and errno only.
+    """C-25.7's structural boundary: templates and checked context only.
 
     No exception rendering occurs here. Even strings passed by old callers are
     untrusted and receive a fixed fallback. The scrubber remains defence in depth.
@@ -332,9 +332,13 @@ def scrub_error(error: Any, *, prefix: str = "") -> str:
 
 
 def response_details(message: Any) -> dict:
-    """Extract validated counts/states from complete canonical wire templates."""
+    """Extract checked context from complete canonical wire templates."""
     if type(message) is not str:
         return {}
+    for name in PROTECTED_FOLDERS:
+        details = {"protected_folder": name}
+        if message == "protected-workspace: " + error_message("protected-workspace", details):
+            return details
     for state in CLOSED_STATES:
         if message == "not-open: " + error_message("not-open", {"state": state}):
             return {"state": state}
@@ -366,6 +370,8 @@ def response_reason(message: Any) -> str | None:
             return reason
     details = response_details(message)
     if details:
+        if "protected_folder" in details:
+            return "protected-workspace"
         return "not-open" if "state" in details else "too-many-suggestions"
     if message in tuple("unknown op '" + op + "'" for op in SUGGESTION_OPS):
         return "unknown-op"
@@ -391,7 +397,7 @@ def stored_error(error: Any) -> str | None:
     if error is None:
         return None
     if type(error) is str:
-        if error in _PUBLIC_ERROR_TEXT or response_reason(error) in ("not-open", "too-many-suggestions"):
+        if error in _PUBLIC_ERROR_TEXT or response_reason(error) in ("not-open", "too-many-suggestions", "protected-workspace"):
             return error
     return "Exception: the suggestion operation failed"
 
