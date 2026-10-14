@@ -1014,6 +1014,13 @@ recovery identity checks and explained recovery-budget skips are retained.
   for all three jobs under the controlled clock, and both recovery-budget
   regressions. The per-step timeout remains 240,000 ms.
 - Sequential oracle: **20,000 histories, 113,703 entry transitions**, passed.
+- Shipped concurrent oracle: **104 histories** passed (**64 ordinary,
+  24 HEAD/policy/model perturbations, 16 re-send refusals**). The ordinary
+  driver checked **128 overlapping invocations / 123 immutable submission
+  logs**; perturbations checked **48 overlapping invocations**, and re-sends
+  checked **32**, with **eight adopted / eight refused**. All **21 LOCKED
+  peers** were relaunched successfully; immutable-log and settlement proofs
+  passed throughout.
 - Shipped concurrent oracle: **104 histories** passed: **64 ordinary,
   24 HEAD/policy/model perturbations and 16 re-send refusals**. The ordinary
   run produced **122 immutable submission logs**; all three drivers passed
@@ -1041,6 +1048,81 @@ regressions/property), `7e8ae735a` (elapsed-time validation and bound), and
 `1a4aac48c` (float-clock semantics and reproduction instructions), followed
 by this report commit. Every commit carries the requested co-author
 trailer; no history was rewritten or pushed.
+
+## Round 11: Darwin one-hour boundary and fast inspection fake, 2026-10-14
+
+Both review items are resolved. The runner accepts exactly `60:00` in the
+minutes-only form, matching Apple's formatter at 3,600 seconds. `60:01`,
+`61:00` and `99:00` remain invalid. All other round-10 ranges, the epoch
+bound, floating-point wall clock, PID/spawn proof and production two-second
+inspection timeout are retained.
+
+The split/range oracle derives the exception from Apple's formatter, not
+from the runner. `etime_formatters.py` ports the reviewer's Apple/procps-ng
+generators; `parser_checks.py` checks both runner and oracle against them.
+The existing property check includes that regression and twelve complete
+held-lock shell commands, retaining 78 validator checks.
+
+Successful held-lock inspection now uses `inspection_runner.py` in-process
+transport and a consistent float clock, without startup per inspection.
+The unchanged rendered runner still uses real flock, PID existence and
+monotonic time. Every fake inspection asserts the production two-second
+timeout; hanging inspection delegates to the shell fake, which execs sleep
+and exercises that real timeout. The shell fake also serves independent
+replay and separately measured failure-diagnostic probes. Timing failures
+state observed duration versus timeout and the observed classification.
+
+**Fake-only verification:**
+
+- Final validator after the final fake change: **78 passed, zero failed**,
+  exit 0; its temporary fixture tree was removed.
+- Exact `39bf83c8e` baseline: formatter regression and updated property both
+  fail on `60:00`, exit 1 as expected. Head passes **4,128 formatter cases**,
+  **20 malformed cases**, **six epoch-bound cases**, **4,096 integer/float
+  clock comparisons**, and **12 held-lock shell steps**. `60:00` is alive;
+  `60:01`, `61:00` and `99:00` are unknown; `LOCKED`/exit 75 remain intact.
+- Property: **4,096 strings / 12,288 classifications** pass (**2,912 alive,
+  1,453 reused, 7,923 unknown**). **Four mutants rejected**: reverting the
+  boundary fails both formatter regression and property; removing the epoch
+  bound, relaxing ranges and forcing alive each fail the property (**five
+  expected failed mutant checks**).
+- Sequential oracle: **20,000 histories / 113,703 transitions**, passed.
+- Shipped concurrent oracle: **104 histories** passed (**64 ordinary,
+  24 HEAD/policy/model perturbations, 16 re-send refusals**). Ordinary:
+  **128 overlapping invocations / 123 immutable logs**; perturbations:
+  **48 invocations**; re-sends: **32 invocations, eight adopted/eight
+  refused**. All **21 LOCKED peers** were relaunched successfully; immutable
+  logs and settlement proofs passed.
+- Independent oracle: **32 histories, 31 launcher/helper kills, 10 LOCKED
+  peers**, passed. Final inspection implementation: **eight focused checks,
+  zero failures**, including the real hanging-inspection timeout.
+- Shell fake: **six mode/override probes** pass, maximum observed **0.0201 s**
+  versus the **2 s** inspection timeout in that probe cohort. Static checks:
+  **nine Python sources**, **three rendered zsh commands**, shell inspection
+  fake `zsh -n`, fake CLI `bash -n` and `git diff --check`, passed.
+
+Two preliminary validator attempts exposed fixture clock drift (**3.263 s**
+step / **0.260 s** fresh shell probe) and shell inspection startup under load
+(**5.506 s** step / **1.186 s** fresh probe, versus **2 s** inspection timeout).
+The fixed clock and in-process transport remove those dependencies. Both
+superseded attempts were stopped through their foreground tool sessions and
+their owned fixtures removed before the final run.
+
+The README gives baseline and mutation commands. All runs use fake Subfleet,
+temporary registries, empty `SUBFLEET_HOME`/`ZDOTDIR` and no `PYTHONPATH`.
+Children are supervised; cleanup uses the prescribed Python `shutil.rmtree`
+command. No real jobs, network remotes, sub-agents, detached/nohup/background
+launches, live workflow edits or caller-checkout writes were used. Only named
+source/report files are staged; no logs, JSON evidence or bundles.
+
+Shared Git metadata is outside the writable roots. Commits use workspace-local
+**`.git-local`** on `docs/fanout-workflow-measured`, with read-only access to
+existing objects; the original detached HEAD is unchanged. Inspect with
+`git --git-dir=.git-local log`. Steps: `6641f2f1e` (formatter/oracle),
+`c90eb52e7` (boundary), `b7b13f9d7` (shell fake/diagnostics), `861204347`
+(fixed fixture clock), `4ff8b378d` (in-process inspection), then this report
+commit. Every commit has the requested co-author trailer; no history was
+rewritten or pushed.
 
 ## Live check of the shipped commands, 2026-10-04
 
