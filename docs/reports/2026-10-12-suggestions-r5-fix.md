@@ -1,4 +1,4 @@
-# PR #181 rounds 5 to 8: retained events, secrecy and compatibility
+# PR #181 rounds 5 to 9: retained events, secrecy and compatibility
 
 The original round-5 record follows. Round-6, round-7 and round-8 fixes and results are appended below.
 
@@ -575,3 +575,223 @@ the caller's checkout, no live-state changes, and no staged logs, evidence
 or bundles. The reviewer's daemon probe ran from a temporary copy, which has
 been removed. The `/tmp/sf-failed` state root that the first archive hold
 left was removed; other sessions' state roots there were left alone.
+
+## Round 9: caller and environment text stays out of records
+
+Review r6 (`26104f78d`) found three places where text that a caller or its
+environment controls still reached the wire or persisted state, against
+C-25.7. The first job on this brief was cancelled before it committed. The
+hub saved its work: a 684-line tracked patch and one new test file. This job
+applied both at `169645a48` as two WIP commits (`81422b6ba`, `117b9307a`),
+read every hunk as an unverified draft, and finished it.
+
+**P1: a submit argument check's filename in `state_reason`.** `76d3e2c1c`
+gave the argument check's `ProtocolError` its exception's words again, for
+direct callers. The conversation service then wrote `str(exc)` into the
+message's `state_reason`, which `message.status`, `conversation.open` and
+`conversation.watch` show. `_refusal` now builds the reason from fixed parts
+only:
+
+- a conversation refusal's reason;
+- a request or handler refusal's template message (`protocol.refusal_text`,
+  which `protocol.refuse` now calls too);
+- an exception's class with, for an OS error, its errno and `os.strerror`
+  text (`refusals.fixed_error`).
+
+The exception keeps its words for direct callers, so `76d3e2c1c`'s purpose
+holds, and the words go to daemon.log, scrubbed whole
+(`refusals.detail_line`). The reviewer's probe now reads `not-delivered:
+args: required fields are missing or invalid` in both views, as it did
+before `76d3e2c1c`.
+
+**P1: a checkout hook's output in a job's notice.** Admission wrote
+`str(exc)` of the `workspace-prepare` refusal into the job's notice, and that
+text quoted `git worktree add`'s stderr. A failed `git worktree add` now logs
+git's output, scrubbed whole, and raises fixed text. When git's words say to
+wait, that is a `SalvageError` saying how git ended; otherwise it is the
+`workspace-prepare` refusal, `could not allocate the worktree; daemon.log has
+git's output`. Git's words still choose between the two (C-6.8). These are
+the persistence boundaries checked.
+
+Changed:
+
+| Boundary | Shown by | Now holds |
+| --- | --- | --- |
+| A handler refusal at admission, at a push workspace's build, or from the conversation-session check (`_fail_queued`) | the notice, `job.failed`, `notice.pending` | the reason's template and fix (`_refused_job`) |
+| A `workspace` hold | `why`, `status`, a turn's `state_reason` | the template, or C-6.8's record (`_hold_error`) |
+| A `conversation-blocked` hold whose check raised | the same | the class, and `its text is in daemon.log` |
+| C-6.8's workspace record | `job.workspace_deferred`, `job.workspace_failed`, the notice, `show` | git's verb and its cap, exit status or signal (`SalvageError.public`); an OS error's class, errno and strerror; any other exception's class |
+| A folder that is not there now (`_folder_absent`) | the same | the folder the store holds, and the errno text |
+| A handler refusal at launch | `exit.json`'s `spawn_error`, the attempt's detail, the notice, a turn's `state_reason` | the template; a guard preflight that timed out or could not probe has its own (item 5 below) |
+| The launch-time branch check | the attempt's detail, the notice, `job.workspace_deferred` | C-6.8's record |
+| A guardian that never gave its identity | the attempt's detail and notice, `attempt.no_launch` | an OS error's class and errno; `procs`' own messages as before |
+| A failed salvage or checkpoint | `salvage.json`, the attempt's evidence (`show`), the notice | C-6.8's record |
+| A failed turn end snapshot | `trees.json`, `turn_trees.error`, `turn.diff`'s `detail` | C-6.8's record |
+| A refused or deferred turn submit | `state_reason` | fixed parts only (the first P1 above) |
+
+Checked and unchanged. C-25.7 now names each of these as outside its rule:
+
+| Boundary | Shown by | Holds |
+| --- | --- | --- |
+| A workspace completion SQLite could not record | the notice | SQLite's message |
+| C-6.12's route refusals and deferrals, and `why`'s evaluation | the notice, the events, a route hold, `why` | the scheduler's message, or the evaluation error's class and text (C-6.12 wants `KeyError: 'utilization'` in `why`, and tests pin it) |
+| Host push results | `push_error`, the notice's push line | `host_push`'s own messages; git's stderr is discarded where git runs, but a message may name the pushed branch and paths in the pushed tree |
+| An attempt's outcome | the attempt, the notice | its adapter's reading of the provider's output |
+| C-6.17's `disk` hold | `why`, `status` | its reading's OS error, for the policy's path |
+| A quarantine | the notice, `quarantine_reason` | the containment census (pids, identities, `procs` errors) |
+| `gate.*` results | the result | `message: str(exc)`, as round 8 noted |
+
+These were checked and already hold fixed text: a pin no lane can admit
+(`render.pin_failure`), `turn.diff`'s other unavailable reasons
+(`diff.Unavailable`), and a turn whose manifest cannot be read.
+
+**P2: credential-bearing job slugs.** The scrubber starts no token straight
+after a letter, digit, `-` or `_`. Read whole, `20261013-000000-sk-…` was
+nothing to it. `ids.holds_credential` now reads a value whole and from just
+after each `-` and `_`. In C-1.1's alphabet a token runs to the id's end, so
+these reads cover every place one can start.
+
+The same check backs every id that may be shown or kept:
+
+- the job ids a refusal names (`refusals.checked`);
+- `daemon._job`'s own message, which reaches daemon.log;
+- a suggestion's calling job;
+- submission request ids (C-1.5) and correlation ids (C-25.7).
+
+`show`, `why`, `kill` and `wait` answer `unknown job` and name nothing.
+`_job` names an unknown id only when it is at most 200 characters, since
+each read is a scrub. The result is cached, because a reply checks the
+correlation id its request was admitted with.
+
+The cost is one scrub for each hyphen or underscore. Measured once each:
+
+- an app correlation id (`app-<uuid>`): about 0.33 ms, against 0.065 ms read
+  whole;
+- a 128-character id made of joiners: about 4.7 ms.
+
+A UUID cannot spell a token (lowercase hex has no `s` or `k`), so the app's
+and the CLI's ids pass as before.
+
+**C-25.7 and C-1.5** now state what the code guarantees. That covers the
+job records above and what each may say, the `state_reason` rule, how ids
+are read for credentials, and, by name, the records that stay outside.
+
+**What the draft got right, and kept:**
+
+- `protocol.refusal_text`;
+- the `refusals` helpers: `refusal_detail`, `class_name`, `errno_text`,
+  `fixed_error`, `scrubbed_line`, `scrubbed_words`, `detail_line`, and
+  `log_detail` with a subject;
+- the worktree-add change and its new `workspace-prepare` wording;
+- `_refused_job`, `_hold_error` and the rewritten `_workspace_error`;
+- `SalvageError.public` and `os_error_text`, set on every `SalvageError`
+  that quotes git's output or an OS error's text (`salvage.py`,
+  `conversations/diff.py`, `_folder_absent`);
+- `_refusal` and its logging;
+- the test file's probes and properties.
+
+**What changed:**
+
+1. **The slug check.** The draft read a job id's slug after its timestamp,
+   but not after any other hyphen. `build-sk-…` still passed, and the
+   draft's own test pinned it as an ordinary slug. It now fails, as do
+   `r6-glpat-…` and `run_sk-…`, and request and correlation ids follow the
+   same rule. `ids.job_id_holds_credential` and its timestamp pattern are
+   discarded.
+2. **The hook property.** It reused one session across examples. A
+   transient example left a waiting writer, so the next example's submit
+   was refused as `unidentified-writer`. Each example now has its own
+   session, and the property also checks that daemon.log holds the secret
+   only scrubbed.
+3. **The workspace log line.** `_workspace_failed`'s line had lost the
+   cause's class (`TimeoutExpired`), which the C-6.8 tests read. The class
+   is back, followed by the error's scrubbed words.
+4. **Three more records** quoted git or OS text in the draft: the salvage
+   receipt, the turn end-snapshot receipt and a guardian identity failure.
+   They now say how git ended (`28800c97b`).
+5. **Guard preflight wording.** Templating launch refusals would have
+   reported a guard preflight timeout as `Codex guard trust preflight
+   refused the writable job`. C-14.2 says a timeout is unverified, not
+   mismatched. Two new reasons, `guard-preflight-timeout` and
+   `guard-preflight-probe`, keep that wording with `guard.preflight`'s own
+   fixes, chosen by the verdict's kind. A differential test holds them to
+   those fixes.
+6. **Existing tests.** The draft updated none of the tests that pinned the
+   old text (next paragraph).
+
+**Existing tests updated for the new records:**
+
+- eleven tests in `test_workspace_transient.py`,
+  `test_salvage_finalization.py`, `test_notice_header.py` and
+  `test_turn_trees.py`;
+- six in `test_salvage_adversarial.py`;
+- seven `state_reason` cases in `test_conversation_service.py` and
+  `test_conversation_steer_service.py`.
+
+Each now requires the record's fixed form and finds git's words, still valid
+UTF-8, in daemon.log. Where a test raised an `AdapterError` with no reason,
+it now gives the reason that refusal's real raise site carries.
+
+**Already failing at `169645a48`, now fixed.** Each was confirmed by running
+it on `git archive 169645a48`:
+
+- `test_conversation_service.py`, three tests:
+  - The conversation worktree-add test expected git's words, but an earlier
+    round made `worktree-failed` fixed text.
+  - The two close-overtook tests. The tick logged each step through
+    `suggestions.scrub_error`, which drops a prefix it does not know, so the
+    line no longer named the step. It now logs the step's name and a fixed
+    diagnostic. A first version put the error's scrubbed words in
+    parentheses. `test_resumption_errors_are_scrubbed_by_the_outer_control_loop`
+    caught that a `)` after a marker scrubs again, and C-25.7 gives
+    control-loop errors fixed diagnostics (`409fd4915`).
+- `test_turn_trees.py`: the end-snapshot test's live-diff assertion pinned
+  `diff-failed`'s old text.
+- `test_daemon_connections.py`, four tests: the helper sent the op's name,
+  such as `daemon.status`, as the correlation id, and C-25.7's token rule
+  refuses it.
+- `test_notice_delivery.py`, four cases: they matched `notice id must be an
+  integer`, which an earlier round replaced with the `bad-notice-id`
+  template.
+- `test_daemon_descriptors.py`, one test: it expected the thread error's
+  words in a log line that `ed2100d45` made fixed.
+
+**Not changed:** `tests/fixtures/admission_ramp_before.py` still holds the
+old `str(exc)` lines. It is the frozen pre-ramp pass from release/217 at
+`5bd0a3a`, and its differential test stubs `_workspace` and the
+conversation check, so it never reaches them.
+
+**Invariants**, stated and executed:
+
+- **Turn submit.** Take any secret the scrubber recognizes, in any
+  placement, in an argument check's filename, a handler refusal's words and
+  repair, an OS error's filename or a defect's argument. No
+  `message.status`, `conversation.watch`, `conversation.open` or
+  `conversation.list` reply holds it, and no row of either store does
+  (Hypothesis, 40 examples).
+- **Checkout hook.** The same holds for a checkout hook's stderr, whether
+  the failure is permanent or transient. It covers `notice.pending`,
+  `notice.list`, `show`, `why`, `list`, `daemon.status`, every row, and
+  daemon.log's raw text (30 examples).
+- **Job slugs.** For every token family the slug alphabet can spell,
+  `show`, `why`, `kill` and `wait` answer exactly `unknown job`, and no
+  reply or row holds the token (60 examples).
+- **`holds_credential`.** It refuses everything the whole-text scrubber
+  refused (50 examples). It also refuses a token after any hyphen or
+  underscore, and so does `request_id` (60 examples).
+- **Differential.** The two guard templates equal `guard.preflight`'s
+  fixes. Round 8's constant-text differential passes with the 150 reasons.
+
+**The reviewer's probes, rerun against this tree:**
+
+- `probe_bypasses.py`: 6 cases, none leaks. The three ids read `unknown
+  job`, the notice reads the template, and both conversation views read the
+  argument template.
+- `probe_shapes.py`: 230 checks, no unexpected acceptance, 150 reasons.
+- `probe_daemon.py`: 14 cases, each identical to the review's head output
+  apart from a temporary path. Round 8's closures stay closed.
+- `probe_malformed.py`: 3 cases, each two identical submissions under one
+  submission id.
+
+On `169645a48` the new record-secrecy file fails 38 of its 44 tests; the 6
+that pass there are the ordinary-slug cases.
