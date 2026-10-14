@@ -517,22 +517,28 @@ def fail(req_id: str, code: Exit | int, message: str, fix: str | None = None) ->
     return Response(id=req_id, ok=False, error=ErrorBody(code=int(code), message=message, fix=fix))
 
 
-def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -> Response:
-    """Request and handler boundaries: closed templates and checked exit codes.
+def refusal_text(error: BaseException, *, reason: str = "invalid-args") -> tuple[str, str | None]:
+    """A refusal's public message and fix, wherever it goes: the wire, or a record a
+    client reads (a job's notice, a message's `state_reason`; C-25.7).
 
-    A decoding or argument error (`request_error`) reads its template here; a
-    handler refusal reads its own by reason and checked details (`refusals`).
-    Exception messages, args and optional repair text are never wire inputs.
+    A decoding or argument error (`request_error`, or a `ProtocolError` naming a
+    request reason, which may keep its own words for direct callers) reads its
+    template; a handler refusal reads its own by reason and checked details
+    (`refusals`). Exception messages, args and optional repair text are never inputs.
     """
     if isinstance(error, ProtocolError) and type(error.reason) is str and error.reason in REFUSAL_MESSAGES:
-        message, fix = REFUSAL_MESSAGES[error.reason], None
-    elif isinstance(error, ProtocolError) or hasattr(error, "code"):
+        return REFUSAL_MESSAGES[error.reason], None
+    if isinstance(error, ProtocolError) or hasattr(error, "code"):
         from .refusals import handler_refusal
-        message, fix = handler_refusal(error)
-    else:
-        if type(reason) is not str or reason not in REFUSAL_MESSAGES:
-            reason = "invalid-args"
-        message, fix = REFUSAL_MESSAGES[reason], None
+        return handler_refusal(error)
+    if type(reason) is not str or reason not in REFUSAL_MESSAGES:
+        reason = "invalid-args"
+    return REFUSAL_MESSAGES[reason], None
+
+
+def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -> Response:
+    """Request and handler boundaries: closed templates (`refusal_text`) and checked exit codes."""
+    message, fix = refusal_text(error, reason=reason)
     code = getattr(error, "code", Exit.INVALID_INPUT)
     if type(code) not in (int, Exit) or code not in tuple(Exit):
         code = Exit.INVALID_INPUT

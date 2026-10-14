@@ -35,6 +35,29 @@ def job_id(name: str | None = None, *, now: datetime | None = None,
     return candidate
 
 
+#: A job id's part before its slug (C-1.1): `YYYYMMDD-HHMMSS-`.
+_JOB_ID_STAMP = re.compile(r"[0-9]{8}-[0-9]{6}-")
+
+
+def holds_credential(value: str) -> bool:
+    """Whether the C-23.14 scrubber, reading `value` whole, would change it: what
+    C-1.5 refuses as a request id and C-25.7 as a correlation id."""
+    from .sessions.handoff import scrub_secrets
+    clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
+    return bool(count) or clean != value
+
+
+def job_id_holds_credential(value: str) -> bool:
+    """`holds_credential` for a job id, whose slug (C-1.1: the caller's `-n` name) is
+    also read alone. Read whole, the hyphen the timestamp ends with is a token boundary
+    the scrubber does not cross, so `20261013-000000-sk-…`, `…-glpat-…` and `…-xoxb-…`
+    passed as ids a refusal could name (review r6 of #181, P2)."""
+    if holds_credential(value):
+        return True
+    stamp = _JOB_ID_STAMP.match(value)
+    return stamp is not None and holds_credential(value[stamp.end():])
+
+
 def attempt_id(job: str, seq: int) -> str:
     """Return the C-1.2 sequence id."""
     if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
@@ -50,9 +73,7 @@ def request_id(value: str | None = None) -> str:
         raise ValueError(f"request id must contain 1 to {REQUEST_ID_MAX} characters")
     # Submission keys are opaque caller strings, unlike the reflected wire id.
     # Keep credential refusal without imposing the correlation token alphabet.
-    from .sessions.handoff import scrub_secrets
-    clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
-    if count or clean != value:
+    if holds_credential(value):
         raise ValueError("request id cannot be a credential")
     return value
 

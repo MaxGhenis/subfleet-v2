@@ -67,12 +67,27 @@ class SalvageError(RuntimeError):
 
     The message is valid UTF-8 (`utf8_text`) whatever git quoted in it: it
     reaches receipts, the evidence, notices and replies.
+
+    ``public`` is the message without what it quotes that is not our own: what
+    git printed (a repository's own hooks and filters print there too) or an OS
+    error's text, keeping git's verb, how it ended and the errno. An error that
+    quotes such text names it; one that does not leaves it None, its message
+    being our own words. Admission's records read it (C-6.8, C-25.7).
     """
 
-    def __init__(self, message: str, *, transient: bool = False, timed_out: bool = False):
+    def __init__(self, message: str, *, transient: bool = False, timed_out: bool = False,
+                 public: str | None = None):
         super().__init__(utf8_text(message))
         self.transient = transient or timed_out
         self.timed_out = timed_out
+        self.public = utf8_text(public) if public is not None else None
+
+
+def os_error_text(exc: BaseException) -> str:
+    """An OS or subprocess error as `public` names it: its errno and `os.strerror`
+    text, or its class name; never its message or filename."""
+    from .refusals import class_name, errno_text
+    return errno_text(exc) or class_name(exc)
 
 
 def utf8_text(text: str) -> str:
@@ -176,7 +191,8 @@ def _failure(verb: str, result: subprocess.CompletedProcess) -> SalvageError | N
             name = f"signal {-result.returncode}"
         return SalvageError(f"git {verb} was killed by {name}", transient=True)
     return SalvageError(f"git {verb} failed: {os.fsdecode(result.stderr).strip()}",
-                        transient=_transient_git(result.stderr))
+                        transient=_transient_git(result.stderr),
+                        public=f"git {verb} failed (exit {result.returncode}); daemon.log has its output")
 
 
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
@@ -196,10 +212,12 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         if transient_os_error(exc):
-            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
+            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True,
+                               public=f"git {args[0]} could not run: {os_error_text(exc)}") from exc
         if optional:
             return None
-        raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}") from exc
+        raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}",
+                           public=f"git {args[0]} unavailable: {os_error_text(exc)}") from exc
     failure = _failure(args[0], result)
     if failure is None:
         return os.fsdecode(result.stdout).strip()
@@ -222,7 +240,8 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         if transient_os_error(exc):
-            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
+            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True,
+                               public=f"git {args[0]} could not run: {os_error_text(exc)}") from exc
         return None
     failure = _failure(args[0], result)
     if failure is None:
@@ -399,7 +418,8 @@ def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git add timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
-        raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc)) from exc
+        raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc),
+                           public=f"git add could not run: {os_error_text(exc)}") from exc
     failure = _failure("add", result)
     if failure is not None and result.returncode < 0:
         raise failure
@@ -453,7 +473,8 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git rev-parse timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
-        raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc)) from exc
+        raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc),
+                           public=f"git rev-parse could not run: {os_error_text(exc)}") from exc
     failure = _failure("rev-parse", result)
     if failure is not None and failure.transient:
         raise failure

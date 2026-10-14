@@ -33,6 +33,7 @@ from typing import Any, Callable
 from .. import descriptors, protocol, refusals
 from ..adapters.base import AdapterError
 from ..contracts import Exit
+from ..ids import job_id_holds_credential
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..retention_git import discard_registration
@@ -1049,7 +1050,7 @@ class ConversationService:
         if session is not None and suggestions.holds_secret(session):
             raise ConversationError("bad-session-id", "session_id holds a value shaped like a secret, which a "
                                     "suggestion never shows (C-25.5)")
-        if job is not None and suggestions.holds_secret(job):
+        if job is not None and (suggestions.holds_secret(job) or job_id_holds_credential(job)):
             raise ConversationError("bad-calling-job", "calling_job holds a value shaped like a secret, which a "
                                     "suggestion never keeps (C-25.5)")
         provider = args.get("provider") or (origin["provider"] if origin else "claude")
@@ -2518,7 +2519,7 @@ class ConversationService:
             except Exception as exc:            # one message never holds up the others
                 if self._closed:
                     raise                       # close() overtook: the tick logs the step as stopped
-                self.log.error("dispatch of %s failed: %s: %s", message["message_id"], type(exc).__name__, exc)
+                self.log.error("dispatch of %s failed: %s", message["message_id"], refusals.scrubbed_words(exc))
 
     def _dispatch_one(self, message: dict) -> None:
         mid = message["message_id"]
@@ -2581,8 +2582,14 @@ class ConversationService:
                 job = self._submit_turn(conversation, message)
             except Exception as exc:
                 permanent, why = _refusal(exc)
+                # What `why` leaves out, for daemon.log only, scrubbed whole (C-25.7).
+                words = (refusals.detail_line(f"submit of {mid}", exc, subject="turn")
+                         if isinstance(exc, (protocol.ProtocolError, AdapterError))
+                         else None if isinstance(exc, ConversationError) else refusals.scrubbed_words(exc))
                 if permanent:
                     # The daemon refused the turn outright: it never reached a provider.
+                    if words:
+                        self.log.info("%s", words)
                     with self._lock:
                         self._deferred.pop(mid, None)
                     self.store.set_state(mid, FAILED, reason=f"not-delivered: {why}"[:200], expect=(QUEUED, WAITING),
@@ -2596,10 +2603,10 @@ class ConversationService:
                         self.store.set_state(mid, back, reason=(prior_reason or f"deferred: {why}"[:200])
                                              if back == WAITING else self._missed_mark(mid, prior_reason),
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
-                    self._defer(self.store.message(mid), why)
+                    self._defer(self.store.message(mid), why, words=words)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
                                             sqlite3.Error)):
-                        self.log.error("turn submit for %s failed: %s: %s", mid, type(exc).__name__, exc)
+                        self.log.error("turn submit for %s failed: %s", mid, words)
                 return
         with self._lock:
             self._deferred.pop(mid, None)
@@ -2667,9 +2674,10 @@ class ConversationService:
             prior_reason = row["state_reason"] if row else None
         return prior_reason if (prior_reason or "").startswith(MISSED_STEER) else None
 
-    def _defer(self, message: dict, why: str) -> None:
+    def _defer(self, message: dict, why: str, *, words: str | None = None) -> None:
         """A submit refused before any provider saw the message: it keeps waiting,
-        says why, and is not submitted again until its backoff passes."""
+        says why, and is not submitted again until its backoff passes. `words`, the
+        refusal's own scrubbed words (`_dispatch_one`), are logged in place of `why`."""
         mid = message["message_id"]
         with self._lock:
             count = self._deferred.get(mid, (0, 0.0))[0] + 1
@@ -2685,7 +2693,7 @@ class ConversationService:
             self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
         if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded
             self.log.warning("turn submit for %s deferred (%d in a row, next try in %g s): %s",
-                             mid, count, delay, why)
+                             mid, count, delay, words or why)
 
     def _resubmittable(self) -> list[dict]:
         """Waiting messages with no job bound: re-admitted after a failure that
@@ -3204,12 +3212,20 @@ def _refusal(exc: BaseException) -> tuple[bool, str]:
     Everything else (an operational failure, exit 1, such as git timing out while
     inspecting the workspace; a store or file error; a defect) may pass on a later
     try, so the message waits.
+
+    `why` becomes the message's `state_reason`, which `message.status`,
+    `conversation.open` and `conversation.watch` show, so it is fixed text
+    (C-25.7): a conversation refusal's reason, a request or handler refusal's
+    public message (`protocol.refusal_text`), or an exception's class with an OS
+    error's errno (`refusals.fixed_error`). Never the exception's own words, which
+    keep an argument check's filename (76d3e2c1c; review r6 of #181, P1): the
+    caller logs those, scrubbed.
     """
     if isinstance(exc, ConversationError):
         return exc.code != int(Exit.OPERATIONAL), exc.reason
     if isinstance(exc, (AdapterError, protocol.ProtocolError)):
-        return int(exc.code) != int(Exit.OPERATIONAL), str(exc) or type(exc).__name__
-    return False, f"{type(exc).__name__}: {exc}"
+        return int(exc.code) != int(Exit.OPERATIONAL), protocol.refusal_text(exc)[0]
+    return False, refusals.fixed_error(exc)
 
 
 def _spelled_or_refused(path: str | Path, workspace: str) -> str:

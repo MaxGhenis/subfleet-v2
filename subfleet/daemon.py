@@ -63,8 +63,8 @@ from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
-    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
-    utf8_text, validate_writable_workdir, working_tree,
+    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
+    salvage, transient_os_error, utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
@@ -1293,7 +1293,10 @@ class Daemon:
     def _job(self, job_id: str) -> dict:
         row = self.store.get_job(job_id)
         if row is None:
-            raise protocol.ProtocolError(f"unknown job {job_id}", reason="unknown-job",
+            # An id whose slug is a credential is not named, even to daemon.log
+            # (`refusals.log_detail`), whose scrubber reads it whole (review r6, P2).
+            named = isinstance(job_id, str) and not ids.job_id_holds_credential(job_id)
+            raise protocol.ProtocolError(f"unknown job {job_id}" if named else "unknown job", reason="unknown-job",
                                          details={"job_id": job_id})
         return row
 
@@ -4391,7 +4394,7 @@ class Daemon:
             try:
                 ready = not future.cancelled() and future.result()
             except AdapterError as exc:
-                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                 ready = False
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
@@ -4463,8 +4466,7 @@ class Daemon:
             if not ready:
                 error = (future.exception() if future is not None and future.done()
                          and not future.cancelled() else None)
-                holds[job_id] = ({"reason": "workspace", "error_type": type(error).__name__,
-                                  "error": str(error)[:200]} if error
+                holds[job_id] = ({"reason": "workspace", **self._hold_error(error)} if error
                                  else {"reason": "workspace", "preparing": True})
                 skipped.add(job_id)
                 if future is not None and not future.done():
@@ -4594,11 +4596,19 @@ class Daemon:
                     self._discard_worktree(job["workdir"], workdir, cap)
                     # A git killed by a signal did not finish, as a timed-out one did not.
                     killed = _failure("worktree", result) if result.returncode < 0 else None
-                    error = "could not allocate worktree: " + (
-                        str(killed) if killed else result.stderr.strip()[-300:] or f"git exited {result.returncode}")
-                    if killed or _transient_git(result.stderr):
-                        raise SalvageError(error, transient=True)
-                    raise AdapterError(error, fix="check repository and state-root permissions", reason="workspace-prepare")
+                    if killed:
+                        raise SalvageError(f"could not allocate worktree: {killed}", transient=True)
+                    # What it printed can be the repository's own: a `post-checkout`
+                    # hook's stderr, or a smudge filter's. It goes to daemon.log only,
+                    # scrubbed whole; the job's records say how git ended (C-25.7;
+                    # review r6 of #181, P1). Its words still say whether to wait (C-6.8).
+                    self.log.warning("job %s: %s", job["job_id"], refusals.scrubbed_line(
+                        f"git worktree add exited {result.returncode}: {result.stderr}"))
+                    if _transient_git(result.stderr):
+                        raise SalvageError(f"could not allocate worktree: git worktree add exited {result.returncode}; "
+                                           "daemon.log has its output", transient=True)
+                    raise AdapterError("could not allocate the worktree; daemon.log has git's output",
+                                       fix="check repository and state-root permissions", reason="workspace-prepare")
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -5624,16 +5634,17 @@ class Daemon:
                 except Exception as exc:            # C-6.12: anything else is this job's, never the pass's
                     if self._turn_check_errors.get(job["job_id"]) != type(exc).__name__:
                         self.log.warning("admission: job %s: its conversation could not be checked: %s",
-                                         job["job_id"], type(exc).__name__)
+                                         job["job_id"], refusals.scrubbed_words(exc))
                     self._turn_check_errors[job["job_id"]] = type(exc).__name__
                     try:
                         manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json")
                     except (OSError, ValueError):
                         manifest = None
                     turn = manifest.get("turn") if isinstance(manifest, dict) else None
+                    # The turn's `state_reason` and `why` read the hold (C-25.7): its words are logged above.
                     hold = {"reason": "conversation-blocked",
                             "conversation_id": turn.get("conversation_id") if isinstance(turn, dict) else None,
-                            "error_type": type(exc).__name__, "error": str(exc)[:200]}
+                            "error_type": refusals.class_name(exc), "error": "its text is in daemon.log"}
                 if hold:
                     holds[job["job_id"]] = hold
                     continue
@@ -5882,13 +5893,12 @@ class Daemon:
                     # with the conversation.
                     self._refuse_conversation_session(native_session, job["kind"])
             except AdapterError as exc:
-                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                 continue
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
                 self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
-                holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
-                                        "error": str(exc)[:200]}
+                holds[job["job_id"]] = {"reason": "workspace", **self._hold_error(exc)}
                 continue
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
             # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
@@ -6077,7 +6087,7 @@ class Daemon:
                             try:
                                 self._refuse_conversation_session(native_session, job["kind"])
                             except AdapterError as exc:
-                                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                                self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                                 status = "settled"
                                 break
                         if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
@@ -6920,8 +6930,13 @@ class Daemon:
     def _workspace_error(exc: BaseException) -> tuple[bool, dict]:
         """(transient, record) for a workspace preparation failure (C-6.8).
 
-        The text is git's verb, cap and stderr, or the `OSError`: a path and an
-        errno, never a credential, so unlike a provider error it is recorded.
+        The record reaches the job's events, its hold (`why`, `status`, a turn's
+        `state_reason`), `runs show` and its notice, so it holds only our own words
+        (C-25.7): git's verb, its cap and how it ended, an OS error's errno and
+        `os.strerror` text, and the paths the store holds. What git printed (a
+        repository's own hooks and filters print there too) and any exception's own
+        text go to daemon.log only, scrubbed (`refusals.scrubbed_words`; review r6 of
+        #181, P1); a `SalvageError` that quotes them says what may be shown (`public`).
         """
         cause = exc.__cause__ if isinstance(exc, SalvageError) and exc.__cause__ else exc
         transient = (isinstance(exc, subprocess.TimeoutExpired) or transient_os_error(exc)
@@ -6930,12 +6945,31 @@ class Daemon:
             command = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
             verb = next((part for part in command[3:] if not str(part).startswith("-")), "git")
             message = f"git {verb} timed out after {exc.timeout:g} s"
-        else:
+        elif isinstance(exc, SalvageError):
             # Valid UTF-8, as C-13.1's: the record reaches an event and the job's notice,
-            # which SQLite writes as strict UTF-8 (review of cda4c161, N1; a `SalvageError`
-            # already is, and this holds for any other error's text).
-            message = utf8_text(str(exc)) or type(exc).__name__
-        return transient, {"error_type": type(cause).__name__, "error": message[:500]}
+            # which SQLite writes as strict UTF-8 (review of cda4c161, N1).
+            message = exc.public if exc.public is not None else str(exc)
+        elif isinstance(exc, OSError):
+            message = refusals.errno_text(exc) or refusals.class_name(exc)
+        elif isinstance(exc, subprocess.CalledProcessError) and type(exc.returncode) is int:
+            message = f"exit {exc.returncode}"
+        else:
+            message = "its text is in daemon.log"
+        return transient, {"error_type": refusals.class_name(cause), "error": message[:500]}
+
+    def _hold_error(self, exc: BaseException) -> dict:
+        """What a `workspace` hold says of the failure that made it: a handler
+        refusal's public text (`refusals.refusal_detail`), else the C-6.8 record."""
+        if isinstance(exc, AdapterError):
+            return {"error_type": refusals.class_name(exc), "error": refusals.refusal_detail(exc)[:500]}
+        return self._workspace_error(exc)[1]
+
+    def _refused_job(self, job_id: str, exc: BaseException) -> str:
+        """A handler refusal as the job's records keep it (its notice, an attempt's
+        detail): the public text the wire would show; its own words go to daemon.log
+        only, scrubbed whole (C-25.7; review r6 of #181, P1)."""
+        refusals.log_detail(self.log, job_id, exc, subject="job")
+        return refusals.refusal_detail(exc)
 
     def _workspace_failed(self, job: dict, exc: BaseException) -> None:
         """C-6.8: a transient failure waits with backoff; anything else, or a
@@ -6944,6 +6978,7 @@ class Daemon:
         count = self._workspace_deferrals.get(job["job_id"], 0) + 1
         limit = self.policy["caps"]["workspace_retry_max"]
         detail = f"{record['error_type']}: {record['error']}"
+        words = refusals.scrubbed_words(exc)         # what the record leaves out, for daemon.log only
         if transient and count <= limit:
             delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (count - 1))
             next_check = after(delay)
@@ -6954,11 +6989,11 @@ class Daemon:
                            (next_check, job["job_id"]))
             self._workspace_deferrals[job["job_id"]] = count
             self.log.warning("job %s workspace preparation deferred %d/%d, next check in %d s: %s",
-                             job["job_id"], count, limit, delay, detail)
+                             job["job_id"], count, limit, delay, words)
             self._notify()
             return
         record.update(transient=transient, deferrals=count - 1)
-        self.log.error("job %s workspace preparation failed: %s", job["job_id"], detail)
+        self.log.error("job %s workspace preparation failed: %s", job["job_id"], words)
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
@@ -6972,7 +7007,8 @@ class Daemon:
         `caps.workspace_retry_max` tries (a tree another tool held aside comes back,
         one that was removed does not)."""
         error = SalvageError(f"its folder {folder} is not there now "
-                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True)
+                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True,
+                             public=f"its folder {folder} is not there now ({os_error_text(missing)})")
         error.__cause__ = missing
         self._workspace_failed(job, error)
         self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
@@ -7073,7 +7109,7 @@ class Daemon:
                 launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
                                               model["id"], model.get("effort"), prompt_path, guard_override)
         except AdapterError as exc:
-            self._launch_failure(a, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+            self._launch_failure(a, self._refused_job(a["job_id"], exc), rc=exc.code)
             return
         except SalvageError as exc:
             # C-6.8: the main/master re-check did not finish. Launching anyway
@@ -7085,11 +7121,13 @@ class Daemon:
             # (`_defer_after_launch`).
             # As a spawn error it was classified `unknown`, which is never
             # retried, and ended the job (review of ceacf18b, P3-5).
-            self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], exc)
+            # The attempt's detail and notice keep C-6.8's record; git's words go to daemon.log only.
+            self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], refusals.scrubbed_words(exc))
+            said = self._workspace_error(exc)[1]["error"]
             if exc.transient:
-                self._unlaunched(a, f"{LAUNCH_CHECK_UNFINISHED} {exc}", deferred=exc)
+                self._unlaunched(a, f"{LAUNCH_CHECK_UNFINISHED} {said}", deferred=exc)
             else:
-                self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
+                self._launch_failure(a, f"workdir branch check failed: {said}", rc=int(Exit.OPERATIONAL))
             return
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)

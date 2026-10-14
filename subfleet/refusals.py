@@ -6,14 +6,18 @@ value. The text a client sees is built here from the template and values that
 pass their checks. A value that fails its check selects the next, less specific
 template for the reason; the last one names no value. The exception's own
 message, its args and its repair text are never inputs: they stay with the
-exception for the daemon's log and the job records that read them.
+exception for its direct callers and reach daemon.log only, scrubbed whole
+(`log_detail`). A job's records keep the same public text (`refusal_detail`).
 """
 from __future__ import annotations
 
+import errno
+import os
 import re
 import string
 from typing import Any
 
+from . import ids
 from .contracts import JOB_ID_SLUG_MAX
 from .sessions.registry import CONVERSATION_FIX
 
@@ -58,7 +62,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "conversation-writer": ("worktree is being written by a conversation turn ({job_id})",
                             "wait for the conversation's turn to end, or run the job in its own "
                             "worktree (without --in-place)"),
-    "workspace-prepare": ("workspace preparation failed", "check repository and state-root permissions"),
+    "workspace-prepare": ("could not allocate the worktree; daemon.log has git's output",
+                          "check repository and state-root permissions"),
     # One session's writers (C-6.4, C-6.5, C-23.54).
     "revive-writer": ("session has a live writable job ({job_id}) and a revive is a second instance of it",
                       "wait for {job_id}, or kill it before reviving or dispatching"),
@@ -362,9 +367,8 @@ def checked(name: str, value: Any) -> bool:
     shape = _SHAPES.get(name)
     if shape is None or shape.fullmatch(value) is None:
         return False
-    from .sessions.handoff import scrub_secrets
-    clean, count = scrub_secrets(value, strip_reminders=True, whole=True)
-    return not count and clean == value
+    # A job id's slug is the caller's name, read alone as well (review r6, P2).
+    return not (ids.job_id_holds_credential(value) if name == "job_id" else ids.holds_credential(value))
 
 
 def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
@@ -398,20 +402,84 @@ def by_policy(details: dict | None, task: str | None) -> dict:
     return {**(details if type(details) is dict else {}), BY_POLICY: True, "task": task}
 
 
-def log_detail(log, op: str, error: BaseException) -> None:
-    """A handler refusal's own words, for the local daemon.log only, scrubbed whole
-    first (C-25.7): what its public template leaves out, such as which host-push
-    check refused or which roster file a transfer could not read."""
+def refusal_detail(error: BaseException) -> str:
+    """A refusal as a job's records keep it (its notice, an attempt's detail): the
+    public message and fix (`protocol.refusal_text`), as the wire would show them."""
+    from .protocol import refusal_text
+    message, fix = refusal_text(error)
+    return message + (f"; fix: {fix}" if fix else "")
+
+
+#: An exception class name a record may carry; anything else reads as `Exception`.
+_CLASS_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+
+
+def class_name(error: BaseException) -> str:
+    name = type(error).__name__
+    return name if _CLASS_NAME.match(name) else "Exception"
+
+
+def errno_text(error: BaseException) -> str | None:
+    """`[Errno N] <os.strerror(N)>` for an OS error with a known errno, else None."""
+    number = getattr(error, "errno", None) if isinstance(error, OSError) else None
+    if type(number) is not int or number not in errno.errorcode:
+        return None
+    return f"[Errno {number}] {os.strerror(number)}"
+
+
+def fixed_error(error: BaseException) -> str:
+    """An exception as a record a client reads may name it (C-25.7): its class name,
+    and for an OS error its validated errno and `os.strerror` text; never its
+    message, args or filename, which `scrubbed_words` gives daemon.log."""
+    text = errno_text(error)
+    return class_name(error) + (f": {text}" if text else "")
+
+
+#: How much of one diagnostic daemon.log keeps.
+LOG_LINE_MAX = 2000
+
+
+def scrubbed_line(text: str, limit: int = LOG_LINE_MAX) -> str:
+    """`text` for the local daemon.log only: scrubbed whole, folded, scrubbed again
+    and cut without splitting a marker (C-25.5, `suggestions.scrubbed_line`)."""
+    from .conversations.suggestions import scrubbed_line as line
+    return line(text, limit)
+
+
+def scrubbed_words(error: BaseException) -> str:
+    """An exception's own words, `<class>: <text>`, for the local daemon.log only
+    (`scrubbed_line`); its class alone when its text cannot be rendered."""
+    try:
+        text = f"{class_name(error)}: {error}"
+    except Exception:                       # noqa: BLE001 - what cannot be rendered is not logged
+        return class_name(error)
+    return scrubbed_line(text)
+
+
+def detail_line(op: str, error: BaseException, *, subject: str = "request") -> str | None:
+    """A refusal's own words as daemon.log keeps them, scrubbed whole first (C-25.7):
+    what its public template leaves out, such as which host-push check refused,
+    which roster file a transfer could not read, or the OS error an argument check
+    met. `subject` and `op` say what was refused: `request show`, or `job <id>` for
+    a refusal a job's records keep. None when the template is all there is, or the
+    words cannot be rendered."""
     from .protocol import REFUSAL_MESSAGES
     reason = getattr(error, "reason", None)
-    if type(reason) is str and reason in REFUSAL_MESSAGES:
-        return                              # a request error: its template is all there is
     try:
-        text = f"request {op} refused ({type(error).__name__}): {error}"
+        words = str(error)
+        if type(reason) is str and reason in REFUSAL_MESSAGES and words == REFUSAL_MESSAGES[reason]:
+            return None                     # a request error: its template is all there is
+        text = f"{subject} {op} refused ({class_name(error)}): {words}"
         fix = getattr(error, "fix", None)
         if fix:
             text += f"; fix: {fix}"
     except Exception:                       # noqa: BLE001 - what cannot be rendered is not logged
-        return
-    from .conversations.suggestions import scrubbed_line
-    log.info("%s", scrubbed_line(text))
+        return None
+    return scrubbed_line(text)
+
+
+def log_detail(log, op: str, error: BaseException, *, subject: str = "request") -> None:
+    """`detail_line`, for the local daemon.log only."""
+    line = detail_line(op, error, subject=subject)
+    if line is not None:
+        log.info("%s", line)
