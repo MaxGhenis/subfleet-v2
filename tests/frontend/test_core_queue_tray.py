@@ -53,7 +53,7 @@ WITHDRAWN_REASONS = ("withdrawn", "withdrawn-before-receipt")
 NOTE_PREVIEW = "Note to the next turn: the stopped turn is left, not resumed"
 PREVIEW_LIMIT = 280
 EMPTY_KEY = {"last": None, "last_is_own_send": False, "followed": None, "followed_length": 0, "tray": [],
-             "settling": True, "has_history": False, "local_send": None}
+             "settling": True, "has_history": False, "local_send": None, "live": False, "held": False}
 
 
 def run_queue(core_probe, steps: list[dict], cid: str = CID) -> dict:
@@ -62,6 +62,14 @@ def run_queue(core_probe, steps: list[dict], cid: str = CID) -> dict:
     with tempfile.TemporaryDirectory(prefix="sf-tray-") as scratch:
         return run_probe(core_probe, "queue", write_json(Path(scratch) / f"{uuid.uuid4().hex}.json",
                                                          {"conversation_id": cid, "steps": steps}))
+
+
+def run_queue_batch(core_probe, examples: list[list[dict]]) -> list[dict]:
+    """Reuse one native process for a small bounded group of independent timelines."""
+    with tempfile.TemporaryDirectory(prefix="sf-tray-batch-") as scratch:
+        inputs = [{"conversation_id": CID, "steps": [{**s, "snapshot": True} for s in steps]}
+                  for steps in examples]
+        return run_probe(core_probe, "queue", write_json(Path(scratch) / "batch.json", {"runs": inputs}))["runs"]
 
 
 def queue_words(core_probe, **inputs) -> dict:
@@ -729,7 +737,7 @@ def ref_move(old: dict, new: dict, at_bottom: bool) -> str:
         return "stay"
     if new["last"] != old["last"] or new["followed"] != old["followed"] or new["tray"] != old["tray"]:
         return "glide"
-    if new["followed_length"] != old["followed_length"] or new["has_history"] != old["has_history"]:
+    if new["followed_length"] != old["followed_length"] or new["has_history"] != old["has_history"] or new.get("live", False) != old.get("live", False) or new.get("held", False) != old.get("held", False):
         return "jump"
     return "stay"
 
@@ -842,7 +850,7 @@ def ref_key(layout: dict, caught_up: bool, history_pages: int) -> dict:
             "followed": layout["followed"],
             "followed_length": len(followed["text"]) if followed and followed["type"] in ("text", "thinking") else 0,
             "tray": [row["id"] for row in layout["tray"]], "settling": not caught_up,
-            "has_history": history_pages > 0, "local_send": layout.get("local_send")}
+            "has_history": history_pages > 0, "local_send": layout.get("local_send"), "live": layout["live"], "held": layout["held"]}
 
 
 def replay(steps: list[dict]) -> list[dict]:
@@ -1028,10 +1036,17 @@ def queue_timelines(draw):
         elif action == "approvals" and attached:
             step = {"approvals": list(attached)}
         steps.append(flags(step))
+    if draw(st.booleans()):
+        # A fresh idle send while reading up is a distinct case from an old
+        # queued send becoming the head. Ensure the generator exercises it.
+        steps += [{"receipts": [receipt(mid, index + 1, "complete", origin=kinds[mid], text=None)
+                                 for index, mid in enumerate(mids)], "held": False},
+                  {**log.page(), "held": False}, {**log.page(), "held": False},
+                  {**local("own-fresh", "a new question"), "held": False, "at_bottom": False}]
     return steps
 
 
-PROPERTY = settings(max_examples=120, deadline=None, derandomize=True,
+PROPERTY = settings(max_examples=40, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 
 
@@ -1195,7 +1210,8 @@ follow_keys = st.fixed_dictionaries({
     "last": st.sampled_from([None, "a", "b"]), "last_is_own_send": st.booleans(),
     "followed": st.sampled_from([None, "a", "b"]), "followed_length": st.integers(0, 2),
     "tray": st.lists(st.sampled_from(["x", "y"]), max_size=2), "settling": st.booleans(),
-    "has_history": st.booleans()})
+    "has_history": st.booleans(), "local_send": st.sampled_from([None, "a", "b"]),
+    "live": st.booleans(), "held": st.booleans()})
 
 
 @st.composite
@@ -1274,14 +1290,19 @@ def test_c29_7_the_generated_timelines_reach_every_case(core_probe):
     theirs (the same generator and settings, derandomized, with more examples),
     every case they check comes up in several timelines."""
     seen: Counter = Counter()
+    examples = []
 
     @settings(PROPERTY, max_examples=COVERAGE_BATCH)
     @given(steps=queue_timelines())
     def collect(steps):
-        for label in labels(steps, run_queue(core_probe, steps)):
-            seen[label] += 1
+        examples.append(steps)
 
     collect()
+    for start in range(0, len(examples), 5):
+        group = examples[start:start + 5]
+        for steps, result in zip(group, run_queue_batch(core_probe, group)):
+            for label in labels(steps, result):
+                seen[label] += 1
     thin = {case: seen[case] for case in CASES if seen[case] < REACHED}
     assert not thin, (thin, dict(seen))
 

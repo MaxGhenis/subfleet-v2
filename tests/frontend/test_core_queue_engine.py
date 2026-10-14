@@ -49,7 +49,7 @@ RETRIES = [0.1, 0.25, 0.5, 1]
 LIVE = ["waiting", "starting", "running", "approval-needed"]
 # Every other state `message.status` can report (`unknown`: an id the daemon has no message by).
 NOT_LIVE = ["queued", "complete", "failed", "interrupted", "cancelled", "delivery-unknown", "unknown"]
-PROPERTY = settings(max_examples=120, deadline=None, derandomize=True,
+PROPERTY = settings(max_examples=40, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 
 

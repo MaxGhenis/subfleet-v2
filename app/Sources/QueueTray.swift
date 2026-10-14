@@ -71,7 +71,7 @@ struct ConversationLayout: Equatable {
         if case .person(_, _, _)? = last?.content, let id = last?.messageID { own = ownMessages.contains(id) }
         return FollowKey(last: last?.id, lastIsOwnSend: own, followed: followed?.id,
                          followedLength: followed.map(length) ?? 0, tray: tray.map(\.id),
-                         settling: settling, hasHistory: hasHistory, localSend: localSend)
+                         settling: settling, hasHistory: hasHistory, localSend: localSend, live: live, held: held)
     }
 }
 
@@ -94,6 +94,9 @@ struct FollowKey: Equatable {
     var hasHistory: Bool
     /// Latest local send, even if a receipt arrived before the view drew it.
     var localSend: String? = nil
+    /// Pinned strips and block banners change the viewport height.
+    var live = false
+    var held = false
 
     /// Before the conversation has a timeline.
     static let empty = FollowKey(last: nil, lastIsOwnSend: false, followed: nil, followedLength: 0, tray: [],
@@ -127,7 +130,8 @@ struct FollowKey: Equatable {
            new.localSend == nil || new.localSend != old.localSend { return .glide }
         guard atBottom else { return .stay }
         if new.last != old.last || new.followed != old.followed || new.tray != old.tray { return .glide }
-        if new.followedLength != old.followedLength || new.hasHistory != old.hasHistory { return .jump }
+        if new.followedLength != old.followedLength || new.hasHistory != old.hasHistory
+            || new.live != old.live || new.held != old.held { return .jump }
         return .stay
     }
 }
