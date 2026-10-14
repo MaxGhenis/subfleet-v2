@@ -340,28 +340,24 @@ def test_a_content_filter_refusal_asks_for_a_reworded_prompt(tmp_path):
     assert "reword" in outcome.detail and "not retried" in outcome.detail
 
 
-@settings(deadline=None)  # each example writes and reads files; the deadline measured load, not the property
-@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
-       as_event=st.booleans())
-def test_cyber_flag_anywhere_in_a_failed_turn_is_content_filter(flag, case, before, after, as_event):
-    """C-9.2 C-4.5 invariant: the provider's cyber flag, in any case and any surrounding text, in a
-    turn.failed or on stderr, is `content-filter` with no closure. Authentication and an old CLI
-    still come first (C-9.2 precedence), so messages matching those are set aside."""
-    message = before + case(flag) + after
-    failed = {"type": "turn.failed", "error": {"message": message}}
-    # The classifier reads a failure event as its JSON text and stderr line by line; set aside
-    # exactly what it would read as authentication or an old CLI, which C-9.2 ranks first.
-    signal = json.dumps(failed, ensure_ascii=False) if as_event else message
-    assume(not codex_module.AUTH_RE.search(signal) and not codex_module.OLD_CLI_RE.search(signal))
+@settings(max_examples=40, derandomize=True, database=None, deadline=None)
+@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, after=SURROUNDING,
+       where=st.sampled_from(("turn.failed", "error", "stderr")))
+def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, after, where):
+    """The message starts with the provider's refusal; following details may vary."""
+    message = case(refusal) + " " + after
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": "turn.failed", "error": {"message": message}})
+    assume(not any(regex.search(message) for regex in (codex_module.AUTH_RE, codex_module.OLD_CLI_RE,
+                                                       codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
     with tempfile.TemporaryDirectory() as directory:
         attempt = Path(directory)
-        if as_event:
-            launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD}, failed)
-        else:
-            launch = _events(attempt, stderr=message + "\n")
-        outcome = CodexAdapter().classify(attempt, launch, _exit(1))
-    assert outcome.cls == OutcomeClass.CONTENT_FILTER
+        launch = (_events(attempt, stderr="ERROR: " + message + "\n") if where == "stderr"
+                  else _events(attempt, {"type": "thread.started", "thread_id": THREAD}, event))
+        outcome = CodexAdapter(now=lambda: NOW).classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
     assert outcome.closure is None
+    assert outcome.evidence["model_capacity"] is True
 
 
 @settings(deadline=None)
@@ -931,3 +927,74 @@ def test_resume_attestation_uses_only_current_receipt_interval(tmp_path, served,
     result = CodexAdapter().attest(tmp_path, launch, Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
     assert result.status == expected
     assert result.served_model == served
+
+
+@pytest.mark.parametrize("where", ["error", "turn.failed"])
+@pytest.mark.parametrize("prefix", [
+    "Tool execution failed with exit code 1. Captured stderr:\n",
+    "Captured tool output:\nERROR: ",
+])
+def test_r3_capacity_quoted_inside_failure_messages_is_not_a_refusal(tmp_path, where, prefix):
+    message = prefix + CAPACITY
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": where, "error": {"message": message}})
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, event), _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+def test_r3_independent_provider_record_after_tool_diagnostic_marks_capacity(tmp_path):
+    stderr = ("ERROR codex_core::tools::router: tool failed\nERROR: " + CAPACITY + "\n"
+              "2026-10-14T00:00:00.000000Z INFO codex_core::stream: reconnecting\n"
+              "ERROR: " + CAPACITY + "\n")
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, stderr=stderr), _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.evidence["model_capacity"] is True
+    assert outcome.evidence["admission"] == "ERROR: " + CAPACITY
+
+
+@pytest.mark.parametrize("message,marked", [
+    (CAPACITY, True), ("ERROR: " + CAPACITY, True), ("error code: model_at_capacity", True),
+    ("Tool execution failed. Captured stderr:\n" + CAPACITY, False),
+    ("Provider reported: " + CAPACITY, False), ('"' + CAPACITY + '"', False),
+    ("The model was currently at capacity. Retry later.", True),
+])
+@pytest.mark.parametrize("where", ["error", "turn.failed", "stderr"])
+def test_r3_capacity_message_boundary(tmp_path, message, marked, where):
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": where, "error": {"message": message}})
+    launch = (_events(tmp_path, stderr=message if message.startswith("ERROR:") else "ERROR: " + message) if where == "stderr"
+              else _events(tmp_path, event))
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.evidence.get("model_capacity", False) is marked
+
+
+@settings(max_examples=60, derandomize=True, database=None, deadline=None)
+@given(records=st.lists(st.sampled_from(("event-refusal", "stderr-refusal", "stream-refusal",
+                                        "tool-diagnostic", "quoted-event", "provider-info")),
+                       min_size=1, max_size=12), payload=st.sampled_from(CAPACITY_SPELLINGS), case=CASES)
+def test_r3_capacity_classification_matches_independent_provider_records(records, payload, case):
+    """Record chunks include their quoted continuation; every new log record is independent."""
+    refusal = case(payload)
+    events, stderr = [], []
+    for record in records:
+        if record == "event-refusal":
+            events.append({"type": "error", "message": refusal})
+        elif record == "quoted-event":
+            events.append({"type": "turn.failed", "error": {
+                "message": "Tool execution failed with exit code 1. Captured stderr:\n" + refusal}})
+        elif record == "tool-diagnostic":
+            stderr.append("2026-10-14T00:00:00Z ERROR codex_core::tools::router: tool failed\n"
+                          + refusal + "\nERROR: " + refusal)
+        elif record == "provider-info":
+            stderr.append("2026-10-14T00:00:01Z INFO codex_core::stream: reconnecting")
+        elif record == "stream-refusal":
+            stderr.append("2026-10-14T00:00:02Z ERROR codex_core::stream: " + refusal)
+        else:
+            stderr.append("2026-10-14T00:00:03Z INFO codex_core::stream: failed\nERROR: " + refusal)
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        outcome = CodexAdapter().classify(attempt, _events(attempt, *events, stderr="\n".join(stderr)), _exit(1))
+    expected = any(record in ("event-refusal", "stderr-refusal", "stream-refusal") for record in records)
+    assert outcome.evidence.get("model_capacity", False) is expected
+    assert outcome.closure is None

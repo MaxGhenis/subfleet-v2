@@ -18,12 +18,15 @@ with the real Codex classifier reading the incident's stream (`tests/fixtures/co
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from subfleet import daemon as daemon_module
 from subfleet.adapters.codex import CodexAdapter
@@ -370,3 +373,69 @@ def test_c9_5_capacity_steer_reads_only_its_own_attempts_and_applies_to_unpinned
             {"outcome_class": "transient", "evidence_json": None}]
     job = {"kind": "dispatch", "pinned_model": None, "pinned_lane": None, **changes}
     assert daemon._capacity_steer(job, rows) == ({ASTRA: live} if steerable else {})
+
+
+@pytest.mark.parametrize("task", ["review", "build"])
+def test_r3_steered_waiter_does_not_hold_back_later_jobs_for_the_refused_model(fleet, monkeypatch, task):
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 2
+    older = submit(daemon, harness, task=task)
+    refused = refuse(daemon, admit(daemon, older))
+    for identity in ("claude-1", "claude-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    assert admit(daemon, older) is None
+    decisions = len(daemon.store.list_decisions(older))
+    for _ in range(3):
+        daemon.store.update_job(older, next_check_at=utcnow())
+        assert admit(daemon, older) is None
+    assert len(daemon.store.list_decisions(older)) == decisions  # C-6.10
+    newer = submit(daemon, harness, task=task)
+    second = admit(daemon, newer)
+    assert second is not None, daemon._holds
+    assert second["model_requested"] == ASTRA
+    assert len(daemon.store.list_attempts(older)) == 1
+    # C-6.9 keeps the last slot for the waiter, which resumes first at expiry.
+    third = submit(daemon, harness, task=task)
+    assert admit(daemon, third) is None
+    end = datetime.fromisoformat(evidence(refused)["capacity_steer"]["until"].replace("Z", "+00:00"))
+    with monkeypatch.context() as clocks:
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return end.astimezone(tz) if tz else end.replace(tzinfo=None)
+        clocks.setattr(daemon_module, "datetime", Clock)
+        for identity in ("codex-1", "codex-2"):
+            daemon.store.add_reading(Reading(identity, "account", "seven_day", .1, after(86400),
+                                             ReadingLabel.PROVIDER, "fixture", utcnow()))
+        resumed = admit(daemon, older)
+    assert resumed is not None and resumed["model_requested"] == ASTRA
+    assert len(daemon.store.list_attempts(third)) == 0
+
+
+@settings(max_examples=40, derandomize=True, database=None, deadline=None)
+@given(queue=st.lists(st.tuples(st.sampled_from(("review", "build")), st.booleans()),
+                     min_size=1, max_size=5))
+def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue):
+    """Every example owns its store. The oracle is the generated job's live steer."""
+    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
+        with contextmanager(state_daemon.__wrapped__)(Path(directory), patch) as state:
+            with contextmanager(fleet.__wrapped__)(state, patch) as (daemon, harness):
+                daemon.policy["caps"]["max_active_attempts"] = len(queue) + 2
+                daemon.policy["caps"]["max_in_flight_per_lane"] = len(queue) + 2
+                for identity in ("claude-1", "claude-2"):
+                    daemon.store.update_lane(identity, enabled=0)
+                steered = set()
+                for index, (task, steer) in enumerate(queue):
+                    job = submit(daemon, harness, task=task)
+                    daemon.store.update_job(job, created_at=after(index - 100))
+                    if steer:
+                        steered.add(job)
+                patch.setattr(daemon, "_capacity_steer", lambda job, previous:
+                              {ASTRA: after(600)} if job["job_id"] in steered else {})
+                later = submit(daemon, harness, pinned_model="astra", task=None)
+                placed = admit(daemon, later)
+                assert placed is not None, daemon._holds
+                assert placed["model_requested"] == ASTRA
+                for hold in daemon._holds.values():
+                    if hold.get("reason") == "behind-older-job":
+                        assert hold["behind"] not in steered

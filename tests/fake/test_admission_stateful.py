@@ -70,7 +70,7 @@ from subfleet import store as store_module
 from subfleet import timers as timers_module
 from subfleet.adapters import registry
 from subfleet.adapters.base import AdapterError
-from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
+from subfleet.contracts import (MODEL_CAPACITY_STEER_S, ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
                                 Outcome, OutcomeClass, Reading, ReadingLabel, attempt_dir)
 from subfleet.daemon import Daemon
 from subfleet.policy import PolicyError, resolve_model
@@ -605,7 +605,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             self.admission_pass()
 
     @precondition(lambda self: self.service is not None and bool(self.live()))
-    @rule(attempt=st.integers(0, 7), outcome=st.sampled_from(("ok", "transient", "limited")),
+    @rule(attempt=st.integers(0, 7), outcome=st.sampled_from(("ok", "transient", "limited", "model-capacity")),
           scope=st.sampled_from(("account", "model")), tick=st.booleans())
     def attempt_ends(self, attempt, outcome, scope, tick):
         """A live attempt ends and is finalized as the daemon finalizes one (C-4.3, C-4.5)."""
@@ -620,12 +620,14 @@ class AdmissionMachine(RuleBasedStateMachine):
             closure = Closure(attempt["lane_id"], "account" if scope == "account" else attempt["model_requested"],
                               self.clock.iso(3600), ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture")
         self.next_outcome = Outcome({"ok": OutcomeClass.OK, "transient": OutcomeClass.TRANSIENT,
-                                     "limited": OutcomeClass.LIMITED}[outcome], f"fixture {outcome}", closure=closure)
+                                     "limited": OutcomeClass.LIMITED, "model-capacity": OutcomeClass.TRANSIENT}[outcome],
+                                    f"fixture {outcome}", closure=closure,
+                                    evidence={"model_capacity": True} if outcome == "model-capacity" else {})
         adir = attempt_dir(self.service.root, attempt["job_id"], attempt["seq"])
         adir.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name, contents in (("stdout", b"fixture result\n"), ("stderr", b""), ("lane.log", b"")):
             (adir / name).write_bytes(contents)
-        receipt = {"rc": {"ok": 0, "transient": 1, "limited": 4}[outcome], "signal": None, "wall_s": .1,
+        receipt = {"rc": {"ok": 0, "transient": 1, "limited": 4, "model-capacity": 1}[outcome], "signal": None, "wall_s": .1,
                    "child_pid": None, "finished_at": self.clock.iso()}
         (adir / "exit.json").write_text(json.dumps(receipt))
         self.service._pending_launches.discard(attempt["attempt_id"])
@@ -770,10 +772,22 @@ class AdmissionMachine(RuleBasedStateMachine):
 
     def demands(self, job, roster) -> list[tuple]:
         """What a job could be waiting for: its own demand, or the one retry pinned to its last pair (C-4.5)."""
-        own = (walked_models(self.policy, job), pinned_lanes(roster, self.policy, job))
+        models = walked_models(self.policy, job)
         attempts = self.store.list_attempts(job["job_id"])
+        # Contract oracle: only this unpinned job's live, recorded transient steers
+        # remove model demand; do not use the scheduler's demand implementation.
+        if models is not None and not job["pinned_model"] and not job["pinned_lane"] and job["kind"] not in (
+                "turn", "resume", "revive"):
+            refused = set()
+            for attempt in attempts:
+                steer = json.loads(attempt["evidence_json"] or "{}").get("capacity_steer")
+                if attempt["outcome_class"] == "transient" and steer and parse(steer["until"]) > self.clock.instant:
+                    refused.add(steer["model_id"])
+            models = frozenset(model for model in models if self.policy["models"][model]["id"] not in refused)
+        own = (models, pinned_lanes(roster, self.policy, job))
         last = attempts[-1] if attempts else None
-        if last and last["outcome_class"] == "transient" and sum(
+        last_steered = bool(last and json.loads(last["evidence_json"] or "{}").get("capacity_steer"))
+        if last and not last_steered and last["outcome_class"] == "transient" and sum(
                 1 for row in attempts if row["outcome_class"] == "transient" and row["lane_id"] == last["lane_id"]) == 1:
             try:
                 pair = (frozenset({resolve_model(self.policy, last["model_requested"], note=False)}),
@@ -1059,6 +1073,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         """P3 (C-6.9, C-11.8): with capacity fair and every attempt ending as soon as it starts, each job
         some lane would take is placed within a few passes. A job no lane can admit (a pin that names
         no lane, exclusions that cover every lane) holds nobody back and keeps no slot."""
+        # Fair progress is tested after the bounded steer has ended (C-9.5).
+        self.clock.advance(MODEL_CAPACITY_STEER_S)
         for _ in range(len(self.pending(self.jobs())) + 4):
             for attempt in self.live():
                 self.finish(attempt, "ok")
