@@ -36,6 +36,12 @@ def push_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     return {**PUSH_DEFAULTS, **policy.get("push", {})}
 
 
+def job_needs_shell(policy: Mapping[str, Any], job: Mapping[str, Any]) -> bool:
+    """C-11.1–2: an explicit job choice overrides the task's requirements."""
+    value = job.get("needs_shell")
+    return bool(value) if value is not None else "shell" in policy.get("requires", {}).get(job.get("task"), ())
+
+
 def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
     """C-11.2: candidates from this tier upward, in first-preference order.
 
@@ -427,6 +433,21 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for task in chains:
         if task not in permissions and "*" not in permissions:
             fail(f"permissions.{task}", "missing sandbox; provide this task or *")
+
+    requires = value.get("requires", {})
+    if not isinstance(requires, dict):
+        fail("requires", "must map task names to lists of requirements")
+    for task, requirements in requires.items():
+        key = f"requires.{task}"
+        if task not in chains:
+            fail(key, "unknown task; expected a chains key")
+        if not isinstance(requirements, list):
+            fail(key, "must be a list of requirements")
+        for index, requirement in enumerate(requirements):
+            if requirement != "shell":
+                fail(f"{key}[{index}]", f"unknown requirement {requirement!r}; expected shell")
+            if requirement in requirements[:index]:
+                fail(f"{key}[{index}]", f"duplicate requirement {requirement!r}")
 
     retired = value["retired"]
     if not isinstance(retired, dict):

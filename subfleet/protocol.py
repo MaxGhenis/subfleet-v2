@@ -98,6 +98,7 @@ class SubmitArgs:
     workdir: str
     prompt_path: str
     sandbox: str
+    needs_shell: bool | None = None
     task: str | None = None
     tier: str | None = None
     pinned_model: str | None = None
@@ -213,6 +214,8 @@ class KillArgs:
 
 @dataclass
 class WhyArgs:
+    needs_shell: bool | None = None
+    sandbox: str | None = None
     job_id: str | None = None
     task: str | None = None
     tier: str | None = None

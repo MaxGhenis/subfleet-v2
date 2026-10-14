@@ -50,7 +50,7 @@ def test_c15_1_c7_2_acceptance_first_names_the_deliverable_and_out(state_daemon)
     job_id, attempt, adir = reserve(daemon, harness, out_path=str(out))
     daemon._finalize(receipt_fixture(daemon, attempt, adir))
     header, summary = notice_lines(daemon, job_id)
-    assert header == (f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
+    assert header.split("; ran ", 1)[0] == (f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
                       f"out={out}")
     assert summary == "attempt a1: ok, rc=0: fake provider succeeded; unattested"
     assert out.read_bytes() == b"fixture result\n"
@@ -145,7 +145,7 @@ def test_c15_1_c23_55_a_skipped_revive_is_announced_failed_with_rc_7(state_daemo
     with daemon.store.transaction("job.revive_skipped", job_id=job_id) as tx:
         daemon._skip_revive(tx, daemon.store.get_job(job_id), "other-revive")
     header, summary = notice_lines(daemon, job_id)
-    assert header == dashes(job_id, "failed", 7)
+    assert header.split("; ran ", 1)[0] == dashes(job_id, "failed", 7)
     assert summary.startswith("skipped: session fake-session already has a live revive (other-revive)")
 
 
@@ -179,7 +179,7 @@ def test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_
                         lambda *args, **kwargs: Containment(unverifiable=True))
     daemon._process_attempt(attempt["attempt_id"])
     header, summary = notice_lines(daemon, job_id)
-    assert header == (dashes(job_id, "cancelled", 130) if cancel else dashes(job_id, "lost", 125))
+    assert header.split("; ran ", 1)[0] == (dashes(job_id, "cancelled", 130) if cancel else dashes(job_id, "lost", 125))
     assert summary.startswith("quarantined: ") and "unverifiable" in summary
 
 

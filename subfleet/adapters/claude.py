@@ -1323,6 +1323,7 @@ class ClaudeAdapter(Adapter):
             "session_id": session_id,
             "workdir": workdir,
             "sandbox": sandbox,
+            "has_shell": sandbox == Sandbox.WORKSPACE_WRITE.value,
             "transcript_path": str(transcript),
             "transcript_offset": offset,
             "projects_dir": str(transcript.parent.parent),

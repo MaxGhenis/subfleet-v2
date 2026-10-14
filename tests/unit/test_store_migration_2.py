@@ -203,3 +203,26 @@ def test_an_unknown_identity_status_is_refused_in_words_at_the_seam(version_1_st
                            identity_status="probably-fine")
         assert store.get_lane("claude-2") is None
         assert lane.lane_id == "claude-1"
+
+
+
+def test_d_sh1_version_7_rows_survive_with_unknown_historical_shell(tmp_path):
+    schema = Path(__file__).parents[2] / 'subfleet/store_schema.sql'
+    sql = schema.read_text().replace('  needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1)),\n', '')
+    sql = sql.replace('  has_shell INTEGER CHECK (has_shell IN (0,1)),\n', '')
+    path = tmp_path / 'old.sqlite3'
+    with sqlite3.connect(path) as conn:
+        conn.executescript(sql)
+        conn.execute("INSERT INTO schema_version VALUES (7,'2026-10-13T00:00:00Z')")
+        conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
+                     "VALUES ('claude-1','claude','claude:fixture','/fake','home','now','now')")
+        conn.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,created_at) "
+                     "VALUES ('old','old','digest','dispatch','queued','/work','/prompt','read-only','now')")
+        conn.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at) "
+                     "VALUES ('old/a1','old',1,'claude-1','opus','succeeded','now')")
+    with Store(path) as store:
+        assert store.get_job('old')['needs_shell'] is False
+        assert store.get_attempt('old/a1')['has_shell'] is None
+        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == 8
+    with Store(path) as store:
+        assert store.get_attempt('old/a1')['has_shell'] is None

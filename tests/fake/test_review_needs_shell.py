@@ -15,8 +15,11 @@ from tests.fake.test_workspace_contract import repository
 
 
 @pytest.fixture
-def shell_state(state_daemon):
+def shell_state(state_daemon, monkeypatch):
     service, harness = state_daemon
+    from subfleet.adapters import registry
+    from tests.fake_adapter import FakeAdapter
+    monkeypatch.setitem(registry._factories, "claude", FakeAdapter)
     service.policy['models'].update(sol61={'provider': 'codex', 'id': 'gpt-6.1-sol'},
                                     luna={'provider': 'codex', 'id': 'gpt-6-luna'})
     service.policy['chains']['review'][-1] = ['sol61', 'opus']
@@ -148,16 +151,19 @@ def routing_cases(draw):
     models = {'sol61': {'provider': 'codex', 'id': 'gpt-6.1-sol'},
               'opus': {'provider': 'claude', 'id': 'claude-opus-5-5'},
               'luna': {'provider': 'codex', 'id': 'gpt-6-luna'}}
-    chain = draw(st.lists(st.sampled_from(list(models)), min_size=1, max_size=6))
+    tiers = ['trivial', 'easy', 'standard', 'hard']
+    entry = st.one_of(st.sampled_from(list(models)),
+                      st.lists(st.sampled_from(list(models)), min_size=1, max_size=3, unique=True))
+    chain = draw(st.lists(entry, min_size=4, max_size=4))
     lanes = []
     for number, provider in enumerate(draw(st.lists(st.sampled_from(['claude', 'codex']), max_size=6))):
         lanes.append({'lane_id': f'{provider}-{number}', 'provider': provider, 'owner': 'v2',
                       'enabled': draw(st.booleans()), 'account_key': f'{provider}:{number}'})
     sandbox = draw(st.sampled_from(['read-only', 'workspace-write']))
-    policy = {'models': models, 'retired': {}, 'tiers': ['hard'], 'chains': {'review': [chain]},
+    policy = {'models': models, 'retired': {}, 'tiers': tiers, 'chains': {'review': chain},
               'caps': {'max_in_flight_per_lane': 1, 'max_in_flight_unmeasured': 1},
               'requires': {'review': draw(st.sampled_from([[], ['shell']]))}}
-    job = {'task': 'review', 'tier': 'hard', 'sandbox': sandbox,
+    job = {'task': 'review', 'tier': draw(st.sampled_from(tiers)), 'sandbox': sandbox,
            'needs_shell': draw(st.sampled_from([None, True, False])),
            'exclusions': draw(st.lists(st.sampled_from([lane['lane_id'] for lane in lanes]), max_size=3)) if lanes else []}
     view = {'now': '2026-10-14T12:00:00Z', 'lanes': lanes,
@@ -195,3 +201,22 @@ def test_requirement_can_skip_opus_for_later_codex_model():
     result = scheduler.evaluate(policy, view, {'task': 'review', 'tier': 'hard',
                                 'sandbox': 'read-only', 'needs_shell': True})
     assert result.chosen_model == 'luna'
+
+
+def test_resolved_shell_requirement_survives_policy_change(shell_state):
+    service, harness = shell_state
+    job = review(service, harness)
+    assert service.store.get_job(job)['needs_shell'] is True
+    service.policy['requires'] = {}
+    service.store.update_lane('codex-1', enabled=False)
+    service._admit()
+    assert not service.store.list_attempts(job)
+    assert service.store.get_job(job)['wait_reason'] == 'capacity'
+
+
+def test_shell_requirement_demand_does_not_compete_for_opus():
+    policy = {'models': {'opus': {'provider': 'claude', 'id': 'opus'},
+                         'luna': {'provider': 'codex', 'id': 'luna'}},
+              'retired': {}, 'tiers': ['hard'], 'chains': {'review': [['opus', 'luna']]}}
+    assert scheduler.demand_models(policy, {'task': 'review', 'tier': 'hard',
+        'sandbox': 'read-only', 'needs_shell': True}) == frozenset({'luna'})

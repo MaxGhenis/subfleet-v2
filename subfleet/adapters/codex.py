@@ -544,7 +544,7 @@ class CodexAdapter(Adapter):
         atomic_publish(sent_path, read_regular(prompt_path))
         return Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
                       str(sent_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
-                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id)
+                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id, notes={"has_shell": True, "sandbox": sandbox.value})
 
     def build_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                      credential_env: dict[str, str], model_id: str, effort: str | None,

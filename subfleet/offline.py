@@ -281,7 +281,11 @@ class Offline:
                 job["decision"] = json.loads(decisions["decision_json"])
             except (json.JSONDecodeError, TypeError):
                 job["decision"] = None
+        if "needs_shell" in job:
+            job["needs_shell"] = bool(job["needs_shell"])
         for attempt in job["attempts"]:
+            if attempt.get("has_shell") is not None:
+                attempt["has_shell"] = bool(attempt["has_shell"])
             attempt["receipts"] = self.receipts(job_id, attempt.get("seq"))
         if job.get("attempt_seq"):
             job["receipts"] = self.receipts(job_id, job["attempt_seq"])

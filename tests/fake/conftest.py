@@ -31,6 +31,9 @@ class Harness:
         # cases describe mechanics the rule sits on top of, so the policy starts with it off.
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
         policy.setdefault("reserve", {})["models"] = []
+        # D-SH1: shell-aware routing has its own regressions; these fixtures
+        # keep the no-requirement routing their existing cases describe.
+        policy.pop("requires", None)
         # C-6.14, likewise: every lane here starts never having answered, so the
         # pilot hold would let one attempt at a time onto it until one answered.
         # tests/fake/test_lane_pilot.py covers the hold with it on; these cases

@@ -142,6 +142,11 @@ class Sandbox(str, enum.Enum):
     WORKSPACE_WRITE = "workspace-write"
 
 
+def launch_has_shell(provider: str, sandbox: str | Sandbox) -> bool:
+    """C-12.3–4: command execution offered by this provider's sandbox launch."""
+    return provider == "codex" or (provider == "claude" and sandbox == Sandbox.WORKSPACE_WRITE)
+
+
 class LaneOwner(str, enum.Enum):  # C-10.4
     V1 = "v1"
     V2 = "v2"

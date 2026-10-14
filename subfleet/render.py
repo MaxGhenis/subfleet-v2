@@ -80,6 +80,25 @@ def closure_text(value: Any) -> str:
     return result + ")"
 
 
+def attempt_shell_text(job: Mapping[str, Any]) -> str:
+    """C-12.4: capability of the recorded attempt, unknown for older records."""
+    if isinstance(job.get("job"), Mapping):
+        job = {**job, **job["job"]}
+    attempts = job.get("attempts") or ()
+    attempt = job.get("attempt") or (attempts[-1] if attempts else job)
+    flag = attempt.get("has_shell")
+    if flag is None:
+        return ""
+    try:
+        evidence = json.loads(attempt.get("evidence_json") or "{}")
+    except (TypeError, ValueError):
+        evidence = {}
+    model = evidence.get("model_short") or attempt.get("model_requested") or job.get("model") or "unknown"
+    sandbox = job.get("sandbox") or attempt.get("sandbox") or "unknown"
+    lane = attempt.get("lane_id") or job.get("lane_id") or "unknown"
+    return f"ran {sandbox} on {lane} ({model}) with {'a shell' if flag else 'no shell'}"
+
+
 def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
                   require_file: bool = False) -> str:
     """C-15.1: the first line of a job's notice, from the job row alone.
@@ -119,8 +138,10 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             if not require_file or path.is_file():
                 deliverable = str(path)
         out = job.get("out_path") or "-"
+    capability = attempt_shell_text(job)
     return (f"{job_id}: {job.get('state')}; rc={'-' if rc is None else rc}; "
-            f"deliverable={deliverable}; out={out}")
+            f"deliverable={deliverable}; out={out}"
+            + (f"; {capability}" if capability else ""))
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:

@@ -192,7 +192,7 @@ def test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only(state_da
     ("sandbox", "unrestricted", 2), ("allow_tmp", False, 7),
     ("prompt_path", "/a-nonexistent-subfleet-test-prompt", 2),
     ("out_path", "/a-nonexistent-subfleet-test-directory/result", 2),
-    ("pinned_model", "no-such-model", 2),
+    ("pinned_model", "no-such-model", 7),
 ])
 def test_c6_1_state_validation_rejects_before_job_rows(state_daemon, bad_field, bad_value, code):
     """C-6.1, C-6.5 validation rejects invalid inputs before creating any job or attempt rows."""
@@ -390,10 +390,10 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
     # (incident: 2026-09-24); the summary names the attempt's class and rc.
     header, summary, *kept = notice["text"].splitlines()
     if cancel_first:
-        assert header == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
+        assert header.split("; ran ", 1)[0] == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
         assert kept == [f"output kept, not accepted: {adir / 'deliverable.md'}"]
     else:
-        assert header == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
+        assert header.split("; ran ", 1)[0] == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
         assert kept == []
     assert summary.startswith("attempt a1: ok, rc=0: ")
     if not cancel_first:

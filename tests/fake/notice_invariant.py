@@ -21,7 +21,7 @@ import re
 from typing import Any, Callable
 
 HEADER = re.compile(r"^(?P<job>\S+): (?P<state>[a-z-]+); rc=(?P<rc>[^;]*); "
-                    r"deliverable=(?P<deliverable>.*?); out=(?P<out>.*)$")
+                    r"deliverable=(?P<deliverable>.*?); out=(?P<out>.*?)(?:; ran .* with (?:a shell|no shell))?$")
 
 
 def notice_mismatches(rows: Callable[..., list[dict[str, Any]]]) -> list[str]:

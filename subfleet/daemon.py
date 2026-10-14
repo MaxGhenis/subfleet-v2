@@ -6,6 +6,9 @@ transactions contain only SQL (C-3.3, C-16.4).
 """
 from __future__ import annotations
 
+from .contracts import launch_has_shell
+from .policy import job_needs_shell
+
 import argparse
 import contextlib
 import ctypes
@@ -2226,7 +2229,15 @@ class Daemon:
                 folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
                 model = args.pinned_model
                 if model:
-                    model = resolve_model(self.policy, model)
+                    try:
+                        model = resolve_model(self.policy, model)
+                    except PolicyError as exc:
+                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                                           + ", ".join(self.policy["models"]), code=7,
+                                           fix="pin a model from the live policy") from exc
+                if args.needs_shell is not None and type(args.needs_shell) is not bool:
+                    raise ValueError("needs_shell must be true or false")
+                needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
                 if args.task and args.task not in self.policy["chains"]:
                     raise ValueError(f"unknown task {args.task}")
                 if args.tier and args.tier not in self.policy["tiers"]:
@@ -2261,6 +2272,9 @@ class Daemon:
                 provider = self.policy["models"][task_model]["provider"]
                 if lane and lane.provider != provider:
                     raise ValueError("pinned lane and model providers disagree")
+                if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
+                    raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
+                                       code=7, fix="pass -s workspace-write, or pin a Codex model")
                 if lane:
                     self._validate_home(lane)
                 mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
@@ -2278,7 +2292,7 @@ class Daemon:
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
-                    push_branch=args.push_branch, push_remote=push_remote)
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -2319,7 +2333,7 @@ class Daemon:
             values = dataclasses.asdict(args)
             for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
-            values.update(job_id=job_id, state="queued", payload_digest=digest,
+            values.update(job_id=job_id, state="queued", payload_digest=digest, needs_shell=needs_shell,
                           workdir=recorded_workdir, workdir_head=head, out_path=out,
                           push_remote=push_remote, push_default_branch=push_default,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
@@ -3844,7 +3858,10 @@ class Daemon:
                                f"({row['state'] if row else 'no job row'})")
         if not again and tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
-        text = render.notice_header(dict(row), self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
+        latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
+                            (row["job_id"],)).fetchone()
+        notice_job = {**dict(row), "sandbox": job["sandbox"], "attempt": dict(latest) if latest else None}
+        text = render.notice_header(notice_job, self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -6561,8 +6578,9 @@ class Daemon:
                             reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
-                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
-                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
+                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,has_shell,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,?,'reserved',?,?,?)",
+                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
+                                    launch_has_shell(self.policy["models"][decision.chosen_model]["provider"], job["sandbox"]), baseline,
                                     json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
@@ -7276,6 +7294,11 @@ class Daemon:
             else:
                 self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
             return
+        has_shell = launch_has_shell(lane.provider, spec.sandbox)
+        if job_needs_shell(self.policy, job) and not has_shell:
+            self._unlaunched(a, f"needs a shell: {model['id']} runs {job['sandbox']} jobs without one")
+            return
+        self.store.update_attempt(a["attempt_id"], has_shell=has_shell)
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")

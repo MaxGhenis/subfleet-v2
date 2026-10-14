@@ -40,7 +40,7 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
@@ -95,7 +95,19 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
+    8: (
+        "ALTER TABLE jobs ADD COLUMN needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1))",
+        "ALTER TABLE attempts ADD COLUMN has_shell INTEGER CHECK (has_shell IN (0,1))",
+    ),
 }
+
+
+def shell_flags(row: Mapping[str, Any]) -> Row:
+    value = dict(row)
+    for key in ("needs_shell", "has_shell"):
+        if key in value and value[key] is not None:
+            value[key] = bool(value[key])
+    return value
 
 
 def utc_now() -> str:
@@ -324,7 +336,7 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
-                    if column in present:
+                    if not present or column in present:
                         continue
                 self.connection.execute(statement)
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
@@ -378,9 +390,9 @@ class Store:
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():
             with self._reading() as conn:
-                return [dict(row) for row in conn.execute(sql, params).fetchall()]
+                return [shell_flags(row) for row in conn.execute(sql, params).fetchall()]
         with self._lock:
-            return [dict(row) for row in self.connection.execute(sql, params).fetchall()]
+            return [shell_flags(row) for row in self.connection.execute(sql, params).fetchall()]
 
     def one(self, sql: str, params: Sequence[Any] = ()) -> Row | None:
         if self._reads_elsewhere():
@@ -390,10 +402,10 @@ class Store:
                     row = cursor.fetchone()
                 finally:
                     cursor.close()          # ends the statement, so no snapshot is kept open
-                return dict(row) if row is not None else None
+                return shell_flags(row) if row is not None else None
         with self._lock:
             row = self.connection.execute(sql, params).fetchone()
-            return dict(row) if row is not None else None
+            return shell_flags(row) if row is not None else None
 
     # --- C-3.7: reads off the store lock --------------------------------------
 

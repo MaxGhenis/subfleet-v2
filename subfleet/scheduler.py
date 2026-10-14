@@ -15,9 +15,9 @@ from typing import Any
 
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
-                        HEADROOM_FLOOR, Decision, Exit)
+                        HEADROOM_FLOOR, Decision, Exit, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
-                     provider_cap, provider_caps_on, resolve_model, turn_cap)
+                     provider_cap, provider_caps_on, resolve_model, turn_cap, job_needs_shell)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -372,6 +372,10 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
             chain = flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default))
             if job.get("pinned_lane"):
                 chain = mcp_chain(policy, chain, job)[:1]
+            if job_needs_shell(policy, job):
+                sandbox = job.get("sandbox") or policy.get("permissions", {}).get(
+                    task, policy.get("permissions", {}).get("*", "read-only"))
+                chain = [name for name in chain if launch_has_shell(policy["models"][name]["provider"], sandbox)]
             return frozenset(chain)
     except (PolicyError, ValueError, KeyError):
         pass
@@ -825,6 +829,10 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     readings, closures = list(readings), list(closures)
     identity = lane["lane_id"]
     reasons = []
+    sandbox = job.get("sandbox") or policy.get("permissions", {}).get(
+        job.get("task"), policy.get("permissions", {}).get("*", "read-only"))
+    if job_needs_shell(policy, job) and not launch_has_shell(model["provider"], sandbox):
+        reasons.append(f"needs a shell: {short} runs {sandbox} jobs without one")
     lane_readings = [row for row in readings if row["scope"] in ("account", model["id"])]
     measured_readings = [row for row in lane_readings
                          if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
@@ -1102,6 +1110,11 @@ def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: l
     if candidates:
         return f"{short}: chose {candidates[0]}; {details[candidates[0]]['status']}"
     suffix = "; promoted" if index + 1 < len(setup["chain"]) else ""
+    job, policy = setup["job"], setup["policy"]
+    sandbox = job.get("sandbox") or policy.get("permissions", {}).get(
+        job.get("task"), policy.get("permissions", {}).get("*", "read-only"))
+    if job_needs_shell(policy, job) and not launch_has_shell(policy["models"][short]["provider"], sandbox):
+        return f"needs a shell: {short} runs {sandbox} jobs without one{suffix}"
     reason = f"{short}: no candidate lanes after exclusions{suffix}"
     if setup["pin"] and setup["selected"] is None:
         reason += f"; pinned lane {setup['pin']!r} is unknown"
