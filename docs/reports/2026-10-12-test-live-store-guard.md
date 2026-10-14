@@ -820,6 +820,19 @@ Stated and tested in `test_live_store_guard_round6.py` and, as properties, in
    markers).
 5. Installation is idempotent: one hook per process.
 
+For the D-21 production root (`cacf61969`), stated and tested in
+`test_live_store_guard_state_root.py`, two of them as properties:
+
+6. Differential, under pytest with a test HOME: the development build is
+   refused exactly when the daemon's root is the same file as `HOME/.subfleet`,
+   for every spelling of HOME and root without case variants (see the case
+   variants under the CI section).
+7. Under pytest, no spelling of the account's own home leads to any access at or
+   beneath its `.subfleet`. The request is refused, naming HOME.
+8. Outside pytest, `production_state_root()` returns what release/217's
+   expression returns, for all 21 HOME and override modes.
+9. Without a development build named, the root is never asked.
+
 ### Regression evidence
 
 `test_live_store_guard_round6.py` ports the reviewer's probes and registers the
@@ -852,13 +865,198 @@ stand-in's token in the returned value. The safety net recorded no launch of the
 real binary in either tree. The five cases that pass at both heads are the
 controls: they show what must keep working, not a defect.
 
+`367096c25` adds seven cases (now 111 in the file), each showing one layer of
+the file match with the other switched off. The folded spelling alone matches
+doubled slashes, dot segments, `..`, case and the long s. The file identity
+alone matches a case variant and the `/.vol` alias. The mutation check below
+found that no earlier test isolated the fold.
+
+### CI at `dbd9c4112`: the development build and the person's state root (D-21)
+
+The hub merged release/217 (#195, #191, #194) into the branch. CI on Python
+3.12 then failed one test, with 13,078 passing: #191's
+`test_the_development_build_is_the_app_only_on_a_development_state_root`,
+`DID NOT RAISE ConversationError`.
+
+**Cause.** Under D-21, a daemon on any state root but `~/.subfleet` also
+accepts the development build that `SUBFLEET_DEV_APP_EXECUTABLE` names. Round 1
+(`25ae27f8f`) spelled that root in `ConversationService._app_executables` as
+`provider_home() / ".subfleet"`, so no test would resolve the person's live
+root. Under pytest, `provider_home()` returns `SUBFLEET_PROVIDER_HOME`, and the
+session points that at its own `<session>/providers`. So the production root
+became `<session>/providers/.subfleet`, a path no test uses, and every test root
+counted as a development root. #191's test names its person by HOME. It sets
+`HOME=tmp_path` and expects `tmp_path/.subfleet` to refuse the development
+build; the build was accepted. Round 1 had hidden this from the older peers
+D-21 test by setting `SUBFLEET_PROVIDER_HOME` beside HOME. The provider-home
+seam is the base of legacy provider homes, not the person's home. Round 5 fixed
+the same confusion in workspace admission (`protected_provider_homes()`).
+
+**Fix (`cacf61969`).**
+
+- **The root:** `home_paths.production_state_root()` resolves `HOME/.subfleet`
+  exactly as release/217 does.
+- **The account's own home:** under pytest, a HOME that is the account's own
+  home is refused with a `RuntimeError` naming HOME, before anything beneath it
+  is touched. That covers HOME unset, the same spelling, and the same directory
+  by any spelling (`..`, a symlink, case).
+- **`is_account_home()`** is the check `protected_provider_homes()` already
+  made, factored out. Equal spellings decide without a stat. Otherwise it
+  compares the home directories themselves, never a store beneath them.
+- **When it asks:** `_app_executables` asks only when
+  `SUBFLEET_DEV_APP_EXECUTABLE` is set. That variable joins `SAFE_ENV_REMOVALS`,
+  so a value exported where pytest starts cannot widen every test service or
+  make each one ask.
+- **e2e:** the harness names its stand-in after configure and gives each daemon
+  a synthetic HOME, so its daemons still accept the stand-in.
+- **Outside pytest:** nothing changes. The parity child now also compares
+  `production_state_root()` with release/217's
+  `(Path.home() / ".subfleet").resolve()` across the 21 HOME and override modes.
+
+So both guarantees hold. D-21 holds for every test that names its person: the
+development build is refused on `HOME/.subfleet` and accepted elsewhere. D-ST1
+holds because the person's live root is never resolved under pytest.
+
+**Tests.** `test_live_store_guard_state_root.py` has 22 cases. In it, `pwd`
+names a stand-in account, except in the test of the real account, which refuses
+every access before it happens:
+
+- The CI defect, with both HOME and the provider seam set.
+- Six spellings of a test HOME (plain, trailing slash, `.`, `..`, symlink,
+  missing) name the root.
+- Seven spellings of the stand-in account's home (unset, same, trailing slash,
+  `.`, `..`, symlink, case) are refused. Each runs with every access beneath its
+  root trapped.
+- The real account (unset, same, trailing slash) is refused with the live
+  `~/.subfleet` trapped.
+- Without a development build, the root is never asked.
+- The removal in `SAFE_ENV_REMOVALS`.
+- Property, differential: over spelled HOMEs and roots (doubled slashes, `.`
+  segments, `<dir>/..` detours, symlink aliases), the development build is
+  refused exactly when the root is the same file as `HOME/.subfleet`.
+- Property: no spelling of the stand-in account's home reaches its root.
+
+The consumer-refusal case for `_app_executables` now requires HOME. The peers
+D-21 test names its HOME first, instead of setting the provider seam.
+
+| Tree | `test_live_store_guard_state_root.py`, `test_person_boundary.py`, `test_conversation_peers_attachments.py` |
+| --- | --- |
+| `dbd9c4112` export with these tests | 24 failed, 139 passed. Four fail on behaviour: #191's test, the peers D-21 test, the provider-seam case and the differential property. The other 20 need the new function or the new removal. |
+| `cacf61969` | 163 passed |
+
+**The trap (`1ac28dd82`).** The mutation check removed the account-HOME refusal
+(m14). The consumer-refusal case deletes HOME and had no trap, so the mutant's
+`Path.resolve()` made one metadata-only `lstat` of the real `~/.subfleet` before
+the test failed. Nothing was opened, read or written, and release/217's own
+peers test makes the same lookup on every run. `tests/live_store_trap.py` now
+holds the trap the state-root tests use:
+
+- **What it refuses:** any stat, lstat, readlink, listing, `os.open`, `open`, or
+  directory or file change at or beneath the given roots, before the call. It
+  matches any case and paths through `..`.
+- **How:** with `pytest.fail`, which `except Exception` cannot swallow.
+- **Where:** every consumer-refusal case runs inside it, over the live stores the
+  real account entry names: `~/.subfleet`, `~/.claude`, `~/.codex`,
+  `~/.claude.json`, `~/chief-of-staff/state` and
+  `~/Library/Application Support/Claude`.
+
+Rerun with the trap, m14's case fails with `Failed: touched ~/.subfleet`, raised
+before the call. C code that opens a path itself, such as `sqlite3.connect`, is
+outside the trap.
+
+**Case variants: reported, not changed.** `Path.resolve()` keeps case. On a
+case-insensitive volume, a state root spelled `~/.SUBFLEET` is the production
+store by file identity but not by resolved string, so the D-21 comparison
+accepts the development build there.
+
+- **Minimal case:** outside pytest, with `HOME=<tmp>/home`,
+  `SUBFLEET_DEV_APP_EXECUTABLE` set, and root `<tmp>/home/.SUBFLEET`, which is
+  the same directory as `<tmp>/home/.subfleet`. `_app_executables()` includes
+  the development build, at release/217 and at this head alike.
+- **Scope:** this predates D-ST1 and is outside this PR. The differential
+  property leaves case variants out and says why.
+- **A fix:** compare file identity, or `folders.spelling`, in `_app_executables`,
+  as `tests/frontend/test_core_client.py` already requires of the app.
+
 ### Mutation check
 
-MUTATION_TABLE
+Each mutant removes one element of the design, in an exported tree of the
+named head. Each ran under one hold, never in this worktree. The D-21 mutants
+ran `test_live_store_guard_state_root.py`, `test_person_boundary.py`,
+`test_conversation_peers_attachments.py` and `test_live_store_guard.py`. The
+exec-guard mutants ran `test_live_store_guard_round6.py`,
+`test_keychain_exec_guard_properties.py`, `test_live_store_guard.py` and
+`test_live_store_guard_round5.py`. At the head, those sets pass in full. m13 and
+m14's first run used `e3b82c7af` (the code of `cacf61969`). m02–m04, m08, m15,
+m16 and m14's second run used `1ac28dd82`. m01's second run and m05–m07 and
+m09–m12 used `367096c25`.
+
+| Mutant | Removed | Result | First failing test |
+| --- | --- | --- | --- |
+| m01 | case fold in `_fold` | survived at `1ac28dd82` (442 passed); killed at `367096c25`: 2 failed | `test_the_folded_spelling_matches_without_the_file_identity` |
+| m02 | file identity | 5 failed | `test_native_binary_spellings_are_refused_early[volfs-none]` |
+| m03 | session pin | 5 failed | `test_stripped_markers_keep_the_session_refusal` |
+| m04 | child working directory | 2 failed, 2 errors | `test_launch_target_is_found_as_the_launch_finds_it[child-cwd]` |
+| m05 | `Popen`'s own `env` PATH | 4 failed, 3 errors | `test_launch_target_is_found_as_the_launch_finds_it[call-path]` |
+| m06 | install in `pytest_configure` | 84 failed, 5 errors | `test_delegating_subprocess_patch_cannot_reach_keychain` |
+| m07 | install at `subfleet.credentials` import | 2 failed | `test_python_child_of_the_session_is_guarded_from_import` |
+| m08 | early check by file (string compare instead) | 15 failed | `test_native_binary_spellings_are_refused_early` |
+| m09 | executable check in the PATH search | 1 failed | `test_a_bare_name_is_found_as_which_finds_it` |
+| m10 | idempotent install | 3 failed | `test_installing_again_adds_no_second_hook` |
+| m11 | `os.posix_spawn` event | 9 failed | `test_native_binary_spellings_are_refused_at_launch[...-os.posix_spawn]` |
+| m12 | code-7 `AdapterError` (raises `PermissionError`) | 56 failed | `test_delegating_subprocess_patch_cannot_reach_keychain` |
+| m13 | HOME as the D-21 root (provider seam instead) | 10 failed | `test_the_provider_home_seam_does_not_name_the_production_root` and #191's test |
+| m14 | account-HOME refusal | 12 failed | `test_the_accounts_own_home_is_refused_before_its_root_is_touched` |
+| m15 | `samefile` in `is_account_home` (spelling only) | 4 failed | `test_the_accounts_own_home_is_refused_before_its_root_is_touched[parent-segment]` |
+| m16 | `SUBFLEET_DEV_APP_EXECUTABLE` removal | 1 failed | `test_an_inherited_development_build_is_removed_for_the_session` |
+
+m01 survived because, wherever a stat succeeds, the file identity also matches
+every case variant. That is a redundancy, not a gap, but no test showed the
+fold, so `367096c25` tests each layer alone. In m06's run the independent safety
+net in `tests/keychain_standin.py` refused 32 launches that resolved to
+`/usr/bin/security`, each before the exec. It is installed when the test
+modules are collected, so the real binary never ran. The m14 run before
+`1ac28dd82` is the one described under "The trap" above.
 
 ### Validation
 
-HOLD_TABLE
+Python 3.12.14, `.venv` synced offline from the uv cache. Every pytest ran in
+the foreground, one per hold of the shared lock. Each used its own
+`sf-r198f6-<pid>/` TMPDIR, removed with `shutil.rmtree`; `lockf -t 60` bounded the
+queue, and a foreground supervisor would interrupt pytest (SIGINT) at 470
+seconds. "Fake" HOME is a directory under that TMPDIR. "Real" is the account's
+HOME, as in CI. Attempts that `lockf` turned away (exit 75) are not listed; each
+was retried. One collect-only hold gave the per-file counts.
+
+| Hold | Code | HOME | Files | Result |
+| ---: | --- | --- | --- | --- |
+| 1 | `cacf61969` | real | `test_live_store_guard_state_root.py`, `test_person_boundary.py`, `test_conversation_peers_attachments.py` | 163 passed |
+| 2 | `dbd9c4112` export with the new tests | real | same three | 24 failed, 139 passed (above) |
+| 3 | `cacf61969` | real | `test_live_store_guard.py`, rounds 3–6, `test_keychain_exec_guard_properties.py` | 472 passed |
+| 4 | `cacf61969` | fake | CI's `test_folder_spelling.py` (7), `test_app_cutover_daemon.py` (13), `test_policy_support.py` (14); `test_test_module_names.py` (1); `test_agent_secret_credentials.py` (7); `test_claude_adapter.py` (170) | 212 passed |
+| 5 | `cacf61969` | fake | `test_cli.py` | 199 passed |
+| 6 | `cacf61969` | fake | `test_conversation_service.py` (97), `test_enrollment_runner.py` (7), `test_lanes_reenroll_keychain.py` (1), `test_lanes_reenroll.py` (19), `test_lanes_enroll.py` (15) | 139 passed |
+| 7 | `cacf61969` | fake | `test_salvage_unindexable.py` (86), `test_soak_tools.py` (49), `test_workspace_transient.py` (24) | 159 passed |
+| 8 | `cacf61969` | fake | `test_salvage_finalization.py` (47), `test_admission_liveness.py` (32), `test_admission_priority.py` (32), `test_unadmittable_pin_admission.py` (24) | 135 passed |
+| 9 | `cacf61969` | fake | e2e `test_conversations.py` (44) | 29 passed, 15 skipped |
+| 10 | `cacf61969` | fake | e2e titles (9), wakes (4), codex turn completed (3), guard and isolation (5), HTTP isolation (1), legacy cockpit (1) | 23 passed |
+| 11 | `cacf61969` | fake | e2e milestone 1 Codex (9), milestone 2 Claude (7), notice job state (1), recovery (2) | 19 passed |
+| 12 | `cacf61969` | fake | e2e reserve (4), review r2 strand (2), review r3 strand timing (2), stop bound (3) | 11 passed |
+| 13 | `cacf61969` | fake | holds 1 and 3 together | 635 passed |
+| 14 | `1ac28dd82` | fake | `test_live_store_guard_state_root.py`, `test_live_store_guard.py`, `test_person_boundary.py`, `test_conversation_peers_attachments.py`, `test_test_module_names.py` | 488 passed |
+| 15 | `367096c25` | fake | the seven layer cases (`-k without_the`) | 7 passed |
+| 16 | `367096c25` | real | `test_live_store_guard_state_root.py` (22), `test_person_boundary.py` (97), `test_conversation_peers_attachments.py` (44), `test_live_store_guard.py` (324), round 3 (22), round 4 (8), round 5 (11), round 6 (111), `test_keychain_exec_guard_properties.py` (3), `test_test_module_names.py` (1) | 643 passed |
+| 17–34 | mutant trees | fake | as in the mutation check | every mutant killed |
+
+`test_person_boundary.py` holds the person-boundary properties, and it passed in
+holds 1, 13 and 16. The 14 files are the reviewer's pass-through-wrapper sweep;
+two of them, `test_claude_adapter.py` and `test_agent_secret_credentials.py`, are
+in hold 4. The 15 e2e skips are the person-only requests. `as_person` and
+`as_terminal` skip them inside a Subfleet job by design ("run this test outside
+Subfleet (CI runs it)"): the job's guardian is an ancestor of every process a
+job starts. The 29 that ran start daemons whose environment names the
+development stand-in, with a synthetic HOME, so they go through the new root on
+every daemon start.
 
 ### Not covered
 
@@ -870,7 +1068,32 @@ HOLD_TABLE
 - **Calls that bypass the audit events**, such as `_posixsubprocess.fork_exec`
   called directly or `ctypes`, and a copy of the binary under another path.
 - **The full suite and Python 3.14** were not run here.
+- **The 15 person-only e2e requests**, which skip inside a Subfleet job (above),
+  and `tests/frontend/test_core_live.py`, whose daemon also names a development
+  build, were not run here. CI runs them.
+- **Case variants of the D-21 root** (above) are reported, not changed.
 
 ### Delivery
 
-DELIVERY
+Round 6's commits, on a detached checkout of `fix/test-live-store-guard`:
+
+- `a5953bf28`: refuse the keychain reader by binary, not runner, under pytest
+  (the first job, recovered).
+- `0d1851c7a`: the guard's invariants as Hypothesis properties (the first job,
+  recovered).
+- `dbd9c4112`: the hub's merge of release/217 (#195, #191, #194).
+- `cacf61969`: the D-21 production root is named by the test's HOME, not the
+  provider seam; CI's failure fixed.
+- `e3b82c7af`: this section's draft, recovered from `fix6-uncommitted.patch`,
+  with the round-5 docstring correction.
+- `1ac28dd82`: the live-store trap, around every consumer-refusal case.
+- `367096c25`: each layer of the keychain file match, tested alone.
+- The commit that adds this text.
+
+Only named source, test and report files are staged, with the requested
+co-author trailer. No logs, JSON or bundles are staged. Commits went to the
+shared repository's object store on a detached HEAD, which Subfleet keeps as a
+salvage ref. The caller's checkout and its branch were not written. No remote,
+push, sub-agent, or detached or background process was used. The only access to
+a personal store was the one `lstat` under "The trap", and nothing touched the
+keychain or `/usr/bin/security`.
