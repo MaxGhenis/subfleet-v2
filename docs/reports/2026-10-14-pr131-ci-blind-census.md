@@ -150,7 +150,15 @@ guardian. A `sitecustomize` on the guardian's `PYTHONPATH` holds its interpreter
 before any guardian code runs; the harness reads its process group as the
 launch returns, then releases it. Before the fix, nothing has put the guardian
 in a group of its own yet. After it, the guardian leads its own group, and each
-provider still runs. Results are under "Tests run".
+provider still runs.
+
+Measured for the attempt path: on `14b9c942b` (cause 1 fixed, cause 2 not) the
+test fails with `launch_groups [[31760, 23423, 23423]]`, the guardian in the
+daemon's group 23423. With the fix it passes. The probe and re-enrolment cases
+could not be shown passing during the job, because on this host their probe
+containment then took a blind census (next section). That census is the same
+before and after this change: a kept probe record shows the guardian leading its
+own group, and no live pid.
 
 ## Reproduction counts
 
