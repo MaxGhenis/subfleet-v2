@@ -6,6 +6,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from .launch_env import build_environment
 from .adapters.base import AdapterError
 from .contracts import Credential
 
@@ -40,7 +41,7 @@ def resolve_credential(credential: Credential) -> dict[str, str]:
         raise AdapterError("unsupported credential kind for provider", code=7)
     try:
         result = subprocess.run(keychain_command(credential.ref),
-                                capture_output=True, text=True, timeout=10, check=False)
+                                capture_output=True, text=True, timeout=10, check=False, env=build_environment())
     except (OSError, subprocess.SubprocessError):
         raise AdapterError("could not resolve lane keychain credential", code=7,
                            fix="unlock the configured credential store and verify the lane reference with agent-secret") from None

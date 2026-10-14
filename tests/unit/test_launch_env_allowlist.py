@@ -2,6 +2,7 @@
 
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -56,8 +57,11 @@ def launch_for(provider, mode, directory, monkeypatch):
                 str(home), LaneOwner.V2, False)
     adapter = CodexAdapter() if provider == "codex" else ClaudeAdapter(projects_dir=home / "projects")
     if provider == "codex":
-        adapter.isolation_inspector = lambda *args, **kwargs: (
-            {"requirements": None}, {"layers": [{"name": {"type": "user"}, "config": {}}]}, [])
+        def inspect(*args, **kwargs):
+            selected = {k: v for k, v in os.environ.items() if k in ALLOWED}
+            assert_environment(kwargs["env"], {**selected, **credential})
+            return {"requirements": None}, {"layers": [{"name": {"type": "user"}, "config": {}}]}, []
+        adapter.isolation_inspector = inspect
     job = JobSpec(request_id="fake", kind="dispatch", workdir=str(directory), prompt_path=str(prompt),
                   task="review", tier="standard", pinned_model=None, pinned_lane=None,
                   sandbox=Sandbox.READ_ONLY, out_path=None, name="env-test",
@@ -88,26 +92,39 @@ def test_each_lane_launch_drops_polluted_parent(provider, mode, tmp_path, monkey
     daemon = Daemon.__new__(Daemon)
     daemon._provider_environment = ProviderEnvironment(POLICY)
     actual = daemon._launch_environment(lane, launch)
-    expected = {**{k: v for k, v in parent.items() if k in ALLOWED}, **launch.env_add}
+    expected = {k: v for k, v in parent.items() if k in ALLOWED}
     for name in launch.env_remove:
         expected.pop(name, None)
+    expected.update(launch.env_add)
     assert_environment(actual, expected)
 
 
 NAMES = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,24}", fullmatch=True)
-VALUES = st.text(alphabet="abcXYZ012 /:._-", max_size=30)
-PARENTS = st.dictionaries(st.one_of(NAMES, st.sampled_from(sorted(ALLOWED)),
+VALUES = st.text(alphabet=st.characters(exclude_categories=("Cs",), exclude_characters="\0"), max_size=30)
+PARENT_NAMES = st.one_of(NAMES, st.text(alphabet=st.characters(
+    exclude_categories=("Cs",), exclude_characters="\0="), min_size=1, max_size=24))
+
+
+class ParentEnvironment(dict):
+    def __repr__(self):
+        return "<parent names: " + ", ".join(sorted(self)) + ">"
+
+
+PARENTS = st.dictionaries(st.one_of(PARENT_NAMES, st.sampled_from(sorted(ALLOWED)),
                                   NAMES.map(lambda n: n + "_KEY"), NAMES.map(lambda n: n + "_TOKEN"),
                                   NAMES.map(lambda n: n + "_SECRET"), NAMES.map(lambda n: n + "_PASSWORD")),
-                          VALUES, max_size=35)
+                          VALUES, max_size=35).map(ParentEnvironment)
 
 
 @settings(max_examples=30, deadline=None, derandomize=True,
           suppress_health_check=[HealthCheck.function_scoped_fixture])
-@given(parent=PARENTS, passed=st.lists(NAMES, max_size=5, unique=True))
+@given(parent=PARENTS, passed=st.lists(st.one_of(NAMES, st.sampled_from(
+    [*sorted(POLLUTION), "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"])), max_size=5, unique=True))
 def test_bounded_property_all_lane_launches(parent, passed, tmp_path, monkeypatch):
     """C-12.3/4: exact union, all allowed names, arbitrary names and secret suffixes."""
     parent = {**dict.fromkeys(ALLOWED, "dummy"), **parent, **POLLUTION}
+    for name in passed:
+        parent.setdefault(name, "dummy")
     environment = ProviderEnvironment({**POLICY, "env": {"pass": passed}})
     with monkeypatch.context() as patch:
         patch.setattr(os, "environ", parent)
@@ -116,27 +133,32 @@ def test_bounded_property_all_lane_launches(parent, passed, tmp_path, monkeypatc
         for provider, mode in PATHS:
             lane, launch = launch_for(provider, mode, tmp_path / (provider + mode), patch)
             actual = daemon._launch_environment(lane, launch)
-            expected = {**{k: v for k, v in parent.items() if k in ALLOWED or k in passed}, **launch.env_add}
+            expected = {k: v for k, v in parent.items() if k in ALLOWED or k in passed}
             for name in launch.env_remove:
-                expected.pop(name, None)
+                if name not in passed:
+                    expected.pop(name, None)
+            expected.update(launch.env_add)
             assert_environment(actual, expected)
 
 
-def test_daemon_start_environment_and_launchd_are_differentially_equal(tmp_path, monkeypatch):
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+def test_daemon_start_environment_and_launchd_are_differentially_equal(tmp_path, monkeypatch, provider):
     """C-12.3/4: pollution cannot distinguish shell-started and launchd daemons."""
-    clean = dict.fromkeys(OBSERVED, "dummy")
-    clean["SUBFLEET_HOME"] = str(tmp_path)
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin"})
+    monkeypatch.setattr(cli, "_daemond_argv", lambda root: ["fake-daemon"])
+    clean = plistlib.loads(cli._plist(tmp_path))["EnvironmentVariables"]
     monkeypatch.setattr(os, "environ", {**clean, **POLLUTION})
     started = cli.daemon_env(tmp_path)
     assert_environment(started, clean)
     environment = ProviderEnvironment(POLICY)
-    assert_environment(environment.build("codex", {"CODEX_HOME": "/fake"}, environ=started),
-                       environment.build("codex", {"CODEX_HOME": "/fake"}, environ=clean))
+    credential = {"CODEX_HOME" if provider == "codex" else "CLAUDE_CONFIG_DIR": "/fake"}
+    assert_environment(environment.build(provider, credential, environ=started),
+                       environment.build(provider, credential, environ=clean))
 
 
 def test_daemon_start_popen_gets_only_selected_names(tmp_path, monkeypatch):
     """C-17.x: exercise the actual CLI spawn seam, without starting a daemon."""
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION})
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_HOME": str(tmp_path), **POLLUTION})
     states = iter([False, True])
     monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(states))
     monkeypatch.setattr(cli, "_daemond_argv", lambda root: ["fake-daemon"])
@@ -208,3 +230,38 @@ def test_environment_diagnostic_uses_names_only(monkeypatch):
     report = launch_env.environment_report()
     assert report == {"extra_names": sorted(POLLUTION)}
     assert "dummy" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("status", [None, {}, {"environment": {"extra_names": "invalid"}},
+                                  {"environment": {"extra_names": [123]}}])
+def test_doctor_handles_old_or_malformed_diagnostics_without_echoing_reply(tmp_path, monkeypatch, status):
+    monkeypatch.setattr(doctor.Client, "call", lambda *args, **kwargs: status)
+    item = doctor.check_daemon_environment(tmp_path)
+    assert item["status"] == doctor.UNKNOWN
+    assert "invalid" not in item["detail"] and "123" not in item["detail"]
+
+
+def test_doctor_reports_unusual_os_names_without_line_injection(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.Client, "call", lambda *args, **kwargs: {
+        "environment": {"extra_names": ["FOO.API_KEY", "ODD\nNAME"]}})
+    item = doctor.check_daemon_environment(tmp_path)
+    assert item["status"] == doctor.WARN
+    assert "FOO.API_KEY" in item["detail"] and "ODD\\nNAME" in item["detail"]
+    assert "\n" not in item["detail"]
+
+
+@pytest.mark.parametrize("source", ["default", "policy", "credential"])
+def test_claude_transcript_location_uses_selected_launch_environment(tmp_path, monkeypatch, source):
+    home, other, lane_home = (tmp_path / name for name in ("home", "other", "lane"))
+    monkeypatch.setattr(os, "environ", {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(other)})
+    adapter = ClaudeAdapter()
+    credential = {}
+    expected = home / ".claude"
+    if source == "policy":
+        adapter.provider_environment = ProviderEnvironment({"env": {"pass": ["CLAUDE_CONFIG_DIR"]}})
+        expected = other
+    elif source == "credential":
+        credential["CLAUDE_CONFIG_DIR"] = str(lane_home)
+        expected = lane_home
+    path = adapter.expected_transcript_path(tmp_path, "fake-session", credential)
+    assert path.is_relative_to(expected / "projects")

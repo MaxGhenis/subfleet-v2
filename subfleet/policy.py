@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .launch_env import valid_name
 from .contracts import (
     CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -362,6 +363,18 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for key in required:
         if key not in value:
             fail(key, "required key is missing")
+
+    if "env" in value:
+        environment = value["env"]
+        if not isinstance(environment, dict):
+            fail("env", "must be an object")
+        if "pass" in environment:
+            names = environment["pass"]
+            if not isinstance(names, list):
+                fail("env.pass", "must be a list of exact variable names")
+            for index, name in enumerate(names):
+                if not valid_name(name):
+                    fail(f"env.pass[{index}]", "must be an exact ASCII variable name; no globs")
 
     tiers = value["tiers"]
     if not isinstance(tiers, list) or not tiers:

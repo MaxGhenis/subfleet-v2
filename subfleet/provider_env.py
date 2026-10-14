@@ -10,6 +10,7 @@ import threading
 from typing import Any
 
 from .policy import codex_ca_bundle
+from .launch_env import build_environment
 from .sessions.transcripts import read_regular
 
 CA_SOURCES = ("SSL_CERT_FILE", "SSL_CERT_DIR")
@@ -46,6 +47,7 @@ class ProviderEnvironment:
 
     def __init__(self, policy: Mapping[str, Any], *, log: logging.Logger | None = None):
         self.policy = policy
+        self.pass_names = tuple(policy.get("env", {}).get("pass", ()))
         self.log = log if log is not None else logging.getLogger(__name__)
         self._warned: set[str] = set()
         self._warning_lock = threading.Lock()
@@ -53,7 +55,9 @@ class ProviderEnvironment:
     def additions(self, provider: str, env_add: Mapping[str, str] | None = None, *,
                   environ: Mapping[str, str] | None = None) -> dict[str, str]:
         """Build Launch.env_add without mutating the daemon's environment."""
-        result = dict(env_add or {})
+        environ = os.environ if environ is None else environ
+        result = {name: environ[name] for name in self.pass_names if name in environ}
+        result.update(env_add or {})
         if provider != "codex":
             return result
         environ = os.environ if environ is None else environ
@@ -95,17 +99,14 @@ class ProviderEnvironment:
         return self.assemble(self.additions(provider, env_add, environ=environ),
                              env_remove, environ=environ)
 
-    @staticmethod
-    def assemble(env_add: Mapping[str, str] | None = None,
+    def assemble(self, env_add: Mapping[str, str] | None = None,
                  env_remove: Iterable[str] = (), *,
                  environ: Mapping[str, str] | None = None) -> dict[str, str]:
-        """Merge already-selected additions without selecting or validating again.
+        """Select parent names and merge already-selected credential/CA additions.
 
         A launch selects with ``additions`` once, then uses that result for
         adapter inspection, preflight and its guardian. Recovery selects anew.
+        Ambient name selection is repeated at every process boundary.
         """
         environ = os.environ if environ is None else environ
-        result = {**environ, **(env_add or {})}
-        for key in env_remove:
-            result.pop(key, None)
-        return result
+        return build_environment(env_add, env_remove, pass_names=self.pass_names, environ=environ)

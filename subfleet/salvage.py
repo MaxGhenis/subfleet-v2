@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .adapters.base import AdapterError
 from .contracts import GIT_LOCATION_ENV, GIT_PATHSPEC_ENV
+from .launch_env import build_environment
 from .sessions.transcripts import open_regular
 
 #: One git call's wall-clock cap when the caller names none. The 15 s this
@@ -146,7 +147,7 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     c20ee3d0, P3).
     """
     own = env is None
-    env = dict(os.environ if own else env)
+    env = build_environment() if own else dict(env)
     for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (("GIT_INDEX_FILE",) if own else ()):
         env.pop(name, None)
     for name in [name for name in env if name.startswith("GIT_TRACE")]:
@@ -313,13 +314,13 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         index = Path(temporary) / "index"
-        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        env = build_environment({"GIT_INDEX_FILE": str(index)})
         if _seeded(workdir, index, env, baseline_commit, timeout_s=timeout_s):
             return _record(workdir, env, timeout_s=timeout_s)
     # A fresh directory: whatever a failed seeding step left (the copy, a
     # crashed git's `index.lock`) is gone with the first.
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        env = build_environment({"GIT_INDEX_FILE": str(Path(temporary) / "index")})
         _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
         return _record(workdir, env, timeout_s=timeout_s)
 

@@ -25,6 +25,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
+from .launch_env import build_environment
 from . import retention_qos as rqos
 
 LSOF = "/usr/sbin/lsof"
@@ -118,7 +119,7 @@ def lsof_holders(watches: Mapping[str, Watch], *, timeout: float = 900,
         raise ScanFailed("lsof is not installed")
     try:
         process = subprocess.Popen(rqos.argv([binary, "-n", "-P", "-w", "-F", "pcftaDin"]), stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+                                   stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=build_environment())
     except OSError as exc:
         raise ScanFailed(f"lsof could not start: {exc}") from exc
     deadline = time.monotonic() + timeout

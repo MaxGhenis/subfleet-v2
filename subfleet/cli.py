@@ -61,6 +61,8 @@ from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_I
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
+from .launch_env import build_environment
+from .policy import PolicyError, load_policy
 from .store import notice_fingerprint
 
 PROG = "subfleet"
@@ -2366,13 +2368,9 @@ def _daemond_argv(root: Path) -> list[str]:
     return [*isolated, "-m", "subfleet.daemon", "--state-root", str(root)]
 
 
-# The daemon outlives the shell that starts it, and by C-5.1 every guardian and
-# provider child inherits its environment. An API key or a session id picked up
-# from one terminal must not become the fleet's ambient environment (C-14.4), nor
-# a repository a git hook named (`GIT_DIR` and the rest): every git the daemon
-# and its jobs ran would go there (C-13.1; the salvage's own calls drop them too),
-# nor a way to read pathspecs (`GIT_LITERAL_PATHSPECS` and the rest), which turned
-# salvage's exclusion of a nested repository into a file name (C-13.1).
+# Historical exclusions retained for compatibility consumers. Daemon startup
+# selects from launch_env.ALLOWED_NAMES and policy names; this tuple no longer
+# defines the environment boundary (C-12.3/4, D-ENV1).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
                 "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
@@ -2380,9 +2378,10 @@ STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
 
 
 def daemon_env(root: Path) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k not in STRIPPED_ENV}
-    env["SUBFLEET_HOME"] = str(root)
-    return env
+    policy_path = root / "policy.json"
+    policy = load_policy(policy_path) if policy_path.exists() else {}
+    return build_environment({"SUBFLEET_HOME": str(root)},
+                             pass_names=policy.get("env", {}).get("pass", ()))
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
@@ -2417,6 +2416,10 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
         os.chmod(root, 0o700)
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon start: cannot create {root}: {exc}")
+    try:
+        env = daemon_env(root)
+    except PolicyError as exc:
+        return fail(Exit.INVALID_INPUT, str(exc))
     argv = _daemond_argv(root)
     log_path = root / LOG_NAME
     try:
@@ -2427,7 +2430,7 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
         with open(os.devnull, "rb") as devnull:
             child = subprocess.Popen(argv, stdin=devnull, stdout=log, stderr=log,
                                      start_new_session=True, cwd=str(root),
-                                     env=daemon_env(root))
+                                     env=env)
     except OSError as exc:
         log.close()
         return fail(Exit.OPERATIONAL,
@@ -2759,9 +2762,9 @@ def cmd_daemon_install(args: argparse.Namespace) -> int:
         return fail(Exit.OPERATIONAL, f"daemon install: cannot write {target}: {exc}")
     out(str(target))
     subprocess.run(["launchctl", "unload", str(target)],
-                   capture_output=True, text=True, check=False)
+                   capture_output=True, text=True, check=False, env=build_environment())
     loaded = subprocess.run(["launchctl", "load", "-w", str(target)],
-                            capture_output=True, text=True, check=False)
+                            capture_output=True, text=True, check=False, env=build_environment())
     if loaded.returncode != 0:
         return fail(Exit.OPERATIONAL,
                     f"daemon install: launchctl load failed: "

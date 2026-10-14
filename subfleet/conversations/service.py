@@ -28,6 +28,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from ..launch_env import build_environment
 from .. import descriptors, protocol
 from ..adapters.base import AdapterError
 from ..contracts import Exit
@@ -662,7 +663,7 @@ class ConversationService:
         def git(*argv: str, cwd: str | Path = top, cap: float = timeout) -> subprocess.CompletedProcess:
             try:
                 return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
-                                      errors="backslashreplace", timeout=cap)
+                                      errors="backslashreplace", timeout=cap, env=build_environment())
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
                                         fix="repeat conversation.create with the same request_id") from exc

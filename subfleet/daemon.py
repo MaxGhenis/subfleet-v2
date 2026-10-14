@@ -59,6 +59,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .provider_env import ProviderEnvironment
+from .launch_env import environment_report, guardian_pass_args
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
@@ -566,8 +567,8 @@ def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | 
     """Whether `commit` holds the directory `prefix` (relative to `top`), so a
     worktree cut at it will: None when git cannot say. Under salvage's environment
     (`_git_env`): `--literal-pathspecs` with `GIT_GLOB_PATHSPECS` set is a fatal
-    error, and the daemon's own scrub (`cli.STRIPPED_ENV`) holds only when
-    `daemon start` started it (review of the P3-3 fix)."""
+    error. This helper selects its environment independently of how the daemon
+    started (C-12.3/4, D-ENV1)."""
     try:
         found = subprocess.run(["git", "--literal-pathspecs", "-C", top, "ls-tree", "-d", "-z", commit, "--", prefix],
                                capture_output=True, env=_git_env(None), timeout=cap)
@@ -835,7 +836,7 @@ class Daemon:
         self._shut_down: set[socket.socket] = set()
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
-        self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
+        self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn, adapter_factory=self._adapter,
                              deliver=self._timer_notice, demand=self._reset_demand)
         # C-23.16 (f): the policy is read once, here; say what it means for resets.
         resets = self.timers.actions.describe()
@@ -1089,7 +1090,7 @@ class Daemon:
                 raise
         try:
             try:
-                adapter = get_adapter(credential.provider)
+                adapter = self._adapter(credential.provider)
                 if enrollment_holder:
                     from .adapters.claude import ClaudeAdapter
                     if isinstance(adapter, ClaudeAdapter):
@@ -1167,12 +1168,14 @@ class Daemon:
                   'owned_identities': {}, 'deadline_at': after(timeout)}
         self._save_probe(record)
         package_root = str(Path(__file__).resolve().parent.parent)
-        env = {**env, 'SUBFLEET_ATTEMPT': holder, 'SUBFLEET_ROOT': str(self.root), 'SUBFLEET_PROBE': '1'}
+        env = self._provider_environment.assemble(env)
+        env.update(SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE='1')
+        provider_env_args = guardian_pass_args(env)
         env['PYTHONPATH'] = package_root + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, '-m', 'subfleet.guardian', '--attempt-dir', str(directory),
                    '--cwd', cwd, '--stdout-path', str(stdout), '--stderr-path', str(stderr),
-                   '--launch-fd', str(read_fd), '--', *argv]
+                   '--launch-fd', str(read_fd), *provider_env_args, '--', *argv]
         child = None
         try:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
@@ -1478,7 +1481,7 @@ class Daemon:
             if state is None:
                 lane = self.store.get_lane(a["lane_id"])
                 state = {"path": self._saved_launch(a).stdout_path, "offset": 0, "tail": b"", "skip": False,
-                         "next": 0.0, "adapter": get_adapter(lane.provider) if lane else None}
+                         "next": 0.0, "adapter": self._adapter(lane.provider) if lane else None}
                 self._answer_reads[aid] = state
             if state["adapter"] is None or now < state["next"]:
                 return
@@ -1790,7 +1793,7 @@ class Daemon:
             try:
                 probe = self.desktop_prober
                 if probe is None:
-                    probe = getattr(get_adapter("claude"), "probe_desktop_profile", None)
+                    probe = getattr(self._adapter("claude"), "probe_desktop_profile", None)
                 profile = probe() if probe is not None else None
             except (AdapterError, OSError, subprocess.SubprocessError) as exc:
                 self.log.debug("desktop profile unavailable: %s", type(exc).__name__)
@@ -3065,6 +3068,13 @@ class Daemon:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
 
+    def _adapter(self, provider: str):
+        adapter = get_adapter(provider)
+        environment = getattr(self, "_provider_environment", None)
+        if environment is not None:
+            adapter.provider_environment = environment
+        return adapter
+
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
@@ -3076,7 +3086,7 @@ class Daemon:
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
                         state_root: Path | None = None, full: bool = False,
-                        env: dict[str, str] | None = None):
+                        env: dict[str, str] | None = None, env_pass=()):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
@@ -3097,6 +3107,7 @@ class Daemon:
         options = {"state_root": state_root} if state_root is not None else {}
         if env is not None:
             options["env"] = env
+            options["env_pass"] = tuple(env_pass)
         result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
@@ -3345,6 +3356,7 @@ class Daemon:
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
                     "priority_callers": self._priority_callers_status(),
+                    "environment": environment_report(),           # C-17.8: names only
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
@@ -4860,7 +4872,7 @@ class Daemon:
         """
         record = self._probe_record(holder)
         directory = Path(record["directory"])
-        adapter = get_adapter(lane.provider)
+        adapter = self._adapter(lane.provider)
         self._validate_home(lane)
         credential_env = self._credential_environment(lane)
         prompt = directory / "prompt.md"
@@ -4872,12 +4884,13 @@ class Daemon:
                                       self._guard_override(adapter, lane, str(directory),
                                                            self._guard_recorder(lane, str(directory), directory),
                                                            self.root,
-                                                           env=self._provider_environment.assemble(credential_env)))
+                                                           env=self._provider_environment.assemble(credential_env), env_pass=credential_env))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
         env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
+        provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = procs.pipe_above_stdio()
@@ -4886,7 +4899,7 @@ class Daemon:
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
         if launch.stdin_path:
             command += ["--stdin-path", launch.stdin_path]
-        command += ["--", *launch.argv]
+        command += [*provider_env_args, "--", *launch.argv]
         child = None
         try:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
@@ -4996,7 +5009,7 @@ class Daemon:
             if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
                 value.update(env_add=self._relaunch_env(record["lane_id"]),
                              argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
-                adapter = get_adapter(self.store.get_lane(record["lane_id"]).provider)
+                adapter = self._adapter(self.store.get_lane(record["lane_id"]).provider)
                 outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
                     key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
             self._finish_probe(record, outcome)
@@ -7188,7 +7201,7 @@ class Daemon:
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
         lane = self.store.get_lane(a["lane_id"])
-        adapter = get_adapter(lane.provider)
+        adapter = self._adapter(lane.provider)
         evidence = json.loads(a["evidence_json"] or "{}")
         if job["kind"] != "turn" and evidence.get("run_folder"):
             # Use the folder whose reader row was reserved, even if the caller
@@ -7223,14 +7236,14 @@ class Daemon:
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env))
+                env=self._provider_environment.assemble(credential_env), env_pass=credential_env)
             resume = None
             if turn_block is not None:
                 guard = None
                 if lane.provider == "codex":
                     guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
                                                  self.root, full=True,
-                                                 env=self._provider_environment.assemble(credential_env))
+                                                 env=self._provider_environment.assemble(credential_env), env_pass=credential_env)
                 launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -7286,6 +7299,7 @@ class Daemon:
         env.update(self._push_environment(job))
         # The package path is explicit: provider cwd is deliberately unrelated
         # to the daemon's installation or test checkout.
+        provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
         env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = procs.pipe_above_stdio()
@@ -7300,7 +7314,7 @@ class Daemon:
                         "--relay-peer-lock", str(self.root / "daemon.lock")]
         if self.guardian_start_delay_s:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
-        command += ["--", *launch.argv]
+        command += [*provider_env_args, "--", *launch.argv]
         try:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -8118,7 +8132,7 @@ class Daemon:
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
-        adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
+        adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else self._adapter(lane.provider)
         if job["kind"] == "turn":
             self.conversations.release_socket(a["attempt_id"])
         receipt = self._read_json(adir / "exit.json")

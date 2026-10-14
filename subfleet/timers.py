@@ -14,6 +14,7 @@ import threading
 import time
 from uuid import uuid4
 
+from .provider_env import ProviderEnvironment
 from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
@@ -458,8 +459,9 @@ class Timers:
             self._cards_sensor = claude_cards.Sensor(
                 login_reader=home_login,
                 heal=lambda home: claude_cards.heal_turn(home, claude_bin=claude_bin, model=ENROLL_MODEL,
-                                                         prompt=ENROLL_PROMPT, cancel=self.cancel),
-                version=lambda: claude_cards.cli_version(claude_bin),
+                                                         prompt=ENROLL_PROMPT, cancel=self.cancel,
+                                                         environment=ProviderEnvironment(self.policy)),
+                version=lambda: claude_cards.cli_version(claude_bin, environment=ProviderEnvironment(self.policy)),
                 now=self.now)
         return self._cards_sensor
 

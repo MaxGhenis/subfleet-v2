@@ -49,3 +49,25 @@ def test_passed_secret_is_exact_and_survives_daemon_start(tmp_path, monkeypatch)
     child = ProviderEnvironment(load_policy(tmp_path / "policy.json")).build("codex", environ=started)
     assert set(child) == set(started)
     assert child["FOO_API_KEY"] == "dummy"
+
+
+@pytest.mark.parametrize("name", ["FOO_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                                  "SUBFLEET_CUSTOM_SECRET", "LC_CUSTOM_PASSWORD"])
+def test_exact_policy_authority_survives_default_removals(name):
+    from subfleet.provider_env import ProviderEnvironment
+    environment = ProviderEnvironment({"env": {"pass": [name]}, "providers": {"codex": {"ca_bundle": None}}})
+    actual = environment.build("codex", env_remove=(name,), environ={name: "dummy", name + "_OTHER": "dummy"})
+    assert set(actual) == {name}
+
+
+def test_daemon_start_refuses_invalid_env_policy_before_spawn(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    from subfleet import cli
+    policy = json.loads(DEFAULT_POLICY_PATH.read_bytes())
+    policy["env"] = {"pass": ["FOO*"]}
+    (tmp_path / "policy.json").write_text(json.dumps(policy))
+    monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path))
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("invalid policy spawned daemon"))
+    assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 2
+    assert "env.pass[0]" in capsys.readouterr().err

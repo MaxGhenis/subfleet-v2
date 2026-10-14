@@ -24,6 +24,7 @@ on.
 from __future__ import annotations
 
 import os
+import json
 import sys
 import shutil
 import sqlite3
@@ -36,6 +37,7 @@ from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 from .provider_env import ProviderEnvironment
+from .launch_env import build_environment
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
 #: Something to act on that is not subfleet failing: it prints a fix line and,
@@ -63,7 +65,7 @@ def _run_full(argv: list[str], timeout: float = 20.0, *,
     """(rc, all of stdout+stderr). `rc is None` means it could not be run."""
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                              **({"env": env} if env is not None else {}))
+                              env=build_environment() if env is None else env)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{exc.__class__.__name__}: {exc}"
     return done.returncode, f"{done.stdout or ''}\n{done.stderr or ''}".strip()
@@ -72,7 +74,7 @@ def _run_full(argv: list[str], timeout: float = 20.0, *,
 def _run(argv: list[str], timeout: float = 20.0, *,
          env: dict[str, str] | None = None) -> tuple[int | None, str]:
     """(rc, first line) — the shape the one-line detail columns want."""
-    code, text = _run_full(argv, timeout, **({"env": env} if env is not None else {}))
+    code, text = _run_full(argv, timeout, env=build_environment() if env is None else env)
     lines = text.splitlines()
     return code, lines[0] if lines else "(no output)"
 
@@ -322,15 +324,12 @@ def check_provider(binary: str, *, root: Path | None = None) -> dict[str, Any]:
     if found is None:
         return row(f"{binary} --version", FAIL, f"{binary} is not on PATH",
                    f"install {binary}; no lane of that provider can launch without it")
-    if binary == "codex":
-        policy_path = root / "policy.json" if root is not None else DEFAULT_POLICY_PATH
-        try:
-            policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
-        except PolicyError as exc:
-            return row("codex --version", FAIL, str(exc), "correct policy.json, then rerun doctor")
-        code, text = _run([found, "--version"], env=ProviderEnvironment(policy).build("codex"))
-    else:
-        code, text = _run([found, "--version"])
+    policy_path = root / "policy.json" if root is not None else DEFAULT_POLICY_PATH
+    try:
+        policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
+    except PolicyError as exc:
+        return row(f"{binary} --version", FAIL, str(exc), "correct policy.json, then rerun doctor")
+    code, text = _run([found, "--version"], env=ProviderEnvironment(policy).build(binary))
     if code is None:
         return row(f"{binary} --version", UNKNOWN, f"{found}: {text}",
                    f"run `{found} --version` by hand")
@@ -446,7 +445,7 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
         # The same `codex` the adapter resolves on PATH; a pass here writes the
         # marker the daemon reuses (same key: version, home, override, seed files).
         result = guard.preflight("codex", home=home, workdir=root, state_root=root,
-                                 env=environment.build("codex"))
+                                 env=environment.build("codex"), env_pass=environment.pass_names)
         deadline = f"{result.timeout_s:g}s" if result.timeout_s is not None else "unset"
         detail = (f"{result.kind or 'refused'} in {result.elapsed_s}s (deadline {deadline}"
                   f"{', cached' if result.cached else ''}"
@@ -487,6 +486,30 @@ def check_module(name: str) -> dict[str, Any]:
                    f"the verbs that need subfleet.{name} degrade rather than fail")
     return row(f"subfleet.{name}", PASS, "importable",
                "nothing to do while this passes")
+
+
+def check_daemon_environment(root: Path) -> dict[str, Any]:
+    """C-17.8: ask the daemon for extra names, never inspect process values."""
+    check = "daemon environment allowlist"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        return row(check, UNKNOWN, "daemon environment names unavailable",
+                   "start the daemon and run `subfleet doctor` again")
+    report = status.get("environment") if isinstance(status, dict) else None
+    if not isinstance(report, dict) or not isinstance(report.get("extra_names"), list):
+        return row(check, UNKNOWN, "daemon does not report environment names (predates C-17.8)",
+                   "restart it on this release when no jobs are running")
+    names = report["extra_names"]
+    from .launch_env import valid_name
+    if any(not isinstance(name, str) for name in names):
+        return row(check, UNKNOWN, "daemon returned malformed environment names",
+                   "restart it on this release when no jobs are running")
+    if names:
+        display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
+        return row(check, WARN, "outside the default allowlist: " + ", ".join(display),
+                   "review policy env.pass; restart through `subfleet daemon start` or launchd")
+    return row(check, PASS, "all daemon names are allowlisted", "nothing to do while this passes")
 
 
 def check_live(root: Path) -> dict[str, Any]:
@@ -664,6 +687,7 @@ def checks(root: Path, *, live: bool = False,
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
+        check_daemon_environment(root),
         check_launchd_limit(),
         check_queued_pins(root),
         check_mirror(root),

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from ..launch_env import build_environment
 from .base import Adapter, AdapterError, open_stream, stream_path
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
@@ -500,11 +501,11 @@ class CodexAdapter(Adapter):
         argv = [self.codex_bin, "exec", "--json"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
-            env = {**os.environ, **credential_env}
-            validate_isolated_review(sandbox, job.review_root, env)
+            env = build_environment(credential_env)
+            validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
-                               inspector=getattr(self, "isolation_inspector", None))
+                               inspector=getattr(self, "isolation_inspector", None), pass_names=tuple(credential_env))
         elif sandbox == Sandbox.READ_ONLY:
             # A read-only job may read a directory that is not a repository (a
             # folder of repositories, a review folder). Without this, `codex exec`

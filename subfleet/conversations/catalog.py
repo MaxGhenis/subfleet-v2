@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ..launch_env import build_environment
 from ..sessions import transcripts
 from ..state_files import open_state
 from .redact import scrub
@@ -342,7 +343,7 @@ def _outside_claude(row) -> bool:
         return False
     try:
         out = subprocess.run(["/bin/ps", "-p", str(row.pid), "-o", "lstart=,comm="], capture_output=True, text=True,
-                             timeout=5, env={**os.environ, "TZ": "UTC"})
+                             timeout=5, env=build_environment({"TZ": "UTC"}))
     except (OSError, subprocess.SubprocessError):
         return True
     line = out.stdout.strip()
@@ -363,7 +364,7 @@ def _subfleet_owned(pid: int | None) -> bool:
         return False
     try:
         out = subprocess.run(["/bin/ps", "-Ewwp", str(pid), "-o", "command="], capture_output=True, text=True,
-                             timeout=5).stdout
+                             timeout=5, env=build_environment()).stdout
     except (OSError, subprocess.SubprocessError):
         return False
     return "SUBFLEET_ATTEMPT=" in out
@@ -608,7 +609,7 @@ def spawn_refresh(root: Path, *, fence_fd: int | None = None) -> subprocess.Pope
     if refresh_running(root) is not False:
         return None
     package_root = str(Path(__file__).resolve().parent.parent.parent)
-    env = {**os.environ, "PYTHONPATH": package_root}
+    env = build_environment({"PYTHONPATH": package_root})
     argv = [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root)]
     if fence_fd is not None:
         argv += ["--fence-fd", str(fence_fd)]

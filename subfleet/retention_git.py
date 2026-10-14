@@ -37,6 +37,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .launch_env import build_environment
 from . import retention_fs as rfs
 from . import retention_qos as rqos
 
@@ -64,7 +65,7 @@ class Cancelled(Exception):
 
 
 def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env = build_environment()
     env.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0",
                GIT_NO_REPLACE_OBJECTS="1", GIT_ASKPASS="/usr/bin/false", SSH_ASKPASS="/usr/bin/false")
     if extra:

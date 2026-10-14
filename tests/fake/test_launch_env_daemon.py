@@ -19,17 +19,24 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode)
     monkeypatch.setattr(os, "environ", parent)
     service._provider_environment = ProviderEnvironment(POLICY)
     seen = []
+    original_popen = daemon_module.subprocess.Popen
     def stopped(argv, **kwargs):
+        if "subfleet.guardian" not in argv:
+            return original_popen(argv, **kwargs)
         seen.append((argv, kwargs["env"]))
         raise OSError("fake guardian spawn stopped")
     monkeypatch.setattr(daemon_module.subprocess, "Popen", stopped)
     job_id = service.dispatch("submit", harness.submit_args())["job_id"]
     if mode in {"detached", "turn"}:
+        service._admit()
+        attempt = service.store.list_attempts(job_id)[0]
         if mode == "turn":
             service.store.conn.execute("UPDATE jobs SET kind='turn' WHERE job_id=?", (job_id,))
             manifest_path = service.root / "jobs" / job_id / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
-            manifest["turn"] = {"fake": True}
+            manifest["turn"] = {"conversation_id": "fake-conversation", "message_id": "fake-message",
+                                "provider": "codex", "cwd": str(harness.workdir),
+                                "settings": {"model": "astra", "permission": "read-only"}}
             manifest_path.write_text(json.dumps(manifest))
             # Exercise the daemon's relay branch; turn builders have their own oracle.
             from tests.fake_adapter import FakeAdapter
@@ -37,7 +44,8 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode)
                 FakeAdapter().build_launch(service._spec(job), attempt["attempt_id"], adir, lane,
                                            creds, model, None, daemon_module.Path(job["prompt_path"]), None))
             monkeypatch.setattr(service, "_guard_override", lambda *args, **kwargs: None)
-        service._admit()
+        monkeypatch.setattr(service, "_launch_failure", lambda *args, **kwargs: None)
+        service._launch(attempt)
     elif mode == "probe":
         record = reserved_probe(service, job_id, state="reserved")
         service._execute_probe(service._job(job_id), service.store.get_lane("codex-1"),
@@ -52,3 +60,16 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode)
     # Guardian authorization carries names only and covers launch-owned variables.
     passed = {argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass"}
     assert set(env) - ALLOWED - {"PYTHONPATH"} <= passed
+
+
+def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeypatch):
+    from subfleet import doctor
+    service, _ = routing_state
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION})
+    status = service.dispatch("daemon.status", {})
+    assert status["environment"] == {"extra_names": sorted(POLLUTION)}
+    assert "dummy" not in json.dumps(status["environment"])
+    monkeypatch.setattr(doctor.Client, "call", lambda *args, **kwargs: status)
+    output = doctor.render([doctor.check_daemon_environment(service.root)])
+    assert all(name in output for name in POLLUTION)
+    assert "dummy" not in output

@@ -45,6 +45,8 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from ..launch_env import build_environment
+from ..provider_env import ProviderEnvironment
 from ..contracts import (
     GUESSED_CLOSURE_S, HEADLESS_MARKER, IDENTITY_EVIDENCE, READING_TTL_S, Attestation,
     AttestationResult, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
@@ -384,7 +386,7 @@ def _keychain_blob(service: str, *, security_bin: str = "security") -> str | Non
     The value is returned to the caller and never logged (C-10.5)."""
     try:
         done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
-                              capture_output=True, text=True, timeout=15)
+                              capture_output=True, text=True, timeout=15, env=build_environment())
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
@@ -534,6 +536,7 @@ class ClaudeAdapter(Adapter):
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
+        self.provider_environment = ProviderEnvironment({})
         self._runner = runner
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
@@ -560,7 +563,7 @@ class ClaudeAdapter(Adapter):
         try:
             done = self._runner(
                 keychain_command(ref, self._security_bin),
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=15, env=build_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             raise AdapterError(
@@ -602,7 +605,7 @@ class ClaudeAdapter(Adapter):
         try:
             done = self._runner(
                 keychain_command(ref, self._security_bin),
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=15, env=build_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -832,8 +835,7 @@ class ClaudeAdapter(Adapter):
         own session transcript under its config directory, which is the provider's
         state and not ours to place.
         """
-        env = {k: v for k, v in os.environ.items() if k not in ENV_REMOVE}
-        env.update(env_add)
+        env = self.provider_environment.build("claude", env_add, ENV_REMOVE)
         with tempfile.TemporaryDirectory(prefix="subfleet-claude-probe-") as workdir:
             try:
                 done = self._runner(
@@ -1284,10 +1286,10 @@ class ClaudeAdapter(Adapter):
     def _config_projects_dir(self, credential_env: dict[str, str] | None = None) -> Path:
         if self._projects_dir is not None:
             return self._projects_dir
-        config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
-            "CLAUDE_CONFIG_DIR"
-        )
-        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        env = self.provider_environment.assemble(credential_env)
+        config = env.get("CLAUDE_CONFIG_DIR")
+        home = Path(env["HOME"]) if "HOME" in env else Path.home()
+        base = Path(config).expanduser() if config else home / ".claude"
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
@@ -1358,12 +1360,12 @@ class ClaudeAdapter(Adapter):
             argv += ["--effort", effort]
         if job.isolated_review:
             from .isolation import validate_isolated_review
-            validate_isolated_review(sandbox, job.review_root, {**os.environ, **credential_env})
+            validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
         argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
@@ -1411,7 +1413,7 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(

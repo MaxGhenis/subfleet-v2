@@ -15,6 +15,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from ..launch_env import build_environment
 from .store import ConversationError, canonical_native, utcnow
 from .turn import TERMINAL_STATES
 
@@ -635,7 +636,7 @@ def query_prs(targets: list[str]) -> dict:
                      f'{{ pullRequest(number:{number}) {{ {fields} }} }}')
     done = subprocess.run(["gh", "api", "graphql", "--input", "-"],
                           input=json.dumps({"query": "query { " + " ".join(parts) + " }"}),
-                          capture_output=True, text=True, timeout=20, check=False)
+                          capture_output=True, text=True, timeout=20, check=False, env=build_environment())
     body = json.loads(done.stdout)
     if not isinstance(body.get("data"), dict):
         raise ValueError("GraphQL query returned no data")
