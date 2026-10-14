@@ -107,3 +107,32 @@ def test_conversation_session_refusal_keeps_a_checked_verb(verb):
     assert message.startswith(verb + " refused:") and "Subfleet app" in fix
     message, fix = refusals.render("conversation-session", {"session_verb": "password=SECRET7"})
     assert "SECRET7" not in message + fix
+
+
+@pytest.mark.parametrize("reason,status,fix", [
+    ("bad-workspace", "gone", "dismiss it or restore its folder"),
+    ("not-a-repository", "no-longer-repository", "dismiss it or restore its checkout"),
+])
+def test_recorded_workspace_refusal_keeps_its_reason_and_repair(reason, status, fix):
+    error = suggestions.SuggestionError(reason, "password=SECRET7", fix="password=SECRET7",
+                                        details={"workspace_status": status})
+    message = suggestions.scrub_error(error)
+    assert "SECRET7" not in message
+    assert suggestions.error_fix(error) == fix
+    assert suggestions.response_reason(message) == reason
+    assert suggestions.response_details(message) == {"workspace_status": status}
+    assert suggestions.stored_error(message) == message
+    assert suggestions.response_reason(message + " SECRET7") is None
+    assert suggestions.stored_error(message + " SECRET7") == "Exception: the suggestion operation failed"
+    error.details = {"workspace_status": "/tmp/password=SECRET7"}
+    assert suggestions.scrub_error(error) == reason + ": " + suggestions.ERROR_MESSAGES[reason]
+    assert suggestions.error_fix(error) == suggestions.ERROR_FIXES[reason]
+
+
+@pytest.mark.parametrize("status", [None, True, [], {}, "gone", "gone\nSECRET7", "no-longer-repository SECRET7"])
+def test_unchecked_recorded_workspace_status_is_withheld(status):
+    error = suggestions.SuggestionError("not-a-repository", "password=SECRET7",
+                                        details={"workspace_status": status})
+    assert suggestions.error_details(error) == {}
+    assert suggestions.error_fix(error) == suggestions.ERROR_FIXES["not-a-repository"]
+    assert suggestions.scrub_error(error) == "not-a-repository: " + suggestions.ERROR_MESSAGES["not-a-repository"]

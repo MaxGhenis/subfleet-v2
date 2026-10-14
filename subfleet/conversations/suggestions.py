@@ -246,6 +246,12 @@ SUGGESTION_OPS = frozenset("suggestion." + action for action in ("create", "list
 _ERROR_PREFIXES = frozenset(("cannot read the brief: ", "cannot resolve the workspace: ",
                              "invalid arguments: "))
 PROTECTED_FOLDERS = frozenset((".claude", ".codex", ".subfleet", "state root", "lane home"))
+WORKSPACE_REFUSALS = {
+    ("bad-workspace", "gone"): ("the suggestion's folder is gone", "dismiss it or restore its folder"),
+    ("not-a-repository", "no-longer-repository"): (
+        "the suggestion's folder is no longer a git checkout, and it was to start in a worktree of its own",
+        "dismiss it or restore its checkout"),
+}
 
 
 class SuggestionError(ConversationError):
@@ -263,6 +269,9 @@ def error_details(error: Any) -> dict:
     if type(details) is not dict:
         return {}
     reason = error_reason(error)
+    status = details.get("workspace_status")
+    if type(status) is str and (reason, status) in WORKSPACE_REFUSALS:
+        return {"workspace_status": status}
     if reason == "protected-workspace":
         name = details.get("protected_folder")
         if type(name) is str and name in PROTECTED_FOLDERS:
@@ -280,6 +289,9 @@ def error_details(error: Any) -> dict:
 
 
 def error_message(reason: str, details: dict) -> str:
+    status = details.get("workspace_status")
+    if type(status) is str and (reason, status) in WORKSPACE_REFUSALS:
+        return WORKSPACE_REFUSALS[reason, status][0]
     if reason == "protected-workspace" and details:
         return f"the folder contains protected {details['protected_folder']}; writable conversations cannot start here"
     if reason == "not-open" and details:
@@ -307,7 +319,11 @@ def error_code(error: Any) -> int:
 
 
 def error_fix(error: Any) -> str | None:
-    return ERROR_FIXES.get(error_reason(error))
+    reason = error_reason(error)
+    status = error_details(error).get("workspace_status")
+    if (reason, status) in WORKSPACE_REFUSALS:
+        return WORKSPACE_REFUSALS[reason, status][1]
+    return ERROR_FIXES.get(reason)
 
 
 def scrub_error(error: Any, *, prefix: str = "") -> str:
@@ -335,6 +351,9 @@ def response_details(message: Any) -> dict:
     """Extract checked context from complete canonical wire templates."""
     if type(message) is not str:
         return {}
+    for (reason, status), (template, _) in WORKSPACE_REFUSALS.items():
+        if message == reason + ": " + template:
+            return {"workspace_status": status}
     for name in PROTECTED_FOLDERS:
         details = {"protected_folder": name}
         if message == "protected-workspace: " + error_message("protected-workspace", details):
@@ -370,6 +389,9 @@ def response_reason(message: Any) -> str | None:
             return reason
     details = response_details(message)
     if details:
+        if "workspace_status" in details:
+            return next(reason for reason, status in WORKSPACE_REFUSALS
+                        if status == details["workspace_status"])
         if "protected_folder" in details:
             return "protected-workspace"
         return "not-open" if "state" in details else "too-many-suggestions"
@@ -397,7 +419,7 @@ def stored_error(error: Any) -> str | None:
     if error is None:
         return None
     if type(error) is str:
-        if error in _PUBLIC_ERROR_TEXT or response_reason(error) in ("not-open", "too-many-suggestions", "protected-workspace"):
+        if error in _PUBLIC_ERROR_TEXT or response_details(error):
             return error
     return "Exception: the suggestion operation failed"
 

@@ -1135,16 +1135,16 @@ class ConversationService:
         else:
             workspace = row["workspace"]
             if not os.path.isdir(workspace):
-                raise ConversationError("bad-workspace", "the suggestion's folder is gone",
-                                        fix="dismiss it")
+                raise suggestions.SuggestionError("bad-workspace", "the suggestion's folder is gone",
+                                                  details={"workspace_status": "gone"})
             kind = row["workspace_kind"]
             if kind is None:                    # a row an earlier build made decided nothing
                 kind = (suggestions.WORKTREE if row["worktree"] and self._git_toplevel(workspace) is not None
                         else suggestions.IN_PLACE)
             elif kind == suggestions.WORKTREE and self._git_toplevel(workspace) is None:
-                raise ConversationError("not-a-repository", "the suggestion's folder is no longer a "
-                                        "git checkout, and it was to start in a worktree of its own", code=7,
-                                        fix="dismiss it")
+                raise suggestions.SuggestionError("not-a-repository", "the suggestion's folder is no longer a "
+                                                  "git checkout, and it was to start in a worktree of its own", code=7,
+                                                  details={"workspace_status": "no-longer-repository"})
         workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=False)
         return {"provider": provider, "workspace": workspace, "workspace_kind": kind, "settings": settings,
                 "origin": "new", "title": row["title"]}
