@@ -63,7 +63,7 @@ def test_a_reused_responsibility_root_never_counts_or_saves_strangers(
         monkeypatch, known_unique, after_snapshot, pid, sequence, gap, children):
     """C-5.3, C-5.5: recorded unique id present/None × reuse before/after ps."""
     with monkeypatch.context() as patch:
-        recorded, root, _ = recycled_root(patch, known_unique=known_unique,
+        _, root, _ = recycled_root(patch, known_unique=known_unique,
             after_snapshot=after_snapshot, pid=pid, sequence=sequence, gap=gap, children=children)
         row = attempt_row(responsible_root={"pid": pid, "unique_id": root.unique_id})
         row.update(guardian_pid=pid, pgid=pid, child_pid=None)
@@ -81,6 +81,7 @@ def test_a_reused_responsibility_root_never_counts_or_saves_strangers(
 @pytest.mark.parametrize("shape", ["absent", "zombie", "missing-start", "missing-record"])
 def test_an_unknown_sequence_root_needs_a_live_recorded_start(monkeypatch, shape):
     """C-5.5: an unidentifiable root supplies no responsibility members or reads."""
+    census(monkeypatch, session=BOOT_A)
     row = {42: (1, 42, "Z" if shape == "zombie" else "S",
                 "" if shape == "missing-start" else START)} if shape != "absent" else {}
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(row, BOOT_A))

@@ -851,6 +851,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     if (source_root is not None and source_root.pid in recorded_identities
             and is_recycled(source_root.pid)):
         source_root = None
+    if source_root is not None and source_root.unique_id is None:
+        # Without a kernel sequence, a holder born after ps has no upper bound:
+        # it could name itself and its children under the recorded root's pid.
+        # Use this source only while the snapshot identifies the recorded root.
+        known = recorded_identities.get(source_root.pid)
+        if (not live(source_root.pid) or known is None or not known.proc_start
+                or table[source_root.pid][3] != known.proc_start):
+            errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
+            source_root = None
     if wanted is not None or source_root is not None:
         try:
             # The snapshot's pids and a listing taken after it, so a process born
