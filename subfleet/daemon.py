@@ -47,7 +47,7 @@ from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
-from .adapters.base import AdapterError
+from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
@@ -1206,8 +1206,11 @@ class Daemon:
     def _hold_lane(self, a: protocol.LanesArgs) -> dict:
         """`lanes hold <lane> --until <iso>` records an operator closure on the account
         scope (C-9.6 `operator-hold`, clock `reported`); `lanes release <lane>` releases
-        every open operator hold. A held lane is never a candidate (C-11.2) but is
-        still probed, so a held account keeps being measured."""
+        every open operator hold. A held lane is never a candidate (C-11.2), and no
+        timer reads it while the hold is in force (C-18.1); an attempt already
+        running on it can still report a limit. The hold keeps a row of its own
+        (`Store.put_closure`): no limit, reset or reset credit ends it before its
+        `until`, and its release leaves any limit on the lane in force."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list")
@@ -2121,6 +2124,9 @@ class Daemon:
                 args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
                 sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
@@ -6011,6 +6017,10 @@ class Daemon:
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
+                if extra_exclusions:
+                    # C-6.12: checked where the route is prepared, so a failure here counts
+                    # toward the deferral backoff instead of following a reset of it.
+                    self._merged_exclusions(job, extra_exclusions)
                 approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
             except Unroutable as exc:
                 self._early_routes.pop(job["job_id"], None)
@@ -6022,15 +6032,21 @@ class Daemon:
             # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
             self._route_deferrals.pop(job["job_id"], None)
             if approved is None:
+                current = self._job(job["job_id"])
+                if current["state"] in TERMINAL or current["cancel_requested_at"]:
+                    continue
+                if current["wait_reason"] in ("approval", "uncertain"):
+                    # C-4.1, C-6.11: preparing the route quarantined its probe, so the job now
+                    # waits on a person. It holds back nobody and says so on this pass too.
+                    holds[job["job_id"]] = {"reason": current["wait_reason"]}
+                    continue
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 # C-6.11: which probe, and whose turn it is when it is not this job's.
                 hold = holds[job["job_id"]] = {"reason": "probe-pending", **(probe_note or {})}
-                current = self._job(job["job_id"])
-                live = current["state"] not in TERMINAL and not current["cancel_requested_at"]
                 # A probe that ran set the job's clock itself (C-6.10), which is due
                 # at once when the probe used the whole of it.
                 clocked = "next_check_at" in hold or (current["next_check_at"] and current["next_check_at"] > utcnow())
-                if live and not clocked:
+                if not clocked:
                     # C-6.10: the route could not be prepared and nothing set a
                     # clock (the probe's slot is held, the lane changed hands, an
                     # older job has the turn at the probe). The job would otherwise
@@ -6049,9 +6065,9 @@ class Daemon:
                 elif clocked:
                     hold.setdefault("next_check_at", current["next_check_at"])
                     self._refresh_hold(job["job_id"], hold)
-                if live and kind == "detached" and hold.get("model") and current["wait_reason"] != "uncertain":
-                    # C-6.9: it waits on this probe, so it carries the next one; a job
-                    # whose probe was quarantined waits on an operator and holds nobody.
+                if kind == "detached" and hold.get("model"):
+                    # C-6.9: it waits on this probe, so it carries the next one (a job
+                    # whose probe was quarantined waits on an operator and left above).
                     probe_line.append((job["job_id"], hold["model"],
                                        self._probe_reach(roster, job, hold["model"], lanes, extra_exclusions)))
                 continue
@@ -6161,7 +6177,7 @@ class Daemon:
                             status = "held"
                             break
                         if extra_exclusions:
-                            job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                            job["exclusions"] = self._merged_exclusions(job, extra_exclusions)
                             tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                         needs_probe = self._needs_probe(decision, job)
                         live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
@@ -6267,10 +6283,12 @@ class Daemon:
                                 # reason (`conversations.waits`), never just "capacity".
                                 from .conversations import waits as turn_waits
                                 hold["lanes"] = turn_waits.lane_summary(decision)
-                            signature = f"{scheduler.verdict_signature(decision)}:{at_limit or provider_at_limit}"
-                            if fifo_behind or provider_behind:
-                                signature += f":behind:{fifo_behind or provider_behind}"
-                            rechecks = self._capacity_wait(job["job_id"], signature, hold,
+                            # The verdict alone keys the wait (C-6.10). Whether the pool or
+                            # the provider was at its limit, and which older job this one is
+                            # behind (C-6.4a, C-6.9), go in the hold, which every look
+                            # replaces, so `why` reports them; as part of the key they
+                            # recorded an unchanged verdict again on each fleet turnover.
+                            rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                             if not rechecks:
@@ -6752,6 +6770,18 @@ class Daemon:
                                      "AND released_at IS NOT NULL", odd)
             rows.sort(key=lambda row: row["closure_id"])
         return rows
+
+    @staticmethod
+    def _merged_exclusions(job: dict, extra: tuple[str, ...]) -> str:
+        """C-4.5, C-6.12: the job's exclusions with the lanes its attempts added, as stored.
+
+        A stored exclusion that is not a lane name (submit refuses one; an older row
+        may hold one) cannot be merged. That is this job's problem, never the pass's.
+        """
+        try:
+            return json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra)))
+        except ROUTE_ERRORS as exc:
+            raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
@@ -7986,7 +8016,11 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            contents = read_regular(path)          # only a regular file is an artifact
+            if role == "raw-stream":
+                with open_stream(path) as stream:
+                    contents = stream.read()
+            else:
+                contents = read_regular(path)      # only a regular file is an artifact
         except (FileNotFoundError, NotRegularFile):
             return None
         return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
@@ -8025,12 +8059,14 @@ class Daemon:
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment when no separate raw file was supplied.
-        if launch.raw_stream_path and not Path(launch.raw_stream_path).exists():
+        # stream once after containment only when both frozen candidates are absent.
+        # Do not shadow an authoritative canonical entry with a new custom file.
+        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
+                                             (launch.raw_stream_path, adir / "stream.jsonl")):
             try:
                 data = read_regular(Path(launch.stdout_path))       # never waiting in open()
             except (FileNotFoundError, NotRegularFile):
-                data = None                                        # none there, as `is_file()` had said
+                data = None                                        # no regular stdout to freeze
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
@@ -8075,6 +8111,13 @@ class Daemon:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
         deliverable = self._artifact(deliverable_path, "deliverable")
+        # C-12.6: cached acceptance uses the fresh provider's content boundary,
+        # not the artifact's byte count. Preserve the captured payload itself.
+        nonblank_deliverable = False
+        if deliverable:
+            payload = read_regular(deliverable_path)
+            nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
+                                       if lane.provider == "claude" else payload.strip())
         # finalization.json keeps the adapter's verdict. Reconciliation and
         # overrides use the frozen stream, captured deliverable, exit receipt
         # and attempt row on every replay (C-4.3), before any lane, closure or
@@ -8088,7 +8131,7 @@ class Daemon:
             if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
                     and completion["turn_completed"] and not completion["turn_failed"]
                     and not spawn_error and not actual.get("killed_by")
-                    and deliverable and read_regular(deliverable_path).strip()):
+                    and nonblank_deliverable):
                 # C-9.2: an older daemon's authentication/text verdict can precede
                 # verified success. The captured bytes decide presence; never
                 # reclassify or re-extract a result already frozen on disk.
@@ -8124,7 +8167,7 @@ class Daemon:
             if not completion["turn_completed"]:
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
                                               detail="Codex exited before its turn completed")
-        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and (not deliverable or not deliverable["bytes"]):
+        if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and not nonblank_deliverable:
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
         if not lost and self._answered(outcome, provider_verdict["class"]):
             # C-6.14: before the attempt leaves flight, so a pilot that answered and

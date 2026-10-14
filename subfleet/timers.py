@@ -418,12 +418,12 @@ class Timers:
         """C-9.10: the Claude lanes, each marked `held` when an operator hold is in force.
 
         A hold is read from the closures and from its own `lane.held` and
-        `lane.released` events: `Store.put_closure` keeps one open closure per
-        lane and scope, so a hold that ends before an open provider limit on the
-        account scope leaves no `operator-hold` row, though it is in force.
-        Releasing such a hold changes no row and so writes no `lane.released`
-        event; the hold then lasts until its own end, which errs toward spending
-        nothing.
+        `lane.released` events. `Store.put_closure` now keeps a hold's row apart
+        from any limit (C-9.6, D-HOLD1), but in a store written before that, a
+        hold that ended before an open provider limit on the account scope left
+        no `operator-hold` row, though it is in force. Releasing such a hold
+        changes no row and so writes no `lane.released` event; the hold then
+        lasts until its own end, which errs toward spending nothing.
         """
         now = iso(self.now())
         held = {row['lane_id'] for row in self.store.query(
@@ -762,9 +762,9 @@ class Timers:
     def _mark(self):
         """The newest event as a busy read starts: a mark no later limit report slips past.
 
-        `put_closure` keeps one open closure per lane and scope. It extends that
-        row in place, and a limit reported again that ends no later changes
-        nothing in it. Every report leaves a `closure.recorded` event all the
+        `put_closure` keeps one open closure per lane, scope and kind (a hold
+        or a limit). It extends that row in place, and a limit reported again
+        that ends no later changes nothing in it. Every report leaves a `closure.recorded` event all the
         same (`Store.put_closure`), whoever made it: an attempt, a conversation
         turn, an admission probe, an operator's hold. Retention prunes jobs and
         their attempts, never events, so it cannot take the trace away.

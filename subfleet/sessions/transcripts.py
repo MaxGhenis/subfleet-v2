@@ -88,7 +88,7 @@ class NotRegularFile(OSError):
     """A path handed to a reader names something other than a regular file."""
 
 
-def regular_fd(path: str | Path) -> int:
+def regular_fd(path: str | Path, *, follow_symlinks: bool = True) -> int:
     """A read-only descriptor for `path` only if it is a regular file, opened
     without blocking.
 
@@ -98,7 +98,10 @@ def regular_fd(path: str | Path) -> int:
     missing file would, with nothing left open. A socket fails in open() itself,
     with its own OSError. O_NONBLOCK bounds only that rendezvous: a read from a
     stalled filesystem can still wait (C-25.3)."""
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
+    if not follow_symlinks:
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
@@ -109,7 +112,7 @@ def regular_fd(path: str | Path) -> int:
     return fd
 
 
-def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
+def open_regular(path: str | Path, mode: str = "rb", *, follow_symlinks: bool = True, **kwargs: Any):
     """Open `path` for reading, as `open` would, only if it is a regular file, and
     never block in open() (`regular_fd`). A FIFO named where a transcript or
     rollout belongs made open() wait for a writer, so a file op held there held
@@ -121,7 +124,7 @@ def open_regular(path: str | Path, mode: str = "rb", **kwargs: Any):
     another thread had just been given (review of aa41312)."""
     if mode not in ("r", "rb", "rt") or {"opener", "closefd"} & set(kwargs):
         raise ValueError(f"open_regular reads only, with its own descriptor: mode {mode!r}, {sorted(kwargs)}")
-    return open(path, mode, opener=lambda name, flags: regular_fd(name), **kwargs)
+    return open(path, mode, opener=lambda name, flags: regular_fd(name, follow_symlinks=follow_symlinks), **kwargs)
 
 
 def lock_fd(path: str | Path) -> int:
