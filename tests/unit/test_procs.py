@@ -273,13 +273,13 @@ def test_proc_start_retry_reraises_when_every_pass_fails(monkeypatch):
         procs.proc_start_retry(9, tries=3, delay_s=0)
 
 
-def test_containment_either_marker_holds_even_with_a_different_root(monkeypatch):
-    """C-5.5 either marker holds conservatively, including attempt-id collisions."""
+def test_containment_scopes_attempt_markers_to_the_recorded_state_root(monkeypatch):
+    """C-5.5: raw attempt markers distinguish equal ids minted under different roots."""
     census(monkeypatch, parents="42 1 42 S\n",
            markers=("99 python SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/tmp/other-root\n"
                     "100 python SUBFLEET_ROOT=/tmp/this-root SUBFLEET_ATTEMPT=job/a1\n"))
     scoped = procs.containment(42, 42, None, "job/a1", root="/tmp/this-root")
-    assert scoped.marker_pids == {99, 100}
+    assert scoped.marker_pids == {100}
     unscoped = procs.containment(42, 42, None, "job/a1")
     assert unscoped.marker_pids == {99, 100}
 
@@ -830,7 +830,7 @@ def test_malformed_cwd_scan_is_unverifiable(monkeypatch, listing):
         procs.cwd_pids("/tmp/workdir")
 
 
-@pytest.mark.parametrize("marker", ["SUBFLEET_ATTEMPT=job/a1", "SUBFLEET_ROOT=/fixture"])
+@pytest.mark.parametrize("marker", ["SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/fixture", "SUBFLEET_ROOT=/fixture"])
 def test_either_exact_marker_holds_without_disclosing_environment(monkeypatch, marker):
     census(monkeypatch, parents=f"77 1 77 S {START}\n",
            markers=f"77 service {marker} SECRET=never-record\n")
@@ -1020,7 +1020,7 @@ def test_late_foreign_cwd_exclusion_requires_a_marker_inside_identity_checks(mon
         if race == "marker-unavailable":
             raise procs.InspectionError("marker unavailable")
         if race == "our-marker":
-            return "writer SUBFLEET_ATTEMPT=job/a1\n"
+            return "writer SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/fixture\n"
         if race == "root-marker":
             return "writer SUBFLEET_ROOT=/fixture\n"
         if race == "no-marker":

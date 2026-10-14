@@ -128,7 +128,7 @@ def test_late_observation_retains_identity_and_group_before_quarantine(state_dae
     (adir / "start.json").write_text(json.dumps(receipt))
     before = {100: (1, 100, "Ss", "guardian"), 200: (100, 100, "S", "provider")}
     actual_rows = {**before, 300: (200, 400, "S", "late-writer")}
-    markers = f"300 writer SUBFLEET_ATTEMPT={a['attempt_id']}\n" if source == "marker" else ""
+    markers = f"300 writer SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={daemon.root}\n" if source == "marker" else ""
     script_table(monkeypatch, actual_rows, markers=markers)
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(dict(before), boot_id=BOOT))
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT, actual_rows[pid][3]))

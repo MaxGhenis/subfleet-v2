@@ -293,7 +293,7 @@ class World:
         assert "pid=,command=" in argv, argv
         if "markers" in self.failures:
             raise procs.InspectionError("world marker ps unavailable")
-        value = "".join(f"{p.pid} writer SUBFLEET_ATTEMPT={self.marker}\n"
+        value = "".join(f"{p.pid} writer SUBFLEET_ATTEMPT={self.marker} SUBFLEET_ROOT={self.root}\n"
                         for p in self.processes.values() if p.marked)
         self.after("markers")
         return value
@@ -425,6 +425,7 @@ class ProcessWorldMachine(RuleBasedStateMachine):
 
     def bind_world(self):
         self.world = World()
+        self.world.root = self.daemon.root
         # The two stored attempts are alternate executions of one kernel world
         # for resolver parity, rather than concurrent owners of the same PIDs.
         # Keep this model in its single-owner domain (including after restart).

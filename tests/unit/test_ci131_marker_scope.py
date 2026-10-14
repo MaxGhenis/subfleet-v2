@@ -35,19 +35,19 @@ def test_other_attempt_under_same_root_does_not_hold_child_run(monkeypatch, othe
     assert "private" not in json.dumps(found.to_dict())
 
 
-@pytest.mark.parametrize("markers", [
-    "SUBFLEET_ATTEMPT=child/a1 SUBFLEET_ROOT=/fixture",
-    "SUBFLEET_ATTEMPT=child/a1",
-    "SUBFLEET_ATTEMPT=child/a1 SUBFLEET_ROOT=/other",
-    "SUBFLEET_ROOT=/fixture",
-    "SUBFLEET_ROOT=/fixture SUBFLEET_ATTEMPT=",
-    "SUBFLEET_ROOT=/fixture SUBFLEET_ATTEMPT=other/a1 SUBFLEET_ATTEMPT=child/a1",
+@pytest.mark.parametrize("markers,expected", [
+    ("SUBFLEET_ATTEMPT=child/a1 SUBFLEET_ROOT=/fixture", True),
+    ("SUBFLEET_ATTEMPT=child/a1", False),
+    ("SUBFLEET_ATTEMPT=child/a1 SUBFLEET_ROOT=/other", False),
+    ("SUBFLEET_ROOT=/fixture", True),
+    ("SUBFLEET_ROOT=/fixture SUBFLEET_ATTEMPT=", True),
+    ("SUBFLEET_ROOT=/fixture SUBFLEET_ATTEMPT=other/a1 SUBFLEET_ATTEMPT=child/a1", True),
 ])
-def test_partial_or_matching_attempt_markers_still_hold(monkeypatch, markers):
+def test_partial_or_matching_attempt_markers_still_hold(monkeypatch, markers, expected):
     world(monkeypatch, f"77 writer {markers}\n")
     found = procs.containment(None, None, None, "child/a1", root="/fixture")
-    assert found.marker_pids == {77}
-    assert not found.verified_empty
+    assert found.marker_pids == ({77} if expected else set())
+    assert found.verified_empty is (not expected)
 
 
 def test_different_marker_does_not_discard_a_recorded_writer(monkeypatch):
