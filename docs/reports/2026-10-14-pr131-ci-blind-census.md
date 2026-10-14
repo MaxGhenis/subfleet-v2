@@ -184,6 +184,33 @@ for the first 30 s after the daemon's first cwd scan:
 | before the fix, `5de28be9e` | 2 | 2: run `lost`, its turn `lost` |
 | after the fix, `06cf67d5b` | 2 | 0: run and turn `succeeded`, the run about 30 s after its receipt |
 
+## The cwd scan on a host under disk pressure (for the PR's owner)
+
+Fix 1 covers an `lsof` outage of up to `exit_inspect_s` (60 s). It does not
+cover a sustained one, and this host had one during the job. At 08:17 EDT,
+with load 30–46 and 59 processes in uninterruptible wait (Arq, Spotlight,
+`fseventsd`, and many `git` and pytest processes of other sessions), an uncapped
+`lsof -nP -d cwd -F0pn` took 30.7 s (34.1 s with `-b`) for 0.77 s of CPU, and
+`procs.cwd_pids` ran out its 10 s cap 4 times in 4. While that lasts, every
+census is blind. A finished run waits 60 s, then is quarantined and recorded
+`lost`, as before this fix. Probe containment (C-11.4, `_contain_probe`) has no
+settle window of its own beyond `term_grace_s`, so it quarantines a probe the
+same way. In the launch-gate tests run then, every probe case and two of three
+re-enrolment cases failed with `probe containment is quarantined`. One kept
+probe record shows the census blind for 44 s (`errors: ["cwd enumeration
+unavailable"]`, `live_pids: []`), with the guardian leading its own group
+(`pgid` equal to its pid). The attempt cases, which take no census in that
+harness, passed.
+
+Quarantine is C-5.5's designed answer to a census that cannot read, so this is
+safe. But it makes #131's cwd source the weakest link in every finalization on a
+busy host. Options for the owner, all beyond a CI fix:
+
+- a longer cap for the cwd `lsof` alone;
+- the cwd source read per pid from the census's own table (`proc_pidinfo`
+  `PROC_PIDVNODEPATHINFO`), which may block on the same processes `lsof` does;
+- a C-5.9 window long enough to ride out sustained pressure.
+
 ## Out of scope
 
 - The kill protocol's `kill_settle_s` loop (C-5.6) has cause 1's shape: one
