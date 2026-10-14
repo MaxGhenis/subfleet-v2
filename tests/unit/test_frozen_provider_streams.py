@@ -303,10 +303,16 @@ def assert_link_authority(directory, name, step, kind, before, after):
         with link_during_freeze(patch, candidate, live, step, kind) as fired:
             frozen_launch = freeze(directory, launch)
     assert fired == [step]
+    snapshot = Path(frozen_launch.raw_stream_path)
+    assert not os.path.samefile(snapshot, live)
+    assert snapshot.read_bytes() == before
     assert readings(adapter, directory, frozen_launch) == expected
     live.write_bytes(after)
+    assert snapshot.read_bytes() == before
     assert readings(adapter, directory, frozen_launch) == expected
-    assert readings(adapter, directory, freeze(directory, launch)) == expected
+    replayed = freeze(directory, launch)
+    assert Path(replayed.raw_stream_path) == snapshot
+    assert readings(adapter, directory, replayed) == expected
 
 
 @pytest.mark.parametrize("name", ("codex", "claude"))
