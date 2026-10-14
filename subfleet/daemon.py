@@ -3074,7 +3074,7 @@ class Daemon:
         if lane.provider != "codex" or binary is None:
             return None
         try:
-            from .guard.preflight import preflight
+            from .guard.preflight import PROBE, TIMEOUT, preflight
         except ImportError:
             raise AdapterError("Codex guard preflight is not installed", code=7,
                                fix="install the Codex adapter and reviewed guard files", reason="guard-missing") from None
@@ -3085,7 +3085,10 @@ class Daemon:
         if recorder is not None:
             recorder(result)
         if not result.ok or not result.override:
-            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor", reason="guard-preflight")
+            # A timeout or an unusable probe is not a mismatch: its template says so (C-14.2).
+            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor",
+                               reason=("guard-preflight-timeout" if result.kind == TIMEOUT else
+                                       "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"))
         return result if full else result.override
 
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
@@ -6979,7 +6982,12 @@ class Daemon:
         count = self._workspace_deferrals.get(job["job_id"], 0) + 1
         limit = self.policy["caps"]["workspace_retry_max"]
         detail = f"{record['error_type']}: {record['error']}"
-        words = refusals.scrubbed_words(exc)         # what the record leaves out, for daemon.log only
+        # What the record leaves out, for daemon.log only: the cause's class, as the
+        # record names it, and the error's own words, scrubbed whole.
+        try:
+            words = refusals.scrubbed_line(f"{record['error_type']}: {exc}")
+        except Exception:                           # noqa: BLE001 - what cannot be rendered is not logged
+            words = detail
         if transient and count <= limit:
             delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (count - 1))
             next_check = after(delay)

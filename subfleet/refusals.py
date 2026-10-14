@@ -154,6 +154,18 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "adapter-missing": ("{provider} adapter has no constructor", None),
     "guard-missing": ("Codex guard preflight is not installed", "install the Codex adapter and reviewed guard files"),
     "guard-preflight": ("Codex guard trust preflight refused the writable job", "rerun subfleet doctor"),
+    # A verdict that rests on no answer says so, and never asks for a restore (C-14.2):
+    # the fixes are `guard.preflight`'s own (`_TIMEOUT_FIX`, `_PROBE_FIX`).
+    "guard-preflight-timeout": ("Guard preflight timed out: guard trust is unverified, not mismatched",
+                                "Check local CPU/I/O pressure and daemon scheduling, then repeat the guard "
+                                "preflight; raise CODEX_GUARD_PREFLIGHT_TIMEOUT (seconds, default 60) for the "
+                                "daemon if Codex startup is legitimately slow on this machine. A timeout does "
+                                "not establish guard-file or version drift; trust remains unverified."),
+    "guard-preflight-probe": ("Guard preflight refused: the Codex app-server could not be probed; guard trust "
+                              "is unverified, not mismatched",
+                              "Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
+                              "`subfleet doctor --live`) for the app-server's own error; trust remains "
+                              "unverified."),
     "codex-guard-required": ("Writable Codex jobs require the never-rules guard",
                              "Run the guard trust preflight and supply its hooks override."),
     "codex-home-mismatch": ("Codex credential home does not match the lane",

@@ -71,6 +71,14 @@ def log_text(daemon) -> str:
     return (daemon.root / "daemon.log").read_text()
 
 
+def assert_not_logged(daemon, secret: str) -> None:
+    """daemon.log has a diagnostic only through the whole-text scrubber (C-25.7). The
+    log as a whole is not held to `assert_secret_absent`'s prefix check: its own
+    words (`disk-…`, `task-…`) can begin as a token does."""
+    log = log_text(daemon)
+    assert secret not in log and " ".join(secret.split()) not in log
+
+
 # --- 1. an argument check's OS error, through conversation state ------------------
 
 def conversation_message(daemon) -> tuple[object, str, str]:
@@ -137,8 +145,10 @@ def test_no_turn_submit_failure_puts_its_words_in_a_messages_state(state_daemon,
 TRANSIENT_LINE = "fatal: Unable to create '/r/.git/index.lock': File exists.\n"
 
 
-def hooked(daemon, harness, hook: str, *, transient: bool = False) -> str:
-    """A writable dispatch whose worktree's `post-checkout` hook says `hook` and fails."""
+def hooked(daemon, harness, hook: str, *, transient: bool = False, session: str = SESSION) -> str:
+    """A writable dispatch whose worktree's `post-checkout` hook says `hook` and fails.
+    A job that waits stays its session's live writer (C-6.4), so a later dispatch in
+    the same daemon names a session of its own."""
     workdir = harness.workdir
     if not (workdir / ".git").exists():
         repository(daemon, harness)
@@ -147,13 +157,13 @@ def hooked(daemon, harness, hook: str, *, transient: bool = False) -> str:
     script = workdir / ".git" / "hooks" / "post-checkout"
     script.write_text(f"#!/bin/sh\ncat '{said_file}' >&2\nexit 1\n")
     script.chmod(0o755)
-    return daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
+    return daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", caller_session=session))["job_id"]
 
 
-def job_views(daemon, job_id: str) -> dict:
+def job_views(daemon, job_id: str, session: str = SESSION) -> dict:
     return {name: answer(daemon, op, args) for name, (op, args) in {
-        "pending": ("notice.pending", {"session_id": SESSION}),
-        "notices": ("notice.list", {"session_id": SESSION, "resolved": True}),
+        "pending": ("notice.pending", {"session_id": session}),
+        "notices": ("notice.list", {"session_id": session, "resolved": True}),
         "show": ("show", {"job_id": job_id}),
         "why": ("why", {"job_id": job_id}),
         "list": ("list", {}),
@@ -263,10 +273,12 @@ def test_no_reply_or_row_holds_what_a_checkout_hook_said(state_daemon, before, l
     """For every family and placement: a hook's stderr through admission's worktree,
     then every reply about the job and every stored row."""
     daemon, harness = state_daemon
-    job_id = hooked(daemon, harness, said(before, left, secret, right, after), transient=transient)
+    session = f"hook-{uuid.uuid4().hex[:12]}"       # the fixture's daemon outlives one example
+    job_id = hooked(daemon, harness, said(before, left, secret, right, after), transient=transient, session=session)
     daemon._admit()
     assert daemon.store.get_job(job_id)["state"] == ("waiting" if transient else "failed")
-    assert_secret_absent([job_views(daemon, job_id), stored(daemon)], secret)
+    assert_secret_absent([job_views(daemon, job_id, session), stored(daemon)], secret)
+    assert_not_logged(daemon, secret)
 
 
 @given(before=padding, left=separators, secret=secrets, right=separators, after=padding,
