@@ -17,7 +17,8 @@ against the code that produced it:
   older job of the same tier that competes with the held job, by the models
   routing walks and the lanes the pins name; in a capped pool a younger job
   that competes with a job waiting for a slot, a lane or a probe is not placed
-  past it, and one placed past such a waiter or a lease waiter leaves the last
+  past it, even when the waiter is itself held behind an older job while its
+  capacity clock runs. One placed past such a waiter or a lease waiter leaves the last
   slot free.
 - P3 bounded progress (C-6.9, C-11.8): under fair capacity every job some lane
   would take is placed within a bounded number of passes, with no exception (a
@@ -818,6 +819,21 @@ class AdmissionMachine(RuleBasedStateMachine):
             assert any(self.competes(mine, theirs, roster) for mine in demand[job_id] for theirs in demand[older]), (
                 f"P2, C-6.9: {job_id} is held behind {older} but they cannot compete: "
                 f"{job_id} {self.describe(after[job_id], roster)} vs {older} {self.describe(after[older], roster)}")
+
+        def holds_back(older) -> bool:
+            """C-6.9: whether an older job waits for a slot, a lane or a probe (including a pilot
+            or a moved route), never a lease or for good. Held behind an older job, it still does while its
+            capacity clock runs (C-6.9, C-6.12), unless its last look found it waiting for a lease."""
+            hold = holds.get(older, {})
+            if "for_good" in hold:
+                return False
+            if hold.get("reason") == "behind-older-job":
+                job = after[older]
+                return (job["state"] == "waiting" and job["wait_reason"] == "capacity" and bool(job["next_check_at"])
+                        and parse(job["next_check_at"]) > self.clock.instant
+                        and self.last_look.get(older, {}).get("reason") != "lease-held")
+            return hold.get("reason") not in HOLD_NOBODY | {"waiting", None}
+
         live, provider_live = live_before, Counter(provider_before)
         for row in sorted(placed, key=lambda row: (
                 self.policy["tiers"].index(tier_of(self.policy, after[row["job_id"]])), self.seq[row["job_id"]])):
@@ -831,8 +847,7 @@ class AdmissionMachine(RuleBasedStateMachine):
                           if self.seq[older] < self.seq[job_id]
                           and tier_of(self.policy, after[older]) == tier_of(self.policy, after[job_id])
                           and "for_good" not in holds.get(older, {})]
-            waiting = [older for older in older_jobs if holds.get(older, {}).get("reason") not in
-                       HOLD_NOBODY | {"behind-older-job", "waiting", None}]
+            waiting = [older for older in older_jobs if holds_back(older)]
             keepers = waiting + [older for older in older_jobs if holds.get(older, {}).get("reason") == "lease-held"]
             for older in waiting:
                 wanted = demand[job_id]

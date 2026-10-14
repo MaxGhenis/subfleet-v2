@@ -158,9 +158,15 @@ makes one pass must remove its marker.
    with it but not with W, is placed past it. The fix
    adds holds, bounded by the middle job's remaining clock, so it is left for its own change and
    review.
+   **Fixed in the follow-up** (branch `fix/c6-9-behind-holds-217`): such a job registers as a waiter
+   with the demand it has while its clock runs, unless it waits for a lease or no lane can admit it
+   (then its hold carries `for_good`). Its marker is off, and P2 in the stateful machine now counts
+   it among the jobs a younger competitor may not pass.
 6. **A retry that let its pin go is passed by a younger competitor** (C-6.12). Same root cause as
    5. C-6.12 says such a job "neither passes an older job it competes with nor is passed by a
    younger one"; when the retry is itself held behind an older job, it is passed.
+   **Fixed in the same follow-up**: the let-go look registers it with its own demand, and the passes
+   while its clock runs register it as in 5. Its marker is off.
 7. **A wait of another kind records the same verdict again** (C-6.10; P4). The wait's key carries
    its kind (`lease-held:…`, `probe-pending`, `probe-wait:…`, `retry-let-go:…`). So a job that
    alternates between two kinds with one verdict adds a row each time it returns to the
