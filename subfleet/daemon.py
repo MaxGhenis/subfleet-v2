@@ -5614,6 +5614,10 @@ class Daemon:
         # #147: a waiting hard-tier priority job let later standard and trivial
         # jobs take the slots it was waiting for).
         priority_waiters: list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]] = []
+        # A waiter may still demand another model in its chain. A later job
+        # trying a model this waiter is steered away from is compared again
+        # on its actual selection, before any reservation.
+        steered_demands: dict[str, frozenset[str]] = {}
 
         def wait(tier, klass, waiter):
             waiters.setdefault(tier, []).append(waiter)
@@ -5749,6 +5753,11 @@ class Daemon:
             # including when a backed-off waiter is not due for evaluation.
             routed_job = self._route_job(job, previous)
             models = scheduler.demand_models(self.policy, routed_job if let_go else retry or routed_job)
+            if routed_job.get("capacity_steer"):
+                original = scheduler.demand_models(self.policy, job)
+                remaining = scheduler.demand_models(self.policy, routed_job)
+                if original is not None and remaining is not None:
+                    steered_demands[job["job_id"]] = original - remaining
             lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
             pool = "turn" if job["kind"] == "turn" else "detached"
             pool_cap = turns_cap if pool == "turn" else cap
@@ -5783,7 +5792,7 @@ class Daemon:
                 job has run (review of PR #72)."""
                 return not (waiter[3] and waiter[3] & own_leases())
 
-            def ahead(models, lanes):
+            def ahead(models, lanes, *, chosen=None):
                 """The oldest waiter this job may not pass (C-6.9), or None: only one
                 waiting for a slot. A waiter on a lease waits for no slot this job
                 could take; its lease keeps its place in `lease_queue`, and the last
@@ -5794,9 +5803,19 @@ class Daemon:
                 waited for the other until `max_wall_s`)."""
                 if fifo_scope is None:
                     return None
+
+                def compared_models(waiter):
+                    skipped = steered_demands.get(waiter[0], frozenset())
+                    if skipped and models is not None and skipped & models:
+                        # The later job may run on a model the waiter cannot use.
+                        # Defer only this comparison until selection; if it selects
+                        # the waiter's remaining model, FIFO still applies.
+                        return frozenset({chosen}) if chosen else frozenset()
+                    return models
+
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
-                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and scheduler.competes(compared_models(waiter), waiter[1], lanes, waiter[2])
                              and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
             behind = None if defer_fifo else ahead(models, lanes)
             if saturated.get(pool) or behind:
@@ -6255,7 +6274,9 @@ class Daemon:
                                                    if models is not None else frozenset(
                                                        name for name, model in self.policy["models"].items()
                                                        if model["provider"] == provider))
-                                fifo_behind = ahead(selected_models, lanes)
+                                fifo_behind = ahead(selected_models, lanes, chosen=decision.chosen_model)
+                            elif steered_demands:
+                                fifo_behind = ahead(models, lanes, chosen=decision.chosen_model)
                             provider_limit = scheduler.provider_cap(self.policy, provider)
                             if provider_limit is not None:
                                 # C-6.4: both pools share this count. Check inside the

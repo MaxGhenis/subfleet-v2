@@ -62,6 +62,10 @@ MUTATIONS = {
                       "                capacity_steerable(job)",
                       "            return frozenset(short for short in chain if not (\n"
                       "                False and capacity_steerable(job)")], (FAKE,)),
+    "a remaining chain overlap blocks the steered-away model": (
+        [(DAEMON, "                    if skipped and models is not None and skipped & models:\n",
+                  "                    if False and skipped and models is not None and skipped & models:\n")],
+        (FAKE,)),
     "captured stderr inside error messages marks capacity": (
         [(CODEX, "if isinstance(message, str) and MODEL_CAPACITY_MESSAGE_RE.match(message):",
                  "if isinstance(message, str) and MODEL_CAPACITY_RE.search(message):")], (ADAPTER,)),
