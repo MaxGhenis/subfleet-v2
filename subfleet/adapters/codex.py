@@ -81,29 +81,41 @@ TRANSIENT_RE = re.compile(
 )
 
 
-def _capacity_signals(failures: list[dict], stderr: str) -> Iterator[tuple[dict, str]]:
-    """C-9.5: provider messages only; tool stderr and its continuation are quoted output.
+# Capacity must be the message itself, not a phrase inside captured tool output.
+MODEL_CAPACITY_MESSAGE_RE = re.compile(
+    r"^\s*(?:ERROR:\s*)?(?:(?:Selected |The )?" + MODEL_CAPACITY_RE.pattern
+    + r"|error code:\s*model_at_capacity\b)", re.I,
+)
+# Codex tracing records delimit multiline diagnostic payloads. A plain ERROR:
+# inside a tool record remains quoted; a separate provider record ends it.
+CODEX_RECORD_RE = re.compile(
+    r"^\s*(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+"
+    r"(?P<target>codex_core::[\w:]+):\s*(?P<message>.*)$",
+)
+TOOL_OUTPUT_PREFIX_RE = re.compile(r"^\s*(?:ERROR:\s*)?(?:Tool\b|Captured\b|Quoted output\b)", re.I)
 
-    A tool diagnostic can quote even an ``ERROR:`` line. Once it starts, plain
-    stderr lines cannot prove a new provider refusal; structured events still can.
-    """
+
+def _capacity_signals(failures: list[dict], stderr: str) -> Iterator[tuple[dict, str]]:
+    """C-9.5: refusal at message start; tool payload stays within its own record."""
     for event in failures:
         message = event.get("message")
         error = event.get("error")
         if not isinstance(message, str) and isinstance(error, dict):
             message = error.get("message")
-        if isinstance(message, str) and "codex_core::tools::" not in message:
+        if isinstance(message, str) and MODEL_CAPACITY_MESSAGE_RE.match(message):
             yield event, message
     tool_diagnostic = False
     for line in stderr.splitlines():
-        if "codex_core::tools::" in line:
-            tool_diagnostic = True
-        if tool_diagnostic:
+        record = CODEX_RECORD_RE.match(line)
+        if record:
+            tool_diagnostic = record["target"].startswith("codex_core::tools::") or bool(
+                TOOL_OUTPUT_PREFIX_RE.match(record["message"]))
+            if not tool_diagnostic and MODEL_CAPACITY_MESSAGE_RE.match(record["message"]):
+                yield {}, line
             continue
-        if re.match(r"^\s*ERROR:\s*", line, re.I):
-            yield {}, line
-        elif re.match(r"^\s*(?:Selected |The )?model(?:[ _]|$)", line, re.I):
-            # Codex also emits its refusal directly, without the CLI error prefix.
+        if "codex_core::tools::" in line or TOOL_OUTPUT_PREFIX_RE.match(line):
+            tool_diagnostic = True
+        if not tool_diagnostic and MODEL_CAPACITY_MESSAGE_RE.match(line):
             yield {}, line
 
 
