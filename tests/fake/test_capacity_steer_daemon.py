@@ -245,8 +245,13 @@ def test_c9_5_with_no_lane_for_the_next_model_the_job_waits_until_the_steer_ends
             def now(cls, tz=None):
                 return end.astimezone(tz) if tz else end.replace(tzinfo=None)
         clocks.setattr(daemon_module, "datetime", Clock)
+        # Keep Astra admissible after advancing fifteen minutes: the fixture's
+        # original provider reading is now stale and would require a new probe.
+        daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
         second = admit(daemon, job_id)
-    assert second is not None and second["model_requested"] == ASTRA
+    assert second is not None, daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert second["model_requested"] == ASTRA
     assert len(daemon.store.list_attempts(job_id)) == 2
 
 
