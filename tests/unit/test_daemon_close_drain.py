@@ -22,7 +22,9 @@ import os
 import threading
 import time
 
+import hypothesis
 import pytest
+from hypothesis import strategies as st
 
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import service as service_module
@@ -151,3 +153,52 @@ def test_a_daemon_whose_service_outlasted_nothing_frees_its_lock_at_once(tmp_pat
     started = time.monotonic()
     daemon.close()
     assert lock_is_free(root) and time.monotonic() - started < 30
+
+
+#: The order held work is started in: a wake poll's own first transaction must be done
+#: before a file-pool transaction takes the store's lock and holds it.
+START_ORDER = {kind: n for n, kind in enumerate(("wake poll", "history read", "runner's store write",
+                                                  "attachment.add", "file-pool transaction"))}
+
+
+@hypothesis.settings(max_examples=8, deadline=None)
+@hypothesis.given(kinds=st.lists(st.sampled_from(HOLDERS), min_size=1, max_size=len(HOLDERS), unique=True),
+                  data=st.data())
+def test_property_the_lock_outlasts_every_piece_of_held_work(tmp_path_factory, kinds, data):
+    """Property (C-5.8a): for any set of held work and any order it ends in, daemon.lock
+    stays held, and Daemon.close() waits, until the last of it has ended; then the lock
+    is free and a new daemon starts on the root."""
+    kinds = sorted(kinds, key=START_ORDER.get)
+    release_order = data.draw(st.permutations(range(len(kinds))))
+    tmp_path = tmp_path_factory.mktemp("drain-property")
+    root = tmp_path / "state"
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(service_module, "FILE_OPS_STOP_WAIT_S", 0.3)
+        monkeypatch.setattr(service_module, "STORE_CLOSE_WAIT_S", 0.3)
+        old = Daemon(root)
+        held = []
+        try:
+            for kind in kinds:
+                held.append(hold(old, kind, monkeypatch, tmp_path))
+        except BaseException:
+            for go, _ in held:
+                go.set()
+            old.close()
+            raise
+        closer = threading.Thread(target=old.close)
+        try:
+            closer.start()
+            until(lambda: old.conversations.store._closed or not closer.is_alive(),
+                  "the service's close() to pass its bounds")
+            for step, n in enumerate(release_order):
+                closer.join(0.2)            # room for a close() that frees the lock early
+                still_held = [kinds[m] for m in release_order[step:]]
+                assert closer.is_alive() and not lock_is_free(root), f"lock freed with {still_held} still held"
+                held[n][0].set()
+        finally:
+            for go, _ in held:
+                go.set()
+            closer.join(60)
+    assert not closer.is_alive() and lock_is_free(root)
+    assert all(len(outcome) == 1 and outcome[0][0] in ("ok", "refused") for _, outcome in held), held
+    Daemon(root).close()
