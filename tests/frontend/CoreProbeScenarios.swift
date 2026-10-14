@@ -274,6 +274,8 @@ func runAnswers(journal: String, data: Data) throws -> [String: Any] {
             } else {
                 switch step["do"]?.string ?? "" {
                 case "send-now": try outbox.sendNow(first)
+                // The send is under way with no answer yet: the app stopped here, or it waits.
+                case "begin": _ = try outbox.begin(first)
                 case "know-chain": try outbox.knowChain(conversation, lastPersonMessageID: nil)
                 case "advance": clock.now = clock.now.addingTimeInterval(step["seconds"]?.double ?? 0)
                 case "reload": outbox = try Outbox(url: url, now: { clock.now })
