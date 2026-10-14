@@ -99,19 +99,10 @@ def sigterm_exit_0(argv: list[str]) -> int:
     return 1
 
 
-def trusted_or_repository(cwd: Path) -> bool:
-    """codex exec starts in a git work tree or a directory the home's config trusts."""
-    for directory in (cwd, *cwd.parents):
-        if (directory / ".git").exists():
-            return True
-    config = Path(os.environ.get("CODEX_HOME", "")).expanduser() / "config.toml"
-    try:
-        projects = tomllib.loads(config.read_text()).get("projects", {})
-    except (OSError, tomllib.TOMLDecodeError):
-        return False
-    trusted = {Path(path).resolve() for path, entry in projects.items()
-               if isinstance(entry, dict) and entry.get("trust_level") == "trusted"}
-    return any(directory in trusted for directory in (cwd, *cwd.parents))
+def inside_repository(cwd: Path) -> bool:
+    """codex exec starts in a git work tree. (Real codex also starts in a directory its
+    config marks trusted; no test relies on that, so the fake does not model it.)"""
+    return any((directory / ".git").exists() for directory in (cwd, *cwd.parents))
 
 
 def main() -> int:
@@ -137,13 +128,13 @@ def main() -> int:
         return 0
     if sys.argv[1:2] == ["exec"]:
         # C-12.3: codex-cli 0.153.3-0.159.0 rejects the flag given twice (a usage error)
-        # and exits at once outside a repository or trusted directory without it.
+        # and exits at once outside a repository without it.
         if sys.argv.count("--skip-git-repo-check") > 1:
             print("error: the argument '--skip-git-repo-check' cannot be used multiple times",
                   file=sys.stderr)
             return 2
         if ("--skip-git-repo-check" not in sys.argv
-                and not trusted_or_repository(Path.cwd().resolve())):
+                and not inside_repository(Path.cwd().resolve())):
             print("Not inside a trusted directory and --skip-git-repo-check was not specified.",
                   file=sys.stderr)
             return 1
