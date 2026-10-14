@@ -231,4 +231,64 @@ busy host. Options for the owner, all beyond a CI fix:
 
 ## Tests run
 
-These are listed in the job's final answer, with counts per file.
+Python 3.12.14 (GIL), `CI=1` from the admission hold on. Each line is one pytest
+process under its own lock hold. Counts are per hold, because `-q` summarizes per
+process.
+
+After fix 1 (`06cf67d5b`/`b9ae9cdf2`):
+
+- `tests/unit/test_daemon_settle.py`, `test_procs.py`,
+  `test_inspection_pacing_properties.py`, `test_legacy_hold.py`,
+  `test_gate_admission.py`: 241 passed.
+- The 11 quarantine test modules (`tests/fake/test_quarantine_{ambiguity,
+  attempt_isolation,detached_writers,identity_invariants,process_world,
+  review_fixes,self_resolve}.py`, `tests/unit/test_quarantine_{migration,
+  mutations,pacing_store,receipt_retry}.py`): 165 passed.
+- `tests/e2e/test_review_r3_strand_timing_e2e.py` (both cases),
+  `test_notice_job_state.py`, `test_recovery.py`, `test_review_r2_strand_e2e.py`:
+  7 passed.
+- `tests/e2e/test_conversations.py`, in two holds of 22: 29 passed, 15 skipped.
+  The skips are person-only and marker-refusal cases that cannot run inside a
+  Subfleet lane; CI runs them.
+- `tests/fake/test_admission_{disk,latency,lease_waiters,liveness,priority,ramp,
+  route_isolation,visibility}.py`: 273 passed.
+- `tests/fake/test_capacity_wait_backoff.py`,
+  `test_census_recycled_pid_daemon.py`, `test_ci131_marker_finalization.py`,
+  `test_codex_turn_completed_fake.py`, `test_crash_matrix.py`,
+  `test_state_contract.py`, `test_r12orig_ownership.py`,
+  `test_finished_run_containment.py`, `test_review_pr131_round13.py`,
+  `test_review_pr131_round12_ownership.py`, `test_review_pr131_probes.py`,
+  `test_review_pr131_round11.py`, plus `tests/unit/test_test_module_names.py`:
+  304 passed.
+- All `tests/fake/test_review_pr131_*.py`, `tests/unit/test_review_pr131_*.py`,
+  `tests/unit/test_census_*.py`, `tests/fake/test_census_*.py` and
+  `tests/unit/test_ci131_marker_scope.py` (27 files): 417 passed, 1 skipped
+  (`REVIEW_V6_STORE` not set), 4 xfailed (accepted C-5.7 residuals, strict
+  markers in `test_review_pr131_round3.py`).
+- Whole-suite `--collect-only`: 13,361 tests collected, no errors.
+
+After fix 2 (`0ed9c029a`), at load 85–160 with a congested lock:
+
+- `tests/fake/test_launch_gates_above_stdio.py`: stopped after 29 minutes, past
+  the 20-minute hold limit. Before that, the 3 attempt cases, 1 re-enrolment
+  case and the new attempt case passed. The 3 probe cases, 2 re-enrolment cases
+  and the new probe case failed (`probe containment is quarantined`, a blind
+  probe census). The new re-enrolment case was stopped.
+- That file's `probe-closed-0` plus the new attempt case: 1 failed (the same
+  blind probe census), 1 passed. A rerun of `probe-closed-0` keeping its state
+  failed the same way; the kept record shows the census blind for 44 s.
+- On `14b9c942b` with the new test file, the new attempt case failed as
+  intended: the guardian was in the daemon's group.
+- `tests/unit/test_guardian.py`, `tests/fake/test_daemon_launch.py`,
+  `tests/process/test_guardian_process.py`: 22 passed, 3 failed. All three
+  failures are in `test_guardian_process.py` (`delayed_receipt`,
+  `ignore_sigterm`, `nested_setsid`), each a 3 s `wait_file` for a receipt that
+  did not appear, at load about 100. That file starts guardians with a plain
+  `Popen`, so the guardian still calls `setsid()` itself, as before. It is known
+  to fail on these waits at load 90–130, but no A/B on the base was run, so it
+  is not shown that the change is not involved.
+
+Not run during the job: the full suite; `tests/process/` other than
+`test_guardian_process.py`; `tests/frontend/`; a passing run of the probe and
+re-enrolment launch-gate cases after fix 2; and an A/B of
+`test_guardian_process.py` against the base.
