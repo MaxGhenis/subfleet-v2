@@ -55,7 +55,7 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   mkdirSync(join(root, 'empty-home'))
   copyFileSync(join(harness, 'fake-subfleet.sh'), join(root, 'bin', 'subfleet'))
   chmodSync(join(root, 'bin', 'subfleet'), 0o755)
-  copyFileSync(join(harness, 'fake-ps.py'), join(root, 'bin', 'ps'))
+  copyFileSync(join(harness, 'fake-ps.zsh'), join(root, 'bin', 'ps'))
   chmodSync(join(root, 'bin', 'ps'), 0o755)
   // A fake git supplies only the commit inspected by the generated helper.
   writeFileSync(join(root, 'bin', 'git'), '#!/bin/bash\nprintf "%s\\n" "${FAKE_WORKDIR_HEAD:-head-one}"\n')
@@ -72,9 +72,11 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
   const rendered = await renderWorkflow(script, args)
   const shell = command => spawnSync('zsh', ['-c', 'eval "$1"', 'fanout-harness', command], { cwd: root, env, encoding: 'utf8', timeout: STEP_TIMEOUT_MS })
   const step = (i, command = rendered.commands[i]) => {
+    const started = Date.now()
     const r = shell(command)
-    if (r.error) throw r.error
-    return { status: r.status, text: r.stdout + r.stderr }
+    const elapsedMs = Date.now() - started
+    if (r.error) throw new Error(`step ${i}: observed ${elapsedMs} ms vs ${STEP_TIMEOUT_MS} ms step timeout: ${r.error.message}`)
+    return { status: r.status, text: r.stdout + r.stderr, elapsedMs }
   }
   const count = verb => existsSync(join(root, `calls.${verb}`)) ? Number(readFileSync(join(root, `calls.${verb}`), 'utf8')) : 0
   const setup = () => { const r = step(0); assert.equal(r.status, 0, r.text); assert.match(r.text, /CHECKSUM_OK[\s\S]*SETUP_OK/); return r }
@@ -94,6 +96,18 @@ const make = async (scenario = '', requestId = 'rq-test', stateSuffix = 'state')
     return outputs.join('\n')
   }
   return { root, args, env, ...rendered, shell, step, count, setup, submit, wait }
+}
+const inspectionMatch = (c, blocked, expected) => {
+  let timing = `inspection-dependent assertion: observed complete step ${blocked.elapsedMs} ms; production ps timeout 2000 ms`
+  if (!expected.test(blocked.text)) {
+    // Diagnose a failed real inspection with the same shell fake. This is a
+    // fresh probe, not a measurement of the earlier runner's inspection.
+    const started = Date.now()
+    const probe = spawnSync(join(c.root, 'bin', 'ps'), ['-o', 'etime=', '-p', String(process.pid)],
+      { env: c.env, encoding: 'utf8', timeout: 2000 })
+    timing += `; fresh fake ps probe observed ${Date.now() - started} ms vs 2000 ms timeout (status ${probe.status}, error ${probe.error?.code || 'none'})`
+  }
+  assert.match(blocked.text, expected, timing)
 }
 
 try {
@@ -211,7 +225,7 @@ try {
         for (const i of [0, 1, 2]) {
           const blocked = c.step(i)
           assert.equal(blocked.status, 75, blocked.text)
-          assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none$`, 'm'))
+          inspectionMatch(c, blocked, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none$`, 'm'))
           assert.doesNotMatch(blocked.text, /Traceback|CHECKSUM_OK|SETUP_OK|SUBMIT_RC|JOBS=|WAIT_RC/)
         }
         assert.equal(c.count('run'), 0)
@@ -221,11 +235,31 @@ try {
   await test('round 10 property: arbitrary ps strings retain LOCKED and require valid elapsed-time identity', async () => {
     const c = await make()
     const command = join(c.root, 'step1.sh'); writeFileSync(command, c.commands[1])
-    const result = spawnSync('python3', [join(harness, 'lock_checks.py'), command],
-      { env: c.env, encoding: 'utf8', timeout: STEP_TIMEOUT_MS })
-    if (result.error) throw result.error
-    assert.equal(result.status, 0, result.stdout + result.stderr)
-    console.log(result.stdout.trim())
+    for (const checker of ['lock_checks.py', 'parser_checks.py']) {
+      const result = spawnSync('python3', [join(harness, checker), command],
+        { env: c.env, encoding: 'utf8', timeout: STEP_TIMEOUT_MS })
+      if (result.error) throw result.error
+      assert.equal(result.status, 0, result.stdout + result.stderr)
+      console.log(result.stdout.trim())
+    }
+    // Also cross the complete zsh command boundary in every generated step.
+    c.setup(); c.env.SUBFLEET_FANOUT_LOCK_WAIT_S = '0'
+    const holder = await holdLock(c, '{}')
+    try {
+      for (const [value, expected, age] of [['60:00', 'alive', 3600], ['60:01', 'unknown', 0],
+        ['61:00', 'unknown', 0], ['99:00', 'unknown', 0]]) {
+        c.env.FAKE_PS_ETIME = value
+        for (const i of [0, 1, 2]) {
+          writeFileSync(join(c.args.stateDir, 'rq-test.lock'), JSON.stringify({ launcher: { pid: process.pid, since: Date.now() / 1000 - age } }))
+          const blocked = c.step(i)
+          assert.equal(blocked.status, 75, blocked.text)
+          inspectionMatch(c, blocked, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=${expected} helper_pid=none cli_pid=none$`, 'm'))
+          assert.doesNotMatch(blocked.text, /Traceback|CHECKSUM_OK|SETUP_OK|SUBMIT_RC|JOBS=|WAIT_RC/)
+        }
+      }
+      assert.equal(c.count('run'), 0)
+      console.log('PASS Darwin boundary: 12 held-lock shell steps; 60:00 alive; 60:01, 61:00 and 99:00 unknown')
+    } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
   })
   // Port the reviewer's held-lock probes. Inspection is controlled even on a
   // sandbox that denies real ps; kill(pid, 0) still checks the actual PID.
@@ -237,7 +271,7 @@ try {
       try {
         const blocked = c.step(1)
         assert.equal(blocked.status, 75, blocked.text)
-        assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none$`, 'm'))
+        inspectionMatch(c, blocked, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=unknown helper_pid=none cli_pid=none$`, 'm'))
         assert.doesNotMatch(blocked.text, /Traceback|SUBMIT_RC|JOBS=/)
       } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
     })
@@ -259,7 +293,7 @@ try {
         const blocked = c.step(1)
         assert.equal(blocked.status, 75, JSON.stringify(entry) + ': ' + blocked.text)
         const pidText = entry.pid === true ? 'True' : String(entry.pid)
-        assert.match(blocked.text, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=alive helper_pid=none cli_pid=${pidText} cli=unknown$`, 'm'))
+        inspectionMatch(c, blocked, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=alive helper_pid=none cli_pid=${pidText} cli=unknown$`, 'm'))
         assert.doesNotMatch(blocked.text, /Traceback|SUBMIT_RC|JOBS=/)
       }
     } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
@@ -320,7 +354,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       const deadline = Date.now() + BARRIER_MS
       for (;;) {
         try { process.kill(pid, 0) } catch (e) { if (e.code === 'ESRCH') return; throw e }
-        assert.ok(Date.now() < deadline, `pid ${pid} did not exit`)
+        assert.ok(Date.now() < deadline, `pid ${pid} did not exit: observed ${Date.now() - (deadline - BARRIER_MS)} ms vs ${BARRIER_MS} ms timeout`)
         await new Promise(r => setTimeout(r, 20))
       }
     }
@@ -328,7 +362,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
     try {
       const deadline = Date.now() + BARRIER_MS
       while (!existsSync(join(c.root, 'holders.json'))) {
-        assert.ok(Date.now() < deadline, 'lock probe readiness timed out')
+        assert.ok(Date.now() < deadline, `lock probe readiness: observed ${Date.now() - (deadline - BARRIER_MS)} ms vs ${BARRIER_MS} ms timeout`)
         await new Promise(r => setTimeout(r, 10))
       }
       holders = JSON.parse(readFileSync(join(c.root, 'holders.json'), 'utf8'))
@@ -336,7 +370,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       const cliPath = join(c.args.stateDir, 'rq-test.lock.cli')
       // The helper names its child right after the spawn; the child may start first.
       while (!existsSync(cliPath) || JSON.parse(readFileSync(cliPath, 'utf8')).pid !== holders.cli) {
-        assert.ok(Date.now() < deadline, 'CLI holder record timed out')
+        assert.ok(Date.now() < deadline, `CLI holder record: observed ${Date.now() - (deadline - BARRIER_MS)} ms vs ${BARRIER_MS} ms timeout`)
         await new Promise(r => setTimeout(r, 10))
       }
       const cli = JSON.parse(readFileSync(cliPath, 'utf8'))
@@ -349,7 +383,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       for (const i of [0, 1, 2]) {
         const blocked = c.step(i)
         assert.equal(blocked.status, 75, blocked.text)
-        assert.match(blocked.text, expected)
+        inspectionMatch(c, blocked, expected)
         assert.doesNotMatch(blocked.text, /CHECKSUM_OK|SETUP_OK|SUBMIT_RC|JOBS=|WAIT_RC/)
       }
       writeFileSync(join(c.root, 'release-child'), '')
@@ -378,7 +412,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       try {
         const blocked = d.step(1)
         assert.equal(blocked.status, 75, blocked.text)
-        assert.match(blocked.text, new RegExp(`^LOCKED lock=rq-test\\.lock wait_s=0 ${line}$`, 'm'))
+        inspectionMatch(d, blocked, new RegExp(`^LOCKED lock=rq-test\\.lock wait_s=0 ${line}$`, 'm'))
       } finally { holder.kill('SIGKILL') }
       await new Promise(r => holder.on('close', r))
     }
@@ -558,7 +592,7 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
     try {
       const deadline = Date.now() + BARRIER_MS
       while (!existsSync(join(c.root, 'holders.json'))) {
-        assert.ok(Date.now() < deadline, 'lock probe readiness timed out')
+        assert.ok(Date.now() < deadline, `lock probe readiness: observed ${Date.now() - (deadline - BARRIER_MS)} ms vs ${BARRIER_MS} ms timeout`)
         await new Promise(r => setTimeout(r, 10))
       }
       holders = JSON.parse(readFileSync(join(c.root, 'holders.json'), 'utf8'))
@@ -571,7 +605,8 @@ os.execv(__file__+"-registry",[__file__+"-registry",*sys.argv[1:]])
       assert.equal(blocked.status, 75, blocked.text)
       assert.match(blocked.text, new RegExp(`^LOCKED lock=rq-test\\.lock .*launcher_pid=${launcher}\\b.*`, 'm'))
       assert.match(blocked.text, /wait_s=0\.1\b/)
-      assert.ok(Date.now() - start < 15000)
+      const elapsedMs = Date.now() - start
+      assert.ok(elapsedMs < 15000, `bounded lock wait: observed ${elapsedMs} ms vs 15000 ms assertion timeout (production lock budget 100 ms; ps timeout 2000 ms)`)
       assert.doesNotMatch(blocked.text, /CHECKSUM_OK|SETUP_OK/)
       writeFileSync(join(c.root, 'release-child'), '')
       await done
@@ -684,7 +719,7 @@ sys.exit(result.returncode)
       })
       const until = async predicate => {
         const deadline = Date.now() + BARRIER_MS
-        while (!predicate()) { assert.ok(Date.now() < deadline, 'overlap barrier timed out'); await new Promise(r => setTimeout(r, 10)) }
+        while (!predicate()) { assert.ok(Date.now() < deadline, `overlap barrier: observed ${Date.now() - (deadline - BARRIER_MS)} ms vs ${BARRIER_MS} ms timeout`); await new Promise(r => setTimeout(r, 10)) }
       }
       const creator = launch('creator')
       await until(() => existsSync(join(c.root, 'next-ready-creator')) || existsSync(join(c.root, 'creator-run-ready')))

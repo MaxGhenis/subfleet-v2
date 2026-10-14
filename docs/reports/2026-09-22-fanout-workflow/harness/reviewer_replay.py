@@ -47,7 +47,7 @@ class Fixture:
                 "promptPath": str(prompt), "outPath": str(self.root / ("out-" + name + ".md")), "name": name})
         if model:
             self.args["model"] = model
-        shutil.copyfile(HARNESS / "fake-ps.py", self.root / "bin/ps")
+        shutil.copyfile(HARNESS / "fake-ps.zsh", self.root / "bin/ps")
         (self.root / "bin/ps").chmod(0o755)
         self.render()
 

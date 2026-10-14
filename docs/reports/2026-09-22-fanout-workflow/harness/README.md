@@ -149,7 +149,7 @@ Round 9 keeps all 68 checks and adds seven regressions (75 total).
 `FANOUT_TEST_FILTER='round 9'` selects them. The same seven checks fail
 against `3ca9b038e` and pass on the round-9 workflow:
 
-- `fake-ps.py` controls process age independently of the host's `ps` access.
+- `fake-ps.zsh` controls process age independently of the host's `ps` access.
   A hanging inspection, a nonzero exit with plausible output, empty failed
   output and malformed output must all leave a live stale PID `unknown`.
   Real `kill(pid, 0)` still establishes existence or death. The successful
@@ -212,7 +212,8 @@ Round 10 retains all 75 checks and adds three (78 total).
   numeric fields, integer-conversion guards, epoch boundaries, whitespace,
   separators, NULs and Unicode. No subprocess is needed for this property.
 
-Elapsed seconds and minutes must each have two digits in 0–59. A day
+Elapsed seconds and minutes must each have two digits in 0–59, except
+Darwin's minutes-only `60:00` at exactly one hour. A day
 prefix requires hours, in 0–23; hours without days may exceed 23. Durations
 older than the Unix epoch cannot match a positive recorded spawn timestamp
 and report `unknown` before float subtraction. Conversion failures also
@@ -231,6 +232,43 @@ The same filtered call against `.claude/workflows/subfleet-fanout.js` must
 pass all three checks. The complete validator includes them alongside the
 20,000 sequential and 104 shipped concurrent histories; run the separate
 32-history independent oracle with the command above.
+
+Round 11 retains **78 validator checks** and extends the existing property
+check with the source-formatter regression and all three shell steps:
+
+- `etime_formatters.py` ports the reviewer's Apple/procps-ng generators.
+  Apple's strict `> 3600` transition emits `60:00`; procps-ng uses `>=`.
+  The split/range property oracle derives the one-hour exception from the
+  Apple formatter, independently of the production parser.
+- `parser_checks.py` requires runner/oracle agreement with **4,128** source
+  formatter cases (seed 125101), **20** malformed cases, **six** epoch-bound
+  cases, and **4,096** comparisons across integer and float clocks. Twelve
+  complete held-lock shell commands cover `60:00` (alive), `60:01`, `61:00`
+  and `99:00` (unknown), with no submission.
+- `--mutations` reverts the minute boundary and requires both the formatter
+  regression and 4,096-string property to fail. Three other mutations
+  (epoch bound, component ranges, identity classification) must still fail
+  the property.
+- The inspection fake uses `zsh -f`, `zsh/datetime` and shell builtins;
+  normal inspection starts no Python process. Its hanging mode directly
+  execs sleep, so the production **two-second** timeout remains exercised.
+  Inspection assertion failures show the complete step's observed duration
+  and a separately measured fresh fake-ps probe versus that timeout.
+  Readiness, lock-wait and step-timeout failures also show duration/budget.
+
+To demonstrate the regression at `39bf83c8e` and run head mutations:
+
+```sh
+FANOUT_TMP=$(mktemp -d)
+git show 39bf83c8e:.claude/workflows/subfleet-fanout.js > "$FANOUT_TMP/baseline.js"
+bun docs/reports/2026-09-22-fanout-workflow/harness/render.mjs "$FANOUT_TMP/baseline.js" "$FANOUT_TMP" '{"items":[{"task":"review","tier":"standard","dir":"/Users/x","promptPath":"/p.md","outPath":"/o/a.md","name":"a"}]}'
+env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 python3 docs/reports/2026-09-22-fanout-workflow/harness/parser_checks.py "$FANOUT_TMP/step1.sh"
+env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 python3 docs/reports/2026-09-22-fanout-workflow/harness/lock_checks.py "$FANOUT_TMP/step1.sh"
+# Both preceding checks must exit 1 on 60:00.
+bun docs/reports/2026-09-22-fanout-workflow/harness/render.mjs .claude/workflows/subfleet-fanout.js "$FANOUT_TMP" '{"items":[{"task":"review","tier":"standard","dir":"/Users/x","promptPath":"/p.md","outPath":"/o/a.md","name":"a"}]}'
+env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 python3 docs/reports/2026-09-22-fanout-workflow/harness/parser_checks.py "$FANOUT_TMP/step1.sh" --mutations
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$FANOUT_TMP"
+```
 
 **Upgrading:** install a new helper between batches. A state folder started
 by the `8d074a715` (round 6) helper has snapshots and recovery records with
