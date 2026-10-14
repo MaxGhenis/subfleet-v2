@@ -57,6 +57,18 @@ MUTATIONS = {
           "        chain = [short for short in chain if short not in steered] + list(steered)\n")], (FAKE, ROUTE)),
     "the classifier misses the refusal": ([(CODEX, "            if MODEL_CAPACITY_RE.search(text):\n",
                                             "            if False and MODEL_CAPACITY_RE.search(text):\n")], (ADAPTER, FAKE)),
+    "a steered waiter holds back jobs for the refused model": (
+        [(SCHEDULER, "            return frozenset(short for short in chain if not (\n"
+                      "                capacity_steerable(job)",
+                      "            return frozenset(short for short in chain if not (\n"
+                      "                False and capacity_steerable(job)")], (FAKE,)),
+    "captured stderr inside error messages marks capacity": (
+        [(CODEX, "if isinstance(message, str) and MODEL_CAPACITY_MESSAGE_RE.match(message):",
+                 "if isinstance(message, str) and MODEL_CAPACITY_RE.search(message):")], (ADAPTER,)),
+    "a tool diagnostic suppresses all later provider records": (
+        [(CODEX, 'tool_diagnostic = record["target"].startswith("codex_core::tools::") or bool(',
+                 'tool_diagnostic = tool_diagnostic or record["target"].startswith("codex_core::tools::") or bool(')],
+        (ADAPTER,)),
     "the first transient text answers admission": (
         [(CODEX, "            if MODEL_CAPACITY_RE.search(text):\n                evidence[\"admission\"] = event or text\n",
           "            if MODEL_CAPACITY_RE.search(text):\n                evidence[\"admission\"] = signals[0][0] or signals[0][1]\n")],
@@ -67,11 +79,11 @@ MUTATIONS = {
 def pytest(tests: tuple[str, ...]) -> subprocess.CompletedProcess:
     argv = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *tests]
     lock = os.environ.get("SUBFLEET_SUITE_LOCK")
-    with tempfile.TemporaryDirectory(prefix="sf-r207f2-") as directory:
+    with tempfile.TemporaryDirectory(prefix="sf-r207f3-") as directory:
         env = {**os.environ, "TMPDIR": directory + "/",
                "HYPOTHESIS_STORAGE_DIRECTORY": str(Path(directory) / "hyp"),
                "HYPOTHESIS_PROFILE": "ci", "PYTHONDONTWRITEBYTECODE": "1"}
-        return subprocess.run(["/usr/bin/lockf", "-k", "-t", "120", lock, *argv] if lock else argv,
+        return subprocess.run(["/usr/bin/lockf", "-k", "-t", "60", lock, *argv] if lock else argv,
                               env=env, capture_output=True, text=True)
 
 
