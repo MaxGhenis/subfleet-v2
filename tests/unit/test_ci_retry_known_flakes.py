@@ -39,7 +39,7 @@ def first():
 
 @pytest.fixture
 def project(tmp_path, pytester, monkeypatch, capsys):
-    def invoke(source, allowed=(), *, conftest="", config="", files=None, cli=False):
+    def invoke(source, allowed=(), *, conftest="", config="", files=None, cli=False, shard=None):
         (tmp_path / "pytest.ini").write_text("[pytest]\n" + config, encoding="utf-8")
         (tmp_path / "conftest.py").write_text(
             textwrap.dedent(RECORDER) + textwrap.dedent(conftest), encoding="utf-8")
@@ -52,7 +52,7 @@ def project(tmp_path, pytester, monkeypatch, capsys):
         allowlist = tmp_path / "allowlist.txt"
         allowlist.write_text("".join(f"{node}  # D-TEST: Generated flake.\n" for node in allowed))
         argv = [str(SCRIPT), "--allowlist", str(allowlist),
-                "--reports-dir", str(tmp_path / "reports")]
+                "--reports-dir", str(tmp_path / "reports"), *(["--shard", shard] if shard else [])]
         env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "SUBFLEET_LIVE": "0",
                "PYTEST_ADDOPTS": "--tb=line", "PY_COLORS": "0"}
         if cli:
@@ -127,6 +127,40 @@ def test_only_allowlisted_failures_retry_and_emit_each_defect(project, count):
     for node in nodes:
         assert f"{WARNING}{node} (D-TEST)" in result.stdout
     assert f"{count} known flake(s) passed on retry" in result.stdout
+
+
+SHARD_MAP = json.dumps({"groups": [], "seconds": {"test_sample.py": 2, "test_other.py": 1}})
+
+
+@pytest.mark.parametrize("cli", [False, True])
+def test_a_shard_runs_its_own_files_and_retries_by_node_id(project, tmp_path, cli):
+    """D-CI2: the first run collects shard 1 of 2 (test_sample.py); the retry names the
+    flake alone, and test_other.py's failure belongs to shard 2."""
+    flake = "test_sample.py::test_flake"
+    result, runs = project("def test_flake(): assert not first()", [flake], shard="1/2", cli=cli,
+                           files={".github/test-shards.json": SHARD_MAP,
+                                  "test_other.py": "def test_elsewhere(): assert False"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert runs == [[flake], [flake]]
+    assert f"{WARNING}{flake} (D-TEST)" in result.stdout
+    durations = [report["duration"] for report in _reports(tmp_path / "reports/first.jsonl")]
+    assert durations and all(isinstance(value, float) and value >= 0 for value in durations)
+
+
+def test_the_retry_rule_holds_within_each_shard(project):
+    result, runs = project("def test_flake(): assert not first()", ["test_sample.py::test_flake"], shard="2/2",
+                           files={".github/test-shards.json": SHARD_MAP,
+                                  "test_other.py": "def test_elsewhere(): assert False"})
+    assert result.returncode == 1
+    assert runs == [["test_other.py::test_elsewhere"]]
+    assert "Failure outside the known-flake allowlist: test_other.py::test_elsewhere" in result.stdout
+
+
+def test_a_malformed_shard_is_a_usage_error(project):
+    result, runs = project("def test_ok(): pass", shard="3/2",
+                           files={".github/test-shards.json": SHARD_MAP})
+    assert result.returncode == pytest.ExitCode.USAGE_ERROR
+    assert runs == []
 
 
 def test_non_allowlisted_order_dependent_failure_always_fails(project):
