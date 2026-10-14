@@ -81,6 +81,32 @@ TRANSIENT_RE = re.compile(
 )
 
 
+def _capacity_signals(failures: list[dict], stderr: str) -> Iterator[tuple[dict, str]]:
+    """C-9.5: provider messages only; tool stderr and its continuation are quoted output.
+
+    A tool diagnostic can quote even an ``ERROR:`` line. Once it starts, plain
+    stderr lines cannot prove a new provider refusal; structured events still can.
+    """
+    for event in failures:
+        message = event.get("message")
+        error = event.get("error")
+        if not isinstance(message, str) and isinstance(error, dict):
+            message = error.get("message")
+        if isinstance(message, str) and "codex_core::tools::" not in message:
+            yield event, message
+    tool_diagnostic = False
+    for line in stderr.splitlines():
+        if "codex_core::tools::" in line:
+            tool_diagnostic = True
+        if tool_diagnostic:
+            continue
+        if re.match(r"^\s*ERROR:\s*", line, re.I):
+            yield {}, line
+        elif re.match(r"^\s*(?:Selected |The )?model(?:[ _]|$)", line, re.I):
+            # Codex also emits its refusal directly, without the CLI error prefix.
+            yield {}, line
+
+
 class _NoConsumeRedirect(urllib.request.HTTPRedirectHandler):
     """Keep the consume POST's response; a later request cannot prove refusal."""
 
@@ -670,7 +696,7 @@ class CodexAdapter(Adapter):
             return result(OutcomeClass.LIMITED, "Codex subscription limit reached", closure)
         # C-9.5, D-CAP1: the model's capacity refusal before any other transient text, so the
         # failure that ended the turn answers admission, not a reconnect it recovered from first.
-        for event, text in signals:
+        for event, text in _capacity_signals(failures, stderr):
             if MODEL_CAPACITY_RE.search(text):
                 evidence["admission"] = event or text
                 evidence["model_capacity"] = True
