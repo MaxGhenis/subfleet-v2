@@ -120,7 +120,10 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     (C-26.4): the socket is bound before `start.json` names it, and frames are
     applied once each, in order, logged to `stdin.jsonl`."""
     os.umask(0o077)
-    os.setsid()
+    if os.getsid(0) != os.getpid():
+        # The daemon starts a guardian in its own session before it execs (C-5.1);
+        # one started any other way leads a new one here.
+        os.setsid()
     # Keep the leader alive while a child ignores TERM, so the daemon can
     # recheck the recorded leader before escalating to SIGKILL (C-5.4/5.6).
     signal.signal(signal.SIGTERM, lambda *_: None)

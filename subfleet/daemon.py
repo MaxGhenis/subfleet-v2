@@ -1345,7 +1345,8 @@ class Daemon:
         try:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root,
+                                     start_new_session=True)       # C-5.1, as `_launch`'s
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -5086,7 +5087,8 @@ class Daemon:
         try:
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root,
+                                     start_new_session=True)       # C-5.1, as `_launch`'s
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -7425,9 +7427,16 @@ class Daemon:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
         command += ["--", *launch.argv]
         try:
+            # C-5.1: the guardian leads its own session and group before it execs.
+            # Its own `os.setsid()` ran only once its interpreter had started, and a
+            # table read in between (a slow start on a loaded host) showed it in
+            # this daemon's group, which C-5.5 then kept as the attempt's lineage
+            # group: one that never empties while the daemon lives, so the finished
+            # run was quarantined and recorded `lost` (PR #131 CI, 2026-10-14).
             child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root,
+                                     start_new_session=True)
             self._children[a["attempt_id"]] = child
             # ps can miss a pid for a few milliseconds after fork, and it is
             # slow under load; retry briefly while the guardian is alive. The
