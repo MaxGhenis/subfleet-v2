@@ -1533,7 +1533,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     values = procargs_strings(confirmed) if confirmed is not None else []
                     other = any(value.startswith(_ATTEMPT_PREFIX) and value != _ATTEMPT_PREFIX
                                 for value in values)
-                    own = wanted[0] in values and (wanted[1] is None or wanted[1] in values)
+                    own = ((wanted[0] in values and (wanted[1] is None or wanted[1] in values))
+                           or (wanted[1] is not None and wanted[1] in values and not other))
                     if other and not own and identity(pid) == current:
                         foreign_attempts[pid] = current
                     elif own:

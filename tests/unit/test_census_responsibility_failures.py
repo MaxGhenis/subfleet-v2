@@ -188,7 +188,9 @@ def test_a_quarantined_lingering_guardian_is_reaped_by_the_next_spawn(monkeypatc
         yield SimpleNamespace(execute=lambda *args: None)
 
     monkeypatch.setattr(procs, "_abandoned", [])
-    core = SimpleNamespace(store=SimpleNamespace(transaction=transaction),
+    row = {"evidence_json": "{}", "state": "running"}
+    core = SimpleNamespace(store=SimpleNamespace(transaction=transaction, get_attempt=lambda aid: row,
+        one=lambda *args: {"summary": "writers remain", "quarantine_recheck_at": "later"}), policy={},
         _job=lambda job: {"cancel_requested_at": None}, _earlier_attempt=lambda *args, **kwargs: "",
         _notice=lambda *args: None, _notify=lambda: None,
         _children={"job/a1": procs.Spawned(["owned-guardian"], 42)})
@@ -232,4 +234,4 @@ def test_a_terminal_started_daemon_keeps_the_popen_privacy_identity(monkeypatch)
     assert calls == [(["python", "-m", "subfleet.guardian"], {
         "env": {"SECRET": "env-only", "SUBFLEET_EXIT_SETTLE_S": "4"}, "cwd": "/pkg", "pass_fds": (9,),
         "stdin": daemon.subprocess.DEVNULL, "stdout": daemon.subprocess.DEVNULL,
-        "stderr": daemon.subprocess.DEVNULL, "close_fds": True})]
+        "stderr": daemon.subprocess.DEVNULL, "close_fds": True, "start_new_session": True})]

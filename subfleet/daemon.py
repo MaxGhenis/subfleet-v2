@@ -4959,6 +4959,21 @@ class Daemon:
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
         census = self._probe_census(record)
+        # A receipt says the provider finished, not that an unreadable census
+        # found a writer. Probes and re-enrolment retain their leases and retry
+        # a blind post-receipt look on the same bounded pace as finalization.
+        inspection_expired = False
+        if census.blind and self._read_json(Path(record["directory"]) / "exit.json"):
+            since = time.monotonic()
+            while census.blind:
+                elapsed = time.monotonic() - since
+                if elapsed >= self.exit_inspect_s:
+                    inspection_expired = True
+                    break
+                delay = min(max(self.inspect_interval_s, elapsed), self.exit_inspect_s - elapsed)
+                if self.stopping.wait(delay):
+                    return False
+                census = self._probe_census(record)
         foreign = census.foreign_ownership
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
@@ -4977,7 +4992,7 @@ class Daemon:
                           if signal_allowed(ident) and procs.same_process(p, ident.boot_id, ident.proc_start)})
             owned[pid] = procs.ProcessIdentity(pid, record["boot_id"], record["proc_start"])
         record["owned_identities"] = {str(p): dataclasses.asdict(ident) for p, ident in owned.items()}
-        if not census.verified_empty and record.get("state") != "quarantined":
+        if not census.verified_empty and record.get("state") != "quarantined" and not inspection_expired:
             record["state"] = "containing"
             self._save_probe(record)  # Authority precedes every signal, including recovery.
             for ident in owned.values():
@@ -7754,7 +7769,7 @@ class Daemon:
         """C-5.1, D-CEN1: start a guardian (an attempt's, a probe's or a re-enrolment's) as
         its own responsible process, and return it with the root to record beside its
         identity: `{"pid", "unique_id"}`, or None when this macOS cannot disclaim, in
-        which case its censuses keep three sources. Only the guardian is disclaimed: the
+        which case its censuses omit responsibility and retain cwd. Only the guardian is disclaimed: the
         provider it starts names it. Disclaim only from a self-responsible daemon;
         terminal-started daemons preserve their inherited privacy attribution."""
         env = {**env, "SUBFLEET_EXIT_SETTLE_S": str(getattr(self, "exit_settle_s", EXIT_SETTLE_S))}
@@ -7775,7 +7790,7 @@ class Daemon:
         if root is None and not self._unrooted_logged:
             self._unrooted_logged = True
             self.log.warning("guardian %s started without a responsibility root (disclaim available: %s); "
-                             "censuses of what it starts read three sources (C-5.5, D-CEN1)",
+                             "censuses of what it starts omit responsibility (C-5.5, D-CEN1)",
                              child.pid, procs.disclaim_available())
         return child, root
 

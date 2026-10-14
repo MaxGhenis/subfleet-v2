@@ -43,7 +43,8 @@ def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session
             return "S"
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
-    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
+    monkeypatch.setattr(procs, "kernel", FakeKernel(from_ps_rows(markers),
+        fail={"pids"} if fail == "pid=,command=" else ()))
     monkeypatch.setattr(procs, "process_group", lambda pid: pid)
 
 

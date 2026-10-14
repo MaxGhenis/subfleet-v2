@@ -383,7 +383,6 @@ def release_property_sequence(state_daemon, monkeypatch, actions):
                 current = Daemon(harness.root)
                 current.policy["quarantine_recheck_s"] = 10
                 monkeypatch.setattr(procs, "_read", read)
-    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
             elif action == "kill":
                 current._resolve_quarantine({"attempt_id": aid}, protocol.KillArgs(job, confirm_dead=True))
             else:
