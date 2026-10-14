@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from typing import Callable
 
+import ctypes
+import errno
 import fcntl
 import os
-import re
 import signal
+import struct
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -337,10 +340,13 @@ class Containment:
     # Proven recycled roots/leaders, including identities excluded from the
     # live sets. No command or environment may enter this evidence (C-5.5).
     recycled: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # C-5.5's fourth source (D-CEN1): the live processes whose responsible
+    # process is the attempt's recorded responsibility root.
+    responsible_pids: frozenset[int] = frozenset()
 
     @property
     def live_pids(self) -> frozenset[int]:
-        return self.group_pids | self.descendant_pids | self.marker_pids
+        return self.group_pids | self.descendant_pids | self.marker_pids | self.responsible_pids
 
     @property
     def verified_empty(self) -> bool:
@@ -351,6 +357,7 @@ class Containment:
             "group_pids": sorted(self.group_pids),
             "descendant_pids": sorted(self.descendant_pids),
             "marker_pids": sorted(self.marker_pids),
+            "responsible_pids": sorted(self.responsible_pids),
             "live_pids": sorted(self.live_pids),
             "unverifiable": self.unverifiable,
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
@@ -366,12 +373,13 @@ def group_members(pgid: int) -> dict[int, str]:
 
     This is C-5.5's first source alone. It exists for the steady-state record
     of which group members a running attempt or probe owns, which keeps only
-    group members: the full census also reads every process's environment
-    (`ps -axEww`, megabytes on a busy machine) for markers that record never
-    uses. The start column tells a recorded pid's later incarnation from the
+    group members: the full census also reads every process's argument buffer
+    (megabytes on a busy machine) for markers, and every process's responsible
+    process, which that record never uses. The start column tells a recorded pid's later incarnation from the
     process recorded under it; it is a change detector only, and an identity is
     still captured by `identity` (C-5.3). Containment decisions (release, kill,
-    lost, quarantine) still take the full three-source `containment`. Raises
+    lost, quarantine) still take the full `containment`, including responsibility
+    for attempts that recorded a root. Raises
     `InspectionError` when `ps` fails.
     """
     if not pgid or pgid <= 0:
@@ -389,10 +397,300 @@ def group_members(pgid: int) -> dict[int, str]:
     return members
 
 
+# C-5.5's in-process reads (D-CEN1). `ps -E` stops a process's environment at the
+# first empty string, and a title written over the argv area (node's
+# `process.title`) leaves that area full of NULs, so it showed no marker for
+# vitest 19935 and 21910 on 2026-10-13. The census reads the same buffer itself,
+# through `sysctl` `KERN_PROCARGS2`, and looks at every string in it.
+_CTL_KERN, _KERN_ARGMAX, _KERN_PROCARGS2 = 1, 8, 49
+_PROC_ALL_PIDS = 1
+#: `struct proc_bsdinfowithuniqid` (sys/proc_info.h): a 136-byte `proc_bsdinfo`
+#: (flags, status, xstatus, pid, ...), then `proc_uniqidentifierinfo`, whose
+#: 64-bit `p_uniqueid` follows a 16-byte UUID.
+_PROC_PIDT_BSDINFOWITHUNIQID = 18
+_BSDINFO_SIZE = 136
+_BSDINFO_WITH_UNIQID_SIZE = _BSDINFO_SIZE + 56
+_UNIQUEID_OFFSET = _BSDINFO_SIZE + 16
+_PROC_FLAG_INEXIT = 4                  # pbi_flags: the process has begun to exit
+_SZOMB = 5                             # pbi_status: a zombie
+#: Initial allocation; a full read retries up to the kernel's own KERN_ARGMAX.
+#: A read still filling that maximum cannot establish that all markers were read.
+try:
+    _ARGS_BUFFER = os.sysconf("SC_ARG_MAX") if sys.platform == "darwin" else 1 << 20
+except (ValueError, OSError):
+    _ARGS_BUFFER = 1 << 20
+_ATTEMPT_PREFIX, _ROOT_PREFIX = b"SUBFLEET_ATTEMPT=", b"SUBFLEET_ROOT="
+
+
+@dataclass(frozen=True)
+class KernelProcess:
+    """What `proc_pidinfo` says of a live pid this process may inspect: whether it
+    has begun to exit and its unique id, which the kernel gives each new process
+    from one counter for the life of a boot. No command, environment or name."""
+    pid: int
+    exiting: bool
+    unique_id: int
+
+
+@dataclass(frozen=True)
+class ResponsibleRoot:
+    """A process started with responsibility disclaimed (`spawn_disclaimed`): it is
+    its own responsible process, and every process it starts, and they start, is
+    reported with it as theirs whatever they do to their session, group, parent,
+    title or environment (D-CEN1). `unique_id` orders it among the processes of
+    its boot (`boot_id`): one created before it, at a pid that once had another
+    holder, is not its."""
+    pid: int
+    boot_id: str | None
+    unique_id: int | None
+
+
+def procargs_strings(buffer: bytes) -> list[bytes]:
+    """The NUL-terminated strings of a `KERN_PROCARGS2` buffer after the executable
+    path: the argv area, the environment and what the kernel appends, empty strings
+    included. The buffer is `argc` (4 bytes), the executable path, NUL padding, then
+    those strings; a string the buffer ends inside of is not whole and is not
+    returned, so a buffer cut short can make a string missing, never a different one."""
+    if len(buffer) <= 4:
+        return []
+    body = buffer[4:]
+    end = body.find(b"\0")
+    if end < 0:
+        return []                          # not even the executable path is whole
+    strings = body[end + 1:].split(b"\0")
+    strings.pop()                          # after the last NUL: unterminated, or nothing
+    return strings
+
+
+def marker_strings(attempt_id: str, root: str | None) -> tuple[bytes, bytes | None]:
+    """The exact strings C-5.5's marker source looks for; `ValueError` for an id that
+    no environment string could carry whole."""
+    if not attempt_id or any(char.isspace() for char in attempt_id) or "\0" in attempt_id:
+        raise ValueError("invalid attempt marker")
+    if root is not None and "\0" in root:
+        raise ValueError("invalid state root marker")
+    return (_ATTEMPT_PREFIX + os.fsencode(attempt_id),
+            _ROOT_PREFIX + os.fsencode(root) if root else None)
+
+
+def procargs_marked(buffer: bytes, attempt: bytes, root: bytes | None) -> bool:
+    """C-5.5: does some whole string after the executable path equal `attempt`, and,
+    when the caller has a state root, another equal `root`? Over-inclusion is the
+    safe side, so a string in the argv area counts as one in the environment."""
+    strings = procargs_strings(buffer)
+    return attempt in strings and (root is None or root in strings)
+
+
+class Darwin:
+    """C-5.5's in-process reads of the process table: libproc's pid list and
+    `proc_pidinfo`, `sysctl` `KERN_PROCARGS2`, and the responsibility SPI. They
+    start no process, so a census is one `ps` and these (C-5.12). What they read
+    is kept in memory only for the match; a census records pids, shapes and
+    identities, never a command or an environment."""
+
+    def __init__(self) -> None:
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+        except OSError:
+            libc = None
+
+        def bind(name, restype, *argtypes):
+            function = getattr(libc, name, None) if libc is not None else None
+            if function is not None:
+                function.restype, function.argtypes = restype, list(argtypes)
+            return function
+
+        size_p = ctypes.POINTER(ctypes.c_size_t)
+        self._sysctl = bind("sysctl", ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.c_uint,
+                            ctypes.c_void_p, size_p, ctypes.c_void_p, ctypes.c_size_t)
+        self._listpids = bind("proc_listpids", ctypes.c_int, ctypes.c_uint32, ctypes.c_uint32,
+                              ctypes.c_void_p, ctypes.c_int)
+        self._pidinfo = bind("proc_pidinfo", ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                             ctypes.c_void_p, ctypes.c_int)
+        self._responsible = bind("responsibility_get_pid_responsible_for_pid", ctypes.c_int, ctypes.c_int)
+        self.readable = None not in (self._sysctl, self._listpids, self._pidinfo)
+        #: The responsibility SPI resolved (D-CEN1); without it no root is recorded.
+        self.responsibility = self.readable and self._responsible is not None
+        self._argument_max: int | None = None
+
+    def pids(self) -> frozenset[int]:
+        """Every pid now, from `proc_listpids`; `InspectionError` when it cannot say."""
+        if not self.readable:
+            raise InspectionError("process listing unavailable")
+        for _ in range(3):
+            needed = self._listpids(_PROC_ALL_PIDS, 0, None, 0)
+            if needed <= 0:
+                break
+            listed = (ctypes.c_int * (needed // ctypes.sizeof(ctypes.c_int) + 512))()
+            got = self._listpids(_PROC_ALL_PIDS, 0, listed, ctypes.sizeof(listed))
+            if got <= 0:
+                break
+            if got < ctypes.sizeof(listed):      # room to spare: nothing was cut off
+                return frozenset(pid for pid in listed[:got // ctypes.sizeof(ctypes.c_int)] if pid > 0)
+        raise InspectionError("process listing unavailable")
+
+    def process(self, pid: int) -> KernelProcess | None:
+        """`pid`'s state, or None when there is no live process there to read: it is
+        gone or a zombie (ESRCH), or another user's (EPERM, which `ps -E` meets too
+        and skips). Any other failure is `InspectionError`."""
+        if not self.readable:
+            raise InspectionError("process inspection unavailable")
+        info = ctypes.create_string_buffer(_BSDINFO_WITH_UNIQID_SIZE)
+        ctypes.set_errno(0)
+        got = self._pidinfo(pid, _PROC_PIDT_BSDINFOWITHUNIQID, 0, info, len(info))
+        failure = ctypes.get_errno()
+        if got == len(info):
+            flags, status, _, shown = struct.unpack_from("=IIII", info.raw)
+            if shown != pid:
+                raise InspectionError(f"process inspection of pid {pid} described pid {shown}")
+            if status == _SZOMB:
+                return None
+            return KernelProcess(pid, bool(flags & _PROC_FLAG_INEXIT),
+                                 struct.unpack_from("=Q", info.raw, _UNIQUEID_OFFSET)[0])
+        if got <= 0 and failure in (errno.ESRCH, errno.EPERM):
+            return None
+        raise InspectionError(f"process inspection of pid {pid} unavailable")
+
+    def arguments(self, pid: int, buffer) -> bytes | None:
+        """`pid`'s raw `KERN_PROCARGS2` buffer, or None when the kernel refused it. It
+        refuses one reason as another (EINVAL for a gone, zombie or other user's
+        process alike), so the caller asks `process` again to tell them apart. A
+        full read or ENOMEM retries with KERN_ARGMAX when it exceeds `buffer`.
+        A read still filling that maximum may be cut short: `InspectionError`."""
+        if not self.readable:
+            raise InspectionError("argument inspection unavailable")
+        name = (ctypes.c_int * 3)(_CTL_KERN, _KERN_PROCARGS2, pid)
+        for retry in (False, True):
+            size = ctypes.c_size_t(len(buffer))
+            ctypes.set_errno(0)
+            rc = self._sysctl(name, 3, buffer, ctypes.byref(size), None, 0)
+            if rc == 0 and size.value < len(buffer):
+                return ctypes.string_at(buffer, size.value)
+            if rc != 0 and ctypes.get_errno() != errno.ENOMEM:
+                return None
+            if not retry:
+                maximum = self.argument_max()
+                if maximum > len(buffer):
+                    buffer = ctypes.create_string_buffer(maximum)
+                    continue
+            raise InspectionError(f"argument buffer of pid {pid} fills the read")
+
+    def argument_max(self) -> int:
+        """The kernel's allocation ceiling for PROCARGS2, read in process, once."""
+        if self._argument_max is None:
+            name = (ctypes.c_int * 2)(_CTL_KERN, _KERN_ARGMAX)
+            value = ctypes.c_int()
+            size = ctypes.c_size_t(ctypes.sizeof(value))
+            if (self._sysctl(name, 2, ctypes.byref(value), ctypes.byref(size), None, 0) != 0
+                    or size.value != ctypes.sizeof(value) or value.value <= 0):
+                raise InspectionError("kernel argument maximum unavailable")
+            self._argument_max = value.value
+        return self._argument_max
+
+    def responsible(self, pid: int) -> int | None:
+        """The pid of `pid`'s responsible process, or None when it is gone or another
+        user's (ESRCH, EPERM); `InspectionError` for anything else."""
+        if not self.responsibility:
+            raise InspectionError("responsibility inspection unavailable")
+        ctypes.set_errno(0)
+        found = self._responsible(pid)
+        failure = ctypes.get_errno()
+        if found > 0:
+            return found
+        if failure in (errno.ESRCH, errno.EPERM):
+            return None
+        raise InspectionError(f"responsibility of pid {pid} unavailable")
+
+
+#: The reader every census uses; tests replace it.
+kernel = Darwin()
+RESPONSIBILITY_ROUNDS = 8
+
+
+def responsible_for(root: int) -> frozenset[int]:
+    """Every other live process whose responsible process is `root`: what a guardian
+    started as a responsibility root waits on after its exit receipt (D-CEN1).
+    Re-list after reading: a member can fork and exit between its listing and its
+    read. Its child was born before that read and appears in the next listing.
+    `InspectionError` on failed reads or continuous births exhausting the bounded
+    rounds; neither proves emptiness."""
+    read = {root}
+    for _ in range(RESPONSIBILITY_ROUNDS):
+        fresh = kernel.pids() - read
+        if not fresh:
+            return frozenset()
+        named = set()
+        for pid in sorted(fresh):
+            if kernel.responsible(pid) == root:
+                named.add(pid)
+        if named:
+            return frozenset(named)
+        read.update(fresh)
+    raise InspectionError("responsibility listing did not settle")
+
+
+def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, bytes | None] | None,
+                    root: ResponsibleRoot | None, ours: Callable[[KernelProcess], bool]
+                    ) -> tuple[set[int], set[int], list[str]]:
+    """One pass over `candidates` for C-5.5's marker and responsibility sources:
+    (marked pids, pids whose responsible process is `root`, errors). `marker` None
+    skips the first, `root` None the second; `ours` says whether a process is
+    recent enough to be the root's (`ResponsibleRoot`)."""
+    marked: set[int] = set()
+    responsible: set[int] = set()
+    errors: list[str] = []
+    buffer = ctypes.create_string_buffer(_ARGS_BUFFER) if marker is not None else None
+    # Read the holder before its purported members without adding another read.
+    # A reused pid can name itself and newly born strangers as responsible.
+    ceiling = None
+    for pid in sorted(candidates, key=lambda pid: (root is None or pid != root.pid, pid)):
+        try:
+            current = kernel_reader.process(pid)
+        except InspectionError:
+            errors.append(f"process inspection unavailable for pid {pid}")
+            continue
+        if current is None:
+            continue                       # gone, a zombie, or another user's
+        if root is not None and pid == root.pid and root.unique_id is not None:
+            if current.unique_id != root.unique_id:
+                ceiling = current.unique_id
+        if marker is not None:
+            try:
+                found = kernel_reader.arguments(pid, buffer)
+            except InspectionError:                # a buffer that may be cut short
+                errors.append(f"marker read unavailable for pid {pid}")
+            else:
+                if found is not None:
+                    if procargs_marked(found, *marker):
+                        marked.add(pid)
+                else:
+                    # The kernel's refusal does not say why: ask again. A process
+                    # that has since gone, become a zombie or begun to exit (its
+                    # arguments are torn down with it, and it runs no more code)
+                    # is no writer; one still there is a read that failed.
+                    try:
+                        again = kernel_reader.process(pid)
+                    except InspectionError:
+                        again = current
+                    if again is not None and not again.exiting:
+                        errors.append(f"marker read unavailable for pid {pid}")
+        if root is not None:
+            try:
+                boss = kernel_reader.responsible(pid)
+            except InspectionError:
+                errors.append(f"responsibility read unavailable for pid {pid}")
+                continue
+            if (boss == root.pid and ours(current)
+                    and (ceiling is None or root.unique_id <= current.unique_id < ceiling)):
+                responsible.add(pid)
+    return marked, responsible, errors
+
+
 def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | None,
                 attempt_id: str, root: str | None = None, *,
                 recorded_identities: dict[int, ProcessIdentity] | None = None,
-                started_at: str | None = None, finished_at: str | None = None) -> Containment:
+                started_at: str | None = None, finished_at: str | None = None,
+                responsible_root: ResponsibleRoot | None = None) -> Containment:
     """Collect C-5.5 sources; failed sources or needed identity reads prevent release.
 
     Receipt timestamps are accepted for caller compatibility, but cannot prove
@@ -406,13 +704,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     (`ps -axo pid=,ppid=,pgid=,stat=,lstart=`), so a process cannot be present
     in one source and absent from the other because it exited between two reads.
     The snapshot also gives every live pid a shape (parent, group, state) that
-    the census records as evidence, and the start time that is its identity, so
-    a census is two `ps` reads however many processes it finds (C-5.12);
-    commands and environments are never retained.
+    the census records as evidence, and the start time that is its identity.
+    The marker source reads each process's raw argument buffer in this process
+    (`Darwin`), and so does the fourth source, every process whose responsible
+    process is `responsible_root` (D-CEN1), for an attempt that recorded one;
+    so a census is one `ps` read however many processes it finds (C-5.12).
+    Commands and environments are never retained.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
+    responsible: set[int] = set()
     errors: list[str] = []
     recycled: dict[int, dict[str, Any]] = {}
     checked: set[int] = set()
@@ -492,7 +794,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         groups = set(seen.group(pgid))
         if pgid and groups and is_recycled(pgid):
             groups.clear()
-        # There is no recorded group before setsid. The two remaining sources
+        # There is no recorded group before setsid. The other sources
         # still enumerate the guardian and any inherited marker.
         # The snapshot is not atomic: an absent/zombie parent may still have
         # live child rows. Keep its links, and seed every recorded survivor so
@@ -507,26 +809,77 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             found.update(frontier)
         descendants = {pid for pid in found if live(pid)}
     try:
-        if not attempt_id or any(char.isspace() for char in attempt_id):
-            raise ValueError("invalid attempt marker")
-        marker = re.compile(r"(?:^|\s)SUBFLEET_ATTEMPT=" + re.escape(attempt_id) + r"(?=\s|$)")
         # C-5.5: attempt ids are a timestamp and a slug, so two daemons (or two
         # test state roots) can mint the same id in the same second. The state
         # root is the second half of the marker whenever the caller has one.
-        root_marker = (re.compile(r"(?:^|\s)SUBFLEET_ROOT=" + re.escape(root) + r"(?=\s|$)")
-                       if root else None)
-        # Never retain or report these command/environment strings.
-        for row in _read(["/bin/ps", "-axEww", "-o", "pid=,command="]).splitlines():
-            pid_text, _, command = row.strip().partition(" ")
-            if marker.search(command) and (root_marker is None or root_marker.search(command)):
-                pid = int(pid_text)
-                state = table[pid][2] if pid in table else _stat(pid)
-                if state and not state.startswith("Z"):
-                    markers.add(pid)
-    except (InspectionError, ValueError):
+        wanted: tuple[bytes, bytes | None] | None = marker_strings(attempt_id, root)
+    except ValueError:
+        wanted = None
         errors.append("marker enumeration unavailable")
+    order: list[bool | None] = []
+
+    def ours(process: KernelProcess) -> bool:
+        """D-CEN1: is a process reporting the root as responsible young enough to be
+        its? Unique ids order a boot's processes, so one created before the root is
+        another process's, at a pid the root's later took. Only a proven other boot
+        excludes the rest (none of the root's processes outlives its boot); an order
+        that cannot be read keeps them (C-5.3)."""
+        if responsible_root is None:
+            return True
+        if not order:
+            match = None
+            if responsible_root.boot_id:
+                recorded = str(responsible_root.boot_id)
+                seconds = seen.legacy_seconds if seen is not None else lambda: boot_identity.boot_seconds(_read)
+                try:
+                    match = boot_identity.matches(recorded, seen.boot() if seen is not None else boot_id(),
+                                                  seconds)
+                    if match is False:
+                        forget_boot_id()     # C-5.12: a cached mismatch is read afresh first
+                        match = boot_identity.matches(recorded, boot_id(), seconds)
+                except InspectionError:
+                    match = None
+            order.append(match)
+        if order[0] is False:
+            return False
+        return (order[0] is None or responsible_root.unique_id is None
+                or process.unique_id >= responsible_root.unique_id)
+
+    # The table's start/boot comparison is stronger than unique-id ordering, and
+    # also protects legacy roots whose unique id was unavailable at launch.
+    source_root = responsible_root
+    if (source_root is not None and source_root.pid in recorded_identities
+            and is_recycled(source_root.pid)):
+        source_root = None
+    if wanted is not None or source_root is not None:
+        try:
+            # The snapshot's pids and a listing taken after it, so a process born
+            # since the snapshot is read too; a pid gone by then reads as gone.
+            candidates = sorted(kernel.pids() | {pid for pid in table if live(pid)})
+        except InspectionError:
+            candidates = []
+            if wanted is not None:
+                errors.append("marker enumeration unavailable")
+            if source_root is not None:
+                errors.append("responsibility enumeration unavailable")
+        # Never retain or report what these reads return but the pids.
+        found_marked, found_responsible, failed = _kernel_sources(
+            kernel, candidates, wanted, source_root, ours)
+        markers |= found_marked
+        responsible |= found_responsible
+        errors.extend(failed)
+    for source, name in ((markers, "marker"), (responsible, "responsibility")):
+        for pid in sorted(source):
+            try:
+                # The snapshot's state; a pid born after it is asked about singly.
+                state = table[pid][2] if pid in table else _stat(pid)
+            except InspectionError:
+                errors.append(f"{name} enumeration unavailable")
+                continue
+            if not state or state.startswith("Z"):
+                source.discard(pid)
     identities: dict[int, ProcessIdentity] = {}
-    for pid in groups | descendants | markers:
+    for pid in groups | descendants | markers | responsible:
         try:
             # The snapshot's own start time when it has one; a pid it could not
             # describe (a marker spawned after the read) is asked about singly.
@@ -540,12 +893,14 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 groups.discard(pid)
                 descendants.discard(pid)
                 markers.discard(pid)
+                responsible.discard(pid)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
-              for pid in groups | descendants | markers if pid in table}
+              for pid in groups | descendants | markers | responsible if pid in table}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
-                       bool(errors), identities, tuple(errors), shapes, recycled)
+                       bool(errors), identities, tuple(errors), shapes, recycled,
+                       frozenset(responsible))
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
@@ -609,3 +964,220 @@ def pipe_above_stdio() -> tuple[int, int]:
             os.close(fd)
         raise
     return moved[0], moved[1]
+
+
+class _Spawn:
+    """libSystem's `posix_spawn` and the attributes `spawn_disclaimed` sets, or None
+    for each that this macOS does not have. `available` needs them all: without one
+    the guardian is started as before, with no responsibility root."""
+
+    def __init__(self) -> None:
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+        except OSError:
+            libc = None
+        pointer = ctypes.c_void_p
+        self.functions = {}
+        for name, argtypes in (
+                ("posix_spawn", [ctypes.POINTER(ctypes.c_int), ctypes.c_char_p, pointer, pointer,
+                                 ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p)]),
+                ("posix_spawnattr_init", [pointer]),
+                ("posix_spawnattr_destroy", [pointer]),
+                ("posix_spawnattr_setflags", [pointer, ctypes.c_short]),
+                ("posix_spawnattr_setsigdefault", [pointer, ctypes.POINTER(ctypes.c_uint32)]),
+                ("responsibility_spawnattrs_setdisclaim", [pointer, ctypes.c_bool]),
+                ("posix_spawn_file_actions_init", [pointer]),
+                ("posix_spawn_file_actions_destroy", [pointer]),
+                ("posix_spawn_file_actions_addopen", [pointer, ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                                                     ctypes.c_uint16]),
+                ("posix_spawn_file_actions_addinherit_np", [pointer, ctypes.c_int]),
+                ("posix_spawn_file_actions_addchdir_np", [pointer, ctypes.c_char_p])):
+            function = getattr(libc, name, None) if libc is not None else None
+            if function is not None:
+                function.restype, function.argtypes = ctypes.c_int, argtypes
+            self.functions[name] = function
+        self.available = (sys.platform == "darwin" and kernel.responsibility
+                          and None not in self.functions.values())
+
+    def __getattr__(self, name: str):
+        functions = self.__dict__.get("functions", {})
+        if name not in functions:
+            raise AttributeError(name)
+        return functions[name]
+
+
+_spawn = _Spawn()
+#: posix_spawn.h (macOS): reset these signals to default, and close every
+#: descriptor no file action names.
+_POSIX_SPAWN_SETSIGDEF = 0x0004
+_POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000
+
+
+def disclaim_available() -> bool:
+    """Can guardians be started as responsibility roots here (D-CEN1)?"""
+    return bool(_spawn.available)
+
+
+def guardian_disclaim_allowed() -> bool:
+    """Disclaim only from a self-responsible daemon. A daemon started by a
+    terminal must preserve that terminal's responsibility and privacy grants.
+    An unreadable identity cannot authorize changing that attribution."""
+    if not disclaim_available():
+        return False
+    try:
+        return kernel.responsible(os.getpid()) == os.getpid()
+    except InspectionError:
+        return False
+
+
+class Spawned:
+    """A process `spawn_disclaimed` started: the part of `subprocess.Popen` the daemon
+    and its tests use (`pid`, `args`, `returncode`, `poll`, `wait`, `send_signal`,
+    `terminate`, `kill`), reaped with `os.waitpid` as Popen reaps. One dropped while it
+    still runs is kept and reaped by a later `spawn_disclaimed`, as Popen keeps one."""
+
+    def __init__(self, args: list[str], pid: int):
+        self.args, self.pid, self.returncode = args, pid, None
+        self._waitpid_lock = threading.Lock()
+
+    def _reaped(self, waited: int, status: int) -> None:
+        if waited == self.pid:
+            self.returncode = os.waitstatus_to_exitcode(status)
+
+    def poll(self) -> int | None:
+        if self.returncode is None and self._waitpid_lock.acquire(False):
+            try:
+                if self.returncode is None:
+                    try:
+                        self._reaped(*os.waitpid(self.pid, os.WNOHANG))
+                    except ChildProcessError:
+                        self.returncode = 0          # reaped elsewhere, as Popen says
+            finally:
+                self._waitpid_lock.release()
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        if timeout is None:
+            with self._waitpid_lock:
+                while self.returncode is None:
+                    try:
+                        self._reaped(*os.waitpid(self.pid, 0))
+                    except ChildProcessError:
+                        self.returncode = 0
+            return self.returncode
+        deadline, delay = time.monotonic() + timeout, .0005
+        while self.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            time.sleep(min(delay, remaining, .05))
+            delay *= 2
+        return self.returncode
+
+    def send_signal(self, sig: int) -> None:
+        self.poll()
+        if self.returncode is None:
+            try:
+                os.kill(self.pid, sig)
+            except ProcessLookupError:
+                pass
+
+    def terminate(self) -> None:
+        self.send_signal(signal.SIGTERM)
+
+    def kill(self) -> None:
+        self.send_signal(signal.SIGKILL)
+
+    def __del__(self) -> None:
+        try:
+            if self.returncode is None:
+                _abandoned.append(self)        # still running: reaped by a later spawn
+        except Exception:                      # interpreter shutdown
+            pass
+
+
+_abandoned: list[Spawned] = []
+
+
+def spawn_disclaimed(argv: list[str], *, env: dict[str, str], cwd: str,
+                     pass_fds: tuple[int, ...] = ()) -> Spawned | subprocess.Popen:
+    """Start `argv` as its own responsible process (D-CEN1): what Popen does for a
+    guardian (`stdin`, `stdout` and `stderr` on /dev/null, every descriptor closed but
+    `pass_fds`, `cwd`, exactly `env`, SIGPIPE and SIGXFSZ at their defaults) with
+    `posix_spawn`, which also never forks the daemon (C-5.12), and
+    `responsibility_spawnattrs_setdisclaim`, which Popen cannot set. Every process the
+    guardian starts, and they start, then names it as responsible however it leaves
+    the group, the parent links or its own environment, and C-5.5's fourth source
+    finds them by it.
+
+    Without the attribute (`disclaim_available()` is False) it is Popen, as before,
+    and the caller records no root. Raises OSError, as Popen does, when the
+    executable cannot be started."""
+    for child in list(_abandoned):
+        if child.poll() is not None:
+            try:
+                _abandoned.remove(child)
+            except ValueError:             # another spawn reaped it first
+                pass
+    if not _spawn.available:
+        return subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, pass_fds=pass_fds, close_fds=True, cwd=cwd)
+    args = [os.fsencode(part) for part in argv]
+    envp = []
+    for key, value in env.items():
+        key_b, value_b = os.fsencode(key), os.fsencode(value)
+        if not key_b or b"=" in key_b:
+            raise ValueError("illegal environment variable name")
+        envp.append(key_b + b"=" + value_b)
+    if any(b"\0" in part for part in (*args, *envp, os.fsencode(cwd))):
+        raise ValueError("embedded null byte")
+
+    def check(rc: int) -> None:
+        if rc:
+            raise OSError(rc, os.strerror(rc))
+    attr, actions = ctypes.c_void_p(), ctypes.c_void_p()
+    check(_spawn.posix_spawnattr_init(ctypes.byref(attr)))
+    try:
+        check(_spawn.posix_spawn_file_actions_init(ctypes.byref(actions)))
+        try:
+            check(_spawn.posix_spawnattr_setflags(ctypes.byref(attr),
+                                                  _POSIX_SPAWN_CLOEXEC_DEFAULT | _POSIX_SPAWN_SETSIGDEF))
+            # sigset_t is a 32-bit mask on macOS; signal n is bit n - 1.
+            defaults = ctypes.c_uint32((1 << (signal.SIGPIPE - 1)) | (1 << (signal.SIGXFSZ - 1)))
+            check(_spawn.posix_spawnattr_setsigdefault(ctypes.byref(attr), ctypes.byref(defaults)))
+            check(_spawn.responsibility_spawnattrs_setdisclaim(ctypes.byref(attr), True))
+            for fd, flags in ((0, os.O_RDONLY), (1, os.O_WRONLY), (2, os.O_WRONLY)):
+                check(_spawn.posix_spawn_file_actions_addopen(ctypes.byref(actions), fd, b"/dev/null", flags, 0))
+            for fd in pass_fds:
+                check(_spawn.posix_spawn_file_actions_addinherit_np(ctypes.byref(actions), fd))
+            check(_spawn.posix_spawn_file_actions_addchdir_np(ctypes.byref(actions), os.fsencode(cwd)))
+            pid = ctypes.c_int()
+            argv_c = (ctypes.c_char_p * (len(args) + 1))(*args, None)
+            envp_c = (ctypes.c_char_p * (len(envp) + 1))(*envp, None)
+            rc = _spawn.posix_spawn(ctypes.byref(pid), args[0], ctypes.byref(actions), ctypes.byref(attr),
+                                    argv_c, envp_c)
+            if rc:
+                raise OSError(rc, os.strerror(rc), argv[0])
+        finally:
+            _spawn.posix_spawn_file_actions_destroy(ctypes.byref(actions))
+    finally:
+        _spawn.posix_spawnattr_destroy(ctypes.byref(attr))
+    return Spawned(list(argv), pid.value)
+
+
+def responsibility_root(pid: int) -> dict[str, int | None] | None:
+    """What the daemon records for a guardian `spawn_disclaimed` started (D-CEN1):
+    `{"pid", "unique_id"}` when the kernel names `pid` as its own responsible
+    process, else None (a guardian Popen started, or the SPI is missing), and then
+    the census keeps its three sources for that attempt. A unique id that cannot be
+    read is recorded as None, which keeps every process naming the root (C-5.3).
+    A failed responsibility read raises: it does not prove the child unrooted."""
+    if not kernel.responsibility:
+        return None
+    if kernel.responsible(pid) != pid:
+        return None
+    try:
+        found = kernel.process(pid)
+    except InspectionError:
+        found = None
+    return {"pid": pid, "unique_id": found.unique_id if found is not None else None}

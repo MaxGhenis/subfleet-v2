@@ -56,7 +56,8 @@ class FakeAdapter(Adapter):
                    "SUBFLEET_FAKE_STREAM": str(attempt_dir / "stream.jsonl")}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),
-                              ("marker", "SUBFLEET_FAKE_MARKER")):
+                              ("marker", "SUBFLEET_FAKE_MARKER"),
+                              ("node", "SUBFLEET_FAKE_NODE")):
             if key in settings:
                 env_add[variable] = str(settings[key])
         scenario = env_add.get("SUBFLEET_FAKE_SCENARIO",

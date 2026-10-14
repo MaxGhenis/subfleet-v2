@@ -13,7 +13,9 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import procs
 from .procs import boot_id, proc_start
+from .contracts import EXIT_SETTLE_S
 from .launch_env import build_environment, valid_name
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
@@ -30,6 +32,15 @@ PROVIDER_QOS_ENV = "SUBFLEET_PROVIDER_QOS"    # `inherit`: the provider runs at 
 CLAMP_SPAWN_FAILED_RC = 66
 CLAMP_SPAWN_FAILED = b"taskpolicy: posix_spawn: "
 _ERRNO_BY_TEXT = {os.strerror(number): number for number in errno.errorcode}
+# D-CEN1: a guardian the daemon started as its own responsible process
+# (`procs.spawn_disclaimed`) is named as responsible by every process the provider
+# starts, and they start, whatever they do to their group, parent, title or
+# environment, but only while it lives: once it is gone, even unreaped, the kernel
+# names each of them as its own (measured 2026-10-13). So after its exit receipt
+# such a guardian stays until no other live process names it, and the census that
+# decides the attempt finds them by it (C-5.5). It looks again at these intervals.
+LINGER_FIRST_S, LINGER_MAX_S = 0.1, 2.0
+LINGER_SETTLE_ENV = "SUBFLEET_EXIT_SETTLE_S"
 
 
 def provider_qos() -> str | None:
@@ -104,6 +115,34 @@ def _output(path: Path):
     return os.fdopen(fd, "wb")
 
 
+def linger() -> None:
+    """D-CEN1: return once no other live process names this guardian as responsible;
+    at once for a guardian that is not its own responsible process (one Popen
+    started, or a macOS without the responsibility SPI), which nothing names. A
+    look that fails proves nothing, so it looks again. SIGTERM is ignored here as
+    everywhere in the guardian; the kill protocol's SIGKILL ends it."""
+    me = os.getpid()
+    if not procs.kernel.responsibility:
+        return
+    fast_until = time.monotonic() + max(0.0, float(os.environ.get(LINGER_SETTLE_ENV, EXIT_SETTLE_S)))
+    delay = LINGER_FIRST_S
+    while True:
+        try:
+            responsible = procs.kernel.responsible(me)
+            # An unavailable self-read cannot establish that this guardian is
+            # unrooted: leaving would erase its descendants' responsibility link.
+            if responsible is not None and responsible != me:
+                return
+            if responsible == me and not procs.responsible_for(me):
+                return
+        except procs.InspectionError:
+            pass
+        remaining = fast_until - time.monotonic()
+        time.sleep(min(LINGER_FIRST_S, remaining) if remaining > 0 else delay)
+        if time.monotonic() >= fast_until:
+            delay = min(delay * 1.5, LINGER_MAX_S)
+
+
 def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                  stdin_path: str | None, stdout_path: str, stderr_path: str,
                  start_delay_s: float = 0, launch_fd: int | None = None,
@@ -153,58 +192,61 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     _receipt(attempt_dir / "start.json", start)
     child = None
     spawn_error = None
-    qos = provider_qos()
-    command = provider_argv(argv, qos)
-    child_env = build_environment(pass_names=env_pass)
     try:
-        with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
-            if relay is not None:
-                read_end, write_end = os.pipe()
+        qos = provider_qos()
+        command = provider_argv(argv, qos)
+        child_env = build_environment(pass_names=env_pass)
+        try:
+            with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
+                if relay is not None:
+                    read_end, write_end = os.pipe()
+                    try:
+                        child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr, env=child_env)
+                    except OSError:
+                        os.close(write_end)
+                        raise
+                    finally:
+                        os.close(read_end)
+                    try:
+                        relay.serve(write_end, child=child)
+                        rc = child.wait()
+                    finally:
+                        relay.stop()
+                else:
+                    with open(stdin_path or os.devnull, "rb") as stdin:
+                        # Timer observation begins at the provider launch boundary, after
+                        # credential lookup and worker queueing (C-23.19).
+                        if os.environ.get("SUBFLEET_PROBE"):
+                            _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
+                        child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, env=child_env)
+                        rc = child.wait()
+        except OSError as exc:
+            rc = 127
+            # OSError contains the executable/path and errno, never child env.
+            spawn_error = str(exc)
+        if qos and child is not None and not spawn_error:
+            spawn_error = clamp_spawn_error(rc, stderr_path, argv[0])
+            if spawn_error:
+                # No provider ran, so the receipt and the streams read as Popen's own failure
+                # leaves them. taskpolicy's line lives on in spawn_error; left in the stderr
+                # file, an adapter would read it as the provider's (Codex's transient pattern
+                # matches "Resource temporarily unavailable", its limit one "Disc quota exceeded").
+                rc, child = 127, None
                 try:
-                    child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr, env=child_env)
+                    os.truncate(stderr_path, 0)
                 except OSError:
-                    os.close(write_end)
-                    raise
-                finally:
-                    os.close(read_end)
-                relay.serve(write_end, child=child)
-                try:
-                    rc = child.wait()
-                finally:
-                    relay.stop()
-            else:
-                with open(stdin_path or os.devnull, "rb") as stdin:
-                    # Timer observation begins at the provider launch boundary, after
-                    # credential lookup and worker queueing (C-23.19).
-                    if os.environ.get("SUBFLEET_PROBE"):
-                        _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                    child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, env=child_env)
-                    rc = child.wait()
-    except OSError as exc:
-        rc = 127
-        # OSError contains the executable/path and errno, never child env.
-        spawn_error = str(exc)
-    if qos and child is not None and not spawn_error:
-        spawn_error = clamp_spawn_error(rc, stderr_path, argv[0])
+                    pass
+        exit_receipt = {
+            "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
+            "wall_s": round(time.monotonic() - started, 6),
+            "child_pid": child.pid if child else None,
+        }
         if spawn_error:
-            # No provider ran, so the receipt and the streams read as Popen's own failure
-            # leaves them. taskpolicy's line lives on in spawn_error; left in the stderr
-            # file, an adapter would read it as the provider's (Codex's transient pattern
-            # matches "Resource temporarily unavailable", its limit one "Disc quota exceeded").
-            rc, child = 127, None
-            try:
-                os.truncate(stderr_path, 0)
-            except OSError:
-                pass
-    exit_receipt = {
-        "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
-        "wall_s": round(time.monotonic() - started, 6),
-        "child_pid": child.pid if child else None,
-    }
-    if spawn_error:
-        exit_receipt["spawn_error"] = spawn_error
-    _receipt(attempt_dir / "exit.json", exit_receipt)
-    return rc
+            exit_receipt["spawn_error"] = spawn_error
+        _receipt(attempt_dir / "exit.json", exit_receipt)
+        return rc
+    finally:
+        linger()
 
 
 def main(argv: list[str] | None = None) -> int:
