@@ -3,6 +3,14 @@
 Re-frozen 2026-10-13 after release/217 gained #140 (detached-writer nested fence),
 #185 (recycled-pid census), #183 (host push) and #179 (reset-credit lane_wait):
 the ramp, disabled or absent, must still behave exactly like the current release pass.
+
+Re-frozen again 2026-10-13 when #199 (admission properties) joined the hub's merge
+chain after #194: `Daemon._admit_pass` extracted (ast, unchanged) from #199's head
+dc9501d21, which is release/217 at 5bd0a3a674c6 plus #199. #199 changed the pass in
+four places, so they are the only differences from the copy before: a capacity wait
+keyed on `scheduler.verdict_signature` alone (C-6.10), the retry-exclusion merge
+checked where the route is prepared and in the reservation (`_merged_exclusions`,
+C-6.12), and a job whose probe was quarantined held as `uncertain` on that pass (C-4.1).
 """
 
 def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
@@ -466,6 +474,10 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                     holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                     continue
         try:
+            if extra_exclusions:
+                # C-6.12: checked where the route is prepared, so a failure here counts
+                # toward the deferral backoff instead of following a reset of it.
+                self._merged_exclusions(job, extra_exclusions)
             approved, desktop_account = self._prepare_route(job, decision_job, extra_exclusions)
         except Unroutable as exc:
             self._early_routes.pop(job["job_id"], None)
@@ -477,15 +489,21 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
         # C-6.12: this pass could evaluate the route, so the next failure starts the count again.
         self._route_deferrals.pop(job["job_id"], None)
         if approved is None:
+            current = self._job(job["job_id"])
+            if current["state"] in TERMINAL or current["cancel_requested_at"]:
+                continue
+            if current["wait_reason"] in ("approval", "uncertain"):
+                # C-4.1, C-6.11: preparing the route quarantined its probe, so the job now
+                # waits on a person. It holds back nobody and says so on this pass too.
+                holds[job["job_id"]] = {"reason": current["wait_reason"]}
+                continue
             wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
             # C-6.11: which probe, and whose turn it is when it is not this job's.
             hold = holds[job["job_id"]] = {"reason": "probe-pending", **(probe_note or {})}
-            current = self._job(job["job_id"])
-            live = current["state"] not in TERMINAL and not current["cancel_requested_at"]
             # A probe that ran set the job's clock itself (C-6.10), which is due
             # at once when the probe used the whole of it.
             clocked = "next_check_at" in hold or (current["next_check_at"] and current["next_check_at"] > utcnow())
-            if live and not clocked:
+            if not clocked:
                 # C-6.10: the route could not be prepared and nothing set a
                 # clock (the probe's slot is held, the lane changed hands, an
                 # older job has the turn at the probe). The job would otherwise
@@ -504,9 +522,9 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
             elif clocked:
                 hold.setdefault("next_check_at", current["next_check_at"])
                 self._refresh_hold(job["job_id"], hold)
-            if live and kind == "detached" and hold.get("model") and current["wait_reason"] != "uncertain":
-                # C-6.9: it waits on this probe, so it carries the next one; a job
-                # whose probe was quarantined waits on an operator and holds nobody.
+            if kind == "detached" and hold.get("model"):
+                # C-6.9: it waits on this probe, so it carries the next one (a job
+                # whose probe was quarantined waits on an operator and left above).
                 probe_line.append((job["job_id"], hold["model"],
                                    self._probe_reach(roster, job, hold["model"], lanes, extra_exclusions)))
             continue
@@ -616,7 +634,7 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                         status = "held"
                         break
                     if extra_exclusions:
-                        job["exclusions"] = json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra_exclusions)))
+                        job["exclusions"] = self._merged_exclusions(job, extra_exclusions)
                         tx.execute("UPDATE jobs SET exclusions=? WHERE job_id=?", (job["exclusions"], job["job_id"]))
                     needs_probe = self._needs_probe(decision, job)
                     live = tx.execute("SELECT count(*) FROM attempts a JOIN jobs j USING(job_id) "
@@ -660,9 +678,8 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
                             # reason (`conversations.waits`), never just "capacity".
                             from .conversations import waits as turn_waits
                             hold["lanes"] = turn_waits.lane_summary(decision)
-                        rechecks = self._capacity_wait(
-                            job["job_id"], f"{scheduler.verdict_signature(decision)}:{at_limit}", hold,
-                            lane_wait=not decision.chosen_lane)
+                        rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
+                                                       lane_wait=not decision.chosen_lane)
                         waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
                         if not rechecks:
                             self.store.add_decision(job["job_id"], decision)
