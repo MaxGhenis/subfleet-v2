@@ -17,10 +17,10 @@ import json
 import socket
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 from subfleet import daemon as daemon_module
 from subfleet import descriptors
+from subfleet.conversations.pools import CountedPool
 
 from test_daemon_connections import connect, counts, reply, send, serve, until  # noqa: F401 - serve: a fixture
 
@@ -123,7 +123,7 @@ def test_c16_7_a_departed_clients_queued_conversation_read_is_dropped_its_write_
     whose client left still runs, because a write's outcome is the store's."""
     service = serve()
     service.conversations.files.shutdown(wait=True)
-    service.conversations.files = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-files")
+    service.conversations.files = CountedPool(1, "subfleet-files")
     release, ran = threading.Event(), []
 
     def handle(op, args, peer, **kwargs):
