@@ -1768,11 +1768,11 @@ def test_d_sh1_shell_requirement_is_tri_state(daemon, flag, value):
 
 
 def test_every_shipped_policy_model_is_pinnable():
-    from subfleet.policy import load_policy
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
     parser = cli.build_parser()
-    for model in load_policy()['models']:
+    for model in load_policy(DEFAULT_POLICY_PATH)['models']:
         assert parser.parse_args(['run', '-m', model, 'task']).m == model
-    assert {'sol61', 'luna'} <= set(load_policy()['models'])
+    assert {'sol61', 'luna'} <= set(load_policy(DEFAULT_POLICY_PATH)['models'])
 
 
 def test_daemon_is_authority_for_custom_policy_model(daemon):
