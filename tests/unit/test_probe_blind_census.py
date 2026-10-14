@@ -79,3 +79,13 @@ def test_a_writer_seen_after_a_blind_probe_ends_the_inspection_extension(daemon,
     assert daemon._contain_probe(record)
     assert [value for _, value in taken] == [BLIND, writer, EMPTY]
     assert taken[-1][0] < daemon.exit_settle_s + daemon.inspect_interval_s
+
+
+def test_a_blind_probe_read_after_the_first_snapshot_keeps_the_same_inspection_window(daemon, monkeypatch):
+    guardian = procs.Containment(group_pids=frozenset({99}))
+    record, taken, _ = probe(daemon, monkeypatch, [(0, guardian)], then=BLIND)
+    assert not daemon._contain_probe(record)
+    assert record["state"] == "quarantined"
+    assert taken[0][1] == guardian
+    assert taken[-1][0] - taken[0][0] >= daemon.exit_inspect_s
+    assert len(taken) <= 12

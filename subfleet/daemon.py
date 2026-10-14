@@ -4959,21 +4959,30 @@ class Daemon:
     def _contain_probe(self, record: dict) -> bool:
         """C-5.4–7: terminate only recorded identities and retain uncertain leases."""
         census = self._probe_census(record)
-        # A receipt says the provider finished, not that an unreadable census
-        # found a writer. Probes and re-enrolment retain their leases and retry
-        # a blind post-receipt look on the same bounded pace as finalization.
-        inspection_expired = False
-        if census.blind and self._read_json(Path(record["directory"]) / "exit.json"):
-            since = time.monotonic()
-            while census.blind:
+        # A receipt says the provider finished, not that a failed source saw
+        # a writer. Carry one window through every look in this containment,
+        # including a blind read after a positive first snapshot.
+        since = time.monotonic()
+        post_receipt = record.get("directory") and self._read_json(Path(record["directory"]) / "exit.json")
+        inspection_expired = interrupted = False
+
+        def inspected(value, foreign=None):
+            nonlocal inspection_expired, interrupted
+            while post_receipt and value.blind:
                 elapsed = time.monotonic() - since
                 if elapsed >= self.exit_inspect_s:
                     inspection_expired = True
                     break
                 delay = min(max(self.inspect_interval_s, elapsed), self.exit_inspect_s - elapsed)
                 if self.stopping.wait(delay):
-                    return False
-                census = self._probe_census(record)
+                    interrupted = True
+                    break
+                value = self._probe_census(record, foreign_ownership=foreign)
+            return value
+
+        census = inspected(census)
+        if interrupted:
+            return False
         foreign = census.foreign_ownership
         owned = {int(pid): procs.ProcessIdentity(**value)
                  for pid, value in record.get("owned_identities", {}).items()}
@@ -4999,10 +5008,12 @@ class Daemon:
                 if signal_allowed(ident):
                     self._signal_owned(record["holder"], ident, signal.SIGTERM, census, record, foreign)
             deadline = time.monotonic() + self.term_grace_s
-            while not census.verified_empty and time.monotonic() < deadline:
+            while not census.verified_empty and not inspection_expired and time.monotonic() < deadline:
                 time.sleep(.05)
-                census = self._probe_census(record, foreign_ownership=foreign)
-            if not census.verified_empty:
+                census = inspected(self._probe_census(record, foreign_ownership=foreign), foreign)
+            if interrupted:
+                return False
+            if not census.verified_empty and not inspection_expired:
                 for ident in owned.values():
                     if signal_allowed(ident):
                         self._signal_owned(record["holder"], ident, signal.SIGKILL, census, record, foreign)
@@ -5012,7 +5023,9 @@ class Daemon:
                     if target in owned and signal_allowed(owned[target]):
                         self._signal_owned(record["holder"], owned[target], signal.SIGKILL, census, record, foreign)
                 time.sleep(.05)
-                census = self._probe_census(record, foreign_ownership=foreign)
+                census = inspected(self._probe_census(record, foreign_ownership=foreign), foreign)
+        if interrupted:
+            return False
         record.update(state="contained" if census.verified_empty else "quarantined",
                       containment=census.to_dict())
         self._save_probe(record)
