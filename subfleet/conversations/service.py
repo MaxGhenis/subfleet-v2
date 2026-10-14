@@ -46,6 +46,7 @@ from .. import folders, resource_leases
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
 from .peers import APP_EXECUTABLES, AuditToken, allowed_executable_paths, judge
+from .pools import CountedPool
 from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for callers)
 from .runner import Clocks, TurnRunner
 from .store import (
@@ -109,6 +110,16 @@ CATALOG_STOP_WAIT_S = 2.0
 # How long close() waits, in all, for the turn runners to finish the iteration they are
 # in. The conversation store refuses what a runner still going after it writes (C-25.3).
 RUNNER_STOP_WAIT_S = 5.0
+# How long close() waits, in all, for the ops already running on its worker pools (file
+# ops, history reads, a wake poll; C-25.3). They take milliseconds, git and gh under their
+# own caps longer; one held past this (a walk with no budget, a stalled mount, a slow git
+# call) is logged, and the store closes under it. `Daemon.close()` waits for it with no
+# bound before it lets daemon.lock go (`drain`, C-5.8a).
+FILE_OPS_STOP_WAIT_S = 10.0
+# How long close() waits, last, for a file write under way or an operation holding the
+# conversation store; past it the store refuses what starts after, and its connection
+# stays open for the one under way.
+STORE_CLOSE_WAIT_S = 2.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
 # The dispatcher's claim on a queued message while it creates the message's turn job
@@ -137,8 +148,8 @@ class ConversationService:
         # queued behind others could outlast the app's deadline (wait_s + 15 s).
         self.polls = concurrent.futures.ThreadPoolExecutor(descriptors.CONNECTIONS_CEILING,
                                                            thread_name_prefix="subfleet-poll")
-        self.files = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-files")
-        self.history_reads = concurrent.futures.ThreadPoolExecutor(2, thread_name_prefix="subfleet-history")
+        self.files = CountedPool(2, "subfleet-files")
+        self.history_reads = CountedPool(2, "subfleet-history")
         self._moot_next: dict[str, tuple[str, float]] = {}
         self.runners: dict[str, TurnRunner] = {}
         self._lock = threading.RLock()
@@ -179,37 +190,69 @@ class ConversationService:
         self._closed = False
 
     def close(self) -> None:
+        began = time.monotonic()
         self._stop_catalog()                    # from here `_closed`: no runner is adopted after
         with self._lock:
             runners = list(self.runners.values())
         for runner in runners:
             runner.stop()
-        deadline = time.monotonic() + RUNNER_STOP_WAIT_S
+        stopped = time.monotonic()
+        deadline = stopped + RUNNER_STOP_WAIT_S
         self.polls.shutdown(wait=False, cancel_futures=True)
         # File ops write into the state root: an attachment's copy, a worktree. One
         # still running when close() returned finished after its owner had removed
-        # the root, and made it again (review of #47). The ones running finish here,
-        # while the root and the store are still there; queued ones never run, and
-        # the pool takes none after. Each is bounded (a capped file read, git under
-        # its caps), as the ops the daemon's own pools wait for are.
-        self.files.shutdown(wait=True, cancel_futures=True)
-        self.history_reads.shutdown(wait=True, cancel_futures=True)
-        self.wakes.close()
+        # the root, and made it again (review of #47). A history read and a wake poll
+        # read and write the store. Queued ones never run and the pools take none
+        # after; the ones running finish here, while the root and the store are still
+        # there. The wait has a bound of its own: the reads' caps do not bound every op
+        # (a walk with no budget, a stalled mount), and one op held for good held close()
+        # for good (reviews of 39223c9). One still running after it is logged, and the
+        # store refuses what it starts next; `Daemon.close()` waits for it, with no
+        # bound, before it lets daemon.lock go (`drain`, C-5.8a). A subprocess it runs
+        # (git, and a hook or filter git starts) is not stopped here.
+        running = [(pool, pool.stop()) for pool in self._worker_pools()]
+        ops_deadline = time.monotonic() + FILE_OPS_STOP_WAIT_S
+        late_ops = sum(len(pool.await_running(ops, max(0.0, ops_deadline - time.monotonic())))
+                       for pool, ops in running if ops)
+        if late_ops:
+            self.log.warning("%d file, history or wake op(s) still running %.1f s into close(); closing the "
+                             "conversation store under them", late_ops, time.monotonic() - began)
         # A turn runner writes into the state root too: the store, an approval's request,
         # `conversations/models.json`, `turn.json`. One still in its iteration when close()
-        # returned made the removed root again. Each finishes that iteration here, within
-        # a bound; the store refuses what one still going writes after it closes (`writing`).
+        # returned made the removed root again. Each finishes that iteration here, until
+        # RUNNER_STOP_WAIT_S after it was stopped (the pools' wait runs meanwhile, so a
+        # runner may go on as long as that wait); the store refuses what one still going
+        # starts after it closes (`writing`).
         late = [runner.attempt_id for runner in runners if not runner.join(deadline - time.monotonic())]
         if late:
-            self.log.warning("turn runners still going %g s after close(); the conversation store refuses "
-                             "what they write now: %s", RUNNER_STOP_WAIT_S, ", ".join(late))
+            self.log.warning("turn runners still going %.1f s after close() stopped them; the conversation store "
+                             "refuses what they write now: %s", time.monotonic() - stopped, ", ".join(late))
         for runner in runners:
             # A runner that reached its outcome and was stopped before its report.
             driver = getattr(runner, "driver", None)
             if getattr(driver, "outcome", None) is not None and getattr(runner, "outcome_reported", True) is False:
                 self.log.warning("turn %s stopped with its outcome unreported: message %s settles when a later "
                                  "daemon replays the attempt", runner.attempt_id, runner.message_id)
+        if not self.store.close(timeout=STORE_CLOSE_WAIT_S):
+            self.log.warning("a file write or operation still held the conversation store %g s into its close(); "
+                             "the store refuses what starts from now and its connection is left open for it",
+                             STORE_CLOSE_WAIT_S)
+
+    def drain(self) -> None:
+        """Wait, with no bound, for what close() outlasted: the ops still running on its
+        worker pools, then a file write or operation still holding the conversation
+        store, whose connection then closes. `Daemon.close()` calls this before it lets
+        daemon.lock go (C-5.8a): a lock freed while one ran let a second daemon start on
+        the root, and the old op then wrote into the new daemon's root or committed a
+        held transaction (reviews of cc7504e). C-5.8a's bound ends an owner stuck here
+        with the lock still held."""
+        for pool in self._worker_pools():
+            pool.shutdown(wait=True)
         self.store.close()
+
+    def _worker_pools(self) -> tuple[CountedPool, ...]:
+        """The pools whose running ops close() waits for (C-25.3)."""
+        return (self.files, self.history_reads, self.wakes.poller)
 
     # --- the socket seam -------------------------------------------------------
 

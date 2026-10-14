@@ -5,7 +5,6 @@ and the unattended counter share the message transaction, including after restar
 """
 from __future__ import annotations
 
-import concurrent.futures
 import hashlib
 import json
 import re
@@ -15,6 +14,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from .pools import CountedPool
 from .store import ConversationError, canonical_native, utcnow
 from .turn import TERMINAL_STATES
 
@@ -190,7 +190,8 @@ class WakeEngine:
         self.service = service
         self.store = service.store
         self.now = time.time
-        self.poller = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="subfleet-pr-wakes")
+        # The service's close() waits for a poll under way with a bound (C-25.3).
+        self.poller = CountedPool(1, "subfleet-pr-wakes")
         self._poll_future = None
         self._next_poll = 0.0
         self._next_completions = 0.0
@@ -222,7 +223,9 @@ class WakeEngine:
         self._started = True
 
     def close(self) -> None:
-        # gh has a hard timeout. The worker must end before its stores close.
+        """Wait, with no bound, for a poll under way: gh has a hard timeout, but the
+        poll's store writes may wait on the store's lock. The service's close() waits
+        for it with a bound first and its `drain` with none (C-25.3, C-5.8a)."""
         self.poller.shutdown(wait=True, cancel_futures=True)
 
     def control_tick(self) -> None:
