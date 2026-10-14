@@ -19,6 +19,7 @@ needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun
                                  reason="native Swift frontend validation requires macOS developer tools")
 # The ⌘K palette's matching and the text scale (C-29.12, C-29.13).
 CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSearch.swift")
+CORE_PROBE.extend([ROOT / "tests/frontend/CoreProbeQueue.swift", ROOT / "tests/frontend/CoreProbeQueueEngine.swift"])
 
 
 @pytest.fixture(scope="session")
@@ -72,3 +73,9 @@ def r2_models(tmp_path_factory):
                           ROOT / "tests/frontend/R2PresentationProbe.swift", "SUBFLEET_MODEL_TEST")
     return run_probe(probe, ROOT / "tests/fixtures/visual/codex-commands.json",
                      ROOT / "tests/fixtures/visual/approval-schema-requests.json")
+
+
+@pytest.fixture(scope="session")
+def queue_tray_view_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-queue-view") / "probe",
+                         ROOT / "tests/frontend/QueueTrayViewProbe.swift", "SUBFLEET_VIEW_TEST")

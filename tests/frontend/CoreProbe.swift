@@ -443,6 +443,10 @@ struct CoreProbe {
             let code = MarkdownBounds.code(text, maxLines: Int(arguments[3]) ?? 40)
             emit(["shown_lines": code.shown.split(separator: "\n", omittingEmptySubsequences: false).count,
                   "hidden_lines": code.hiddenLines])
+        case "queue": emit(try runQueue(readFile(arguments[2])))
+        case "queue-words": emit(try runQueueWords(readFile(arguments[2])))
+        case "queue-engine": emit(try runQueueEngine(readFile(arguments[2])))
+        case "queue-state": emit(try runQueueState(readFile(arguments[2])))
         case "fold":
             emit(try runFold(readFile(arguments[2])))
         case "questions":
