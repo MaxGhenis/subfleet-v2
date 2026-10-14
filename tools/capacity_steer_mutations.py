@@ -8,7 +8,8 @@ files clean:
 
 With `SUBFLEET_SUITE_LOCK` set to a lock file path (the hub's
 `/private/tmp/claude-501/subfleet-suites.lock`), each pytest run waits for its own hold of
-that lock (`/usr/bin/lockf -k`). It rewrites `subfleet/daemon.py`, `subfleet/scheduler.py`
+that lock (`/usr/bin/lockf -k`). `SUBFLEET_SUITE_LOCK_WAIT_S` sets the queue wait
+(default 60 seconds), independently of the time a pytest holds the lock. It rewrites `subfleet/daemon.py`, `subfleet/scheduler.py`
 or `subfleet/adapters/codex.py` in place, one mutation at a time, and restores the file
 whatever happens. Only exit 1 with a named selected pytest regression failing counts as a
 kill; infrastructure failures stop the tool with a nonzero exit. Every run gets its own
@@ -83,11 +84,12 @@ MUTATIONS = {
 def pytest(tests: tuple[str, ...]) -> subprocess.CompletedProcess:
     argv = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *tests]
     lock = os.environ.get("SUBFLEET_SUITE_LOCK")
+    lock_wait = os.environ.get("SUBFLEET_SUITE_LOCK_WAIT_S", "60")
     with tempfile.TemporaryDirectory(prefix="sf-r207f3-") as directory:
         env = {**os.environ, "TMPDIR": directory + "/",
                "HYPOTHESIS_STORAGE_DIRECTORY": str(Path(directory) / "hyp"),
                "HYPOTHESIS_PROFILE": "ci", "PYTHONDONTWRITEBYTECODE": "1"}
-        return subprocess.run(["/usr/bin/lockf", "-k", "-t", "60", lock, *argv] if lock else argv,
+        return subprocess.run(["/usr/bin/lockf", "-k", "-t", lock_wait, lock, *argv] if lock else argv,
                               env=env, capture_output=True, text=True)
 
 
