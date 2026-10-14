@@ -107,7 +107,7 @@ const inspectionMatch = (c, blocked, expected) => {
       { env: c.env, encoding: 'utf8', timeout: 2000 })
     timing += `; fresh fake ps probe observed ${Date.now() - started} ms vs 2000 ms timeout (status ${probe.status}, error ${probe.error?.code || 'none'})`
   }
-  assert.match(blocked.text, expected, timing)
+  assert.match(blocked.text, expected, `${timing}; expected ${expected}; observed ${blocked.text.trim()}`)
 }
 
 try {
@@ -245,12 +245,28 @@ try {
     // Also cross the complete zsh command boundary in every generated step.
     c.setup(); c.env.SUBFLEET_FANOUT_LOCK_WAIT_S = '0'
     const holder = await holdLock(c, '{}')
+    const clockPython = join(c.root, 'bin', 'python3')
     try {
+      // A fixed ps age needs a fixed matching wall clock: a slow launcher
+      // startup must not move its synthetic spawn outside the 2 s tolerance.
+      // Only wall time is replaced; subprocess.run still enforces its real
+      // 2 s inspection timeout using the unmodified monotonic clock.
+      const realPython = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { env: c.env, encoding: 'utf8' }).trim()
+      writeFileSync(clockPython, `#!${realPython}
+import sys,time
+assert sys.argv[1] == "-c"
+source = sys.argv[2]
+assert "def status(entry):" in source
+sys.argv = ["-c", *sys.argv[3:]]
+time.time = lambda: 2000000000.0
+exec(compile(source, "<rendered-lock-runner>", "exec"), {"__name__": "__main__"})
+`)
+      chmodSync(clockPython, 0o755)
       for (const [value, expected, age] of [['60:00', 'alive', 3600], ['60:01', 'unknown', 0],
         ['61:00', 'unknown', 0], ['99:00', 'unknown', 0]]) {
         c.env.FAKE_PS_ETIME = value
         for (const i of [0, 1, 2]) {
-          writeFileSync(join(c.args.stateDir, 'rq-test.lock'), JSON.stringify({ launcher: { pid: process.pid, since: Date.now() / 1000 - age } }))
+          writeFileSync(join(c.args.stateDir, 'rq-test.lock'), JSON.stringify({ launcher: { pid: process.pid, since: 2000000000 - age } }))
           const blocked = c.step(i)
           assert.equal(blocked.status, 75, blocked.text)
           inspectionMatch(c, blocked, new RegExp(`^LOCKED .*launcher_pid=${process.pid} launcher=${expected} helper_pid=none cli_pid=none$`, 'm'))
@@ -259,7 +275,10 @@ try {
       }
       assert.equal(c.count('run'), 0)
       console.log('PASS Darwin boundary: 12 held-lock shell steps; 60:00 alive; 60:01, 61:00 and 99:00 unknown')
-    } finally { holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r)) }
+    } finally {
+      if (existsSync(clockPython)) unlinkSync(clockPython)
+      holder.kill('SIGKILL'); await new Promise(r => holder.on('close', r))
+    }
   })
   // Port the reviewer's held-lock probes. Inspection is controlled even on a
   // sandbox that denies real ps; kill(pid, 0) still checks the actual PID.

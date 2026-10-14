@@ -244,7 +244,9 @@ check with the source-formatter regression and all three shell steps:
   formatter cases (seed 125101), **20** malformed cases, **six** epoch-bound
   cases, and **4,096** comparisons across integer and float clocks. Twelve
   complete held-lock shell commands cover `60:00` (alive), `60:01`, `61:00`
-  and `99:00` (unknown), with no submission.
+  and `99:00` (unknown), with no submission. Their fixed fake age uses a
+  matching fixed wall clock in the unmodified rendered runner; the real
+  monotonic clock and two-second subprocess timeout remain active.
 - `--mutations` reverts the minute boundary and requires both the formatter
   regression and 4,096-string property to fail. Three other mutations
   (epoch bound, component ranges, identity classification) must still fail
