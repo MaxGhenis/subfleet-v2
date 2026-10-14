@@ -1015,6 +1015,9 @@ def test_late_foreign_cwd_exclusion_requires_a_marker_inside_identity_checks(mon
     def read(argv, **kwargs):
         if "pid=,command=" in argv:
             return "400 wait SUBFLEET_ATTEMPT=parent/a1 SUBFLEET_ROOT=/fixture\n"
+        if argv == ["/bin/ps", "-p", "400", "-o", "stat="]:
+            assert kwargs == {"empty_ok": True}
+            return "S"  # A late raw marker needs the same live-state check as a listed one.
         assert argv == ["/bin/ps", "-p", "400", "-Eww", "-o", "command="]
         assert kwargs == {"empty_ok": True}
         if race == "marker-unavailable":
