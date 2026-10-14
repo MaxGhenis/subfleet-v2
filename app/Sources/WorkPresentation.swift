@@ -103,8 +103,8 @@ enum WorkPresentation {
         let seconds = max(0, Int(end.timeIntervalSince(start)))
         return seconds < 60 ? "\(seconds)s" : String(format: "%dm %02ds", seconds / 60, seconds % 60)
     }
-    static func rows(in timeline: Timeline) -> [ProgressRow] {
-        let items = timeline.items.filter { !isEmptyThinking($0) }
+    static func rows(in timeline: Timeline, items shown: [TimelineItem]? = nil) -> [ProgressRow] {
+        let items = (shown ?? timeline.items).filter { !isEmptyThinking($0) }
         let finished = timeline.turns.filter { $0.value.messageState.map(MessageState.terminal.contains) ?? false }
         var emitted: Set<String> = []
         var rows: [ProgressRow] = []

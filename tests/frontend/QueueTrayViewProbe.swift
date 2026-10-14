@@ -108,6 +108,7 @@ struct TrayConfiguration {
     var withdrawing: Set<String> = []
     var steer = false
     var held = false
+    var notice = false
     var width: CGFloat = 480
     /// Host the tray in a column of this height laid out like the conversation
     /// view's; nil hosts the tray alone.
@@ -160,6 +161,7 @@ struct HostedTray: View {
         TrayConfiguration(name: "busy", rows: [first, second], withdrawing: ["q1"]),
         TrayConfiguration(name: "busy-only", rows: [first], withdrawing: ["q1"]),
         // The head row the daemon offers to steer, while its Withdraw is under way.
+        TrayConfiguration(name: "notice", rows: [head, second], notice: true),
         TrayConfiguration(name: "steer-busy", rows: [head, second], withdrawing: ["q1"], steer: true),
         TrayConfiguration(name: "twelve", rows: numbered(12)),
         TrayConfiguration(name: "forty", rows: numbered(40)),
@@ -180,7 +182,15 @@ struct HostedTray: View {
         func hostedTray(_ rows: [QueuedMessage]) -> HostedTray {
             HostedTray(tray: QueueTray(title: title, rows: rows, withdrawing: configuration.withdrawing,
                                        withdraw: { log.events.append("withdraw:" + $0.id) },
-                                       steer: configuration.steer ? { log.events.append("steer:" + $0.id) } : nil),
+                                       steer: configuration.steer ? { log.events.append("steer:" + $0.id) } : nil,
+                                       notice: configuration.notice ? { id in
+                                           guard id == "q1" else { return nil }
+                                           return AnyView(VStack(alignment: .leading) {
+                                               Text("Send stopped: permission needed").readingFont(.caption)
+                                               Button("Try again") { log.events.append("retry:" + id) }
+                                                   .buttonStyle(.link).readingFont(.caption)
+                                           })
+                                       } : nil),
                        column: configuration.column)
         }
         let hosted = FixedWidthHost(hostedTray(configuration.rows), width: configuration.width)
@@ -213,7 +223,7 @@ struct HostedTray: View {
     var out: [String: CGFloat] = [:]
     let counts = Set(hidden.flatMap { [$0 - 1, $0, $0 + 1] }).sorted()
     for label in ["Withdraw", "Send now", "Show fewer"] + counts.map({ "Show \($0) more" }) {
-        let hosted = FixedWidthHost(Button(label) {}.buttonStyle(.link).font(.caption), width: 480)
+        let hosted = FixedWidthHost(Button(label) {}.buttonStyle(.link).readingFont(.caption), width: 480)
         windows.append(hosted.window)
         out[label] = hosted.layout().buttons.first?.frame.width ?? 0
     }

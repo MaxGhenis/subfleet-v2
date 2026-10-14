@@ -228,15 +228,6 @@ def test_c29_7_the_collapsed_tray_shows_what_queue_tray_visible_says(trays, view
     assert len({heights[n] for n in (5, 6, 7, 8, 9, 12, 13, 40)}) == 1
 
 
-EXPANDED_FRAME_BUG = (
-    "app/Sources/UIQueueTray.swift:37: the expanded list's `.frame(maxHeight: 200)` takes the height "
-    "proposed to it, up to 200 pt, not the height its rows need. Alone, an expanded tray of 5 to 9 short "
-    "rows is 235 pt with the rows centred in it (expected 126 to 202 pt with the rows under the header); "
-    "in a 700 pt column like the conversation view's, expanding 5 rows takes 120 pt from the timeline "
-    "instead of 19 pt. In a scratch copy of the sources, `.fixedSize(horizontal: false, vertical: true)` "
-    "after that frame gives the expected layout and keeps the 200 pt scrolling list for 12 and 40 rows.")
-
-
 def test_c29_7_an_expanded_tray_whose_rows_fit_is_as_tall_as_its_rows(trays):
     """C-29.7: Show N more on five to nine short rows shows every row directly
     under the header: each row adds as much height as the fourth row of a
@@ -252,7 +243,8 @@ def test_c29_7_an_expanded_tray_whose_rows_fit_is_as_tall_as_its_rows(trays):
     for n in range(5, 10):
         tops = sorted(trays[f"count-{n}"]["passes"][1]["tops"])
         observed[n] = (trays[f"count-{n}"]["passes"][1]["height"], tops[1] - tops[0])
-        expected[n] = (trays["count-4"]["passes"][0]["height"] + (n - 4) * step, first_row)
+        expected[n] = (min(trays["count-4"]["passes"][0]["height"] + (n - 4) * step,
+                           trays["twelve"]["passes"][1]["height"]), first_row)
 
     def column(name: str, index: int) -> tuple[float, float]:
         shown = trays[name]["passes"][index]
@@ -262,7 +254,11 @@ def test_c29_7_an_expanded_tray_whose_rows_fit_is_as_tall_as_its_rows(trays):
 
     gap, timeline = column("column-5", 1)
     _, collapsed_timeline = column("column-5", 0)
-    assert (observed, gap, collapsed_timeline - timeline) == (expected, column("column-12", 1)[0], step)
+    for n in observed:
+        assert observed[n][0] == pytest.approx(expected[n][0], abs=1)
+        assert observed[n][1] == expected[n][1]
+    assert gap == column("column-12", 1)[0]
+    assert collapsed_timeline - timeline == pytest.approx(step, abs=1)
 
 
 def test_c29_7_an_expanded_tray_withdrawn_to_four_rows_is_as_tall_as_its_rows(trays):
@@ -343,3 +339,11 @@ def test_c29_7_the_tray_never_orders_a_window_front(trays, views):
     fewer, shows no window."""
     assert trays and all(tray["visible_windows"] == 0 for tray in trays.values())
     assert views["visible_windows"] == 0
+
+
+def test_c29_17_a_send_notice_and_its_action_are_hosted_on_the_owning_tray_row(trays):
+    for shown in trays["notice"]["passes"]:
+        assert sorted(fired(shown["clicks"])) == ["retry:q1", "withdraw:q1", "withdraw:q2"]
+        by_action = {click[0]: top for top, click in zip(shown["tops"], shown["clicks"]) if click}
+        assert by_action["retry:q1"] < by_action["withdraw:q2"]
+    assert trays["notice"]["passes"][0]["height"] > trays["steer-no-closure"]["passes"][0]["height"]

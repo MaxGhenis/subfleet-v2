@@ -23,6 +23,7 @@ final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
+    @Published private(set) var withdrawingMessages: Set<String> = []
     @Published private(set) var accountSnapshot: Snapshot?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
@@ -915,7 +916,37 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// A tray withdrawal always names its own message and conversation. Pending
+    /// clicks share one busy state, so a row cannot send a second action meanwhile.
+    func withdrawQueued(_ row: QueuedMessage, conversationID: String) {
+        guard row.canWithdraw, let engine, withdrawingMessages.insert(row.id).inserted else { return }
+        Task {
+            defer { withdrawingMessages.remove(row.id) }
+            do {
+                if case .withdraw = row.withdraw {
+                    let result = try await onOutbox { try engine.withdrawSend(row.id) }
+                    switch result {
+                    case .withdrawn(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                        else { state.withdrawLocal(conversationID: conversationID, messageID: row.id) }
+                    case .stopped(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                    case .inFlight: break
+                    }
+                } else if let receipt = try await onOutbox({ try engine.stop(row.withdraw) }) {
+                    state.apply(receipt: receipt)
+                }
+            } catch { report(error) }
+        }
+    }
+
     func stop(_ action: StopAction) {
+        if case .withdraw(let id) = action,
+           let (conversationID, timeline) = state.timelines.first(where: { $0.value.turn(id) != nil }),
+           let turn = timeline.turn(id) {
+            withdrawQueued(QueuedMessage(turn: turn), conversationID: conversationID)
+            return
+        }
         guard let engine else { return }
         Task {
             do {
