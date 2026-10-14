@@ -1,25 +1,24 @@
-"""Fail a test before it touches a path it must never reach (D-ST1).
+"""Refuse forbidden filesystem accesses before the underlying call (D-ST1).
 
-`untouchable` refuses, before the call happens, any stat, lstat, readlink,
-listing, `os.open`, `open` or directory or file change at or beneath the given
-roots, by any case and through `..` segments. `Path.resolve`, `Path.samefile`,
-`os.path.realpath` and `Path.mkdir` go through these; C code that opens a path
-itself, such as `sqlite3.connect`, does not. The refusal is `pytest.fail`, a
-BaseException, so a consumer's `except Exception` cannot swallow it and carry
-on to the next access.
+Check open/io.open, every path operand, aliases, and descriptor-relative paths.
+Realpath itself runs through the lexical trap, so resolving an alias never stats
+its forbidden target. Native libraries opening paths without Python APIs (e.g.
+sqlite3.connect) remain outside this monkeypatch trap and require isolated inputs.
 """
 
 from __future__ import annotations
 
 import builtins
 import contextlib
+import io
 import os
 import pwd
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
-#: The person's live stores, from the real account entry, never from HOME.
 PERSONAL = Path(pwd.getpwuid(os.getuid()).pw_dir)
 LIVE_STORES = tuple(PERSONAL / relative for relative in (
     ".subfleet", ".claude", ".codex", ".claude.json", "chief-of-staff/state",
@@ -27,13 +26,23 @@ LIVE_STORES = tuple(PERSONAL / relative for relative in (
 ))
 
 
+def _descriptor_path(fd):
+    """Read the descriptor's name, never stat its target."""
+    if sys.platform == "darwin":
+        import fcntl
+        raw = fcntl.fcntl(fd, getattr(fcntl, "F_GETPATH", 50), bytes(1024))
+        return os.fsdecode(raw.split(b"\0", 1)[0])
+    return os.readlink(f"/proc/self/fd/{fd}")
+
+
 @contextlib.contextmanager
 def untouchable(patch, *roots):
-    forbidden = [os.path.normpath(os.fspath(root)).casefold() for root in roots]
+    forbidden = [os.path.abspath(os.fspath(root)).casefold() for root in roots]
     touched = []
+    resolving = threading.local()
 
     def reaches(path):
-        # Every directory the lookup walks, so `root/..` counts as well.
+        # Check the walk before normalizing: reaching root/.. still touches root.
         walked = ""
         for part in path.casefold().split(os.sep):
             walked = os.path.normpath(os.path.join(walked or os.sep, part)) if part else walked
@@ -41,20 +50,57 @@ def untouchable(patch, *roots):
                 return True
         return False
 
-    def guarded(function):
-        def call(*args, **kwargs):
-            path = args[0] if args else kwargs.get("path", kwargs.get("file", "."))
-            if not isinstance(path, int):
+    def refuse(spelled):
+        touched.append(spelled)
+        pytest.fail(f"touched {spelled}")
+
+    def check(path, dir_fd=None):
+        try:
+            if isinstance(path, int):
+                spelled = _descriptor_path(path)
+                absolute = spelled
+            else:
                 spelled = os.fsdecode(path)
-                if reaches(os.path.join(os.getcwd(), spelled)):
-                    touched.append(spelled)
-                    pytest.fail(f"touched {spelled}")
+                base = _descriptor_path(dir_fd) if dir_fd is not None and not os.path.isabs(spelled) else os.getcwd()
+                absolute = os.path.join(base, spelled)
+        except (OSError, TypeError, ValueError):
+            return  # Invalid arguments are rejected by the original API.
+        if reaches(absolute):
+            refuse(spelled)
+        if not getattr(resolving, "active", False):
+            # realpath's lstat/readlink calls re-enter this wrapper. Those calls
+            # do the lexical check before touching each component, including a
+            # symlink's target. Only recursive canonicalization is suppressed.
+            resolving.active = True
+            try:
+                canonical = os.path.realpath(absolute)
+                if reaches(canonical):
+                    refuse(spelled)
+            finally:
+                resolving.active = False
+
+    def guarded(function, operands):
+        def call(*args, **kwargs):
+            for index, keyword, fd_keyword in operands:
+                path = args[index] if len(args) > index else kwargs.get(keyword, ".")
+                check(path, kwargs.get(fd_keyword))
             return function(*args, **kwargs)
         return call
 
     with patch.context() as inner:
         for name in ("stat", "lstat", "readlink", "listdir", "scandir", "open", "mkdir", "rmdir",
-                     "unlink", "rename", "replace", "chmod", "utime"):
-            inner.setattr(os, name, guarded(getattr(os, name)))
-        inner.setattr(builtins, "open", guarded(builtins.open))
+                     "unlink", "remove", "access", "chmod", "chown", "utime", "truncate"):
+            inner.setattr(os, name, guarded(getattr(os, name), [(0, "path", "dir_fd")]))
+        for name in ("rename", "replace", "link"):
+            inner.setattr(os, name, guarded(getattr(os, name),
+                          [(0, "src", "src_dir_fd"), (1, "dst", "dst_dir_fd")]))
+        inner.setattr(os, "symlink", guarded(os.symlink,
+                      [(0, "src", "src_dir_fd"), (1, "dst", "dir_fd")]))
+        inner.setattr(builtins, "open", guarded(builtins.open, [(0, "file", "dir_fd")]))
+        inner.setattr(io, "open", guarded(io.open, [(0, "file", "dir_fd")]))
+        # Canonicalize parent aliases with the lexical trap already installed;
+        # never resolve or stat a forbidden root itself during setup.
+        forbidden.extend(os.path.join(os.path.realpath(os.path.dirname(os.fspath(root))),
+                                      os.path.basename(os.fspath(root))).casefold()
+                         for root in roots)
         yield touched
