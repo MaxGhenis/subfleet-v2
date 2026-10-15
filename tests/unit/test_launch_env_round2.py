@@ -173,3 +173,45 @@ def test_worker_helper_policy_is_per_daemon_and_resets(monkeypatch):
         for daemon, name in zip(services, ("FIRST_TOKEN", "SECOND_TOKEN")):
             assert set(pool.submit(daemon._run_worker, build_environment).result()) == {name}
             assert pool.submit(build_environment).result() == {}
+
+
+@pytest.mark.parametrize("entry", ["request", "lane", "reader"])
+def test_timer_helpers_use_owning_policy_across_threads(tmp_path, monkeypatch, entry):
+    from concurrent.futures import ThreadPoolExecutor
+    from subfleet.launch_env import helper_policy
+    from subfleet.store import Store
+    from subfleet.timers import Timers
+    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
+    policy = {"env": {"pass": ["GH_TOKEN"]}, "models": {}, "caps": {},
+              "sessions": {"mirror_interval_s": 0}, "reset_credits": {"enabled": False}}
+    with Store(tmp_path / "state.sqlite3") as store:
+        timer = Timers(store, tmp_path, policy)
+        attribute = "_cycles" if entry == "request" else "_lanes"
+        getattr(timer, attribute).shutdown(wait=True)
+        pool = ThreadPoolExecutor(max_workers=1)
+        setattr(timer, attribute, pool)
+        seen = []
+        try:
+            assert pool.submit(build_environment).result(timeout=30) == {}
+            if entry == "request":
+                monkeypatch.setattr(timer, "keepalive_cycle", lambda: seen.append(build_environment()))
+                timer.start()
+            elif entry == "lane":
+                lane = SimpleNamespace(provider="claude", enabled=True, owner="v2", desktop=False)
+                monkeypatch.setattr(store, "list_lanes", lambda: [lane])
+                monkeypatch.setattr(timer, "_keepalive_lane", lambda lane: seen.append(build_environment()))
+            with helper_policy({"env": {"pass": ["OTHER_TOKEN"]}}):
+                if entry == "request":
+                    assert timer.request("keepalive")["status"] == "scheduled"
+                    pool.submit(lambda: None).result(timeout=30)
+                elif entry == "lane":
+                    timer.keepalive_cycle()
+                else:
+                    adapter = SimpleNamespace(probe_status=lambda lane, env:
+                        seen.append(build_environment()) or {"status": "ok"})
+                    timer._read_probe(adapter, SimpleNamespace(lane_id="dummy"), {})
+                assert build_environment() == {"OTHER_TOKEN": "dummy"}
+            assert seen == [{"GH_TOKEN": "dummy"}]
+            assert pool.submit(build_environment).result(timeout=30) == {}
+        finally:
+            timer.stop()
