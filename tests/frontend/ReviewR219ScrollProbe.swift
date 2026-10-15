@@ -25,6 +25,7 @@ struct OpeningHarness: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(12)
+                .background(ConversationOpeningPin())
             }
             .modifier(MaybeAnchor(anchored: anchored))
             .onChange(of: feed.jumps) { _, _ in jump(proxy) }
@@ -102,7 +103,24 @@ struct ReviewR219ScrollProbe {
                     settling.append(sample(host))
                 }
             }
-            out.append(["name": name, "opening": samples, "late_page": latePage, "settling": settling])
+            // Emulate the AppKit notification emitted by the person's first
+            // scroll. Later row growth must leave that reading position alone.
+            var afterPerson: [[String: Double]] = []
+            if let scroll = scrollViews(host).first, let document = scroll.documentView {
+                NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+                let clip = scroll.contentView
+                let y = document.isFlipped ? max(0, document.frame.height - clip.bounds.height - 180) : 180
+                clip.scroll(to: NSPoint(x: 0, y: y))
+                scroll.reflectScrolledClipView(clip)
+                feed.rows += 30
+                for _ in 0..<30 {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+                    host.layoutSubtreeIfNeeded()
+                    afterPerson.append(sample(host))
+                }
+            }
+            out.append(["name": name, "opening": samples, "late_page": latePage, "settling": settling,
+                        "after_person": afterPerson])
         }
         let result: [String: Any] = ["runs": out, "visible_windows": NSApp.windows.filter(\.isVisible).count,
                                      "os": ProcessInfo.processInfo.operatingSystemVersionString]

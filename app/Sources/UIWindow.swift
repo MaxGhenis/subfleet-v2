@@ -365,6 +365,7 @@ struct ConversationView: View {
                             .onDisappear { atBottom = false }
                     }
                     .padding(Theme.space.column)
+                    .background(ConversationOpeningPin())
                     .conversationColumn(conversation.conversation_id, proxy: proxy)
                     .frame(maxWidth: .infinity)
                 }
