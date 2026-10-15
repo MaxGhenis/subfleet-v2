@@ -27,6 +27,13 @@ from subfleet.lockwatch import LockWatch, WatchedLock
 from subfleet.store import Store
 
 
+@pytest.fixture(autouse=True)
+def fixture_process_identity(monkeypatch):
+    """Lock and stack-dump wiring uses identities owned by this unit fixture."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "lockwatch-fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "lockwatch-fixture-start")
+
+
 class Clock:
     def __init__(self):
         self.now = 1000.0

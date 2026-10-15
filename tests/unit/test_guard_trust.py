@@ -366,7 +366,17 @@ def test_preflight_default_deadline_is_sixty_seconds(monkeypatch):
 
 def test_preflight_deadline_comes_from_v1_environment_variable(fake_codex, monkeypatch):
     """CODEX_GUARD_PREFLIGHT_TIMEOUT (v1's name) bounds the daemon's probe."""
-    fake, report_path = fake_codex
+    fake, _ = fake_codex
+    # This case bounds hooks/list. Version startup has its own deadline tests.
+    monkeypatch.setattr(guard, "_version", lambda *args, **kwargs: (0, "codex-cli 0.153.3", ""))
+    stopped = []
+    real_stop = guard._stop_probe
+
+    def stop(process):
+        stopped.append(process.pid)
+        real_stop(process)
+
+    monkeypatch.setattr(guard, "_stop_probe", stop)
     monkeypatch.setenv(guard.TIMEOUT_ENV, "0.5")
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
     started = time.monotonic()
@@ -375,9 +385,9 @@ def test_preflight_deadline_comes_from_v1_environment_variable(fake_codex, monke
     assert not result.ok and result.code == 7 and result.kind == guard.TIMEOUT
     assert result.timeout_s == 0.5 and "0.5s deadline" in result.message
     assert guard.TIMEOUT_ENV in result.fix
-    report = json.loads(report_path.read_text())
+    assert stopped == [result.probe_pid]
     with pytest.raises(ProcessLookupError):
-        os.kill(report["pid"], 0)
+        os.kill(result.probe_pid, 0)
 
 
 @pytest.mark.parametrize("value", ["", "  ", None])
@@ -549,6 +559,8 @@ def test_reap_failure_never_hides_the_probe_diagnostics(fake_codex, monkeypatch,
     """Finding 1: a launcher that outlives its SIGKILL wait, or a reap that errors,
     must not replace the timeout refusal or drop its diagnostics."""
     fake, report_path = fake_codex
+    # Exercise reaping an app-server, independently of the version subprocess.
+    monkeypatch.setattr(guard, "_version", lambda *args, **kwargs: (0, "codex-cli 0.153.3", ""))
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
     real_stop = guard._stop_probe
 
@@ -571,7 +583,7 @@ def test_reap_failure_never_hides_the_probe_diagnostics(fake_codex, monkeypatch,
         raise PermissionError(1, "Operation not permitted")
 
     monkeypatch.setattr(guard, "_stop_probe", stop)
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=2)
     assert result.kind == guard.TIMEOUT and "deadline" in result.message
     assert "unverified, not mismatched" in result.message
     report = json.loads(report_path.read_text())

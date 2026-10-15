@@ -182,7 +182,8 @@ def test_c6_8_a_snapshot_failure_that_quotes_a_name_that_is_not_utf8_fails_the_j
     """Review of cda4c161, N1, at admission: the baseline snapshot's `add -A` quotes such a
     name (faked, as APFS refuses it; every other git call is real). Carried as a surrogate,
     it reached the job's notice, which SQLite could not encode: the admission pass raised
-    on every try, holding every job behind it."""
+    on every try, holding every job behind it. The records now say how git ended and
+    git's words are in daemon.log only (C-25.7), still as valid UTF-8."""
     from tests.unit.test_salvage_unindexable import fake_add
     daemon, harness = state_daemon
     repository(daemon, harness)
@@ -191,10 +192,12 @@ def test_c6_8_a_snapshot_failure_that_quotes_a_name_that_is_not_utf8_fails_the_j
     daemon._admit()
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["rc"]) == ("failed", 1) and daemon.store.list_attempts(job_id) == []
-    error = 'git add failed: error: open("caf\\xe9.txt"): Permission denied\nfatal: adding files failed'
+    error = "git add failed (exit 128); daemon.log has its output"
     assert f"workspace preparation failed: SalvageError: {error}" in daemon.store.list_notices()[0]["text"]
     [failed] = events(daemon, job_id, "job.workspace_failed")
     assert failed["error"] == error and failed["transient"] is False
+    assert ('SalvageError: git add failed: error: open("caf\\xe9.txt"): Permission denied fatal: adding files failed'
+            in log_text(daemon))
 
 
 def test_c6_8_the_full_disk_the_live_daemon_failed_a_job_on_waits_instead(state_daemon, monkeypatch):
@@ -212,7 +215,9 @@ def test_c6_8_the_full_disk_the_live_daemon_failed_a_job_on_waits_instead(state_
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
     [record] = events(daemon, job_id, "job.workspace_deferred")
-    assert record["error_type"] == "SalvageError" and record["error"].endswith("write error. Out of diskspace")
+    assert (record["error_type"], record["error"]) == (
+        "SalvageError", "git write-tree failed (exit 128); daemon.log has its output")
+    assert "write error. Out of diskspace" in log_text(daemon)        # what git said decides the wait
     assert daemon.store.list_notices() == []
     monkeypatch.setattr(subprocess, "run", real_run)       # the disk has room again
     due(daemon, job_id)
@@ -223,7 +228,8 @@ def test_c6_8_the_full_disk_the_live_daemon_failed_a_job_on_waits_instead(state_
 def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(state_daemon, monkeypatch):
     """`git worktree add` prints a file it could not check out in its own bytes; read as
     strict UTF-8 that raised `UnicodeDecodeError` out of the admission pass on every try.
-    The call is faked (APFS refuses such names) and decodes as `subprocess` would."""
+    The call is faked (APFS refuses such names) and decodes as `subprocess` would. What
+    it printed is in daemon.log only (C-25.7); the notice reads `workspace-prepare`."""
     import subfleet.daemon as daemon_module
     daemon, harness = state_daemon
     repository(daemon, harness)
@@ -239,8 +245,10 @@ def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(s
     monkeypatch.setattr(daemon_module.subprocess, "run", run)
     daemon._admit()
     assert daemon.store.get_job(job_id)["state"] == "failed"
-    assert ("could not allocate worktree: error: unable to create file caf\\xe9.txt: Permission denied"
-            in daemon.store.list_notices()[0]["text"])
+    assert daemon.store.list_notices()[0]["text"].splitlines()[1:] == [
+        "could not allocate the worktree; daemon.log has git's output; fix: check repository and state-root permissions"]
+    assert ("git worktree add exited 128: error: unable to create file caf\\xe9.txt: Permission denied"
+            in log_text(daemon))
 
 
 @pytest.mark.parametrize("stderr", [
@@ -274,7 +282,9 @@ def test_c6_8_a_worktree_add_on_a_full_disk_or_a_held_lock_waits(state_daemon, m
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
     [record] = events(daemon, job_id, "job.workspace_deferred")
-    assert record["error_type"] == "SalvageError" and record["error"].startswith("could not allocate worktree: fatal: ")
+    assert (record["error_type"], record["error"]) == (
+        "SalvageError", "could not allocate worktree: git worktree add exited 128; daemon.log has its output")
+    assert "git worktree add exited 128: fatal: " in log_text(daemon)
     assert environments[0].get("LC_ALL") == "C" and "LANGUAGE" not in environments[0]
     assert not (daemon.root / "worktrees" / job_id).exists() and daemon.store.list_notices() == []
     monkeypatch.setattr(daemon_module.subprocess, "run", real_run)          # the disk has room again
@@ -351,15 +361,21 @@ def test_c6_8_a_wrapped_timeout_is_transient_and_names_the_underlying_type(state
 
 
 def test_c6_8_a_refusal_is_still_a_refusal(state_daemon, monkeypatch):
-    """C-6.5 an AdapterError from preparation keeps its exit code and fix, and never waits."""
+    """C-6.5 an AdapterError from preparation keeps its exit code and its reason's fix, and
+    never waits. The notice reads the reason's template, as the wire does (C-25.7): the
+    exception's own words and repair go to daemon.log only."""
     daemon, harness = state_daemon
     repository(daemon, harness)
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
-    failing_workspace(monkeypatch, daemon, AdapterError("writable job refused on main", code=7, fix="branch first"))
+    failing_workspace(monkeypatch, daemon, AdapterError("writable job refused on main: own words", code=7,
+                                                        fix="branch first", reason="writable-branch",
+                                                        details={"branch": "main"}))
     daemon._admit()
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["rc"]) == ("failed", 7)
-    assert "fix: branch first" in daemon.store.list_notices()[0]["text"]
+    assert daemon.store.list_notices()[0]["text"].splitlines()[1:] == [
+        "writable job refused on main; fix: Check out a task branch before submitting a writable job."]
+    assert f"job {job_id} refused (AdapterError): writable job refused on main: own words; fix: branch first" in log_text(daemon)
 
 
 def test_c6_8_a_cancelled_job_is_not_put_back_to_waiting(state_daemon, monkeypatch):
