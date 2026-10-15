@@ -195,7 +195,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     try:
         qos = provider_qos()
         command = provider_argv(argv, qos)
-        child_env = build_environment(pass_names=env_pass)
+        child_env = build_environment(removals=(LINGER_SETTLE_ENV,), pass_names=env_pass)
         try:
             with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
                 if relay is not None:

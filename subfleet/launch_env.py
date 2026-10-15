@@ -104,9 +104,9 @@ def environment_report(environ: Mapping[str, str] | None = None) -> dict[str, li
 def guardian_pass_args(environment: Mapping[str, str]) -> list[str]:
     """Authorize the already-selected child names across the guardian boundary.
 
-    Call this before adding the guardian's PYTHONPATH bootstrap. A provider
-    inherits PYTHONPATH only if the launch or policy deliberately supplied it.
-    Values never appear in argv, launch records or diagnostics.
+    The guardian imports from its own cwd, without rewriting PYTHONPATH. A
+    provider inherits it only if the launch or policy supplied it. Values
+    never appear in argv, launch records or diagnostics.
     """
     return [arg for name in sorted(environment)
             for arg in ("--env-pass", name)]

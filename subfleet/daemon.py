@@ -1190,7 +1190,6 @@ class Daemon:
         env = self._provider_environment.assemble(env)
         env.update(SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE='1')
         provider_env_args = guardian_pass_args(env)
-        env['PYTHONPATH'] = package_root + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, '-m', 'subfleet.guardian', '--attempt-dir', str(directory),
                    '--cwd', cwd, '--stdout-path', str(stdout), '--stderr-path', str(stderr),
@@ -4918,7 +4917,6 @@ class Daemon:
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(directory),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
@@ -7323,11 +7321,10 @@ class Daemon:
         env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
         env.update(self._push_environment(job))
-        # The package path is explicit: provider cwd is deliberately unrelated
-        # to the daemon's installation or test checkout.
+        # The guardian starts in package_root, so `-m` finds Subfleet without
+        # altering an explicitly authorized provider PYTHONPATH.
         provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
