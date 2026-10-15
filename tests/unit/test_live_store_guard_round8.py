@@ -65,10 +65,11 @@ def test_env_can_explicitly_restore_recorder_after_clear():
 def test_wrapper_path_comparison_never_probes_a_system_directory(monkeypatch):
     def unexpected(*args, **kwargs):
         pytest.fail("wrapper containment must compare strings before path lookup")
-    monkeypatch.setattr(os.path, "isfile", unexpected)
-    with pytest.raises(credentials.KeychainExecRefused):
-        sys.audit("subprocess.Popen", "/bin/sh", ["/bin/sh", "-c", "true"], None,
-                  {"PATH": "/usr/bin:/bin"})
+    with monkeypatch.context() as patch:
+        patch.setattr(os.path, "isfile", unexpected)
+        with pytest.raises(credentials.KeychainExecRefused):
+            sys.audit("subprocess.Popen", "/bin/sh", ["/bin/sh", "-c", "true"], None,
+                      {"PATH": "/usr/bin:/bin"})
 
 
 def test_credential_shell_runner_cannot_escape_to_emulated_system_path(tmp_path):
@@ -116,9 +117,12 @@ def test_trap_stops_round8_access_before_underlying_api(tmp_path, monkeypatch, o
     firmlink = "/System/Volumes/Data" + str(root.resolve())
     module, name = (io, "FileIO") if operation == "FileIO" else (os, "chdir" if operation == "chdir" else "stat")
     seen = []
+    original = getattr(module, name)
     def witness(*args, **kwargs):
-        seen.append(args)
-        raise AssertionError("underlying API reached")
+        if os.fsdecode(args[0]).startswith((str(root), firmlink)):
+            seen.append(args)
+            raise AssertionError("underlying API reached")
+        return original(*args, **kwargs)
     monkeypatch.setattr(module, name, witness)
     with live_store_trap.untouchable(monkeypatch, root) as touched:
         with pytest.raises(pytest.fail.Exception, match="touched"):
