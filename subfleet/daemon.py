@@ -5848,6 +5848,24 @@ class Daemon:
                     self._stuck_pin(job, stuck, holds)
                     continue
                 job = self._unstuck_pin(job)
+            if (not job["pinned_lane"] and job["kind"] != "turn"
+                    and job["wait_reason"] not in ("approval", "uncertain")
+                    and self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job["job_id"],))):
+                # D-WALL1 leaves admission waits uncharged. A retry that no
+                # candidate can ever take instead has C-11.8's durable grace.
+                _, excluded, _ = self._retry_pin(job)
+                try:
+                    effective = {**job, "exclusions": self._merged_exclusions(job, excluded)} if excluded else job
+                except Unroutable:
+                    permanent = None  # C-6.12 still owns an unevaluable route.
+                else:
+                    permanent = scheduler.unadmittable(self.policy, pin_view(), effective,
+                                                        memo=for_good_memo, permanent_only=True)
+                if permanent:
+                    self._stuck_pin(job, {"lane_id": None, "reasons": permanent, "closures": [],
+                                          "all_lanes": True}, holds)
+                    continue
+                job = self._unstuck_pin(job)
             due = not (job["next_check_at"] and job["next_check_at"] > utcnow())
             if (job["kind"] != "turn" and job["wait_reason"] not in ("approval", "uncertain")
                     and (due or job["wait_reason"] != "workspace")):
@@ -7048,7 +7066,8 @@ class Daemon:
                 episodes[row["job_id"]] = {**previous, "noticed": False}
             elif row["kind"] == "job.pin_unadmittable":
                 episodes[row["job_id"]] = {**previous, "open": True, "since": data.get("since"),
-                                           "fail_at": data.get("fail_at"), "lane_id": data.get("lane_id")}
+                                           "fail_at": data.get("fail_at"), "lane_id": data.get("lane_id"),
+                                           "all_lanes": bool(data.get("all_lanes"))}
             else:
                 episodes[row["job_id"]] = {**previous, "open": False}
         return episodes
@@ -7097,16 +7116,19 @@ class Daemon:
             grace = admission_settings(self.policy)["pin_grace_s"]
             fail_at = None if turn or grace is None else _later(now, grace)
             record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "closures": stuck["closures"],
-                      "since": now, "fail_at": fail_at}
+                      "since": now, "fail_at": fail_at,
+                      **({"all_lanes": True} if stuck.get("all_lanes") else {})}
             with self.store.transaction("job.pin_unadmittable", job_id=job_id, lane_id=stuck["lane_id"],
                                         data=record) as tx:
                 tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
                            "WHERE job_id=? AND state IN ('queued','waiting')",
                            (fail_at or _later(now, CAPACITY_RECHECK_CEILING_S), job_id))
-            episode = {**episode, "open": True, "since": now, "fail_at": fail_at, "lane_id": stuck["lane_id"]}
+            episode = {**episode, "open": True, "since": now, "fail_at": fail_at, "lane_id": stuck["lane_id"],
+                       "all_lanes": bool(stuck.get("all_lanes"))}
             self._pin_episodes[job_id] = episode
             self._capacity_waits.pop(job_id, None)          # C-6.10: not a wait for capacity now
-            self.log.warning("job %s: pinned lane %s can never admit it (%s); %s", job_id, stuck["lane_id"],
+            self.log.warning("job %s: %s can never admit it (%s); %s", job_id,
+                             "every candidate lane" if stuck.get("all_lanes") else f"pinned lane {stuck['lane_id']}",
                              ", ".join(stuck["reasons"]), render.pin_ends(fail_at))
             self._notify()
         fail_at = episode.get("fail_at")
@@ -7117,15 +7139,18 @@ class Daemon:
         if failing and not self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                 "('reserved','starting','running','finalizing','quarantined')", (job_id,)):
-            self.log.warning("job %s failed: pinned lane %s could never admit it (%s)", job_id, stuck["lane_id"],
+            self.log.warning("job %s failed: %s could never admit it (%s)", job_id,
+                             "every candidate lane" if stuck.get("all_lanes") else f"pinned lane {stuck['lane_id']}",
                              ", ".join(stuck["reasons"]))
             self._fail_queued(job, render.pin_failure(stuck, episode.get("since")), rc=int(Exit.NO_LANE),
                               kind="job.pin_refused", data={**stuck, "since": episode.get("since")})
             self._discard_fresh_worktree(job_id)
             self._pin_episodes.pop(job_id, None)
             return
-        holds[job_id] = {"reason": "pin-unadmittable", "lane_id": stuck["lane_id"], "reasons": stuck["reasons"],
+        holds[job_id] = {"reason": "lanes-unadmittable" if stuck.get("all_lanes") else "pin-unadmittable",
+                         "lane_id": stuck["lane_id"], "reasons": stuck["reasons"],
                          "closures": stuck["closures"], "since": episode.get("since"), "fail_at": fail_at,
+                         **({"all_lanes": True} if stuck.get("all_lanes") else {}),
                          **({"probe_status": stuck["probe_status"]} if stuck.get("probe_status") else {})}
 
     def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
@@ -7144,7 +7169,7 @@ class Daemon:
             session = job["caller_session"] or operator_session(self.policy)
             record = {"lane_id": stuck["lane_id"], "reasons": stuck["reasons"], "session_id": session,
                       "since": episode.get("since"), "fail_at": episode.get("fail_at"), "service_notice_id": None,
-                      "created_at": now}
+                      "created_at": now, **({"all_lanes": True} if stuck.get("all_lanes") else {})}
             if session is None:
                 self.store.add_event("job.pin_noticed", job_id=job_id, lane_id=stuck["lane_id"], data=record)
             else:
