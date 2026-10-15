@@ -23,6 +23,9 @@ def link_during_freeze(patch, candidate: Path, live: Path, step: str, kind: str)
         if fired:
             return
         fired.append(step)
+        if kind == "parent-alias":
+            live.parent.symlink_to(candidate.parent, target_is_directory=True)
+            return
         live.unlink(missing_ok=True)
         if kind == "hardlink":
             os.link(candidate, live)

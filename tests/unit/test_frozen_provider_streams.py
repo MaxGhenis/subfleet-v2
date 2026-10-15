@@ -288,7 +288,7 @@ def test_freeze_identity_detaches_live_names_and_unlinked_writers(tmp_path, name
 
 @pytest.mark.parametrize("name", ("codex", "claude"))
 @pytest.mark.parametrize("step", FREEZE_STEPS)
-@pytest.mark.parametrize("kind", ("hardlink", "symlink"))
+@pytest.mark.parametrize("kind", ("hardlink", "symlink", "parent-alias"))
 def test_freeze_authority_and_fallback_equivalence_at_every_link_step(tmp_path, name, step, kind):
     assert_link_authority(tmp_path, name, step, kind, encode([MESSAGE]), encode([COMPLETED, CLAUDE_RESULT]))
 
@@ -299,6 +299,9 @@ def assert_link_authority(directory, name, step, kind, before, after):
     live.write_bytes(before)
     expected = readings(adapter, directory, launch)  # Legacy stdout fallback.
     candidate.write_bytes(before)
+    if kind == "parent-alias":
+        live = directory / "alias" / candidate.name
+        launch = replace(launch, stdout_path=str(live))
     with pytest.MonkeyPatch.context() as patch:
         with link_during_freeze(patch, candidate, live, step, kind) as fired:
             frozen_launch = freeze(directory, launch)
@@ -317,7 +320,7 @@ def assert_link_authority(directory, name, step, kind, before, after):
 
 @pytest.mark.parametrize("name", ("codex", "claude"))
 @settings(max_examples=80, deadline=None, derandomize=True)
-@given(step=st.sampled_from(FREEZE_STEPS), kind=st.sampled_from(("hardlink", "symlink")),
+@given(step=st.sampled_from(FREEZE_STEPS), kind=st.sampled_from(("hardlink", "symlink", "parent-alias")),
        before=STREAM, after=STREAM)
 def test_property_frozen_authority_and_fallback_over_link_timing(name, step, kind, before, after):
     with tempfile.TemporaryDirectory() as temporary:
@@ -340,9 +343,10 @@ def test_freeze_replay_never_recopies_a_replaced_candidate(tmp_path, name):
     assert readings(adapter, tmp_path, freeze(tmp_path, launch)) == expected
 
 
+@pytest.mark.parametrize("name", ("codex", "claude"))
 @pytest.mark.parametrize("error", (errno.ENOENT, errno.EIO, errno.EACCES))
-def test_freeze_propagates_post_check_regular_file_errors(tmp_path, monkeypatch, error):
-    _, launch = provider(tmp_path, "codex")
+def test_freeze_propagates_post_check_regular_file_errors(tmp_path, monkeypatch, name, error):
+    _, launch = provider(tmp_path, name)
     candidate = tmp_path / "stream.jsonl"
     candidate.write_bytes(b"")
     original_open = os.open
@@ -358,7 +362,8 @@ def test_freeze_propagates_post_check_regular_file_errors(tmp_path, monkeypatch,
 
 
 @pytest.mark.parametrize("replacement", (False, True), ids=("regular-denial", "mode-000-directory"))
-def test_stream_open_distinguishes_permission_denial_from_nonregular_replacement(tmp_path, monkeypatch, replacement):
+@pytest.mark.parametrize("error", (errno.EACCES, errno.EPERM))
+def test_stream_open_distinguishes_permission_denial_from_nonregular_replacement(tmp_path, monkeypatch, replacement, error):
     from subfleet.adapters.base import open_stream
     candidate = tmp_path / "stream.jsonl"
     candidate.write_bytes(b"")
@@ -366,14 +371,38 @@ def test_stream_open_distinguishes_permission_denial_from_nonregular_replacement
         if replacement:
             candidate.unlink()
             candidate.mkdir(mode=0)
-        raise PermissionError(errno.EACCES, "permission denied", str(candidate))
+        raise PermissionError(error, "permission denied", str(candidate))
     monkeypatch.setattr(os, "open", opening)
     try:
-        with pytest.raises(NotRegularFile if replacement else PermissionError):
+        with pytest.raises(NotRegularFile if replacement else PermissionError) as caught:
             open_stream(candidate)
+        assert caught.value.errno == error
+        if not replacement:
+            assert not isinstance(caught.value, NotRegularFile)
     finally:
         if replacement:
             candidate.chmod(0o700)
+
+
+def test_mode_000_directory_replacement_uses_real_open(tmp_path, monkeypatch):
+    from subfleet.adapters.base import open_stream
+    candidate = tmp_path / "stream.jsonl"
+    candidate.write_bytes(b"")
+    original_open = os.open
+    replaced = []
+    def opening(path, *args, **kwargs):
+        if Path(path) == candidate and not replaced:
+            replaced.append(True)
+            candidate.unlink()
+            candidate.mkdir(mode=0)
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(os, "open", opening)
+    try:
+        with pytest.raises(NotRegularFile):
+            open_stream(candidate)
+        assert replaced == [True]
+    finally:
+        candidate.chmod(0o700)
 
 
 def test_freeze_copy_uses_bounded_reads_from_one_candidate_descriptor(tmp_path, monkeypatch):
