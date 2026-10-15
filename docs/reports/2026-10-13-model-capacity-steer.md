@@ -311,7 +311,8 @@ Commits remain on `fix/model-capacity-steer` in workspace-local `.git-local` met
 
 ## PR #207 fix round 4
 
-Resumed after the cold boot on 2026-10-15 at recovered head `c68d56f4e356`.
+Round start: `59022aba5`. Resumed after the cold boot on 2026-10-15 at recovered
+head `c68d56f4e356`.
 The assigned checkout was clean. The four recovered commits were read in order;
 their completed work was preserved:
 
@@ -329,9 +330,9 @@ their completed work was preserved:
   retaining the CI bounds of 40 examples and at most 30 steps per machine.
 
 The recovered fixture matches the finalizer's completion requirements; no source
-step needed repeating. Validation after restart uses the full CI bounds, with
-no example-count or shrinking overrides. Each run includes both state machines
-and all nine explicit regression cases.
+step needed repeating. Each `tests/fake/test_admission_stateful.py` invocation
+uses the full CI bounds, with no example-count or shrinking overrides, and
+includes both state machines and all nine explicit regression cases.
 
 | CI seed | Result | Pytest runtime |
 | --- | --- | --- |
@@ -343,20 +344,43 @@ All three required CI seeds passed; no new admission bug was found.
 
 | Requested file | Result |
 | --- | --- |
+| `tests/fake/test_admission_stateful.py` | 11 passed per seed; three seeds |
 | `tests/fake/test_admission_properties.py` | 27 passed, 1 expected failure |
 | `tests/fake/test_admission_held_waiters.py` | 1 passed |
 | `tests/unit/test_held_waiter_holdback.py` | 6 passed |
 | `tests/fake/test_capacity_steer_daemon.py` | 38 passed |
 | `tests/unit/test_capacity_steer_route.py` | 22 passed |
 | `tests/unit/test_codex_adapter.py` | 172 passed |
+| `tests/fake/test_admission_priority.py` | 32 passed |
+| `tests/fake/test_routing_end_to_end.py` | 14 passed, 2 skipped |
+| `tests/fake/test_state_contract.py` | 37 passed |
 
 The first file-group hold finished with **34 passed, 1 expected failure in
 413.55 s**. The expected failure is the existing C-6.10 wait-kind/unchanged-verdict
 case. The capacity-steering/adapter group finished with **232 passed in
-100.89 s**. Only the priority/routing/state group remains pending.
+100.89 s**. The priority/routing/state group finished with **83 passed, 2 skipped
+in 72.56 s**. Both skips require unavailable macOS sysctl/ps process inspection.
+
+Total: **382 passing executions, 2 skipped, 1 expected failure**, including the
+three stateful runs; **360 distinct passing cases**. No requested file remains
+unrun, and no additional production-code fix was needed.
+
+All six invocations ran in the foreground, one pytest process and one worker at
+a time, each under its own `lockf -k` shared-lock hold. Queue waits had no timeout;
+every hold stayed below 20 minutes. All pytest runtimes were below seven minutes.
+The frozen environment is Python 3.14.7 free threaded, pytest 9.1.1 and Hypothesis
+6.168.1. `HYPOTHESIS_PROFILE=ci` was set throughout; other properties retained
+their committed bounded settings, and no deep profile was used. Each run had
+its own task-owned TMPDIR and Hypothesis storage, removed with the requested
+`shutil.rmtree` cleanup after pytest exited. No `.hypothesis` directory or test
+wrapper remains. `git diff --check` and fixture syntax parsing passed.
 
 The shared Git metadata is outside the writable roots, so new commits use
 workspace-local `.git-local` metadata on `fix/model-capacity-steer`, with the
 original `.git` pointer unchanged. Inspect it with
 `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`. No Git remote, caller
 checkout, live store or live process was accessed; no sub-agents were used.
+The portable history is `.git-local/r207f4.bundle`, verified against round start
+`59022aba5`. Every commit retains the requested co-author trailer. Only the named
+report file was staged after the restart; no logs, JSON evidence or bundles were
+staged. Nothing was pushed and no PR comment was sent.
