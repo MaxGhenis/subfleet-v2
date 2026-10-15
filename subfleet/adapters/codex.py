@@ -331,24 +331,24 @@ class CodexAdapter(Adapter):
 
     def enroll(self, credential: Credential) -> LaneInfo:
         if credential.provider != self.provider or credential.kind != "home":
-            raise AdapterError("Codex enrollment requires a subscription home", fix="Use a Codex home signed into a paid ChatGPT subscription.")
+            raise AdapterError("Codex enrollment requires a subscription home", fix="Use a Codex home signed into a paid ChatGPT subscription.", reason="codex-enroll-home")
         home = Path(credential.ref).expanduser().resolve()
         raw = _read_auth(home)
         fix = f"Sign into a paid ChatGPT subscription in CODEX_HOME={home} and enroll again."
         if _api_key(raw):
-            raise AdapterError("API-key Codex homes are refused", code=7, fix=fix)
+            raise AdapterError("API-key Codex homes are refused", code=7, fix=fix, reason="codex-api-key")
         identity = _identity(raw)
         if not identity["token"]:
-            raise AdapterError("Codex home has no readable subscription token", fix=fix)
+            raise AdapterError("Codex home has no readable subscription token", fix=fix, reason="codex-token-missing")
         if str(identity["plan"]).strip().lower() == "free":
-            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
+            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix, reason="codex-free-plan")
         payload = self._payload(raw)
         plan = payload.get("plan_type") or identity["plan"]
         if str(plan).strip().lower() == "free":
-            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
+            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix, reason="codex-free-plan")
         account = identity["account_id"] or identity["email"] or payload.get("email")
         if not account:
-            raise AdapterError("Codex home has no account id or email", fix=fix)
+            raise AdapterError("Codex home has no account id or email", fix=fix, reason="codex-account-missing")
         # Enrollment precedes lane allocation; the daemon rebinds these readings to its lane id.
         return LaneInfo(f"codex:{account}", plan, str(home), self._readings(payload, ""))
 
@@ -493,10 +493,10 @@ class CodexAdapter(Adapter):
                 model_id: str | None, effort: str | None, session_id: str | None) -> Launch:
         sandbox = Sandbox(job.sandbox)
         if sandbox == Sandbox.WORKSPACE_WRITE and not guard_override:
-            raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.")
+            raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.", reason="codex-guard-required")
         home = lane.home or lane.credential.ref
         if not home or (credential_env.get("CODEX_HOME") and Path(credential_env["CODEX_HOME"]).expanduser().resolve() != Path(home).expanduser().resolve()):
-            raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.")
+            raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.", reason="codex-home-mismatch")
         argv = [self.codex_bin, "exec", "--json"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
@@ -560,9 +560,9 @@ class CodexAdapter(Adapter):
         # thread already holds its resolved model (see below).
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Codex thread",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-codex")
         if not native_session_id or native_session_id.startswith("-"):
-            raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.")
+            raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.", reason="codex-thread-id")
         # Job pins are policy aliases; the native thread already holds its resolved model.
         return self._launch(job, attempt_id, attempt_dir, lane, credential_env, prompt_path,
                             guard_override, None, None, native_session_id)

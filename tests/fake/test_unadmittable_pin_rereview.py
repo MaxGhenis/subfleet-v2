@@ -17,6 +17,7 @@ import json
 
 from subfleet import hooks
 from subfleet.daemon import utcnow
+from subfleet.procs import Containment
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 from tests.fake.test_state_contract import receipt_fixture
 from tests.fake.test_unadmittable_pin_admission import (events, expire, fleet, service_notices,  # noqa: F401
@@ -81,9 +82,9 @@ def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet, m
     service._pending_launches.discard(attempt["attempt_id"])
     adir = service.root / "jobs" / stuck / "a1"
     adir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # No guardian was launched: this notice-only fixture has no processes.
-    from subfleet.procs import Containment
-    monkeypatch.setattr(service, "_contain", lambda a: Containment())
+    # receipt_fixture has no provider process. Supply that empty census so
+    # notice withdrawal does not depend on permission to inspect host processes.
+    monkeypatch.setattr(service, "_contain", lambda attempt: Containment())
     service._finalize(receipt_fixture(service, attempt, adir))
     job = service.store.get_job(stuck)
     assert job["state"] == "succeeded", job["state"]

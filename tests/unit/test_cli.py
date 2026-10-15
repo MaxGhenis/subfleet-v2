@@ -633,11 +633,18 @@ def test_daemon_error_response_carries_its_exit_code(daemon, capsys, root, workd
     assert "refused" in captured.err and "--allow-tmp" in captured.err
 
 
-def test_malformed_response_is_an_operational_error(daemon, capsys, root, workdir):
-    """C-16.1, C-17.3 a malformed response line is exit 1, not a traceback."""
-    daemon({"submit": lambda request: b"{not json at all\n"})
+@pytest.mark.parametrize("body", (b"{not json at all\n", b"{password=SECRET7-left\n"))
+def test_malformed_response_is_an_operational_error(daemon, capsys, root, workdir, body):
+    """C-16.3 malformed replies resend once and name the unsettled submission."""
+    server = daemon({"submit": lambda request: body})
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
-    assert "malformed response" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "malformed response" in err
+    assert "SECRET7-left" not in err and "sending the same submission again" in err
+    submits = [request for request in server.requests if request.op == "submit"]
+    assert len(submits) == 2 and submits[0].args == submits[1].args
+    assert "outcome unknown" in err and submits[0].args["request_id"] in err
+    assert "--request-id" in err
 
 
 def test_empty_response_is_an_operational_error(daemon, capsys, root, workdir):
@@ -1202,12 +1209,19 @@ def test_a_daemon_failure_numbered_zero_is_not_success(daemon, capsys, workdir):
 
 
 @pytest.mark.parametrize("body", [b"[1, 2, 3]\n", b'"a string"\n', b"null\n",
-                                  b'{"v": 1, "ok": false, "error": 7}\n'])
+                                  b'{"v": 1, "ok": false, "error": 7}\n',
+                                  b'{"v": "password=SECRET7-left", "ok": true}\n'])
 def test_a_wrong_shaped_response_is_exit_one(daemon, capsys, workdir, body):
     """C-16.1 valid JSON of the wrong shape is an exit code, not a traceback."""
-    daemon({"submit": lambda request: body})
+    server = daemon({"submit": lambda request: body})
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
-    assert "malformed response" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "malformed response" in err
+    assert "SECRET7-left" not in err and "sending the same submission again" in err
+    submits = [request for request in server.requests if request.op == "submit"]
+    assert len(submits) == 2 and submits[0].args == submits[1].args
+    assert "outcome unknown" in err and submits[0].args["request_id"] in err
+    assert "--request-id" in err
 
 
 def test_a_response_from_another_protocol_version_is_refused(daemon, capsys, workdir):
@@ -1228,8 +1242,8 @@ def test_an_unclosed_response_line_does_not_hang(daemon, capsys, workdir):
 
 
 def test_a_request_id_can_never_name_a_path(daemon, root, workdir, capsys):
-    """C-2.1, C-1.5 a caller-supplied request id stages inside the state root."""
-    daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
+    """C-2.1, C-1.5: path-like keys stage only under a hashed inbox filename."""
+    server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
     victim = root / "victim.md"
     victim.write_text("do not truncate me\n")
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
@@ -1237,16 +1251,48 @@ def test_a_request_id_can_never_name_a_path(daemon, root, workdir, capsys):
     assert victim.read_text() == "do not truncate me\n"
     staged = list((root / "inbox").glob("*.md"))
     assert len(staged) == 1 and staged[0].parent == root / "inbox"
-    capsys.readouterr()
-
-
-def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys):
-    """C-1.5 a request id is the caller's string on the wire, whatever it looks like."""
-    server = daemon({"submit": submit_ok})
-    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
-                    "--request-id", "../victim", "hi"]) == 0
     assert server.args("submit")["request_id"] == "../victim"
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("identity", ("Caller-ID_09", "a" * 128))
+def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys, identity):
+    """C-1.5 a valid caller id is unchanged in both wire fields."""
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", identity, "hi"]) == 0
+    assert server.args("submit")["request_id"] == identity
+    assert next(request.id for request in server.requests if request.op == "submit") == identity
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("identity", [
+    "Caller:ID_09", "/victim", "folder/file", "folder\\file", "clé:résumé / 1",
+])
+def test_submission_request_id_is_separate_from_correlation_id(
+        daemon, root, workdir, capsys, identity):
+    """C-6.2: caller keys keep punctuation/Unicode while wire ids stay safe."""
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", identity, "hi"]) == 0
+    request = next(request for request in server.requests if request.op == "submit")
+    assert request.args["request_id"] == identity
+    assert request.id and protocol.correlation_id(request.id) == request.id
+    assert request.id != identity
+    assert len(list((root / "inbox").glob("*.md"))) == 1
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("argv", [
+    ["run", "-m", "opus", "hello"],
+    ["resume", JOB],
+    ["handoff", "--last", "--to", "astra"],
+])
+@pytest.mark.parametrize("identity", ["Caller:ID_09", "../victim", "clé:résumé / 1"])
+def test_submission_commands_accept_opaque_request_ids(argv, identity):
+    """C-6.2: run, resume and handoff share the submission-key rule."""
+    parsed = cli.build_parser().parse_args([*argv, "--request-id", identity])
+    assert parsed.request_id == identity
 
 
 @pytest.mark.parametrize("second_prompt", ["first prompt", "different prompt"])
@@ -1266,7 +1312,8 @@ def test_pending_submission_prompts_never_overwrite_each_other(root, second_prom
     ["resume", JOB],
     ["handoff", "--last", "--to", "astra"],
 ])
-@pytest.mark.parametrize("identity", ["", "x" * 129])
+@pytest.mark.parametrize("identity", ["", "x" * 129,
+                                      "password=SECRET7-left", "ghp_" + "A" * 36])
 def test_invalid_request_ids_are_rejected_without_truncation(
         argv, identity, root, monkeypatch, capsys):
     """C-1.5, C-6.2: invalid caller ids cannot silently alias a different request."""
@@ -1275,7 +1322,9 @@ def test_invalid_request_ids_are_rejected_without_truncation(
 
     monkeypatch.setattr(cli, "_client", no_transport)
     assert run_cli([*argv, "--request-id", identity]) == 2
-    assert "--request-id" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "--request-id" in err
+    assert "SECRET7-left" not in err and "ghp_" + "A" * 36 not in err
     assert not (root / "inbox").exists()
 
 
