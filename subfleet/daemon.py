@@ -54,7 +54,7 @@ from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
-    ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
@@ -8273,10 +8273,19 @@ class Daemon:
             return
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
-        frozen_stream = self._freeze_stream(adir, launch)
+        stream_failure = None
+        try:
+            frozen_stream = self._freeze_stream(adir, launch)
+            stream_receipt = read_freeze_receipt(adir) or {}
+        except Exception as exc:
+            # A capture failure supplies no completion proof. In particular, do
+            # not let a live path or cached success hide a death this pass found.
+            # Keep the failure in classification and log it after recording end.
+            frozen_stream, stream_receipt = None, {}
+            stream_failure = {"status": "unreadable", "error_type": type(exc).__name__,
+                              "error": refusals.scrubbed_words(exc)[:500]}
         if frozen_stream is not None:
             launch = dataclasses.replace(launch, raw_stream_path=str(frozen_stream))
-        stream_receipt = read_freeze_receipt(adir) or {}
         stream_token = stream_receipt.get("file")
         recapture_deliverable = False
         lane = self.store.get_lane(a["lane_id"])
@@ -8295,11 +8304,12 @@ class Daemon:
         older_verdict = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
-                              else "guardian exit receipt has no return code")
+                              else "guardian exit receipt has no return code",
+                              evidence={"stream_capture": stream_failure} if stream_failure else {})
             attest_status, served_model = "unattested", None
         else:
             result_path = adir / "finalization.json"
-            result = self._read_json(result_path)
+            result = None if stream_failure else self._read_json(result_path)
             # Missing/changed copies have no frozen authority. Reclassify and
             # extract together; a cached interim deliverable is not fresh proof.
             recapture_deliverable = bool(
@@ -8309,11 +8319,19 @@ class Daemon:
             if recapture_deliverable:
                 result = None
             if result is None:
-                exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
-                outcome = adapter.classify(adir, launch, exit_info)
-                if exit_info.spawn_error:
-                    outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
-                attest = adapter.attest(adir, launch, outcome, a["model_requested"])
+                if stream_failure:
+                    incomplete_codex = lane.provider == "codex" and job["kind"] != "turn"
+                    outcome = Outcome(OutcomeClass.TRANSIENT if incomplete_codex else OutcomeClass.UNKNOWN,
+                                      "Codex exited before its turn completed" if incomplete_codex
+                                      else "provider stream unreadable: completion could not be verified",
+                                      evidence={"stream_capture": stream_failure})
+                    attest = AttestationResult(Attestation.UNATTESTED, None, "provider stream unreadable")
+                else:
+                    exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
+                    outcome = adapter.classify(adir, launch, exit_info)
+                    if exit_info.spawn_error:
+                        outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
+                    attest = adapter.attest(adir, launch, outcome, a["model_requested"])
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
                           "rule": FINALIZATION_RULE, "stream": stream_token}
                 self._publish("finalization", result_path, json_bytes(result))
@@ -8324,15 +8342,26 @@ class Daemon:
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
+
+        def artifact(path: Path, role: str) -> dict | None:
+            try:
+                return self._artifact(path, role)
+            except OSError:
+                if not stream_failure:
+                    raise
+                # The source's read error may affect stdout or other evidence
+                # too. Diagnostics must not repeat it and hide this death.
+                return None
+
         deliverable_path = adir / "deliverable.md"
-        if (recapture_deliverable or not deliverable_path.exists()) and not lost:
+        if (recapture_deliverable or not deliverable_path.exists()) and not lost and not stream_failure:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
-        deliverable = self._artifact(deliverable_path, "deliverable")
+        deliverable = artifact(deliverable_path, "deliverable")
         # C-12.6: cached acceptance uses the fresh provider's content boundary,
         # not the artifact's byte count. Preserve the captured payload itself.
         nonblank_deliverable = False
-        if deliverable:
+        if deliverable and not stream_failure:
             payload = read_regular(deliverable_path)
             nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
                                        if lane.provider == "claude" else payload.strip())
@@ -8343,7 +8372,8 @@ class Daemon:
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
         if not lost and lane.provider == "codex" and job["kind"] != "turn":
             from .adapters.codex import completion_evidence
-            completion = completion_evidence(adir, launch)
+            completion = ({"turn_completed": False, "turn_failed": False, "last_event_type": None}
+                          if stream_failure else completion_evidence(adir, launch))
             outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
             spawn_error = receipt.get("spawn_error") or outcome.evidence.get("spawn_error")
             if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
@@ -8392,14 +8422,14 @@ class Daemon:
             # ended at once frees its lane rather than handing the hold to another.
             self._record_answer(a["lane_id"], "finalization", attempt=a)
         artifacts = [x for x in [deliverable,
-                     self._artifact(Path(launch.stdout_path), "stdout"),
-                     self._artifact(Path(launch.stderr_path), "stderr"),
-                     self._artifact(adir / "launch.json", "launch"),
-                     self._artifact(Path(launch.stdin_path), "prompt-sent")
+                     artifact(Path(launch.stdout_path), "stdout"),
+                     artifact(Path(launch.stderr_path), "stderr"),
+                     artifact(adir / "launch.json", "launch"),
+                     artifact(Path(launch.stdin_path), "prompt-sent")
                      if launch.stdin_path and Path(launch.stdin_path).name == "prompt.sent.md" else None,
-                     self._artifact(adir / "lane.log", "lane-log"),
-                     self._artifact(frozen_stream, "raw-stream") if stream_receipt.get("events") else None,
-                     self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
+                     artifact(adir / "lane.log", "lane-log"),
+                     artifact(frozen_stream, "raw-stream") if stream_receipt.get("events") else None,
+                     artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
         trees, salvage_evidence = None, {}
@@ -8501,6 +8531,9 @@ class Daemon:
                     # no notice).
                     summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        if stream_failure:
+            self.log.warning("attempt %s stream capture failed (%s): %s", a["attempt_id"],
+                             stream_failure["error_type"], stream_failure["error"])
         if fault is not None:
             self.log.warning("job %s: lane %s went auth-dead on attempt a%d (%s); the lane is disabled and the "
                              "job moves on to the next lane, this attempt not counted (C-4.5)",
