@@ -281,7 +281,7 @@ def test_a_matching_snapshot_needs_a_current_root_start(monkeypatch, current_sta
         recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, START)},
         responsible_root=procs.ResponsibleRoot(42, BOOT_A, None))
     if current_start == START:
-        assert reads == ["snapshot", 42, 42]  # C-5.12: starts bracket the member reads
+        assert reads == ["snapshot", 42, 42, 60]  # two root checks, then the post-snapshot child's start
         assert result.responsible_pids == {42, 60}
         assert not result.errors and not result.unverifiable
     else:
