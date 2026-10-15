@@ -1,7 +1,8 @@
 # D-WALL1 / D-KILL1: running-time wall and attributed cancellation
 
-`max_wall_s` now bounds summed attempt execution, including starting and
-finalization. Admission never applies it to queued or waiting jobs. Every new
+`max_wall_s` bounds summed provider running time, ending at each known exit;
+round 2 below supersedes this report's original finalization accounting.
+Admission never applies it to queued or waiting jobs. Every new
 `job.cancel_requested` event identifies its source and cause; client requests
 include the requesting session and the socket peer pid.
 
@@ -170,3 +171,251 @@ report are:
 | `a23099d1a` | fix: preserve killed verdicts and notify only identified other sessions |
 | `75c4a2c97` | docs: checkpoint completed suites and targeted validation corrections |
 | `a53bd1a05` | docs: record completed regression suites and remaining mutation probes |
+
+## Round 2 (2026-10-15)
+
+Status checkpoint (2026-10-15 14:36 UTC): implementation committed at
+`309c432f6`; validation in progress. The initial complete 59-file sweep passed,
+and the final implementation has passed 80 wall/census/state tests and 89
+recovery/finalization tests. The remaining final-source rerun is queued under
+the shared lock. The 4-hour-30-minute stop checkpoint is 16:50 UTC. Base:
+`bde895c69b25e91a5e8e24e25631ccbda008fe5f`. No round-1 review file existed at
+`~/reviews/subfleet-hub/wall-2026-10-14/review-r1.md` when this round started,
+so there were no r1 findings to enumerate or conflicting findings to resolve.
+
+### Verified cause and changes
+
+The hub's diagnosis was correct. `_process_attempt` enforced the wall before
+reading `exit.json`; `_running_s` replaced even a known live row's provider end
+with `now`; and terminal settlement enforced the cap again after salvage and
+overwrote the provider's end with settlement time. A cold daemon could cancel
+an already completed provider and discard its rc-0 result. The unchanged census
+CI regression reproduced exactly `('cancelled', 130)` instead of
+`('succeeded', 0)` locally on Python 3.14.
+
+Exit receipts now take precedence over wall enforcement. Accounting uses each
+attempt's recorded start and known provider end; only a provider that may still
+be running is charged through now. Finalizing attempts cannot be wall-cancelled,
+and terminal acceptance preserves the provider's `finished_at`. The job's own
+`finished_at` still records settlement. A self-exited provider keeps its own
+outcome even after an overrun; its attempt records `wall_overrun` with total
+running time, the cap, excess seconds, provider exit time and the reason. Online
+and offline `runs show` expose that evidence. Starting timestamps, waiting
+semantics, retry caps, client cancellation attribution and live-provider wall
+stops are retained. C-4.2, C-6.4 and the contract's version history state this
+rule.
+
+Finalization has **no overall elapsed-time bound today**. Its Git calls have
+`workspace_git_timeout_s` (60 s by default); transient salvage makes at most
+three tries per daemon, then records its failure and settles; failed workers
+have capped retry backoff. Regular-file reads avoid FIFOs, but filesystem walks
+and stalled filesystem operations have no overall deadline (C-25.3). Export
+runs after acceptance, records errors and releases its leases. None of this
+post-exit work spends the provider wall.
+
+The follow-up source audit found two further ways to extend a known end:
+quarantine replaced the receipt end with its own timestamp, and receipt-less
+finalization captured a verified-empty census end only after reading launch
+metadata. Three targeted cases reproduced those errors before the fix. The
+quarantine now preserves a receipt or recorded end, and a census end is saved
+durably before any fallible finalization work. A regression also interrupts
+that work and replays it three days later, proving the saved end survives.
+
+The caller sweep also exposed a pre-existing pin-notice fixture failure in
+`test_unadmittable_pin_rereview.py`, reproduced against the base daemon too.
+That notice-only case launches no provider but asked the real process census
+to establish containment; this sandbox could not verify it, so finalization
+correctly deferred. The case now supplies an explicit empty census locally.
+Its expected success and notice-withdrawal assertions are unchanged; production
+containment is unchanged.
+
+`test_daemon_inspection_load.py` also used a September 24 attempt start against
+the current wall clock. Thirteen pacing cases consequently entered the wall's
+kill path rather than the inspection path. The attempt and receipt now use the
+fixture's current UTC time, while its synthetic process identities stay fixed.
+Its inspection assertions are unchanged, and the fixture now rejects any
+process or group signalling. The original hold completed in 269.40 s before an
+interrupt could be sent; no interrupt was sent and the corrected file is rerun.
+
+
+A final source review found the same finished-provider rule could be violated
+by a parent's wall cancellation cascading into an exited child. Both new cases
+failed before this fix. Wall cascades now leave known-exited descendants to
+settle and export, while still cancelling dependent work that is running or
+waiting. Receipt preflight runs outside the SQL transaction; the latest stored
+exit state is rechecked inside it, covering an exit recorded between the two.
+Unreadable child receipts do not prevent stopping the parent. The new cases
+cover receipt-only and finalizing children, a concurrent finalization, and a
+still-running sibling. C-4.2 and C-7.3 state this wall-specific exception to
+family cancellation; client cancellation behavior is unchanged.
+
+### Deliberate changes of expectation
+
+- `test_finalization_rechecks_wall_at_terminal_commit` became
+  `test_finalization_past_wall_keeps_provider_outcome`: slow salvage that crosses
+  the cap still succeeds, spends only the provider's four seconds and records no
+  wall cancellation. The provider had already exited.
+- `test_finalization_time_is_charged_to_later_attempts` became
+  `test_finalization_time_is_not_charged_to_later_attempts`: the first attempt's
+  two seconds of provider execution remain two after settlement; a later
+  one-second attempt brings both exact accounting and the tick estimate to
+  three, excluding finalization.
+- The stopped-at-the-cap parametrization now covers starting and running;
+  finalizing has a known provider exit and is covered by acceptance and
+  no-cancellation regressions instead.
+- `test_launch_failure_starts_execution_at_finalization_not_reservation` became
+  `test_launch_failure_finalization_spends_no_provider_time`: waiting in
+  finalization after a failed launch spends zero and cannot cause a wall kill.
+- The bounded 40-example Hypothesis property varies attempt durations, waits,
+  per-attempt settlement delays, provider exits and execution states. It cancels
+  exactly when a provider still running has summed execution at least the cap;
+  another three days of settlement delay cannot change that outcome or charge.
+
+### Runner and commit constraints
+
+The prescribed `uv run` failed before collection: initializing the default
+cache was denied at `~/.cache/uv/sdists-v9/.git`. `--no-sync` and selecting an
+existing environment did not change that failure. No cache override, cache
+clean, dependency installation or new virtual environment was used. The
+fallback invokes the existing uv-built Python 3.14.4 interpreter at
+`/Users/maxghenis/subfleet-v2/.venv/bin/python`, reading the locked Hypothesis
+6.168.1, pytest 9.1.1, sortedcontainers 2.4.0 and pytest-timeout 2.4.0 packages
+directly from the **default uv cache** through `PYTHONPATH`. No file outside the
+assigned workspace or per-hold scratch was written. This is a deviation from
+the requested `uv run` entry point, not a claim that it worked.
+
+The inherited `SUBFLEET_RETENTION_DORMANT=1` disabled the isolated retention
+scheduling fixtures, causing 25 failures in `test_native_maintenance_startup.py`.
+Setting it to `0` only in the pytest subprocess made all 41 cases pass; the
+host environment and live daemon were untouched. Later test subprocesses use
+that override, and `test_retention_dormant.py` still explicitly tests both
+dormant and active behavior (7 passed).
+
+Each pytest is a single foreground process in its own `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout or xdist.
+`HYPOTHESIS_PROFILE=ci` is set, no deep profile is run, and Hypothesis storage
+and XML scratch live under the per-hold `$TMPDIR` and are removed with Python
+`shutil.rmtree` after every hold. XML is used only to count per-file outcomes;
+no logs, JSON evidence, XML or bundles are staged.
+
+An early parser command used zsh's read-only `status` variable and left one
+scratch directory when the shell exited; that directory was subsequently
+removed with `shutil.rmtree`. The corrected runner uses `suite_rc`.
+
+The shared Git index was also denied (`index.lock`: operation not permitted).
+Commits therefore use workspace-local `.git-local` metadata on
+`fix/wall-counts-running-time-217`, based on the assigned detached base. The
+original shared checkout metadata is unchanged. Every commit carries the
+requested co-author trailer. Nothing is pushed and no sub-agents are used.
+
+### Validation
+
+A replay of the first 32 wall cases, the census file and the original pin-notice
+fixture against the base daemon had **19 failed,
+27 passed** across the wall, census and pin-notice files. The wall/census subset
+was **18 failed, 22 passed**: the unchanged CI test, all six delayed-exit cases,
+revised finalization expectations, the property, direct enforcement, quarantine
+and census/replay cases all failed as intended. The explicit live-provider-at-
+six-hours control already passed on the base, as it should: this behavior is
+retained. The additional failure was the pre-existing pin-notice fixture below.
+
+Caller discovery used `rg -l 'test_state_contract|_process_attempt' tests -g
+'test_*.py'` and an AST cross-check. There are 45 direct import/call files plus
+`tests/e2e/test_stop_bound.py`, whose traceback assertion mentions the method;
+the broader 46-file grep set is included in validation, together with all
+explicitly requested files.
+
+Before the family-cascade extension, results across all **59 files** were
+**1,494 passed, 3 skipped,
+1 existing strict expected failure, 0 failures or setup errors**. The table
+counts each file's latest successful run once, excluding base replays and
+mutations. No requested file is unrun. The three skipped cases are two in
+`test_idle_cost.py` and one in `test_stop_bound.py`: this sandbox cannot supply
+the real sysctl/ps process identity they require. Their real-process behavior
+remains unverified here. The expected failure is the existing C-6.10 wait-kind
+deduplication case in `test_admission_properties.py`; its marker is unchanged.
+Files outside the explicit list and the caller-discovery set were not run.
+
+The longest pytest invocation, including intermediate failing runs, took
+**269.40 seconds**, below the 20-minute hold bound. Lock waits have no timeout
+and are excluded from pytest's reported duration. The frontend decoder's eight
+cases passed with build output and compiler caches under per-hold scratch; a
+temporary `build` symlink was removed by its cleanup. The uv cache is unchanged.
+
+| File | Passed | Skipped | Expected failure | Rerun on `309c432f6` |
+| --- | ---: | ---: | ---: | --- |
+| `tests/e2e/test_stop_bound.py` | 2 | 1 | 0 | pending |
+| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | pending |
+| `tests/fake/test_admission_held_waiters.py` | 1 | 0 | 0 | pending |
+| `tests/fake/test_admission_latency.py` | 14 | 0 | 0 | pending |
+| `tests/fake/test_admission_lease_waiters.py` | 16 | 0 | 0 | pending |
+| `tests/fake/test_admission_liveness.py` | 32 | 0 | 0 | pending |
+| `tests/fake/test_admission_priority.py` | 32 | 0 | 0 | pending |
+| `tests/fake/test_admission_properties.py` | 27 | 0 | 1 | pending |
+| `tests/fake/test_admission_ramp.py` | 19 | 0 | 0 | pending |
+| `tests/fake/test_admission_ramp_retention.py` | 11 | 0 | 0 | pending |
+| `tests/fake/test_admission_route_isolation.py` | 90 | 0 | 0 | pending |
+| `tests/fake/test_admission_stateful.py` | 2 | 0 | 0 | pending |
+| `tests/fake/test_admission_visibility.py` | 43 | 0 | 0 | pending |
+| `tests/fake/test_batch_label.py` | 9 | 0 | 0 | pending |
+| `tests/fake/test_canonical_identity_fix2.py` | 21 | 0 | 0 | pending |
+| `tests/fake/test_census_recycled_pid_daemon.py` | 8 | 0 | 0 | yes |
+| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 | 0 | pending |
+| `tests/fake/test_conversation_pools.py` | 2 | 0 | 0 | pending |
+| `tests/fake/test_daemon_launch.py` | 8 | 0 | 0 | pending |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 | 0 | yes |
+| `tests/fake/test_frozen_stream_nonregular.py` | 32 | 0 | 0 | pending |
+| `tests/fake/test_idle_cost.py` | 0 | 2 | 0 | pending |
+| `tests/fake/test_lane_fault.py` | 20 | 0 | 0 | pending |
+| `tests/fake/test_lane_pilot.py` | 24 | 0 | 0 | pending |
+| `tests/fake/test_main_refusal_write_dir.py` | 5 | 0 | 0 | pending |
+| `tests/fake/test_mcp_job_contract.py` | 12 | 0 | 0 | pending |
+| `tests/fake/test_native_maintenance_startup.py` | 41 | 0 | 0 | pending |
+| `tests/fake/test_notice_delivery.py` | 15 | 0 | 0 | pending |
+| `tests/fake/test_notice_header.py` | 23 | 0 | 0 | pending |
+| `tests/fake/test_picker_native.py` | 3 | 0 | 0 | pending |
+| `tests/fake/test_policy_sandbox.py` | 25 | 0 | 0 | pending |
+| `tests/fake/test_probe_recovery.py` | 9 | 0 | 0 | yes |
+| `tests/fake/test_reserve_authorization.py` | 12 | 0 | 0 | pending |
+| `tests/fake/test_reserve_authorization_validation.py` | 11 | 0 | 0 | pending |
+| `tests/fake/test_resume_contract.py` | 23 | 0 | 0 | yes |
+| `tests/fake/test_retention_dormant.py` | 7 | 0 | 0 | pending |
+| `tests/fake/test_review130_ab.py` | 12 | 0 | 0 | pending |
+| `tests/fake/test_review_r185_adversarial.py` | 1 | 0 | 0 | pending |
+| `tests/fake/test_salvage_adversarial.py` | 8 | 0 | 0 | pending |
+| `tests/fake/test_salvage_finalization.py` | 47 | 0 | 0 | yes |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | yes |
+| `tests/fake/test_state_fixture_processes.py` | 4 | 0 | 0 | pending |
+| `tests/fake/test_turn_listing.py` | 9 | 0 | 0 | pending |
+| `tests/fake/test_turn_trees.py` | 12 | 0 | 0 | pending |
+| `tests/fake/test_unadmittable_pin_rereview.py` | 6 | 0 | 0 | pending |
+| `tests/fake/test_wall_running_time.py` | 35 | 0 | 0 | yes |
+| `tests/fake/test_workspace_contract.py` | 8 | 0 | 0 | pending |
+| `tests/fake/test_workspace_enospc.py` | 1 | 0 | 0 | pending |
+| `tests/fake/test_workspace_transient.py` | 24 | 0 | 0 | pending |
+| `tests/fake/test_writable_fanout.py` | 28 | 0 | 0 | pending |
+| `tests/frontend/test_disk_ruling.py` | 8 | 0 | 0 | pending |
+| `tests/unit/test_cli.py` | 200 | 0 | 0 | pending |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | pending |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 | 0 | pending |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | pending |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 | pending |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | pending |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 | pending |
+| `tests/unit/test_tick_prefilter.py` | 30 | 0 | 0 | pending |
+
+### Round-2 commits
+
+These commits are in `.git-local` on the assigned branch; the report is saved
+in a subsequent documentation commit.
+
+| Commit | Step |
+| --- | --- |
+| `22ed46df9` | Tests first: delayed provider exits, overrun evidence and revised finalization expectations |
+| `b2cddf7a8` | Provider-only accounting, receipt-first enforcement, overrun persistence and contract changes |
+| `638984f8a` | Tests first: direct enforcement, quarantine, census end and interrupted replay |
+| `25e5dcbb2` | Preserve receipt ends through quarantine and durably capture census ends before finalization |
+| `b62221f80` | Supply explicit empty containment in the pre-existing notice-only fixture |
+| `bdebb2406` | Correct inspection-fixture wall timestamps and refuse signals from synthetic-PID tests |
+| `171e594ce` | Tests first: preserve exited children through wall cascades, including a finalization race |
+| `309c432f6` | Preserve exited family members, recheck exit state atomically and amend C-7.3 |
