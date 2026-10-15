@@ -58,7 +58,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from hypothesis import HealthCheck, Phase, event, note, settings
+from hypothesis import HealthCheck, Phase, event, given, note, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, precondition, rule
 
@@ -1148,7 +1148,9 @@ ProviderCapMachine.TestCase.settings = PROFILE
 TestAdmissionPassProviderCaps = ProviderCapMachine.TestCase
 
 
-def test_r4_three_standard_reviews_drain_after_probe_os_error():
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
+def test_r4_three_standard_reviews_drain_after_probe_os_error(_context):
     """Review r3b: simulated successes must free the only slot for all three reviews."""
     machine = AdmissionMachine()
     try:
@@ -1169,7 +1171,9 @@ def test_r4_three_standard_reviews_drain_after_probe_os_error():
 @pytest.mark.parametrize("provider,model", [("codex", "astra"), ("claude", "sonnet")])
 @pytest.mark.parametrize("outcome,expected", [("ok", "ok"), ("transient", "transient"),
                                               ("limited", "limited"), ("model-capacity", "transient")])
-def test_r4_simulated_finish_preserves_provider_outcome(provider, model, outcome, expected):
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
+def test_r4_simulated_finish_preserves_provider_outcome(provider, model, outcome, expected, _context):
     """C-9.2: completion proof admits successes without turning failures into successes."""
     machine = AdmissionMachine()
     try:
