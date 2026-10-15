@@ -266,8 +266,9 @@ def test_a_pruned_worktree_is_released_with_its_salvage_error_and_left_on_disk(s
     assert not [l for l in daemon.store.list_leases() if l["holder"] in {job_id, a["attempt_id"]}]
     error = json.loads(row["evidence_json"])["salvage_error"]
     # C-25.7 keeps Git's stderr in daemon.log; public evidence names the failed
-    # operation and status, even when a worktree's metadata has been pruned.
-    assert error == "salvage failed: git rev-parse failed (exit 128)", error
+    # operation, status and diagnostic location using only our own fixed text.
+    assert error == ("salvage failed: git rev-parse failed (exit 128); "
+                     "daemon.log has its output"), error
     daemon._log_handler.flush()
     assert "not a git repository" in (daemon.root / "daemon.log").read_text()
     assert (linked / "tracked.txt").read_text() == "unsaved writer progress\n"
