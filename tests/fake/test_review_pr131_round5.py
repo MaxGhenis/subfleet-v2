@@ -9,6 +9,7 @@ import json
 import pytest
 
 from subfleet import procs
+from tests.fake_kernel import ScriptedMarkerKernel
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import (
     BOOT, NEXT_BOOT, ORIGINAL_CENSUS, quarantine, script_table,
@@ -23,15 +24,17 @@ def attempt_with_retained_lease(daemon, harness):
     return a
 
 
-def late_scan(monkeypatch, a, identities, *, group=700, source="marker", rows=None, root=None):
+def late_scan(monkeypatch, a, identities, *, root, group=700, source="marker", rows=None):
     reads = iter(identities)
-    markers = (f"99 writer SUBFLEET_ATTEMPT={a['attempt_id']}"
-               + (f" SUBFLEET_ROOT={root}" if root is not None else "") + "\n")
+    markers = f"99 writer SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={root}\n"
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows or {}, BOOT))
     monkeypatch.setattr(procs, "identity", lambda pid: next(reads))
     monkeypatch.setattr(procs, "process_group", lambda pid: group)
     monkeypatch.setattr(procs, "_read", lambda argv, **kw: markers if source == "marker" else "")
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
+    # The positive raw scan is later than the table, including its zombie rows.
+    monkeypatch.setattr(procs, "_stat", lambda pid: "S")
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {99} if source == "cwd" else set())
 
 
@@ -56,7 +59,7 @@ def test_group_capture_race_keeps_children_of_observed_writer(
     # A reaped/zombie writer leads group 99. For PID reuse it is a member of
     # group 700, since XNU cannot reuse a live group's own leader number.
     captured_group = 700 if confirmation == "reused" else 99
-    late_scan(monkeypatch, a, [writer, confirmed], group=captured_group, source=source)
+    late_scan(monkeypatch, a, [writer, confirmed], root=daemon.root, group=captured_group, source=source)
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
     assert actual["state"] == "quarantined" and leases
@@ -84,7 +87,7 @@ def test_boot_changes_during_capture_retains_new_boot_writer_on_next_pace(
     a = attempt_with_retained_lease(daemon, harness)
     first = procs.ProcessIdentity(99, BOOT, "same-start")
     second = procs.ProcessIdentity(99, NEXT_BOOT, "same-start")
-    late_scan(monkeypatch, a, [first, second])
+    late_scan(monkeypatch, a, [first, second], root=daemon.root)
     census = daemon._contain(a)
     assert census.unverifiable and not census.verified_empty
     script_table(monkeypatch, {99: (1, 900, "S", "same-start")}, boot=NEXT_BOOT)
@@ -99,7 +102,7 @@ def test_zombie_reaped_before_fallback_state_read_keeps_replacement_uncertain(
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     a = attempt_with_retained_lease(daemon, harness)
-    late_scan(monkeypatch, a, [None], rows={99: (1, 700, "Z", "old-zombie")})
+    late_scan(monkeypatch, a, [None], root=daemon.root, rows={99: (1, 700, "Z", "old-zombie")})
     # The zombie seen by the identity read is reaped and a live writer replaces
     # it before the fallback stat read. Its start is still unknown to this read.
     monkeypatch.setattr(procs, "_stat", lambda pid: "S")
@@ -118,7 +121,7 @@ def test_reused_pid_in_same_group_retains_new_identity_after_marker_disappears(
     clock = Clock(monkeypatch, daemon)
     a = attempt_with_retained_lease(daemon, harness)
     writer = procs.ProcessIdentity(99, BOOT, "replacement-writer")
-    late_scan(monkeypatch, a, [writer, writer],
+    late_scan(monkeypatch, a, [writer, writer], root=daemon.root,
               rows={99: (1, 700, "Z", "old-unrelated")})
     census = daemon._contain(a)
     assert not census.verified_empty and not census.unverifiable

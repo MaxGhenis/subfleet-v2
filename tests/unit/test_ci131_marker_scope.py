@@ -8,15 +8,11 @@ from subfleet import procs
 from tests.fake_kernel import ScriptedMarkerKernel
 
 
-@pytest.fixture(autouse=True)
-def scripted_raw_markers(monkeypatch):
-    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
-
-
 BOOT = "6F1C0F2E-1111-4222-8333-944455556666"
 
 
 def world(monkeypatch, markers, *, rows=None):
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     rows = rows or {77: (1, 77, "S", "parent-turn"), 78: (77, 77, "S", "waiter")}
     monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, boot_id=BOOT))
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT, rows[pid][3]))

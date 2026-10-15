@@ -24,7 +24,7 @@ def forbid_signals(monkeypatch):
 def capture_failed_group(monkeypatch, daemon, harness, clock, operator, source):
     a = attempt_with_retained_lease(daemon, harness)
     writer = procs.ProcessIdentity(99, BOOT, "observed-writer")
-    late_scan(monkeypatch, a, [writer, None], group=99, source=source)
+    late_scan(monkeypatch, a, [writer, None], root=daemon.root, group=99, source=source)
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
     assert actual["state"] == "quarantined" and leases
@@ -84,7 +84,7 @@ def test_group_sampled_after_pid_reuse_is_not_paired_with_the_old_identity(state
     # writer 99, which calls setsid and leads group/session 99. The kernel
     # group lookup samples that new group, but the confirmation read fails.
     # Neither old-group 700 nor new-group 99 exists in the initial table.
-    late_scan(monkeypatch, a, [writer], group=99, source=source)
+    late_scan(monkeypatch, a, [writer], root=daemon.root, group=99, source=source)
     reads = iter([writer, procs.InspectionError("confirmation unavailable")])
 
     def identify(pid):
@@ -118,10 +118,10 @@ def test_confirmation_failure_on_both_paces_retains_each_sampled_group(state_dae
     # A second independent writer also dies after its group is read. Neither
     # census can establish empty, and neither failed bracket erases the first.
     second = procs.ProcessIdentity(101, BOOT, "second-observation")
-    late_scan(monkeypatch, a, [second, None], group=700, source=source,
+    late_scan(monkeypatch, a, [second, None], root=daemon.root, group=700, source=source,
               rows={200: (1, 99, "S", "first-child")})
     monkeypatch.setattr(procs, "_read", lambda *args, **kwargs:
-                        f"101 writer SUBFLEET_ATTEMPT={a['attempt_id']}\n" if source == "marker" else "")
+                        f"101 writer SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={daemon.root}\n" if source == "marker" else "")
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {101} if source == "cwd" else set())
     clock.advance()
     actual, leases = resolve(daemon, a, operator)

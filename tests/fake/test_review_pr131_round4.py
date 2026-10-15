@@ -4,6 +4,7 @@ import json
 import pytest
 
 from subfleet import procs
+from tests.fake_kernel import ScriptedMarkerKernel
 from tests.fake.test_quarantine_detached_writers import running
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_review_pr131_probes import BOOT, ORIGINAL_CENSUS, ident, quarantine, script_table
@@ -31,8 +32,9 @@ def test_later_source_must_not_use_a_reused_pids_old_table_incarnation(
                "old-unrelated" if phase[0] == 0 else "new-writer")}, boot_id=BOOT))
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
     monkeypatch.setattr(procs, "_read", lambda argv, **kwargs:
-        f"400 writer SUBFLEET_ATTEMPT={a['attempt_id']}\n"
+        f"400 writer SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={daemon.root}\n"
         if source == "marker" and phase[0] == 0 else "")
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, "_stat", lambda pid: "S")
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT, "new-writer"))
     monkeypatch.setattr(procs, "process_group", lambda pid: 800)

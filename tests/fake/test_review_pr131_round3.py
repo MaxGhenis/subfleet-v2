@@ -219,13 +219,15 @@ def _fork_after_read(daemon, monkeypatch, a, *, child_row, child_markers):
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
 
 
-@pytest.mark.parametrize("variant", ["setpgid-only-same-session", "scrubs-only-SUBFLEET_ROOT",
+@pytest.mark.parametrize("variant", ["keeps-both-markers", "setpgid-only-same-session", "scrubs-only-SUBFLEET_ROOT",
                                      "scrubs-only-SUBFLEET_ATTEMPT"])
 @pytest.mark.parametrize("operator", [False, True])
-def test_only_the_full_documented_evasive_combination_escapes(state_daemon, monkeypatch, operator, variant):
-    """Partial markers hold. The no-marker setpgid case is an accepted residual:
-    it was never observed, never had cwd in the workdir, and scrubbed both
-    markers. Starting a new session is not required (session IDs are not read).
+def test_unobserved_child_markers_follow_state_root_scope(state_daemon, monkeypatch, operator, variant):
+    """C-5.5 requires the root alongside an attempt marker to distinguish daemons.
+
+    An unseen child with neither a matching marker nor cwd/retained lineage is
+    outside the census. The root-only marker still holds. Starting a new session
+    is not required for the residual (session IDs are not read).
     """
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
@@ -234,6 +236,7 @@ def test_only_the_full_documented_evasive_combination_escapes(state_daemon, monk
     attempt = f"SUBFLEET_ATTEMPT={a['attempt_id']}"
     root = f"SUBFLEET_ROOT={daemon.root}"
     row, kept = {
+        "keeps-both-markers": ((300, 301, "Ss", "late-child"), f"{attempt} {root}"),
         # A new process group in the same session (stat has no session-leader `s`).
         "setpgid-only-same-session": ((300, 301, "S", "late-child"), ""),
         "scrubs-only-SUBFLEET_ROOT": ((300, 301, "Ss", "late-child"), attempt),
@@ -247,7 +250,7 @@ def test_only_the_full_documented_evasive_combination_escapes(state_daemon, monk
     script_table(monkeypatch, {301: (1,) + row[1:]}, markers=f"301 late-child {kept}\n" if kept else "")
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
-    if variant == "setpgid-only-same-session":
+    if variant in {"setpgid-only-same-session", "scrubs-only-SUBFLEET_ROOT"}:
         assert actual["state"] == "lost" and not leases, (variant, actual["state"], leases)
     else:
         assert actual["state"] == "quarantined" and leases, (variant, actual["state"], leases)
@@ -309,8 +312,11 @@ def test_automatic_and_confirm_dead_take_the_same_census_and_decision(state_daem
             daemon.store.update_attempt(a["attempt_id"], child_pid=500)
         attempts.append(daemon.store.get_attempt(a["attempt_id"]))
     automatic, operator = attempts
-    text = "".join(f"{pid} w SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={daemon.root}\n"
-                   for pid in sorted(world["markers"]) for a in attempts)
+    # One process has one raw argument buffer. Repeating ps rows for the same
+    # PID would overwrite the first attempt's marker in the kernel adapter.
+    both = " ".join(f"SUBFLEET_ATTEMPT={a['attempt_id']}" for a in attempts)
+    text = "".join(f"{pid} w {both} SUBFLEET_ROOT={daemon.root}\n"
+                   for pid in sorted(world["markers"]))
     script_table(monkeypatch, world["rows"], markers=text, boot=world["boot"],
                  table_fails=world["table_fails"], markers_fail=world["markers_fail"])
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, world["boot"], "old")

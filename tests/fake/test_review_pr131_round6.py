@@ -26,7 +26,7 @@ def test_failed_confirmation_group_holds_until_verified_empty_without_signals(
     replacement = procs.ProcessIdentity(99, BOOT, "unrelated-replacement")
     confirmed = replacement if confirmation == "reused" else None
     group = 700 if confirmation == "reused" else 99
-    late_scan(monkeypatch, a, [writer, confirmed], group=group, source=source)
+    late_scan(monkeypatch, a, [writer, confirmed], root=daemon.root, group=group, source=source)
     if confirmation == "unavailable":
         reads = iter([writer, procs.InspectionError("confirmation unavailable")])
 

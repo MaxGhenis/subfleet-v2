@@ -24,11 +24,11 @@ def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
               "directory": str(tmp_path / "probe"), "guardian_pid": 100, "pgid": 100,
               "boot_id": BOOT, "proc_start": "guardian", "state": "running"}
     writer = procs.ProcessIdentity(99, BOOT, "observed-writer")
-    late_scan(monkeypatch, a, [writer, None], group=700, source=source)
+    late_scan(monkeypatch, a, [writer, None], root=daemon.root, group=700, source=source)
     if consumer == "probe":
         # Probe markers use their holder as the attempt marker.
         monkeypatch.setattr(procs, "_read", lambda *args, **kwargs:
-                            f"99 writer SUBFLEET_ATTEMPT={record['holder']}\n" if source == "marker" else "")
+                            f"99 writer SUBFLEET_ATTEMPT={record['holder']} SUBFLEET_ROOT={daemon.root}\n" if source == "marker" else "")
         captured = daemon._probe_census(record)
         evidence = record
     else:
@@ -43,7 +43,7 @@ def test_failed_confirmation_cannot_promote_retained_group_to_signal_authority(
     marker = record["holder"] if consumer == "probe" else a["attempt_id"]
     script_table(monkeypatch, {100: (1, 100, "S", "guardian"),
                               200: (1, 700, "S", "retained-member")},
-                 markers=f"200 writer SUBFLEET_ATTEMPT={marker}\n" if source == "marker" else "")
+                 markers=f"200 writer SUBFLEET_ATTEMPT={marker} SUBFLEET_ROOT={daemon.root}\n" if source == "marker" else "")
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: {200} if source == "cwd" else set())
     member = procs.ProcessIdentity(200, BOOT, "retained-member")
     reads = 0

@@ -95,6 +95,7 @@ def test_real_legacy_start_format_holds_unobserved_child_after_guardian_dies(
 def test_new_guardian_crash_before_child_receipt_keeps_the_live_child(
         state_daemon, monkeypatch, operator):
     from subfleet import guardian
+    from tests.fake_kernel import FakeKernel, procargs
     daemon, harness = state_daemon
     clock = Clock(monkeypatch, daemon)
     a = quarantine(daemon, harness)
@@ -113,8 +114,12 @@ def test_new_guardian_crash_before_child_receipt_keeps_the_live_child(
             raise RuntimeError('guardian died during child identity read')
         return 'guardian-start'
     previous_umask = guardian.os.umask(0o077)
+    # This synthetic guardian is not a responsibility root. A real kernel read
+    # of fake PID 100 returns None, which correctly makes linger retry forever.
+    kernel = FakeKernel({100: procargs(["guardian"])}, responsible={100: 1})
     try:
         with monkeypatch.context() as mp:
+            mp.setattr(guardian.procs, 'kernel', kernel)
             mp.setattr(guardian.os, 'setsid', lambda: None)
             mp.setattr(guardian.os, 'getpid', lambda: 100)
             mp.setattr(guardian.os, 'getpgrp', lambda: 100)
@@ -127,6 +132,7 @@ def test_new_guardian_crash_before_child_receipt_keeps_the_live_child(
                     stdin_path=None, stdout_path=str(adir / 'stdout'), stderr_path=str(adir / 'stderr'))
     finally:
         guardian.os.umask(previous_umask)
+    assert kernel.calls == [('responsible', 100)]  # The exception still passes through linger.
     assert spawned == [500] and not (adir / 'exit.json').exists()
     receipt = json.loads((adir / 'start.json').read_text())
     assert 'child_pid' not in receipt and 'child_identity' not in receipt

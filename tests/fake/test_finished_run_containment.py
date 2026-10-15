@@ -5,6 +5,7 @@ import json
 import pytest
 
 from subfleet import daemon as dm, procs
+from tests.fake_kernel import ScriptedMarkerKernel
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
 
 
@@ -47,6 +48,7 @@ def test_finished_run_does_not_adopt_a_waiter_born_during_census(
     monkeypatch.setattr(procs, "identity", lambda pid: waiter)
     monkeypatch.setattr(procs, "process_group", lambda pid: 500, raising=False)
     monkeypatch.setattr(procs, "_read", read)
+    monkeypatch.setattr(procs, "kernel", ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     # release/217 has no cwd source; run the identical world on both versions.
     monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset({200}), raising=False)
 
