@@ -1,6 +1,8 @@
 """D-SHUT1 through the CLI, daemon, guardian and detached Codex fixture fake."""
 
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -28,7 +30,17 @@ def test_zero_exit_cut_off_turn_cannot_publish_output(e2e, case):
     receipt = json.loads((adir / "exit.json").read_text())
     assert (receipt["rc"], receipt["signal"]) == (0, None)
     assert not (adir / "last.md").exists()
-    assert b"turn.completed" not in (adir / "stream.jsonl").read_bytes()
+    raw, = e2e.rows("SELECT * FROM artifacts WHERE attempt_id=? AND role='raw-stream'",
+                   (attempt["attempt_id"],))
+    frozen = Path(raw["path"])
+    freeze_receipt = json.loads((adir / "stream.freeze.json").read_text())
+    assert frozen == adir / freeze_receipt["file"]
+    payload = frozen.read_bytes()
+    assert payload == (adir / "stdout").read_bytes()
+    assert b"turn.completed" not in payload
+    assert raw["bytes"] == len(payload)
+    assert raw["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert not frozen.samefile(adir / "stdout")
     assert e2e.out.read_bytes() == b"previous output\n"
     assert not e2e.rows("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'", (attempt["attempt_id"],))
     notice, = e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))
@@ -46,7 +58,10 @@ def test_zero_exit_cut_off_turn_cannot_publish_output(e2e, case):
     assert shown.rc == 1, shown
     # C-17.1: v1's shape with nothing after `--- out.md ---`; evidence on stderr.
     metadata, result = shown.stdout.split("\n--- out.md ---\n")
-    assert json.loads(metadata)["job"]["job_id"] == identity
+    displayed = json.loads(metadata)
+    assert displayed["job"]["job_id"] == identity
+    displayed_raw, = [artifact for artifact in displayed["artifacts"] if artifact["role"] == "raw-stream"]
+    assert displayed_raw["path"] == str(frozen)
     assert result == ""
     assert "No accepted result" in shown.stderr
     assert "Unaccepted evidence" in shown.stderr
