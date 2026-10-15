@@ -50,6 +50,8 @@ def test_failed_confirmation_group_holds_until_verified_empty_without_signals(
     assert {"pid": 99, "boot_id": BOOT, "proc_start": writer.proc_start, "pgid": group} in roots
 
     # With every direct source gone, the retained group alone finds the child.
+    # late_scan's cwd observation must disappear along with its marker scan.
+    monkeypatch.setattr(procs, "cwd_pids", lambda workdir: frozenset())
     script_table(monkeypatch, {200: (1, group, "S", "writer-child")})
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
@@ -63,6 +65,8 @@ def test_failed_confirmation_group_holds_until_verified_empty_without_signals(
 
     # Both paths release on the next pace once the same census verifies empty.
     script_table(monkeypatch, {})
+    census = daemon._contain(daemon.store.get_attempt(a["attempt_id"]))
+    assert census.verified_empty, census.to_dict()
     clock.advance()
     actual, leases = resolve(daemon, a, operator)
     assert actual["state"] == "lost" and not leases
