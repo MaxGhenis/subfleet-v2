@@ -221,12 +221,15 @@ def test_finalization_time_is_not_charged_to_later_attempts(wall):
     jid, first, adir = reserve(service, harness)
     service.store.update_attempt(first['attempt_id'], started_at=stamp(-4))
     receipt_fixture(service, first, adir)
+    # Missing completion proof makes this a transient attempt eligible to retry.
+    (adir / 'stream.jsonl').write_text('')
     receipt = json.loads((adir / 'exit.json').read_text())
     receipt['finished_at'] = stamp(-2)
     (adir / 'exit.json').write_text(json.dumps(receipt))
     service.store.update_attempt(first['attempt_id'], finished_at=stamp(-2))
     service._finalize(service.store.get_attempt(first['attempt_id']))
     assert service.store.get_attempt(first['attempt_id'])['finished_at'] == stamp(-2)
+    assert service.store.get_job(jid)['state'] == 'waiting'
     service.store.update_job(jid, state='running')
     service.store.add_attempt(attempt_id=f'{jid}/a2', job_id=jid, seq=2, lane_id='codex-1',
                               model_requested='astra', state='running', started_at=stamp(-1))
@@ -354,7 +357,7 @@ def test_kill_reports_already_finished_when_settlement_wins_the_transaction(wall
     assert cancel_events(service, jid) == []
 
 
-def test_launch_failure_starts_execution_at_finalization_not_reservation(wall, monkeypatch):
+def test_launch_failure_finalization_spends_no_provider_time(wall, monkeypatch):
     service, _ = wall
     jid, aid = history(wall, durations=(1000,), waits=(), state='reserved')
     service.store.update_attempt(aid, started_at=None, reserved_at=stamp(-1000))
@@ -369,7 +372,8 @@ def test_launch_failure_starts_execution_at_finalization_not_reservation(wall, m
     monkeypatch.setattr(daemon_module, 'datetime', Later)
     monkeypatch.setattr(service, '_finalize', lambda a: None)
     service._process_attempt(aid)
-    assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
+    assert service._running_s(jid) == 0
+    assert cancel_events(service, jid) == []
 
 
 def test_sessionless_cancel_records_null_identity_without_claiming_another_session(wall):

@@ -3805,11 +3805,11 @@ class Daemon:
         return {"jobs": jobs, "timeout": False}
 
     def _running_s(self, job_id: str) -> float:
-        """D-WALL1: execution across attempts, including a live finalization.
+        """D-WALL1: provider execution across attempts, ending at a known exit.
 
-        A receipt's finished_at is the provider's end, not the end of a live
-        finalization. Legacy and unlaunched rows with no recorded start spend
-        no budget; their reservation is not evidence of execution.
+        Finalization preserves the provider's finished_at; settlement and
+        export spend no budget. Only a provider that may still be running is
+        charged to now. Legacy and unlaunched rows without a start spend none.
         """
         now = datetime.now(timezone.utc).isoformat()
         total = 0.0
@@ -3818,13 +3818,13 @@ class Daemon:
             if row["state"] == "reserved":
                 continue
             start = row["started_at"]
-            end = now if row["state"] in LIVE else row["finished_at"]
+            end = row["finished_at"] or (now if row["state"] in ("starting", "running") else None)
             if start and end:
                 total += max(0.0, _seconds_between(start, end))
         return total
 
     def _enforce_wall(self, a: dict, job: dict) -> bool:
-        if a["state"] not in ("starting", "running", "finalizing") \
+        if a["state"] not in ("starting", "running") or a.get("finished_at") \
                 or job["state"] in TERMINAL or job["cancel_requested_at"]:
             return False
         running_s = self._running_s(job["job_id"])
@@ -7484,9 +7484,6 @@ class Daemon:
             return
         job = self._job(a["job_id"])
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
-        if self._enforce_wall(a, job):
-            job = self._job(a["job_id"])
-            a = self.store.get_attempt(aid)
         if a["state"] == "finalizing":
             self._finalize(a)
             return
@@ -7504,6 +7501,11 @@ class Daemon:
         if receipt:
             self._begin_finalizing(a, receipt)
             return
+        # A cold recovery can find days-old receipts on still-running rows.
+        # The wall stops running providers; a known exit always wins over it.
+        if self._enforce_wall(a, job):
+            job = self._job(a["job_id"])
+            a = self.store.get_attempt(aid)
         if job["cancel_requested_at"]:
             if job["kind"] == "turn" and self.conversations.stop(
                     a, job, "wall-limit" if a["killed_by"] == "max_wall_s" else "operator-kill"):
@@ -8289,6 +8291,9 @@ class Daemon:
         # completed its attempt (C-4.2). A missing receipt or missing return code
         # is a loss; the existence of a receipt alone cannot prove completion.
         lost = receipt is None or receipt.get("rc") is None
+        # The verified-empty census above establishes an end even without a
+        # receipt. Capture it before classification and salvage can take time.
+        provider_finished_at = (receipt or {}).get("finished_at") or actual["finished_at"] or utcnow_ms()
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
@@ -8394,9 +8399,6 @@ class Daemon:
             eligible_states = ("starting", "running", "finalizing") if lost else ("finalizing",)
             if current != a["seq"] or actual["state"] not in eligible_states or job["accepted_attempt_id"] or job["state"] in TERMINAL:
                 return
-            if self._enforce_wall(actual, job):
-                job = self._job(a["job_id"])
-                actual = self.store.get_attempt(a["attempt_id"])
             if stopped_ok and actual.get("killed_by") and job["kind"] != "turn":
                 # C-9.2: an attempt the daemon signalled (an operator's kill, the
                 # wall limit, recovery) did not finish, whatever its rc and its
@@ -8438,7 +8440,7 @@ class Daemon:
                       (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
-            evidence = json.loads(a["evidence_json"] or "{}")
+            evidence = json.loads(actual["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
@@ -8451,7 +8453,19 @@ class Daemon:
                 evidence["auth_dead_again"] = {"lane_id": a["lane_id"], "lane_left_enabled": True}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=? WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
-                        outcome.native_session_id, outcome.transcript_path, utcnow_ms(), a["attempt_id"]))
+                        outcome.native_session_id, outcome.transcript_path, provider_finished_at, a["attempt_id"]))
+            # A provider that exited on its own keeps its result, even when a
+            # down or delayed daemon missed the deadline. Keep the overrun for
+            # online/offline runs show without turning it into a cancellation.
+            running_s = self._running_s(job["job_id"])
+            if not lost and not actual.get("killed_by") and running_s > job["max_wall_s"]:
+                evidence["wall_overrun"] = {
+                    "running_s": running_s, "max_wall_s": job["max_wall_s"],
+                    "overrun_s": running_s - job["max_wall_s"],
+                    "provider_finished_at": provider_finished_at,
+                    "reason": "provider exited before the daemon enforced the wall"}
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                           (json.dumps(evidence), a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
