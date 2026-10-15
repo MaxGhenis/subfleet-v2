@@ -36,6 +36,21 @@ def push_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     return {**PUSH_DEFAULTS, **policy.get("push", {})}
 
 
+def resolve_sandbox(policy: Mapping[str, Any], source: str, *, task: str | None,
+                    in_place: bool = False, git: bool = False,
+                    isolated: bool = False, gate: bool = False) -> str:
+    """C-11.1: worktree-write is conditional policy authority, never a downgrade."""
+    if source != "policy":
+        return source
+    if isolated or gate:
+        return "read-only"
+    permissions = policy.get("permissions") or {}
+    chosen = permissions.get(task or "") or permissions.get("*") or "read-only"
+    if chosen == "worktree-write":
+        return "workspace-write" if git and not in_place else "read-only"
+    return chosen if chosen in ("workspace-write", "read-only") else "read-only"
+
+
 def job_needs_shell(policy: Mapping[str, Any], job: Mapping[str, Any]) -> bool:
     """C-11.1–2: an explicit job choice overrides the task's requirements."""
     value = job.get("needs_shell")
@@ -428,8 +443,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for task, sandbox in permissions.items():
         if task != "*" and task not in chains:
             fail(f"permissions.{task}", "unknown task; expected a chains key or *")
-        if sandbox not in ("read-only", "workspace-write"):
-            fail(f"permissions.{task}", "must be read-only or workspace-write")
+        if sandbox not in ("read-only", "workspace-write", "worktree-write"):
+            fail(f"permissions.{task}", "must be read-only, workspace-write or worktree-write")
     for task in chains:
         if task not in permissions and "*" not in permissions:
             fail(f"permissions.{task}", "missing sandbox; provide this task or *")

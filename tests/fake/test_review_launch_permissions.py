@@ -1,10 +1,5 @@
 """D-SH1 round 2: reviews can test in their worktree, but cannot publish."""
-import dataclasses
-import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -33,9 +28,9 @@ def test_policy_review_own_worktree_can_run_pytest(shell_state, model):
     attempt, = service.store.list_attempts(job)
     assert attempt['capability'] == 'writable'
     worktree = Path(service.store.get_job(job)['worktree'])
-    (worktree / 'test_writes.py').write_text('def test_temp(tmp_path):\n    (tmp_path / "ok").write_text("ok")\n')
+    (worktree / f'test_writes_{model}.py').write_text('def test_temp(tmp_path):\n    (tmp_path / "ok").write_text("ok")\n')
     # The outer pytest owns the sole shared-lock hold: exercise pytest in-process.
-    assert pytest.main(['-q', '-p', 'no:cacheprovider', str(worktree / 'test_writes.py')]) == 0
+    assert pytest.main(['-q', '-p', 'no:cacheprovider', '--import-mode=importlib', str(worktree / f'test_writes_{model}.py')]) == 0
 
 
 @pytest.mark.parametrize('mode', ['non-git', 'in-place', 'isolated'])

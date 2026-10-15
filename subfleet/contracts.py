@@ -142,9 +142,21 @@ class Sandbox(str, enum.Enum):
     WORKSPACE_WRITE = "workspace-write"
 
 
+class Capability(str, enum.Enum):
+    NONE = "none"
+    COMMANDS = "commands"
+    WRITABLE = "writable"
+
+
+def launch_capability(provider: str, sandbox: str | Sandbox) -> Capability:
+    """C-12.3–4: writes include temporary files; commands alone cannot run pytest."""
+    if sandbox == Sandbox.WORKSPACE_WRITE:
+        return Capability.WRITABLE
+    return Capability.COMMANDS if provider == "codex" else Capability.NONE
+
+
 def launch_has_shell(provider: str, sandbox: str | Sandbox) -> bool:
-    """C-12.3–4: command execution offered by this provider's sandbox launch."""
-    return provider == "codex" or (provider == "claude" and sandbox == Sandbox.WORKSPACE_WRITE)
+    return launch_capability(provider, sandbox) != Capability.NONE
 
 
 class LaneOwner(str, enum.Enum):  # C-10.4

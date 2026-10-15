@@ -86,9 +86,10 @@ def attempt_shell_text(job: Mapping[str, Any]) -> str:
         job = {**job, **job["job"]}
     attempts = job.get("attempts") or ()
     attempt = job.get("attempt") or (attempts[-1] if attempts else job)
-    flag = attempt.get("has_shell")
-    if flag is None:
-        return ""
+    capability = attempt.get("capability")
+    denied = "; publish: denied" if attempt.get("publish_denied") else ""
+    if capability is None:
+        return denied.removeprefix("; ")
     try:
         evidence = json.loads(attempt.get("evidence_json") or "{}")
     except (TypeError, ValueError):
@@ -96,7 +97,14 @@ def attempt_shell_text(job: Mapping[str, Any]) -> str:
     model = evidence.get("model_short") or attempt.get("model_requested") or job.get("model") or "unknown"
     sandbox = job.get("sandbox") or attempt.get("sandbox") or "unknown"
     lane = attempt.get("lane_id") or job.get("lane_id") or "unknown"
-    return f"ran {sandbox} on {lane} ({model}) with {'a shell' if flag else 'no shell'}"
+    text = f"ran {sandbox} on {lane} ({model})"
+    if capability == "none":
+        text += " with no shell: it could not run any command"
+    elif capability == "commands":
+        text += ": commands ran, but nothing could be written, temp files included, so pytest could not run"
+    else:
+        text += " with a shell (writable)"
+    return text + denied
 
 
 def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
@@ -152,6 +160,10 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join([line(headers), line(["-" * width for width in widths]), *(line(row) for row in rows)])
 
 
+def restricted_runs_text(ids: list[str]) -> str:
+    return f"last 24h: {len(ids)} runs with no shell or no writes; ids: {', '.join(ids) or '-'}"
+
+
 def status(view: Mapping[str, Any]) -> str:
     """C-9.1, C-11.3: show evidence and attempts in the Codex reset waterfall."""
     # Rebuild only from supplied rows, for the same time, so offline and online
@@ -164,6 +176,8 @@ def status(view: Mapping[str, Any]) -> str:
                           weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     lines.extend(provider_cap_text(row) for row in view.get("provider_caps", ()))
+    if "restricted_runs_24h" in view:
+        lines.append(restricted_runs_text(view["restricted_runs_24h"]))
     if view.get("disk") is not None:
         lines.append(disk_line(view["disk"]))
     if view.get("ramp") is not None:

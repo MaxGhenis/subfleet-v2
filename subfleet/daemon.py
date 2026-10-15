@@ -6,8 +6,8 @@ transactions contain only SQL (C-3.3, C-16.4).
 """
 from __future__ import annotations
 
-from .contracts import launch_has_shell
-from .policy import job_needs_shell
+from .contracts import launch_has_shell, launch_capability
+from .policy import job_needs_shell, resolve_sandbox
 
 import argparse
 import contextlib
@@ -2183,6 +2183,8 @@ class Daemon:
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 push_remote = push_default = push_head = push_current = push_top = None
+                if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+                    raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch")
                 if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
                     # C-8.5: the job writes its bundle in its own workspace.
                     raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
@@ -2213,7 +2215,7 @@ class Daemon:
                         raise AdapterError(f"{args.task or 'these'} jobs write by policy, and {where}",
                                            fix="commit a baseline or run it from a repository, or pass -s read-only "
                                                "to run it here without writing")
-                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline, or pass -s read-only")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
                 # spelled one way (`folders.canonical`, as a conversation's workspace
@@ -2526,11 +2528,15 @@ class Daemon:
         """d261, C-11.1: the sandbox a submit that named none gets. The policy's
         `permissions` entry for the task, else its `*` entry, else read-only; an
         isolated review and a gate round read only, whatever the policy says."""
-        if args.isolated_review or args.kind == "gate-review":
-            return Sandbox.READ_ONLY.value
         permissions = self.policy.get("permissions") or {}
-        chosen = permissions.get(args.task or "") or permissions.get("*") or Sandbox.READ_ONLY.value
-        return chosen if chosen in {s.value for s in Sandbox} else Sandbox.READ_ONLY.value
+        chosen = permissions.get(args.task or "") or permissions.get("*")
+        needs_git = chosen == "worktree-write" and not (
+            args.in_place or args.isolated_review or args.kind == "gate-review")
+        committed = needs_git and git_head(Path(args.workdir).expanduser(),
+            timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None
+        return resolve_sandbox(self.policy, protocol.POLICY_SANDBOX, task=args.task,
+                               in_place=args.in_place, git=committed,
+                               isolated=args.isolated_review, gate=args.kind == "gate-review")
 
     def _accepted_request(self, request_id: Any) -> bool:
         """C-6.2: whether a job already holds `request_id`, so this submit is a retry."""
@@ -3363,6 +3369,10 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
+            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
+                "SELECT DISTINCT job_id FROM attempts WHERE capability IN ('none','commands') "
+                "AND julianday(reserved_at) BETWEEN julianday(?) - 1 AND julianday(?) ORDER BY job_id",
+                (utcnow(), utcnow()))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
@@ -4554,7 +4564,8 @@ class Daemon:
         forgets incomplete builds after quarantine cleanup and reuses whole
         checkouts at their conventional path, recording any pending ownership.
         """
-        if (job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
+        if (job.get("task") == "review" or job["kind"] == "gate-review"
+                or job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
             return True
         job_id = job["job_id"]
         destination = self.root / "worktrees" / job_id
@@ -6590,9 +6601,10 @@ class Daemon:
                             reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
-                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,has_shell,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,?,'reserved',?,?,?)",
+                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,capability,publish_denied,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
-                                    launch_has_shell(self.policy["models"][decision.chosen_model]["provider"], job["sandbox"]), baseline,
+                                    launch_capability(self.policy["models"][decision.chosen_model]["provider"], job["sandbox"]).value,
+                                    job["task"] == "review" or job["kind"] == "gate-review", baseline,
                                     json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
@@ -7310,7 +7322,11 @@ class Daemon:
         if job_needs_shell(self.policy, job) and not has_shell:
             self._unlaunched(a, f"needs a shell: {model['id']} runs {job['sandbox']} jobs without one")
             return
-        self.store.update_attempt(a["attempt_id"], has_shell=has_shell)
+        from .review_publish import protect_launch
+        launch = protect_launch(spec, launch, adir)
+        self.store.update_attempt(a["attempt_id"],
+                                  capability=launch_capability(lane.provider, spec.sandbox).value,
+                                  publish_denied=bool(launch.notes.get("publish_denied")))
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")

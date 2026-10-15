@@ -40,7 +40,7 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
@@ -95,6 +95,10 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
+    9: (
+        "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
+        "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
+    ),
     8: (
         "ALTER TABLE jobs ADD COLUMN needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1))",
         "ALTER TABLE attempts ADD COLUMN has_shell INTEGER CHECK (has_shell IN (0,1))",
@@ -104,7 +108,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
 
 def shell_flags(row: Mapping[str, Any]) -> Row:
     value = dict(row)
-    for key in ("needs_shell", "has_shell"):
+    for key in ("needs_shell", "has_shell", "publish_denied"):
         if key in value and value[key] is not None:
             value[key] = bool(value[key])
     return value
@@ -340,6 +344,12 @@ class Store:
                     if not present or column in present:
                         continue
                 self.connection.execute(statement)
+            if step == 9 and self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
+                self.connection.execute(
+                    "UPDATE attempts SET capability=CASE WHEN has_shell=0 THEN 'none' "
+                    "WHEN has_shell=1 AND (SELECT sandbox FROM jobs WHERE jobs.job_id=attempts.job_id)="
+                    "'workspace-write' THEN 'writable' WHEN has_shell=1 THEN 'commands' ELSE NULL END")
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
             self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                     (utc_now(), "schema.migrated", _json({"version": step})))

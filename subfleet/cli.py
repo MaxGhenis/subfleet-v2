@@ -337,6 +337,8 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
+    if "restricted_runs_24h" in data:
+        lines.append(render.restricted_runs_text(data["restricted_runs_24h"]))
     lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
@@ -1656,12 +1658,15 @@ def _format_job(job: dict[str, Any]) -> str:
                 f"  a{attempt.get('seq')} {attempt.get('state')} "
                 f"lane={attempt.get('lane_id')} model={attempt.get('model_requested')}"
                 + receipt
-                + (f" shell={bool(attempt['has_shell'])}" if attempt.get("has_shell") is not None else " shell=unknown")
+                + f" capability={attempt.get('capability') or 'unknown'}"
                 + (f" rc={attempt.get('rc')}" if attempt.get("rc") is not None else "")
                 + (f" class={attempt.get('outcome_class')}"
                    if attempt.get("outcome_class") else "")
                 + (f" quarantine={attempt.get('quarantine_reason')}"
                    if attempt.get("quarantine_reason") else ""))
+            capability = render.attempt_shell_text({**job, "attempt": attempt})
+            if capability:
+                lines.append("    " + capability)
     artifacts = rows_of(job.get("artifacts"))
     if artifacts:
         lines.append("artifacts")
@@ -3035,10 +3040,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
-                       help="sandbox (default: the policy's permissions for --task; build writes, the rest read)")
+                       help="sandbox (default: policy permissions for --task; reviews write in their own git worktree)")
     shell = p_run.add_mutually_exclusive_group()
     shell.add_argument("--needs-shell", dest="needs_shell", action="store_true", default=None,
-                       help="require a launch with command execution (default: policy requires for --task)")
+                       help="commands only, no writes; for tests use -s workspace-write (default: policy requires for --task)")
     shell.add_argument("--no-needs-shell", dest="needs_shell", action="store_false",
                        help="allow launches without command execution")
     p_run.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL",

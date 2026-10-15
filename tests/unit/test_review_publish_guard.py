@@ -8,19 +8,27 @@ import subprocess
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from subfleet.contracts import Launch, Sandbox
+from subfleet.contracts import Credential, Sandbox
 from tests.conftest import make_job, make_lane
 
 
 def protected(tmp_path, provider='codex', sandbox='workspace-write', task='review', kind='dispatch'):
-    from subfleet.review_publish import protect_launch
     work = tmp_path / 'work'
     work.mkdir(exist_ok=True)
     prompt = tmp_path / 'prompt'
     prompt.write_text('review')
     job = replace(make_job(str(work), str(prompt)), task=task, kind=kind, sandbox=Sandbox(sandbox))
-    launch = Launch(('fake-provider',), {}, (), str(work), None, '', '', None, None)
-    return protect_launch(job, launch, tmp_path / 'attempt')
+    if provider == 'claude':
+        from subfleet.adapters.claude import ClaudeAdapter
+        adapter = ClaudeAdapter(claude_bin='fake-provider', projects_dir=tmp_path / 'projects')
+        lane = make_lane()
+    else:
+        from subfleet.adapters.codex import CodexAdapter
+        adapter = CodexAdapter(codex_bin='fake-provider')
+        home = str(tmp_path / 'home')
+        lane = replace(make_lane(), provider='codex', home=home, credential=Credential('codex', home, 'home'))
+    return adapter.build_launch(job, 'job/a1', tmp_path / 'attempt', lane, {},
+                                'fixture-model', None, prompt, 'hooks={}')
 
 
 def run(args, launch):
@@ -92,11 +100,13 @@ def test_review_gh_write_denied_reads_reach_fake(tmp_path, monkeypatch, args, al
 def test_review_launch_never_allows_push(sandbox, kind, options):
     import tempfile
     with tempfile.TemporaryDirectory() as directory:
+        remote = local_remote(Path(directory))
         launch = protected(Path(directory), sandbox=sandbox, kind=kind)
-        assert run(['git', '-c', 'protocol.file.allow=always', 'push', *options,
-                    'file:///nonexistent', 'HEAD'], launch).returncode != 0
+        refs = [] if '--mirror' in options else ['HEAD:refs/heads/proof']
+        result = run(['git', '-c', 'protocol.file.allow=always', 'push', *options, remote, *refs], launch)
+        assert result.returncode != 0 and 'publish: denied' in result.stderr
 
 
 def test_non_review_launch_is_unchanged(tmp_path):
     launch = protected(tmp_path, task='build')
-    assert launch.env_add == {} and not launch.notes.get('publish_denied')
+    assert 'PATH' not in launch.env_add and not launch.notes.get('publish_denied')

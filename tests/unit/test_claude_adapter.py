@@ -437,7 +437,8 @@ def test_launch_carries_the_credential_only_in_env_add(adapter, tmp_path):
     """C-10.5, C-12.4, C-23.2 the credential value appears in `env_add` and nowhere else, and
     `ANTHROPIC_API_KEY` is removed from the child's environment."""
     launch = _build(adapter, tmp_path, Sandbox.READ_ONLY)
-    assert launch.env_add == {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-REDACTED"}
+    assert launch.env_add["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-REDACTED"
+    assert launch.notes["publish_denied"] is True
     assert "ANTHROPIC_API_KEY" in launch.env_remove
     assert "ANTHROPIC_AUTH_TOKEN" in launch.env_remove
     assert set(ENV_REMOVE) <= set(launch.env_remove)
@@ -983,6 +984,6 @@ def test_an_admission_reading_with_no_recorded_model_scopes_to_the_account(tmp_p
 @pytest.mark.parametrize('sandbox,expected', [(Sandbox.READ_ONLY, False), (Sandbox.WORKSPACE_WRITE, True)])
 def test_d_sh1_launch_notes_report_actual_shell(adapter, tmp_path, sandbox, expected):
     launch = _build(adapter, tmp_path, sandbox)
-    assert launch.notes['has_shell'] is expected
+    assert launch.notes['capability'] == ('writable' if expected else 'none')
     if not expected:
         assert 'Bash' not in launch.argv[launch.argv.index('--tools') + 1].split(',')

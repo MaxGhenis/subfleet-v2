@@ -98,7 +98,7 @@ def test_the_migration_is_numbered_and_recorded(version_1_store):
         assert versions == list(range(1, SCHEMA_VERSION + 1))
         migrated = [row for row in store.list_events() if row["kind"] == "schema.migrated"]
         assert [json.loads(r["data_json"])["version"] for r in migrated] == list(range(2, SCHEMA_VERSION + 1))
-    assert set(MIGRATIONS) == {4, 5, 6, 7}
+    assert set(MIGRATIONS) == set(range(4, SCHEMA_VERSION + 1))
 
 
 def test_reopening_a_migrated_store_changes_nothing(version_1_store):
@@ -223,6 +223,27 @@ def test_d_sh1_version_7_rows_survive_with_unknown_historical_shell(tmp_path):
     with Store(path) as store:
         assert store.get_job('old')['needs_shell'] is False
         assert store.get_attempt('old/a1')['has_shell'] is None
-        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == 8
+        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == SCHEMA_VERSION
     with Store(path) as store:
         assert store.get_attempt('old/a1')['has_shell'] is None
+
+
+@pytest.mark.parametrize('flag,sandbox,expected', [(0, 'read-only', 'none'),
+    (1, 'read-only', 'commands'), (1, 'workspace-write', 'writable'), (None, 'read-only', None)])
+def test_d_sh1_version_8_capabilities_migrate_without_inventing_publish_denial(tmp_path, flag, sandbox, expected):
+    sql = (Path(__file__).parents[2] / 'subfleet/store_schema.sql').read_text()
+    sql = sql.replace("  capability TEXT CHECK (capability IN ('none','commands','writable')),\n", '')
+    sql = sql.replace('  publish_denied INTEGER CHECK (publish_denied IN (0,1)),\n', '')
+    path = tmp_path / 'v8.sqlite3'
+    with sqlite3.connect(path) as conn:
+        conn.executescript(sql)
+        conn.execute("INSERT INTO schema_version VALUES (8,'2026-10-14T00:00:00Z')")
+        conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
+                     "VALUES ('lane','codex','fixture','/fake','home','now','now')")
+        conn.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,created_at) "
+                     "VALUES ('old','old','digest','dispatch','queued','/work','/prompt',?,'now')", (sandbox,))
+        conn.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,has_shell) "
+                     "VALUES ('old/a1','old',1,'lane','fixture','succeeded','now',?)", (flag,))
+    with Store(path) as store:
+        attempt = store.get_attempt('old/a1')
+        assert attempt['capability'] == expected and attempt['publish_denied'] is None

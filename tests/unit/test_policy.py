@@ -529,8 +529,8 @@ def test_c11_1_requires_refuses_unknown_or_malformed_requirements(tmp_path, poli
     assert refused.value.key == key
 
 
-def test_c11_1_requires_optional_and_default_reviews_need_shell(tmp_path, policy_data):
-    assert load_policy(DEFAULT_POLICY_PATH)['requires'] == {'review': ['shell']}
+def test_c11_1_requires_optional_and_reviews_do_not_require_shell_by_default(tmp_path, policy_data):
+    assert load_policy(DEFAULT_POLICY_PATH).get('requires', {}) == {}
     policy_data.pop('requires', None)
     assert 'requires' not in load_policy(write_policy(tmp_path, policy_data))
 

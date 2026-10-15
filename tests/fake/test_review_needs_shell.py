@@ -55,7 +55,7 @@ def test_hard_review_waits_for_codex_then_runs_with_shell(shell_state):
         tx.execute('DELETE FROM leases WHERE holder=?', (attempt['attempt_id'],))
     service._admit()
     placed, = service.store.list_attempts(job)
-    assert (placed['lane_id'], placed['model_requested'], placed['has_shell']) == ('codex-1', 'gpt-6.1-sol', True)
+    assert (placed['lane_id'], placed['model_requested'], placed['capability']) == ('codex-1', 'gpt-6.1-sol', 'commands')
 
 
 @pytest.mark.parametrize('sandbox,override,expected', [
@@ -74,13 +74,13 @@ def test_opus_attempt_and_first_notice_line_report_shell(shell_state, sandbox, o
     service._admit()
     attempt, = service.store.list_attempts(job)
     assert attempt['lane_id'] == 'claude-10'
-    assert attempt['has_shell'] is expected
+    assert attempt['capability'] == ('writable' if expected else 'none')
     adir = service.root / 'jobs' / job / 'a1'
     adir.mkdir()
     service._finalize(receipt_fixture(service, attempt, adir))
     service._export(job)
     shown = service.dispatch('show', {'job_id': job})
-    assert shown['attempts'][0]['has_shell'] is expected
+    assert shown['attempts'][0]['capability'] == ('writable' if expected else 'none')
     text = f"ran {sandbox} on claude-10 (opus) with {'a shell' if expected else 'no shell'}"
     notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
     assert text in notice['text'].splitlines()[0]
@@ -238,4 +238,4 @@ def test_resume_keeps_explicit_shell_opt_out(shell_state):
     assert service.store.get_job(resumed)['needs_shell'] is False
     service._admit()
     continued, = service.store.list_attempts(resumed)
-    assert continued['lane_id'] == 'claude-10' and continued['has_shell'] is False
+    assert continued['lane_id'] == 'claude-10' and continued['capability'] == 'none'
