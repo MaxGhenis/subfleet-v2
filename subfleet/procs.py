@@ -709,7 +709,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     (`Darwin`), and so does the fourth source, every process whose responsible
     process is `responsible_root` (D-CEN1), for an attempt that recorded one.
     Member identities come from the snapshot. A root without a recorded unique
-    id also needs a fresh start-time read before supplying members (C-5.12).
+    id also needs matching start-time reads before and after the member scan
+    (C-5.12).
     Commands and environments are never retained.
     """
     groups: set[int] = set()
@@ -854,8 +855,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         source_root = None
     if source_root is not None and source_root.unique_id is None:
         # Without a kernel sequence, the snapshot alone cannot bound a new
-        # holder's members. Recheck the pid's current start after the snapshot
-        # before allowing this root to supply responsibility members.
+        # holder's members. Reject an already-unavailable root before reading
+        # its members, then check again after the reads to catch later reuse.
         known = recorded_identities.get(source_root.pid)
         try:
             root_matches = (live(source_root.pid) and known is not None and bool(known.proc_start)
@@ -880,6 +881,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # Never retain or report what these reads return but the pids.
         found_marked, found_responsible, failed = _kernel_sources(
             kernel, candidates, wanted, source_root, ours)
+        if source_root is not None and source_root.unique_id is None:
+            try:
+                root_matches = (proc_start(source_root.pid)
+                                == recorded_identities[source_root.pid].proc_start)
+            except InspectionError:
+                root_matches = False
+            if not root_matches:
+                found_responsible.clear()
+                failed.append(f"responsibility root identity unavailable for pid {source_root.pid}")
         markers |= found_marked
         responsible |= found_responsible
         errors.extend(failed)

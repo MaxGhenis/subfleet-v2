@@ -43,7 +43,7 @@ def recycled_root(patch, *, known_unique, after_snapshot, matching_snapshot=Fals
 
 
 def root_during_member_reads(patch, *, timing, replace=True, late_start="another start",
-                            pid=42, sequence=99, gap=1, children=1, first_child=60):
+                            pid=42, sequence=98, gap=1, children=1, first_child=60):
     """A matching snapshot, with reuse before/between/after the member reads.
 
     Until replacement, both the start and kernel unique ids belong to R and
