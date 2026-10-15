@@ -174,11 +174,14 @@ report are:
 
 ## Round 2 (2026-10-15)
 
-Status checkpoint (2026-10-15 14:36 UTC): implementation committed at
-`309c432f6`; validation in progress. The initial complete 59-file sweep passed,
-and the final implementation has passed 80 wall/census/state tests and 89
-recovery/finalization tests. The remaining final-source rerun is queued under
-the shared lock. The 4-hour-30-minute stop checkpoint is 16:50 UTC. Base:
+Final status: implementation committed at `309c432f6`. All 59 requested and
+identified files ran successfully during the round. After the final family fix,
+23 files were repeated: 743 passed and 1 existing expected failure. The other
+36 files and the three mutation probes were not repeated on that final source.
+The managed foreground runner was stopped (exit 130); committed source is
+unchanged and owned scratch is removed. The clock observation advanced from
+15:13 to 17:54 UTC without a new test result, crossing the requested 16:50 UTC
+finish checkpoint. No further tests were started. Base:
 `bde895c69b25e91a5e8e24e25631ccbda008fe5f`. No round-1 review file existed at
 `~/reviews/subfleet-hub/wall-2026-10-14/review-r1.md` when this round started,
 so there were no r1 findings to enumerate or conflicting findings to resolve.
@@ -325,86 +328,107 @@ Caller discovery used `rg -l 'test_state_contract|_process_attempt' tests -g
 the broader 46-file grep set is included in validation, together with all
 explicitly requested files.
 
-Before the family-cascade extension, results across all **59 files** were
-**1,494 passed, 3 skipped,
-1 existing strict expected failure, 0 failures or setup errors**. The table
-counts each file's latest successful run once, excluding base replays and
-mutations. No requested file is unrun. The three skipped cases are two in
-`test_idle_cost.py` and one in `test_stop_bound.py`: this sandbox cannot supply
-the real sysctl/ps process identity they require. Their real-process behavior
-remains unverified here. The expected failure is the existing C-6.10 wait-kind
-deduplication case in `test_admission_properties.py`; its marker is unchanged.
-Files outside the explicit list and the caller-discovery set were not run.
+Latest successful per-file results across **59 files**: **1,497 passed,
+3 skipped, 1 existing strict expected failure, 0 failures or setup errors**.
+These are each file's latest successful counts, excluding base replays and
+mutations. The final-source column distinguishes the 23 completed repeats
+(743 passed, 1 expected failure) from the 36 files not repeated after the
+family-only fix. Every requested file ran earlier; the stopped CLI/offline
+repeat returned no test results and is not counted as completed.
 
-The longest pytest invocation, including intermediate failing runs, took
-**269.40 seconds**, below the 20-minute hold bound. Lock waits have no timeout
-and are excluded from pytest's reported duration. The frontend decoder's eight
-cases passed with build output and compiler caches under per-hold scratch; a
-temporary `build` symlink was removed by its cleanup. The uv cache is unchanged.
+The three skipped cases are two in `test_idle_cost.py` and one in
+`test_stop_bound.py`, requiring real sysctl/ps process identity unavailable in
+this sandbox. Their real-process behavior remains unverified. The expected
+failure is the existing C-6.10 wait-kind case in `test_admission_properties.py`.
+Files outside the explicit list and caller-discovery set were not run.
+
+The longest completed pytest invocation took **444.63 seconds**, below the
+20-minute hold bound. Lock waits had no timeout and are excluded from pytest's
+reported duration. The frontend's eight cases passed before the family-only
+fix; its temporary build symlink and scratch were removed. No new environment
+or uv cache override was created. Final-source mutation repeats remained
+unrun; the three earlier named mutation failures are detailed below.
 
 | File | Passed | Skipped | Expected failure | Rerun on `309c432f6` |
 | --- | ---: | ---: | ---: | --- |
-| `tests/e2e/test_stop_bound.py` | 2 | 1 | 0 | pending |
-| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | pending |
-| `tests/fake/test_admission_held_waiters.py` | 1 | 0 | 0 | pending |
-| `tests/fake/test_admission_latency.py` | 14 | 0 | 0 | pending |
-| `tests/fake/test_admission_lease_waiters.py` | 16 | 0 | 0 | pending |
-| `tests/fake/test_admission_liveness.py` | 32 | 0 | 0 | pending |
-| `tests/fake/test_admission_priority.py` | 32 | 0 | 0 | pending |
-| `tests/fake/test_admission_properties.py` | 27 | 0 | 1 | pending |
-| `tests/fake/test_admission_ramp.py` | 19 | 0 | 0 | pending |
-| `tests/fake/test_admission_ramp_retention.py` | 11 | 0 | 0 | pending |
-| `tests/fake/test_admission_route_isolation.py` | 90 | 0 | 0 | pending |
-| `tests/fake/test_admission_stateful.py` | 2 | 0 | 0 | pending |
-| `tests/fake/test_admission_visibility.py` | 43 | 0 | 0 | pending |
-| `tests/fake/test_batch_label.py` | 9 | 0 | 0 | pending |
-| `tests/fake/test_canonical_identity_fix2.py` | 21 | 0 | 0 | pending |
+| `tests/e2e/test_stop_bound.py` | 2 | 1 | 0 | not repeated |
+| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | yes |
+| `tests/fake/test_admission_held_waiters.py` | 1 | 0 | 0 | yes |
+| `tests/fake/test_admission_latency.py` | 14 | 0 | 0 | yes |
+| `tests/fake/test_admission_lease_waiters.py` | 16 | 0 | 0 | yes |
+| `tests/fake/test_admission_liveness.py` | 32 | 0 | 0 | yes |
+| `tests/fake/test_admission_priority.py` | 32 | 0 | 0 | yes |
+| `tests/fake/test_admission_properties.py` | 27 | 0 | 1 | yes |
+| `tests/fake/test_admission_ramp.py` | 19 | 0 | 0 | yes |
+| `tests/fake/test_admission_ramp_retention.py` | 11 | 0 | 0 | yes |
+| `tests/fake/test_admission_route_isolation.py` | 90 | 0 | 0 | yes |
+| `tests/fake/test_admission_stateful.py` | 2 | 0 | 0 | yes |
+| `tests/fake/test_admission_visibility.py` | 43 | 0 | 0 | yes |
+| `tests/fake/test_batch_label.py` | 9 | 0 | 0 | not repeated |
+| `tests/fake/test_canonical_identity_fix2.py` | 21 | 0 | 0 | not repeated |
 | `tests/fake/test_census_recycled_pid_daemon.py` | 8 | 0 | 0 | yes |
-| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 | 0 | pending |
-| `tests/fake/test_conversation_pools.py` | 2 | 0 | 0 | pending |
-| `tests/fake/test_daemon_launch.py` | 8 | 0 | 0 | pending |
+| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 | 0 | not repeated |
+| `tests/fake/test_conversation_pools.py` | 2 | 0 | 0 | not repeated |
+| `tests/fake/test_daemon_launch.py` | 8 | 0 | 0 | not repeated |
 | `tests/fake/test_finalization_replay.py` | 10 | 0 | 0 | yes |
-| `tests/fake/test_frozen_stream_nonregular.py` | 32 | 0 | 0 | pending |
-| `tests/fake/test_idle_cost.py` | 0 | 2 | 0 | pending |
-| `tests/fake/test_lane_fault.py` | 20 | 0 | 0 | pending |
-| `tests/fake/test_lane_pilot.py` | 24 | 0 | 0 | pending |
-| `tests/fake/test_main_refusal_write_dir.py` | 5 | 0 | 0 | pending |
-| `tests/fake/test_mcp_job_contract.py` | 12 | 0 | 0 | pending |
-| `tests/fake/test_native_maintenance_startup.py` | 41 | 0 | 0 | pending |
-| `tests/fake/test_notice_delivery.py` | 15 | 0 | 0 | pending |
-| `tests/fake/test_notice_header.py` | 23 | 0 | 0 | pending |
-| `tests/fake/test_picker_native.py` | 3 | 0 | 0 | pending |
-| `tests/fake/test_policy_sandbox.py` | 25 | 0 | 0 | pending |
+| `tests/fake/test_frozen_stream_nonregular.py` | 32 | 0 | 0 | not repeated |
+| `tests/fake/test_idle_cost.py` | 0 | 2 | 0 | not repeated |
+| `tests/fake/test_lane_fault.py` | 20 | 0 | 0 | not repeated |
+| `tests/fake/test_lane_pilot.py` | 24 | 0 | 0 | not repeated |
+| `tests/fake/test_main_refusal_write_dir.py` | 5 | 0 | 0 | not repeated |
+| `tests/fake/test_mcp_job_contract.py` | 12 | 0 | 0 | not repeated |
+| `tests/fake/test_native_maintenance_startup.py` | 41 | 0 | 0 | not repeated |
+| `tests/fake/test_notice_delivery.py` | 15 | 0 | 0 | not repeated |
+| `tests/fake/test_notice_header.py` | 23 | 0 | 0 | not repeated |
+| `tests/fake/test_picker_native.py` | 3 | 0 | 0 | not repeated |
+| `tests/fake/test_policy_sandbox.py` | 25 | 0 | 0 | not repeated |
 | `tests/fake/test_probe_recovery.py` | 9 | 0 | 0 | yes |
-| `tests/fake/test_reserve_authorization.py` | 12 | 0 | 0 | pending |
-| `tests/fake/test_reserve_authorization_validation.py` | 11 | 0 | 0 | pending |
+| `tests/fake/test_reserve_authorization.py` | 12 | 0 | 0 | not repeated |
+| `tests/fake/test_reserve_authorization_validation.py` | 11 | 0 | 0 | not repeated |
 | `tests/fake/test_resume_contract.py` | 23 | 0 | 0 | yes |
-| `tests/fake/test_retention_dormant.py` | 7 | 0 | 0 | pending |
-| `tests/fake/test_review130_ab.py` | 12 | 0 | 0 | pending |
-| `tests/fake/test_review_r185_adversarial.py` | 1 | 0 | 0 | pending |
-| `tests/fake/test_salvage_adversarial.py` | 8 | 0 | 0 | pending |
+| `tests/fake/test_retention_dormant.py` | 7 | 0 | 0 | not repeated |
+| `tests/fake/test_review130_ab.py` | 12 | 0 | 0 | not repeated |
+| `tests/fake/test_review_r185_adversarial.py` | 1 | 0 | 0 | not repeated |
+| `tests/fake/test_salvage_adversarial.py` | 8 | 0 | 0 | not repeated |
 | `tests/fake/test_salvage_finalization.py` | 47 | 0 | 0 | yes |
 | `tests/fake/test_state_contract.py` | 37 | 0 | 0 | yes |
-| `tests/fake/test_state_fixture_processes.py` | 4 | 0 | 0 | pending |
-| `tests/fake/test_turn_listing.py` | 9 | 0 | 0 | pending |
-| `tests/fake/test_turn_trees.py` | 12 | 0 | 0 | pending |
-| `tests/fake/test_unadmittable_pin_rereview.py` | 6 | 0 | 0 | pending |
+| `tests/fake/test_state_fixture_processes.py` | 4 | 0 | 0 | not repeated |
+| `tests/fake/test_turn_listing.py` | 9 | 0 | 0 | not repeated |
+| `tests/fake/test_turn_trees.py` | 12 | 0 | 0 | not repeated |
+| `tests/fake/test_unadmittable_pin_rereview.py` | 6 | 0 | 0 | not repeated |
 | `tests/fake/test_wall_running_time.py` | 35 | 0 | 0 | yes |
-| `tests/fake/test_workspace_contract.py` | 8 | 0 | 0 | pending |
-| `tests/fake/test_workspace_enospc.py` | 1 | 0 | 0 | pending |
-| `tests/fake/test_workspace_transient.py` | 24 | 0 | 0 | pending |
-| `tests/fake/test_writable_fanout.py` | 28 | 0 | 0 | pending |
-| `tests/frontend/test_disk_ruling.py` | 8 | 0 | 0 | pending |
-| `tests/unit/test_cli.py` | 200 | 0 | 0 | pending |
-| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | pending |
-| `tests/unit/test_daemon_settle.py` | 43 | 0 | 0 | pending |
-| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | pending |
-| `tests/unit/test_offline.py` | 33 | 0 | 0 | pending |
-| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | pending |
-| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 | pending |
-| `tests/unit/test_tick_prefilter.py` | 30 | 0 | 0 | pending |
+| `tests/fake/test_workspace_contract.py` | 8 | 0 | 0 | not repeated |
+| `tests/fake/test_workspace_enospc.py` | 1 | 0 | 0 | not repeated |
+| `tests/fake/test_workspace_transient.py` | 24 | 0 | 0 | not repeated |
+| `tests/fake/test_writable_fanout.py` | 28 | 0 | 0 | not repeated |
+| `tests/frontend/test_disk_ruling.py` | 8 | 0 | 0 | not repeated |
+| `tests/unit/test_cli.py` | 200 | 0 | 0 | not repeated |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | not repeated |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 | 0 | yes |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | not repeated |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 | not repeated |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | yes |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 | yes |
+| `tests/unit/test_tick_prefilter.py` | 30 | 0 | 0 | yes |
 
-### Round-2 commits
+### Round-2 mutation evidence
+
+Before the final family-cascade addition (`bdebb2406`), all three requested
+mutants were caught. Each ran in its own foreground lock hold; the runner
+restored the source byte for byte in `finally` and required pytest exit 1.
+These probes were not repeated after the final family-only addition; no mutation remains in the workspace.
+
+| Mutation | Named test that failed | Failure |
+| --- | --- | --- |
+| Charge to now after a known exit | `test_wall_property_counts_only_execution_and_never_stops_waiting` | 2 seconds charged for 1 second of execution; 259,201 for 1 after settlement delay |
+| Allow the wall to cancel an exited provider | `test_enforcement_never_cancels_a_known_exit[finalizing]` | `_enforce_wall` returned true |
+| Drop the overrun record | `test_exited_provider_settled_three_days_later_exports[running-7]` | Missing `wall_overrun` evidence |
+
+All three named tests are in `tests/fake/test_wall_running_time.py`. Their
+healthy versions passed in the full wall file. The first mutation took 97.45 s
+of pytest time, the second 2.44 s, and the third 1.07 s.
+
+### Round-2 commit steps
 
 These commits are in `.git-local` on the assigned branch; the report is saved
 in a subsequent documentation commit.
@@ -419,3 +443,5 @@ in a subsequent documentation commit.
 | `bdebb2406` | Correct inspection-fixture wall timestamps and refuse signals from synthetic-PID tests |
 | `171e594ce` | Tests first: preserve exited children through wall cascades, including a finalization race |
 | `309c432f6` | Preserve exited family members, recheck exit state atomically and amend C-7.3 |
+
+| `de04bf646` | Save the implementation and validation checkpoint during shared-lock waits |
