@@ -728,7 +728,7 @@ def test_a_recovered_probe_says_it_was_stopped_only_if_it_was(routing_state, mon
     record["deadline_at"] = after(-1)
     service._save_probe(record)
 
-    def census(value):
+    def census(value, *, foreign_ownership=None):
         if receipt_after_stop:
             exit_receipts(value)
         return procs.Containment()
@@ -759,7 +759,8 @@ def test_a_probe_whose_adapter_raised_after_its_deadline_says_so(routing_state, 
                         lambda *a, **k: SimpleNamespace(pid=900001, poll=lambda: None))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *a, **k: True)     # running at its deadline
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *a, **k: "alive")
-    monkeypatch.setattr(service, "_probe_census", lambda value: exit_receipts(value) or procs.Containment())
+    monkeypatch.setattr(service, "_probe_census",
+                        lambda value, *, foreign_ownership=None: exit_receipts(value) or procs.Containment())
 
     def classify(*args):
         raise OSError("stream unavailable after the deadline stop")
