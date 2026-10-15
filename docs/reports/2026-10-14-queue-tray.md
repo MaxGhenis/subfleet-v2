@@ -399,3 +399,39 @@ bundle `docs/reports/2026-10-14-queue-tray-round2.bundle` requires base
 `8d7cbcb6959e` and transfers the local branch without a network remote. Logs, JSON
 probe output and bundles remain unstaged. Full pytest and mutant verification,
 plus real macOS 14 and 15 hardware checks, remain outstanding.
+
+## Validation round 2 (2026-10-15)
+
+This validation starts from `e1a88f3cb12c` in the assigned isolated workspace.
+The checkout was clean. The start was 18:44 UTC; no new lock holds will start
+after 23:14 UTC (4 h 30 m). Only failures demonstrated by this validation and
+assertions encoding the superseded design will be changed.
+
+The default uv cache rejects a temporary-file write with `Operation not
+permitted`. As explicitly authorized for this round, `UV_CACHE_DIR` points to
+`uv-cache` inside the job's `sf-r219v2-*` scratch directory. Hypothesis storage
+and compiler caches also live there, with `HYPOTHESIS_PROFILE=ci`; the deep
+profile is never used. Each pytest runs in the foreground, sequentially, under
+its own `lockf -k` hold without an acquisition timeout or pytest workers.
+JUnit evidence remains ignored under `build/r219v2/`.
+
+The shared Git metadata is outside the writable workspace. Commits use local
+`.git-local` metadata, branch `feat/queue-tray-217`, with read-only object
+alternates to the shared repository. Nothing is pushed or rewritten, and no
+caller files or live application state are changed.
+
+### Build checkpoint
+
+`app/build.sh` passed: full optimized compilation, plist validation and ad-hoc
+signing. Existing Sendable-capture and unnecessary-await warnings remain.
+The bundle was built only in this workspace, never installed or launched.
+The round-2 replacement of `rm -rf` with Python `shutil.rmtree` is retained as
+the behavior-preserving sandbox-compatible cleanup workaround; it is not an
+application behavior change. No further build-script change is needed.
+
+### Test checkpoint
+
+The first required hold (`test_core_queue_tray.py` and
+`test_queue_tray_notice.py`) is waiting for the shared test lock. No pytest
+results or mutation kills are claimed yet. The final tables below will record
+every required file and all twelve named mutations, including anything unrun.
