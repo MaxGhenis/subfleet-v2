@@ -77,6 +77,7 @@ def helper_environments(path, parent, monkeypatch, tmp_path, passed=()):
         expected.update(dict.fromkeys(salvage.GIT_TRACE2_TARGETS, "0"), LC_ALL="C")
     elif path == "retention":
         seen.append(retention_git.environment())
+        expected.update(dict.fromkeys(salvage.GIT_TRACE2_TARGETS, "0"), LC_ALL="C")
         expected.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0",
             GIT_NO_REPLACE_OBJECTS="1", GIT_ASKPASS="/usr/bin/false", SSH_ASKPASS="/usr/bin/false")
     elif path == "gate":
