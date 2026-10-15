@@ -33,7 +33,7 @@ def wall(state_daemon, monkeypatch):
 
     monkeypatch.setattr(daemon_module, 'datetime', FrozenDatetime)
     monkeypatch.setattr(service, '_read_answer', lambda *args: None)
-    monkeypatch.setattr(service, '_inspect_running', lambda *args: None)
+    monkeypatch.setattr(service, '_inspect_running', lambda *args: True)
     monkeypatch.setattr(service.conversations, 'stop', lambda *args: False)
     return service, harness
 
@@ -60,7 +60,7 @@ def history(wall, durations=(4, 3), waits=(1000,), state='running', cap=7,
     adir.mkdir(exist_ok=True)
     if exited and state in ('starting', 'running', 'finalizing'):
         (adir / 'exit.json').write_text(json.dumps({'rc': 0, 'finished_at': stamp(end)}))
-    service._inspect_next[aid] = float('inf')
+    service._inspect_next.pop(aid, None)
     return jid, aid
 
 
