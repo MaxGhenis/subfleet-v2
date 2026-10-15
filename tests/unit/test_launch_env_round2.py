@@ -13,7 +13,7 @@ from tests.unit.test_launch_env_allowlist import launch_for
 
 
 def test_daemon_start_preserves_harness_configuration_not_credentials(tmp_path, monkeypatch):
-    parent = {"PATH": "/usr/bin:/bin", "SUBFLEET_FAKE_SCENARIO": "dummy",
+    parent = {"PATH": "/usr/bin:/bin", "SUBFLEET_HOME": str(tmp_path), "SUBFLEET_FAKE_SCENARIO": "dummy",
               "SUBFLEET_LIVE": "0", "SUBFLEET_TEST_TOKEN": "dummy"}
     monkeypatch.setattr(os, "environ", parent)
     states = iter([False, True])

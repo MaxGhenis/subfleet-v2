@@ -135,7 +135,7 @@ def test_bounded_property_all_lane_launches(parent, passed, tmp_path, monkeypatc
             actual = daemon._launch_environment(lane, launch)
             expected = {k: v for k, v in parent.items() if k in ALLOWED or k in passed}
             expected.update(launch.env_add)
-            for name in launch.env_remove:
+            for name in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
                 expected.pop(name, None)
             assert_environment(actual, expected)
 
