@@ -1,9 +1,11 @@
 """Refuse forbidden filesystem accesses before the underlying call (D-ST1).
 
-Check open/io.open, every path operand, aliases, and descriptor-relative paths.
+Check open/io.open/io.FileIO, chdir, path operands, aliases (including firmlinks),
+and descriptor-relative paths.
 Realpath itself runs through the lexical trap, so resolving an alias never stats
 its forbidden target. Native libraries opening paths without Python APIs (e.g.
-sqlite3.connect) remain outside this monkeypatch trap and require isolated inputs.
+sqlite3.connect), and DirEntry.stat() on entries from scanning a parent, remain
+outside this monkeypatch trap and require isolated inputs.
 """
 
 from __future__ import annotations
@@ -88,7 +90,7 @@ def untouchable(patch, *roots):
         return call
 
     with patch.context() as inner:
-        for name in ("stat", "lstat", "readlink", "listdir", "scandir", "open", "mkdir", "rmdir",
+        for name in ("chdir", "stat", "lstat", "readlink", "listdir", "scandir", "open", "mkdir", "rmdir",
                      "unlink", "remove", "access", "chmod", "chown", "utime", "truncate"):
             inner.setattr(os, name, guarded(getattr(os, name), [(0, "path", "dir_fd")]))
         for name in ("rename", "replace", "link"):
@@ -98,9 +100,13 @@ def untouchable(patch, *roots):
                       [(0, "src", "src_dir_fd"), (1, "dst", "dir_fd")]))
         inner.setattr(builtins, "open", guarded(builtins.open, [(0, "file", "dir_fd")]))
         inner.setattr(io, "open", guarded(io.open, [(0, "file", "dir_fd")]))
+        inner.setattr(io, "FileIO", guarded(io.FileIO, [(0, "file", "dir_fd")]))
         # Canonicalize parent aliases with the lexical trap already installed;
         # never resolve or stat a forbidden root itself during setup.
         forbidden.extend(os.path.join(os.path.realpath(os.path.dirname(os.fspath(root))),
                                       os.path.basename(os.fspath(root))).casefold()
                          for root in roots)
+        # Firmlinks are not symlinks; realpath cannot expose their other name.
+        forbidden.extend("/system/volumes/data" + root for root in list(forbidden)
+                         if not root.startswith("/system/volumes/data/"))
         yield touched
