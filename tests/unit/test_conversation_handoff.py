@@ -215,7 +215,8 @@ def test_a_waiting_message_moves_only_while_its_job_has_no_attempt(world):
     assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
     event = world.daemon.store.one("SELECT data_json FROM events WHERE kind='job.cancel_requested' AND job_id=?",
                                    (job_id,))
-    assert json.loads(event["data_json"]) == {"by": "conversation.handoff", "request_id": "h-1"}
+    assert json.loads(event["data_json"]) == {"by": "daemon", "reason": "conversation.handoff",
+                                             "running_s": 0.0, "request_id": "h-1"}
     assert world.store.message(waiting)["state"] == "cancelled"
 
 

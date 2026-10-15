@@ -94,11 +94,11 @@ def test_long_gap_does_not_expire_a_short_running_retry(wall, monkeypatch):
 @settings(max_examples=40, deadline=None, derandomize=True,
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(durations=st.lists(st.integers(1, 20), min_size=1, max_size=5),
-       wait=st.integers(0, 10000), cap=st.integers(1, 100),
+       waits=st.lists(st.integers(0, 10000), min_size=5, max_size=5), cap=st.integers(1, 100),
        state=st.sampled_from([None, 'starting', 'running', 'finalizing', 'reserved']))
-def test_wall_property_counts_only_execution_and_never_stops_waiting(wall, monkeypatch, durations, wait, cap, state):
+def test_wall_property_counts_only_execution_and_never_stops_waiting(wall, monkeypatch, durations, waits, cap, state):
     service, _ = wall
-    jid, aid = history(wall, durations=durations, waits=[wait] * (len(durations)-1), state=state, cap=cap)
+    jid, aid = history(wall, durations=durations, waits=waits[:len(durations)-1], state=state, cap=cap)
     monkeypatch.setattr(service, '_kill_attempt', lambda a: None)
     monkeypatch.setattr(service, '_finalize', lambda a: None)
     if state in ('starting', 'running', 'finalizing'):
@@ -122,7 +122,7 @@ def test_client_cancel_records_socket_pid_and_session_and_notifies_caller(wall, 
     peer = AuditToken(struct.pack('=8I', 0, 0, 0, 0, 0, os.getpid(), 0, 1), server)
     try:
         request = protocol.Request(v=1, id='cancel', op='kill', args={
-            'job_id': jid, 'session_id': 'other-session', 'reason': 'stop duplicate'})
+            'job_id': jid, 'session_id': 'other-session', 'reason': 'stop duplicate', 'pid': -123})
         future = service._start_request(server, threading.Lock(), request, 0, peer)
         future.result(timeout=10)
         assert json.loads(client.recv(65536))['ok']
@@ -161,3 +161,53 @@ def test_daemon_message_cancel_has_an_explicit_cause(wall):
     jid = service.dispatch('submit', harness.submit_args())['job_id']
     assert service.conversations._cancel_job_without_attempt(jid)
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'message-cancelled', 'running_s': 0.0}]
+
+
+def test_client_cancel_family_keeps_first_request_and_names_requester(wall):
+    service, harness = wall
+    parent = service.dispatch('submit', harness.submit_args(caller_session='caller'))['job_id']
+    child = service.dispatch('submit', harness.submit_args(caller_session='caller', parent_job_id=parent))['job_id']
+    independent = service.dispatch('submit', harness.submit_args(parent_job_id=parent, independent=True))['job_id']
+    first = {'job_id': parent, 'session_id': 'other-session', 'reason': 'duplicate family'}
+    service.dispatch('kill', first)
+    service.dispatch('kill', {**first, 'session_id': 'later-session', 'reason': 'later'})
+    expected = {'by': 'client', 'session_id': 'other-session', 'pid': None, 'reason': 'duplicate family'}
+    assert cancel_events(service, parent) == [expected]
+    assert cancel_events(service, child) == [{**expected, 'parent_job_id': parent}]
+    assert cancel_events(service, independent) == []
+    for jid in (parent, child):
+        notices = service.store.list_notices('caller')
+        assert any(row['job_id'] == jid and 'other-session' in row['text'] and 'duplicate family' in row['text']
+                   for row in notices)
+
+
+def test_starting_clock_begins_before_guardian_receipt(wall, monkeypatch):
+    service, _ = wall
+    jid, aid = history(wall, durations=(7,), waits=(), state='starting')
+    service.store.update_attempt(aid, reserved_at=stamp(-1000))
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: None)
+    service._process_attempt(aid)
+    assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
+
+
+def test_finalization_time_is_charged_to_later_attempts(wall):
+    service, harness = wall
+    from tests.fake.test_state_contract import reserve, receipt_fixture
+    jid, first, adir = reserve(service, harness)
+    service.store.update_attempt(first['attempt_id'], started_at=stamp(-4))
+    finalizing = receipt_fixture(service, first, adir)
+    service.store.update_attempt(first['attempt_id'], finished_at=stamp(-2))
+    service._finalize(finalizing)
+    # The provider receipt predates finalization. The terminal attempt must end
+    # when finalization completes, so that a retry cannot shed that running time.
+    assert service.store.get_attempt(first['attempt_id'])['finished_at'] == stamp(0)
+
+
+def test_reserved_time_and_unstarted_attempts_do_not_spend_the_wall(wall, monkeypatch):
+    service, _ = wall
+    jid, aid = history(wall, durations=(4, 3), cap=4)
+    first = f'{jid}/a1'
+    service.store.update_attempt(first, started_at=None, reserved_at=stamp(-10000))
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: pytest.fail('unstarted attempt spent the wall'))
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)['cancel_requested_at'] is None

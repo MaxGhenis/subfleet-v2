@@ -260,6 +260,7 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
         assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
     else:
         daemon.store.update_job(job_id, started_at="2026-09-24T07:00:00Z", max_wall_s=60)
+        daemon.store.update_attempt(attempt["attempt_id"], started_at="2026-09-24T07:00:00Z")
     daemon._process_attempt(attempt["attempt_id"])            # the kill: SIGTERM, receipt, finalizing
     assert sent == [int(signal.SIGTERM)]
     daemon._process_attempt(attempt["attempt_id"])            # finalization

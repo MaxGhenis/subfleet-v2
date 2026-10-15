@@ -258,7 +258,7 @@ def test_an_attempt_whose_job_row_is_missing_is_offered(core):
             tx.execute("PRAGMA defer_foreign_keys=ON")
             tx.execute("DELETE FROM jobs WHERE job_id=?", (JOB,))
             rows = [dict(row) for row in tx.execute(LIVE_TICK).fetchall() if row["attempt_id"] == ATTEMPT]
-            assert rows and rows[0]["max_wall_s"] is None and rows[0]["job_started_at"] is None
+            assert rows and rows[0]["max_wall_s"] is None
             assert core._has_work(rows[0]) is True
             raise Undo
     assert core.store.get_job(JOB) is not None
