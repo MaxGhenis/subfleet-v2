@@ -71,3 +71,73 @@ metadata was preserved. A transfer bundle at
 Only named source, test, contract and report files were staged. Every commit
 carries the requested co-author trailer. No push, remote operation, sub-agent,
 live-store access or unrelated process modification.
+
+
+## Round 2: PR #220 review r1, 2026-10-15
+
+Base: `fd43f6e6f10b`. Tests-first commit `667648558` adds the review's exact
+timing: the snapshot shows original pid 42 with its recorded start, then
+replacement S holds 42 with a different start and unique id 100; child C is
+pid 60, unique id 101. Neither carries markers or has a recorded child seed.
+Against unchanged base production code, the unit regression file returned
+**6 failed, 11 passed in 38.64 s**, reproducing
+`responsible_pids={42,60}`, `errors=()`. The regression also exercises
+`Daemon._contain` and checks that no stranger identity or recording event is
+persisted.
+
+Fix `7fbfd6584` requires a no-unique-id root's current `proc_start`, read after
+the matching snapshot, to equal its recorded start. A changed, absent or
+unreadable start disables the responsibility source and reports
+`responsibility root identity unavailable for pid <pid>`, making the census
+unverifiable and preventing release. Its historical group/walk row may remain
+in that census, but supplies no new responsibility seeds. Known-id bounds,
+marker collection, and guardian waiting remain unchanged. C-5.1/C-5.5 describe
+the check; C-5.5/C-5.12 account for the additional start-time read.
+
+The ci property covers known/missing unique id crossed with reuse before ps,
+after absent ps, and after matching ps: 40 examples per combination. Fresh
+matching, absent and failed reads have controls, including read order. All
+previous controls passed. The real-kernel regression adds both matching-ps
+cases, leaving individual start and kernel reads real for the hub.
+
+Head results: **191 passed, 4 skipped**, with **15 process cases not run**.
+Unit pytest took 101.70 s; fake pytest took 6.61 s. Counts below are per file;
+process counts are static parametrization counts, not executed results.
+
+| File under `tests/` | Passed | Skipped | Not run |
+|---|---:|---:|---:|
+| unit/test_procs.py | 47 | 0 | 0 |
+| unit/test_census_identity_uncertainty.py | 8 | 0 | 0 |
+| unit/test_census_procargs.py | 52 | 0 | 0 |
+| unit/test_census_recycled_pid.py | 25 | 0 | 0 |
+| unit/test_census_responsibility_failures.py | 20 | 0 | 0 |
+| unit/test_census_responsibility_identity.py | 17 | 0 | 0 |
+| unit/test_census_survivors_review.py | 14 | 0 | 0 |
+| fake/test_census_recycled_pid_daemon.py | 8 | 0 | 0 |
+| fake/test_census_escapers_daemon.py | 0 | 4 | 0 |
+| process/test_census_responsibility_process.py | 0 | 0 | 12 |
+| process/test_census_raw_markers_process.py | 0 | 0 | 3 |
+
+This sandbox denied inspection of this task's own Python process (`ps
+inspection unavailable`); fake escapers skipped because boot identity was
+unavailable. The hub must run the skipped and unrun cases. Compare
+`667648558` (base production code) with `7fbfd6584` for the new real-kernel
+regression.
+
+CPython 3.14.7, GIL enabled. Each pytest ran serially in the foreground under
+its own shared `lockf -k` hold, waiting without a timeout, with one worker,
+`-p no:cacheprovider`, the ci profile and scratch Hypothesis storage. No deep
+profile was used. Scratch directories/results were removed with the requested
+Python cleanup; no `.hypothesis` directory or test wrapper remains. Whitespace
+checks passed. Final production prose edits have the same AST as the
+unit-tested fix after excluding docstrings.
+
+Shared Git metadata is outside the sandbox's writable roots; writing the
+worktree's `.git` pointer was rejected with EPERM. All three commits are on
+`fix/census-responsibility-p3` in workspace-local `.git-local`, with the original
+pointer and shared metadata preserved. Inspect with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`. Transfer bundle:
+`.git-local/census-responsibility-p3-r2.bundle` (requires the base commit).
+Only named source/test/contract/report files were staged, and each commit has
+the requested co-author trailer. No push, Git remote operation, sub-agent or
+live-store access.

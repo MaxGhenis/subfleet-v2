@@ -707,8 +707,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     the census records as evidence, and the start time that is its identity.
     The marker source reads each process's raw argument buffer in this process
     (`Darwin`), and so does the fourth source, every process whose responsible
-    process is `responsible_root` (D-CEN1), for an attempt that recorded one;
-    using the snapshot for member identities. A root without a recorded unique
+    process is `responsible_root` (D-CEN1), for an attempt that recorded one.
+    Member identities come from the snapshot. A root without a recorded unique
     id also needs a fresh start-time read before supplying members (C-5.12).
     Commands and environments are never retained.
     """
