@@ -107,6 +107,20 @@ def test_wrapper_path_comparison_never_probes_a_system_directory(monkeypatch):
                       {"PATH": "/usr/bin:/bin"})
 
 
+def test_direct_program_never_probes_an_unrelated_recorder(tmp_path, monkeypatch):
+    """Direct Git/Python-style launches do not scan old wrapper-session pins."""
+    unrelated = tmp_path / "unrelated-session"
+    guard = credentials._exec_guard([(str(unrelated), "0:0:expired")])
+    original = io.open
+    def witness(path, *args, **kwargs):
+        if not isinstance(path, int) and str(path).startswith(str(unrelated)):
+            pytest.fail("direct launch probed an unrelated recorder session")
+        return original(path, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(io, "open", witness)
+        guard("subprocess.Popen", ("/bin/true", ["/bin/true"], None, None))
+
+
 def test_credential_shell_runner_cannot_escape_to_emulated_system_path(tmp_path):
     """Even a wrapping runner cannot return the emulated system reader's blob."""
     system = StandIn(tmp_path / "emulated-system")
