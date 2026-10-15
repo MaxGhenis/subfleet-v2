@@ -24,7 +24,7 @@ KEYCHAIN_BINARY = "/usr/bin/security"
 _STANDIN_KEYCHAIN_BINARIES: tuple[str, ...] = ()
 # The audit events that start a program. `os.spawn` is native only on Windows;
 # elsewhere os.spawn* forks and the child's exec is audited instead.
-_LAUNCH_EVENTS = frozenset({"subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn"})
+_LAUNCH_EVENTS = frozenset({"subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn"}) | {"os.system"}
 # The installed guard's session pins live on `sys`, so the guard is per process.
 _EXEC_GUARD = "_subfleet_keychain_exec_guard"
 _REFUSAL = "refusing personal keychain read under pytest"
@@ -105,6 +105,8 @@ def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
                     _fold_name=_fold_name) -> list[str | None]:
     # A later audit hook can mutate PATH after this hook returns. Never approve
     # the bare reader name; intentional test executables must name their path.
+    if event == "os.system":
+        return []  # Its shell is checked separately, without parsing shell text.
     program = details[1 if event == "os.spawn" else 0]
     name = os.fsdecode(program)
     if not os.path.dirname(name) and _fold_name(name) == "security":
@@ -124,22 +126,119 @@ def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
     return []
 
 
+# Wrapper children exec outside Python's audit machinery. Compare PATH strings
+# before inspecting any executable, so a reset path cannot escape the recorder.
+_DELEGATING_PROGRAMS = frozenset({
+    "sh", "bash", "zsh", "dash", "env", "xargs", "nice", "nohup", "taskpolicy",
+})
+_SYSTEM_BINARY_DIRECTORIES = (
+    "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/gnu/bin",
+)
+
+
+def _env_search_path(argv: list[str], path: str | None) -> str | None:
+    """env can clear, unset, assign or explicitly select the child's PATH.
+
+    Parse options only before its utility; that utility's arguments are opaque.
+    env -S splits another option/assignment prefix, without running a shell.
+    """
+    import shlex
+    args = list(argv[1:])
+    options = True
+    while args:
+        arg = args.pop(0)
+        if options and arg == "--":
+            options = False
+        elif options and arg in ("-i", "--ignore-environment", "-"):
+            path = None
+        elif options and arg in ("-u", "--unset"):
+            if args and args.pop(0) == "PATH":
+                path = None
+        elif options and (arg.startswith("--unset=") or arg.startswith("-u")):
+            if arg.removeprefix("--unset=").removeprefix("-u") == "PATH":
+                path = None
+        elif options and arg in ("-P", "--path"):
+            path = args.pop(0) if args else None
+        elif options and arg.startswith("--path="):
+            path = arg.partition("=")[2]
+        elif options and (arg == "-S" or arg.startswith("--split-string=")):
+            split = args.pop(0) if arg == "-S" and args else arg.partition("=")[2]
+            args[:0] = shlex.split(split)
+        elif options and arg in ("-C", "--chdir"):
+            if args:
+                args.pop(0)
+        elif options and arg.startswith("-"):
+            # Combined env short flags, including -iv, retain -i's semantics.
+            if not arg.startswith("--") and "i" in arg[1:]:
+                path = None
+        elif "=" in arg:
+            if arg.startswith("PATH="):
+                path = arg.partition("=")[2]
+        else:
+            break
+    return path
+
+
+def _unsafe_delegation(event: str, details: tuple, recorders: tuple[str, ...], *,
+                       system_dirs=_SYSTEM_BINARY_DIRECTORIES,
+                       _fold_name=_fold_name, _env_path=_env_search_path, _family=_DELEGATING_PROGRAMS) -> bool:
+    if event == "os.system":
+        name, argv, env, cwd = "sh", (), None, None
+    else:
+        offset = 1 if event == "os.spawn" else 0
+        name, argv = details[offset:offset + 2]
+        env = details[3] if event == "subprocess.Popen" else details[offset + 2]
+        cwd = details[2] if event == "subprocess.Popen" else None
+        name = _fold_name(os.path.basename(os.fsdecode(name)))
+    if name not in _family:
+        return False
+    # os.get_exec_path handles both string and bytes environments, and supplies
+    # the OS default when PATH is absent. env's resets use that default too.
+    path = os.pathsep.join(os.get_exec_path(env))
+    if name == "env":
+        path = _env_path([os.fsdecode(arg) for arg in argv], path)
+    path = os.defpath if path is None else path
+
+    def spelling(directory):
+        directory = _fold_name(os.path.normpath(directory))
+        return directory.removeprefix("/system/volumes/data") or "/"
+
+    system = {spelling(directory) for directory in system_dirs}
+    safe = {spelling(directory) for directory in recorders}
+    base = os.getcwd() if cwd is None else os.fsdecode(cwd)
+    for directory in path.split(os.pathsep):
+        directory = spelling(os.path.join(base, directory))
+        if directory in system:
+            return True
+        if directory in safe:
+            return False
+    return False
+
+
 def _guard_active(pins: list[tuple[str, str]], *, under_pytest=under_pytest,
                   session_alive=session_alive) -> bool:
     return under_pytest() or any(session_alive(*pin) for pin in list(pins))
 
 
-def _exec_guard(pins: list[tuple[str, str]]):
+def _exec_guard(pins: list[tuple[str, str]], *, system_dirs=_SYSTEM_BINARY_DIRECTORIES,
+                recorder_dirs: tuple[str, ...] = ()):
     native = _native_keychain_binary()
 
     # Every helper is bound by default argument when defined, so replacing this
     # module's attributes later cannot change the installed hook. Only the
-    # stand-in registry is read when a launch is audited; it can only add.
+    # stand-in registry and live session pins are read at launch; neither can
+    # remove the native rule.
     def guard(event, details, *, _events=_LAUNCH_EVENTS, _targets=_launch_targets,
-              _matches=_is_keychain_binary, _active=_guard_active, _native=native):
+              _matches=_is_keychain_binary, _active=_guard_active, _native=native,
+              _unsafe=_unsafe_delegation, _alive=session_alive,
+              _system=system_dirs, _recorders=recorder_dirs):
         if event not in _events:
             return
         try:
+            recorders = _recorders + tuple(os.path.join(base, "keychain-bin")
+                                           for base, token in list(pins) if _alive(base, token))
+            if _active(pins) and _unsafe(event, details, recorders, system_dirs=_system):
+                raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX)
             starts = [target for target in _targets(event, details) if target is not None]
         except (OSError, TypeError, ValueError):
             return  # Arguments the launch itself rejects before starting anything.
@@ -152,11 +251,15 @@ def _exec_guard(pins: list[tuple[str, str]]):
 def install_keychain_exec_guard() -> bool:
     """Refuse, under pytest, any launch that would start the login keychain's reader.
 
-    Bare `security` launches are refused independently of PATH, including PATH
+    Bare `security` names (NFD/casefold/NFD) are refused independently of PATH,
+    including PATH
     changes by later audit hooks. Explicit paths retain folded-path and identity
-    checks. The test session puts a recording `security` first on PATH to contain
-    accidental shell/env delegation. Deliberate native paths inside shell strings
-    are outside this accidental-reach contract; production readers use argv.
+    checks. The test session puts a recording `security` first on PATH. Shells
+    and env-family wrappers are refused when their child PATH reaches a system
+    binary directory before a live session recorder, including absent PATH and
+    env resets. This check compares strings without probing system directories.
+    Deliberate absolute reader paths inside shell strings are outside C-20.6
+    (D-ST1); production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through
