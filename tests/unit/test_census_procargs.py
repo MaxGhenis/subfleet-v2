@@ -270,7 +270,9 @@ def test_d_cen1_responsibility_members_are_counted_and_recorded_without_commands
                                recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, START)})
     assert result.responsible_pids == {42, 43, 60, 61}
     assert 70 not in result.live_pids                         # its own responsible process
-    assert result.shapes[60] == {"ppid": 1, "pgid": 60, "stat": "Ss"}
+    # Fresh responsibility captures share the marker identity/group bracket,
+    # which records generic live state rather than the snapshot's old flags.
+    assert result.shapes[60] == {"ppid": 1, "pgid": 60, "stat": "S"}
     assert result.identities[61] == procs.ProcessIdentity(61, BOOT_A, START)
     shown = json.dumps(result.to_dict())
     assert shown.count('"responsible_pids": [42, 43, 60, 61]') == 1
@@ -482,6 +484,14 @@ def test_d_cen1_a_guardian_without_a_root_is_said_once(monkeypatch):
 @pytest.mark.parametrize("unique_id", [1, None])
 def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, unique_id):
     census(monkeypatch, parents=ROWS, session=BOOT_A)
+    cwd_reads = []
+
+    def cwd_pids(workdir):
+        assert workdir == "/fixture/work"
+        cwd_reads.append(workdir)
+        return frozenset()
+
+    monkeypatch.setattr(procs, "cwd_pids", cwd_pids)
     kernel_with(monkeypatch, processes={42: b"", 43: b""},
                 responsible={42: 42, 43: 42}, unique={42: 100, 43: 101})
     row = attempt_row(responsible_root={"pid": 42, "unique_id": unique_id})
@@ -489,6 +499,7 @@ def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, uniqu
     core = core_for(row)
     result = Daemon._contain(core, dict(row))
     assert result.verified_empty and not result.responsible_pids
+    assert cwd_reads == ["/fixture/work"]
     assert "responsible_identities" not in json.loads(row["evidence_json"])
     assert core.store.events == [("attempt.lineage_recorded", None),
         ("attempt.processes_recycled", {"recycled": result.to_dict()["recycled"]})]
