@@ -15,6 +15,7 @@ import time
 from uuid import uuid4
 
 from .provider_env import ProviderEnvironment
+from .launch_env import helper_policy
 from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
@@ -181,7 +182,7 @@ class Timers:
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
                 pool = (self._mirror if name in ('mirror', 'mirror_hot')
                         else self._cards if name == 'claude_cards' else self._cycles)
-                pool.submit(self._run, name)
+                pool.submit(self._run_worker, self._run, name)
 
     def request(self, name, *, target=None):
         """Queue operator maintenance on the same workers and overlap guard."""
@@ -211,8 +212,12 @@ class Timers:
                 self._running.discard(name)
             raise
         callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
-        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run, name, callback)
+        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run_worker, self._run, name, callback)
         return {'status': 'scheduled', 'timer': name, 'target': target}
+
+    def _run_worker(self, function, *args):
+        with helper_policy(self.policy):
+            return function(*args)
 
     def _run(self, name, callback=None):
         error = None
@@ -620,7 +625,7 @@ class Timers:
                     self._io_busy.discard(key)
                 self._io_slots.release()
                 done.set()
-        threading.Thread(target=read, daemon=True, name='subfleet-usage-read').start()
+        threading.Thread(target=self._run_worker, args=(read,), daemon=True, name='subfleet-usage-read').start()
         deadline = time.monotonic() + min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
         while not done.wait(.02):
             if self.cancel.is_set() or time.monotonic() >= deadline:
@@ -1009,7 +1014,7 @@ class Timers:
             self.cancel.wait(wait)
         if self.cancel.is_set():
             return
-        futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
+        futures = [self._lanes.submit(self._run_worker, self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
@@ -1045,7 +1050,7 @@ class Timers:
             raise failure
         # The same four-worker/read fences apply, but no idle probe lease is
         # held across busy reads, their Claude pacing, or their publication.
-        futures = [self._lanes.submit(self._busy_read, lane) for lane in busy]
+        futures = [self._lanes.submit(self._run_worker, self._busy_read, lane) for lane in busy]
         busy_results = [value for future in as_completed(futures) if (value := future.result())]
         results.extend(busy_results)
         for lane, probe, opened in busy_results:
@@ -1134,6 +1139,6 @@ class Timers:
             self._release(holder, quarantined=quarantined)
 
     def keepalive_cycle(self):
-        futures = [self._lanes.submit(self._keepalive_lane, lane) for lane in self.store.list_lanes()
+        futures = [self._lanes.submit(self._run_worker, self._keepalive_lane, lane) for lane in self.store.list_lanes()
                    if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop]
         return [future.result() for future in as_completed(futures)]
