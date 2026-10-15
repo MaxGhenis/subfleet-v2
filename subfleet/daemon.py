@@ -3905,8 +3905,10 @@ class Daemon:
             return {"job_id": args.job_id, "status": "resolution requested"}
         if job["state"] in TERMINAL:
             return {"job_id": args.job_id, "status": "already finished"}
-        self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
-                                         "pid": pid, "reason": args.reason or "client-request"}, family=True)
+        requested = self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
+                                                      "pid": pid, "reason": args.reason or "client-request"}, family=True)
+        if not requested and self._job(args.job_id)["state"] in TERMINAL:
+            return {"job_id": args.job_id, "status": "already finished"}
         return {"job_id": args.job_id, "status": "cancel requested"}
 
     def _notice(self, tx, job: dict, summary: str, *, again: bool = False) -> None:
