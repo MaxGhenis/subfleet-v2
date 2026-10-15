@@ -280,15 +280,22 @@ final class UIModel: ObservableObject {
         Thread.detachNewThread { [weak self] in
             WatchLoop(engine: engine,
                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
-                      deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+                      deliver: { update in DispatchQueue.main.sync { self?.fold(watch: update) } },
                       lost: { error in DispatchQueue.main.async { self?.lostDaemon(error) } },
-                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } }).run()
+                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } },
+                      focusedConversationID: { DispatchQueue.main.sync { self?.state.focusedConversationID } }).run()
         }
     }
 
-    private func fold(watch page: WatchPage) {
+    private func fold(watch update: WatchUpdate) {
+        let page = update.page
         let known = Set(state.conversations.map(\.conversation_id))
-        state.apply(watch: page)
+        // One publication: a settled host must never expose the tray projection
+        // with a block from the previous list refresh.
+        var next = state
+        if let conversation = update.conversation { next.upsert(conversation) }
+        next.apply(watch: page)
+        state = next
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()

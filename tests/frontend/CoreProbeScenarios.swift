@@ -306,7 +306,16 @@ func runStore(_ data: Data) throws -> [String: Any] {
             log.append(pageResult(state.apply(events: try page.decode(EventsPage.self), conversationID: cid)))
         }
         if let page = step["watch"] {
-            switch state.apply(watch: try page.decode(WatchPage.self)) {
+            let decoded = try page.decode(WatchPage.self)
+            if let socket = step["refresh_socket"]?.string {
+                let client = DaemonClient(transport: try probeTransport(socket))
+                let journal = URL(fileURLWithPath: socket).deletingLastPathComponent().appendingPathComponent("watch-outbox.json")
+                let engine = ConversationEngine(client: client, outbox: try Outbox(url: journal))
+                let update = try engine.refreshing(decoded, after: state.watchCursor,
+                                                  focusedConversationID: state.focusedConversationID)
+                if let conversation = update.conversation { state.upsert(conversation) }
+            }
+            switch state.apply(watch: decoded) {
             case .applied(let count): log.append("watch:\(count)")
             case .superseded: log.append("watch:superseded")
             }
@@ -452,8 +461,8 @@ func runWatchLoop(socket: String, journal: String, turns: Int) throws -> [String
                   left -= 1
                   return left >= 0 ? after : nil
               },
-              deliver: { page in
-                  after = page.next
+              deliver: { update in
+                  after = update.page.next
                   log.append("page")
               },
               lost: { error in

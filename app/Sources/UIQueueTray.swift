@@ -15,7 +15,7 @@ struct QueueTray: View {
     let withdraw: (QueuedMessage) -> Void
     /// Steer a row into the running turn; nil until the daemon offers it (`steer.v1`).
     var steer: ((QueuedMessage) -> Void)? = nil
-    /// C-29.17's send notice belongs to the message wherever the layout puts it.
+    /// An optional seam for a future send notice, attached to its owning message.
     /// Keep its model/actions owned by that stack; attach its existing view by id.
     var notice: ((String) -> AnyView?)? = nil
     @State private var expanded = false

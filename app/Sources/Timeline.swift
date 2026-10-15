@@ -177,6 +177,9 @@ struct TurnTimeline: Equatable {
     var steerMissedIn: String?
     /// This app journaled a steer of it and the daemon has not answered yet.
     var steerRequested = false
+    /// Once sent as a steer, its bubble stays in the timeline through every
+    /// receipt, a miss, and dispatch as its own turn.
+    var sentAsSteer = false
     /// The daemon's refusal of this app's last steer of it (the message stayed queued).
     var steerRefusal: OutboxFailure?
     /// The sequence number of the turn's first event: when it began running.
@@ -270,8 +273,8 @@ struct TurnTimeline: Equatable {
     func statusText(host: TurnTimeline?, assistant: String = "Claude") -> String {
         switch messageState {
         case .queued:
-            if steerRequested { return TurnTimeline.unreadWords(host: host, assistant: assistant) }
             if missedSteer { return TurnTimeline.unreadUntilTurnEnds }
+            if steerRequested { return TurnTimeline.unreadWords(host: host, assistant: assistant) }
             if let refusal = steerRefusal { return "Queued, not steered: " + steerRefusalWords(refusal) }
             return "Queued behind the current turn"
         case .steering:
@@ -711,10 +714,12 @@ struct Timeline: Equatable {
         if let delivered {
             ensureTurn(delivered)
             turns[delivered]?.steerDeliveredIn = id
+            turns[delivered]?.sentAsSteer = true
         }
         if let missed, turns[missed]?.steerDeliveredIn == nil {
             ensureTurn(missed)
             turns[missed]?.steerMissedIn = id
+            turns[missed]?.sentAsSteer = true
         }
     }
 
@@ -775,6 +780,11 @@ struct Timeline: Equatable {
         ensureTurn(receipt.message_id)
         guard var turn = turns[receipt.message_id] else { return }
         if receipt.messageState != .unknown {
+            if receipt.messageState == .steering || receipt.messageState == .steered
+                || receipt.steered_into != nil || steeredInto(stateReason: receipt.state_reason) != nil
+                || receipt.state_reason?.hasPrefix("steer-missed:") == true {
+                turn.sentAsSteer = true
+            }
             turn.state = receipt.state
             turn.stateReason = receipt.state_reason
             turn.steeredInto = receipt.steered_into ?? steeredInto(stateReason: receipt.state_reason)
@@ -812,7 +822,7 @@ struct Timeline: Equatable {
         turn.attachments = attachments
         turn.origin = turn.origin ?? "person"
         turn.settings = turn.settings ?? settings
-        if steer { turn.steerRequested = true }
+        if steer { turn.steerRequested = true; turn.sentAsSteer = true }
         turns[messageID] = turn
     }
 
@@ -821,6 +831,7 @@ struct Timeline: Equatable {
     mutating func requestSteer(messageID: String) {
         guard var turn = turns[messageID] else { return }
         turn.steerRequested = true
+        turn.sentAsSteer = true
         turn.steerRefusal = nil
         turns[messageID] = turn
     }
@@ -829,6 +840,7 @@ struct Timeline: Equatable {
     /// message (or the steer was taken back), else why not (the message stays queued).
     mutating func noteSteer(messageID: String, refusal: OutboxFailure?) {
         guard var turn = turns[messageID] else { return }
+        turn.sentAsSteer = true
         turn.steerRequested = false
         turn.steerRefusal = refusal
         turns[messageID] = turn

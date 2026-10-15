@@ -932,6 +932,24 @@ final class ConversationEngine {
         try client.call(Ops.conversationWatch, ConversationWatchArgs(after: after, wait_s: wait ?? pollWait))
     }
 
+    /// Refresh the focused conversation before publishing changed message states.
+    /// Watch rows deliberately carry no blocked_by. Read without `open`'s outbox
+    /// chain bookkeeping: this runs on the feed thread, not the outbox queue.
+    func watchUpdate(after: Int, focusedConversationID: String?, wait: Double? = nil) throws -> WatchUpdate {
+        let page = try watch(after: after, wait: wait)
+        return try refreshing(page, after: after, focusedConversationID: focusedConversationID)
+    }
+
+    func refreshing(_ page: WatchPage, after: Int, focusedConversationID: String?) throws -> WatchUpdate {
+        var conversation: Conversation?
+        if page.superseded != true, let id = focusedConversationID,
+           page.changes.contains(where: { $0.seq > after && $0.conversation_id == id && $0.message_id != nil }) {
+            let opened = try client.call(Ops.conversationOpen, ConversationOpenArgs.conversation(id))
+            conversation = opened.conversation
+        }
+        return WatchUpdate(page: page, conversation: conversation)
+    }
+
     func runs(conversationID: String, limit: Int = 50) throws -> [RunSummary] {
         try client.call(Ops.conversationRuns, ConversationRunsArgs(conversation_id: conversationID, limit: limit)).runs
     }
@@ -1200,8 +1218,9 @@ final class ConversationEngine {
     /// Drain the watch feed without waiting (the launch baseline, or a catch-up).
     func drainWatch(_ state: inout ConversationStoreState, maxPages: Int = 64) throws {
         for _ in 0..<maxPages {
-            let page = try watch(after: state.watchCursor, wait: 0)
-            guard case .applied(let count) = state.apply(watch: page), count > 0 else { return }
+            let update = try watchUpdate(after: state.watchCursor, focusedConversationID: state.focusedConversationID, wait: 0)
+            if let conversation = update.conversation { state.upsert(conversation) }
+            guard case .applied(let count) = state.apply(watch: update.page), count > 0 else { return }
         }
     }
 }
@@ -1213,16 +1232,24 @@ final class ConversationEngine {
 /// been answered while the daemon was busy or restarting, and nothing else checks
 /// once the feed answers again, so the app kept its banner and stopped sending
 /// (review of the descriptor hotfix, F7).
+/// Internal feed result; it does not change the daemon's watch protocol.
+struct WatchUpdate {
+    let page: WatchPage
+    let conversation: Conversation?
+}
+
 struct WatchLoop {
     let engine: ConversationEngine
     /// Where to watch from; nil ends the loop.
     var cursor: () -> Int?
-    var deliver: (WatchPage) -> Void
+    var deliver: (WatchUpdate) -> Void
     /// A watch failed.
     var lost: (Error) -> Void
     /// A watch answered after one or more failed.
     var regained: () -> Void
     var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+
+    var focusedConversationID: () -> String? = { nil }
 
     /// The pause after the `failures`th failure in a row: 2 s more each time, at most 30 s.
     static func backoff(failures: Int) -> TimeInterval { min(30, Double(failures) * 2) }
@@ -1232,7 +1259,10 @@ struct WatchLoop {
         while let after = cursor() {
             do {
                 let page = try engine.watch(after: after)
-                deliver(page)
+                // Focus can change during the long poll. Refresh the conversation
+                // that is focused when it answers, before delivering the page.
+                let update = try engine.refreshing(page, after: after, focusedConversationID: focusedConversationID())
+                deliver(update)
                 if failures > 0 { regained() }
                 failures = 0
             } catch {

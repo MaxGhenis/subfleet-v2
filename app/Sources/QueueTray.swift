@@ -2,8 +2,8 @@
 // timeline and sits in a compact tray pinned above the composer, in the order
 // the daemon sends the queue, with Withdraw (design §12, C-29.7). Foundation only.
 //
-// A person message waits here if and only if something is ahead of it: a live
-// turn, a conversation block, or an earlier dispatchable message. A queued
+// A queued person message waits here if something is ahead of it or the daemon
+// deferred it. Messages sent as steers always remain timeline bubbles. A queued
 // receipt alone does not move it here: every message.submit answers queued.
 // Queued failover continuations stay as timeline notices, but count as ahead.
 // Withdrawn messages, including tombstones, leave a compact timeline line.
@@ -147,12 +147,15 @@ extension Timeline {
     /// The tray's message ids, in the order the daemon sends them. `held`: a
     /// block holds the conversation (`blocked_by`), so nothing sent now starts.
     func trayMessageIDs(held: Bool) -> [String] {
-        var ahead = held || liveMessageID != nil
+        // Use the dispatcher's states (turn.py LIVE_STATES), not the narrower
+        // set of turns that can be stopped or receive a new steer.
+        var ahead = held || turns.values.contains { $0.messageState.map(MessageState.live.contains) ?? false }
         var out: [String] = []
         for id in queue {
             guard let turn = turn(id) else { continue }
             // The first send with nothing ahead stays in the timeline across its receipt.
-            if ahead && turn.continues == nil { out.append(id) }
+            let deferred = turn.stateReason?.hasPrefix("deferred:") == true
+            if (ahead || deferred) && turn.continues == nil && !turn.sentAsSteer { out.append(id) }
             ahead = true
         }
         return out
@@ -162,11 +165,7 @@ extension Timeline {
     func queueTray(held: Bool, assistant: String = "Claude") -> [QueuedMessage] {
         trayMessageIDs(held: held).compactMap { id in
             guard let turn = turn(id) else { return nil }
-            var row = QueuedMessage(turn: turn)
-            if turn.steerRequested || turn.steerRefusal != nil || turn.missedSteer {
-                row.status = statusText(of: id, assistant: assistant)
-            }
-            return row
+            return QueuedMessage(turn: turn)
         }
     }
 
@@ -305,7 +304,7 @@ func stopLabel(_ action: StopAction) -> String? {
 
 extension ConversationStoreState {
     /// One projection for the conversation view and future per-message notices.
-    /// C-29.17 can attach its notice by row.id after this split.
+    /// The optional QueueTray.notice seam can attach future notices by row.id.
     func layout(conversationID: String) -> ConversationLayout? {
         guard let timeline = timelines[conversationID], let conversation = conversation(conversationID) else { return nil }
         var layout = timeline.layout(held: conversation.blocked_by != nil || conversation.live_elsewhere == true,

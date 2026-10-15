@@ -133,7 +133,9 @@ def daemon_truth(harness: ServiceHarness, cid: str, mids: list[str]) -> list[str
         order.append(heads[0]["message_id"])
         harness.store.set_state(heads[0]["message_id"], "cancelled", reason="drained")
     return [mid for index, mid in enumerate(order)
-            if (index > 0 or live_now or blocked) and not rows[mid]["continues"]]
+            if (index > 0 or live_now or blocked or (rows[mid]["state_reason"] or "").startswith("deferred:"))
+            and not rows[mid]["continues"]
+            and not (rows[mid]["state_reason"] or "").startswith("steer-missed:")]
 
 
 @PROPERTY
@@ -230,26 +232,30 @@ def test_r2_a_missed_steer_stays_in_the_timeline(core_probe):
 def test_r3_a_block_read_late_moves_the_head_out_and_back(core_probe, settle):
     with tempfile.TemporaryDirectory(prefix="sf-r219-r3-") as scratch:
         harness = ServiceHarness(Path(scratch))
+        server = ServiceServer(harness)
         try:
             caps = harness.call("capabilities")
             cid = harness.create()["conversation_id"]
             host = harness.submit(cid, "the running turn")["message_id"]
             assert harness.store.set_state(host, "running", expect=("queued",))
             later = harness.submit(cid, "queued for later", after=host)["message_id"]
-            groups = [[{"capabilities": caps}, {"open": harness.call("conversation.open", conversation_id=cid)}]]
+            groups = [[{"capabilities": caps}, {"open": harness.call("conversation.open", conversation_id=cid)},
+                       {"focus": cid}]]
             cursor = harness.call("conversation.watch", after=0, wait_s=0)["next"]
             # The settlement: block first, then the message (service.py, "Before the message settles").
             harness.store.update_conversation(cid, blocked_by=settle)
             assert harness.store.set_state(host, "delivery-unknown" if settle == "delivery-unknown" else "interrupted",
                                            expect=("running",))
             page, cursor = watch_page(harness, cursor)
-            groups.append([{"watch": page}])
+            groups.append([{"watch": page, "refresh_socket": str(server.path)}])
             # The 30 s list timer reads the block.
             groups.append([{"list": harness.call("conversation.list", include_catalog=False)}])
             places = positions(core_probe, groups, cid, later)
             truth_live = harness.store.message(host)["state"] in LIVE_STATES
             truth_blocked = harness.store.conversation(cid)["blocked_by"]
+            assert any(request["op"] == "conversation.open" for request in server.requests)
         finally:
+            server.close()
             harness.close()
     print(settle, "later places", places, "daemon live", truth_live, "blocked", truth_blocked)
     # The daemon holds `later` throughout (blocked, and for delivery-unknown also a live state).
@@ -463,3 +469,4 @@ def test_r8_opening_stays_at_the_end_after_late_measurement(opening_scroll, path
     assert abs(run["opening"][-1]["from_end"]) <= 2, run["opening"]
     assert abs(run["late_page"][-1]["from_end"]) <= 2, run["late_page"]
     assert abs(run["settling"][-1]["from_end"]) <= 2, run["settling"]
+    assert run["after_person"][-1]["from_end"] > 100, run["after_person"]
