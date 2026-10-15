@@ -308,9 +308,10 @@ guardian.linger()
 
 
 @pytest.mark.parametrize("known_unique", [True, False])
-@pytest.mark.parametrize("after_snapshot", [False, True])
+@pytest.mark.parametrize("after_snapshot,matching_snapshot", [(False, False), (True, False), (True, True)],
+                         ids=["before-ps", "after-absent-ps", "after-matching-ps"])
 def test_d_cen1_a_real_recycled_root_and_its_child_are_strangers(
-        tmp_path, monkeypatch, known_unique, after_snapshot):
+        tmp_path, monkeypatch, known_unique, after_snapshot, matching_snapshot):
     """The reviewer's executed input: a self-responsible S and its child C recorded
     under a dead root's start identity and older (or unknown) kernel sequence."""
     pidfile = tmp_path / "member"
@@ -328,21 +329,25 @@ def test_d_cen1_a_real_recycled_root_and_its_child_are_strangers(
         assert procs.kernel.responsible(source.pid) == source.pid
         assert procs.kernel.responsible(member.pid) == source.pid
         if after_snapshot:
-            # The review's timing: S and C were born after ps. Their listing,
-            # metadata, responsibility and individual identity reads stay real.
+            # S and C replace either an absent root or a matching original row
+            # after ps. Listings, kernel reads and individual start reads stay real.
             seen = procs.snapshot()
             rows = {pid: row for pid, row in seen.rows.items() if pid not in {source.pid, member.pid}}
+            if matching_snapshot:
+                rows[source.pid] = (*seen.rows[source.pid][:3], "old start")
             monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, seen.boot()))
         result = procs.containment(source.pid, source.pid, None, "absent-marker",
             recorded_identities={source.pid: procs.ProcessIdentity(source.pid, own.boot_id, "old start")},
             responsible_root=procs.ResponsibleRoot(source.pid, own.boot_id, sequence - 1 if known_unique else None))
-        assert not result.live_pids and not result.identities
+        assert not result.responsible_pids
+        assert result.live_pids <= ({source.pid} if matching_snapshot else set())
+        assert set(result.identities) <= ({source.pid} if matching_snapshot else set())
         if after_snapshot:
             assert not result.recycled
             if not known_unique:
                 assert f"responsibility root identity unavailable for pid {source.pid}" in result.errors
                 assert result.unverifiable and not result.verified_empty
-            else:
+            elif not matching_snapshot:
                 assert result.verified_empty
         else:
             assert set(result.recycled) == {source.pid}
