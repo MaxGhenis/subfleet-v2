@@ -25,7 +25,9 @@ struct OpeningHarness: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(12)
-                .background(ConversationOpeningPin())
+                .background {
+                    if anchored || jumpOnAppear { ConversationOpeningPin() }
+                }
             }
             .modifier(MaybeAnchor(anchored: anchored))
             .onChange(of: feed.jumps) { _, _ in jump(proxy) }
