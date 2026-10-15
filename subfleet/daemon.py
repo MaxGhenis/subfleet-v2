@@ -73,7 +73,7 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
+from .store import Store, _pin_notice_key, cancel_info, notice_fingerprint, notice_rows, pin_notice_jobs
 
 
 def spawn_guardian(command: list[str], *, disclaim: bool, **options):
@@ -3868,7 +3868,7 @@ class Daemon:
     def _cancel_info(self, job_id: str) -> dict | None:
         row = self.store.one("SELECT ts,data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' "
                              "ORDER BY event_id LIMIT 1", (job_id,))
-        return {"at": row["ts"], **json.loads(row["data_json"])} if row else None
+        return cancel_info(row["ts"], row["data_json"]) if row else None
 
     @staticmethod
     def _cancel_requester(job: dict, data: dict) -> str:

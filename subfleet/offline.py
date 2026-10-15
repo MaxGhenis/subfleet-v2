@@ -24,7 +24,7 @@ from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .quota_projection import weekly_projections
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, notice_rows, weekly_history_params
+from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -254,7 +254,7 @@ class Offline:
             cancel = conn.execute("SELECT ts,data_json FROM events WHERE job_id=? "
                                   "AND kind='job.cancel_requested' ORDER BY event_id LIMIT 1",
                                   (job_id,)).fetchone()
-            job["cancel"] = {"at": cancel["ts"], **json.loads(cancel["data_json"])} if cancel else None
+            job["cancel"] = cancel_info(cancel["ts"], cancel["data_json"]) if cancel else None
             job["attempts"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]
