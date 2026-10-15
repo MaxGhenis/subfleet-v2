@@ -339,6 +339,46 @@ complete file is queued for a separate locked rerun. Production Git suppression
 was already correct; these failures were test-oracle mismatches.
 
 
+### Continuation at `2a6dde5ff` (2026-10-15)
+
+The release merge and all 27 recovered commits are preserved. This continuation
+uses workspace-local `.git-local/` metadata on `fix/launch-env-allowlist-217`,
+with the checkpoint as its parent and the shared object store read-only. Nothing
+is pushed or rewritten. Its ignored validation runner runs in the shell's
+foreground, with each pytest process under a separate shared-lock hold; it never
+detaches. Test slices stop between tests after eight minutes, with a ten-minute
+per-test timeout keeping a hold below twenty minutes. Scratch/Hypothesis storage
+is unique to each hold and removed afterwards. No new holds start after 4h30.
+
+The six failures reported at this checkpoint have these verified source causes:
+
+| CI failures | Cause and correction |
+| --- | --- |
+| Both responsibility guardian cases waiting for `escaper.pid` | Their direct guardian argv did not authorize `ESCAPER` or their launch markers. Pass the fixture environment's names with `guardian_pass_args`, as daemon launches do. Assertions are retained. |
+| Nested-setsid guardian census | The provider lost the attempt marker, so its escaped child could not be found by the raw-marker census. Authorize the selected fixture environment explicitly. |
+| QoS provider marker assertion | Same omitted guardian authorization. The provider's selected fixture environment now supplies `--env-pass` names. |
+| Claude doctor version environment | The old oracle compared against the finite round-1 constant even though round 2 admits noncredential Subfleet configuration. Production already loads the root policy and passes its exact `env.pass` names. Keep that code and replace the oracle with a deterministic, complete expected mapping for both providers: defaults, one configuration setting, exactly one authorized token, no neighboring/unlisted credentials or foreign attempt marker, and Codex's configured CA. |
+| Hot mirror timer worker | No queueing regression: `Timers.tick` still chooses `_mirror` for both mirror names. The new `_run_worker` wrapper inserted a callback argument before the timer name, and the spy recorded that callback as the name. Update both spies' signatures; retain the assertion that both passes use the mirror pool and neither uses the cycle pool. |
+
+Every real `python -m subfleet.guardian` launch found under `tests/` was audited:
+`test_guardian_process`, `test_census_responsibility_process`,
+`test_guardian_qos_process`, `test_guardian_relay`, and the embedded launcher in
+`test_stop_alarm`. All now authorize their selected fixture environments. Other
+matches are imports, synthetic process records, or intercepted daemon launches;
+the direct `run_guardian` unit receipt test already authorizes its dummy token.
+
+A new guarded real-process regression starts the guardian with the daemon's
+`guardian_pass_args`, checks every provider launch marker, lets its provider exit,
+and finds the escaped grandchild using only the raw-marker census (no group,
+descendant or responsibility root supplied). `SUBFLEET_EXIT_SETTLE_S` remains the
+intentional guardian-only exception to `LAUNCH_NAMES`; the test requires its
+removal even when authorized. Process assertions have not been weakened and no
+inspection bypass has been added.
+
+Commits so far: `86e0e95b4` (guardian fixture authorization and real-process
+regression), `85ac88d52` (doctor and timer oracles). Focused validation is waiting
+for the shared lock. Directory validation and pending round-2 reruns follow.
+
 ### Original CI failures, reconstructed by node ID
 
 The Python 3.12 log contains 1,014 progress outcomes before its internal error.
