@@ -211,9 +211,11 @@ the spawn oracle needed to distinguish the guardian-only settle setting.
 - The exact-name list discarded noncredential `SUBFLEET_*` configuration,
   including fake-provider scenarios, reports, delays, and the live-test guard.
   Round 2 admits valid ASCII `SUBFLEET_*` names except launch/session markers
-  and names containing an underscore-delimited `TOKEN`, `KEY`, `SECRET`, or
-  `PASSWORD` word, case insensitive. Unknown credential names still need exact
-  policy authority. Tests cover all four words, mixed case, suffixes such as
+  and names containing an underscore-delimited credential word, case insensitive: the
+  required `TOKEN`, `KEY`, `SECRET`, `PASSWORD` forms plus `APIKEY`, `PASSWD`,
+  `CREDENTIAL`, `AUTHORIZATION`, `BEARER`, and `COOKIE`, including plurals and
+  numbered variants. Unknown credential names still need exact
+  policy authority. Tests cover these credential forms, mixed case, suffixes such as
   `_TOKEN_FILE`, and `SUBFLEET_TEST_TOKEN` across daemon/provider selection.
   The prefix rule accommodates supported runtime hooks without making a new
   configuration setting depend on a second, easily stale inventory.
@@ -273,5 +275,112 @@ All pytest invocations use a unique temporary/Hypothesis directory, the shared
 remote Git operations or sub-agents are used. Scratch directories are removed
 after each run; logs and evidence are not staged.
 
-Validation results and historical CI failure mapping are filled below after
-the remaining lock-protected holds finish.
+The first full fake-directory hold completed 687 tests in **19m11s** before
+an orderly tool interrupt kept the hold below 20 minutes: **636 passed,
+5 failed, 44 skipped, 2 xfailed**. The remaining tests continue in new holds.
+Four failures require the sandbox-denied boot identity and signal inspection.
+The fifth was an old preflight-call oracle omitting round 1's `env_pass` argument;
+that assertion now verifies the exact credential/CA names as well as `env`.
+Subsequent runs record completed node IDs and pause between tests after four
+minutes, continuing only their remaining nodes under a fresh shared-lock hold.
+
+Final directory totals and the historical CI failure mapping follow once those
+holds finish.
+
+
+### Original CI failures, reconstructed by node ID
+
+The Python 3.12 log contains 1,014 progress outcomes before its internal error.
+Matching them to collection at `1a2287ca3` identifies all **70** failures:
+**68 e2e cases**, the stale preflight oracle at position **717**, and the
+merged guardian spawn oracle at position **1,014**. The last test replaces
+`os.environ`; its assertion failure triggered the recorder's missing-key crash.
+Both oracle mismatches are now corrected, and the recorder fix is a CI tool
+change. The e2e configuration/hook diagnosis is verified by the harness-selection
+regression and source reads, but these 68 individual runtime failures cannot
+be independently reproduced here because the existing inspection fixture skips
+them. A host CI rerun remains necessary to confirm them all.
+
+<details>
+<summary>All 70 failed nodes and their cause/fix groups</summary>
+
+| CI position | Failed node | Cause/fix group |
+| --- | --- | --- |
+| 1 | `tests/e2e/test_codex_turn_completed_e2e.py::test_zero_exit_cut_off_turn_cannot_publish_output[cut-off-item-completed]` | E: harness configuration/runtime hooks dropped |
+| 2 | `tests/e2e/test_codex_turn_completed_e2e.py::test_zero_exit_cut_off_turn_cannot_publish_output[cut-off-item-started]` | E: harness configuration/runtime hooks dropped |
+| 3 | `tests/e2e/test_codex_turn_completed_e2e.py::test_zero_exit_cut_off_turn_cannot_publish_output[cut-off-error]` | E: harness configuration/runtime hooks dropped |
+| 4 | `tests/e2e/test_conversation_titles_e2e.py::test_claude_names_the_conversation_after_its_first_reply_in_the_turn_process` | E: harness configuration/runtime hooks dropped |
+| 5 | `tests/e2e/test_conversation_titles_e2e.py::test_a_followup_sent_while_the_title_is_asked_goes_at_once` | E: harness configuration/runtime hooks dropped |
+| 6 | `tests/e2e/test_conversation_titles_e2e.py::test_a_followup_never_regenerates_the_title` | E: harness configuration/runtime hooks dropped |
+| 7 | `tests/e2e/test_conversation_titles_e2e.py::test_a_rename_wins_over_a_title_already_in_flight` | E: harness configuration/runtime hooks dropped |
+| 9 | `tests/e2e/test_conversation_titles_e2e.py::test_unavailable_claude_title_preserves_fallback_and_holds_the_turn_at_most_its_budget[title-error]` | E: harness configuration/runtime hooks dropped |
+| 10 | `tests/e2e/test_conversation_titles_e2e.py::test_unavailable_claude_title_preserves_fallback_and_holds_the_turn_at_most_its_budget[title-null]` | E: harness configuration/runtime hooks dropped |
+| 11 | `tests/e2e/test_conversation_titles_e2e.py::test_unavailable_claude_title_preserves_fallback_and_holds_the_turn_at_most_its_budget[title-timeout]` | E: harness configuration/runtime hooks dropped |
+| 13 | `tests/e2e/test_conversation_wakes_e2e.py::test_turn_dispatches_run_ends_and_completion_starts_exactly_one_new_turn[False]` | E: harness configuration/runtime hooks dropped |
+| 14 | `tests/e2e/test_conversation_wakes_e2e.py::test_turn_dispatches_run_ends_and_completion_starts_exactly_one_new_turn[True]` | E: harness configuration/runtime hooks dropped |
+| 15 | `tests/e2e/test_conversation_wakes_e2e.py::test_cli_at_reinvokes_after_five_minutes` | E: harness configuration/runtime hooks dropped |
+| 16 | `tests/e2e/test_conversation_wakes_e2e.py::test_cli_pr_event_uses_batched_gh_and_reinvokes` | E: harness configuration/runtime hooks dropped |
+| 18 | `tests/e2e/test_conversations.py::test_a_claude_conversation_streams_completes_and_continues_in_the_same_session` | E: harness configuration/runtime hooks dropped |
+| 19 | `tests/e2e/test_conversations.py::test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping` | E: harness configuration/runtime hooks dropped |
+| 20 | `tests/e2e/test_conversations.py::test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not` | E: harness configuration/runtime hooks dropped |
+| 21 | `tests/e2e/test_conversations.py::test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_kit` | E: harness configuration/runtime hooks dropped |
+| 22 | `tests/e2e/test_conversations.py::test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once` | E: harness configuration/runtime hooks dropped |
+| 26 | `tests/e2e/test_conversations.py::test_multiple_question_answers_reach_the_provider_once_and_a_new_message_keeps_them_pending` | E: harness configuration/runtime hooks dropped |
+| 28 | `tests/e2e/test_conversations.py::test_interrupt_ends_a_running_turn_with_the_providers_own_stop` | E: harness configuration/runtime hooks dropped |
+| 29 | `tests/e2e/test_conversations.py::test_a_usage_limit_fails_over_with_a_labelled_continuation_never_a_resend` | E: harness configuration/runtime hooks dropped |
+| 30 | `tests/e2e/test_conversations.py::test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_person_decides` | E: harness configuration/runtime hooks dropped |
+| 31 | `tests/e2e/test_conversations.py::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live` | E: harness configuration/runtime hooks dropped |
+| 32 | `tests/e2e/test_conversations.py::test_a_codex_approval_and_limit` | E: harness configuration/runtime hooks dropped |
+| 35 | `tests/e2e/test_conversations.py::test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice` | E: harness configuration/runtime hooks dropped |
+| 36 | `tests/e2e/test_conversations.py::test_a_steer_joins_the_running_turn_once_without_its_own_job[claude]` | E: harness configuration/runtime hooks dropped |
+| 37 | `tests/e2e/test_conversations.py::test_a_steer_joins_the_running_turn_once_without_its_own_job[codex]` | E: harness configuration/runtime hooks dropped |
+| 38 | `tests/e2e/test_conversations.py::test_a_claude_steer_after_the_last_boundary_runs_in_the_same_process` | E: harness configuration/runtime hooks dropped |
+| 39 | `tests/e2e/test_conversations.py::test_a_codex_steer_that_misses_returns_to_its_original_queue_place` | E: harness configuration/runtime hooks dropped |
+| 41 | `tests/e2e/test_conversations.py::test_stopping_a_host_cancels_its_provider_queue_and_requeues_pending_steers` | E: harness configuration/runtime hooks dropped |
+| 42 | `tests/e2e/test_conversations.py::test_a_daemon_restart_with_a_steer_in_flight_replays_without_resending` | E: harness configuration/runtime hooks dropped |
+| 43 | `tests/e2e/test_conversations.py::test_a_worktree_conversation_runs_its_turns_in_its_own_worktree` | E: harness configuration/runtime hooks dropped |
+| 46 | `tests/e2e/test_conversations.py::test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_clock` | E: harness configuration/runtime hooks dropped |
+| 47 | `tests/e2e/test_conversations.py::test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock` | E: harness configuration/runtime hooks dropped |
+| 48 | `tests/e2e/test_conversations.py::test_a_claude_turn_on_the_wrong_model_fails_model_mismatch` | E: harness configuration/runtime hooks dropped |
+| 49 | `tests/e2e/test_conversations.py::test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_person_resolves_it` | E: harness configuration/runtime hooks dropped |
+| 50 | `tests/e2e/test_conversations.py::test_a_persons_stop_without_delivery_evidence_still_blocks_as_unknown` | E: harness configuration/runtime hooks dropped |
+| 51 | `tests/e2e/test_conversations.py::test_fast_unavailable_is_readmitted_at_most_max_readmits_times_then_fails` | E: harness configuration/runtime hooks dropped |
+| 52 | `tests/e2e/test_conversations.py::test_message_cancel_withdraws_a_queued_message_and_tombstones_an_unknown_one` | E: harness configuration/runtime hooks dropped |
+| 53 | `tests/e2e/test_conversations.py::test_a_codex_thread_with_an_active_turn_is_an_external_writer` | E: harness configuration/runtime hooks dropped |
+| 54 | `tests/e2e/test_conversations.py::test_a_person_who_resolves_a_claude_message_delivered_then_chooses_how_to_go_on` | E: harness configuration/runtime hooks dropped |
+| 58 | `tests/e2e/test_conversations.py::test_a_claude_conversation_hands_off_to_codex_with_its_pending_messages` | E: harness configuration/runtime hooks dropped |
+| 59 | `tests/e2e/test_conversations.py::test_a_codex_conversation_waiting_on_its_limited_lane_hands_off_to_claude` | E: harness configuration/runtime hooks dropped |
+| 62 | `tests/e2e/test_guard_and_isolation.py::test_provider_environment_isolated_in_each_sandbox[read-only-astra-success-codex]` | E: harness configuration/runtime hooks dropped |
+| 63 | `tests/e2e/test_guard_and_isolation.py::test_provider_environment_isolated_in_each_sandbox[read-only-haiku-success-allowed-claude]` | E: harness configuration/runtime hooks dropped |
+| 64 | `tests/e2e/test_guard_and_isolation.py::test_provider_environment_isolated_in_each_sandbox[workspace-write-astra-success-codex]` | E: harness configuration/runtime hooks dropped |
+| 65 | `tests/e2e/test_guard_and_isolation.py::test_provider_environment_isolated_in_each_sandbox[workspace-write-haiku-success-allowed-claude]` | E: harness configuration/runtime hooks dropped |
+| 67 | `tests/e2e/test_legacy_cockpit.py::test_imported_history_reopens_and_its_session_continues_without_resending_it` | E: harness configuration/runtime hooks dropped |
+| 69 | `tests/e2e/test_milestone1_codex.py::test_detached_cli_exit_does_not_end_provider_work` | E: harness configuration/runtime hooks dropped |
+| 70 | `tests/e2e/test_milestone1_codex.py::test_kill_slow_job_interrupts_attempt_and_records_owner` | E: harness configuration/runtime hooks dropped |
+| 71 | `tests/e2e/test_milestone1_codex.py::test_kill_dirty_allocated_worktree_publishes_salvage` | E: harness configuration/runtime hooks dropped |
+| 77 | `tests/e2e/test_milestone2_claude.py::test_allowed_readings_percentages_and_raw_stream` | E: harness configuration/runtime hooks dropped |
+| 78 | `tests/e2e/test_milestone2_claude.py::test_credits_rejection_closes_model_and_retry_explains_exclusion` | E: harness configuration/runtime hooks dropped |
+| 79 | `tests/e2e/test_milestone2_claude.py::test_limit_without_clock_is_guessed_one_hour` | E: harness configuration/runtime hooks dropped |
+| 80 | `tests/e2e/test_milestone2_claude.py::test_model_downgrade_persists_transcript_attestation` | E: harness configuration/runtime hooks dropped |
+| 81 | `tests/e2e/test_milestone2_claude.py::test_a_credential_that_belongs_to_another_account_yields_no_capacity` | E: harness configuration/runtime hooks dropped |
+| 82 | `tests/e2e/test_milestone2_claude.py::test_a_setup_token_lane_keeps_working_without_profile_scope` | E: harness configuration/runtime hooks dropped |
+| 83 | `tests/e2e/test_milestone2_claude.py::test_empty_result_with_zero_rc_is_unknown` | E: harness configuration/runtime hooks dropped |
+| 84 | `tests/e2e/test_notice_job_state.py::test_c9_2_c15_1_a_codex_job_cancelled_while_running_is_announced_cancelled` | E: harness configuration/runtime hooks dropped |
+| 85 | `tests/e2e/test_recovery.py::test_running_job_survives_daemon_sigkill_once` | E: harness configuration/runtime hooks dropped |
+| 87 | `tests/e2e/test_reserve.py::test_c11_7_opus_lands_on_the_lane_with_slack_and_the_reserved_lane_is_named` | E: harness configuration/runtime hooks dropped |
+| 89 | `tests/e2e/test_reserve.py::test_c11_7_setup_token_lanes_stay_unmeasured_for_opus_while_fable_still_runs` | E: harness configuration/runtime hooks dropped |
+| 91 | `tests/e2e/test_review_r2_strand_e2e.py::test_background_wait_outliving_the_result_does_not_swallow_the_wake[automatic]` | E: harness configuration/runtime hooks dropped |
+| 92 | `tests/e2e/test_review_r2_strand_e2e.py::test_background_wait_outliving_the_result_does_not_swallow_the_wake[wake-me]` | E: harness configuration/runtime hooks dropped |
+| 93 | `tests/e2e/test_review_r3_strand_timing_e2e.py::test_strand_timing[automatic]` | E: harness configuration/runtime hooks dropped |
+| 94 | `tests/e2e/test_review_r3_strand_timing_e2e.py::test_strand_timing[wake-me]` | E: harness configuration/runtime hooks dropped |
+| 97 | `tests/e2e/test_stop_bound.py::test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock` | E: harness configuration/runtime hooks dropped |
+| 717 | `tests/fake/test_daemon_launch.py::test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon_log` | P: old preflight oracle omitted env_pass |
+| 1014 | `tests/fake/test_launch_env_daemon.py::test_actual_daemon_spawn_rejects_pollution[detached]` | G: merged guardian settle setting omitted from spawn oracle; recorder read replaced environ |
+
+
+E: admit noncredential Subfleet configuration and explicitly authorize the
+harness's nonprefix runtime hooks; preserve helper policy. P: assert the
+preflight's exact `env_pass` credential/CA names. G: account for the merged
+guardian-only settle setting, and bind the outcomes path before tests run.
+
+</details>
