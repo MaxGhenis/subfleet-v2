@@ -3853,6 +3853,27 @@ class Daemon:
         A family shares one instant and transaction; every affected job has its
         own event so inspection never has to guess which parent was cancelled.
         """
+        wall_family = family and data.get("by") == "daemon" and data.get("reason") == "max_wall_s"
+        exited = set()
+        if wall_family:
+            # Read receipts off-lock: a completed dependent's result survives
+            # its parent's wall too, even before its row has been refreshed.
+            descendants = self.store.query(
+                "WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
+                "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
+                "SELECT a.job_id,a.seq,a.state,a.finished_at FROM attempts a JOIN family f USING(job_id) "
+                "WHERE a.job_id<>? AND a.state IN ('starting','running','finalizing') "
+                "AND a.seq=(SELECT MAX(p.seq) FROM attempts p WHERE p.job_id=a.job_id)", (job_id, job_id))
+            for a in descendants:
+                if a["state"] == "finalizing" or a["finished_at"]:
+                    exited.add(a["job_id"])
+                    continue
+                try:
+                    receipt = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+                except (OSError, ValueError, RecursionError):
+                    receipt = None  # An unreadable child must not hold back the parent's stop.
+                if receipt:
+                    exited.add(a["job_id"])
         with self.store.transaction("job.cancel_requested", job_id=job_id, attempt_id=attempt_id, data=data) as tx:
             job = self._job(job_id)
             if job["state"] in TERMINAL or job["cancel_requested_at"]:
@@ -3868,6 +3889,12 @@ class Daemon:
                 row = dict(raw)
                 if row["state"] in TERMINAL or row["cancel_requested_at"]:
                     continue
+                if wall_family and row["job_id"] != job_id:
+                    latest = tx.execute("SELECT state,finished_at FROM attempts WHERE job_id=? "
+                                        "ORDER BY seq DESC LIMIT 1", (row["job_id"],)).fetchone()
+                    if row["job_id"] in exited or latest and (latest["state"] == "finalizing" or
+                            latest["state"] in ("starting", "running") and latest["finished_at"]):
+                        continue  # Includes an exit recorded after the receipt preflight.
                 record = data if row["job_id"] == job_id else {**data, "parent_job_id": job_id}
                 if row["job_id"] != job_id and data["by"] == "daemon":
                     record["running_s"] = self._running_s(row["job_id"])
