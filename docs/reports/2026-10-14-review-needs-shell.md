@@ -19,6 +19,8 @@ The shipped policy grants `permissions.review = "worktree-write"` and sets no `r
 
 Attempts record `capability = none | commands | writable` at reservation and confirm it when constructing the launch. Claude read-only is none; Codex read-only is commands; either writable provider is writable. Schema 9 migrates known version-8 shell flags using the stored job sandbox and leaves unknown historical evidence unknown. The deprecated has_shell column remains for additive schema compatibility but new attempts use capability. Historical attempts never receive a fictitious publish denial.
 
+Generic Store SQL reads retain SQLite's raw integer values. Boolean launch flags are converted only by job and attempt accessors, so raw SQL aggregates and retention's archive snapshot/recheck keep their original values and identical JSON bytes.
+
 Completion notices, runs show, its JSON and wait summaries expose the evidence. A none launch says it could not run any command; commands says nothing could be written, temp files included, so pytest could not run. The status response and text count distinct run ids with any restricted attempt reserved in the last 24 hours. Deliverable and `-o` bytes remain unchanged.
 
 Review tasks and every gate round receive the same launch-scoped publishing guard on both providers, including resumes. Git/gh wrappers have embedded targets and policy, placed beside the attempt outside the job worktree. Wrapped git refuses push even with config overrides or marker removal. An inherited Git push URL rewrite and empty GIT_ALLOW_PROTOCOL transport allowlist also deny absolute-path pushes and explicit remote push URLs, even with protocol config overrides. Local Git reads still execute; remote Git transports, including fetch, are unavailable. gh allows pr view/diff/checks and field-free API GETs, and fails closed on write verbs, non-GET methods, fields, aliases, extensions and unknown commands. The never-rules hook is untouched. Explicit host-push submission for a review is refused. Attempts and notices say `publish: denied`.
@@ -37,14 +39,14 @@ Tests-first commit `a643b05d1` produced 45 expected failures against the round-1
 
 The focused corrected run passed 107 tests in 123.82 seconds: review launch permissions 11, publish guard 33, retained needs-shell 23, migration 15 and policy sandbox 25. After hardening, the unit run completed in 190.93 seconds with 923 passes and three failures. All launch, CLI and adapter tests passed. The resumed unit check completed in 11.63 seconds with 156 passes and the same two retention failures. It confirms all 46 policy-ramp cases after the hash correction in `3680dcbdf`, 97 scheduler cases and the module-name check.
 
-The isolated `3f50142ac` baseline passed all 14 policy-support cases in 8.87 seconds. The two current retention failures are a round-1 regression: generic `Store.query`/`one` coerced the new integer flags to booleans, while retention's transaction recheck read raw SQLite integers. JSON bytes therefore differed (`false` versus `0`) for unchanged rows, and retention deferred pruning. A new regression covers raw SQL aggregates, identical archive snapshot bytes through both read paths, and boolean job/attempt accessors with and without pooled readers. The fix and its verification are pending.
+The isolated `3f50142ac` baseline passed all 14 policy-support cases in 8.87 seconds. The two current retention failures are a round-1 regression: generic `Store.query`/`one` coerced the new integer flags to booleans, while retention's transaction recheck read raw SQLite integers. JSON bytes therefore differed (`false` versus `0`) for unchanged rows, and retention deferred pruning. Tests-first commit `c8d7483fc` covers raw SQL aggregates, identical archive snapshot bytes through both read paths, and boolean job/attempt accessors with and without pooled readers. The fix restores raw SQL values and converts flags only in the domain accessors. Store, policy-support, notice and review/state regressions are queued for verification.
 
 | Unit file (`tests/unit/`) | Passed | Failed | Verification |
 | --- | ---: | ---: | --- |
 | test_policy.py | 186 | 0 | recovered |
 | test_policy_disk.py | 57 | 0 | recovered |
 | test_policy_ramp.py | 46 | 0 | resumed |
-| test_policy_support.py | 12 | 2 | resumed; baseline check pending |
+| test_policy_support.py | 12 | 2 | resumed; fix verification pending |
 | test_policy_tier_preferences.py | 15 | 0 | recovered |
 | test_cli.py | 207 | 0 | recovered |
 | test_codex_adapter.py | 93 | 0 | recovered |
@@ -77,6 +79,6 @@ Three process-backed cases could not run because C-5.3's macOS boot identity is 
 
 ## Delivery and remaining work
 
-The shared Git index is not writable in this sandbox. All round-2 commits use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, with original ancestry and the required co-author trailer. Files in the assigned worktree contain the changes. No caller checkout write, live policy edit, history rewrite, network remote or push occurred.
+The shared Git index is not writable in this sandbox. All round-2 commits use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, with original ancestry and the required co-author trailer. Files in the assigned worktree contain the changes. No caller checkout write, live policy edit, history rewrite, network Git remote access or GitHub call occurred. Publication controls use only disposable local file:// bare repositories.
 
 The hub owns the live policy installation and notifying Fleet ops. Verification and immutable-publication-boundary caveats are tracked above; final test counts follow before delivery.

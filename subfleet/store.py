@@ -111,6 +111,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
 
 
 def shell_flags(row: Mapping[str, Any]) -> Row:
+    """Boolean launch fields for domain records, never arbitrary SQL results."""
     value = dict(row)
     for key in ("needs_shell", "has_shell", "publish_denied"):
         if key in value and value[key] is not None:
@@ -405,9 +406,9 @@ class Store:
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():
             with self._reading() as conn:
-                return [shell_flags(row) for row in conn.execute(sql, params).fetchall()]
+                return [dict(row) for row in conn.execute(sql, params).fetchall()]
         with self._lock:
-            return [shell_flags(row) for row in self.connection.execute(sql, params).fetchall()]
+            return [dict(row) for row in self.connection.execute(sql, params).fetchall()]
 
     def one(self, sql: str, params: Sequence[Any] = ()) -> Row | None:
         if self._reads_elsewhere():
@@ -417,10 +418,10 @@ class Store:
                     row = cursor.fetchone()
                 finally:
                     cursor.close()          # ends the statement, so no snapshot is kept open
-                return shell_flags(row) if row is not None else None
+                return dict(row) if row is not None else None
         with self._lock:
             row = self.connection.execute(sql, params).fetchone()
-            return shell_flags(row) if row is not None else None
+            return dict(row) if row is not None else None
 
     # --- C-3.7: reads off the store lock --------------------------------------
 
@@ -751,10 +752,12 @@ class Store:
         return data["job_id"]
 
     def get_job(self, job_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        row = self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        return shell_flags(row) if row is not None else None
 
     def get_job_by_request(self, request_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        row = self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_jobs(self, *, state: str | None = None, session_id: str | None = None, limit: int | None = None) -> list[Row]:
         clauses, values = [], []
@@ -766,7 +769,7 @@ class Store:
         if limit is not None:
             sql += " LIMIT ?"
             values.append(limit)
-        return self.query(sql, values)
+        return [shell_flags(row) for row in self.query(sql, values)]
 
     def update_job(self, job_id: str, **values: Any) -> None:
         self._update("jobs", "job_id", job_id, values)
@@ -777,10 +780,13 @@ class Store:
         return data["attempt_id"]
 
     def get_attempt(self, attempt_id: str) -> Row | None:
-        return self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        row = self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_attempts(self, job_id: str | None = None) -> list[Row]:
-        return self.query("SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq", (job_id,) if job_id else ())
+        return [shell_flags(row) for row in self.query(
+            "SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq",
+            (job_id,) if job_id else ())]
 
     def update_attempt(self, attempt_id: str, **values: Any) -> None:
         if set(values) & {"attempt_id", "job_id", "seq", "lane_id", "model_requested"}:
