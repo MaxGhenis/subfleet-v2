@@ -7941,9 +7941,11 @@ class Daemon:
 
     def _quarantine(self, a: dict, census, reason: str) -> None:
         detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
+        receipt = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+        provider_finished_at = (receipt or {}).get("finished_at") or a.get("finished_at") or utcnow_ms()
         with self.store.transaction("attempt.quarantined", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"containment": census.to_dict()}) as tx:
             job = self._job(a["job_id"])
-            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,finished_at=? WHERE attempt_id=?", (detail, utcnow(), a["attempt_id"]))
+            tx.execute("UPDATE attempts SET state='quarantined',quarantine_reason=?,finished_at=? WHERE attempt_id=?", (detail, provider_finished_at, a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder=? AND lease_key LIKE 'lane:%'", (a["attempt_id"],))
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("lost", 125)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=? WHERE job_id=?", (state, rc, utcnow(), a["job_id"]))
@@ -8269,6 +8271,14 @@ class Daemon:
             self._quarantine(a, census, "writers remain after exit receipt")
             return
         self._exit_settle.pop(a["attempt_id"], None)
+        # Persist the census's end before any fallible finalization work. A
+        # replay after a failed launch read or salvage must not extend it.
+        observed_exit_at = utcnow_ms()
+        if not actual["finished_at"]:
+            with self.store.transaction("attempt.provider_exited", job_id=a["job_id"],
+                                        attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE attempts SET finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
+                           (observed_exit_at, a["attempt_id"]))
         launch = self._saved_launch(a)
         # Both stream-json CLIs write their raw protocol to stdout. Freeze that
         # stream once after containment only when both frozen candidates are absent.
@@ -8293,7 +8303,7 @@ class Daemon:
         lost = receipt is None or receipt.get("rc") is None
         # The verified-empty census above establishes an end even without a
         # receipt. Capture it before classification and salvage can take time.
-        provider_finished_at = (receipt or {}).get("finished_at") or actual["finished_at"] or utcnow_ms()
+        provider_finished_at = (receipt or {}).get("finished_at") or actual["finished_at"] or observed_exit_at
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
