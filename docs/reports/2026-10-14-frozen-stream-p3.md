@@ -199,3 +199,195 @@ unchanged. The verified, ignored delivery bundle is
 Only named test and report files were staged; all commits carry the requested
 co-author trailer. No logs, JSON evidence or bundles were staged. No network
 Git remotes, pushes, sub-agents or live state were used.
+
+
+## Round 3: CI and settlement, base `3abdaf523911`
+
+Status: code and regressions committed; **runtime validation blocked by the
+sandbox's denial of writes to the default uv cache**. No pytest test was
+collected or executed in this round. The round-2 pass counts above do not
+validate the round-3 changes. This job did not exhaust its time window: the
+blocker is the required test environment, rather than test duration.
+
+### Stream authority and reader audit (items 1 and 5)
+
+Decision **(b)**: after finalization, consumers use the recorded `raw-stream`
+artifact. `stream.jsonl` is a candidate name, not a required finalized output.
+C-4.3 requires the daemon's independent copy, identified by
+`stream.freeze.json`; C-8.2 records its path, size and SHA-256. `freeze_stream`
+always publishes a fresh `stream.frozen-<uuid>.jsonl`, including when its source
+is stdout because the launch's raw path never existed. `guardian.py` redirects
+to `Launch.stdout_path`; Codex's `build_launch` assigns stdout separately from
+the prospective `raw_stream_path`. Recreating the canonical name is unnecessary
+and would give readers another name they could mistake for completion proof.
+The source candidate remains intact when it existed; no canonical entry is
+required to be created when capture falls back to stdout.
+
+Both e2e tests now read the artifact row, match its path against the freeze
+receipt, verify its bytes, size and digest, and verify that stdout is a different
+inode. The Codex test additionally checks that `runs show` exposes the same raw
+artifact. Its three original failures are reproduced in both provided
+`ci-3abdaf523-*shard-3-5.log` files: all earlier rejection assertions passed,
+then the hard-coded canonical read raised FileNotFoundError. The provided
+`ci-7974068bc-failed.log` shows the Claude case failing solely on the basename
+comparison (`stream.frozen-...jsonl` versus `stream.jsonl`), on both Pythons.
+That assertion was still present at this job's base. Its replacement follows
+the same artifact rule. A new run at head could not be performed; no pass is
+claimed for that case.
+
+The audit searched the entire committed package, tests, app, bin, private hooks,
+tools and workflow sources for `stream.jsonl`, `raw_stream_path`, `raw-stream`,
+and the stream-reader call sites. Findings:
+
+| Reader / source | Result |
+| --- | --- |
+| `subfleet/frozen_stream.py` | Chooses raw/canonical/stdout only for capture; replay validates the recorded copy. |
+| `subfleet/adapters/base.py`, `codex.py`, `claude.py` | Finalization supplies the frozen path through a replaced Launch before classification, completion checks, attestation and extraction. Their standalone tests explicitly create their own candidates. |
+| `subfleet/daemon.py::_read_answer` | Reads live stdout only while an attempt runs; it does not decide completion. |
+| `subfleet/daemon.py::_finalize`, `store.py`, `cli.py`, `compat.py` | Records and exposes artifact paths; `runs show` uses those rows, including in offline metadata. |
+| `subfleet/importer.py::_artifact_paths` | Imports recorded v1 rollout/transcript paths, independent of v2 candidate names. |
+| `subfleet/salvage.py` | Reads worktree Git contents, not the provider stream. |
+| `subfleet/retention.py`, `retention_survey.py`, `retention_archive.py` | Walk or archive the entire job directory and record artifact rows; no canonical-only filter drops the new files. |
+| `subfleet/sessions/transcripts.py`, `subfleet/hooks.py`, `private/guard/never-rules-hook.sh` | Session hooks receive native transcript paths. None constructs an attempt stream filename. |
+| `subfleet/gate/service.py`, `subfleet/conversations/peers.py`, `tests/fake/gate_peer.py` | Gate peers read the accepted deliverable artifact. Person checks do not read streams. The fake peer itself writes its explicit launch raw path; that candidate remains present. |
+| `subfleet/conversations/history.py`, `catalog.py`, `service.py`, `classify.py` | History uses native transcripts/rollouts, and turn completion uses the driver's `turn.json`; their stdout usage readers still find stdout. |
+| `app/Sources/UIModel.swift`, `ConversationStore.swift`, `Timeline.swift`, `Protocol.swift`, `UIReading.swift` | The reading view consumes conversation history/events, not attempt stream paths. No app source contains a canonical stream/raw-artifact path reader. |
+| `tests/e2e/test_milestone1_codex.py`, `tests/fake/test_finalization_replay.py` | Already read raw-stream artifact paths. |
+| `tests/process/test_codex_isolation.py` | Its helper explicitly opens `launch.raw_stream_path` as provider stdout; later reads target the file it created, without daemon finalization. |
+| Remaining literal hits in unit/fake tests and shared fixtures | Create candidate files, test path selection, or inspect deliberately constructed filesystem entries. They do not assume the daemon creates a canonical output. Visual/fixture JSON names are static provenance, not runtime filesystem lookups. |
+
+No additional production reader needed a path change. The two broken e2e
+assumptions are corrected instead of adding a second authority name. Historical
+reports and the desktop maps explicitly pinned to older commits retain their
+historical observations.
+
+### Freeze errors and bare cores (items 2, 3 and 4)
+
+`Daemon` now has class-level `crash_hook = None` and `publish_hook = None`, with
+the same types/defaults as `__init__`. **Both fixture lines the hub added are
+kept**, as explicit descriptions of their constructed cores. A bare-core
+regression exercises the real boundary and publication methods without setting
+either attribute.
+
+Settlement catches ordinary and unexpected exceptions from freezing and reading
+the freeze receipt. It marks `classification.stream_capture` as `unreadable`,
+with the scrubbed error and exception type; it bypasses cached success and live
+adapter classification/extraction. An exited detached Codex attempt becomes
+`transient` with false completion evidence; other provider/turn attempts become
+`unknown`. Missing exit receipts remain `lost`. No raw-stream artifact or export
+is accepted from a failed capture. Cached deliverables remain diagnostic files.
+On that path, repeated OSError failures while hashing diagnostic artifacts are
+best effort, so the same unreadable stdout cannot prevent settlement again. The
+capture failure is logged after the transaction records the attempt's end.
+C-4.3 and C-8.2 now document this behavior and the consumer path rule.
+
+The new regression matrix has 16 cases: OSError/RuntimeError, Codex/Claude,
+present/missing exit receipt, first capture/cached success. It drives one real
+`_process_attempt` pass and forbids live classification and extraction. Another
+case covers repeated diagnostic read errors, and one covers bare-hook defaults:
+18 new regression cases in total. The tests were committed before their fixes.
+At base, the unguarded freeze call raises and bare hooks are absent, so these
+regressions address paths not covered by the two hub fixture assignments.
+They could not be executed against base or head because of the environment
+blocker described below. The existing CI failures provide baseline runtime
+evidence for the two e2e test corrections; a new failing test would only repeat
+the erroneous canonical-name contract. The provided CI logs show the pacing
+property passing at `3abdaf523`; it remains unconfirmed at this round's head.
+
+### Validation and delivery
+
+`uv sync --locked` failed with:
+
+```
+Failed to initialize cache at /Users/maxghenis/.cache/uv
+failed to open .../sdists-v9/.git: Operation not permitted (os error 1)
+```
+
+The first required foreground shared-lock test command waited for the lock,
+then failed at the same uv initialization, before pytest started. No lock
+timeout was used, no pytest process ran in parallel, and no background process
+was launched. Its disposable TMPDIR was removed using the requested Python
+`shutil.rmtree` cleanup. The default cache was neither relocated nor cleaned.
+An optional environment fallback was requested and has not been authorized;
+none was used. No further lock holds were started for a command known to fail
+before collection. All tests below remain unrun (per-file execution count 0),
+including the requested e2e file-by-file sweep and the reader coverage:
+
+| File | Executed | Status |
+| --- | ---: | --- |
+| `tests/e2e/test_codex_turn_completed_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_conversation_titles_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_conversation_wakes_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_conversations.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_guard_and_isolation.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_http_isolation.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_legacy_cockpit.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_milestone1_codex.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_milestone2_claude.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_notice_job_state.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_recovery.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_reserve.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_review_r2_strand_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_review_r3_strand_timing_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_stop_bound.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_suggestions_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/e2e/test_suggestions_r1b_peer_e2e.py` | 0 | unrun: uv cache denied |
+| `tests/fake/test_census_recycled_pid_daemon.py` | 0 | unrun: uv cache denied |
+| `tests/fake/test_codex_turn_completed_fake.py` | 0 | unrun: uv cache denied |
+| `tests/fake/test_finalization_replay.py` | 0 | unrun: uv cache denied |
+| `tests/fake/test_frozen_stream_nonregular.py` | 0 | unrun: uv cache denied |
+| `tests/fake/test_salvage_finalization.py` | 0 | unrun: uv cache denied |
+| `tests/fake/test_state_contract.py` | 0 | unrun: uv cache denied |
+| `tests/frontend/test_core_app_cutover_reading.py` | 0 | unrun: uv cache denied |
+| `tests/frontend/test_core_timeline.py` | 0 | unrun: uv cache denied |
+| `tests/frontend/test_reading_view.py` | 0 | unrun: uv cache denied |
+| `tests/process/test_codex_isolation.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_claude_adapter.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_claude_attest.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_claude_synthetic_error.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_cli.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_codex_adapter.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_codex_turn_completed.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_compat.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_conversation_catalog.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_conversation_history.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_conversation_peers_attachments.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_daemon_fifo_reads.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_daemon_settle.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_empty_provider_results.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_frozen_provider_streams.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_gate_admission.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_hooks.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_host_push.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_importer.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_inspection_pacing_properties.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_lane_answers.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_limit_from_model_text.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_retention_archive.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_salvage.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_scoped_stream_capacity.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_sessions_transcripts.py` | 0 | unrun: uv cache denied |
+| `tests/unit/test_settle_properties.py` | 0 | unrun: uv cache denied |
+
+Static validation: Python compilation of all changed Python files and
+`git diff --check` pass. No `.hypothesis` directory exists. No test success is
+inferred from those checks.
+
+The shared Git index is outside the sandbox's writable roots. All round-3
+commits use workspace-local `.git-local/repository.git` on
+`fix/frozen-stream-p3`, borrowing base objects read-only. The original `.git`
+pointer and detached HEAD are unchanged. The ignored delivery bundle is
+`docs/reports/2026-10-15-frozen-stream-p3-round3.bundle`, with prerequisite
+`3abdaf523911`; it contains the round-3 commits and this report. Only named
+source, test, and documentation files were staged. Every commit has the
+requested co-author trailer. No logs, JSON evidence, bundles, cache files or
+dependencies were staged. No remote Git operation, push, sub-agent, live state
+write or live process operation was performed. No task process remains running.
+
+Round-3 commits before this report:
+
+- `589044eb1`: settlement and bare-core regressions.
+- `747f4d670`: class-level optional hook defaults.
+- `06571c8a5`: artifact-based Codex and Claude e2e assertions.
+- `9a5e41555`: first-capture and repeated-read-error regressions.
+- `73386b6be`: freeze failures settle without completion proof, plus contract.
