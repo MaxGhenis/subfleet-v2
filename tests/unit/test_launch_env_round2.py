@@ -46,7 +46,11 @@ def test_e2e_harness_explicitly_authorizes_nonprefix_hooks(tmp_path, monkeypatch
         harness.close()
 
 
-@pytest.mark.parametrize("word", ["TOKEN", "KEY", "SECRET", "PASSWORD", "tOkEn", "key", "secret", "password"])
+@pytest.mark.parametrize("word", [
+    "TOKEN", "KEY", "SECRET", "PASSWORD", "tOkEn", "key", "secret", "password",
+    "APIKEY", "CREDENTIAL", "CREDENTIALS", "AUTHORIZATION", "BEARER", "COOKIE",
+    "COOKIES", "PASSWD", "TOKENS", "KEYS", "SECRETS", "PASSWORDS", "TOKEN2", "KEY2",
+])
 @pytest.mark.parametrize("suffix", ["", "_FILE"])
 def test_configuration_prefix_refuses_credential_words(word, suffix):
     name = "SUBFLEET_TEST_" + word + suffix
