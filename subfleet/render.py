@@ -146,10 +146,16 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             if not require_file or path.is_file():
                 deliverable = str(path)
         out = job.get("out_path") or "-"
-    capability = attempt_shell_text(job)
     return (f"{job_id}: {job.get('state')}; rc={'-' if rc is None else rc}; "
-            f"deliverable={deliverable}; out={out}"
-            + (f"; {capability}" if capability else ""))
+            f"deliverable={deliverable}; out={out}")
+
+
+def notice_intro(job: Mapping[str, Any], state_root: str | Path, *,
+                 require_file: bool = False) -> str:
+    """The C-15.1 header, followed by launch evidence on its own line."""
+    header = notice_header(job, state_root, require_file=require_file)
+    capability = attempt_shell_text(job)
+    return header + (f"\n{capability}" if capability else "")
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:

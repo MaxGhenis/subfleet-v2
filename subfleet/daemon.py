@@ -3886,7 +3886,7 @@ class Daemon:
         latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
                             (row["job_id"],)).fetchone()
         notice_job = {**dict(row), "attempt": dict(latest) if latest else None}
-        text = render.notice_header(notice_job, self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
+        text = render.notice_intro(notice_job, self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
