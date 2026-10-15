@@ -183,7 +183,7 @@ def _env_search_path(argv: list[str], path: str | None) -> str | None:
     return path
 
 
-def _unsafe_delegation(event: str, details: tuple, recorders: tuple[str, ...], *,
+def _unsafe_delegation(event: str, details: tuple, recorders, *,
                        system_dirs=_SYSTEM_BINARY_DIRECTORIES,
                        _fold_name=_fold_name, _env_path=_env_search_path, _family=_DELEGATING_PROGRAMS) -> bool:
     if event == "os.system":
@@ -208,7 +208,9 @@ def _unsafe_delegation(event: str, details: tuple, recorders: tuple[str, ...], *
         return directory.removeprefix("/system/volumes/data") or "/"
 
     system = {spelling(directory) for directory in system_dirs}
-    safe = {spelling(directory) for directory in recorders}
+    # Only wrappers need recorder identities. Direct Git/Python launches must
+    # not reopen every previous nested session's sentinel.
+    safe = {spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
     base = os.getcwd() if cwd is None else os.fsdecode(cwd)
     for directory in path.split(os.pathsep):
         directory = spelling(os.path.join(base, directory))
@@ -239,7 +241,8 @@ def _exec_guard(pins: list[tuple[str, str]], *, system_dirs=_SYSTEM_BINARY_DIREC
         if event not in _events:
             return
         try:
-            recorders = _recorders + tuple(os.path.join(base, "keychain-bin")
+            def recorders():
+                return _recorders + tuple(os.path.join(base, "keychain-bin")
                                            for base, token in list(pins) if _alive(base, token))
             refused = _active(pins) and _unsafe(event, details, recorders, system_dirs=_system)
             starts = [] if refused else [target for target in _targets(event, details) if target is not None]
