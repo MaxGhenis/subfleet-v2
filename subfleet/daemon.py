@@ -3907,9 +3907,11 @@ class Daemon:
                     receipt = None  # An unreadable child must not hold back the parent's stop.
                 if receipt:
                     exited.add(a["job_id"])
-        with self.store.transaction("job.cancel_requested", job_id=job_id, attempt_id=attempt_id, data=data) as tx:
+        changed = False
+        with self.store.transaction("job.cancel_checked", job_id=job_id, attempt_id=attempt_id) as tx:
             job = self._job(job_id)
-            if job["state"] in TERMINAL or job["cancel_requested_at"]:
+            if (job["state"] in TERMINAL and not job["cancel_requested_at"]
+                    or job["cancel_requested_at"] and not family):
                 return False
             if without_attempt and tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
                 return False
@@ -3932,9 +3934,10 @@ class Daemon:
                 if row["job_id"] != job_id and data["by"] == "daemon":
                     record["running_s"] = self._running_s(row["job_id"])
                 # Nested savepoints keep descendant events atomic with the root.
-                event = (self.store.transaction("job.cancel_requested", job_id=row["job_id"], data=record)
-                         if row["job_id"] != job_id else contextlib.nullcontext(tx))
-                with event as inner:
+                with self.store.transaction("job.cancel_requested", job_id=row["job_id"],
+                                            attempt_id=attempt_id if row["job_id"] == job_id else None,
+                                            data=record) as inner:
+                    changed = True
                     inner.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=?", (now, row["job_id"]))
                     if row["job_id"] == job_id and killed_by:
                         inner.execute("UPDATE attempts SET killed_by=? WHERE attempt_id=?", (killed_by, attempt_id))
@@ -3952,8 +3955,9 @@ class Daemon:
                     elif requester:
                         inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                       "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
-        self._notify()
-        return True
+        if changed:
+            self._notify()
+        return changed
 
     def kill(self, args: protocol.KillArgs, *, pid: int | None = None) -> dict:
         job = self._job(args.job_id)
@@ -3963,7 +3967,7 @@ class Daemon:
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
             self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
             return {"job_id": args.job_id, "status": "resolution requested"}
-        if job["state"] in TERMINAL:
+        if job["state"] in TERMINAL and not job["cancel_requested_at"]:
             return {"job_id": args.job_id, "status": "already finished"}
         requested = self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
                                                       "pid": pid, "reason": args.reason or "client-request"}, family=True)
