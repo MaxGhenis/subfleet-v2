@@ -53,7 +53,20 @@ The focused corrected run passed 107 tests in 123.82 seconds: review launch perm
 | test_notice_rendering.py | 21 | 0 |
 | test_test_module_names.py | 1 | 0 |
 
-The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped and one expected failure, with the gate publication-refusal ordering regression failing. Commit `16aebc2b8` moves that refusal ahead of generic dispatch validation. Its focused rerun and the remaining unit, stateful, baseline and mutation checks are pending under separate shared-lock holds.
+The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped and one expected failure, with the gate publication-refusal ordering regression failing. Commit `16aebc2b8` moves that refusal ahead of generic dispatch validation. The focused permission rerun passed all 15 cases in 7.85 seconds, including both providers' writable worktrees and the gate refusal. Together these runs establish 183 distinct passing fake tests, three skips and one expected failure:
+
+| Fake file (`tests/fake/`) | Passed | Other |
+| --- | ---: | --- |
+| test_review_launch_permissions.py | 15 | — |
+| test_review_needs_shell.py | 23 | — |
+| test_policy_sandbox.py | 25 | — |
+| test_routing_end_to_end.py | 14 | 2 skipped |
+| test_gate_end_to_end.py | 10 | 1 skipped |
+| test_admission_properties.py | 27 | 1 expected failure |
+| test_admission_priority.py | 32 | — |
+| test_state_contract.py | 37 | — |
+
+The remaining unit, stateful, baseline and mutation checks are pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks, scheduler coverage and module names are rerun.
 
 ## Delivery and remaining work
 
