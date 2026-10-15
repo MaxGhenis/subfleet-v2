@@ -239,9 +239,11 @@ def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon
     a = reserve(daemon, harness)
     daemon._launch(a)
     assert calls == [], "a refused launch starts no guardian"
-    assert [{key: value for key, value in call.items() if key != "env"} for call in seen] == [
+    assert [{key: value for key, value in call.items() if key not in {"env", "env_pass"}} for call in seen] == [
         {"binary": "fixture-codex", "home": str(harness.root / "home"),
          "workdir": str(harness.workdir), "state_root": daemon.root}]
+    assert set(seen[0]["env_pass"]) == {"CODEX_HOME"} | {
+        name for name in ("SSL_CERT_FILE", "SSL_CERT_DIR") if name in seen[0]["env"]}
     assert seen[0]["env"]["CODEX_HOME"] == str(harness.root / "home")
     adir = daemon.root / "jobs" / a["job_id"] / "a1"
     record = json.loads((adir / "guard-preflight.json").read_text())
