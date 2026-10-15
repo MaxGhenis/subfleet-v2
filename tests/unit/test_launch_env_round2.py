@@ -125,3 +125,18 @@ def test_helper_policy_is_nested_and_provider_policy_stays_explicit(monkeypatch)
             raise RuntimeError("dummy")
         assert set(build_environment()) == {"FIRST_TOKEN"}
     assert build_environment() == {}
+
+
+def test_worker_helper_policy_is_per_daemon_and_resets(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from subfleet.daemon import Daemon
+    monkeypatch.setattr(os, "environ", {"FIRST_TOKEN": "dummy", "SECOND_TOKEN": "dummy"})
+    services = []
+    for name in ("FIRST_TOKEN", "SECOND_TOKEN"):
+        daemon = Daemon.__new__(Daemon)
+        daemon.policy = {"env": {"pass": [name]}}
+        services.append(daemon)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        for daemon, name in zip(services, ("FIRST_TOKEN", "SECOND_TOKEN")):
+            assert set(pool.submit(daemon._run_worker, build_environment).result()) == {name}
+            assert pool.submit(build_environment).result() == {}
