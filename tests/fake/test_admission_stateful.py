@@ -38,7 +38,9 @@ pending, none placed for 4863 s; 14 lanes open`).
 
 Bounded by default: a plain `pytest` run is 40 examples of at most 30 steps
 (`ci`, derandomized, when `CI` is set; `dev`, random, otherwise), and writes no
-example database. `HYPOTHESIS_PROFILE=deep` is the opt-in long search, 300
+example database. An explicit `--hypothesis-seed` overrides the machines'
+derandomization while preserving the selected profile's bounds.
+`HYPOTHESIS_PROFILE=deep` is the opt-in long search, 300
 examples of at most 60 steps (about one 20-minute hold of the host's shared test
 lock); `HYPOTHESIS_MAX_EXAMPLES` resizes it. A failure prints the steps that
 reproduce it, and a blob for `@reproduce_failure`.
@@ -1158,6 +1160,14 @@ class ProviderCapMachine(AdmissionMachine):
 
 ProviderCapMachine.TestCase.settings = PROFILE
 TestAdmissionPassProviderCaps = ProviderCapMachine.TestCase
+
+
+@pytest.fixture(autouse=True)
+def explicit_stateful_seed(request, monkeypatch):
+    """Hypothesis checks derandomization before its CLI seed for stateful tests."""
+    if (request.cls in (TestAdmissionPass, TestAdmissionPassProviderCaps)
+            and request.config.getoption("--hypothesis-seed") is not None):
+        monkeypatch.setattr(request.cls, "settings", settings(PROFILE, derandomize=False))
 
 
 @settings(PROFILE, max_examples=1)
