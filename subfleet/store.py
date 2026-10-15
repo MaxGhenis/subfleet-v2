@@ -40,7 +40,9 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 9
+SHELL_REQUIREMENT_MIGRATION = 8
+LAUNCH_CAPABILITY_MIGRATION = 9
+SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
 RESTRICTED_RUNS_SQL = (
     "SELECT DISTINCT job_id FROM attempts WHERE capability IN ('none','commands') "
     "AND julianday(reserved_at) BETWEEN julianday(?) - 1 AND julianday(?) ORDER BY job_id"
@@ -99,13 +101,13 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
-    9: (
-        "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
-        "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
-    ),
-    8: (
+    SHELL_REQUIREMENT_MIGRATION: (
         "ALTER TABLE jobs ADD COLUMN needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1))",
         "ALTER TABLE attempts ADD COLUMN has_shell INTEGER CHECK (has_shell IN (0,1))",
+    ),
+    LAUNCH_CAPABILITY_MIGRATION: (
+        "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
+        "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
     ),
 }
 
@@ -349,7 +351,7 @@ class Store:
                     if not present or column in present:
                         continue
                 self.connection.execute(statement)
-            if step == 9 and self.connection.execute(
+            if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
                 self.connection.execute(
                     "UPDATE attempts SET capability=CASE WHEN has_shell=0 THEN 'none' "
