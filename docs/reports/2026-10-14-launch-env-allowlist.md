@@ -321,6 +321,23 @@ The other 26 failures exposed two pre-existing test assumptions:
 The two complete corrected test files and the historical reduced-example
 control are queued for their own locked validation after the directory runs.
 
+The full preflight-launch file then passed **8 tests in 8.55 s**. The final e2e
+directory invocation returned **2 passed, 95 skipped in 7.77 s**, with the same
+existing inspection guard. The first unit partition covered **6,159 nodes**:
+**6,113 passed, 23 failed, 15 skipped, 8 setup errors**. Every affected node
+requires unavailable boot/process inspection or the kernel descriptor ceiling.
+This includes importer assertions whose conservative fallback keeps ownership
+unresolved when inspection fails. All launch-environment, helper-worker, plugin,
+and original mutation regressions in that partition passed.
+
+The second unit partition exposed ten stale rediscovery assertions indexing
+unlisted `GIT_TRACE*` names in `daemon_env`. Its disposable fixture policy now
+authorizes each trace name exactly, and the Git operation enters that policy's
+helper scope, preserving the downstream mandatory-removal check. The configured
+Trace2-target case also authorizes its synthetic Git config explicitly. The
+complete file is queued for a separate locked rerun. Production Git suppression
+was already correct; these failures were test-oracle mismatches.
+
 
 ### Original CI failures, reconstructed by node ID
 
