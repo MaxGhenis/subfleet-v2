@@ -7875,8 +7875,11 @@ class Daemon:
 
     def _begin_finalizing(self, a: dict, receipt: dict) -> None:
         with self.store.transaction("attempt.finalizing", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
-            tx.execute("UPDATE attempts SET state='finalizing',rc=?,signal=?,child_pid=?,finished_at=? WHERE attempt_id=? AND state IN ('reserved','starting','running')",
-                       (receipt.get("rc"), receipt.get("signal"), receipt.get("child_pid"), receipt.get("finished_at", utcnow()), a["attempt_id"]))
+            tx.execute("UPDATE attempts SET state='finalizing',rc=?,signal=?,child_pid=?,finished_at=?,"
+                       "started_at=CASE WHEN state='reserved' THEN COALESCE(started_at,?) ELSE started_at END "
+                       "WHERE attempt_id=? AND state IN ('reserved','starting','running')",
+                       (receipt.get("rc"), receipt.get("signal"), receipt.get("child_pid"), receipt.get("finished_at", utcnow()),
+                        utcnow_ms(), a["attempt_id"]))
         self._boundary("finalizing", a["job_id"], a["attempt_id"])
         self._notify()
 
