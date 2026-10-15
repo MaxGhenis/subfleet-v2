@@ -53,7 +53,7 @@ def file_counts(report):
 
 def main():
     directory = subprocess.check_output(["getconf", "DARWIN_USER_TEMP_DIR"], text=True).strip()
-    base = Path(tempfile.mkdtemp(prefix="sf-r198f7-", dir=directory))
+    base = Path(tempfile.mkdtemp(prefix="sf-r198f8-", dir=directory))
     saved = {}
     try:
         bootstrap = base / "bootstrap"

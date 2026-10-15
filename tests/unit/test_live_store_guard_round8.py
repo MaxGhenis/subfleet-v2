@@ -34,6 +34,25 @@ def test_safety_net_refuses_folded_bare_names_before_path_race(tmp_path, name, e
     assert any(keychain_standin._is_real(target, None) for target in candidates)
 
 
+@pytest.mark.parametrize("name", ["security", "Security", "SECURITY", "ſecurity"])
+def test_safety_net_stops_later_path_change(tmp_path, monkeypatch, name):
+    """Call the independent net before a later hook can select a guarded recorder."""
+    reader = StandIn(tmp_path / "reader")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    env = {"PATH": str(empty)}
+    hooks = []
+    with monkeypatch.context() as patch:
+        patch.delattr(sys, keychain_standin._NET)
+        patch.setattr(sys, "addaudithook", hooks.append)
+        patch.setattr(keychain_standin, "_real_identity", lambda: None)
+        keychain_standin._install()
+        with pytest.raises(keychain_standin.SafetyNetTripped):
+            hooks[0]("subprocess.Popen", (name, [name, "fixture-ref"], None, env))
+            env["PATH"] = str(reader.path.parent)  # A later audit hook's mutation.
+    assert env["PATH"] == str(empty) and reader.count() == 0
+
+
 @pytest.mark.parametrize("family", FAMILY)
 @pytest.mark.parametrize("path", ["/usr/bin:/bin", None, "/bin:/usr/bin", "/usr/sbin:/sbin"])
 def test_wrapper_with_reset_path_is_refused(family, path):
@@ -42,6 +61,19 @@ def test_wrapper_with_reset_path_is_refused(family, path):
     program = "/usr/bin/" + family
     with pytest.raises(credentials.KeychainExecRefused, match="refusing personal keychain"):
         sys.audit("subprocess.Popen", program, [program, "fixture-ref"], None, env)
+
+
+@pytest.mark.parametrize("family", FAMILY)
+def test_system_directory_before_recorder_is_refused(family):
+    env = {"PATH": "/usr/bin:" + os.environ["PATH"]}
+    with pytest.raises(credentials.KeychainExecRefused):
+        sys.audit("subprocess.Popen", family, [family, "fixture-ref"], None, env)
+
+
+def test_os_system_with_reset_path_is_refused(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    with pytest.raises(credentials.KeychainExecRefused):
+        sys.audit("os.system", b"security fixture-ref")
 
 
 @pytest.mark.parametrize("event", ["subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn"])
