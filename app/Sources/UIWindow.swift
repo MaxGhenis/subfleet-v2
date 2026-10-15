@@ -29,6 +29,8 @@ struct MainWindow: View {
                     FailedConversationDraftView(draft: draft, changeFolder: { model.changeFailedDraftFolder(draft) },
                                                 copy: { model.copyFailedDraft(draft) },
                                                 discard: { model.discardFailedDraft(draft.id) })
+                } else if let suggestion = model.selectedSuggestion {
+                    SuggestionDetailView(model: model, suggestion: suggestion)
                 } else if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
@@ -66,6 +68,11 @@ struct MainWindow: View {
                 model.selectFailedDraft(String(value.dropFirst("failed:".count)))
                 return
             }
+            if value.hasPrefix("sg:") {
+                let id = String(value.dropFirst("sg:".count))
+                if model.selectedSuggestionID != id { model.selectSuggestion(id) }
+                return
+            }
             if let entry = model.state.sidebarEntries().first(where: { $0.id == value }) { model.select(entry) }
         }
         .onChange(of: model.state.focusedConversationID) { _, id in
@@ -80,6 +87,9 @@ struct MainWindow: View {
         .onChange(of: model.newDraft.isPresented) { _, visible in if visible { selection = nil } }
         .onChange(of: model.selectedFailedDraftID) { _, id in
             if let id { selection = "failed:" + id }
+        }
+        .onChange(of: model.selectedSuggestionID) { _, id in
+            if let id, selection != "sg:" + id { selection = "sg:" + id }
         }
         .onAppear { model.start() }
         .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in
@@ -198,6 +208,21 @@ struct SidebarView: View {
                 }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
             }.windowFont(.heading).foregroundColor(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
             List(selection: $selection) {
+                // C-29.14: every suggestion waiting on the person, with or without an origin.
+                let suggested = model.state.openSuggestions
+                if !suggested.isEmpty {
+                    SuggestedHeader(count: model.state.openSuggestionCount)
+                        .tag(nil as String?)
+                        .selectionDisabled()
+                    ForEach(suggested) { suggestion in
+                        SuggestionSidebarRow(suggestion: suggestion, origin: model.state.suggestionOrigin(suggestion))
+                            .padding(.horizontal, Theme.space.inset)
+                            .tag("sg:" + suggestion.suggestion_id)
+                            .help(suggestion.title + "\n" + suggestion.tldr)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                    }
+                }
                 if !model.failedDrafts.isEmpty {
                     Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
                         .tag(nil as String?)
@@ -572,6 +597,8 @@ struct TimelineRow: View {
         case .steered:
             // `Timeline.items` draws the steered message's own bubble in this place.
             EmptyView()
+        case .suggestion(let suggestion):
+            SuggestionCardView(model: model, suggestion: suggestion)
         }
     }
 }

@@ -63,6 +63,10 @@ final class UIModel: ObservableObject {
     /// The person asked to see a conversation's oldest waiting card (the sidebar's
     /// hand badge, the strip's Review); cleared once it is in view.
     @Published private(set) var approvalReveal: ApprovalReveal?
+    /// The suggestion the sidebar's Suggested section has open in the detail column (C-29.14).
+    @Published var selectedSuggestionID: String?
+    /// Suggestions whose Start or Dismiss this app is waiting on.
+    @Published private(set) var suggestionsActing: Set<String> = []
     private var reveals = 0
     /// What the stale-approvals check last read, per conversation (the daemon's
     /// count and the cards shown), so an unchanged mismatch is read once.
@@ -186,6 +190,89 @@ final class UIModel: ObservableObject {
         } catch {
             report(error)
         }
+        await refreshSuggestions()
+    }
+
+    // MARK: Suggested conversations (C-25.7, C-29.14)
+
+    /// Whether the daemon serves suggestions (C-25.1).
+    var canSuggest: Bool { state.availability.capabilities?.has(suggestionsCapability) == true }
+
+    /// The suggestion open in the detail column, as the app knows it now.
+    var selectedSuggestion: Suggestion? { selectedSuggestionID.flatMap { state.suggestions[$0] } }
+
+    /// Every open suggestion and the recently closed ones; the watch feed keeps them
+    /// current between reads.
+    func refreshSuggestions() async {
+        guard let engine, canSuggest else { return }
+        if let list = try? await onReads({ try engine.suggestions() }) { state.apply(suggestions: list) }
+    }
+
+    /// Show a suggestion in the detail column, with its whole brief.
+    func selectSuggestion(_ id: String) {
+        selectedFailedDraftID = nil
+        endFailedDraftEditing()
+        newDraft.leave()
+        lockedEntry = nil
+        navigation += 1
+        selectedSuggestionID = id
+        state.focus(nil)
+        eventsGeneration += 1
+        loadSuggestionBrief(id)
+    }
+
+    /// A listing carries a brief's first 2,000 characters; the card asks for the rest.
+    func loadSuggestionBrief(_ id: String) {
+        guard let engine, state.suggestions[id]?.brief_truncated == true else { return }
+        Task {
+            if let found = try? await onReads({ try engine.suggestions(ids: [id]) }) {
+                state.apply(suggestionRows: found.suggestions, readAt: found.watch_seq ?? 0)
+            }
+        }
+    }
+
+    /// A person's Start (C-25.6): the daemon makes the conversation, submits the
+    /// brief as its first message, and the app opens it.
+    func startSuggestion(_ suggestion: Suggestion, permission: PermissionPolicy = .ask, confirmedWiden: Bool = false) {
+        guard let engine, !suggestionsActing.contains(suggestion.suggestion_id) else { return }
+        suggestionsActing.insert(suggestion.suggestion_id)
+        Task {
+            defer { suggestionsActing.remove(suggestion.suggestion_id) }
+            do {
+                let result = try await onReads {
+                    try engine.startSuggestion(suggestion.suggestion_id, permission: permission, confirmedWiden: confirmedWiden)
+                }
+                state.upsert(result.suggestion)
+                state.upsert(result.conversation)
+                if let receipt = result.message {
+                    state.apply(receipt: receipt)
+                    if let text = receipt.text {
+                        state.setPersonText(text, conversationID: result.conversation.conversation_id, messageID: receipt.message_id)
+                    }
+                }
+                if selectedSuggestionID == suggestion.suggestion_id { selectedSuggestionID = nil }
+                focus(result.conversation.conversation_id)
+            } catch {
+                report(error)
+                await refreshSuggestions()
+            }
+        }
+    }
+
+    /// A person's Dismiss (C-25.6): the card stays, saying so.
+    func dismissSuggestion(_ suggestion: Suggestion) {
+        guard let engine, !suggestionsActing.contains(suggestion.suggestion_id) else { return }
+        suggestionsActing.insert(suggestion.suggestion_id)
+        Task {
+            defer { suggestionsActing.remove(suggestion.suggestion_id) }
+            do {
+                let result = try await onReads { try engine.dismissSuggestion(suggestion.suggestion_id) }
+                state.upsert(result.suggestion)
+            } catch {
+                report(error)
+                await refreshSuggestions()
+            }
+        }
     }
 
     private func startWatchLoop() {
@@ -205,7 +292,7 @@ final class UIModel: ObservableObject {
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()
-        if page.changes.contains(where: { !known.contains($0.conversation_id) }) {
+        if page.changes.contains(where: { !$0.conversation_id.isEmpty && !known.contains($0.conversation_id) }) {
             Task { await refreshList() }
         }
     }
@@ -287,6 +374,7 @@ final class UIModel: ObservableObject {
 
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
+        selectedSuggestionID = nil
         selectedFailedDraftID = nil
         endFailedDraftEditing()
         newDraft.leave()
@@ -315,6 +403,7 @@ final class UIModel: ObservableObject {
     }
 
     func focus(_ conversationID: String) {
+        selectedSuggestionID = nil
         selectedFailedDraftID = nil
         endFailedDraftEditing()
         newDraft.leave()
@@ -486,6 +575,7 @@ final class UIModel: ObservableObject {
     }
 
     func openNewDraft() {
+        selectedSuggestionID = nil
         selectedFailedDraftID = nil
         endFailedDraftEditing()
         navigation += 1
@@ -833,6 +923,7 @@ final class UIModel: ObservableObject {
 
     func selectFailedDraft(_ id: String? = nil) {
         guard let draft = failedDrafts.first(where: { id == nil || $0.id == id }) else { return }
+        selectedSuggestionID = nil
         navigation += 1
         endFailedDraftEditing()
         newDraft.leave()
