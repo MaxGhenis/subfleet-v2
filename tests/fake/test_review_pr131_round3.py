@@ -216,6 +216,7 @@ def _fork_after_read(daemon, monkeypatch, a, *, child_row, child_markers):
     monkeypatch.setattr(procs, "_stat", lambda pid: world[pid][2] if pid in world else "")
     monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, BOOT, world[pid][3])
                         if pid in world else None)
+    monkeypatch.setattr(procs, "process_group", lambda pid: world[pid][1] if pid in world else None)
     monkeypatch.setattr(procs, "containment", ORIGINAL_CENSUS)
 
 
