@@ -66,3 +66,19 @@ def test_internal_conversation_cancel_remains_daemon_attributed(svc):
     job_id = svc.store.message(mid)["job_id"]
     svc._cancel_job_without_attempt(job_id, by={"by": "message-settled"})
     assert cancel_events(svc, job_id) == [{"by": "daemon", "reason": "message-settled", "running_s": 0.0}]
+
+
+@pytest.mark.parametrize("state", ["waiting", "starting", "running"])
+def test_interrupt_before_runner_adoption_retains_the_client(svc, peer, state):
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    svc._dispatch()
+    job_id = svc.store.message(mid)["job_id"]
+    aid = job_id + "/a1"
+    svc.daemon.store.add_attempt(attempt_id=aid, job_id=job_id, seq=1,
+                                 lane_id="claude-1", model_requested="opus", state="starting")
+    svc.store.set_state(mid, state)
+    svc.handle("turn.interrupt", {"message_id": mid, "session_id": "stated-session"}, peer)
+    svc._on_contain(aid)  # A recovered runner can arrive after the handler returned.
+    assert cancel_events(svc, job_id) == [{"by": "client", "session_id": "stated-session",
+                                         "pid": peer.pid if peer else None, "reason": "stopped"}]
