@@ -59,6 +59,22 @@ def test_configuration_prefix_refuses_credential_words(word, suffix):
     assert name in build_environment(environ=parent, pass_names=[name])
 
 
+def test_selection_reads_values_only_after_accepting_names():
+    from collections.abc import Mapping
+    from subfleet.launch_env import environment_report
+    class Parent(Mapping):
+        def __iter__(self):
+            return iter(("SUBFLEET_FAKE_SCENARIO", "SUBFLEET_TEST_TOKEN", "OTHER"))
+        def __len__(self):
+            return 3
+        def __getitem__(self, name):
+            assert name == "SUBFLEET_FAKE_SCENARIO", "rejected value was read"
+            return "dummy"
+    parent = Parent()
+    assert build_environment(environ=parent) == {"SUBFLEET_FAKE_SCENARIO": "dummy"}
+    assert environment_report(parent) == {"extra_names": ["OTHER", "SUBFLEET_TEST_TOKEN"]}
+
+
 def test_configuration_prefix_keeps_launch_markers_explicit():
     names = {"SUBFLEET_JOB", "SUBFLEET_ATTEMPT", "SUBFLEET_SESSION_ID", "SUBFLEET_TURN_JOB",
              "SUBFLEET_ROOT", "SUBFLEET_PROBE", "SUBFLEET_PUSH_BUNDLE", "SUBFLEET_RUN_DETACH",
