@@ -174,6 +174,9 @@ elif kind in configure_cases:
         elif kind == 'home-baseline':
             assert os.environ['HOME'] == str(config._subfleet_safe_home_base / 'home')
         else:
+            # Assert before launching: r8's wrapper guard also refuses a lost
+            # recorder, so that refusal must not mask this PATH invariant.
+            assert os.environ['PATH'].split(os.pathsep)[0] == str(config._subfleet_keychain_standin.path.parent)
             subprocess.run(['/bin/sh', '-c', 'security fixture-ref'], capture_output=True, check=True)
             assert outer.count() == 0 and config._subfleet_keychain_standin.count() == 1
     finally:

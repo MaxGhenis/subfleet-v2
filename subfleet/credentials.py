@@ -237,12 +237,12 @@ def _exec_guard(pins: list[tuple[str, str]], *, system_dirs=_SYSTEM_BINARY_DIREC
         try:
             recorders = _recorders + tuple(os.path.join(base, "keychain-bin")
                                            for base, token in list(pins) if _alive(base, token))
-            if _active(pins) and _unsafe(event, details, recorders, system_dirs=_system):
-                raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX)
-            starts = [target for target in _targets(event, details) if target is not None]
+            refused = _active(pins) and _unsafe(event, details, recorders, system_dirs=_system)
+            starts = [] if refused else [target for target in _targets(event, details) if target is not None]
         except (OSError, TypeError, ValueError):
             return  # Arguments the launch itself rejects before starting anything.
-        if any(target == "security" or _matches(target, _native) for target in starts) and _active(pins):
+        if (refused or any(target == "security" or _matches(target, _native)
+                           for target in starts)) and _active(pins):
             raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX)
 
     return guard
