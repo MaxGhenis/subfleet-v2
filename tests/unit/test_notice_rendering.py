@@ -71,6 +71,27 @@ def test_c15_1_an_accepted_attempt_on_a_job_that_did_not_succeed_names_no_file()
 
 # --- the PostToolUse fallback (C-15.2 layer 2) ---------------------------------
 
+@pytest.mark.parametrize("capability", ["none", "commands", "writable", None])
+def test_capability_and_publish_evidence_follow_the_header(capability, tmp_path):
+    job = row("cancelled", 130, sandbox="read-only", attempt={
+        "capability": capability, "publish_denied": True,
+        "lane_id": "codex-1", "model_requested": "astra"})
+    expected = f"{JOB}: cancelled; rc=130; deliverable=-; out=-"
+    assert render.notice_header(job, tmp_path) == expected
+    header, evidence, pointer = hooks.job_summary(job, tmp_path).splitlines()
+    assert header == expected
+    assert evidence == render.attempt_shell_text(job)
+    assert evidence.endswith("publish: denied")
+    assert pointer == f"no notice row for this job — subfleet runs show {JOB}"
+
+
+def test_notice_listing_uses_only_the_header_of_a_multiline_notice():
+    header = f"{JOB}: cancelled; rc=130; deliverable=-; out=-"
+    text = header + "\nran read-only on codex-1 (astra)\nattempt a1: interrupted"
+    result = cli.format_notices([{"notice_id": 1, "text": text}], resolved=False)
+    assert result.splitlines()[-1].endswith(header)
+    assert "ran read-only" not in result
+
 @pytest.mark.parametrize("job", [
     row("cancelled", 130),
     row("succeeded", 0, accepted_attempt_id=f"{JOB}/a1"),
