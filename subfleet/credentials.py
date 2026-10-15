@@ -161,8 +161,12 @@ def _env_search_path(argv: list[str], path: str | None) -> str | None:
             path = args.pop(0) if args else None
         elif options and arg.startswith("--path="):
             path = arg.partition("=")[2]
-        elif options and (arg == "-S" or arg.startswith("--split-string=")):
-            split = args.pop(0) if arg == "-S" and args else arg.partition("=")[2]
+        elif options and (arg in ("-S", "--split-string")
+                          or arg.startswith(("-S", "--split-string="))):
+            if arg in ("-S", "--split-string"):
+                split = args.pop(0) if args else ""
+            else:
+                split = arg[2:] if arg.startswith("-S") else arg.partition("=")[2]
             args[:0] = shlex.split(split)
         elif options and arg in ("-C", "--chdir"):
             if args:
