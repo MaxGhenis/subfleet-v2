@@ -12,8 +12,7 @@ from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 from tests.unit.test_launch_env_allowlist import ALLOWED, POLICY, POLLUTION
 
 
-@pytest.mark.parametrize("mode", ["detached", "turn", "probe", "enrollment"])
-def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode, *, passed_pythonpath=False):
+def daemon_spawn_environment(routing_state, monkeypatch, mode, *, passed_pythonpath=False):
     service, harness = routing_state
     parent = {"PATH": "/usr/bin:/bin", **POLLUTION}
     if passed_pythonpath:
@@ -66,6 +65,11 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode,
     return argv, env
 
 
+@pytest.mark.parametrize("mode", ["detached", "turn", "probe", "enrollment"])
+def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode):
+    daemon_spawn_environment(routing_state, monkeypatch, mode)
+
+
 def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeypatch):
     from subfleet import doctor
     service, _ = routing_state
@@ -85,7 +89,7 @@ def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeyp
     """Run each real daemon launch through the guardian's actual provider seam."""
     from subfleet import guardian
     with monkeypatch.context() as patch:
-        argv, environment = test_actual_daemon_spawn_rejects_pollution(
+        argv, environment = daemon_spawn_environment(
             routing_state, patch, mode, passed_pythonpath=True)
     passed = tuple(argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass")
     seen = []
