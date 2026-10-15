@@ -247,3 +247,40 @@ def test_d_sh1_version_8_capabilities_migrate_without_inventing_publish_denial(t
     with Store(path) as store:
         attempt = store.get_attempt('old/a1')
         assert attempt['capability'] == expected and attempt['publish_denied'] is None
+
+
+@pytest.mark.parametrize('readers', [0, 4])
+def test_launch_flags_preserve_sql_aggregates_and_archive_snapshot_bytes(tmp_path, readers):
+    """Raw SQL and a transaction describe identical rows; domain reads expose booleans."""
+    from subfleet.retention_archive import job_rows
+    from tests.conftest import make_lane
+
+    with Store(tmp_path / 'flags.sqlite3', readers=readers) as store:
+        store.put_lane(make_lane())
+        for index in range(2):
+            identity = f'job-{index}'
+            store.add_job(job_id=identity, request_id=identity, payload_digest='digest',
+                          kind='dispatch', workdir='/work', prompt_path='/prompt',
+                          sandbox='read-only', needs_shell=True)
+            store.add_attempt(attempt_id=identity + '/a1', job_id=identity, seq=1,
+                              lane_id='claude-1', model_requested='fixture',
+                              has_shell=True if index == 0 else None,
+                              publish_denied=True if index == 0 else None)
+
+        assert store.one('SELECT SUM(needs_shell) AS needs_shell FROM jobs')['needs_shell'] == 2
+        assert type(store.query('SELECT needs_shell FROM jobs')[0]['needs_shell']) is int
+        raw = store.one("SELECT has_shell,publish_denied FROM attempts WHERE job_id='job-0'")
+        assert type(raw['has_shell']) is type(raw['publish_denied']) is int
+        before = json.dumps(job_rows(store, 'job-0'), sort_keys=True)
+        with store.transaction('fixture.archive_snapshot') as conn:
+            assert json.dumps(job_rows(conn, 'job-0'), sort_keys=True) == before
+
+        assert store.get_job('job-0')['needs_shell'] is True
+        assert store.get_job_by_request('job-0')['needs_shell'] is True
+        assert all(job['needs_shell'] is True for job in store.list_jobs())
+        attempt = store.get_attempt('job-0/a1')
+        assert attempt['has_shell'] is attempt['publish_denied'] is True
+        assert store.list_attempts('job-0')[0]['publish_denied'] is True
+        assert store.get_attempt('job-1/a1')['publish_denied'] is None
+        assert store.get_job('missing') is store.get_job_by_request('missing') is None
+        assert store.get_attempt('missing') is None
