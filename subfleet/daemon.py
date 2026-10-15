@@ -7606,36 +7606,11 @@ class Daemon:
         if receipt:
             self._begin_finalizing(a, receipt)
             return
-        # A cold recovery can find days-old receipts on still-running rows.
-        # The wall stops running providers; a known exit always wins over it.
-        if self._enforce_wall(a, job):
-            job = self._job(a["job_id"])
-            a = self.store.get_attempt(aid)
         if job["cancel_requested_at"]:
             if job["kind"] == "turn" and self.conversations.stop(
                     a, job, "wall-limit" if a["killed_by"] == "max_wall_s" else "operator-kill"):
                 return      # D-13, IR-4: the provider is stopped first; containment follows
             self._kill_attempt(a)
-            return
-        if a["state"] == "starting":
-            deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
-            if time.monotonic() < deadline:
-                return
-            census = self._contain(a)
-            # The guardian writes start.json, runs the provider, writes exit.json
-            # and exits, so the receipts can land while the census runs, and a
-            # census that then finds nothing is an attempt that finished. Read
-            # before them, it released a provider that had exited 0 to run again
-            # (C-4.2). The next tick takes them from the top, and takes only a
-            # receipt that reads as a value (as above): one that merely exists,
-            # holding `{}` or `null`, left the attempt here, taking a census on
-            # every tick.
-            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
-                return
-            if census.verified_empty:
-                self._unlaunched(a, "starting-no-receipt")
-            else:
-                self._quarantine(a, census, "start grace expired without a receipt")
             return
         # C-5.12: everything above is files and rows, read on every pass the
         # control loop offers (C-5.11 says which: every tick it has work). What
@@ -7662,8 +7637,37 @@ class Daemon:
             raise
         if inspected:
             self._inspect_retry.discard(aid)
-            return None
-        return DEFERRED if retry else None
+            # Inspection may have settled a loss or read a newly arrived receipt.
+            # Only a provider still confirmed running can spend the wall now.
+            a = self.store.get_attempt(aid)
+            if self._enforce_wall(a, self._job(a["job_id"])):
+                a = self.store.get_attempt(aid)
+                job = self._job(a["job_id"])
+                if job["kind"] == "turn" and self.conversations.stop(a, job, "wall-limit"):
+                    return
+                self._kill_attempt(a)
+                return
+        if a["state"] == "starting":
+            deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
+            if time.monotonic() < deadline:
+                return
+            census = self._contain(a)
+            # The guardian writes start.json, runs the provider, writes exit.json
+            # and exits, so the receipts can land while the census runs, and a
+            # census that then finds nothing is an attempt that finished. Read
+            # before them, it released a provider that had exited 0 to run again
+            # (C-4.2). The next tick takes them from the top, and takes only a
+            # receipt that reads as a value (as above): one that merely exists,
+            # holding `{}` or `null`, left the attempt here, taking a census on
+            # every tick.
+            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
+                return
+            if census.verified_empty:
+                self._unlaunched(a, "starting-no-receipt")
+            else:
+                self._quarantine(a, census, "start grace expired without a receipt")
+            return
+        return None if inspected else DEFERRED if retry else None
 
     def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
         """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?
@@ -7724,6 +7728,8 @@ class Daemon:
         if receipt:
             self._begin_finalizing(a, receipt)
             return True
+        if a["state"] == "starting":
+            return False  # The start grace, below inspection, still owns an absent launch.
         census = self._contain(a)
         if not census.verified_empty:
             self._kill_attempt(a, lost=True)
@@ -7915,15 +7921,17 @@ class Daemon:
         matches counts.
         """
         guardian = a["guardian_pid"]
-        if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
-                or table.rows[guardian][1] != a["pgid"]):
+        if not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True):
             return
-        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
+        members = ({pid: table.identity(pid) for pid in table.group(a["pgid"])}
+                   if table.rows[guardian][1] == a["pgid"] else {})
         evidence = json.loads(a["evidence_json"] or "{}")
         before = dict(evidence.get("owned_identities", {}))
         owned = dict(before)
         owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
-        if owned != before:
+        observed = utcnow_ms()
+        if owned != before or evidence.get("last_observed_alive_at") != observed:
+            evidence["last_observed_alive_at"] = observed
             evidence["owned_identities"] = owned
             with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
@@ -8095,7 +8103,19 @@ class Daemon:
         self._notify()
 
     def _lost(self, a: dict) -> None:
-        self._finalize(a, lost=True)
+        # A receipt-less loss establishes no execution during an observation gap.
+        # The last confirmed liveness belongs to the attempt's recorded boot; it
+        # cannot include host downtime or time on a later boot. Legacy attempts
+        # have only their launch as that lower bound. A late receipt still wins.
+        actual = self.store.get_attempt(a["attempt_id"])
+        evidence = json.loads(actual["evidence_json"] or "{}")
+        end = evidence.get("last_observed_alive_at") or actual["started_at"] or utcnow_ms()
+        if age(end) < 0:
+            end = utcnow_ms()
+        with self.store.transaction("attempt.lost_end", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            tx.execute("UPDATE attempts SET finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
+                       (end, a["attempt_id"]))
+        self._finalize(self.store.get_attempt(a["attempt_id"]), lost=True)
 
     def _relaunch_env(self, lane_id: str) -> dict[str, str]:
         """C-10.5, C-10.6: the credential a launch rebuilt after a restart needs.
