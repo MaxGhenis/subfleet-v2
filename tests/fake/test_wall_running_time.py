@@ -38,10 +38,12 @@ def wall(state_daemon, monkeypatch):
     return service, harness
 
 
-def history(wall, durations=(4, 3), waits=(1000,), state='running', cap=7):
+def history(wall, durations=(4, 3), waits=(1000,), state='running', cap=7,
+            settlements=None, exited=False):
     service, harness = wall
     jid = service.dispatch('submit', harness.submit_args(caller_session='caller'))['job_id']
-    start = -sum(durations) - sum(waits)
+    settlements = settlements or (0,) * len(durations)
+    start = -sum(durations) - sum(waits) - sum(settlements)
     service.store.update_job(jid, state='running' if state else 'waiting',
                              started_at=stamp(start), max_wall_s=cap)
     for seq, duration in enumerate(durations, 1):
@@ -50,11 +52,14 @@ def history(wall, durations=(4, 3), waits=(1000,), state='running', cap=7):
         service.store.add_attempt(attempt_id=f'{jid}/a{seq}', job_id=jid, seq=seq,
                                   lane_id='codex-1', model_requested='astra',
                                   state=state if live else 'failed', started_at=stamp(start),
-                                  finished_at=stamp(start + 1) if live and state == 'finalizing' else
+                                  finished_at=stamp(end) if live and state == 'finalizing' else
                                               None if live else stamp(end))
-        start = end + (waits[seq-1] if seq <= len(waits) else 0)
+        start = end + settlements[seq-1] + (waits[seq-1] if seq <= len(waits) else 0)
     aid = f'{jid}/a{len(durations)}'
-    (service.root / 'jobs' / jid / f'a{len(durations)}').mkdir(exist_ok=True)
+    adir = service.root / 'jobs' / jid / f'a{len(durations)}'
+    adir.mkdir(exist_ok=True)
+    if exited and state in ('starting', 'running', 'finalizing'):
+        (adir / 'exit.json').write_text(json.dumps({'rc': 0, 'finished_at': stamp(end)}))
     service._inspect_next[aid] = float('inf')
     return jid, aid
 
@@ -64,7 +69,7 @@ def cancel_events(service, jid):
         "SELECT data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' ORDER BY event_id", (jid,))]
 
 
-@pytest.mark.parametrize('state', ['starting', 'running', 'finalizing'])
+@pytest.mark.parametrize('state', ['starting', 'running'])
 def test_wall_stops_at_sum_of_attempt_running_times(wall, monkeypatch, state):
     service, _ = wall
     jid, aid = history(wall, state=state)
@@ -78,8 +83,7 @@ def test_wall_stops_at_sum_of_attempt_running_times(wall, monkeypatch, state):
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
     service._process_attempt(aid)
     assert len(cancel_events(service, jid)) == 1
-    if state != 'finalizing':
-        assert stopped
+    assert stopped
 
 
 def test_long_gap_does_not_expire_a_short_running_retry(wall, monkeypatch):
@@ -95,10 +99,17 @@ def test_long_gap_does_not_expire_a_short_running_retry(wall, monkeypatch):
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(durations=st.lists(st.integers(1, 20), min_size=1, max_size=5),
        waits=st.lists(st.integers(0, 10000), min_size=5, max_size=5), cap=st.integers(1, 100),
+       settlements=st.lists(st.integers(0, 3 * 86400), min_size=5, max_size=5),
+       exited=st.booleans(),
        state=st.sampled_from([None, 'starting', 'running', 'finalizing', 'reserved']))
-def test_wall_property_counts_only_execution_and_never_stops_waiting(wall, monkeypatch, durations, waits, cap, state):
+def test_wall_property_counts_only_execution_and_never_stops_waiting(
+        wall, monkeypatch, durations, waits, cap, state, settlements, exited):
     service, _ = wall
-    jid, aid = history(wall, durations=durations, waits=waits[:len(durations)-1], state=state, cap=cap)
+    settlements = settlements[:len(durations)]
+    if not exited and state in ('starting', 'running'):
+        settlements[-1] = 0  # A still-running provider has no settlement yet.
+    jid, aid = history(wall, durations=durations, waits=waits[:len(durations)-1], state=state, cap=cap,
+                       settlements=settlements, exited=exited)
     monkeypatch.setattr(service, '_kill_attempt', lambda a: None)
     monkeypatch.setattr(service, '_finalize', lambda a: None)
     if state in ('starting', 'running', 'finalizing'):
@@ -110,7 +121,20 @@ def test_wall_property_counts_only_execution_and_never_stops_waiting(wall, monke
         service.store.update_lane('codex-1', enabled=False)
         service._admit()
     assert bool(service.store.get_job(jid)['cancel_requested_at']) == (
-        state in ('starting', 'running', 'finalizing') and sum(durations) >= cap)
+        state in ('starting', 'running') and not exited and sum(durations) >= cap)
+    if state == 'finalizing' or exited and state in ('starting', 'running'):
+        assert service._running_s(jid) == sum(durations)
+
+        class MuchLater(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return NOW + timedelta(days=3)
+
+        with monkeypatch.context() as later:
+            later.setattr(daemon_module, 'datetime', MuchLater)
+            service._process_attempt(aid)
+            assert service._running_s(jid) == sum(durations)
+            assert cancel_events(service, jid) == []
 
 
 def test_client_cancel_records_socket_pid_and_session_and_notifies_caller(wall, monkeypatch, capsys):
@@ -191,17 +215,24 @@ def test_starting_clock_begins_before_guardian_receipt(wall, monkeypatch):
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
 
 
-def test_finalization_time_is_charged_to_later_attempts(wall):
+def test_finalization_time_is_not_charged_to_later_attempts(wall):
     service, harness = wall
     from tests.fake.test_state_contract import reserve, receipt_fixture
     jid, first, adir = reserve(service, harness)
     service.store.update_attempt(first['attempt_id'], started_at=stamp(-4))
-    finalizing = receipt_fixture(service, first, adir)
+    receipt_fixture(service, first, adir)
+    receipt = json.loads((adir / 'exit.json').read_text())
+    receipt['finished_at'] = stamp(-2)
+    (adir / 'exit.json').write_text(json.dumps(receipt))
     service.store.update_attempt(first['attempt_id'], finished_at=stamp(-2))
-    service._finalize(finalizing)
-    # The provider receipt predates finalization. The terminal attempt must end
-    # when finalization completes, so that a retry cannot shed that running time.
-    assert datetime.fromisoformat(service.store.get_attempt(first['attempt_id'])['finished_at']) == NOW
+    service._finalize(service.store.get_attempt(first['attempt_id']))
+    assert service.store.get_attempt(first['attempt_id'])['finished_at'] == stamp(-2)
+    service.store.update_job(jid, state='running')
+    service.store.add_attempt(attempt_id=f'{jid}/a2', job_id=jid, seq=2, lane_id='codex-1',
+                              model_requested='astra', state='running', started_at=stamp(-1))
+    assert service._running_s(jid) == 3
+    row = next(row for row in service.store.query(LIVE_TICK) if row['attempt_id'] == f'{jid}/a2')
+    assert row['prior_running_s'] == pytest.approx(2, abs=.002)
 
 
 def test_reserved_time_and_unstarted_attempts_do_not_spend_the_wall(wall, monkeypatch):
@@ -224,7 +255,7 @@ def test_legacy_starting_attempt_without_a_start_does_not_charge_reservation(wal
     assert cancel_events(service, jid) == []
 
 
-def test_finalization_rechecks_wall_at_terminal_commit(wall, monkeypatch):
+def test_finalization_past_wall_keeps_provider_outcome(wall, monkeypatch):
     service, harness = wall
     from tests.fake.test_state_contract import reserve, receipt_fixture
     jid, first, adir = reserve(service, harness)
@@ -243,9 +274,56 @@ def test_finalization_rechecks_wall_at_terminal_commit(wall, monkeypatch):
 
     monkeypatch.setattr(service, '_salvage', slow_finalization)
     service._process_attempt(first['attempt_id'])
-    assert service.store.get_job(jid)['state'] == 'cancelled'
-    assert service.store.get_attempt(first['attempt_id'])['killed_by'] == 'max_wall_s'
-    assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 10.0}]
+    assert service.store.get_job(jid)['state'] == 'succeeded'
+    assert service.store.get_attempt(first['attempt_id'])['killed_by'] is None
+    assert service._running_s(jid) == 4
+    assert cancel_events(service, jid) == []
+
+
+@pytest.mark.parametrize('hours', [2, 7])
+@pytest.mark.parametrize('state', ['starting', 'running', 'finalizing'])
+def test_exited_provider_settled_three_days_later_exports(wall, hours, state):
+    service, harness = wall
+    from tests.fake.test_state_contract import reserve, receipt_fixture
+    out = harness.root / 'export.md'
+    jid, first, adir = reserve(service, harness, out_path=str(out))
+    aid = first['attempt_id']
+    service.store.update_job(jid, max_wall_s=6 * 3600)
+    receipt_fixture(service, first, adir)
+    receipt = json.loads((adir / 'exit.json').read_text())
+    receipt.update(finished_at=stamp(-3 * 86400), wall_s=hours * 3600)
+    (adir / 'exit.json').write_text(json.dumps(receipt))
+    service.store.update_attempt(aid, state=state, started_at=stamp(-3 * 86400 - hours * 3600),
+                                 finished_at=receipt['finished_at'] if state == 'finalizing' else None)
+    service._process_attempt(aid)
+    service._process_attempt(aid)
+    job = service.store.get_job(jid)
+    assert (job['state'], job['rc'], job['accepted_attempt_id']) == ('succeeded', 0, aid)
+    assert out.read_bytes() == b'fixture result\n'
+    assert service._running_s(jid) == hours * 3600
+    assert service.store.get_attempt(aid)['killed_by'] is None
+    assert cancel_events(service, jid) == []
+    evidence = json.loads(service.store.get_attempt(aid)['evidence_json'])
+    if hours > 6:
+        assert evidence['wall_overrun'] == {
+            'running_s': hours * 3600, 'max_wall_s': 6 * 3600,
+            'overrun_s': (hours - 6) * 3600, 'provider_finished_at': receipt['finished_at'],
+            'reason': 'provider exited before the daemon enforced the wall'}
+        assert 'wall_overrun' in json.dumps(service.dispatch('show', {'job_id': jid}))
+        assert 'wall_overrun' in json.dumps(Offline(harness.root).show_job(jid))
+    else:
+        assert 'wall_overrun' not in evidence
+
+
+def test_live_provider_at_six_hours_is_stopped(wall, monkeypatch):
+    service, _ = wall
+    jid, aid = history(wall, durations=(6 * 3600,), waits=(), cap=6 * 3600)
+    stopped = []
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: stopped.append(a['attempt_id']))
+    service._process_attempt(aid)
+    assert stopped == [aid]
+    assert service.store.get_attempt(aid)['killed_by'] == 'max_wall_s'
+    assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 6 * 3600}]
 
 
 @pytest.mark.parametrize('cap,expired', [(0.0112, True), (0.0113, False)])
