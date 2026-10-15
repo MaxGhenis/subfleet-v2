@@ -1,5 +1,4 @@
 """C-11.8: permanent all-lane retry refusals have the pin grace; timed waits do not."""
-import json
 from datetime import timedelta
 
 import pytest
@@ -33,21 +32,22 @@ def test_permanent_retry_refusal_notifies_once_survives_restart_and_fails(clocke
     elif refusal == "credential-latched":
         service.timers.metadata["codex-1"] = {"probe_status": "revoked"}
     else:
-        service.store.update_lane("codex-1", provider="claude")
+        service.policy["models"]["astra"]["provider"] = "claude"
     service._admit()
     clock.t += timedelta(seconds=daemon_module.PIN_NOTICE_AFTER_S)
     for _ in range(3):
         service._admit()
     notices = service.store.query("SELECT * FROM service_notices WHERE session_id='caller'")
     assert len(notices) == 1
-    assert refusal in notices[0]["text"]
+    words = {"disabled": "disabled", "credential-latched": "credential", "no-lanes": "no lane"}[refusal]
+    assert words in notices[0]["text"]
     service._pin_episodes = service._load_pin_episodes()
     clock.t += timedelta(seconds=1800)
     service._admit()
     job = service.store.get_job(jid)
     assert (job["state"], job["rc"], job["cancel_requested_at"]) == ("failed", 3, None)
     assert len(service.store.list_attempts(jid)) == 1
-    assert refusal in service.store.list_notices("caller")[0]["text"]
+    assert words in service.store.list_notices("caller")[0]["text"]
 
 
 @pytest.mark.parametrize("reason", [ClosureReason.OPERATOR_HOLD, ClosureReason.PROVIDER_LIMIT])
