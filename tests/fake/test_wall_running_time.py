@@ -257,3 +257,19 @@ def test_tick_rounding_cannot_hide_a_spent_running_budget(wall, monkeypatch, cap
         assert service._has_work(row)
     service._process_attempt(aid)
     assert bool(service.store.get_job(jid)['cancel_requested_at']) == expired
+
+
+def test_kill_reports_already_finished_when_settlement_wins_the_transaction(wall, monkeypatch):
+    service, harness = wall
+    jid = service.dispatch('submit', harness.submit_args())['job_id']
+    request_cancel = service._request_cancel
+
+    def finish_first(job_id, data, **kwargs):
+        with service.store.transaction('fixture.finished', job_id=jid) as tx:
+            tx.execute("UPDATE jobs SET state='failed',rc=1,finished_at=? WHERE job_id=?", (stamp(0), jid))
+            service._notice(tx, service._job(jid), 'finished before cancellation committed')
+        return request_cancel(job_id, data, **kwargs)
+
+    monkeypatch.setattr(service, '_request_cancel', finish_first)
+    assert service.dispatch('kill', {'job_id': jid})['status'] == 'already finished'
+    assert cancel_events(service, jid) == []
