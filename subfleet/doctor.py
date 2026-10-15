@@ -390,8 +390,8 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
     check = "codex guard preflight settings"
     try:
         deadline = guard.resolve_timeout()
-    except ValueError as exc:
-        return row(check, FAIL, str(exc), guard._CONFIG_FIX)
+    except ValueError:
+        return row(check, FAIL, f"{guard.TIMEOUT_ENV} is invalid", guard._CONFIG_FIX)
     source = "env" if os.environ.get(guard.TIMEOUT_ENV, "").strip() else "default"
     try:
         directory = guard.cache_dir(root)
