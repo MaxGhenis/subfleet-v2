@@ -2086,6 +2086,8 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7)
+        if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+            raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch")
         if args.push_branch is not None and args.kind != "dispatch":
             raise AdapterError("host push is supported for dispatch jobs", code=7,
                                fix="submit a dispatch with --push-branch")
@@ -2183,8 +2185,6 @@ class Daemon:
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 push_remote = push_default = push_head = push_current = push_top = None
-                if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
-                    raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch")
                 if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
                     # C-8.5: the job writes its bundle in its own workspace.
                     raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
