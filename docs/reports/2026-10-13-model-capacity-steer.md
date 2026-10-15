@@ -337,12 +337,13 @@ and all nine explicit regression cases.
 | --- | --- | --- |
 | `207401` | 11 passed | 82.50 s |
 | `207402` | 11 passed | 45.75 s |
+| `207403` | 11 passed | 95.38 s |
 
-Seed `207403` is queued for the shared lock. The three requested file groups
-remain pending. Neither completed seed found a new admission bug.
+All three required CI seeds passed; no new admission bug was found. The three
+requested file groups remain pending.
 
 The shared Git metadata is outside the writable roots, so new commits use
 workspace-local `.git-local` metadata on `fix/model-capacity-steer`, with the
 original `.git` pointer unchanged. Inspect it with
-`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`. No remote, caller
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`. No Git remote, caller
 checkout, live store or live process was accessed; no sub-agents were used.
