@@ -40,6 +40,7 @@ from hypothesis import HealthCheck, event, given, settings, strategies as st
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness
+from subfleet.conversations.turn import LIVE_STATES
 
 pytestmark = needs_swift
 
@@ -773,13 +774,14 @@ def ref_queue(timeline: dict, arrival: dict[str, int]) -> list[str]:
                                             arrival[mid]))
 
 
-def ref_tray(timeline: dict, arrival: dict[str, int], held: bool) -> list[str]:
+def ref_tray(timeline: dict, arrival: dict[str, int], held: bool, steers: set[str] = frozenset()) -> list[str]:
     """A queued message waits in the tray; so does one with no receipt when
     anything is ahead of it: a live turn, a block, an earlier queue member."""
-    ahead = held or is_live(timeline)
+    ahead = held or any(turn["state"] in LIVE_STATES for turn in timeline["turns"].values())
     out = []
     for mid in ref_queue(timeline, arrival):
-        if ahead and timeline["turns"][mid]["continues"] is None:
+        if (ahead or (timeline["turns"][mid]["state_reason"] or "").startswith("deferred:")) \
+                and mid not in steers and timeline["turns"][mid]["continues"] is None:
             out.append(mid)
         ahead = True
     return out
@@ -860,7 +862,7 @@ def replay(steps: list[dict]) -> list[dict]:
     timeline began or was focused, and how many history pages have loaded."""
     arrival: dict[str, int] = {}
     cursor, caught_up, pages, out = 0, False, 0, []
-    local_send, own_messages = None, set()
+    local_send, own_messages, steers = None, set(), set()
     for step in steps:
         if "page" in step:
             applied = 0
@@ -875,6 +877,9 @@ def replay(steps: list[dict]) -> list[dict]:
             for entry in step["receipts"]:
                 if entry.get("conversation_id") in (None, CID):
                     arrival.setdefault(entry["message_id"], len(arrival))
+                    if entry["state"] in ("steering", "steered") or (entry.get("state_reason") or "").startswith(
+                            ("steer:", "steered:", "steered-unanswered:", "steer-missed:")):
+                        steers.add(entry["message_id"])
         elif "approvals" in step:
             for entry in step["approvals"]:
                 if entry["conversation_id"] == CID:
@@ -884,11 +889,13 @@ def replay(steps: list[dict]) -> list[dict]:
         elif "local" in step:
             local_send = step["local"]["message_id"]
             own_messages.add(local_send)
+            if step["local"].get("steer"):
+                steers.add(local_send)
             arrival.setdefault(step["local"]["message_id"], len(arrival))
         elif step.get("focus"):
             caught_up = False
         out.append({"arrival": dict(arrival), "caught_up": caught_up, "history_pages": pages,
-                    "local_send": local_send, "own_messages": set(own_messages)})
+                    "local_send": local_send, "own_messages": set(own_messages), "steers": set(steers)})
     return out
 
 
@@ -899,9 +906,9 @@ short_texts = st.text(alphabet=st.sampled_from(TEXT_ALPHABET), max_size=24)
 long_texts = st.integers(240, 420).map(lambda n: ("lorem \n ipsum\tdolor " * 25)[:n])
 send_texts = st.one_of(short_texts, short_texts, long_texts)
 STATES = ["queued", "waiting", "starting", "running", "approval-needed", "complete", "failed", "interrupted",
-          "cancelled", "delivery-unknown"]
+          "cancelled", "delivery-unknown", "steering", "steered"]
 REASONS = {
-    "queued": [None, None, None, "deferred: lane busy", "deferred: rate-limited", "handoff-rolled-back"],
+    "queued": [None, None, None, "deferred: lane busy", "deferred: rate-limited", "handoff-rolled-back", "steer-missed: host ended"],
     "waiting": [None, "dispatching", "deferred: capacity", "external-writer: pid 42"],
     "cancelled": ["withdrawn", "withdrawn", "withdrawn-before-receipt", "handed-off:cv-next", None],
     "failed": [None, "not-delivered: refused"],
@@ -910,7 +917,7 @@ ANY_REASON = [None, "withdrawn", "deferred: x", "withdrawn-before-receipt", "han
 ACTIONS = (["send"] * 5 + ["receipt"] * 5 + ["event"] * 5 + ["page"] * 4
            + ["withdraw_local", "tombstone", "focus", "history", "approvals", "idle"])
 OPENING_STATES = ["complete", "complete", "running", "approval-needed", "waiting", "queued", "queued", "queued",
-                  "interrupted", "cancelled"]
+                  "interrupted", "cancelled", "steering", "steered", "delivery-unknown"]
 EVENTS = ["accepted", "accepted", "text", "delta", "delta", "tool", "ask", "ask", "answer", "complete", "status"]
 
 
@@ -977,6 +984,7 @@ def queue_timelines(draw):
                 mid = fresh[0]
                 sent.append(mid)
                 step = local(mid, draw(send_texts), images=draw(st.sampled_from([0, 0, 1, 2])))
+                step["local"]["steer"] = draw(st.booleans())
         elif action == "receipt":
             waiting = [mid for mid in sent if mid not in received]
             mid = draw(st.sampled_from(waiting)) if waiting and draw(st.booleans()) else draw(st.sampled_from(mids))
@@ -1073,9 +1081,11 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
             assert in_timeline != in_tray, mid
     assert layout["items"] == ref_items(timeline, tray_ids)
 
+    assert not set(tray_ids) & known["steers"]
+
     # (2) The tray is the reference tray, in the order the daemon sends it.
     queue = ref_queue(timeline, known["arrival"])
-    assert tray_ids == ref_tray(timeline, known["arrival"], held)
+    assert tray_ids == ref_tray(timeline, known["arrival"], held, known["steers"])
 
     # (3) No turn that has started is in the tray; every pending card is in the timeline.
     for mid in tray_ids:
@@ -1086,11 +1096,11 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
     assert all(row in layout_ids and owners[row] not in tray_ids for row in timeline["pending_items"])
 
     # (4) At most one queue message is in the timeline: a send with nothing ahead of it.
-    in_timeline = [mid for mid in queue if f"person:{mid}" in layout_ids and turns[mid]["continues"] is None]
+    in_timeline = [mid for mid in queue if f"person:{mid}" in layout_ids and turns[mid]["continues"] is None and mid not in known["steers"]]
     assert len(in_timeline) <= 1
     if in_timeline:
         assert in_timeline == queue[:1]
-        assert not held and not live
+        assert not held and not any(t["state"] in LIVE_STATES for t in turns.values())
 
     # (5) Each row's Withdraw and Steer; with (2), the whole row as the rule writes it.
     candidate = tray_ids[0] if tray_ids and turns[tray_ids[0]]["origin"] in ("person", None) \
@@ -1147,6 +1157,11 @@ def labels(steps: list[dict], result: dict) -> set[str]:
         seqs = [timeline["turns"][mid]["seq"] for mid in tray_ids]
         if any(a is not None and b is not None and a > b for a, b in zip(seqs, seqs[1:])):
             out.add("a repair message ahead of an earlier message")
+        if any(f"person:{mid}" in layout_ids for mid in known[index]["steers"]):
+            out.add("a steer in the timeline")
+        if any((turn["state_reason"] or "").startswith("steer-missed:")
+               and f"person:{mid}" in layout_ids for mid, turn in timeline["turns"].items()):
+            out.add("a missed steer in the timeline")
         if any(row["sending"] for row in rows) and any(not row["sending"] for row in rows):
             out.add("sending and queued rows together")
         if any(row["can_steer"] for row in rows):
@@ -1178,7 +1193,7 @@ def labels(steps: list[dict], result: dict) -> set[str]:
     return out
 
 
-@PROPERTY
+@settings(PROPERTY, max_examples=200)
 @given(steps=queue_timelines())
 def test_c29_7_property_the_tray_holds_the_queue_as_the_daemon_sends_it(core_probe, steps):
     """C-29.7 (and C-27.5's display order) over generated timelines: the partition
@@ -1278,7 +1293,7 @@ CASES = [
     "a send stayed in the tray when its receipt came", "the queue's head in the timeline", "a held tray",
     "a tray behind a live turn", "an idle tray", "a tray of three or more", "an unblock note in the tray",
     "a repair message ahead of an earlier message",
-    "sending and queued rows together", "a steer offer", "a deferred row", "a row with images", "a cut preview",
+    "sending and queued rows together", "a steer in the timeline", "a missed steer in the timeline", "a steer offer", "a deferred row", "a row with images", "a cut preview",
     "a withdrawn line", "a tombstone", "a pending card in the timeline", "followed is not the last row",
     "move stay", "move jump", "move glide", "an own send glided while reading further up",
     "a change stayed while reading further up", "focused again",
@@ -1320,20 +1335,47 @@ def test_c29_7_a_person_send_waits_behind_a_queued_failover_continuation(core_pr
     assert last["layout"]["title"] == "1 message queued; it follows the message ahead"
 
 
-@PROPERTY
-@given(count=st.integers(min_value=1, max_value=8), held=st.booleans(), live=st.booleans())
-def test_c29_7_property_receipts_never_flicker_a_send_out_of_the_timeline(core_probe, count, held, live):
+@settings(PROPERTY, max_examples=200)
+@given(count=st.integers(min_value=1, max_value=8), held=st.booleans(),
+       host=st.sampled_from([None, *LIVE_STATES]),
+       steers=st.lists(st.booleans(), min_size=8, max_size=8),
+       deferred=st.lists(st.booleans(), min_size=8, max_size=8))
+def test_c29_7_property_receipts_never_flicker_a_send_out_of_the_timeline(core_probe, count, held, host,
+                                                                         steers, deferred):
     steps = [{"page": {"events": [], "next": 0, "reset": False}, "held": held}]
-    if live:
-        steps.append({"receipts": [receipt("host", 1, "running")], "held": held})
+    if host:
+        steps.append({"receipts": [receipt("host", 1, host)], "held": held})
+    checkpoints = []
     for n in range(count):
         mid = f"mine-{n}"
-        steps += [{**local(mid, f"message {n}"), "held": held},
-                  {"receipts": [receipt(mid, n + 2, "queued")], "held": held}]
-    snaps = run_queue(core_probe, steps)["snapshots"][-2 * count:]
-    for before, after in zip(snaps[::2], snaps[1::2]):
+        checkpoints.append((len(steps), mid, steers[n], deferred[n]))
+        send = local(mid, f"message {n}")
+        send["local"]["steer"] = steers[n]
+        steps += [{**send, "held": held},
+                  {"receipts": [receipt(mid, n + 2, "queued")], "held": held},
+                  {"receipts": [receipt(mid, n + 2, "queued", reason="deferred: lane busy" if deferred[n] else None)],
+                   "held": held}]
+        if steers[n]:
+            for state, reason in [("steering", "steer:host"), ("steered", "steered:host"),
+                                  ("queued", "steer-missed: host ended"), ("delivery-unknown", None),
+                                  ("queued", "steer-missed: host ended"), ("running", None)]:
+                steps.append({"receipts": [receipt(mid, n + 2, state, reason=reason)], "held": held})
+    snaps = run_queue(core_probe, steps)["snapshots"]
+    for index, mid, steer, defer in checkpoints:
+        before, after = snaps[index:index + 2]
         assert tray(before) == tray(after)
         assert ids(before) == ids(after)
+        if steer:
+            for snapshot in snaps[index:index + 9]:
+                assert mid not in tray(snapshot)
+                assert f"person:{mid}" in ids(snapshot)
+        elif defer:
+            assert mid in tray(snaps[index + 2])
+            assert tray_row(snaps[index + 2], mid)["can_withdraw"]
+
+
+def test_c29_7_the_apps_dispatcher_states_equal_the_daemons(core_probe):
+    assert set(queue_words(core_probe)["dispatcher_live_states"]) == set(LIVE_STATES)
 
 
 def test_c29_7_a_remote_message_does_not_glide_while_reading_further_up(core_probe):

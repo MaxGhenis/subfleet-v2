@@ -68,7 +68,8 @@ func runQueue(_ data: Data) throws -> [String: Any] {
             timeline.apply(history: try history.decode(HistoryPage.self))
         } else if let local = step["local"] {
             timeline.addLocal(messageID: local["message_id"]?.string ?? "", text: local["text"]?.string ?? "",
-                              attachments: local["attachments"]?.array?.compactMap(\.string) ?? [])
+                              attachments: local["attachments"]?.array?.compactMap(\.string) ?? [],
+                              steer: local["steer"]?.bool ?? false)
         } else if let id = step["withdraw_local"]?.string {
             timeline.withdrawLocal(messageID: id)
         } else if step["focus"]?.bool == true {
@@ -138,5 +139,6 @@ func runQueueWords(_ data: Data) throws -> [String: Any] {
         return steerCandidate(rows) as Any? ?? NSNull()
     }
     return ["previews": previews, "statuses": statuses, "titles": titles, "visible": visible, "moves": moves,
-            "stops": stops, "steer": steer, "preview_limit": queuePreviewLimit]
+            "stops": stops, "steer": steer, "preview_limit": queuePreviewLimit,
+            "dispatcher_live_states": MessageState.live.map(\.rawValue).sorted()]
 }
