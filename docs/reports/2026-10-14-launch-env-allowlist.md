@@ -2,9 +2,9 @@
 
 Base: `release/217`, `3f50142ac1cc`. Reported on 2026-10-14 by the d1063 key-rotation session and verified by the hub. A shell-started daemon retained unrelated exported credentials, and provider children inherited them. This change selects names before constructing child environments. No credential store, secret-loader script, live store, live daemon or live process was inspected or changed. All test credentials are synthetic; no environment values are included in this report.
 
-## Default allowlist
+## Original exact-name allowlist
 
-`subfleet/launch_env.py` owns the finite set. The first twenty names were observed in the working launchd daemon. Other names are exact additions with the reasons below. Neither `SUBFLEET_*` nor `LC_*` is accepted as a wildcard. Unknown names, including every unknown secret suffix, are excluded without needing a list of secret-store item names.
+`subfleet/launch_env.py` owns the default selection. The table records round 1's finite set and its rationale. Round 2 additionally admits noncredential `SUBFLEET_*` configuration, with credential-word and launch-marker exclusions described below. Unknown `LC_*` names remain excluded.
 
 | Name | Reason |
 | --- | --- |
@@ -69,13 +69,13 @@ Base: `release/217`, `3f50142ac1cc`. Reported on 2026-10-14 by the d1063 key-rot
 
 ## Invariants and policy
 
-1. Parent values are selected only by exact membership in the default allowlist or policy `env.pass`. Selection never mutates the parent mapping. Presence, including an empty value, is retained.
-2. Each launch supplies its own credential/configuration directory, OAuth credential when applicable, attempt/session/hook markers and push-bundle path separately. Those explicit additions override selected parent values. The guardian's Python import bootstrap is added after selecting provider names, so it does not become provider ambient authority.
-3. `env.pass` is optional and must be a list of ASCII variable names matching `[A-Za-z_][A-Za-z0-9_]*`. No glob, whitespace, assignment or Unicode identifier is accepted. A policy name authorizes only that name, including when it has a secret suffix; it also overrides a default environment removal. Launch-owned values are explicit authority as well. Managed-setting rejection for isolated reviews remains in effect.
+1. Parent values are selected by the exact defaults, the noncredential Subfleet configuration rule, or exact policy `env.pass` names. Selection never mutates the parent mapping. Presence, including an empty value, is retained.
+2. Each launch supplies its own credential/configuration directory, OAuth credential when applicable, attempt/session/hook markers and push-bundle path separately. Those explicit additions override selected parent values. The guardian imports Subfleet from its package working directory; it does not rewrite provider Python paths.
+3. `env.pass` is optional and must be a list of ASCII variable names matching `[A-Za-z_][A-Za-z0-9_]*`. No glob, whitespace, assignment or Unicode identifier is accepted. A policy name authorizes only that name, including when it has a secret suffix. Mandatory launch removals apply last, including to selected policy additions, so pass-through cannot re-enable memory sources or other sandbox exclusions. Launch-owned additions override parent values subject to those removals. Managed-setting rejection for isolated reviews remains in effect.
 4. `daemon start` selects with the same builder and reads `env.pass` from the selected root's policy before spawning. It replaces the state-root variable with its own root. The install plist's explicit `EnvironmentVariables` are retained.
 5. Every guardian provider exec selects again. The daemon authorizes its already-selected launch-owned and policy names using repeated `--env-pass NAME` arguments. No credential value is placed in argv or launch records. A directly invoked guardian has only the default allowlist unless names are deliberately provided.
 6. `daemon.status.environment.extra_names` contains sorted names outside the default allowlist, never values. `doctor` asks the running daemon for this diagnostic even without `--live`; it warns on extras, passes on an empty list and reports unknown for an unavailable or older daemon. Explicitly passed names outside the default set are still reported for review.
-7. Local Git/catalog/notification helpers use the default set and their own explicit variables; provider metadata and heal paths additionally receive the provider's explicit policy selection. CA selection remains the shared C-10.8 behavior.
+7. Local Git/catalog/notification helpers use the default selection, the owning operation/worker's exact policy names, and their own explicit variables; provider metadata and heal paths receive the provider's explicit policy selection. Scoped contexts reset on return and exception, and workers establish their own policy rather than depending on thread inheritance. Git location, pathspec, and trace removals remain mandatory. CA selection remains the shared C-10.8 behavior.
 
 ## Spawn audit
 
@@ -178,7 +178,7 @@ The fake-provider regressions exercise both providers' detached, turn and probe 
 
 ## Remaining validation
 
-Real-process coverage requires a host that permits the existing boot and process identity checks. No ownership bypass was added to make those tests pass. The nine skips comprise six CA-bundle daemon cases, two routing cases and one gate case. Other process, live-provider and end-to-end suites were not run; they would require additional host permissions or real credentials. There is no remaining implementation work identified by the completed checks.
+Real-process coverage requires a host that permits the existing boot and process identity checks. No ownership bypass was added to make those tests pass. The nine skips comprise six CA-bundle daemon cases, two routing cases and one gate case. Round 1 did not run the end-to-end, frontend or remaining process suites. The round-2 results below supersede that incomplete validation; the end-to-end harness uses synthetic credentials.
 
 ## Commits and handoff
 
@@ -193,3 +193,85 @@ Commit steps before this report:
 - `b882a1d95`: doctor environment expectation, all 16 cases passed.
 - `fa5ec1cb9`: complete audit and validation report.
 - The final documentation step repairs the test-table paragraph boundary. An ignored delivery bundle contains only the job commits, with the base commit as its prerequisite.
+
+
+## Round 2: CI failure and review r1, resumed after cold boot
+
+Restart baseline: `9231bd8486af`, preserving all 11 recovered commits after
+`1a2287ca3`. The saved cold-boot patch contained only this report's invariant
+edits and the acceptance-contract edits; it applied cleanly. The implementation
+for configuration inheritance, mandatory removals, helper policy and guardian
+bootstrap separation had not been committed before the restart. Those steps
+are now complete. The recovered gate regression also needed a fake Git diff
+response, the daemon-start regression needed its temporary `SUBFLEET_HOME`, and
+the spawn oracle needed to distinguish the guardian-only settle setting.
+
+### Cause and correction
+
+- The exact-name list discarded noncredential `SUBFLEET_*` configuration,
+  including fake-provider scenarios, reports, delays, and the live-test guard.
+  Round 2 admits valid ASCII `SUBFLEET_*` names except launch/session markers
+  and names containing an underscore-delimited `TOKEN`, `KEY`, `SECRET`, or
+  `PASSWORD` word, case insensitive. Unknown credential names still need exact
+  policy authority. Tests cover all four words, mixed case, suffixes such as
+  `_TOKEN_FILE`, and `SUBFLEET_TEST_TOKEN` across daemon/provider selection.
+  The prefix rule accommodates supported runtime hooks without making a new
+  configuration setting depend on a second, easily stale inventory.
+- The e2e harness also needs nonprefix runtime authority. Its disposable policy
+  now explicitly names `PYTHONPATH`, `CLAUDE_FAKE_PROJECTS_DIR`, both synthetic
+  `E2E_CLAUDE_TOKEN_*` credentials, and its Git config/author/committer names.
+  Production defaults do not implicitly admit those names. A regression builds
+  the real harness policy and checks selection through daemon and provider.
+- Review P2 memory isolation: mandatory `env_remove` entries now apply after
+  ambient selection, exact policy names and launch additions. Detached, resumed,
+  conversation and isolated Claude launches cannot restore `CLAUDE_MEMORY_STORES`.
+  The round-1 property and six policy cases now require this corrected precedence.
+- Review P2 helper policy: a scoped context carries exact policy names to local
+  helpers in gate preview/dispatch, daemon dispatch/control work, and all daemon
+  worker submissions, including push and conversation pools. Each worker sets
+  its owning daemon's policy and resets it on return or exception. Provider
+  builders retain explicit policy selection independent of helper context.
+  Salvage/finalization retain their Git removals; retention now also drops
+  inherited Git location, pathspec and trace settings before its own controls.
+- Review P3 guardian bootstrap: every guardian already starts in the package
+  directory. Removing the three redundant `PYTHONPATH` rewrites preserves absent,
+  empty and policy-provided provider paths. The guardian removes its own
+  `SUBFLEET_EXIT_SETTLE_S` even if explicitly authorized. Regressions exercise
+  detached/turn/probe/enrollment launches through both guardian exec branches.
+- Review P3 doctor: recovered commit `8b693d4d4` reports the invalid variable's
+  name without its value. Its rendered-output regression remains present.
+- CI tooling: recovered commit `3fe81efd2` binds an outcomes recorder's absolute
+  path per pytest configuration, before fixtures can replace `os.environ` or
+  change cwd. Passing and failing replacement-environment tests cover this CI
+  tool change. The write-error tests now make the configured destination
+  unwritable directly instead of trying to redirect it through the environment.
+
+The #205 merge was compared against `73aff8cd3`: both provider `Popen` calls
+retain explicit selected environments inside release's error/QoS/linger
+structure. `daemon.spawn_guardian` forwards the selected mapping, cwd and gate
+descriptor to `procs.spawn_disclaimed` or the Popen fallback. Two direct forwarding
+regressions cover those branches; the existing census/responsibility tests
+remain part of directory validation. The four round-1 daemon mutation cases
+also needed retargeting from the pre-merge Popen call to the positional
+environment argument of `_spawn_guardian`; the original 34-check total is retained.
+
+### Validation and limitations
+
+Before fixes, `tests/e2e` returned **2 passed, 95 skipped**: the existing
+process-inspection fixture skips under the sandbox's ps/sysctl restrictions.
+The initial recovered-regression run returned **37 failed, 91 passed**; after
+repairing the recovered test harnesses and extending the bootstrap cases, the
+remaining production defects returned **47 failed, 108 passed**. The first
+configuration run exposed two more test-oracle gaps (temporary root and mandatory
+daemon API-key removals), both corrected; its retention failure was the pending
+helper-policy correction. The attempted fallback-root mkdir was denied before
+any log or live state could be opened.
+
+All pytest invocations use a unique temporary/Hypothesis directory, the shared
+`lockf -k` lock without a wait timeout, one top-level pytest at a time, and the
+`ci` Hypothesis profile. No deep profile, real credentials, live daemon/store,
+remote Git operations or sub-agents are used. Scratch directories are removed
+after each run; logs and evidence are not staged.
+
+Validation results and historical CI failure mapping are filled below after
+the remaining lock-protected holds finish.
