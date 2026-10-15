@@ -230,7 +230,9 @@ the spawn oracle needed to distinguish the guardian-only settle setting.
   The round-1 property and six policy cases now require this corrected precedence.
 - Review P2 helper policy: a scoped context carries exact policy names to local
   helpers in gate preview/dispatch, daemon dispatch/control work, and all daemon
-  worker submissions, including push and conversation pools. Each worker sets
+  worker submissions, including push and conversation pools. The independent PR
+  wake poller and timer cycle/lane/usage-reader pools establish their own policy
+  too; they cannot depend on caller-thread context inheritance. Each worker sets
   its owning daemon's policy and resets it on return or exception. Provider
   builders retain explicit policy selection independent of helper context.
   Salvage/finalization retain their Git removals; retention now also drops
@@ -281,11 +283,20 @@ an orderly tool interrupt kept the hold below 20 minutes: **636 passed,
 Four failures require the sandbox-denied boot identity and signal inspection.
 The fifth was an old preflight-call oracle omitting round 1's `env_pass` argument;
 that assertion now verifies the exact credential/CA names as well as `env`.
-Subsequent runs record completed node IDs and pause between tests after four
+Subsequent runs record completed node IDs and pause between tests after ten
 minutes, continuing only their remaining nodes under a fresh shared-lock hold.
 
-Final directory totals and the historical CI failure mapping follow once those
-holds finish.
+On the updated code, the original **118 tests passed**, including all **34
+mutation checks**, in **58.51 s** under a separate lock hold. The full-directory
+runs continue below; final directory totals remain pending those holds.
+
+Historical controls against archived `1a2287ca3` produced **35 expected failures
+in 24.81 s**. These cover all four review findings, daemon/harness configuration,
+and the outcomes plugin crash with a replaced environment. The corrected tests
+were overlaid on the archive; its production code remained unchanged. The
+current Python 3.12 fake-directory rerun completed its first hold with **90
+passed in 672.67 s**, then released the lock before continuing its 1,601 unrun
+nodes. This full rerun supersedes the earlier partial Python 3.14 fake result.
 
 
 ### Original CI failures, reconstructed by node ID
