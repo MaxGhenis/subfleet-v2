@@ -218,13 +218,34 @@ def test_atomic_publication_enospc_never_leaves_partial_output(tmp_path, monkeyp
 
 @pytest.mark.parametrize("failure", ["relay-serve", "exit-receipt"])
 def test_d_cen1_provider_exceptions_always_linger(tmp_path, monkeypatch, guardian_identity, failure):
-    from types import SimpleNamespace
     from subfleet import relay
 
     events = []
-    child = SimpleNamespace(pid=77, wait=lambda: 0)
+
+    class Child:
+        pid = 77
+        gate_read = None
+
+        def permitted(self):
+            try:
+                assert os.read(self.gate_read, 1) == b"1"
+            finally:
+                os.close(self.gate_read)
+                self.gate_read = None
+            events.append("provider.permitted")
+
+        def wait(self):
+            self.permitted()
+            return 0
+
+    child = Child()
+
+    def spawn(*args, **kwargs):
+        child.gate_read = os.dup(kwargs["pass_fds"][0])
+        return child
+
     monkeypatch.setattr(guardian, "provider_qos", lambda: None)
-    monkeypatch.setattr(guardian.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(guardian.subprocess, "Popen", spawn)
     monkeypatch.setattr(guardian, "linger", lambda: events.append("linger"))
     original = guardian._receipt
 
@@ -240,14 +261,20 @@ def test_d_cen1_provider_exceptions_always_linger(tmp_path, monkeypatch, guardia
             pass
         def serve(self, fd, **kwargs):
             os.close(fd)
+            child.permitted()
             raise RuntimeError("relay failed with a provider alive")
         def stop(self):
             events.append("relay.stop")
 
     monkeypatch.setattr(guardian, "_receipt", receipt)
     monkeypatch.setattr(relay, "RelayServer", Relay)
-    with pytest.raises(RuntimeError if failure == "relay-serve" else OSError):
-        guardian.run_guardian(["provider"], attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
-            stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
-            control_socket=str(tmp_path / "control.sock") if failure == "relay-serve" else None)
-    assert events == (["relay.stop", "linger"] if failure == "relay-serve" else ["linger"])
+    try:
+        with pytest.raises(RuntimeError if failure == "relay-serve" else OSError):
+            guardian.run_guardian(["provider"], attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
+                stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
+                control_socket=str(tmp_path / "control.sock") if failure == "relay-serve" else None)
+    finally:
+        if child.gate_read is not None:
+            os.close(child.gate_read)
+    assert events == (["provider.permitted", "relay.stop", "linger"] if failure == "relay-serve"
+                      else ["provider.permitted", "linger"])
