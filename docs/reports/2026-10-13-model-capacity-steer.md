@@ -329,8 +329,17 @@ their completed work was preserved:
   retaining the CI bounds of 40 examples and at most 30 steps per machine.
 
 The recovered fixture matches the finalizer's completion requirements; no source
-step needed repeating. Validation after restart is pending. The planned CI seeds
-are `207401`, `207402` and `207403`, followed by the three requested file groups.
+step needed repeating. Validation after restart uses the full CI bounds, with
+no example-count or shrinking overrides. Each run includes both state machines
+and all nine explicit regression cases.
+
+| CI seed | Result | Pytest runtime |
+| --- | --- | --- |
+| `207401` | 11 passed | 82.50 s |
+| `207402` | 11 passed | 45.75 s |
+
+Seed `207403` is queued for the shared lock. The three requested file groups
+remain pending. Neither completed seed found a new admission bug.
 
 The shared Git metadata is outside the writable roots, so new commits use
 workspace-local `.git-local` metadata on `fix/model-capacity-steer`, with the
