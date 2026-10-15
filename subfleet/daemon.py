@@ -107,7 +107,7 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
 LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
              "a.started_at,a.reserved_at,j.max_wall_s,"
              "COALESCE((SELECT SUM(MAX(0,unixepoch(p.finished_at,'subsec')-"
-             "unixepoch(p.started_at,'subsec'))) FROM attempts p WHERE p.job_id=a.job_id "
+             "unixepoch(p.started_at,'subsec')+0.001)) FROM attempts p WHERE p.job_id=a.job_id "
              "AND p.attempt_id<>a.attempt_id AND p.state NOT IN "
              "('reserved','starting','running','finalizing')),0.0) AS prior_running_s "
              "FROM attempts a LEFT JOIN jobs j USING(job_id) "
@@ -4072,10 +4072,10 @@ class Daemon:
             return True                     # C-5.10: a pass that raised is repeated on its clock
         if time.monotonic() >= self._inspect_next.get(aid, 0):
             return True                     # C-5.12: an inspection is due
-        # SQLite's tick projection rounds timestamps to milliseconds. Offer a
-        # pass slightly early; the pass computes exact durations before acting.
+        # Each prior duration includes a millisecond of rounding allowance in
+        # the tick projection. Offer early; only the pass's exact sum can act.
         if a["cancel_requested_at"] or (a["prior_running_s"] + max(0.0, age(a["started_at"]))
-                                         >= a["max_wall_s"] - 0.002):
+                                         >= a["max_wall_s"]):
             return True
         child = self._children.get(aid)
         if child is not None and child.poll() is not None:

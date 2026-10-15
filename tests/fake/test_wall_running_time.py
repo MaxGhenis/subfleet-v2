@@ -245,3 +245,15 @@ def test_finalization_rechecks_wall_at_terminal_commit(wall, monkeypatch):
     assert service.store.get_job(jid)['state'] == 'cancelled'
     assert service.store.get_attempt(first['attempt_id'])['killed_by'] == 'max_wall_s'
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 10.0}]
+
+
+@pytest.mark.parametrize('cap,expired', [(0.0112, True), (0.0113, False)])
+def test_tick_rounding_cannot_hide_a_spent_running_budget(wall, monkeypatch, cap, expired):
+    service, _ = wall
+    jid, aid = history(wall, durations=(0.0014,) * 8, waits=(0.9986,) * 7, cap=cap)
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: None)
+    row = next(row for row in service.store.query(LIVE_TICK) if row['attempt_id'] == aid)
+    if expired:
+        assert service._has_work(row)
+    service._process_attempt(aid)
+    assert bool(service.store.get_job(jid)['cancel_requested_at']) == expired
