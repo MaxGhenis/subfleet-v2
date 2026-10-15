@@ -75,6 +75,32 @@ def confirm_dead(daemon, a):
     return daemon.store.get_attempt(a["attempt_id"])["state"]
 
 
+@pytest.mark.parametrize("resource", ["output", "worktree"])
+@pytest.mark.parametrize("holder_kind", ["job", "attempt"])
+def test_lease_refusal_sends_the_holding_job_and_resolve_hint(
+        state_daemon, resource, holder_kind):
+    from subfleet import folders
+    from subfleet.adapters.base import AdapterError
+    from tests.unit.test_protocol_secrecy import wire_reply
+
+    daemon, harness = state_daemon
+    a = quarantine(daemon, harness)
+    holder = a["job_id"] if holder_kind == "job" else a["attempt_id"]
+    candidate = {**daemon.store.get_job(a["job_id"]), "out_path": None}
+    if resource == "output":
+        candidate["out_path"] = str(harness.root / "held.md")
+        key = "out:" + candidate["out_path"]
+    else:
+        candidate.update(sandbox="workspace-write", in_place=True)
+        key = folders.exclusive_key(candidate["workdir"])
+    daemon.store.acquire_lease(key, holder)
+    with pytest.raises(AdapterError) as raised:
+        daemon._validate_conflicts(candidate)
+    response = wire_reply(op="submit", error=raised.value)
+    assert a["job_id"] in response["error"]["message"]
+    assert f"subfleet kill {a['job_id']} --confirm-dead" in response["error"]["fix"]
+
+
 # --- 1. Safety: a live process in the attempt's own process group -------------
 
 def test_a_live_group_member_on_a_recycled_recorded_pid_keeps_the_quarantine(state_daemon, monkeypatch):

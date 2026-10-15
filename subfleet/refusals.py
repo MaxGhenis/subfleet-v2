@@ -93,10 +93,14 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                         "submit again; raise caps.workspace_git_timeout_s if this repository is slow"),
     "inspect-writer": ("could not inspect the worktree of {job_id}", "submit again"),
     "output-path": ("cannot resolve output path", "remove the symlink loop or choose a different -o path"),
-    "out-path-held": ("output path is held by another job", "use a different -o path or resolve quarantine"),
+    "out-path-held": ("output path is held by job {job_id}",
+                      "use a different -o path or wait for its owner; quarantine rechecks automatically, "
+                      "or recheck now with subfleet kill {job_id} --confirm-dead"),
     "out-path-live": ("out_path is held by a live job", "use a different -o path or wait for its owner"),
     "path-lease": ("workdir is held by a live job", "wait for the current writer or choose another worktree"),
-    "worktree-lease": ("worktree has a lease", "resolve its owner before reusing the workspace"),
+    "worktree-lease": ("worktree has a lease held by job {job_id}",
+                       "wait for its owner; quarantine rechecks automatically, "
+                       "or recheck now with subfleet kill {job_id} --confirm-dead"),
     "worktree-writer": ("worktree is held by a live writable job ({job_id})",
                         "wait for the current writer or choose another worktree"),
     "conversation-writer": ("worktree is being written by a conversation turn ({job_id})",
@@ -337,6 +341,12 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
                         HANDLER_MESSAGES["policy-workdir"][1])),
     "writable-branch": (("writable job refused on a protected branch", HANDLER_MESSAGES["writable-branch"][1]),),
     "inspect-writer": (("could not inspect a live writer's worktree", "submit again"),),
+    "out-path-held": (("output path is held by another job",
+                       "use a different -o path or wait for its owner; quarantine rechecks automatically, "
+                       "or recheck now with subfleet kill <job-id> --confirm-dead"),),
+    "worktree-lease": (("worktree has a lease",
+                        "wait for its owner; quarantine rechecks automatically, "
+                        "or recheck now with subfleet kill <job-id> --confirm-dead"),),
     "worktree-writer": (("worktree is held by a live writable job", HANDLER_MESSAGES["worktree-writer"][1]),),
     "conversation-writer": (("worktree is being written by a conversation turn",
                              HANDLER_MESSAGES["conversation-writer"][1]),),

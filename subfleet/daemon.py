@@ -3230,7 +3230,7 @@ class Daemon:
             if holders:
                 guidance = self._quarantine_holder_guidance(holders[0][1])
                 raise AdapterError("output path is held by another job", fix="use a different -o path; " + guidance,
-                                   reason="out-path-held")
+                                   reason="out-path-held", details={"job_id": holders[0][1].partition("/")[0]})
             if output_claim.live_jobs(self.store.query):
                 raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner", reason="out-path-live")
         if job["sandbox"] == "workspace-write":
@@ -3240,7 +3240,7 @@ class Daemon:
                     lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),))
                     if lease:
                         raise AdapterError("worktree has a lease", fix=self._quarantine_holder_guidance(lease["holder"]),
-                                           reason="worktree-lease")
+                                           reason="worktree-lease", details={"job_id": lease["holder"].partition("/")[0]})
                     # C-6.5, C-24.5: a writable conversation turn holds its folder with a
                     # row of its own (one live after its job ended, while its attempt is
                     # quarantined, too); a detached writer never joins it there.
