@@ -35,8 +35,12 @@ from tests.unit.test_salvage_unindexable import (
 #: (Linux allows such names; APFS refuses them, so `add -A` is faked for these).
 NOT_UTF8_STDERR = (b'error: open("caf\xe9.txt"): Permission denied\n'
                    b"error: unable to index file 'caf\xe9.txt'\nfatal: adding files failed\n")
-NOT_UTF8_ERROR = ('salvage failed: git add failed: error: open("caf\\xe9.txt"): Permission denied\n'
-                  "error: unable to index file 'caf\\xe9.txt'\nfatal: adding files failed")
+#: The receipt, the evidence and the notice say how git ended; what it printed (a
+#: repository's own clean filters print there too) is in daemon.log only (C-25.7).
+NOT_UTF8_ERROR = "salvage failed: git add failed (exit 128); daemon.log has its output"
+#: That line in daemon.log: valid UTF-8, scrubbed whole and folded.
+NOT_UTF8_LOGGED = ('salvage failed: SalvageError: git add failed: error: open("caf\\xe9.txt"): Permission denied '
+                   "error: unable to index file 'caf\\xe9.txt' fatal: adding files failed")
 
 
 def lane_leases(daemon):
@@ -48,6 +52,11 @@ def empty_repository(path):
     path.mkdir(parents=True)
     git(path, "init", "-q")
     (path / "inside.txt").write_text("never committed\n")
+
+
+def log_text(daemon):
+    daemon._log_handler.flush()
+    return (daemon.root / "daemon.log").read_text()
 
 
 def job_notices(daemon, job_id):
@@ -224,6 +233,7 @@ def test_c13_1_a_failure_that_quotes_a_name_that_is_not_utf8_is_recorded(state_d
     assert evidence["salvage_error"] == NOT_UTF8_ERROR
     [notice] = job_notices(daemon, job_id)
     assert notice.endswith(f"\n{NOT_UTF8_ERROR}; the worktree is kept: {workdir}")
+    assert NOT_UTF8_LOGGED in log_text(daemon)
 
 
 def test_c13_1_a_quarantine_release_records_a_failure_that_quotes_such_a_name(state_daemon, monkeypatch):
@@ -246,6 +256,7 @@ def test_c13_1_a_quarantine_release_records_a_failure_that_quotes_such_a_name(st
     _, released = job_notices(daemon, job_id)
     assert released.split("\n", 2)[1:] == ["released from quarantine (attempt a1)",
                                             f"{NOT_UTF8_ERROR}; the worktree is kept: {workdir}"]
+    assert NOT_UTF8_LOGGED in log_text(daemon)
 
 
 def test_c13_1_a_job_on_a_branch_whose_name_is_not_utf8_is_admitted_and_salvaged(state_daemon):
@@ -1080,7 +1091,9 @@ def test_c13_1_live_a_file_git_cannot_read_is_recorded_at_once(state_daemon):
     finally:
         locked.chmod(0o600)
     error = json.loads((adir / "salvage.json").read_text())["error"]
-    assert error.startswith("salvage failed: git add failed: error: open(") and "Permission denied" in error
+    assert error == "salvage failed: git add failed (exit 128); daemon.log has its output"
+    assert "salvage failed: SalvageError: git add failed: error: open(" in log_text(daemon)
+    assert "Permission denied" in log_text(daemon)
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 
@@ -1119,7 +1132,8 @@ def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(
         (workdir / ".git").unlink()
         (workdir.parent / "moved-away.git").rename(workdir / ".git")
     error = json.loads((adir / "salvage.json").read_text())["error"]
-    assert error.startswith("salvage failed: git rev-parse failed: fatal: not a git repository")
+    assert error == "salvage failed: git rev-parse failed (exit 128); daemon.log has its output"
+    assert "salvage failed: SalvageError: git rev-parse failed: fatal: not a git repository" in log_text(daemon)
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 

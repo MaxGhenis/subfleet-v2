@@ -69,6 +69,37 @@ def args(core, **changes):
         review_root=str(core.root / "neutral"), round_lease="gate:sample:round:1", **changes)
 
 
+@pytest.mark.parametrize("identity", [
+    "turn:12345678-1234-4234-8234-123456789abc:0",
+    "gate:sample:round:1:12345678123442348234123456789abc",
+])
+def test_internal_request_ids_submit_and_retry_unchanged(core, identity):
+    """C-6.2, C-26.1: turn and gate keys retain their colon-separated format."""
+    submission = args(core, request_id=identity)
+    turn = None
+    if identity.startswith("turn:"):
+        submission = replace(submission, kind="turn", isolated_review=False,
+                             review_root=None, round_lease=None)
+        turn = {"digest": "fixture-turn-digest"}
+    first = core.submit(submission, turn=turn)
+    again = core.submit(submission, turn=turn)
+    assert first["created"] is True and again["created"] is False
+    assert again["job_id"] == first["job_id"]
+    assert first["request_id"] == again["request_id"] == identity
+    assert core.store.get_job(first["job_id"])["request_id"] == identity
+    assert len(core.store.list_jobs()) == 1
+
+
+@pytest.mark.parametrize("identity", ["password=SECRET7-left", "ghp_" + "A" * 36])
+def test_submission_credential_request_ids_are_refused_without_echo(core, identity):
+    """C-6.2: credentials never become stored keys or appear in refusals."""
+    with pytest.raises(protocol.ProtocolError) as refused:
+        core.submit(args(core, request_id=identity))
+    assert str(refused.value) == "request id cannot be a credential"
+    assert identity not in str(refused.value)
+    assert core.store.list_jobs() == []
+
+
 def test_round_lease_is_admitted_with_attempt_and_survives_export(core):
     """C-23.10: admission reserves one round; terminal export retains it for consumption."""
     job_id = core.submit(args(core))["job_id"]

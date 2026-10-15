@@ -32,7 +32,8 @@ def test_nested_repository_and_non_utf8_failure_end_after_bounded_retries(
         state_daemon, monkeypatch, turn, full_disk):
     """A real first add discovers the unborn repo; the excluded retry hits a second
     failure. A binary path in that failure must not restart the finalization loop.
-    APFS forbids binary names, so only the second add's result is supplied."""
+    APFS forbids binary names, so only the second add's result is supplied. The
+    receipt says how git ended; what it printed is in daemon.log only (C-25.7)."""
     daemon, harness = state_daemon
     workdir, job_id, attempt, adir = ending(daemon, harness, turn)
     empty_repository(workdir / "scratch/empty")
@@ -62,8 +63,12 @@ def test_nested_repository_and_non_utf8_failure_end_after_bounded_retries(
     assert lane_leases(daemon) == []
     receipt_path = adir / ("trees.json" if turn else "salvage.json")
     receipt_bytes = receipt_path.read_bytes()
-    assert "caf\\xe9.txt" in json.loads(receipt_bytes)["error"]
+    stage = "end snapshot" if turn else "salvage"
+    assert json.loads(receipt_bytes)["error"] == f"{stage} failed: git add failed (exit 128); daemon.log has its output"
     receipt_bytes.decode("utf-8", "strict")
+    daemon._log_handler.flush()
+    assert f'{stage} failed: SalvageError: git add failed: error: open("caf\\xe9.txt"): ' in (
+        daemon.root / "daemon.log").read_text()
     assert (workdir / ".git/index").read_bytes() == real_index
     assert git(workdir, "for-each-ref", "refs/subfleet-salvage") == ""
     assert (workdir / "scratch/empty/inside.txt").read_text() == "never committed\n"
@@ -83,7 +88,10 @@ def test_removed_workspace_during_finalization_records_failure_and_replays(state
         assert lane_leases(daemon) == []
         receipt_path = adir / ("trees.json" if turn else "salvage.json")
         original = receipt_path.read_bytes()
-        assert "No such file or directory" in json.loads(original)["error"]
+        stage = "end snapshot" if turn else "salvage"
+        assert json.loads(original)["error"] == f"{stage} failed: git rev-parse failed (exit 128); daemon.log has its output"
+        daemon._log_handler.flush()
+        assert "No such file or directory" in (daemon.root / "daemon.log").read_text()       # git's own words
         daemon._finalize(attempt)
         assert receipt_path.read_bytes() == original
         assert (moved / "tracked.txt").read_text() == "provider progress\n"
