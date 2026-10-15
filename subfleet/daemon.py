@@ -607,6 +607,10 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 
 
 class Daemon:
+    # Optional hooks also exist on test cores assembled without __init__.
+    crash_hook: Callable[[str, str, str | None], None] | None = None
+    publish_hook: Callable[[str, Path], None] | None = None
+
     #: C-6.17: the last latch written to the store (`_save_disk_latch`).
     _disk_saved_hold = False
     _disk_saved_source = "policy"
