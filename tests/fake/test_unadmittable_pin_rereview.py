@@ -17,6 +17,7 @@ import json
 
 from subfleet import hooks
 from subfleet.daemon import utcnow
+from subfleet.procs import Containment
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 from tests.fake.test_state_contract import receipt_fixture
 from tests.fake.test_unadmittable_pin_admission import (events, expire, fleet, service_notices,  # noqa: F401
@@ -63,7 +64,7 @@ def test_rr_a_ping_that_reuses_a_withdrawn_pin_notice_id_names_no_job(fleet):
 
 # --- P3: a pending pin notice rides with a job's end that is not the pin's failure -------------------
 
-def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet):
+def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet, monkeypatch):
     """C-11.8 withdraws a still-pending pin notice only when the pin fails the job
     ("since the terminal notice supersedes it"). A job whose lane came back and that
     then succeeded keeps its unseen "can never admit it ... Fix: resubmit ..., then
@@ -81,6 +82,9 @@ def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet):
     service._pending_launches.discard(attempt["attempt_id"])
     adir = service.root / "jobs" / stuck / "a1"
     adir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # receipt_fixture has no provider process. Supply that empty census so
+    # notice withdrawal does not depend on permission to inspect host processes.
+    monkeypatch.setattr(service, "_contain", lambda attempt: Containment())
     service._finalize(receipt_fixture(service, attempt, adir))
     job = service.store.get_job(stuck)
     assert job["state"] == "succeeded", job["state"]

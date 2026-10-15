@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ..contracts import Exit
-from ..ids import request_id as validate_request_id
+from ..ids import request_id_arg as validate_request_id
 from . import handoff as handoff_module
 from . import mirror as mirror_module
 from . import nudge as nudge_module
