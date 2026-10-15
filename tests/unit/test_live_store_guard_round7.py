@@ -74,23 +74,27 @@ def test_session_home_and_path_survive_fixture_undo_and_restore(tmp_path, monkey
 
 @pytest.mark.parametrize("event", ["subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn"])
 @pytest.mark.parametrize("search", ["standin", "missing"])
-def test_bare_security_is_refused_independently_of_path(standin, event, search):
+@pytest.mark.parametrize("name", ["security", "Security", "SECURITY", "ſecurity"])
+def test_bare_security_is_refused_independently_of_path(standin, event, search, name):
     env = {"PATH": str(standin.path.parent) if search == "standin" else "/nonexistent-sf-r7"}
     details = {
-        "subprocess.Popen": ("security", ["security"], None, env),
-        "os.posix_spawn": ("security", ["security"], env),
-        "os.exec": ("security", ["security"], env),
-        "os.spawn": (os.P_WAIT, "security", ["security"], env),
+        "subprocess.Popen": (name, [name], None, env),
+        "os.posix_spawn": (name, [name], env),
+        "os.exec": (name, [name], env),
+        "os.spawn": (os.P_WAIT, name, [name], env),
     }
     with pytest.raises(credentials.KeychainExecRefused, match="refusing personal keychain"):
         sys.audit(event, *details[event])
     assert standin.count() == 0
 
 
-def test_a_later_audit_hook_cannot_change_path_after_bare_name_approval(standin, tmp_path, monkeypatch):
+@pytest.mark.parametrize("name", ["security", "Security", "SECURITY", "ſecurity"])
+def test_a_later_audit_hook_cannot_change_path_after_bare_name_approval(standin, tmp_path, monkeypatch, name):
     guarded = StandIn(tmp_path / "guarded")
     treat_as_keychain_binary(monkeypatch, guarded)
-    env = {**os.environ, "PATH": str(standin.path.parent)}
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    env = {**os.environ, "PATH": str(empty)}
     active = [True]
 
     def change_path(event, details):
@@ -100,7 +104,7 @@ def test_a_later_audit_hook_cannot_change_path_after_bare_name_approval(standin,
     sys.addaudithook(change_path)
     try:
         with pytest.raises(credentials.KeychainExecRefused, match="refusing personal keychain"):
-            subprocess.run(["security", "fixture-ref"], env=env, capture_output=True, check=True)
+            subprocess.run([name, "fixture-ref"], env=env, capture_output=True, check=True)
     finally:
         active[0] = False
     assert guarded.count() == standin.count() == 0
