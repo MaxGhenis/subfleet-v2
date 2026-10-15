@@ -141,3 +141,91 @@ pointer and shared metadata preserved. Inspect with
 Only named source/test/contract/report files were staged, and each commit has
 the requested co-author trailer. No push, Git remote operation, sub-agent or
 live-store access.
+
+
+## Round 3: PR #220 review r2, 2026-10-15
+
+Base: `fc38f9e7dcbb`. Read
+`~/reviews/subfleet-2110/census-responsibility-p3/review-r2.md`.
+
+Tests-first commit `1ad81abd5` adds containment and durable-walk-seed
+regressions for replacement between the early recheck and the member reads,
+and after the member reads but before the final check. Each timing covers a
+changed start, `None`, and `InspectionError`: 12 regression cases. Three new
+bounded ci property cases cover replacement before the early recheck,
+between the recheck and member reads, and after member reads. Each generated
+input also checks a still-holding root: all its real children are counted and
+saved, while replacement cases save no responsibility identity or event.
+There are 40 examples per timing, with no database or deadline. Existing
+known-id and snapshot-timing properties remain.
+
+Fix `a2ca55905` keeps the early read and re-reads `proc_start(root)` immediately
+after `_kernel_sources` returns. A different, absent or unreadable late start
+discards that pass's responsibility members and appends
+`responsibility root identity unavailable for pid <pid>`. The census is then
+unverifiable, and `_contain` has no new responsibility members to persist.
+Independent marker results and member-read failures remain available. The
+exact default fixture has S=42/100 and C=60/101. Test correction `9d1ebadc2`
+accounts for the separate start read of child 60, which was absent from the
+snapshot, after the two root checks.
+
+C-5.1/C-5.5/C-5.12 and the version-3 changelog describe both checks and all
+three replacement timings. **The read count changes:** a no-unique-id root
+that passes the early check costs two root-start `ps` reads, in addition to
+the process-table snapshot and any reads for pids absent from it. An early
+rejection costs only the first root read and skips responsibility member
+reads. Known-id roots require no extra root-start reads. Same-second reuse
+retains C-5.3's existing limitation.
+
+**Runtime validation is blocked, not passed or skipped.** The foreground
+baseline attempt used the requested shared `lockf -k` hold, default uv cache,
+`-p no:cacheprovider`, and scratch TMPDIR/Hypothesis storage. It waited for the
+lock without a timeout. Once admitted, `uv run` failed before starting pytest:
+
+```
+error: Failed to initialize cache at `/Users/maxghenis/.cache/uv`
+  Caused by: failed to open file `/Users/maxghenis/.cache/uv/sdists-v9/.git`:
+  Operation not permitted (os error 1)
+```
+
+A `uv run --no-sync --offline` Python probe failed at the same cache access.
+No cache override, new cache, cache cleanup or alternate runner was used.
+A question about a read-only-cache/local-environment fallback is pending;
+the requested default-cache runner cannot work inside this sandbox.
+Consequently the unchanged-base regressions, all three requested suite groups,
+and the drop-second-read mutation have **not run**. The new regression's
+failure at base and under mutation must still be demonstrated by the hub.
+
+A standalone probe of this task's own Python pid returned
+`Own-process inspection unavailable: ps inspection unavailable`. Real process
+tests also require the hub. No unrelated process was inspected or modified.
+
+| File under `tests/` | Executed | Status |
+|---|---:|---|
+| unit/test_procs.py | 0 | Not run: uv cache denied |
+| unit/test_census_identity_uncertainty.py | 0 | Not run: uv cache denied |
+| unit/test_census_procargs.py | 0 | Not run: uv cache denied |
+| unit/test_census_recycled_pid.py | 0 | Not run: uv cache denied |
+| unit/test_census_responsibility_failures.py | 0 | Not run: uv cache denied |
+| unit/test_census_responsibility_identity.py | 0 | Runner failed before pytest |
+| unit/test_census_survivors_review.py | 0 | Not run: uv cache denied |
+| fake/test_census_recycled_pid_daemon.py | 0 | Not run: uv cache denied |
+| fake/test_census_escapers_daemon.py | 0 | Not run: uv cache/inspection denied |
+| fake/test_state_contract.py | 0 | Not run: uv cache denied |
+| unit/test_test_module_names.py | 0 | Not run: uv cache denied |
+| process/test_census_responsibility_process.py | 0 | Not run: inspection denied |
+| process/test_census_raw_markers_process.py | 0 | Not run: inspection denied |
+| process/test_guardian_process.py | 0 | Not run: inspection denied |
+
+Python AST syntax checks and Git whitespace checks pass. CPython 3.14.7.
+The failed runner's scratch directory was removed with the requested Python
+cleanup; no `.hypothesis` directory or task-owned process remains.
+
+The shared Git index rejected writes with EPERM. All round-3 commits are on
+`fix/census-responsibility-p3` in workspace-local `.git-local`; the original
+worktree pointer and shared metadata remain intact. Inspect with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`. Delivery bundle:
+`.git-local/census-responsibility-p3-r3.bundle` (requires `fc38f9e7dcbb`).
+Only named test/source/contract/report files were staged. Every commit has
+the requested co-author trailer. No push, remote operation, sub-agent,
+live-store access, cache relocation or history rewrite.
