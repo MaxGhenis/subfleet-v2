@@ -35,23 +35,24 @@ Every pytest invocation uses its own foreground lockf hold, no lock timeout, the
 
 Tests-first commit `a643b05d1` produced 45 expected failures against the round-1 head. Implementation commit `497b13787` includes the policy, evidence, launch guard and contract. The first implementation check found the old notice invariant parser, a repeated in-process pytest module basename and an existing stale migration-version expectation; these fixtures were corrected without changing deliverable semantics.
 
-The focused corrected run passed 107 tests in 123.82 seconds: review launch permissions 11, publish guard 33, retained needs-shell 23, migration 15 and policy sandbox 25. After hardening, the unit run completed in 190.93 seconds with 923 passes and three failures. All launch, CLI and adapter tests passed. The stale policy-ramp hash was corrected in `3680dcbdf`; the two retention fixture failures are being checked against the baseline before attributing them to this change.
+The focused corrected run passed 107 tests in 123.82 seconds: review launch permissions 11, publish guard 33, retained needs-shell 23, migration 15 and policy sandbox 25. After hardening, the unit run completed in 190.93 seconds with 923 passes and three failures. All launch, CLI and adapter tests passed. The resumed unit check completed in 11.63 seconds with 156 passes and the same two retention failures. It confirms all 46 policy-ramp cases after the hash correction in `3680dcbdf`, 97 scheduler cases and the module-name check. The two retention fixture failures still await baseline comparison.
 
-| Unit file (`tests/unit/`) | Passed | Failed in first full run |
-| --- | ---: | ---: |
-| test_policy.py | 186 | 0 |
-| test_policy_disk.py | 57 | 0 |
-| test_policy_ramp.py | 45 | 1 (hash corrected; rerun pending) |
-| test_policy_support.py | 12 | 2 (baseline check pending) |
-| test_policy_tier_preferences.py | 15 | 0 |
-| test_cli.py | 207 | 0 |
-| test_codex_adapter.py | 93 | 0 |
-| test_claude_adapter.py | 172 | 0 |
-| test_review_publish_guard.py | 66 | 0 |
-| test_store_migration_2.py | 15 | 0 |
-| test_offline.py | 33 | 0 |
-| test_notice_rendering.py | 21 | 0 |
-| test_test_module_names.py | 1 | 0 |
+| Unit file (`tests/unit/`) | Passed | Failed | Verification |
+| --- | ---: | ---: | --- |
+| test_policy.py | 186 | 0 | recovered |
+| test_policy_disk.py | 57 | 0 | recovered |
+| test_policy_ramp.py | 46 | 0 | resumed |
+| test_policy_support.py | 12 | 2 | resumed; baseline check pending |
+| test_policy_tier_preferences.py | 15 | 0 | recovered |
+| test_cli.py | 207 | 0 | recovered |
+| test_codex_adapter.py | 93 | 0 | recovered |
+| test_claude_adapter.py | 172 | 0 | recovered |
+| test_review_publish_guard.py | 66 | 0 | recovered |
+| test_store_migration_2.py | 15 | 0 | recovered |
+| test_offline.py | 33 | 0 | recovered |
+| test_notice_rendering.py | 21 | 0 | recovered |
+| test_test_module_names.py | 1 | 0 | resumed |
+| test_scheduler.py | 97 | 0 | resumed |
 
 The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped and one expected failure, with the gate publication-refusal ordering regression failing. Commit `16aebc2b8` moves that refusal ahead of generic dispatch validation. The focused permission rerun passed all 15 cases in 7.85 seconds, including both providers' writable worktrees and the gate refusal. Together these runs establish 183 distinct passing fake tests, three skips and one expected failure:
 
@@ -66,7 +67,7 @@ The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped
 | test_admission_priority.py | 32 | — |
 | test_state_contract.py | 37 | — |
 
-The remaining unit, stateful, baseline and mutation checks are pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks, scheduler coverage and module names are rerun.
+The stateful, baseline and mutation checks are pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks, scheduler coverage and module names were rerun.
 
 ## Delivery and remaining work
 
