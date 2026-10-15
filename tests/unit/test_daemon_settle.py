@@ -64,6 +64,7 @@ def daemon(tmp_path, monkeypatch):
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)
+    core.crash_hook = core.publish_hook = None    # what __init__ sets; C-4.3's stream freeze reads publish_hook
     home = root / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                              str(home), LaneOwner.V2, False))
