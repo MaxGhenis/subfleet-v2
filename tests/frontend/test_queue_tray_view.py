@@ -341,7 +341,7 @@ def test_c29_7_the_tray_never_orders_a_window_front(trays, views):
     assert views["visible_windows"] == 0
 
 
-def test_c29_17_a_send_notice_and_its_action_are_hosted_on_the_owning_tray_row(trays):
+def test_queue_notice_seam_hosts_an_action_on_the_owning_tray_row(trays):
     for shown in trays["notice"]["passes"]:
         assert sorted(fired(shown["clicks"])) == ["retry:q1", "withdraw:q1", "withdraw:q2"]
         by_action = {click[0]: top for top, click in zip(shown["tops"], shown["clicks"]) if click}
