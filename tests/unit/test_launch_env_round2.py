@@ -1,0 +1,67 @@
+"""Round 2: configuration inheritance never overrides launch isolation."""
+
+import json
+import os
+from types import SimpleNamespace
+
+import pytest
+
+from subfleet import cli, doctor
+from subfleet.launch_env import build_environment
+from subfleet.provider_env import ProviderEnvironment
+from tests.unit.test_launch_env_allowlist import launch_for
+
+
+def test_daemon_start_preserves_harness_configuration_not_credentials(tmp_path, monkeypatch):
+    parent = {"PATH": "/usr/bin:/bin", "SUBFLEET_FAKE_SCENARIO": "dummy",
+              "SUBFLEET_LIVE": "0", "SUBFLEET_TEST_TOKEN": "dummy"}
+    monkeypatch.setattr(os, "environ", parent)
+    states = iter([False, True])
+    monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(states))
+    monkeypatch.setattr(cli, "_daemond_argv", lambda root: ["fake-daemon"])
+    monkeypatch.setattr(cli.Client, "lock_info", lambda self: {})
+    seen = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs:
+                        seen.append(kwargs["env"]) or SimpleNamespace(pid=123))
+    assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 0
+    child = ProviderEnvironment({}).build("claude", environ=seen[0])
+    assert child["SUBFLEET_FAKE_SCENARIO"] == "dummy"
+    assert child["SUBFLEET_LIVE"] == "0"
+    assert "SUBFLEET_TEST_TOKEN" not in child
+
+
+@pytest.mark.parametrize("word", ["TOKEN", "KEY", "SECRET", "PASSWORD"])
+@pytest.mark.parametrize("suffix", ["", "_FILE"])
+def test_configuration_prefix_refuses_credential_words(word, suffix):
+    name = "SUBFLEET_TEST_" + word + suffix
+    parent = {name: "dummy", "SUBFLEET_FAKE_SCENARIO": "dummy"}
+    assert set(build_environment(environ=parent)) == {"SUBFLEET_FAKE_SCENARIO"}
+    assert name in build_environment(environ=parent, pass_names=[name])
+
+
+@pytest.mark.parametrize("mode", ["detached", "resume", "turn", "isolated"])
+def test_memory_removal_beats_exact_policy(mode, tmp_path, monkeypatch):
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin",
+                                       "CLAUDE_MEMORY_STORES": "/dummy/private-memory"})
+    lane, launch = launch_for("claude", mode, tmp_path, monkeypatch)
+    from subfleet.daemon import Daemon
+    daemon = Daemon.__new__(Daemon)
+    daemon._provider_environment = ProviderEnvironment({"env": {"pass": ["CLAUDE_MEMORY_STORES"]}})
+    assert "CLAUDE_MEMORY_STORES" in launch.env_remove
+    assert "CLAUDE_MEMORY_STORES" not in daemon._launch_environment(lane, launch)
+
+
+def test_mandatory_removal_also_beats_selected_additions():
+    environment = ProviderEnvironment({"env": {"pass": ["CLAUDE_MEMORY_STORES"]}})
+    assert environment.build("claude", {"CLAUDE_MEMORY_STORES": "dummy"},
+                             ("CLAUDE_MEMORY_STORES",), environ={}) == {}
+
+
+def test_doctor_invalid_timeout_names_variable_without_value(tmp_path, monkeypatch):
+    marker = "DUMMY_INVALID_TIMEOUT_222"
+    monkeypatch.setenv("CODEX_GUARD_PREFLIGHT_TIMEOUT", marker)
+    item = doctor.check_guard_preflight(tmp_path)
+    assert item["status"] == doctor.FAIL
+    rendered = doctor.render([item])
+    assert "CODEX_GUARD_PREFLIGHT_TIMEOUT" in rendered
+    assert marker not in rendered

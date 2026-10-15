@@ -107,6 +107,19 @@ def test_all_pass_runs_once(project):
     assert WARNING not in result.stdout
 
 
+@pytest.mark.parametrize("fail", [False, True])
+def test_outcomes_path_survives_replaced_environ(project, fail):
+    result, runs = project(f'''
+        def test_environment(monkeypatch):
+            import os
+            monkeypatch.setattr(os, "environ", {{}})
+            assert {not fail!r}
+    ''')
+    assert result.returncode == (1 if fail else 0), result.stdout + result.stderr
+    assert runs == [["test_sample.py::test_environment"]]
+    assert "INTERNALERROR" not in result.stdout + result.stderr
+
+
 def test_cli_runs_the_real_subprocesses(project):
     node = "test_sample.py::test_flake"
     result, runs = project("def test_flake(): assert not first()", [node], cli=True)
