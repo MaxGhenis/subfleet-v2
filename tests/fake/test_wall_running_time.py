@@ -211,3 +211,37 @@ def test_reserved_time_and_unstarted_attempts_do_not_spend_the_wall(wall, monkey
     monkeypatch.setattr(service, '_kill_attempt', lambda a: pytest.fail('unstarted attempt spent the wall'))
     service._process_attempt(aid)
     assert service.store.get_job(jid)['cancel_requested_at'] is None
+
+
+def test_legacy_starting_attempt_without_a_start_does_not_charge_reservation(wall, monkeypatch):
+    service, _ = wall
+    jid, aid = history(wall, durations=(3,), waits=(), state='starting', cap=1)
+    service.store.update_attempt(aid, started_at=None, reserved_at=stamp(-10000))
+    service._starting_deadlines[aid] = float('inf')
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: pytest.fail('reservation spent the wall'))
+    service._process_attempt(aid)
+    assert cancel_events(service, jid) == []
+
+
+def test_finalization_rechecks_wall_at_terminal_commit(wall, monkeypatch):
+    service, harness = wall
+    from tests.fake.test_state_contract import reserve, receipt_fixture
+    jid, first, adir = reserve(service, harness)
+    service.store.update_job(jid, max_wall_s=10)
+    service.store.update_attempt(first['attempt_id'], started_at=stamp(-4))
+    receipt_fixture(service, first, adir)
+    salvage = service._salvage
+
+    def slow_finalization(*args, **kwargs):
+        class Later(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return NOW + timedelta(seconds=6)
+        monkeypatch.setattr(daemon_module, 'datetime', Later)
+        return salvage(*args, **kwargs)
+
+    monkeypatch.setattr(service, '_salvage', slow_finalization)
+    service._process_attempt(first['attempt_id'])
+    assert service.store.get_job(jid)['state'] == 'cancelled'
+    assert service.store.get_attempt(first['attempt_id'])['killed_by'] == 'max_wall_s'
+    assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 10.0}]

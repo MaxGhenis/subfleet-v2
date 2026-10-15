@@ -35,7 +35,10 @@ LONG_AGO = "2026-09-01T00:00:00Z"
 
 
 @pytest.fixture
-def core(tmp_path):
+def core(tmp_path, monkeypatch):
+    # These tests compare scheduling decisions, not host process identity.
+    monkeypatch.setattr(procs, "boot_id", lambda: "boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "start")
     daemon = Daemon(tmp_path / "state")
     procs.forget_boot_id()
     home = tmp_path / "home"
