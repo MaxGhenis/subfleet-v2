@@ -77,10 +77,13 @@ def test_os_system_with_reset_path_is_refused(monkeypatch):
 
 
 @pytest.mark.parametrize("event", ["subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn"])
-@pytest.mark.parametrize("reset", ["-i", "--ignore-environment", "PATH=/usr/bin:/bin", "-u PATH"])
+@pytest.mark.parametrize("reset", [
+    ["-i"], ["--ignore-environment"], ["PATH=/usr/bin:/bin"], ["-u", "PATH"],
+    ["-S", "PATH=/usr/bin security"], ["--split-string", "PATH=/usr/bin security"],
+])
 def test_env_arguments_cannot_discard_recorder_path(event, reset):
     """env's own arguments can reset PATH even with a safe launch environment."""
-    argv = ["/usr/bin/env", *reset.split(), "fixture-ref"]
+    argv = ["/usr/bin/env", *reset, "fixture-ref"]
     env = dict(os.environ)
     details = (argv[0], argv, None, env) if event == "subprocess.Popen" else (argv[0], argv, env)
     if event == "os.spawn":
