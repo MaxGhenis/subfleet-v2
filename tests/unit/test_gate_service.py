@@ -17,7 +17,8 @@ from tests.unit.test_gate_admission import core, lane
 from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
 
 
-def test_gate_and_merge_helpers_receive_exact_policy(core, tmp_path, monkeypatch):
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_gate_and_merge_helpers_receive_exact_policy(core, tmp_path, monkeypatch, dry_run):
     import os
     monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
     core.policy["env"] = {"pass": ["GH_TOKEN"]}
@@ -33,11 +34,17 @@ def test_gate_and_merge_helpers_receive_exact_policy(core, tmp_path, monkeypatch
         "gate", "pr", "42", "--peer", "astra", "--main-approve", "--expect-head", HEAD,
         "--expect-base", BASE, "--on-agreement", "merge", "--merge-method", "squash", "-C", str(workdir),
     ])
-    started = dispatch(core, "gate.start", wire(args))
-    finish(core, started)
-    completed = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
-    assert completed["code"] == 0
-    assert fake.merges and seen
+    if dry_run:
+        from subfleet.gate.service import preview
+        preview(args, core.root, runner=runner, policy=core.policy)
+        assert not fake.merges
+    else:
+        started = dispatch(core, "gate.start", wire(args))
+        finish(core, started)
+        completed = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+        assert completed["code"] == 0
+        assert fake.merges
+    assert seen
     assert all(env.get("GH_TOKEN") == "dummy" and "OTHER_TOKEN" not in env for env in seen)
 
 

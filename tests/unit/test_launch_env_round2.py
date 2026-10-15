@@ -96,3 +96,16 @@ def test_policy_reaches_helpers_with_mandatory_git_removals(path, tmp_path, monk
         if path != "gate":
             assert "GIT_DIR" not in env and "GIT_TRACE" not in env
     assert "GH_TOKEN" not in build_environment()
+
+
+def test_helper_policy_is_nested_and_provider_policy_stays_explicit(monkeypatch):
+    from subfleet.launch_env import helper_policy
+    monkeypatch.setattr(os, "environ", {"FIRST_TOKEN": "dummy", "SECOND_TOKEN": "dummy"})
+    with helper_policy({"env": {"pass": ["FIRST_TOKEN"]}}):
+        assert set(build_environment()) == {"FIRST_TOKEN"}
+        assert set(ProviderEnvironment({"env": {"pass": ["SECOND_TOKEN"]}}).build("claude")) == {"SECOND_TOKEN"}
+        with pytest.raises(RuntimeError), helper_policy({"env": {"pass": ["SECOND_TOKEN"]}}):
+            assert set(build_environment()) == {"SECOND_TOKEN"}
+            raise RuntimeError("dummy")
+        assert set(build_environment()) == {"FIRST_TOKEN"}
+    assert build_environment() == {}
