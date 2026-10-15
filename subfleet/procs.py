@@ -708,7 +708,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     The marker source reads each process's raw argument buffer in this process
     (`Darwin`), and so does the fourth source, every process whose responsible
     process is `responsible_root` (D-CEN1), for an attempt that recorded one;
-    so a census is one `ps` read however many processes it finds (C-5.12).
+    using the snapshot for member identities. A root without a recorded unique
+    id also needs a fresh start-time read before supplying members (C-5.12).
     Commands and environments are never retained.
     """
     groups: set[int] = set()
@@ -852,12 +853,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             and is_recycled(source_root.pid)):
         source_root = None
     if source_root is not None and source_root.unique_id is None:
-        # Without a kernel sequence, a holder born after ps has no upper bound:
-        # it could name itself and its children under the recorded root's pid.
-        # Use this source only while the snapshot identifies the recorded root.
+        # Without a kernel sequence, the snapshot alone cannot bound a new
+        # holder's members. Recheck the pid's current start after the snapshot
+        # before allowing this root to supply responsibility members.
         known = recorded_identities.get(source_root.pid)
-        if (not live(source_root.pid) or known is None or not known.proc_start
-                or table[source_root.pid][3] != known.proc_start):
+        try:
+            root_matches = (live(source_root.pid) and known is not None and bool(known.proc_start)
+                            and table[source_root.pid][3] == known.proc_start
+                            and proc_start(source_root.pid) == known.proc_start)
+        except InspectionError:
+            root_matches = False
+        if not root_matches:
             errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
             source_root = None
     if wanted is not None or source_root is not None:
