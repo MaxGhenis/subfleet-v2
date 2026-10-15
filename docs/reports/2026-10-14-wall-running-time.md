@@ -128,10 +128,13 @@ than a collection or fixture error.
 | Mutation | Named regression | Result |
 | --- | --- | --- |
 | Measure from job `started_at` again | `tests/fake/test_wall_running_time.py::test_long_gap_does_not_expire_a_short_running_retry` | Detected: “wall counted the wait” |
-| Kill waiting jobs from admission again | `tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry` | Pending |
-| Drop the wall cancel reason | `tests/fake/test_wall_running_time.py::test_wall_stops_at_sum_of_attempt_running_times[running]` | Pending |
+| Kill waiting jobs from admission again | `tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry` | Detected: cancelled instead of waiting |
+| Drop the wall cancel reason | `tests/fake/test_wall_running_time.py::test_wall_stops_at_sum_of_attempt_running_times[running]` | Detected: missing required reason |
 
-**Final mutation completion and cleanup checks remain pending in this draft.**
+All three probes produced their intended named assertion failures, with no
+collection or fixture error. These three expected mutation failures are separate
+from the passing-file counts above. Every task-owned pytest wrapper has exited,
+mutation scratch is removed, and the checkout has no `.hypothesis` directory.
 
 ## Commit storage and delivery
 
@@ -145,8 +148,8 @@ and nothing was pushed.
 An ignored, unstaged delivery bundle is at
 `docs/reports/2026-10-14-wall-running-time.bundle`. Its prerequisite is
 `e011d11e6`; it advertises `refs/heads/fix/wall-counts-running-time-217`.
-The checkpoint bundle has been verified and will be refreshed after the final
-report commit. Local implementation and checkpoint commits before that final
+The delivery bundle is refreshed after the final report commit and verified
+against the local branch tip. Local implementation and checkpoint commits before that final
 report are:
 
 | Commit | Step |
@@ -166,3 +169,4 @@ report are:
 | `d766a5975` | docs: checkpoint running-time wall implementation and validation progress |
 | `a23099d1a` | fix: preserve killed verdicts and notify only identified other sessions |
 | `75c4a2c97` | docs: checkpoint completed suites and targeted validation corrections |
+| `a53bd1a05` | docs: record completed regression suites and remaining mutation probes |
