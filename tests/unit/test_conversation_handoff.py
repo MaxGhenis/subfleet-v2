@@ -36,8 +36,15 @@ ASK = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", 
 CODEX = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "read-only", "auto_continue": True}
 
 
-class Daemon(RealDaemon):
+class Daemon:
     """Real main-store cancellation, with no pools or control loop."""
+
+    _job = RealDaemon._job
+    _running_s = RealDaemon._running_s
+    _request_cancel = RealDaemon._request_cancel
+    _cancel_requester = staticmethod(RealDaemon._cancel_requester)
+    _notice = RealDaemon._notice
+    _earlier_attempt = RealDaemon._earlier_attempt
 
     def __init__(self, root: Path):
         self.root = root

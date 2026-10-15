@@ -56,7 +56,14 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
                             "approval_wait_s": 3600}}
 
 
-class FakeDaemon(Daemon):
+class FakeDaemon:
+    _job = Daemon._job
+    _running_s = Daemon._running_s
+    _request_cancel = Daemon._request_cancel
+    _cancel_requester = staticmethod(Daemon._cancel_requester)
+    _notice = Daemon._notice
+    _earlier_attempt = Daemon._earlier_attempt
+
     def __init__(self, root: Path):
         self.root = root
         self.log = logging.getLogger("test-conversations")
