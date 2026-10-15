@@ -61,7 +61,7 @@ def daemon_spawn_environment(routing_state, monkeypatch, mode, *, pythonpath=Non
     assert not (set(env) & set(POLLUTION))
     # Guardian authorization carries names only and covers launch-owned variables.
     passed = {argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass"}
-    bootstrap = {"PYTHONPATH", "SUBFLEET_EXIT_SETTLE_S", "_SUBFLEET_PROVIDER_PYTHONPATH"}
+    bootstrap = {"PYTHONPATH", "SUBFLEET_EXIT_SETTLE_S"}
     assert set(env) - ALLOWED - bootstrap <= passed
     return argv, env
 
@@ -94,6 +94,8 @@ def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeyp
         argv, environment = daemon_spawn_environment(
             routing_state, patch, mode, pythonpath=pythonpath)
     passed = tuple(argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass")
+    # Even exact policy authority cannot export the guardian's private setting.
+    passed += ("SUBFLEET_EXIT_SETTLE_S",)
     seen = []
     monkeypatch.setattr(guardian.os, "environ", environment)
     monkeypatch.setattr(guardian.os, "setsid", lambda: None)
