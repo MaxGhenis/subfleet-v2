@@ -292,3 +292,12 @@ def test_launch_failure_starts_execution_at_finalization_not_reservation(wall, m
     monkeypatch.setattr(service, '_finalize', lambda a: None)
     service._process_attempt(aid)
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
+
+
+def test_sessionless_cancel_records_null_identity_without_claiming_another_session(wall):
+    service, _ = wall
+    jid, _ = history(wall, cap=100)
+    service.dispatch('kill', {'job_id': jid})
+    assert cancel_events(service, jid) == [{'by': 'client', 'session_id': None, 'pid': None,
+                                          'reason': 'client-request'}]
+    assert service.dispatch('notice.pending', {'session_id': 'caller'})['notices'] == []

@@ -3839,7 +3839,7 @@ class Daemon:
 
     @staticmethod
     def _cancel_requester(job: dict, data: dict) -> str:
-        if data.get("by") != "client" or not job.get("caller_session") \
+        if data.get("by") != "client" or data.get("session_id") is None or not job.get("caller_session") \
                 or job["caller_session"] == data.get("session_id"):
             return ""
         return (f"cancel requested by session {data.get('session_id') or '(unknown)'} "
@@ -8353,6 +8353,9 @@ class Daemon:
             if outcome.cls == OutcomeClass.OK and (completion["turn_failed"] or spawn_error):
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN,
                                               detail=spawn_error or "Codex turn failed without a verified deliverable")
+        # Keep the verdict the killed-attempt rule used before completion-proof
+        # classification. Its downgrade now runs after the atomic wall check.
+        stopped_ok = outcome.cls == OutcomeClass.OK
         if outcome.cls == OutcomeClass.OK and lane.provider == "codex" and job["kind"] != "turn":
             # C-9.2, D-SHUT1: a cached verdict can predate the adapter's rule.
             # Acceptance always needs proof from this attempt's frozen stream,
@@ -8394,7 +8397,7 @@ class Daemon:
             if self._enforce_wall(actual, job):
                 job = self._job(a["job_id"])
                 actual = self.store.get_attempt(a["attempt_id"])
-            if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
+            if stopped_ok and actual.get("killed_by") and job["kind"] != "turn":
                 # C-9.2: an attempt the daemon signalled (an operator's kill, the
                 # wall limit, recovery) did not finish, whatever its rc and its
                 # deliverable say. Codex exits 0 on SIGTERM and leaves its last

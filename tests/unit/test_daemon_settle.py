@@ -385,7 +385,7 @@ def add_running(core, job_id: str, guardian: int) -> str:
     core.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="codex-1",
                            model_requested="astra", state="running", guardian_pid=guardian,
                            child_pid=guardian + 1, pgid=guardian, boot_id="boot", proc_start=STARTED,
-                           started_at="2026-09-05T14:00:00Z", evidence_json="{}")
+                           started_at=daemon_module.utcnow(), evidence_json="{}")
     attempt_dir(core.root, job_id, 1).mkdir(parents=True)
     return job_id + "/a1"
 
