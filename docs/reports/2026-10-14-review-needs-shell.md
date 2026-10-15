@@ -66,8 +66,10 @@ The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped
 | test_admission_properties.py | 27 | 1 expected failure |
 | test_admission_priority.py | 32 | — |
 | test_state_contract.py | 37 | — |
+| test_admission_stateful.py | 2 | ci profile, both machines |
+| test_notice_header.py | 13 | 10 stale expectations corrected; rerun pending |
 
-The stateful, baseline and mutation checks are pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks, scheduler coverage and module names were rerun.
+The stateful/notice hold completed in 315.05 seconds: both state machines passed under the ci profile, while ten notice assertions still expected a header without capability evidence. Their fixture now explicitly expects the complete Codex commands-only sentence for attempts, retaining bare headers for jobs that never reserved an attempt. All 23 notice cases are queued for a focused rerun. Baseline and mutation checks remain pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks, scheduler coverage and module names were rerun.
 
 ## Delivery and remaining work
 

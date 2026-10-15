@@ -36,8 +36,12 @@ def notice_lines(daemon, job_id: str) -> list[str]:
     return notice["text"].splitlines()
 
 
-def dashes(job_id: str, state: str, rc: int) -> str:
-    return f"{job_id}: {state}; rc={rc}; deliverable=-; out=-"
+def dashes(job_id: str, state: str, rc: int, *, commands: bool = False) -> str:
+    header = f"{job_id}: {state}; rc={rc}; deliverable=-; out=-"
+    if commands:
+        header += ("; ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+                   "temp files included, so pytest could not run")
+    return header
 
 
 # --- the header is the job row (C-15.1) ---------------------------------------
@@ -67,7 +71,7 @@ def test_c15_1_c7_2_cancel_first_names_no_file_and_says_the_output_was_not_accep
     daemon.dispatch("kill", {"job_id": job_id})
     daemon._finalize(finalizing)
     assert notice_lines(daemon, job_id) == [
-        dashes(job_id, "cancelled", 130),
+        dashes(job_id, "cancelled", 130, commands=True),
         "attempt a1: ok, rc=0: fake provider succeeded; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
     ]
@@ -82,7 +86,7 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["rc"]) == ("failed", 1)
     assert notice_lines(daemon, job_id) == [
-        dashes(job_id, "failed", 1),
+        dashes(job_id, "failed", 1, commands=True),
         "attempt a1: unknown, rc=1: fake provider failed; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}",
     ]
@@ -99,7 +103,7 @@ def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, m
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
     daemon._process_attempt(attempt["attempt_id"])
     assert notice_lines(daemon, job_id) == [
-        dashes(job_id, "lost", 125),
+        dashes(job_id, "lost", 125, commands=True),
         "attempt a1: unknown, rc=-: guardian lost without exit receipt; unattested",
     ]
 
@@ -158,7 +162,7 @@ def test_c15_1_c4_2_an_attempt_that_never_launched(state_daemon, cancel):
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
     daemon._process_attempt(attempt["attempt_id"])
     state, rc = ("cancelled", 130) if cancel else ("failed", 1)
-    assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc), "reserved-no-launch"]
+    assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc, commands=True), "reserved-no-launch"]
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -281,7 +285,7 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
     assert not out.exists()
     assert not daemon.store.query("SELECT 1 FROM events WHERE kind='job.exported' AND job_id=?", (job_id,))
     assert notice_lines(daemon, job_id) == [
-        dashes(job_id, "cancelled", 130),
+        dashes(job_id, "cancelled", 130, commands=True),
         f"attempt a1: unknown, rc=0: {detail}; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
     ]
@@ -310,7 +314,7 @@ def test_c9_2_c4_3_the_killed_downgrade_survives_finalization_replay(state_daemo
     daemon._process_attempt(attempt["attempt_id"])
     row = daemon.store.get_attempt(attempt["attempt_id"])
     assert (row["state"], row["outcome_class"]) == ("interrupted", "unknown")
-    assert notice_lines(daemon, job_id)[0] == dashes(job_id, "cancelled", 130)
+    assert notice_lines(daemon, job_id)[0] == dashes(job_id, "cancelled", 130, commands=True)
 
 
 def test_c9_2_recovery_of_a_dead_guardians_group_is_not_ok_either(state_daemon, monkeypatch):
@@ -326,7 +330,7 @@ def test_c9_2_recovery_of_a_dead_guardians_group_is_not_ok_either(state_daemon, 
     assert (row["killed_by"], row["outcome_class"]) == ("recovery", "unknown")
     job = daemon.store.get_job(job_id)
     assert job["state"] == "failed" and job["accepted_attempt_id"] is None
-    assert notice_lines(daemon, job_id)[0] == dashes(job_id, "failed", job["rc"])
+    assert notice_lines(daemon, job_id)[0] == dashes(job_id, "failed", job["rc"], commands=True)
 
 
 def test_c9_2_an_attempt_that_finished_before_the_kill_reached_it_stays_ok(state_daemon):
@@ -353,7 +357,7 @@ def test_c12_6_the_empty_deliverable_override_keeps_the_adapters_verdict_too(sta
     assert json.loads(row["evidence_json"])["provider_verdict"] == {
         "class": "ok", "detail": "fake provider succeeded", "killed_by": None}
     assert notice_lines(daemon, job_id) == [
-        dashes(job_id, "failed", 0),
+        dashes(job_id, "failed", 0, commands=True),
         "attempt a1: unknown, rc=0: empty deliverable with rc 0; unattested"]
 
 
