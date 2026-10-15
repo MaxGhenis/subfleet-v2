@@ -1,5 +1,7 @@
 """C-24.10: durable wakes and races against personal input and ownership."""
 import json
+import os
+import subprocess
 import time
 import uuid
 from datetime import UTC, datetime
@@ -39,6 +41,32 @@ def finish(svc, cid, ids=("run-one",)):
 def settle_all(svc, cid):
     for m in rows(svc, cid):
         svc.store.set_state(m["message_id"], "complete")
+
+
+def test_pr_poll_worker_receives_owning_policy_and_resets(svc, monkeypatch):
+    from subfleet.launch_env import build_environment, helper_policy
+    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
+    svc.daemon.policy["env"] = {"pass": ["GH_TOKEN"]}
+    svc.wakes.now = lambda: 1000
+    cid = bound(svc)
+    register(svc, cid, prs=["o/r#1"])
+    # Start the pool outside any scope, including on Python builds that inherit
+    # thread contexts. Its task must establish the policy itself.
+    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == {}
+    seen = []
+    def run(argv, **kwargs):
+        assert argv[:3] == ["gh", "api", "graphql"]
+        seen.append(kwargs["env"])
+        return subprocess.CompletedProcess(argv, 0, json.dumps({
+            "data": {"p0": {"pullRequest": {"state": "OPEN"}}}}), "")
+    monkeypatch.setattr(wakes.subprocess, "run", run)
+    with helper_policy({"env": {"pass": ["OTHER_TOKEN"]}}):
+        svc.wakes.control_tick()
+        assert svc.wakes._poll_future is not None
+        svc.wakes._poll_future.result(timeout=30)
+        assert build_environment() == {"OTHER_TOKEN": "dummy"}
+    assert seen == [{"GH_TOKEN": "dummy"}]
+    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == {}
 
 
 def test_completion_batches_once_and_restarts(svc):
