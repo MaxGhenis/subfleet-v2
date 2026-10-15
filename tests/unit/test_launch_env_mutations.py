@@ -33,12 +33,15 @@ from tests.unit.test_launch_env_allowlist import (
 from tests.unit.test_launch_env_helpers import test_helper_spawn_drops_polluted_parent as helper_oracle
 
 
-def mutated(function, *, assignment=None, keyword_index=None, return_value=False):
+def mutated(function, *, assignment=None, keyword_index=None, return_value=False, spawn_environment=False):
     tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
     ambient = ast.parse("dict(__import__('os').environ)", mode="eval").body
     candidates = []
     for node in ast.walk(tree):
-        if assignment is not None and isinstance(node, ast.Assign):
+        if (spawn_environment and isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute) and node.func.attr == "_spawn_guardian"):
+            candidates.append(node)
+        elif assignment is not None and isinstance(node, ast.Assign):
             if any(isinstance(target, ast.Name) and target.id == assignment for target in node.targets):
                 candidates.append(node)
         elif keyword_index is not None and isinstance(node, ast.Call):
@@ -52,7 +55,10 @@ def mutated(function, *, assignment=None, keyword_index=None, return_value=False
     candidates.sort(key=lambda node: node.lineno)
     assert candidates, "mutation did not find its boundary"
     node = candidates[keyword_index or 0]
-    node.value = ambient
+    if spawn_environment:
+        node.args[1] = ambient
+    else:
+        node.value = ambient
     ast.fix_missing_locations(tree)
     namespace = dict(function.__globals__)
     exec(compile(tree, inspect.getfile(function), "exec", flags=__future__.annotations.compiler_flag), namespace)
@@ -132,6 +138,6 @@ def test_named_guardian_regression_kills_ambient_mutant(tmp_path, monkeypatch, r
 @pytest.mark.parametrize("mode,name", [("detached", "_launch"), ("turn", "_launch"),
                                       ("probe", "_execute_probe"), ("enrollment", "_enrollment_turn")])
 def test_named_daemon_spawn_regression_kills_ambient_mutant(routing_state, monkeypatch, mode, name):
-    monkeypatch.setattr(Daemon, name, mutated(getattr(Daemon, name), keyword_index=0))
+    monkeypatch.setattr(Daemon, name, mutated(getattr(Daemon, name), spawn_environment=True))
     with pytest.raises(AssertionError):
         daemon_oracle(routing_state, monkeypatch, mode)
