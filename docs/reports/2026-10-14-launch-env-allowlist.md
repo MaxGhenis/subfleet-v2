@@ -375,9 +375,44 @@ intentional guardian-only exception to `LAUNCH_NAMES`; the test requires its
 removal even when authorized. Process assertions have not been weakened and no
 inspection bypass has been added.
 
-Commits so far: `86e0e95b4` (guardian fixture authorization and real-process
-regression), `85ac88d52` (doctor and timer oracles). Focused validation is waiting
-for the shared lock. Directory validation and pending round-2 reruns follow.
+Commits: `86e0e95b4` (guardian fixture authorization and real-process
+regression), `85ac88d52` (doctor and timer oracles), `24e198b45` (initial
+continuation report), and `9fde67ea4` (preserve the stop-alarm fixture's explicit
+Python controls). The final documentation commit records the blocked validation
+and complete unrun manifest.
+
+Validation could not start. This checkout has no `.venv`, and both
+`uv sync --locked` and `uv run --no-sync python --version` exit 2 because the
+sandbox rejects opening `/Users/maxghenis/.cache/uv/sdists-v9/.git` with
+`Operation not permitted`. The task requires that existing default cache; no
+alternate cache, cleanup, permission bypass or substitute test environment was
+used. A request to make that existing cache writable received no response during
+the job. The first locked pytest invocation remained queued; after independently
+confirming that its required uv setup could not work, it was stopped with SIGINT
+(exit 130) before Python started. No lock timeout or unlocked pytest was used.
+The foreground validation plan was never started. No pytest, runner or other
+job-started work is left running, and job scratch storage is removed.
+
+Static validation succeeded: all modified Python files parse, as do the embedded
+stop-alarm launcher and the generated provider/escaper programs. `git diff --check`
+passes. Production code is unchanged from `2a6dde5ff`.
+
+| Current-run directory | Executed tests | Unrun files |
+| --- | ---: | ---: |
+| `tests/fake` (original environment regressions and two pending corrected files) | 0 | 4 |
+| `tests/process` | 0 | 8 |
+| `tests/e2e` (run separately by file) | 0 | 17 |
+| `tests/unit` (includes rediscovery, focused fixes and the original mutation checks) | 0 | 298 |
+| `tests/frontend` | 0 | 41 |
+| **Total** | **0** | **368** |
+
+The [complete unrun manifest](2026-10-15-launch-env-allowlist-unrun.md) names every
+file. The previous report did not preserve the exact unit-partition manifest, so
+the entire unit directory is listed for a conservative rerun. The original 118
+passes, including 34 mutation checks, remain the previous job's last result;
+**they were not revalidated here**. The guarded real-process regression and other
+process suites still need a host with process-inspection authority; their guards
+were not reached because uv failed before collection.
 
 ### Original CI failures, reconstructed by node ID
 
