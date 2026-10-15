@@ -298,6 +298,29 @@ current Python 3.12 fake-directory rerun completed its first hold with **90
 passed in 672.67 s**, then released the lock before continuing its 1,601 unrun
 nodes. This full rerun supersedes the earlier partial Python 3.14 fake result.
 
+The complete fake-directory traversal covered **1,691 nodes** in four holds of
+672.67, 724.00, 658.45 and 552.60 seconds. Before the final fixture/oracle reruns,
+it returned **1,585 passed, 31 failed, 73 skipped, 2 xfailed**. Five failures
+depend on unavailable process inspection: the four daemon-stack cases stop at
+boot identity, and the pending pin-notice finalization cannot establish empty
+containment and remains inside the existing settle window.
+
+The other 26 failures exposed two pre-existing test assumptions:
+
+- Twenty-five maintenance-clock cases inherited the launching operator's
+  `SUBFLEET_RETENTION_DORMANT` switch and consequently performed no retention.
+  Their module now explicitly enables the behavior under test. Later holds
+  also use a disposable Subfleet root and omit the launching job's markers and
+  retention switch; no operator environment or live daemon is changed.
+- The generated cold-lane oracle rejected two placements even when a successful
+  admission probe proved that lane during the same pass. Its reduced sequence
+  (submit, admit, failed-lane finish, submit) is retained as an explicit example.
+  The assertion still restricts lanes that remain unproven, preserving its
+  mutation checks. This changes the test oracle, not admission behavior.
+
+The two complete corrected test files and the historical reduced-example
+control are queued for their own locked validation after the directory runs.
+
 
 ### Original CI failures, reconstructed by node ID
 
