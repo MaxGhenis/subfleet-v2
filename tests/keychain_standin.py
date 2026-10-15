@@ -60,6 +60,10 @@ def _candidates(event: str, details: tuple) -> list[str]:
     else:
         return []
     name = os.fsdecode(name)
+    if not os.path.dirname(name):
+        folded = unicodedata.normalize("NFD", name).casefold()
+        if unicodedata.normalize("NFD", folded) == "security":
+            return [REAL_BINARY]  # Refuse before a later hook can change PATH.
     base = "" if cwd is None else os.fsdecode(cwd)
     found = [os.path.join(base, name)]
     if os.sep not in name:

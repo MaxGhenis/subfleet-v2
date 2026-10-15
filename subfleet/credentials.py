@@ -42,6 +42,12 @@ def _fold(path: str) -> str:
     return unicodedata.normalize("NFD", folded)
 
 
+def _fold_name(name: str) -> str:
+    """Compare a bare name without resolving it against a mutable PATH."""
+    folded = unicodedata.normalize("NFD", name).casefold()
+    return unicodedata.normalize("NFD", folded)
+
+
 def _identity(path) -> tuple[int, int] | None:
     try:
         found = os.stat(path)
@@ -95,11 +101,13 @@ def _find_program(name, search: list[str] | None, cwd=None) -> str | None:
     return None
 
 
-def _launch_targets(event: str, details: tuple, *, _find_program=_find_program) -> list[str | None]:
+def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
+                    _fold_name=_fold_name) -> list[str | None]:
     # A later audit hook can mutate PATH after this hook returns. Never approve
     # the bare reader name; intentional test executables must name their path.
     program = details[1 if event == "os.spawn" else 0]
-    if os.fsdecode(program) == "security":
+    name = os.fsdecode(program)
+    if not os.path.dirname(name) and _fold_name(name) == "security":
         return ["security"]
     if event == "subprocess.Popen":
         executable, _argv, cwd, env = details
@@ -174,7 +182,7 @@ def install_keychain_exec_guard() -> bool:
 
 
 def _starts_keychain_binary(security_bin: str) -> bool:
-    if security_bin == "security":
+    if not os.path.dirname(security_bin) and _fold_name(security_bin) == "security":
         return True
     target = _find_program(security_bin, os.get_exec_path())
     return target is not None and _is_keychain_binary(target, _native_keychain_binary())
