@@ -31,7 +31,7 @@ from pathlib import Path
 import tempfile
 import uuid
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
@@ -124,6 +124,9 @@ def check_timeline(snapshot: dict) -> None:
 
 
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@example(history=[("local", (MESSAGES[3], False)),
+                  ("events", [("steer.delivered", MESSAGES[0], MESSAGES[1]),
+                              ("steer.delivered", MESSAGES[3], MESSAGES[0])])])
 @given(history=st.lists(step, min_size=1, max_size=14))
 def test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says(core_probe, history):
     with tempfile.TemporaryDirectory(prefix="sf-steer-t-") as directory:

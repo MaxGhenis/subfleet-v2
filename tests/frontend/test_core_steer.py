@@ -977,10 +977,11 @@ def test_c24_9_journaled_steers_restore_after_a_restart(core_probe, tmp_path, ha
     ])
     assert out["statuses"][pending] == UNREAD
     assert out["statuses"][refused] == REFUSED_WORDS["not-next"]
+    # Restoring a steer preserves its sent bubble, including a refused steer.
     rows = {row["id"]: row for row in out["layouts"][cid]["tray"]}
-    assert rows[pending]["status"] == UNREAD
-    assert rows[refused]["status"] == REFUSED_WORDS["not-next"]
-    assert not any(row["can_steer"] for row in rows.values())
+    for mid in (pending, refused):
+        assert mid not in rows
+        assert out["items"][cid].count(f"person:{mid}") == 1
     assert out["steer_offers"][pending] is False                    # already on its way
     # A journaled steer of a message that runs by now (the daemon dispatched it
     # first) does not make it read as unread: it is past steering.

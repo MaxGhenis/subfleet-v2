@@ -443,3 +443,22 @@ queue, so dispatcher ordering remains covered. Production code is unchanged.
 The corrected property awaits its verification hold. Queue-engine tests are
 queued next. The final tables will record all fifty required files and twelve
 named mutations, including anything unrun.
+
+The queue-engine file passed all 75 tests (11.73 s); the offscreen tray-view
+file passed all 15 (101.88 s). The steer/approval hold completed in 109.87 s:
+`test_core_steer.py` 42 passed / 1 failed, `test_core_steer_properties.py`
+1 passed / 1 failed, approval reach 41 passed, approval notification 10 passed.
+
+- `test_c24_9_journaled_steers_restore_after_a_restart` encoded the old tray
+  design for restored pending and refused steers. It now requires exactly one
+  timeline bubble for each and excludes both from the tray, retaining the
+  existing status-word and eligibility assertions.
+- `test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says` found a real
+  ordering defect: when events make A host B and later put A inside C, B's
+  bubble can render before A's relocated bubble. This is not an old-design
+  assertion. Its minimized two-event history is retained as an explicit
+  Hypothesis example before changing production code.
+
+The six-file conversation/timeline/outbox/store hold is queued. Both new
+steer regression updates await verification; the nested placement fix follows
+after the active hold, keeping source changes out of a running compilation.
