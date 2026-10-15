@@ -339,6 +339,53 @@ def test_enforcement_never_cancels_a_known_exit(wall, state):
     assert cancel_events(service, jid) == []
 
 
+@pytest.mark.parametrize('state', ['running', 'finalizing', 'racing'])
+def test_wall_family_preserves_exited_provider(wall, monkeypatch, state):
+    service, harness = wall
+    from tests.fake.test_state_contract import reserve, receipt_fixture
+    parent, parent_aid = history(wall, durations=(2 * 3600, 4 * 3600), waits=(3 * 86400,), cap=6 * 3600)
+    out = harness.root / 'child-export.md'
+    child, first, adir = reserve(service, harness, parent_job_id=parent, out_path=str(out))
+    aid = first['attempt_id']
+    receipt_fixture(service, first, adir)
+    receipt = json.loads((adir / 'exit.json').read_text())
+    receipt['finished_at'] = stamp(-3 * 86400)
+    (adir / 'exit.json').write_text(json.dumps(receipt))
+    service.store.update_attempt(aid, state='running' if state == 'racing' else state,
+                                 started_at=stamp(-3 * 86400 - 2 * 3600),
+                                 finished_at=receipt['finished_at'] if state == 'finalizing' else None)
+    live, sibling, _ = reserve(service, harness, parent_job_id=parent)
+    service.store.update_attempt(sibling['attempt_id'], state='running', started_at=stamp(-5))
+    stopped = []
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: stopped.append(a['attempt_id']))
+    if state == 'racing':
+        from contextlib import contextmanager
+        (adir / 'exit.json').unlink()
+        transaction = service.store.transaction
+
+        @contextmanager
+        def exit_before_cancel(kind='state.changed', **options):
+            if kind == 'job.cancel_requested' and options.get('job_id') == parent:
+                (adir / 'exit.json').write_text(json.dumps(receipt))
+                service._begin_finalizing(service.store.get_attempt(aid), receipt)
+            with transaction(kind, **options) as tx:
+                yield tx
+
+        monkeypatch.setattr(service.store, 'transaction', exit_before_cancel)
+    service._process_attempt(parent_aid)
+    assert stopped == [parent_aid]
+    assert service.store.get_attempt(parent_aid)['killed_by'] == 'max_wall_s'
+    assert service.store.get_job(child)['cancel_requested_at'] is None
+    service._process_attempt(aid)
+    service._process_attempt(aid)
+    assert service.store.get_job(child)['state'] == 'succeeded'
+    assert out.read_bytes() == b'fixture result\n'
+    assert cancel_events(service, child) == []
+    service._process_attempt(sibling['attempt_id'])
+    assert stopped == [parent_aid, sibling['attempt_id']]
+    assert cancel_events(service, live)[0]['parent_job_id'] == parent
+
+
 @pytest.mark.parametrize('state', ['running', 'finalizing'])
 def test_quarantine_preserves_known_provider_exit(wall, state):
     from subfleet.procs import Containment
