@@ -1146,3 +1146,51 @@ class ProviderCapMachine(AdmissionMachine):
 
 ProviderCapMachine.TestCase.settings = PROFILE
 TestAdmissionPassProviderCaps = ProviderCapMachine.TestCase
+
+
+def test_r4_three_standard_reviews_drain_after_probe_os_error():
+    """Review r3b: simulated successes must free the only slot for all three reviews."""
+    machine = AdmissionMachine()
+    try:
+        review = {"tier": "standard", "model": None, "task": "review", "pin": None,
+                  "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=1, per_lane=None, reserve=False, claude=[], codex_email=None,
+                      second_codex=True, capacity=[], queue=[dict(review) for _ in range(3)],
+                      probe="os-error", prove=None)
+        machine.fair_capacity_drains_the_queue()
+        assert len(machine.jobs()) == 3
+        assert {job["state"] for job in machine.jobs().values()} == {"succeeded"}
+        assert len(machine.store.list_attempts()) == 3
+        assert machine.passes <= 7
+    finally:
+        machine.teardown()
+
+
+@pytest.mark.parametrize("provider,model", [("codex", "astra"), ("claude", "sonnet")])
+@pytest.mark.parametrize("outcome,expected", [("ok", "ok"), ("transient", "transient"),
+                                              ("limited", "limited"), ("model-capacity", "transient")])
+def test_r4_simulated_finish_preserves_provider_outcome(provider, model, outcome, expected):
+    """C-9.2: completion proof admits successes without turning failures into successes."""
+    machine = AdmissionMachine()
+    try:
+        job = {"tier": "standard", "model": model, "task": None, "pin": None,
+               "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=1, per_lane=None, reserve=False,
+                      claude=[None] if provider == "claude" else [], codex_email=None,
+                      second_codex=False, capacity=[], queue=[job], probe="ok", prove=None)
+        machine.admission_pass()
+        attempt, = machine.live()
+        assert machine.store.get_lane(attempt["lane_id"]).provider == provider
+        machine.finish(attempt, outcome)
+        finished = machine.store.get_attempt(attempt["attempt_id"])
+        assert finished["outcome_class"] == expected
+        assert finished["state"] == ("succeeded" if outcome == "ok" else "failed")
+        evidence = json.loads(finished["evidence_json"])
+        if provider == "codex":
+            assert evidence["classification"]["turn_completed"] is (outcome == "ok")
+        if outcome == "ok":
+            assert machine.store.get_job(attempt["job_id"])["state"] == "succeeded"
+            adir = attempt_dir(machine.root, attempt["job_id"], attempt["seq"])
+            assert (adir / "deliverable.md").read_bytes().strip()
+    finally:
+        machine.teardown()
