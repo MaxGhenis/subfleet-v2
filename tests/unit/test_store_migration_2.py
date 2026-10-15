@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet import store as store_module
 from subfleet.store import MIGRATIONS, SCHEMA_VERSION, Store
 
 #: `lanes` exactly as schema version 1 declared it, so the migration is proved
@@ -206,14 +207,28 @@ def test_an_unknown_identity_status_is_refused_in_words_at_the_seam(version_1_st
 
 
 
-def test_d_sh1_version_7_rows_survive_with_unknown_historical_shell(tmp_path):
-    schema = Path(__file__).parents[2] / 'subfleet/store_schema.sql'
-    sql = schema.read_text().replace('  needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1)),\n', '')
-    sql = sql.replace('  has_shell INTEGER CHECK (has_shell IN (0,1)),\n', '')
+def _migration_adding(column):
+    return next(version for version, statements in store_module.MIGRATIONS.items()
+                if any(statement.startswith('ALTER TABLE ') and statement.split()[5] == column
+                       for statement in statements))
+
+
+def _schema_before_migration(conn, migration):
+    """Undo additive migrations from the current DDL, using the migration table."""
+    conn.executescript((Path(__file__).parents[2] / 'subfleet/store_schema.sql').read_text())
+    for version, statements in sorted(store_module.MIGRATIONS.items(), reverse=True):
+        if version >= migration:
+            for statement in reversed(statements):
+                parts = statement.split()
+                assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+                conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
+    conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
+
+
+def test_d_sh1_historical_rows_survive_with_unknown_shell(tmp_path):
     path = tmp_path / 'old.sqlite3'
     with sqlite3.connect(path) as conn:
-        conn.executescript(sql)
-        conn.execute("INSERT INTO schema_version VALUES (7,'2026-10-13T00:00:00Z')")
+        _schema_before_migration(conn, _migration_adding('needs_shell'))
         conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
                      "VALUES ('claude-1','claude','claude:fixture','/fake','home','now','now')")
         conn.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,created_at) "
@@ -230,14 +245,23 @@ def test_d_sh1_version_7_rows_survive_with_unknown_historical_shell(tmp_path):
 
 @pytest.mark.parametrize('flag,sandbox,expected', [(0, 'read-only', 'none'),
     (1, 'read-only', 'commands'), (1, 'workspace-write', 'writable'), (None, 'read-only', None)])
-def test_d_sh1_version_8_capabilities_migrate_without_inventing_publish_denial(tmp_path, flag, sandbox, expected):
-    sql = (Path(__file__).parents[2] / 'subfleet/store_schema.sql').read_text()
-    sql = sql.replace("  capability TEXT CHECK (capability IN ('none','commands','writable')),\n", '')
-    sql = sql.replace('  publish_denied INTEGER CHECK (publish_denied IN (0,1)),\n', '')
-    path = tmp_path / 'v8.sqlite3'
+@pytest.mark.parametrize('renumber', [False, True])
+def test_d_sh1_capabilities_migrate_without_inventing_publish_denial(tmp_path, monkeypatch,
+                                                                  flag, sandbox, expected, renumber):
+    if renumber:
+        # A competing release migration takes the first slot; shift both D-SH1 steps.
+        first = _migration_adding('needs_shell')
+        capability = _migration_adding('capability')
+        shifted = {version + (version >= first): statements
+                   for version, statements in store_module.MIGRATIONS.items()}
+        shifted[first] = ()
+        monkeypatch.setattr(store_module, 'MIGRATIONS', shifted)
+        monkeypatch.setattr(store_module, 'SCHEMA_VERSION', SCHEMA_VERSION + 1)
+        monkeypatch.setattr(store_module, 'SHELL_REQUIREMENT_MIGRATION', first + 1, raising=False)
+        monkeypatch.setattr(store_module, 'LAUNCH_CAPABILITY_MIGRATION', capability + 1, raising=False)
+    path = tmp_path / 'previous.sqlite3'
     with sqlite3.connect(path) as conn:
-        conn.executescript(sql)
-        conn.execute("INSERT INTO schema_version VALUES (8,'2026-10-14T00:00:00Z')")
+        _schema_before_migration(conn, _migration_adding('capability'))
         conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
                      "VALUES ('lane','codex','fixture','/fake','home','now','now')")
         conn.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,created_at) "
