@@ -1,5 +1,7 @@
 Frozen provider stream P3 follow-ups, 2026-10-14
 
+## Round 1 (historical; authority rule superseded below)
+
 Base: `75597f81bb3b` (release/217, #209 merged). All three review findings are
 fixed; work stayed in the assigned checkout. No network Git remotes, sub-agents
 or pushes were used.
@@ -71,9 +73,9 @@ The recovered regression commits `57a19c3b0`, `3e4817d04`, `34bdd142a`,
 `a61ab5c84`, and `f9a877f70`, followed by production fix `440e4751b` and the
 additional regressions at `7974068bc`, were preserved. The cold-boot patch
 contained only this unfinished report section; it applied cleanly. Inspection
-confirmed that the production fix already covers both
-P2s, both P3s, and chunked copying. This continuation adds regression coverage
-and completes validation and reporting.
+confirmed that the production fix already covers both P2s, both P3s, and chunked
+copying. Report recovery and baseline findings were committed as `576311f59`.
+This continuation adds regression coverage and completes validation and reporting.
 
 Round 2 replaces round 1's link-count rule with descriptor identity. At first
 capture, the candidate is opened once and its `(st_dev, st_ino)` is compared
@@ -116,8 +118,9 @@ Finding dispositions:
 
 Recovered test commit: `7974068bc` (`test: cover directory aliases and stream
 open error controls`, recovered from `d68991170`). Deterministic cases and the
-bounded generated property now include directory aliases at every freeze boundary: before open,
-after open, `fstat`, read, file fsync, rename, directory fsync, and after freeze.
+bounded generated property now include directory aliases at every freeze
+boundary: before open, after open, `fstat`, read, file fsync, rename, directory
+fsync, and after freeze.
 The ENOENT/EIO/EACCES cases cover both providers. Permission controls also cover
 EPERM, explicitly distinguish real permission errors from `NotRegularFile`, and
 exercise a mode-000 replacement through the real kernel open.
@@ -126,6 +129,15 @@ Continuation test commit: `5625e2b82` (`test: reclassify copies linked to stdout
 after publication`). This adds two cases to the existing invalid-copy test,
 covering both in-process replay and daemon restart without replacing the
 published inode. No further production changes were necessary.
+
+The recovered test edit in `57a19c3b0` was incomplete: in
+`test_completed_success_survives_premerge_auth_receipt`, it reused `frozen` for
+the stream `Path`, overwriting the saved verdict JSON string. The first full
+Codex pair run therefore had 4 failed and 142 passed tests: all four failures
+were the final text-versus-Path comparison, after acceptance and export checks
+had passed. Commit `c31ca5d0e` gives the stream path its own `frozen_stream`
+variable and preserves the original verdict immutability assertion.
+The full Codex pair rerun passed all 146 tests.
 
 Baseline verification used a workspace-local archive of `e0d50b1c8`, with only
 the current regression tests overlaid. The selected 95 deterministic cases
@@ -138,3 +150,52 @@ post-copy-link cases also failed because classification and extraction were
 not rerun. The selection also reproduced the unbounded-read failure and
 publication-time copy-alias failures. Baseline failures were assertion failures
 or the expected permission errors, with no collection or fixture errors.
+
+Final validation completed on 2026-10-15 at code head `c31ca5d0e`:
+**1,080 distinct requested tests passed**, with no failures or skips in the
+latest passing runs. All requested files ran; counts below supersede round 1.
+
+| File under `tests/` | Passed |
+| --- | ---: |
+| `unit/test_frozen_provider_streams.py` | 198 |
+| `fake/test_frozen_stream_nonregular.py` | 66 |
+| `unit/test_codex_turn_completed.py` | 41 |
+| `fake/test_codex_turn_completed_fake.py` | 105 |
+| `fake/test_finalization_replay.py` | 10 |
+| `fake/test_salvage_finalization.py` | 47 |
+| `unit/test_claude_adapter.py` | 170 |
+| `unit/test_empty_provider_results.py` | 334 |
+| `unit/test_sessions_transcripts.py` | 71 |
+| `fake/test_state_contract.py` | 37 |
+| `unit/test_test_module_names.py` | 1 |
+
+The six passing foreground head runs used separate shared-lock holds, taking
+35.55, 7.28, 199.84, 107.71, 89.49 and 25.19 reported pytest seconds. The first
+hold included 64 fake frozen-stream cases; that file's later 66-case run includes
+the two new cases, and the table counts each case once. Baseline verification
+and the initial failing Codex pair each had their own additional hold. Long lock
+queues were waited out without a timeout or relaunch; all pytest durations were
+under 20 minutes. No workers ran in parallel.
+
+Dependencies came from `uv sync --locked` into the workspace's `.venv`, using
+Homebrew Python 3.14.7 with `PYTHON_GIL=1` and a workspace-local uv cache. Runs
+set `HYPOTHESIS_PROFILE=ci`, kept the existing bounded generated settings, and
+never used `deep`. Each hold used disposable TMPDIR and Hypothesis storage,
+disabled pytest's cache provider, and cleaned its temporary directory with
+Python `shutil.rmtree`. No `.hypothesis` folder remains. The Codex pair's only
+warning is the existing pytest `zip` parametrization deprecation.
+
+Broader full, process, e2e, live and CI suites, actual bind mounts, and a repeat
+of the separate 64 MiB timing/heap benchmark were not run. Bounded copy reads
+are verified by the regression that failed on the baseline. `git diff --check`
+passes.
+
+Shared Git metadata is outside the permitted writable roots. New commits use
+workspace-local `.git-local/repository.git` on `fix/frozen-stream-p3`, borrowing
+base objects read-only. The original `.git` pointer and detached HEAD remain
+unchanged. The verified, ignored delivery bundle is
+`docs/reports/2026-10-14-frozen-stream-p3.bundle`, now with prerequisite
+`7974068bc`, containing all continuation commits including this final report.
+Only named test and report files were staged; all commits carry the requested
+co-author trailer. No logs, JSON evidence or bundles were staged. No network
+Git remotes, pushes, sub-agents or live state were used.
