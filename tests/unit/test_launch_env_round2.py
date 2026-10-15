@@ -30,6 +30,22 @@ def test_daemon_start_preserves_harness_configuration_not_credentials(tmp_path, 
     assert "SUBFLEET_TEST_TOKEN" not in child
 
 
+def test_e2e_harness_explicitly_authorizes_nonprefix_hooks(tmp_path, monkeypatch):
+    from tests.e2e.conftest import E2E
+    harness = E2E(tmp_path)
+    try:
+        monkeypatch.setattr(os, "environ", harness.env)
+        daemon = cli.daemon_env(tmp_path)
+        policy = json.loads((tmp_path / "policy.json").read_text())
+        child = ProviderEnvironment(policy).build("claude", environ=daemon)
+        required = {"PYTHONPATH", "CLAUDE_FAKE_PROJECTS_DIR", "GIT_CONFIG_NOSYSTEM",
+                    "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                    "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "E2E_CLAUDE_TOKEN_1", "E2E_CLAUDE_TOKEN_2"}
+        assert required <= child.keys()
+    finally:
+        harness.close()
+
+
 @pytest.mark.parametrize("word", ["TOKEN", "KEY", "SECRET", "PASSWORD"])
 @pytest.mark.parametrize("suffix", ["", "_FILE"])
 def test_configuration_prefix_refuses_credential_words(word, suffix):
