@@ -58,7 +58,8 @@ while not (root / 'release-provider').exists():
     time.sleep(.01)
 print('survived')
 """
-env = build_environment({name: os.environ[name] for name in ("SUBFLEET_ATTEMPT", "SUBFLEET_JOB")
+env = build_environment({name: os.environ[name] for name in
+                         ("SUBFLEET_ATTEMPT", "SUBFLEET_JOB", "PYTHONPATH", "PYTHON_GIL")
                          if name in os.environ})
 guardian = subprocess.Popen([
     sys.executable, "-m", "subfleet.guardian",
