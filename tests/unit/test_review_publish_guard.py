@@ -12,8 +12,8 @@ from subfleet.contracts import Credential, Sandbox
 from tests.conftest import make_job, make_lane
 
 
-def protected(tmp_path, provider='codex', sandbox='workspace-write', task='review', kind='dispatch'):
-    work = tmp_path / 'work'
+def protected(tmp_path, provider='codex', sandbox='workspace-write', task='review', kind='dispatch', workdir=None):
+    work = Path(workdir) if workdir else tmp_path / 'work'
     work.mkdir(exist_ok=True)
     prompt = tmp_path / 'prompt'
     prompt.write_text('review')
@@ -27,6 +27,9 @@ def protected(tmp_path, provider='codex', sandbox='workspace-write', task='revie
         adapter = CodexAdapter(codex_bin='fake-provider')
         home = str(tmp_path / 'home')
         lane = replace(make_lane(), provider='codex', home=home, credential=Credential('codex', home, 'home'))
+    if kind == 'resume':
+        return adapter.resume_launch(job, 'job/a1', tmp_path / 'attempt', lane, {},
+                                     'fixture-thread', prompt, 'hooks={}', model_id='fixture-model')
     return adapter.build_launch(job, 'job/a1', tmp_path / 'attempt', lane, {},
                                 'fixture-model', None, prompt, 'hooks={}')
 
@@ -50,7 +53,7 @@ def local_remote(tmp_path):
 
 @pytest.mark.parametrize('provider', ['codex', 'claude'])
 @pytest.mark.parametrize('sandbox', ['read-only', 'workspace-write'])
-@pytest.mark.parametrize('task,kind', [('review', 'dispatch'), ('build', 'gate-review')])
+@pytest.mark.parametrize('task,kind', [('review', 'dispatch'), ('review', 'resume'), ('build', 'gate-review')])
 def test_review_launch_real_git_push_local_file_is_denied(tmp_path, provider, sandbox, task, kind):
     remote = local_remote(tmp_path)
     launch = protected(tmp_path, provider, sandbox, task, kind)
@@ -58,6 +61,14 @@ def test_review_launch_real_git_push_local_file_is_denied(tmp_path, provider, sa
     for git in ['git', shutil.which('git')]:
         result = run([git, 'push', remote, 'HEAD:refs/heads/proof'], launch)
         assert result.returncode != 0, result.stdout
+    # A configured pushurl must not bypass the inherited restriction either.
+    real_git = shutil.which('git')
+    subprocess.run([real_git, '-C', launch.cwd, 'remote', 'add', 'fixture', remote], check=True)
+    subprocess.run([real_git, '-C', launch.cwd, 'config', 'remote.fixture.pushurl', remote], check=True)
+    assert run([real_git, '-c', 'protocol.file.allow=always', 'push', 'fixture', 'HEAD:refs/heads/proof'], launch).returncode != 0
+    # Removing environment/config markers still cannot enable the wrapped git.
+    assert run(['/usr/bin/env', '-u', 'GIT_ALLOW_PROTOCOL', '-u', 'GIT_CONFIG_COUNT',
+                'git', '-c', 'protocol.file.allow=always', 'push', remote, 'HEAD'], launch).returncode != 0
     assert launch.notes['publish_denied'] is True
     assert run(['git', 'log', '-1', '--oneline'], launch).returncode == 0
     assert subprocess.run([shutil.which('git'), 'ls-remote', remote], capture_output=True).stdout == b''
@@ -77,15 +88,19 @@ def test_review_launch_real_git_push_local_file_is_denied(tmp_path, provider, sa
     (['api', 'repos/x/y'], True), (['api', '-X', 'GET', 'repos/x/y'], True),
     (['--repo', 'x/y', 'pr', 'comment', '7'], False),
     (['alias', 'set', 'publish', 'pr create'], False),
+    (['-Rx/y', 'pr', 'view', '7'], True),
+    (['api', 'repos/x/y', '--input=body.json'], False),
+    (['api', 'graphql'], False),
 ])
-def test_review_gh_write_denied_reads_reach_fake(tmp_path, monkeypatch, args, allowed):
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_review_gh_write_denied_reads_reach_fake(tmp_path, monkeypatch, args, allowed, provider):
     fake = tmp_path / 'bin'
     fake.mkdir()
     gh = fake / 'gh'
     gh.write_text('#!/bin/sh\necho fake-gh "$@"\n')
     gh.chmod(0o755)
     monkeypatch.setenv('PATH', str(fake) + os.pathsep + os.environ['PATH'])
-    launch = protected(tmp_path)
+    launch = protected(tmp_path, provider=provider)
     result = run(['gh', *args], launch)
     assert (result.returncode == 0) is allowed
     assert ('fake-gh' in result.stdout) is allowed
@@ -94,14 +109,14 @@ def test_review_gh_write_denied_reads_reach_fake(tmp_path, monkeypatch, args, al
 
 
 @settings(max_examples=20, deadline=None, database=None)
-@given(sandbox=st.sampled_from(['read-only', 'workspace-write']),
+@given(provider=st.sampled_from(['claude', 'codex']), sandbox=st.sampled_from(['read-only', 'workspace-write']),
        kind=st.sampled_from(['dispatch', 'resume', 'gate-review']),
        options=st.sampled_from([[], ['--force'], ['--dry-run'], ['--mirror']]))
-def test_review_launch_never_allows_push(sandbox, kind, options):
+def test_review_launch_never_allows_push(provider, sandbox, kind, options):
     import tempfile
     with tempfile.TemporaryDirectory() as directory:
         remote = local_remote(Path(directory))
-        launch = protected(Path(directory), sandbox=sandbox, kind=kind)
+        launch = protected(Path(directory), provider=provider, sandbox=sandbox, kind=kind)
         refs = [] if '--mirror' in options else ['HEAD:refs/heads/proof']
         result = run(['git', '-c', 'protocol.file.allow=always', 'push', *options, remote, *refs], launch)
         assert result.returncode != 0 and 'publish: denied' in result.stderr

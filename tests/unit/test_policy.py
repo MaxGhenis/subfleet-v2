@@ -536,6 +536,6 @@ def test_c11_1_requires_optional_and_reviews_do_not_require_shell_by_default(tmp
 
 
 def test_d_sh1_default_reviews_write_only_in_job_worktrees_and_shell_is_opt_in():
-    policy = load_policy()
+    policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy['permissions']['review'] == 'worktree-write'
     assert policy.get('requires', {}) == {}

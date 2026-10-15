@@ -2134,17 +2134,17 @@ class Daemon:
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
             from_policy = args.sandbox == protocol.POLICY_SANDBOX
-            if from_policy:
-                args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
                 if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
                     # C-6.12: admission merges these with lane ids, so each must be a name.
                     raise ValueError("exclusions must be a list of lane names")
-                sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
                     raise ValueError("workdir must be a directory")
+                if from_policy:
+                    args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
+                sandbox = Sandbox(args.sandbox)
                 review_root = None
                 if args.isolated_review:
                     from .adapters.isolation import validate_isolated_review
@@ -3369,10 +3369,9 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
-            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
-                "SELECT DISTINCT job_id FROM attempts WHERE capability IN ('none','commands') "
-                "AND julianday(reserved_at) BETWEEN julianday(?) - 1 AND julianday(?) ORDER BY job_id",
-                (utcnow(), utcnow()))]
+            from .store import RESTRICTED_RUNS_SQL
+            at = utcnow()
+            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(RESTRICTED_RUNS_SQL, (at, at))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
@@ -4564,8 +4563,7 @@ class Daemon:
         forgets incomplete builds after quarantine cleanup and reuses whole
         checkouts at their conventional path, recording any pending ownership.
         """
-        if (job.get("task") == "review" or job["kind"] == "gate-review"
-                or job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
+        if (job.get("push_branch") is None or job["sandbox"] != "workspace-write" or job["in_place"]):
             return True
         job_id = job["job_id"]
         destination = self.root / "worktrees" / job_id
@@ -8685,6 +8683,8 @@ class Daemon:
 
     def _publish_bundle(self, job: dict) -> str:
         """Intake, verify and publish one accepted job's bundle; the pushed SHA."""
+        if job.get("task") == "review" or job["kind"] == "gate-review":
+            raise host_push.PushError("review publish: denied")
         branch, remote = job["push_branch"], job["push_remote"]
         settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
         family = job

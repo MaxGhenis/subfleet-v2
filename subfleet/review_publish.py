@@ -20,6 +20,10 @@ from .guardian import atomic_publish
 # Explicit launch authority, added AFTER #222's ambient environment allowlist.
 # Its guardian_pass_args(env) passes these names across the guardian boundary.
 GIT_DENIAL = {
+    # Git gives this allowlist precedence over protocol.* config, including
+    # remotes with an explicit pushurl (which bypass pushInsteadOf). Local git
+    # reads work; remote Git transports, including fetch, are unavailable.
+    "GIT_ALLOW_PROTOCOL": "",
     "GIT_CONFIG_COUNT": "2",
     "GIT_CONFIG_KEY_0": "url.subfleet-publish-denied::.pushInsteadOf",
     "GIT_CONFIG_VALUE_0": "",
@@ -39,7 +43,7 @@ def gh_read(args: list[str]) -> bool:
         flag = args.pop(0)
         if flag in ('-R', '--repo', '--hostname') and args:
             args.pop(0)
-        elif flag.startswith(('--repo=', '--hostname=')):
+        elif flag.startswith(('--repo=', '--hostname=')) or (flag.startswith('-R') and len(flag) > 2):
             continue
         else:
             return False
@@ -50,7 +54,7 @@ def gh_read(args: list[str]) -> bool:
     index = 1
     while index < len(args):
         arg = args[index]
-        if arg.startswith(('-f', '-F', '--field', '--raw-field')):
+        if arg.startswith(('-f', '-F', '--field', '--raw-field', '--input')) or arg == 'graphql':
             return False
         if arg in ('-X', '--method'):
             index += 1

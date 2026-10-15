@@ -357,6 +357,10 @@ class Offline:
                         f" WHERE state IN ({marks}) GROUP BY lane_id",
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
+            restricted = []
+            if "attempts" in tables and "capability" in {row["name"] for row in conn.execute("PRAGMA table_info(attempts)")}:
+                from .store import RESTRICTED_RUNS_SQL
+                restricted = [row["job_id"] for row in conn.execute(RESTRICTED_RUNS_SQL, (at.isoformat(), at.isoformat()))]
             version = self.schema_version(conn)
             # C-18.4: the alerts in force, from their latches, in the words they
             # last fired with (no cycle runs without the daemon).
@@ -376,6 +380,7 @@ class Offline:
             "now": at.isoformat().replace("+00:00", "Z"),
             "state_root": str(self.root),
             "schema_version": version,
+            "restricted_runs_24h": restricted,
             "lanes": lanes,
             "readings": readings,
             "weekly_samples": weekly_samples,

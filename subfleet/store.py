@@ -41,6 +41,10 @@ from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, Lane
 from .lockwatch import WatchedLock, thread_name
 
 SCHEMA_VERSION = 9
+RESTRICTED_RUNS_SQL = (
+    "SELECT DISTINCT job_id FROM attempts WHERE capability IN ('none','commands') "
+    "AND julianday(reserved_at) BETWEEN julianday(?) - 1 AND julianday(?) ORDER BY job_id"
+)
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
