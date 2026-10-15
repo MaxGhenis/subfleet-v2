@@ -63,5 +63,22 @@ The wall/admission/tick group subsequently passed **360 tests**, with one
 existing strict expected failure in `test_admission_properties.py` (C-6.10).
 That group held the lock for 293.88 seconds. The state contract passed **37**
 tests and conversation handoff passed **48**. Finalization, recovery,
-conversation-service and offline checks, additional final wall cases, and
-mutation checks remain in progress; this checkpoint is not a final test claim.
+additional final wall cases, and mutation checks remain in progress; this
+checkpoint is not a final test claim.
+
+The first six-file batch has now completed: tick prefilter **30 passed**, CLI
+**200 passed**, state contract **37 passed**, conversation handoff **48 passed**,
+conversation service **97 passed**, and offline **33 passed**. The grouped
+finalization/recovery run completed with **442 passed, 28 failed, 23 skipped**
+in 238.94 seconds of test runtime (the much longer lock wait is excluded).
+Its failures exposed an extra notice for a request with no identified session,
+a killed-verdict ordering regression, and stale sibling-attempt timestamps in
+inspection fixtures. Commit `a23099d1a` corrects those issues. The first 23 skips
+are real-process checks gated by unavailable sandbox ps/sysctl inspection.
+
+Pending at this checkpoint: the six affected files' full rerun (salvage
+finalization, notice headers, daemon settlement, wall regressions, finalization
+replay and Codex completion); the additional cancellation/final-source group;
+real-process recovery/e2e attempts; and all three mutation probes. The wall file
+now contains 19 cases. All invocations remain serialized under the shared lock.
+No final pass is claimed for the corrected files until that rerun completes.
