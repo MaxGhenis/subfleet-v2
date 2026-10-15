@@ -76,7 +76,7 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
+from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags
 
 
 def spawn_guardian(command: list[str], *, disclaim: bool, **options):
@@ -1356,6 +1356,8 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
+            if not route:
+                rows["jobs"] = [shell_flags(row) for row in rows["jobs"]]
             if scheduler.provider_caps_on(self.policy):
                 quarantines = self.store.query(PROVIDER_QUARANTINES)
                 if route:
@@ -3213,7 +3215,7 @@ class Daemon:
                 if not isinstance(a.last, int) or a.last < 0:
                     raise protocol.ProtocolError("last must be a nonnegative integer")
                 sql += " LIMIT ?"; params.append(a.last)
-            jobs = self.store.query(sql, params)
+            jobs = [shell_flags(row) for row in self.store.query(sql, params)]
             batches = self._batches([row["job_id"] for row in jobs])
             return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
                              for row in jobs]}
@@ -3232,7 +3234,8 @@ class Daemon:
             return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "mcp": mcp,
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
-                    "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
+                    "attempts": [shell_flags(row) for row in self.store.query(
+                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))],
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
                     "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
@@ -3818,8 +3821,9 @@ class Daemon:
             if not all(j["state"] in TERMINAL for j in jobs) or pending_exports:
                 return None
             for job in jobs:
-                job["attempt"] = self.store.one(
+                attempt = self.store.one(
                     "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                job["attempt"] = shell_flags(attempt) if attempt is not None else None
                 job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 

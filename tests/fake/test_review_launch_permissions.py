@@ -69,6 +69,10 @@ def test_read_only_policy_reviews_carry_capability_without_editing_output(shell_
     service._export(job)
     shown = service.dispatch('show', {'job_id': job})
     assert shown['attempts'][0]['capability'] == capability
+    assert shown['job']['needs_shell'] is False
+    assert shown['attempts'][0]['publish_denied'] is True
+    waited = service.dispatch('wait', {'job_ids': [job], 'deadline_s': 0})
+    assert waited['jobs'][0]['attempt']['publish_denied'] is True
     notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
     assert words in notice['text'].splitlines()[0]
     assert 'publish: denied' in notice['text'].splitlines()[0]
@@ -117,6 +121,8 @@ def test_status_counts_distinct_restricted_runs_last_24h(shell_state):
     assert set(Offline(service.root).status()['restricted_runs_24h']) == {j['job_id'] for j in jobs}
     view = service.dispatch('daemon.status', {})
     assert set(view['restricted_runs_24h']) == {j['job_id'] for j in jobs}
+    assert all(j['needs_shell'] is False for j in view['jobs'])
+    assert all(j['needs_shell'] is False for j in service.dispatch('list', {})['jobs'])
     text = cli.format_status(view)
     assert 'last 24h: 2 runs with no shell or no writes' in text
     assert all(j['job_id'] in text for j in jobs)
