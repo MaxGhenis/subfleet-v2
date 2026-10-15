@@ -30,6 +30,13 @@ SEEDS = range(40)
 BASE = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def daemon_process_identity(monkeypatch):
+    """These idle-daemon SQL tests do not exercise operating-system identity."""
+    monkeypatch.setattr('subfleet.daemon.procs.boot_id', lambda: 'sql-test-boot')
+    monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda _pid: 'sql-test-start')
+
+
 @pytest.fixture
 def store(tmp_path):
     handle = Store(tmp_path / "state.sqlite3", readers=2)

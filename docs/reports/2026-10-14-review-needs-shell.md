@@ -39,24 +39,31 @@ Tests-first commit `a643b05d1` produced 45 expected failures against the round-1
 
 The focused corrected run passed 107 tests in 123.82 seconds: review launch permissions 11, publish guard 33, retained needs-shell 23, migration 15 and policy sandbox 25. After hardening, the unit run completed in 190.93 seconds with 923 passes and three failures. All launch, CLI and adapter tests passed. The resumed unit check completed in 11.63 seconds with 156 passes and the same two retention failures. It confirms all 46 policy-ramp cases after the hash correction in `3680dcbdf`, 97 scheduler cases and the module-name check.
 
-The isolated `3f50142ac` baseline passed all 14 policy-support cases in 8.87 seconds. The two current retention failures are a round-1 regression: generic `Store.query`/`one` coerced the new integer flags to booleans, while retention's transaction recheck read raw SQLite integers. JSON bytes therefore differed (`false` versus `0`) for unchanged rows, and retention deferred pruning. Tests-first commit `c8d7483fc` covers raw SQL aggregates, identical archive snapshot bytes through both read paths, and boolean job/attempt accessors with and without pooled readers. Fix `eaa9b86b9` restores raw SQL values and converts flags only in the domain accessors; `789504973` preserves boolean fields in RPC records. Store, policy-support and review/state regressions are queued for verification.
+The isolated `3f50142ac` baseline passed all 14 policy-support cases in 8.87 seconds. The two retention failures were a round-1 regression: generic `Store.query`/`one` coerced the new integer flags to booleans, while retention's transaction recheck read raw SQLite integers. JSON bytes therefore differed (`false` versus `0`) for unchanged rows, and retention deferred pruning. Tests-first commit `c8d7483fc` covers raw SQL aggregates, identical archive snapshot bytes through both read paths, and boolean job/attempt accessors with and without pooled readers. Fix `eaa9b86b9` restores raw SQL values and converts flags only in the domain accessors; `789504973` preserves boolean fields in RPC records. The verification passed all 14 policy-support cases, all 17 migration/flag cases, and the review/state regressions, including strict JSON boolean assertions.
+
+That broader Store hold completed in 510.31 seconds: 292 passed and 91 failed during idle-daemon construction because macOS boot identity is unavailable. All 91 failures are confined to the SQL contention/read-pool unit files. Those fixtures now supply synthetic boot/start identities; the real SQLite queries, transactions and concurrency checks remain intact, and no operating-system identity guarantee is claimed. Their full-file rerun is queued. Production identity checks and the three process-backed skips below are unchanged.
 
 | Unit file (`tests/unit/`) | Passed | Failed | Verification |
 | --- | ---: | ---: | --- |
 | test_policy.py | 186 | 0 | recovered |
 | test_policy_disk.py | 57 | 0 | recovered |
 | test_policy_ramp.py | 46 | 0 | resumed |
-| test_policy_support.py | 12 | 2 | resumed; fix verification pending |
+| test_policy_support.py | 14 | 0 | Store fix verified |
 | test_policy_tier_preferences.py | 15 | 0 | recovered |
 | test_cli.py | 207 | 0 | recovered |
 | test_codex_adapter.py | 93 | 0 | recovered |
 | test_claude_adapter.py | 172 | 0 | recovered |
 | test_review_publish_guard.py | 66 | 0 | recovered |
-| test_store_migration_2.py | 15 | 0 | recovered |
+| test_store_migration_2.py | 17 | 0 | Store fix verified |
 | test_offline.py | 33 | 0 | recovered |
-| test_notice_rendering.py | 21 | 0 | recovered |
-| test_test_module_names.py | 1 | 0 | resumed |
+| test_notice_rendering.py | 21 | 0 | Store fix verified |
+| test_test_module_names.py | 1 | 0 | Store fix verified |
 | test_scheduler.py | 97 | 0 | resumed |
+| test_store_contention_queries.py | 123 | 89 | startup identity; fixture rerun pending |
+| test_store_properties.py | 3 | 0 | Store fix verified |
+| test_store_ids.py | 10 | 0 | Store fix verified |
+| test_store_snapshot_plans.py | 4 | 0 | Store fix verified |
+| test_store_readers.py | 24 | 2 | startup identity; fixture rerun pending |
 
 The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped and one expected failure, with the gate publication-refusal ordering regression failing. Commit `16aebc2b8` moves that refusal ahead of generic dispatch validation. The focused permission rerun passed all 15 cases in 7.85 seconds, including both providers' writable worktrees and the gate refusal. Including the bounded stateful machines and corrected notice expectations, latest file results establish 208 distinct passing fake tests, three skips and one expected failure:
 
@@ -73,7 +80,7 @@ The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped
 | test_admission_stateful.py | 2 | ci profile, both machines |
 | test_notice_header.py | 23 | — |
 
-The stateful/notice hold completed in 315.05 seconds: both state machines passed under the ci profile, while ten notice assertions still expected a header without capability evidence. Commit `244c7cf17` explicitly expects the complete Codex commands-only sentence for attempts, retaining bare headers for jobs that never reserved an attempt. The focused rerun passed all 23 notice cases in 24.86 seconds. Three requested mutation checks and Store-fix verification remain pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks and coverage relevant to new fixes are repeated.
+The stateful/notice hold completed in 315.05 seconds: both state machines passed under the ci profile, while ten notice assertions still expected a header without capability evidence. Commit `244c7cf17` explicitly expects the complete Codex commands-only sentence for attempts, retaining bare headers for jobs that never reserved an attempt. The focused rerun passed all 23 notice cases in 24.86 seconds. Three requested mutation checks and the SQL-unit fixture rerun remain pending under separate shared-lock holds. Previously passing unit files are retained from the recovered run; only unresolved checks and coverage relevant to new fixes are repeated.
 
 Three process-backed cases could not run because C-5.3's macOS boot identity is unavailable under this sandbox: `test_routing_end_to_end.py::test_c11_5_socket_submission_and_cli_why_print_recorded_walk`, `test_routing_end_to_end.py::test_c11_4_generic_adapter_probe_classifies_a_real_tiny_fake_turn`, and `test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon`. Their files were invoked; these cases remain skipped. The existing expected failure is `test_admission_properties.py::test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again`: C-6.10's wait key still includes the kind as well as the verdict. Neither limitation is represented as a pass.
 

@@ -19,6 +19,13 @@ from subfleet.daemon import READ_CONNECTIONS, Daemon
 from subfleet.store import SnapshotWriteError, Store
 
 
+@pytest.fixture(autouse=True)
+def daemon_process_identity(monkeypatch):
+    """These idle-daemon SQL tests do not exercise operating-system identity."""
+    monkeypatch.setattr('subfleet.daemon.procs.boot_id', lambda: 'sql-test-boot')
+    monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda _pid: 'sql-test-start')
+
+
 def lease(tx, key: str) -> None:
     tx.execute("INSERT INTO leases VALUES (?,?,?,NULL)", (key, "holder", "2026-09-25T00:00:00Z"))
 
