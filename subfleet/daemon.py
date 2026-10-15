@@ -3808,21 +3808,29 @@ class Daemon:
         """D-WALL1: execution across attempts, including a live finalization.
 
         A receipt's finished_at is the provider's end, not the end of a live
-        finalization. Starting rows from an older daemon can lack started_at;
-        reserved_at is their only durable start. Unlaunched terminal rows have
-        no start and spend no budget.
+        finalization. Legacy and unlaunched rows with no recorded start spend
+        no budget; their reservation is not evidence of execution.
         """
         now = datetime.now(timezone.utc).isoformat()
         total = 0.0
-        for row in self.store.query("SELECT state,started_at,reserved_at,finished_at FROM attempts WHERE job_id=?",
+        for row in self.store.query("SELECT state,started_at,finished_at FROM attempts WHERE job_id=?",
                                     (job_id,)):
             if row["state"] == "reserved":
                 continue
-            start = row["started_at"] or (row["reserved_at"] if row["state"] == "starting" else None)
+            start = row["started_at"]
             end = now if row["state"] in LIVE else row["finished_at"]
             if start and end:
                 total += max(0.0, _seconds_between(start, end))
         return total
+
+    def _enforce_wall(self, a: dict, job: dict) -> bool:
+        if a["state"] not in ("starting", "running", "finalizing") \
+                or job["state"] in TERMINAL or job["cancel_requested_at"]:
+            return False
+        running_s = self._running_s(job["job_id"])
+        return running_s >= job["max_wall_s"] and self._request_cancel(
+            job["job_id"], {"by": "daemon", "reason": "max_wall_s", "running_s": running_s},
+            family=True, attempt_id=a["attempt_id"], killed_by="max_wall_s")
 
     def _cancel_info(self, job_id: str) -> dict | None:
         row = self.store.one("SELECT ts,data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' "
@@ -7474,13 +7482,9 @@ class Daemon:
             return
         job = self._job(a["job_id"])
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
-        if not job["cancel_requested_at"]:
-            running_s = self._running_s(job["job_id"])
-            if running_s >= job["max_wall_s"]:
-                self._request_cancel(job["job_id"], {"by": "daemon", "reason": "max_wall_s", "running_s": running_s},
-                                     family=True, attempt_id=aid, killed_by="max_wall_s")
-                job = self._job(a["job_id"])
-                a = self.store.get_attempt(aid)
+        if self._enforce_wall(a, job):
+            job = self._job(a["job_id"])
+            a = self.store.get_attempt(aid)
         if a["state"] == "finalizing":
             self._finalize(a)
             return
@@ -8344,23 +8348,6 @@ class Daemon:
             if outcome.cls == OutcomeClass.OK and (completion["turn_failed"] or spawn_error):
                 outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN,
                                               detail=spawn_error or "Codex turn failed without a verified deliverable")
-        if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
-            # C-9.2: an attempt the daemon signalled (an operator's kill, the
-            # wall limit, recovery) did not finish, whatever its rc and its
-            # deliverable say. Codex exits 0 on SIGTERM and leaves its last
-            # interim message in last.md, which classify reads as a completed
-            # turn (incident: 2026-09-24, three cancelled Codex jobs recorded
-            # `ok` with rc 0 and deliverables of 32 to 61 words such as "I am
-            # checking the newer validation code before finalizing").
-            # A conversation turn is exempt: its `ok` is the driver's recorded
-            # `complete` (turn.json, the provider's own end-of-turn event), never
-            # an exit status or a last message, so a signal after it (a stop
-            # that came too late, or containment of a process that lingered)
-            # does not undo it (C-24.4, merge review 2026-09-25).
-            outcome = dataclasses.replace(
-                outcome, cls=OutcomeClass.UNKNOWN,
-                detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
-                       f"is not a finished deliverable")
         if outcome.cls == OutcomeClass.OK and lane.provider == "codex" and job["kind"] != "turn":
             # C-9.2, D-SHUT1: a cached verdict can predate the adapter's rule.
             # Acceptance always needs proof from this attempt's frozen stream,
@@ -8399,13 +8386,33 @@ class Daemon:
             eligible_states = ("starting", "running", "finalizing") if lost else ("finalizing",)
             if current != a["seq"] or actual["state"] not in eligible_states or job["accepted_attempt_id"] or job["state"] in TERMINAL:
                 return
+            if self._enforce_wall(actual, job):
+                job = self._job(a["job_id"])
+                actual = self.store.get_attempt(a["attempt_id"])
+            if outcome.cls == OutcomeClass.OK and actual.get("killed_by") and job["kind"] != "turn":
+                # C-9.2: an attempt the daemon signalled (an operator's kill, the
+                # wall limit, recovery) did not finish, whatever its rc and its
+                # deliverable say. Codex exits 0 on SIGTERM and leaves its last
+                # interim message in last.md, which classify reads as a completed
+                # turn (incident: 2026-09-24, three cancelled Codex jobs recorded
+                # `ok` with rc 0 and deliverables of 32 to 61 words such as "I am
+                # checking the newer validation code before finalizing").
+                # A conversation turn is exempt: its `ok` is the driver's recorded
+                # `complete` (turn.json, the provider's own end-of-turn event), never
+                # an exit status or a last message, so a signal after it (a stop
+                # that came too late, or containment of a process that lingered)
+                # does not undo it (C-24.4, merge review 2026-09-25).
+                outcome = dataclasses.replace(
+                    outcome, cls=OutcomeClass.UNKNOWN,
+                    detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
+                           f"is not a finished deliverable")
             cancel = bool(job["cancel_requested_at"])
             ok = not lost and rc == 0 and outcome.cls == OutcomeClass.OK
             if job["kind"] == "turn":
                 # C-24.4: the provider's success decides a turn, whatever the exit
                 # status or a stop that came too late (review F4).
                 ok = not lost and outcome.cls == OutcomeClass.OK
-                cancel = cancel and not ok
+                cancel = cancel and (not ok or actual.get("killed_by") == "max_wall_s")
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
             # C-4.5: a lane fault (an `auth-dead` lane, on an unpinned job whose
             # workspace it left as it found it) moves the job on to the next
