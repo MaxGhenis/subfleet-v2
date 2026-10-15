@@ -445,3 +445,83 @@ in a subsequent documentation commit.
 | `309c432f6` | Preserve exited family members, recheck exit state atomically and amend C-7.3 |
 
 | `de04bf646` | Save the implementation and validation checkpoint during shared-lock waits |
+
+## Round 3 (2026-10-15)
+
+Checkpoint; validation is still in progress. Base: `9fad7c4fe2c3`. Work began at
+19:41 UTC; the 4 h 30 m checkpoint for starting no more holds is 00:11 UTC.
+The full r1 review and both probe files were read. Round 2's provider-exit and
+overrun rule is retained, including the release merge's fixture resolutions.
+
+### Findings and implementation
+
+1. Inspection-load confirmation: **22 passed** at the assigned head. The
+   `started_at=` sweep, cross-checked against AST calls to `add_attempt` and
+   `update_attempt`, found the round-2 current-clock fixes intact. Other fixed
+   clocks belong to intentional wall tests, identity/census tests, quarantine
+   recovery, and fixed-clock timer tests; those files are included below as
+   validation completes.
+2. Conversation socket cancels pass the peer into message withdrawal and turn
+   interruption. Client events retain the stated session and audit-token pid,
+   ignore body pid/by fields, and are saved before a running turn can reach
+   containment. Internal message-settled cancellations retain daemon attribution.
+   The initial regression run reproduced **6 failures, 1 pass**; the first fix
+   passed **7/7**, including immediate running-turn containment. Coverage before
+   runner adoption was subsequently added and awaits its full rerun.
+3. Receipt-less live attempts are inspected before wall enforcement. Confirmed
+   liveness is saved durably as `last_observed_alive_at`; a lost provider's
+   charge ends at that observation (the launch for a legacy row without one).
+   Observations belong to the attempt's recorded boot, so no later boot or host
+   downtime extends the charge. Read-only losses retry under C-4.5. The new
+   inspection controls passed **4/4**: dead, unknown and alive providers, plus
+   durable liveness followed by a six-hour observation gap.
+4. Repeat kills traverse dependent descendants even after a single-job cancel.
+   Each newly cancelled child gets its own attributed event; the root's first
+   event and request time remain unchanged. Nested cancellation events sit
+   inside one family transaction, avoiding a second root cancellation event.
+5. Unpinned retries every candidate refuses permanently use C-11.8's existing
+   durable notice and grace machinery. Operator holds and provider limits with
+   known resets never start this retry grace. A temporarily usable candidate
+   ends the episode; later permanent refusal starts a new grace. The existing
+   pinned-job behavior and conversation-turn exemption remain intact.
+6. Online/offline `runs show`, bare and JSON, label client cancellation metadata
+   with `session_id_source: client-stated` and
+   `pid_source: socket-peer-audit-token`. Stored audit records remain unchanged;
+   historical empty events remain readable.
+
+The review probes are retained in `tests/fake/test_review_r223_wall_probes.py`
+and `tests/unit/test_review_r223_conv_probes.py`, with historical finding
+assertions updated to the hub's accepted outcomes. Their independent oracle,
+150 bounded Hypothesis examples and 2,000 seeded SQL comparisons are retained.
+The first wall probe run reproduced **8 failures, 14 passes**: downtime,
+repeat-kill cascade, unpinned refusal grace, and the four provenance display
+forms failed, while the round-2 controls passed.
+
+### Contract and execution constraints
+
+The D-WALL1 and D-KILL1 paragraphs, C-5.12, C-11.8 and version history now state
+inspection-first enforcement, downtime accounting, conversation attribution,
+repeat-kill descendants, identity-source labels and permanent retry grace.
+C-11.8's stale admission `max_wall_s` ordering is removed.
+
+The shared Git index lock was denied. Commits therefore use workspace-local
+`.git-local` metadata on `fix/wall-counts-running-time-217`, with the assigned
+head as ancestor; the original `.git` pointer and shared index are unchanged.
+Each coherent step is committed with the requested co-author trailer. Nothing
+is pushed and no sub-agents or network Git remotes are used.
+
+Tests use `uv run --frozen` on Python 3.14.4, one foreground pytest per
+`lockf -k` hold, without a lock timeout or xdist. A workspace virtual environment
+was installed because this isolated checkout had no dependencies. The sandbox
+cannot write the default uv cache, so each hold uses `UV_CACHE_DIR` inside its
+own scratch. `SUBFLEET_RETENTION_DORMANT` is unset, `HYPOTHESIS_PROFILE=ci`, and
+Hypothesis storage and XML counting evidence stay inside that scratch. Scratch
+is removed with `shutil.rmtree` after each invocation; no evidence is staged.
+
+### Validation status
+
+The combined wall/census/state and review regression hold is running. The
+conversation group, settle/pacing/prefilter group, admission groups, CLI/offline,
+pin-grace/C-11.8 files, remaining fixture-audit files and four required mutation
+checks remain to run. Final per-file counts and omissions will replace this
+checkpoint as the holds complete.
