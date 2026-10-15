@@ -1507,6 +1507,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     except ValueError:
         wanted = None
         errors.append("marker enumeration unavailable")
+    attempt_marked: set[int] = set()
+
     def marked(pid: int, raw: bytes) -> bool:
         strings = procargs_strings(raw)
         attempts = [value for value in strings if value.startswith(_ATTEMPT_PREFIX)
@@ -1514,6 +1516,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         exact = wanted is not None and wanted[0] in strings
         root_match = wanted is not None and wanted[1] is not None and wanted[1] in strings
         local = exact and (wanted[1] is None or root_match)
+        if local:
+            attempt_marked.add(pid)
         foreign_marker = bool(attempts) and not local
         if foreign_marker:
             try:
@@ -1538,6 +1542,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     if other and not own and identity(pid) == current:
                         foreign_attempts[pid] = current
                     elif own:
+                        if wanted[0] in values:
+                            attempt_marked.add(pid)
                         return True
             except InspectionError:
                 pass                 # Failed foreign proof can never exclude cwd.
@@ -1611,7 +1617,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                     else:
                         if not state or state.startswith("Z"):
                             continue
-                observe_later(pid, source, local_marker=True)
+                # A shared root alone does not contradict verified ownership
+                # by another attempt. Exact attempt markers and responsibility
+                # members still retain collisions as conservative holds.
+                observe_later(pid, source, local_marker=pid in attempt_marked or source is responsible)
         observed_writer = observed_writer or bool(markers | responsible)
         errors.extend(failed)
     if workdir is not None:
