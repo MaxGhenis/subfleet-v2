@@ -65,3 +65,34 @@ def test_doctor_invalid_timeout_names_variable_without_value(tmp_path, monkeypat
     rendered = doctor.render([item])
     assert "CODEX_GUARD_PREFLIGHT_TIMEOUT" in rendered
     assert marker not in rendered
+
+
+@pytest.mark.parametrize("path", ["gate", "salvage", "finalization", "retention"])
+def test_policy_reaches_helpers_with_mandatory_git_removals(path, tmp_path, monkeypatch):
+    from subfleet import launch_env, retention_git, salvage
+    from subfleet.gate import merge
+    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy",
+                                       "GIT_DIR": "/dummy/other-repo", "GIT_TRACE": "dummy"})
+    policy = {"env": {"pass": ["GH_TOKEN", "GIT_DIR", "GIT_TRACE"]}}
+    seen = []
+    with launch_env.helper_policy(policy):
+        if path == "gate":
+            merge.run_command(["fake-gh"], cwd=tmp_path, runner=lambda *args, **kwargs:
+                              seen.append(kwargs["env"]))
+        elif path == "retention":
+            seen.append(retention_git.environment())
+        else:
+            monkeypatch.setattr(salvage.subprocess, "run", lambda *args, **kwargs:
+                                seen.append(kwargs["env"]) or SimpleNamespace(returncode=0, stdout=b"", stderr=b""))
+            if path == "salvage":
+                salvage._git(tmp_path, "rev-parse", "HEAD")
+            else:
+                from subfleet.conversations import diff
+                diff._git_bytes(tmp_path, "diff", "--binary")
+    assert seen
+    for env in seen:
+        assert env["GH_TOKEN"] == "dummy"
+        assert "OTHER_TOKEN" not in env
+        if path != "gate":
+            assert "GIT_DIR" not in env and "GIT_TRACE" not in env
+    assert "GH_TOKEN" not in build_environment()

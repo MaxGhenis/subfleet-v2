@@ -13,11 +13,14 @@ from tests.unit.test_launch_env_allowlist import ALLOWED, POLICY, POLLUTION
 
 
 @pytest.mark.parametrize("mode", ["detached", "turn", "probe", "enrollment"])
-def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode):
+def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode, *, passed_pythonpath=False):
     service, harness = routing_state
     parent = {"PATH": "/usr/bin:/bin", **POLLUTION}
+    if passed_pythonpath:
+        parent["PYTHONPATH"] = "/dummy/policy-python"
     monkeypatch.setattr(os, "environ", parent)
-    service._provider_environment = ProviderEnvironment(POLICY)
+    policy = {**POLICY, "env": {"pass": ["PYTHONPATH"]}} if passed_pythonpath else POLICY
+    service._provider_environment = ProviderEnvironment(policy)
     seen = []
     original_popen = daemon_module.subprocess.Popen
     def stopped(argv, **kwargs):
@@ -60,6 +63,7 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode)
     # Guardian authorization carries names only and covers launch-owned variables.
     passed = {argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass"}
     assert set(env) - ALLOWED - {"PYTHONPATH"} <= passed
+    return argv, env
 
 
 def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeypatch):
@@ -73,3 +77,37 @@ def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeyp
     output = doctor.render([doctor.check_daemon_environment(service.root)])
     assert all(name in output for name in POLLUTION)
     assert "dummy" not in output
+
+
+@pytest.mark.parametrize("mode", ["detached", "turn", "probe", "enrollment"])
+@pytest.mark.parametrize("relay", [False, True], ids=["stdin", "relay"])
+def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeypatch, tmp_path, mode, relay):
+    """Run each real daemon launch through the guardian's actual provider seam."""
+    from subfleet import guardian
+    with monkeypatch.context() as patch:
+        argv, environment = test_actual_daemon_spawn_rejects_pollution(
+            routing_state, patch, mode, passed_pythonpath=True)
+    passed = tuple(argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass")
+    seen = []
+    monkeypatch.setattr(guardian.os, "environ", environment)
+    monkeypatch.setattr(guardian.os, "setsid", lambda: None)
+    monkeypatch.setattr(guardian.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(guardian, "boot_id", lambda: "fake")
+    monkeypatch.setattr(guardian, "proc_start", lambda pid: "fake")
+    monkeypatch.setattr(guardian, "linger", lambda: None)
+    monkeypatch.setattr(guardian.subprocess, "Popen", lambda *args, **kwargs:
+                        seen.append(kwargs["env"]) or type("Child", (), {"pid": 123, "wait": lambda self: 0})())
+    if relay:
+        from subfleet import relay as relay_module
+        from types import SimpleNamespace
+        monkeypatch.setattr(relay_module, "RelayServer", lambda *args, **kwargs: SimpleNamespace(
+            bind=lambda: None, serve=lambda fd, **kwargs: os.close(fd), stop=lambda: None))
+    previous = os.umask(0o077)
+    try:
+        guardian.run_guardian(["fake-provider"], attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
+                              stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
+                              env_pass=passed, control_socket=str(tmp_path / "relay.sock") if relay else None)
+    finally:
+        os.umask(previous)
+    assert seen[0]["PYTHONPATH"] == "/dummy/policy-python"
+    assert not any(name.startswith("_SUBFLEET_") for name in seen[0])
