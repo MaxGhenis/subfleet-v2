@@ -63,3 +63,78 @@ the requested co-author trailer. Delivery is the ignored, unstaged
 `docs/reports/2026-10-14-frozen-stream-p3.bundle`, with prerequisite
 `75597f81bb3b` and the workspace-local branch. No logs, JSON evidence or bundles
 were staged.
+
+## Round 2: review r1, recovered through `7974068bc`
+
+Reviewed base: `e0d50b1c8`; review: `~/reviews/subfleet-2110/frozen-stream-p3/review-r1.md`.
+The recovered regression commits `57a19c3b0`, `3e4817d04`, `34bdd142a`,
+`a61ab5c84`, and `f9a877f70`, followed by production fix `440e4751b` and the
+additional regressions at `7974068bc`, were preserved. The cold-boot patch
+contained only this unfinished report section; it applied cleanly. Inspection
+confirmed that the production fix already covers both
+P2s, both P3s, and chunked copying. This continuation adds regression coverage
+and completes validation and reporting.
+
+Round 2 replaces round 1's link-count rule with descriptor identity. At first
+capture, the candidate is opened once and its `(st_dev, st_ino)` is compared
+with the resolved stdout, stderr, raw path, and Codex `last.md` destinations.
+Each regular candidate is copied from that descriptor into a fresh file,
+published with file fsync, rename, and directory fsync. Copying every candidate
+also covers an unlinked inode still held by a provider's writable descriptor
+and mutations after the identity check. Neither names nor link counts prove
+that the provider can no longer change an inode.
+
+C-9.2 requires completion proof from the attempt's own frozen evidence before
+acceptance. A file the provider can still write means an inode reached through
+its output destinations or retained writable descriptors, including directory
+aliases, hard links, and an unlinked open writer. C-4.3 and C-12.6 now connect
+that requirement to the fresh copy. `stream.freeze.json` records the copy's
+identity and digest; replay and restart reuse that copy. A missing, replaced,
+changed, or newly writable copy invalidates cached classification and extraction
+together, so a new capture is classified and extracted from scratch.
+
+Finding dispositions:
+
+- **P2: stdout aliases.** Directory aliases and `raw = stdout = stream.jsonl`
+  receive independent copies. Appended completion cannot accept cached interim
+  text on replay or restart.
+- **P2: link-count authority.** Links to the original candidate, unlinked writers,
+  and a link introduced at `fstat` cannot change the recorded copy.
+  Publication-time links to a new copy trigger another fresh copy from the same
+  source descriptor. A later link from stdout to the published copy invalidates
+  its authority: replay/restart classify and extract again rather than retain
+  the cached result. The continuation adds both replay and restart regressions
+  for this case, retaining the copy's inode while writing through the new link.
+- **P3: mode-000 directory replacement.** EACCES/EPERM becomes `NotRegularFile`
+  only when reinspection proves a non-regular replacement; genuine regular-file
+  permission errors propagate.
+- **P3: post-check ENOENT.** ENOENT on a still-present regular entry propagates,
+  as do EIO and EACCES; genuine disappearance captures no events.
+- **P3: copy memory.** Copying, digest verification, and artifact hashing use
+  reads of at most 1 MiB. The regression counts candidate opens by inode and
+  rejects an unbounded read.
+
+Recovered test commit: `7974068bc` (`test: cover directory aliases and stream
+open error controls`, recovered from `d68991170`). Deterministic cases and the
+bounded generated property now include directory aliases at every freeze boundary: before open,
+after open, `fstat`, read, file fsync, rename, directory fsync, and after freeze.
+The ENOENT/EIO/EACCES cases cover both providers. Permission controls also cover
+EPERM, explicitly distinguish real permission errors from `NotRegularFile`, and
+exercise a mode-000 replacement through the real kernel open.
+
+Continuation test commit: `5625e2b82` (`test: reclassify copies linked to stdout
+after publication`). This adds two cases to the existing invalid-copy test,
+covering both in-process replay and daemon restart without replacing the
+published inode. No further production changes were necessary.
+
+Baseline verification used a workspace-local archive of `e0d50b1c8`, with only
+the current regression tests overlaid. The selected 95 deterministic cases
+produced **79 expected failures and 16 passing controls** in 6.10 seconds.
+All executed review inputs failed: directory aliases, `raw = stdout =
+stream.jsonl`, post-copy links, unlinked writers, the link at `fstat`, the real
+mode-000 directory replacement, and post-check ENOENT for both providers.
+EIO/EACCES and genuine regular-file permission controls passed. The two new
+post-copy-link cases also failed because classification and extraction were
+not rerun. The selection also reproduced the unbounded-read failure and
+publication-time copy-alias failures. Baseline failures were assertion failures
+or the expected permission errors, with no collection or fixture errors.
