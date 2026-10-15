@@ -226,8 +226,9 @@ def with_launch(core, monkeypatch):
                          ids=["oserror", "unexpected"])
 @pytest.mark.parametrize("has_receipt", [False, True], ids=["dead-guardian", "exit-receipt"])
 @pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize("cached", [False, True], ids=["first-capture", "cached-success"])
 def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
-        daemon, monkeypatch, caplog, error, has_receipt, provider):
+        daemon, monkeypatch, caplog, error, has_receipt, provider, cached):
     """C-4.2/C-9.2: failed capture cannot wedge death or accept live completion proof."""
     with_launch(daemon, monkeypatch)
     with daemon.store.transaction() as tx:
@@ -238,11 +239,12 @@ def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
     adir = attempt_dir(daemon.root, JOB, 1)
     # Even a previous success verdict and captured answer cannot supply proof
     # after this capture fails. The live stream above claims completion too.
-    (adir / "finalization.json").write_text(json.dumps({
-        "outcome": {"cls": "ok", "detail": "cached success"},
-        "attestation": {"status": "attested", "served_model": "astra"},
-        "rule": daemon_module.FINALIZATION_RULE, "stream": "previous-copy.jsonl"}))
-    (adir / "deliverable.md").write_bytes(b"cached answer\n")
+    if cached:
+        (adir / "finalization.json").write_text(json.dumps({
+            "outcome": {"cls": "ok", "detail": "cached success"},
+            "attestation": {"status": "attested", "served_model": "astra"},
+            "rule": daemon_module.FINALIZATION_RULE, "stream": "previous-copy.jsonl"}))
+        (adir / "deliverable.md").write_bytes(b"cached answer\n")
     daemon._contain = lambda a: EMPTY
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
 
@@ -269,6 +271,25 @@ def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
     assert not [row for row in daemon.store.list_artifacts(ATTEMPT) if row["role"] in ("raw-stream", "export")]
     assert "stream capture failed" in caplog.text
     assert type(error).__name__ in caplog.text
+
+
+def test_unreadable_provider_files_cannot_repeat_a_freeze_failure(daemon, monkeypatch):
+    """The same read error in diagnostics cannot prevent recording a failed capture."""
+    with_launch(daemon, monkeypatch)
+    publish_receipt(daemon)
+    daemon._begin_finalizing(attempt(daemon), json.loads(receipt_path(daemon).read_text()))
+    daemon._contain = lambda a: EMPTY
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("provider files unreadable")
+
+    monkeypatch.setattr(daemon, "_freeze_stream", unreadable)
+    monkeypatch.setattr(daemon, "_artifact", unreadable)
+    daemon._process_attempt(ATTEMPT)
+    ended = attempt(daemon)
+    assert ended["state"] == "failed" and ended["finished_at"]
+    assert ended["outcome_class"] == "transient"
+    assert daemon.store.get_job(JOB)["accepted_attempt_id"] is None
 
 
 def test_bare_daemon_has_optional_hook_defaults(tmp_path):
