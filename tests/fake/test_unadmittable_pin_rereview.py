@@ -63,7 +63,7 @@ def test_rr_a_ping_that_reuses_a_withdrawn_pin_notice_id_names_no_job(fleet):
 
 # --- P3: a pending pin notice rides with a job's end that is not the pin's failure -------------------
 
-def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet):
+def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet, monkeypatch):
     """C-11.8 withdraws a still-pending pin notice only when the pin fails the job
     ("since the terminal notice supersedes it"). A job whose lane came back and that
     then succeeded keeps its unseen "can never admit it ... Fix: resubmit ..., then
@@ -81,6 +81,9 @@ def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet):
     service._pending_launches.discard(attempt["attempt_id"])
     adir = service.root / "jobs" / stuck / "a1"
     adir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # No guardian was launched: this notice-only fixture has no processes.
+    from subfleet.procs import Containment
+    monkeypatch.setattr(service, "_contain", lambda a: Containment())
     service._finalize(receipt_fixture(service, attempt, adir))
     job = service.store.get_job(stuck)
     assert job["state"] == "succeeded", job["state"]
