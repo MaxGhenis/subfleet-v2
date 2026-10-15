@@ -561,6 +561,7 @@ OPS = st.lists(st.sampled_from(["submit", "submit3", "admit", "admit", "answer",
 # Each `random.Random(0)` is built once and shared by the property and its mutation tests;
 # no example draws from it (one job, or no op that picks). One that does needs its own.
 @example(lanes=1, ops=["submit3", "admit"], pick=random.Random(0))     # the burst; its mutation meets it every run
+@example(lanes=2, ops=["submit", "admit", "finish-dead", "submit"], pick=random.Random(0))
 def test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_factory, lanes, ops, pick):
     """For any order of submissions, passes, answers, ends (on a lane that works or one
     that has gone auth-dead) and lanes going idle past the window:
