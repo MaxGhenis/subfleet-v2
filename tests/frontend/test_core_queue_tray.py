@@ -36,7 +36,7 @@ import tempfile
 import uuid
 
 import pytest
-from hypothesis import HealthCheck, event, given, settings, strategies as st
+from hypothesis import HealthCheck, event, example, given, settings, strategies as st
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness
@@ -1411,14 +1411,18 @@ def test_c29_7_real_store_offers_send_now_only_on_an_eligible_head(core_probe, h
 
 
 @PROPERTY
+@example(origins=["person"], missed=[True] + [False] * 7)
+@example(origins=["wake", "person", "person"], missed=[False, False, True] + [False] * 5)
 @given(origins=st.lists(st.sampled_from(["person", "wake", "unblock-note", "failover"]), min_size=1, max_size=8),
        missed=st.lists(st.booleans(), min_size=8, max_size=8))
 def test_c29_7_property_order_matches_the_real_daemons_next_dispatchable(core_probe, origins, missed):
+    """Tray rows preserve dispatcher order; missed steers remain timeline bubbles."""
     with tempfile.TemporaryDirectory(prefix="sf-tray-order-") as scratch:
         harness = ServiceHarness(Path(scratch))
         try:
             cid = harness.create()["conversation_id"]
             entries = []
+            missed_ids = set()
             predecessor = None
             for index, origin in enumerate(origins):
                 mid = str(uuid.uuid4())
@@ -1426,6 +1430,8 @@ def test_c29_7_property_order_matches_the_real_daemons_next_dispatchable(core_pr
                     text=f"message {index}", attachments=[], settings=harness.settings(), origin=origin,
                     state_reason="steer-missed:host" if missed[index] else None)
                 entries.append(harness.call("message.status", message_ids=[mid])["messages"][0])
+                if missed[index]:
+                    missed_ids.add(mid)
                 if origin == "person":
                     predecessor = mid
             expected = []
@@ -1435,7 +1441,8 @@ def test_c29_7_property_order_matches_the_real_daemons_next_dispatchable(core_pr
         finally:
             harness.close()
         snapshot = run_queue(core_probe, [{"receipts": entries, "held": True}], cid=cid)["snapshots"][0]
-    assert tray(snapshot) == expected
+    assert tray(snapshot) == [mid for mid in expected if mid not in missed_ids]
+    assert all(f"person:{mid}" in ids(snapshot) for mid in missed_ids)
 
 
 def test_c29_7_an_own_send_glides_when_its_receipt_beats_the_first_view_update(core_probe):

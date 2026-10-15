@@ -431,7 +431,15 @@ application behavior change. No further build-script change is needed.
 
 ### Test checkpoint
 
-The first required hold (`test_core_queue_tray.py` and
-`test_queue_tray_notice.py`) is waiting for the shared test lock. No pytest
-results or mutation kills are claimed yet. The final tables below will record
-every required file and all twelve named mutations, including anything unrun.
+The first required hold completed in 588.65 s: `test_core_queue_tray.py`
+44 passed / 1 failed; `test_queue_tray_notice.py` 2 passed. The failed test,
+`test_c29_7_property_order_matches_the_real_daemons_next_dispatchable`, still
+required a missed steer in the tray. Its smallest failing example is one
+person message with `steer-missed:host`; the application correctly keeps it in
+the timeline under the hub's design. The test now filters missed steers from
+the daemon-drained order and separately requires their timeline bubbles.
+Explicit examples retain that failure and a mixed wake/person/missed-steer
+queue, so dispatcher ordering remains covered. Production code is unchanged.
+The corrected property awaits its verification hold. Queue-engine tests are
+queued next. The final tables will record all fifty required files and twelve
+named mutations, including anything unrun.
