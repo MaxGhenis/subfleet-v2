@@ -55,6 +55,14 @@ def test_configuration_prefix_refuses_credential_words(word, suffix):
     assert name in build_environment(environ=parent, pass_names=[name])
 
 
+def test_configuration_prefix_keeps_launch_markers_explicit():
+    names = {"SUBFLEET_JOB", "SUBFLEET_ATTEMPT", "SUBFLEET_SESSION_ID", "SUBFLEET_TURN_JOB",
+             "SUBFLEET_ROOT", "SUBFLEET_PROBE", "SUBFLEET_PUSH_BUNDLE", "SUBFLEET_RUN_DETACH"}
+    parent = dict.fromkeys(names, "dummy")
+    assert build_environment(environ=parent) == {}
+    assert build_environment(parent, environ={}) == parent
+
+
 @pytest.mark.parametrize("mode", ["detached", "resume", "turn", "isolated"])
 def test_memory_removal_beats_exact_policy(mode, tmp_path, monkeypatch):
     monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin",
