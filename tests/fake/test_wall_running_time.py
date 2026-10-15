@@ -274,3 +274,21 @@ def test_kill_reports_already_finished_when_settlement_wins_the_transaction(wall
     monkeypatch.setattr(service, '_request_cancel', finish_first)
     assert service.dispatch('kill', {'job_id': jid})['status'] == 'already finished'
     assert cancel_events(service, jid) == []
+
+
+def test_launch_failure_starts_execution_at_finalization_not_reservation(wall, monkeypatch):
+    service, _ = wall
+    jid, aid = history(wall, durations=(1000,), waits=(), state='reserved')
+    service.store.update_attempt(aid, started_at=None, reserved_at=stamp(-1000))
+    service._begin_finalizing(service.store.get_attempt(aid), {'rc': 127, 'spawn_error': 'unavailable'})
+    assert datetime.fromisoformat(service.store.get_attempt(aid)['started_at']) == NOW
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW + timedelta(seconds=7)
+
+    monkeypatch.setattr(daemon_module, 'datetime', Later)
+    monkeypatch.setattr(service, '_finalize', lambda a: None)
+    service._process_attempt(aid)
+    assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
