@@ -307,3 +307,33 @@ The ten earlier mutations also died: removal of the steer, removal of model excl
 No requested file remains unrun. `git diff --check` and syntax parsing of all changed Python modules pass. Every commit has `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. The final documentation step also corrects the stale duration comment to describe exclusion while the steer is live; the 900-second value is unchanged.
 
 Commits remain on `fix/model-capacity-steer` in workspace-local `.git-local` metadata. The verified portable bundle is `.git-local/r207f3.bundle`, for import against `930b7acff53a`. No logs, JSON evidence, bundles or temporary archives were staged. Test temporary storage and replay archives were cleaned, and no `.hypothesis` directory remains. No push, PR comment or remote operation was performed.
+
+
+## PR #207 fix round 4
+
+Resumed after the cold boot on 2026-10-15 at recovered head `c68d56f4e356`.
+The assigned checkout was clean. The four recovered commits were read in order;
+their completed work was preserved:
+
+- `221102602`: the review-r3b minimized input is a named regression: three
+  unpinned standard reviews, two Codex lanes, one active-attempt slot and an
+  `os-error` probe. It requires all three jobs to succeed within seven passes.
+- `3c41ac38a`: deterministic regressions run inside a bounded Hypothesis context,
+  allowing the state machine's notes and events.
+- `9fc0fd66e`: simulated successes write a frozen Codex `turn.completed` or Claude
+  success `result`, alongside the exit-zero receipt and nonblank deliverable
+  required by C-9.2. Unsuccessful finishes write no success terminal event and
+  retain nonzero exit receipts. Eight cases check both providers' success,
+  transient, quota and model-capacity outcomes through real finalization.
+- `c68d56f4e`: explicit CLI seeds select distinct state-machine searches while
+  retaining the CI bounds of 40 examples and at most 30 steps per machine.
+
+The recovered fixture matches the finalizer's completion requirements; no source
+step needed repeating. Validation after restart is pending. The planned CI seeds
+are `207401`, `207402` and `207403`, followed by the three requested file groups.
+
+The shared Git metadata is outside the writable roots, so new commits use
+workspace-local `.git-local` metadata on `fix/model-capacity-steer`, with the
+original `.git` pointer unchanged. Inspect it with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`. No remote, caller
+checkout, live store or live process was accessed; no sub-agents were used.
