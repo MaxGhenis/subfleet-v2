@@ -35,7 +35,7 @@ Contract clauses C-11.1, C-11.2, C-12.3, C-12.4, C-15.1 and C-17.2 and version h
 
 Every pytest invocation uses its own foreground lockf hold, no lock timeout, the ci profile and temporary Hypothesis storage. There is only one pytest process at a time. The writable-worktree regression invokes pytest in-process to exercise its tmp_path fixture without starting a second pytest process. All Git targets are disposable local file:// repositories and gh is fake. No provider, live store or GitHub endpoint is used.
 
-Latest normal file results combine the recovered passing checks with resumed verification: **1,488 distinct passes, three sandbox skips and one existing expected failure**, with no remaining ordinary failures. Every requested file was invoked; the three unexecuted process cases are named below. One mutation check remains pending.
+Latest normal file results combine the recovered passing checks with resumed verification: **1,488 distinct passes, three sandbox skips and one existing expected failure**, with no remaining ordinary failures. Every requested file was invoked; the three unexecuted process cases are named below. All three mutations were caught by named regressions.
 
 Tests-first commit `a643b05d1` produced 45 expected failures against the round-1 head. Implementation commit `497b13787` includes the policy, evidence, launch guard and contract. The first implementation check found the old notice invariant parser, a repeated in-process pytest module basename and an existing stale migration-version expectation; these fixtures were corrected without changing deliverable semantics.
 
@@ -82,7 +82,7 @@ The first resumed fake run completed in 71.62 seconds: 182 passed, three skipped
 | test_admission_stateful.py | 2 | ci profile, both machines |
 | test_notice_header.py | 23 | — |
 
-The stateful/notice hold completed in 315.05 seconds: both state machines passed under the ci profile, while ten notice assertions still expected a header without capability evidence. Commit `244c7cf17` explicitly expects the complete Codex commands-only sentence for attempts, retaining bare headers for jobs that never reserved an attempt. The focused rerun passed all 23 notice cases in 24.86 seconds. One remaining mutation check is pending under its own shared-lock hold. Previously passing unit files are retained from the recovered run; only unresolved checks and coverage relevant to new fixes were repeated.
+The stateful/notice hold completed in 315.05 seconds: both state machines passed under the ci profile, while ten notice assertions still expected a header without capability evidence. Commit `244c7cf17` explicitly expects the complete Codex commands-only sentence for attempts, retaining bare headers for jobs that never reserved an attempt. The focused rerun passed all 23 notice cases in 24.86 seconds. Previously passing unit files are retained from the recovered run; only unresolved checks and coverage relevant to new fixes were repeated.
 
 Three process-backed cases could not run because C-5.3's macOS boot identity is unavailable under this sandbox: `test_routing_end_to_end.py::test_c11_5_socket_submission_and_cli_why_print_recorded_walk`, `test_routing_end_to_end.py::test_c11_4_generic_adapter_probe_classifies_a_real_tiny_fake_turn`, and `test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon`. Their files were invoked; these cases remain skipped. The existing expected failure is `test_admission_properties.py::test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again`: C-6.10's wait key still includes the kind as well as the verdict. Neither limitation is represented as a pass.
 
@@ -92,8 +92,12 @@ Mutation: changing the shipped `permissions.review` back to `read-only` was kill
 
 Mutation: dropping `protect_launch`'s publication block was killed by `tests/unit/test_review_publish_guard.py::test_review_launch_real_git_push_local_file_is_denied` and `::test_review_gh_write_denied_reads_reach_fake`: 52 expected failures and 12 passing read controls in 17.56 seconds. All 12 Git launch combinations actually pushed to their disposable local bare repositories with the block removed; all 40 fake-gh write cases reached the fake. The 12 permitted reads continued to pass.
 
+Mutation: making `launch_has_shell` always return true was killed by `tests/fake/test_review_needs_shell.py::test_hard_review_waits_for_codex_then_runs_with_shell` (one expected failure, 3.01 seconds): it wrongly admitted the read-only Claude fallback while Codex was full. All three mutated files were restored and checked byte for byte against the final implementation. The completed test holds stayed below 20 minutes; the longest was the 510.31-second Store verification.
+
 ## Delivery and remaining work
 
 The shared Git index is not writable in this sandbox. All round-2 commits use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, with original ancestry and the required co-author trailer. Files in the assigned worktree contain the changes. No caller checkout write, live policy edit, history rewrite, network Git remote access or GitHub call occurred. Publication controls use only disposable local file:// bare repositories.
 
-The hub owns the live policy installation and notifying Fleet ops. Verification and immutable-publication-boundary caveats are tracked above; final test counts follow before delivery.
+Both rounds' requested verification is complete apart from the three explicitly skipped process cases and the existing expected failure. No test wrapper remains running, temporary verification copies were removed with `shutil.rmtree`, and no `.hypothesis` directory remains. No evidence logs, JSON evidence or bundles were staged.
+
+The hub owns live policy installation and notifying Fleet ops, and must retain the documented #222 merge seam. The publishing layer's command-surface boundary and disabled remote Git transports remain explicit limitations above.
