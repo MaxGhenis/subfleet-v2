@@ -329,6 +329,62 @@ def test_live_provider_at_six_hours_is_stopped(wall, monkeypatch):
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 6 * 3600}]
 
 
+@pytest.mark.parametrize('state', ['starting', 'running', 'finalizing'])
+def test_enforcement_never_cancels_a_known_exit(wall, state):
+    service, _ = wall
+    jid, aid = history(wall, durations=(7 * 3600,), waits=(), state=state, cap=6 * 3600)
+    service.store.update_attempt(aid, finished_at=stamp(0))
+    assert not service._enforce_wall(service.store.get_attempt(aid), service.store.get_job(jid))
+    assert service._running_s(jid) == 7 * 3600
+    assert cancel_events(service, jid) == []
+
+
+@pytest.mark.parametrize('state', ['running', 'finalizing'])
+def test_quarantine_preserves_known_provider_exit(wall, state):
+    from subfleet.procs import Containment
+    service, _ = wall
+    jid, aid = history(wall, durations=(2 * 3600,), waits=(), state=state, cap=6 * 3600,
+                       settlements=(3 * 86400,), exited=True)
+    service._quarantine(service.store.get_attempt(aid), Containment(descendant_pids=frozenset({4242})),
+                        'writers remain after exit receipt')
+    assert service.store.get_attempt(aid)['finished_at'] == stamp(-3 * 86400)
+    assert service._running_s(jid) == 2 * 3600
+
+
+@pytest.mark.parametrize('interrupted', [False, True])
+def test_census_end_is_not_extended_by_finalization(wall, monkeypatch, interrupted):
+    service, harness = wall
+    from tests.fake.test_state_contract import reserve
+    jid, first, _ = reserve(service, harness)
+    aid = first['attempt_id']
+    service.store.update_attempt(aid, state='running', started_at=stamp(-2 * 3600))
+    saved_launch = service._saved_launch
+
+    def slow_launch_read(a):
+        class Later(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return NOW + timedelta(days=3)
+        monkeypatch.setattr(daemon_module, 'datetime', Later)
+        return saved_launch(a)
+
+    monkeypatch.setattr(service, '_saved_launch', slow_launch_read)
+    if interrupted:
+        def failed_launch_read(a):
+            slow_launch_read(a)
+            raise OSError('fixture finalization interrupted')
+        monkeypatch.setattr(service, '_saved_launch', failed_launch_read)
+        with pytest.raises(OSError, match='fixture finalization interrupted'):
+            service._lost(service.store.get_attempt(aid))
+        assert datetime.fromisoformat(service.store.get_attempt(aid)['finished_at']) == NOW
+        assert service._running_s(jid) == 2 * 3600
+        monkeypatch.setattr(service, '_saved_launch', saved_launch)
+    service._lost(service.store.get_attempt(aid))
+    assert datetime.fromisoformat(service.store.get_attempt(aid)['finished_at']) == NOW
+    assert service._running_s(jid) == 2 * 3600
+    assert cancel_events(service, jid) == []
+
+
 @pytest.mark.parametrize('cap,expired', [(0.0112, True), (0.0113, False)])
 def test_tick_rounding_cannot_hide_a_spent_running_budget(wall, monkeypatch, cap, expired):
     service, _ = wall
