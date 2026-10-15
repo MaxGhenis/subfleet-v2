@@ -295,13 +295,16 @@ Supplemental foreground native checks ran under separate shared-lock holds:
   catch-up; after a person scroll, later growth left them 1,721 and 1,707 points
   above the end. No window was visible. The final updated probe compiles too.
 - Final full-source `app/build.sh`: passed, including plist and signing checks.
-- Final fixed-core and daemon-backed watch comparisons: already queued under a
-  shared-lock hold, still waiting as of 18:00 UTC. The base scroll probe compiles,
-  but its additional runtime comparison is unrun.
+- Final fixed-core and daemon-backed watch comparisons: unrun. Their supplemental
+  foreground hold produced no acquisition marker or check results while queued;
+  it was interrupted at 18:16 UTC to finish after the job's 4 h 30 m cutoff.
+  No pytest process was started by that hold. The base scroll probe compiles,
+  but its additional runtime comparison is unrun too.
 
-The job's 4 h 30 m cutoff is 18:12 UTC. No further holds will be started. The
-existing hold will be allowed to finish; any results will be added in a follow-up
-commit. These supplemental checks are not counted as pytest passes.
+No further holds were started after the cutoff, and no foreground command is
+left running. These supplemental checks are not counted as pytest passes.
+The source build passes, but the required regression and mutation verification
+is incomplete; this report does not assert that all round-2 tests pass.
 <!-- /r219f2-validation -->
 
 ### Required pytest files — this round only
@@ -391,7 +394,8 @@ changes the production sources.
 ### Transfer and remaining work
 
 The shared index is read-only. New commits live in `.git-local` on
-`feat/queue-tray-217`; the caller's checkout is untouched. A local incremental
-bundle will be provided for transfer without a network remote. Logs, JSON
+`feat/queue-tray-217`; the caller's checkout is untouched. The verified incremental
+bundle `docs/reports/2026-10-14-queue-tray-round2.bundle` requires base
+`8d7cbcb6959e` and transfers the local branch without a network remote. Logs, JSON
 probe output and bundles remain unstaged. Full pytest and mutant verification,
 plus real macOS 14 and 15 hardware checks, remain outstanding.
