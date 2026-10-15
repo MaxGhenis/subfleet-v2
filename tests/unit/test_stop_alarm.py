@@ -21,6 +21,7 @@ LAUNCHER = r'''
 import faulthandler, json, os, signal, subprocess, sys, threading
 from pathlib import Path
 from subfleet.daemon import watch_stop
+from subfleet.launch_env import build_environment, guardian_pass_args
 
 root = Path(sys.argv[1])
 # A daemon must reset an inherited ignored or blocked SIGALRM before arming.
@@ -57,12 +58,14 @@ while not (root / 'release-provider').exists():
     time.sleep(.01)
 print('survived')
 """
+env = build_environment({name: os.environ[name] for name in ("SUBFLEET_ATTEMPT", "SUBFLEET_JOB")
+                         if name in os.environ})
 guardian = subprocess.Popen([
     sys.executable, "-m", "subfleet.guardian",
     "--attempt-dir", str(root), "--cwd", str(root),
     "--stdout-path", str(root / "stdout"), "--stderr-path", str(root / "stderr"),
-    "--", sys.executable, "-c", provider, str(root),
-], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    *guardian_pass_args(env), "--", sys.executable, "-c", provider, str(root),
+], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 print(json.dumps({"guardian_pid": guardian.pid, "alarm_remaining": remaining}), flush=True)
 threading.Event().wait()
 '''

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import procs
+from subfleet.launch_env import build_environment, guardian_pass_args
 from subfleet.relay import RelayClient, read_log
 
 ECHO = "import sys\nfor line in sys.stdin:\n    sys.stdout.write('got:' + line); sys.stdout.flush()\nprint('eof')\n"
@@ -50,11 +51,12 @@ def guardian(tmp_path, request):
     attempt = tmp_path / "a1"
     # Short enough for AF_UNIX; a private directory, as `<state root>/run` is.
     sock = Path("/private/tmp") / f"sfr-{os.getpid()}-{time.monotonic_ns() % 10**6}" / "x.sock"
+    env = build_environment({"PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+                             "SUBFLEET_ATTEMPT": "relay/a1", "SUBFLEET_JOB": "relay"})
     argv = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(attempt), "--cwd", str(tmp_path),
             "--stdout-path", str(attempt / "stdout"), "--stderr-path", str(attempt / "stderr"),
-            "--control-socket", str(sock), "--relay-peer-lock", str(lock), "--", sys.executable, "-c", ECHO]
-    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
-           "SUBFLEET_ATTEMPT": "relay/a1", "SUBFLEET_JOB": "relay"}
+            "--control-socket", str(sock), "--relay-peer-lock", str(lock),
+            *guardian_pass_args(env), "--", sys.executable, "-c", ECHO]
     process = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     yield attempt, sock, process
     if process.poll() is None:

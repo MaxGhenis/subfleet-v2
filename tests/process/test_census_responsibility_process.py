@@ -25,6 +25,7 @@ import uuid
 import pytest
 
 from subfleet import procs
+from subfleet.launch_env import guardian_pass_args
 
 REPO = Path(__file__).resolve().parents[2]
 PERL_ESCAPE = ("import os, sys\n"
@@ -159,7 +160,8 @@ def guardian(tmp_path: Path, *, disclaimed: bool, attempt: str):
            "SUBFLEET_ATTEMPT": attempt, "SUBFLEET_JOB": attempt.split("/")[0], "SUBFLEET_ROOT": str(tmp_path)}
     argv = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(tmp_path / "attempt"),
             "--cwd", str(tmp_path), "--stdout-path", str(tmp_path / "stdout"),
-            "--stderr-path", str(tmp_path / "stderr"), "--", sys.executable, "-c", PROVIDER]
+            "--stderr-path", str(tmp_path / "stderr"), *guardian_pass_args(env),
+            "--", sys.executable, "-c", PROVIDER]
     if disclaimed:
         child = procs.spawn_disclaimed(argv, env=env, cwd=str(REPO))
     else:
