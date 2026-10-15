@@ -1267,7 +1267,7 @@ class ConversationService:
     def op_message_cancel(self, args, peer) -> dict:
         """IR-2, IR-7: withdraw only before the provider could have seen it."""
         with self._stop_lock(canonical_uuid(args["message_id"])):
-            return self._cancel(args)
+            return self._cancel(args, peer)
 
     def op_message_steer(self, args, peer) -> dict:
         """Claim a queued message durably, then let the runner deliver it (C-24.9).
@@ -1318,7 +1318,13 @@ class ConversationService:
             runner.steer(mid)
             return self._receipt(self.store.message(mid))
 
-    def _cancel(self, args) -> dict:
+    @staticmethod
+    def _client_cancel(args, peer, reason: str) -> dict:
+        return {"by": "client", "session_id": args.get("session_id"),
+                "pid": peer.pid if peer else None, "reason": reason}
+
+    def _cancel(self, args, peer) -> dict:
+        client = self._client_cancel(args, peer, "message-cancelled")
         message_id = canonical_uuid(args["message_id"])
         message = self.store.find_message(message_id)
         if message is None:                     # never received (a store that refuses fails the op)
@@ -1344,12 +1350,12 @@ class ConversationService:
             # that a runner starting meanwhile could act on (review of 3c1a34e,
             # finding 3).
             if self._withdraw(message_id, expect=(QUEUED, WAITING), unbound=True):
-                self._cancel_late_job(message_id)
+                self._cancel_late_job(message_id, client=client)
                 return self._receipt(self.store.message(message_id))
             message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
-            if job and self._cancel_job_without_attempt(job["job_id"]):
+            if job and self._cancel_job_without_attempt(job["job_id"], client=client):
                 self._withdraw(message_id, expect=(QUEUED, WAITING, STARTING))
                 return self._receipt(self.store.message(message_id))
             if job is None and self.store.message(message_id)["state"] == WAITING:
@@ -1376,11 +1382,11 @@ class ConversationService:
         with self._handover(message_id):
             return self.store.withdraw(message_id, expect=expect, stop_at=utcnow(), unbound=unbound)
 
-    def _cancel_late_job(self, message_id: str) -> None:
+    def _cancel_late_job(self, message_id: str, *, client: dict | None = None) -> None:
         """Cancel a turn job the dispatcher made for a message just withdrawn, while it has no attempt."""
         job = self._turn_job(self.store.message(message_id))
         if job:
-            self._cancel_job_without_attempt(job["job_id"])
+            self._cancel_job_without_attempt(job["job_id"], client=client)
 
     def _tombstone(self, message_id: str, conversation_id: str | None) -> dict:
         if not conversation_id:
@@ -1396,7 +1402,8 @@ class ConversationService:
                                                state=CANCELLED, state_reason="withdrawn-before-receipt")
         return self._receipt(message)
 
-    def _cancel_job_without_attempt(self, job_id: str, *, by: dict | None = None) -> bool:
+    def _cancel_job_without_attempt(self, job_id: str, *, by: dict | None = None,
+                                    client: dict | None = None) -> bool:
         """The job store decides: cancelled only while no attempt row exists (IR-2).
 
         `by` is written on the cancel's own audit event, in the same transaction,
@@ -1405,8 +1412,9 @@ class ConversationService:
         daemon = self.daemon
         marker = dict(by or {})
         reason = marker.pop("by", "message-cancelled")
-        return daemon._request_cancel(job_id, {**marker, "by": "daemon", "reason": reason,
-                                               "running_s": daemon._running_s(job_id)}, without_attempt=True)
+        data = client if client is not None else {**marker, "by": "daemon", "reason": reason,
+                                                  "running_s": daemon._running_s(job_id)}
+        return daemon._request_cancel(job_id, data, without_attempt=True)
 
     def op_turn_interrupt(self, args, peer) -> dict:
         mid = canonical_uuid(args["message_id"])
@@ -1414,10 +1422,10 @@ class ConversationService:
         if message["state"] == STEERING:
             args = {**args, "message_id": message["steered_into"]}
         with self._stop_lock(canonical_uuid(args["message_id"])):
-            result = self._interrupt(args)
+            result = self._interrupt(args, peer)
         return self._receipt(self.store.message(mid)) if mid != args["message_id"] else result
 
-    def _interrupt(self, args) -> dict:
+    def _interrupt(self, args, peer) -> dict:
         message_id = canonical_uuid(args["message_id"])
         message = self.store.message(message_id)
         if message["state"] not in (STARTING, RUNNING, APPROVAL_NEEDED, WAITING):
@@ -1436,15 +1444,25 @@ class ConversationService:
             self.store.update_message(message_id, stop_requested_at=utcnow())
         runner = self._runner_for_message(message_id)
         if runner is not None:
+            # Save the socket requester before escalation can synchronously reach
+            # containment, or a replacement runner can recover the durable stop.
+            self.daemon._request_cancel(runner.attempt_id.rsplit("/", 1)[0],
+                                        self._client_cancel(args, peer, "stopped"),
+                                        attempt_id=runner.attempt_id)
             runner.interrupt("stopped")
         elif message["state"] == WAITING:
             job = self._turn_job(message)
-            if job and self._cancel_job_without_attempt(job["job_id"]):
+            if job and self._cancel_job_without_attempt(
+                    job["job_id"], client=self._client_cancel(args, peer, "message-cancelled")):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,))
             elif job is None:
                 # Waiting to be submitted again (a re-admission or a deferral): no
                 # provider has it. The dispatcher also withdraws a stopped message.
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,), unbound=True)
+        else:
+            job = self._turn_job(message)
+            if job:
+                self.daemon._request_cancel(job["job_id"], self._client_cancel(args, peer, "stopped"))
         return self._receipt(self.store.message(message_id))
 
     def op_message_resolve(self, args, peer) -> dict:
