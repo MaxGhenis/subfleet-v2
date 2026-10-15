@@ -62,7 +62,7 @@ compile errors: flicker (1 failure), tombstone (1), waiting continuation (2),
 expanded sizing (2), M7 (1), M17 (1), M19 (1), O1 (1), O2b (1), O8 (1).
 The mutation runs selected 41 cases in total.
 
-## Send-failure stack seam (draft PR #213, C-29.17)
+## Send-failure stack seam (draft PR #213)
 
 The stack is not merged into this branch. `ConversationStoreState.layout(
 conversationID:)` is the view's projection; `QueuedMessage.id` is the message id.
@@ -214,3 +214,184 @@ All commits are on `feat/queue-tray-217` in workspace-local metadata. An
 incremental, verified bundle is saved at `docs/reports/2026-10-14-queue-tray.bundle`
 (requires the base `5a711114e965`). The bundle is an ignored delivery artifact and
 is never staged. The hub can fetch it locally without a network remote.
+
+
+## Round 2 — review r1 fixes (2026-10-15)
+
+Implementation is committed in workspace-local `.git-local` metadata on
+`feat/queue-tray-217`, based on `8d7cbcb6959e`. The sandbox refuses writes to the
+shared worktree index. No shared repository metadata, network remote, installed
+app, live daemon, or live state has been changed. Tests were committed before
+the implementation. Every new commit carries the requested co-author trailer.
+
+### Findings and contract
+
+- **P2-1:** tray blocking reads `MessageState.live`, the existing app counterpart
+  of the daemon's `LIVE_STATES`, including `delivery-unknown` and `steering`.
+  A regression compares the two sets. The watch loop reads the currently
+  focused conversation after its long poll answers and before publishing its
+  message changes. `conversation.open` is the existing targeted read carrying
+  `blocked_by` at this head; its outbox chain bookkeeping is bypassed on the feed
+  thread. The refreshed conversation and watch page publish together. A failed
+  refresh leaves the page unpublished for retry. The watch protocol is unchanged.
+- **P2-2:** a persistent `sentAsSteer` marker keeps every steer in the timeline
+  through sending, queued receipts, steering, steered, missed and unknown
+  delivery, including dispatch as its own turn. Missed status outranks an
+  outstanding local request and reads “Unread until the current turn ends.”
+  Refusals stay visible on the timeline. Steers never contribute to the tray's
+  count or its Send now actions. Receipt, event, local-send and restored outbox
+  paths all retain this identity.
+- **P3-1:** a `deferred:` queued head is in the tray even without anything ahead,
+  shows the existing deferral reason template and retains Withdraw.
+- **P3-2:** C-29.7 no longer cites the absent C-29.17 or claims draft #213 is
+  integrated. `QueueTray.notice` remains an optional future seam, with its
+  existing hosted notice/action test.
+- **P3-3:** a shared AppKit observer keeps opening content at the end without
+  animation as lazy rows and the first events page grow. Its lifetime ends at
+  the person's first live scroll, wheel input or keyboard paging. Only document
+  growth and viewport size changes pin; an offset change alone can be a Review
+  jump. The existing `FollowKey` policy is unchanged. The adapted review probe
+  exercises macOS 15+ and the emulated macOS 14 path, late page growth without a
+  follow-key change, and growth after the first person scroll. The unanchored
+  case remains a control.
+
+C-29.7 now states these rules explicitly: an eligible queued message is in the
+tray exactly when something is ahead or the daemon deferred it; a message sent
+as a steer always remains in the timeline. The app and daemon use the same live
+state contract, with a set-equality regression. Both property generators include
+steering, steered, missed-steer and deferred cases. Membership and receipt
+no-flicker properties each request 200 bounded, derandomized examples, and the
+coverage check requires steer and missed-steer examples to occur. No deep
+profile was used.
+
+`app/build.sh` cleanup now uses Python's `shutil.rmtree`, as this job requires.
+The app has only been built, never installed or launched.
+
+### Validation status
+
+<!-- r219f2-validation -->
+The final `app/build.sh` succeeds, including plist and signing checks. The final
+full-source offscreen scroll probe also compiles. Existing Sendable-capture and
+unnecessary-await warnings remain. Python syntax, shell syntax, whitespace, and
+all twelve mutation replacement anchors pass their checks.
+
+The prescribed locked `uv run pytest` was attempted. After the lock was acquired,
+uv failed before starting pytest because the sandbox rejects its default-cache
+write to `/Users/maxghenis/.cache/uv/sdists-v9/.git`. `--no-sync` variants also fail.
+The existing repository venv lacks Hypothesis; no cache directory was replaced,
+no cache was cleaned and no alternative pytest command was used. An environment
+exception was requested and has not been received. Consequently **zero pytest
+tests have run in this round**; no r1 or CI passes are counted here.
+
+Supplemental foreground native checks ran under separate shared-lock holds:
+
+- Immutable base `8d7cbcb6959e`, with test-only probe adapters: 9 deterministic
+  core checks ran, with 5 passing and 4 expected failures. The failures reproduce
+  delivery-unknown not counting as ahead, steering not counting as ahead, a steer
+  moving `absent → tray → tray → timeline → tray → timeline → timeline`, and a
+  deferred head missing from the tray.
+- Offscreen opening-scroll probe: 2 checks passed. Both macOS 15+ and emulated
+  macOS 14 ended at 0 points from the bottom after opening, late page growth and
+  catch-up; after a person scroll, later growth left them 1,721 and 1,707 points
+  above the end. No window was visible. The final updated probe compiles too.
+- Final full-source `app/build.sh`: passed, including plist and signing checks.
+- Final fixed-core and daemon-backed watch comparisons: already queued under a
+  shared-lock hold, still waiting as of 18:00 UTC. The base scroll probe compiles,
+  but its additional runtime comparison is unrun.
+
+The job's 4 h 30 m cutoff is 18:12 UTC. No further holds will be started. The
+existing hold will be allowed to finish; any results will be added in a follow-up
+commit. These supplemental checks are not counted as pytest passes.
+<!-- /r219f2-validation -->
+
+### Required pytest files — this round only
+
+Every row below is unrun because uv cannot initialize its required default cache.
+This includes both 200-example properties and the complete review regression
+file. Counts are per file, not inherited from earlier reviews.
+
+| File | Passed | Failed | Run | Status |
+| --- | ---: | ---: | ---: | --- |
+| `tests/frontend/test_app_cutover_start.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_conversation_view.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_app_cutover_reading.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_approval_notification.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_approval_reach.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_outbox.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_queue_engine.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_queue_tray.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_search.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_steer.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_steer_properties.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_store.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_timeline.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_queue_tray_notice.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_queue_tray_view.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_review_r219_probes.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_status_model.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_report_hygiene.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_review_fixes.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_round_five.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_round_four.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_round_three.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_round_two.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_snapshots.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/frontend/test_visual_suggestions.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/unit/test_conversation_service.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/unit/test_conversation_steer_service.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/unit/test_steer_invariants.py` | 0 | 0 | 0 | Unrun: environment |
+| `tests/unit/test_conversation_status.py` | 0 | 0 | 0 | Unrun: environment |
+
+### Mutations
+
+`tools/queue_tray_round2_mutations.py --list` validates one unique replacement
+anchor and a named test for each of the review's nine mutants and all three
+round-2 additions. Actual mutation executions are unrun for the same uv-cache
+reason; anchor validation is not a killed-mutant result. The runner creates
+isolated source copies and runs each pytest synchronously under its own shared
+lock, using the default uv cache and temporary Hypothesis storage. It never
+changes the production sources.
+
+| Mutation | Named test | Execution |
+| --- | --- | --- |
+| flicker | `tests/frontend/test_core_queue_tray.py::test_c29_7_an_idle_send_answered_queued_stays_in_the_timeline` | Unrun |
+| tombstone | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_send_withdrawn_before_its_receipt_keeps_its_line_after_a_tombstone` | Unrun |
+| waiting-continuation | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_person_send_waits_behind_a_queued_failover_continuation` | Unrun |
+| expanded-sizing | `tests/frontend/test_queue_tray_view.py::test_c29_7_an_expanded_tray_whose_rows_fit_is_as_tall_as_its_rows` | Unrun |
+| M17 | `tests/frontend/test_core_queue_engine.py::test_c29_7_a_message_that_became_its_own_live_turn_is_interrupted[waiting]` | Unrun |
+| M19 | `tests/frontend/test_core_queue_engine.py::test_c29_7_stop_withdraw_gives_what_withdraw_send_gives[in-flight]` | Unrun |
+| O1 | `tests/frontend/test_queue_tray_view.py::test_c29_7_a_row_being_withdrawn_cannot_be_steered` | Unrun |
+| wake-ordering | `tests/frontend/test_core_queue_tray.py::test_c29_7_property_order_matches_the_real_daemons_next_dispatchable` | Unrun |
+| steering-as-own-turn | `tests/frontend/test_core_queue_engine.py::test_c29_7_withdraw_of_a_message_in_another_turn_never_interrupts_its_host[steering]` | Unrun |
+| steering-not-ahead | `tests/frontend/test_review_r219_probes.py::test_r3b_every_dispatcher_live_state_holds_the_tray[steering]` | Unrun |
+| missed-steer-in-tray | `tests/frontend/test_review_r219_probes.py::test_r2_a_missed_steer_stays_in_the_timeline` | Unrun |
+| deferred-without-withdraw | `tests/frontend/test_review_r219_probes.py::test_r7_a_deferred_head_has_its_reason_and_withdraw_in_the_tray` | Unrun |
+
+### Transfer and remaining work
+
+The shared index is read-only. New commits live in `.git-local` on
+`feat/queue-tray-217`; the caller's checkout is untouched. A local incremental
+bundle will be provided for transfer without a network remote. Logs, JSON
+probe output and bundles remain unstaged. Full pytest and mutant verification,
+plus real macOS 14 and 15 hardware checks, remain outstanding.
