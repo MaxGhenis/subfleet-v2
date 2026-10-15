@@ -59,7 +59,7 @@ from .contracts import (
 )
 from .credentials import resolve_credential
 from .provider_env import ProviderEnvironment
-from .launch_env import environment_report, guardian_pass_args
+from .launch_env import environment_report, guardian_pass_args, helper_policy
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
@@ -83,6 +83,14 @@ def spawn_guardian(command: list[str], *, disclaim: bool, **options):
         return procs.spawn_disclaimed(command, env=options["env"], cwd=options["cwd"],
                                      pass_fds=options["pass_fds"])
     return subprocess.Popen(command, **options)
+
+
+def _helper_environment(function):
+    @functools.wraps(function)
+    def scoped(self, *args, **kwargs):
+        with helper_policy(getattr(self, "policy", {})):
+            return function(self, *args, **kwargs)
+    return scoped
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -3153,6 +3161,7 @@ class Daemon:
                                lane.lane_id, type(exc).__name__)
         return record
 
+    @_helper_environment
     def dispatch(self, op: str, args: dict, arrived: float | None = None, *,
                  client_gone: Callable[[], bool] | None = None) -> dict:
         """Answer one op (C-16.2). `arrived` is when its request was read off the
@@ -3874,6 +3883,11 @@ class Daemon:
         # at the job's end, however it ended, this notice says what happened instead.
         self._withdraw_pin_notice(tx, row["job_id"], why="ended")
 
+    @_helper_environment
+    def _run_worker(self, function: Callable, *args, **kwargs):
+        """Establish this daemon's helper policy on every pool invocation."""
+        return function(*args, **kwargs)
+
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False,
                   pool: ThreadPoolExecutor | None = None) -> None:
         """Run `fn` on the worker pool (or `pool`) unless `key` is already running.
@@ -3889,7 +3903,7 @@ class Daemon:
                 return
             self._busy.add(key)
         generation = self.store.generation
-        future = (pool or self.workers).submit(fn, *args)
+        future = (pool or self.workers).submit(self._run_worker, fn, *args)
         def done(f):
             try:
                 deferred = f.result() is DEFERRED
@@ -4017,6 +4031,7 @@ class Daemon:
             pass                            # unreadable is the pass's to report
         return True
 
+    @_helper_environment
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
         # reserved row absent from this process's launch set was never granted
@@ -4481,7 +4496,7 @@ class Daemon:
         self._push_workspace_store_failures.pop(job_id, None)
         self._push_workspace_store_first_failure.pop(job_id, None)
         if not ready:
-            self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+            self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
         return ready
 
     def _reap_push_workspaces(self, holds: dict[str, dict]) -> set[str]:
@@ -4502,7 +4517,7 @@ class Daemon:
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
                     continue  # The running worker still owns the build slot.
-                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
                 self._push_workspaces.pop(job_id, None)
                 self._push_workspace_store_errors.pop(job_id, None)
@@ -4537,7 +4552,7 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job_id,)):
                 self._push_unused_workspaces.discard(job_id)
             elif not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
-                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
         return skipped
 
@@ -4587,7 +4602,7 @@ class Daemon:
             # use the same disk reading before any reservation exists.
             if not self._push_workspaces and not self._push_preparation_offered:
                 self._push_preparation_offered = True
-                self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
+                self._push_workspaces[job_id] = self.pushes.submit(self._run_worker, self._prepare_push_workspace, dict(job), destination)
         if job["wait_reason"] != "workspace":
             try:
                 with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
@@ -5540,7 +5555,7 @@ class Daemon:
                     self._push_workspace_store_errors.pop(job_id, None)
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
-                    self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                    self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
@@ -8770,7 +8785,7 @@ class Daemon:
             # Conversation ops run on the conversation pools: the long polls on
             # their own (C-25.4), the file work on its own (C-25.3).
             return self.conversations.pool_for(req.op).submit(
-                self.conversations.respond, conn, write_lock, req, peer)
+                self._run_worker, self.conversations.respond, conn, write_lock, req, peer)
         if req.op == "ping" and not protocol.ping_writes(req.args):
             # C-16.5, C-15.8: a liveness question is answered here, never queued:
             # it reads nothing, so a slow daemon still says at once that it is alive.
@@ -8781,7 +8796,7 @@ class Daemon:
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
-        return pool.submit(self._respond, conn, write_lock, req, arrived)
+        return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived)
 
     def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()
