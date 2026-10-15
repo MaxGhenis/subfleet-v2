@@ -289,7 +289,7 @@ def test_cached_ok_uses_fresh_deliverable_content_boundary(
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
-@pytest.mark.parametrize("damage", ("delete", "replace", "in-place", "live-alias"))
+@pytest.mark.parametrize("damage", ("delete", "replace", "in-place", "live-alias", "post-copy-link"))
 def test_lost_frozen_copy_reclassifies_and_extracts_from_scratch(
         state_daemon, monkeypatch, restart, damage):
     daemon, harness = state_daemon
@@ -304,13 +304,23 @@ def test_lost_frozen_copy_reclassifies_and_extracts_from_scratch(
     monkeypatch.setattr(daemon, "_salvage", salvage)
     frozen = daemon._freeze_stream(adir, launch)
     fresh = b'{"type":"item.completed","item":{"type":"agent_message","text":"Fresh interim."}}\n'
-    (adir / "stdout").write_bytes(fresh)
-    if damage != "in-place":
-        frozen.unlink()
-    if damage in ("replace", "in-place"):
-        frozen.write_bytes(b"")
-    elif damage == "live-alias":
-        os.link(adir / "stdout", frozen)
+    if damage == "post-copy-link":
+        # Preserve the published inode, then give the provider a writable name
+        # for it. Restart must invalidate both cached classification and text.
+        identity = frozen.stat().st_ino
+        (adir / "stdout").unlink()
+        os.link(frozen, adir / "stdout")
+        (adir / "stdout").write_bytes(fresh)
+        assert frozen.stat().st_ino == identity
+        assert os.path.samefile(frozen, adir / "stdout")
+    else:
+        (adir / "stdout").write_bytes(fresh)
+        if damage != "in-place":
+            frozen.unlink()
+        if damage in ("replace", "in-place"):
+            frozen.write_bytes(b"")
+        elif damage == "live-alias":
+            os.link(adir / "stdout", frozen)
     if Path(launch.raw_stream_path) != frozen:
         Path(launch.raw_stream_path).write_bytes(fresh)
     classified, extracted = [], []
