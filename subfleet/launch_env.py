@@ -92,7 +92,7 @@ def build_environment(additions: Mapping[str, str] | None = None,
     if any(not valid_name(name) for name in passed):
         raise ValueError("environment pass-through requires exact variable names")
     parent = os.environ if environ is None else environ
-    result = {name: value for name, value in parent.items() if allowed_name(name) or name in passed}
+    result = {name: parent[name] for name in parent if allowed_name(name) or name in passed}
     result.update(additions or {})
     for name in removals:
         result.pop(name, None)
