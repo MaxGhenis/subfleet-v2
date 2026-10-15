@@ -77,8 +77,7 @@ def test_wall_stops_at_sum_of_attempt_running_times(wall, monkeypatch, state):
     assert service.store.get_attempt(aid)['killed_by'] == 'max_wall_s'
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
     service._process_attempt(aid)
-    assert cancel_events(service, jid) == [{'by': 'client', 'session_id': 'caller', 'pid': None,
-                                          'reason': 'client-request'}]
+    assert len(cancel_events(service, jid)) == 1
     if state != 'finalizing':
         assert stopped
 
@@ -153,7 +152,8 @@ def test_same_session_cancel_is_idempotent_and_does_not_alert_itself(wall):
     jid, _ = history(wall, cap=100)
     for _ in range(2):
         service.dispatch('kill', {'job_id': jid, 'session_id': 'caller'})
-    assert len(cancel_events(service, jid)) == 1
+    assert cancel_events(service, jid) == [{'by': 'client', 'session_id': 'caller', 'pid': None,
+                                          'reason': 'client-request'}]
     assert service.dispatch('notice.pending', {'session_id': 'caller'})['notices'] == []
 
 
