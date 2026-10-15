@@ -196,6 +196,9 @@ def test_prune_requires_every_migrated_column(tmp_path, table, column):
     _seed(tmp_path, [])
     database = tmp_path / 'state.sqlite3'
     with sqlite3.connect(database) as conn:
+        for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
+            if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}:
+                conn.execute(f'DROP INDEX "{index[1]}"')
         conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
     before = _tables(database)
     with pytest.raises(pruning.PruneRefused, match=f'{table}\\.{column}'):
