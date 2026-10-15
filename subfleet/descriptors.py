@@ -73,7 +73,7 @@ READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
 READ_ONLY_CONVERSATION_OPS = frozenset({
     "capabilities", "models.list", "conversation.list", "conversation.history",
     "conversation.events", "conversation.watch", "conversation.runs", "message.status",
-    "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check"})
+    "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check", "suggestion.list"})
 
 
 def open_file_limits() -> tuple[int, int]:

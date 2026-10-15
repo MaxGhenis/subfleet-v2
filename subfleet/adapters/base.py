@@ -54,10 +54,13 @@ def open_stream(path: Path, mode: str = "rb", **kwargs):
 class AdapterError(Exception):
     """A refusal or precondition failure the daemon maps to an exit code."""
 
-    def __init__(self, message: str, code: int = 7, fix: str | None = None):
+    def __init__(self, message: str, code: int = 7, fix: str | None = None,
+                 *, reason: str | None = None, details: dict | None = None):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        self.reason = reason
+        self.details = details
 
 
 class Adapter(ABC):

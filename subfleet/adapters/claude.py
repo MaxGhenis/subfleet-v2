@@ -570,6 +570,7 @@ class ClaudeAdapter(Adapter):
                 f"claude: could not read the keychain item {ref}",
                 code=5,
                 fix=f"agent-secret get {ref}",
+                reason="claude-keychain-read",
             ) from None
         if getattr(done, "returncode", 1) != 0:
             raise AdapterError(
@@ -579,12 +580,14 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store "
                     f"it as the keychain item {ref}"
                 ),
+                reason="claude-keychain-missing",
             )
         payload = (done.stdout or "").strip()
         if not payload:
             raise AdapterError(
                 f"claude: the keychain item {ref} is empty", code=5,
                 fix=f"re-enrol the lane: claude setup-token, then store it as {ref}",
+                reason="claude-keychain-empty",
             )
         # v1 stores Claude Code's own OAuth blob under one item name and a bare
         # setup-token under the per-lane `claude-quota-<email>` item. Accept both.
@@ -638,6 +641,7 @@ class ClaudeAdapter(Adapter):
             f"claude: unknown credential kind {credential.kind!r}",
             code=7,
             fix="a Claude lane is either kind 'keychain-token' or kind 'home'",
+            reason="claude-credential-kind",
         )
 
     # --- identity (C-1.4, C-10.6) --------------------------------------------
@@ -865,6 +869,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"claude: credential is for provider {credential.provider!r}", code=2,
                 fix="enrol a Claude credential with the Claude adapter",
+                reason="claude-credential-provider",
             )
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
@@ -880,6 +885,7 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store it "
                     f"as the keychain item {credential.ref}"
                 ),
+                reason="claude-authenticate",
             )
         if ORG_BLOCK_RE.search(corpus):
             raise AdapterError(
@@ -887,7 +893,7 @@ class ClaudeAdapter(Adapter):
                 "for this account",
                 code=5,
                 fix="ask the account's admin to enable Claude Code access",
-            )
+             reason="claude-org-disabled")
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
         account = self.account_from_reference(credential)
@@ -898,6 +904,7 @@ class ClaudeAdapter(Adapter):
                 f"into {observed}",
                 code=7,
                 fix="rebind the lane to the account its credential really holds (C-1.3)",
+                reason="claude-account-mismatch",
             )
         account = account or observed
         if not account:
@@ -908,6 +915,7 @@ class ClaudeAdapter(Adapter):
                     "name the keychain item claude-quota-<email>, or point the lane at a "
                     "home whose .claude.json carries oauthAccount.emailAddress"
                 ),
+                reason="claude-account-missing",
             )
 
         plan = (
@@ -928,7 +936,7 @@ class ClaudeAdapter(Adapter):
                     "retry enrolment; if it persists, the credential is not a Claude "
                     "Code OAuth token and cannot be bound to an account (C-10.6)"
                 ),
-            )
+             reason="claude-profile-account")
         if profile.ok:
             # C-1.4: the account key is the identity, and the email is a label.
             identity, label = profile.identity, profile.email
@@ -1266,6 +1274,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"the job's MCP config cannot give the servers it names ({', '.join(names)}): {exc}",
                 code=7, fix="submit the job again with --mcp naming servers its workdir offers",
+                reason="claude-mcp-config",
             ) from None
         path = Path(attempt_dir) / ATTEMPT_MCP_CONFIG
         _atomic_write_text(path, json.dumps({"mcpServers": {name: servers[name] for name in names}},
@@ -1409,7 +1418,7 @@ class ClaudeAdapter(Adapter):
         argv += ["--output-format", "stream-json", "--verbose"]
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Claude session",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove

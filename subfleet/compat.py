@@ -125,6 +125,7 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("show",): ["runs", "show"],                        # C-17.1, not v1
     ("wait",): ["wait"],
     ("wake",): ["wake"],
+    ("suggest",): ["suggest"],                          # C-25.7, not v1
     ("kill",): ["kill"],
     ("resume",): ["resume"],
     ("resume-codex",): ["resume"],

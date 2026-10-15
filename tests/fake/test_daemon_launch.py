@@ -103,6 +103,28 @@ def test_c4_2_absent_guardian_identity_never_releases_launch_gate(launch_state, 
 
 
 
+def test_c25_7_a_guardian_that_cannot_start_is_named_by_its_errno_not_its_words(launch_state, monkeypatch):
+    """C-4.2 with C-25.7: Popen's OS error names a path. The attempt's detail (which a
+    turn's `state_reason` and a job's notice read) names its class and errno; its words
+    are in daemon.log only, scrubbed whole."""
+    daemon, harness, calls = launch_state
+    a = reserve(daemon, harness)
+    said = "password='SECRET7-left\n右秘密-TAIL8'"
+
+    def refuse(command, **kwargs):
+        raise PermissionError(13, "Permission denied", str(harness.root / said))
+    monkeypatch.setattr(module.subprocess, "Popen", refuse)
+    daemon._launch(a)
+    attempt = daemon.store.get_attempt(a["attempt_id"])
+    assert attempt["outcome_detail"] == "guardian-identity-unavailable: PermissionError: [Errno 13] Permission denied"
+    recorded = json.dumps([daemon.store.query(f"SELECT * FROM {table}") for table in ("attempts", "events", "notices")])
+    assert "SECRET7" not in recorded and "TAIL8" not in recorded
+    daemon._log_handler.flush()
+    log = (daemon.root / "daemon.log").read_text()
+    assert f"attempt {a['attempt_id']} guardian identity unavailable: PermissionError: [Errno 13]" in log
+    assert "SECRET7" not in log and "TAIL8" not in log
+
+
 def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guardian_started(launch_state,
                                                                                                monkeypatch):
     """C-5.12 an attempt this daemon launches falls due one interval after its guardian started, so its first
