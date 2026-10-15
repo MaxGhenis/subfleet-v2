@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from ..launch_env import build_environment
+from ..launch_env import build_environment, helper_policy
 from .store import ConversationError, canonical_native, utcnow
 from .turn import TERMINAL_STATES
 
@@ -414,6 +414,10 @@ class WakeEngine:
         return result
 
     def _poll_prs(self, pending: list[dict]) -> None:
+        with helper_policy(getattr(self.service.daemon, "policy", {})):
+            return self._query_pending_prs(pending)
+
+    def _query_pending_prs(self, pending: list[dict]) -> None:
         requests = [r for r in pending if r["kind"] == "pr" and not r["ready_json"]]
         if not requests:
             return
