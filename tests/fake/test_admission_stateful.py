@@ -628,6 +628,18 @@ class AdmissionMachine(RuleBasedStateMachine):
         adir.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name, contents in (("stdout", b"fixture result\n"), ("stderr", b""), ("lane.log", b"")):
             (adir / name).write_bytes(contents)
+        # C-9.2: finalization independently verifies a detached Codex success
+        # against its frozen stream, exit receipt and nonblank deliverable.
+        # Claude's corresponding terminal event is `result`. Failed attempts
+        # carry no success proof, even though their partial output is nonblank.
+        stream = ""
+        if outcome == "ok":
+            provider = self.store.get_lane(attempt["lane_id"]).provider
+            terminal = ({"type": "turn.completed"} if provider == "codex" else
+                        {"type": "result", "subtype": "success", "is_error": False,
+                         "result": "fixture result"})
+            stream = json.dumps(terminal) + "\n"
+        (adir / "stream.jsonl").write_text(stream)
         receipt = {"rc": {"ok": 0, "transient": 1, "limited": 4, "model-capacity": 1}[outcome], "signal": None, "wall_s": .1,
                    "child_pid": None, "finished_at": self.clock.iso()}
         (adir / "exit.json").write_text(json.dumps(receipt))
@@ -1196,5 +1208,7 @@ def test_r4_simulated_finish_preserves_provider_outcome(provider, model, outcome
             assert machine.store.get_job(attempt["job_id"])["state"] == "succeeded"
             adir = attempt_dir(machine.root, attempt["job_id"], attempt["seq"])
             assert (adir / "deliverable.md").read_bytes().strip()
+            terminal = json.loads((adir / "stream.jsonl").read_text())
+            assert terminal["type"] == ("turn.completed" if provider == "codex" else "result")
     finally:
         machine.teardown()
