@@ -24,13 +24,16 @@ def retry(clocked):
     return service, clock, jid
 
 
-@pytest.mark.parametrize("refusal", ["disabled", "credential-latched", "no-lanes"])
+@pytest.mark.parametrize("refusal", ["disabled", "credential-latched", "no-lanes", "auth-dead"])
 def test_permanent_retry_refusal_notifies_once_survives_restart_and_fails(clocked, refusal):
     service, clock, jid = retry(clocked)
     if refusal == "disabled":
         service.store.update_lane("codex-1", enabled=False)
     elif refusal == "credential-latched":
         service.timers.metadata["codex-1"] = {"probe_status": "revoked"}
+    elif refusal == "auth-dead":
+        service.store.add_closure(Closure("codex-1", "account", (clock.t + timedelta(days=1)).isoformat(),
+                                          ClosureReason.AUTH_DEAD, ClockSource.REPORTED, "fixture"))
     else:
         service.policy["models"]["astra"]["provider"] = "claude"
     service._admit()
@@ -39,7 +42,8 @@ def test_permanent_retry_refusal_notifies_once_survives_restart_and_fails(clocke
         service._admit()
     notices = service.store.query("SELECT * FROM service_notices WHERE session_id='caller'")
     assert len(notices) == 1
-    words = {"disabled": "disabled", "credential-latched": "credential", "no-lanes": "no lane"}[refusal]
+    words = {"disabled": "disabled", "credential-latched": "credential", "no-lanes": "no lane",
+             "auth-dead": "credential"}[refusal]
     assert words in notices[0]["text"]
     service._pin_episodes = service._load_pin_episodes()
     clock.t += timedelta(seconds=1800)

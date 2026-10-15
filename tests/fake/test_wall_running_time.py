@@ -90,6 +90,7 @@ def test_long_gap_does_not_expire_a_short_running_retry(wall, monkeypatch):
     service, _ = wall
     jid, aid = history(wall, cap=8)
     monkeypatch.setattr(service, '_kill_attempt', lambda a: pytest.fail('wall counted the wait'))
+    service._inspect_next[aid] = float('inf')  # This assertion isolates the wall prefilter.
     assert not service._has_work(next(row for row in service.store.query(LIVE_TICK) if row['attempt_id'] == aid))
     service._process_attempt(aid)
     assert service.store.get_job(jid)['cancel_requested_at'] is None
@@ -404,7 +405,8 @@ def test_census_end_is_not_extended_by_finalization(wall, monkeypatch, interrupt
     from tests.fake.test_state_contract import reserve
     jid, first, _ = reserve(service, harness)
     aid = first['attempt_id']
-    service.store.update_attempt(aid, state='running', started_at=stamp(-2 * 3600))
+    service.store.update_attempt(aid, state='running', started_at=stamp(-2 * 3600),
+                                 evidence_json=json.dumps({'last_observed_alive_at': stamp(0)}))
     saved_launch = service._saved_launch
 
     def slow_launch_read(a):

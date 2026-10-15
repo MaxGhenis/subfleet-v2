@@ -361,6 +361,23 @@ def test_review_repeat_kill_reaches_children_without_rewriting_root(clocked):
                                              'reason': 'client-request', 'parent_job_id': parent}]
 
 
+def test_review_repeat_kill_reaches_children_of_an_already_terminal_cancel(clocked):
+    service, harness, clock = clocked
+    parent = service.dispatch('submit', harness.submit_args())['job_id']
+    child = service.dispatch('submit', harness.submit_args(parent_job_id=parent))['job_id']
+    independent = service.dispatch('submit', harness.submit_args(parent_job_id=parent, independent=True))['job_id']
+    service._request_cancel(parent, {'by': 'daemon', 'reason': 'message-cancelled', 'running_s': 0.0})
+    original = service.store.get_job(parent)['cancel_requested_at']
+    assert service.store.get_job(parent)['state'] == 'cancelled'
+    service.dispatch('kill', {'job_id': parent, 'session_id': 'later-client', 'reason': 'cascade now'})
+    assert service.store.get_job(child)['state'] == 'cancelled'
+    assert service.store.get_job(independent)['cancel_requested_at'] is None
+    assert service.store.get_job(parent)['cancel_requested_at'] == original
+    assert len(cancel_events(service, parent)) == 1
+    assert cancel_events(service, child) == [{'by': 'client', 'session_id': 'later-client', 'pid': None,
+                                             'reason': 'cascade now', 'parent_job_id': parent}]
+
+
 def test_probe_sql_prior_sum_is_never_below_the_exact_sum(clocked):
     """Differential, 2000 seeded cases: the tick's SQL `prior_running_s` against
     the exact Python sum of the same terminal attempts, over every timestamp
