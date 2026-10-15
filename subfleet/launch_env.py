@@ -38,7 +38,11 @@ CONFIG_NAMES = frozenset({
 })
 ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
-_CREDENTIAL_WORD = re.compile(r"(?:^|_)(?:TOKEN|KEY|SECRET|PASSWORD)(?:_|$)", re.IGNORECASE | re.ASCII)
+_CREDENTIAL_WORD = re.compile(
+    r"(?:^|_)(?:TOKENS?|KEYS?|APIKEYS?|SECRETS?|PASSWORDS?|PASSWD|"
+    r"CREDENTIALS?|AUTHORIZATION|BEARER|COOKIES?)[0-9]*(?:_|$)",
+    re.IGNORECASE | re.ASCII,
+)
 # These identify a particular launch, not ambient daemon configuration.
 LAUNCH_NAMES = frozenset({
     "SUBFLEET_ATTACHED_OK", "SUBFLEET_ATTEMPT", "SUBFLEET_JOB", "SUBFLEET_LANE",
