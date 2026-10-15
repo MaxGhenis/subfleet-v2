@@ -346,11 +346,14 @@ All three required CI seeds passed; no new admission bug was found.
 | `tests/fake/test_admission_properties.py` | 27 passed, 1 expected failure |
 | `tests/fake/test_admission_held_waiters.py` | 1 passed |
 | `tests/unit/test_held_waiter_holdback.py` | 6 passed |
+| `tests/fake/test_capacity_steer_daemon.py` | 38 passed |
+| `tests/unit/test_capacity_steer_route.py` | 22 passed |
+| `tests/unit/test_codex_adapter.py` | 172 passed |
 
 The first file-group hold finished with **34 passed, 1 expected failure in
 413.55 s**. The expected failure is the existing C-6.10 wait-kind/unchanged-verdict
-case. The capacity-steering/adapter and priority/routing/state groups remain
-pending.
+case. The capacity-steering/adapter group finished with **232 passed in
+100.89 s**. Only the priority/routing/state group remains pending.
 
 The shared Git metadata is outside the writable roots, so new commits use
 workspace-local `.git-local` metadata on `fix/model-capacity-steer`, with the
