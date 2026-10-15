@@ -101,3 +101,65 @@ The shared Git index is not writable in this sandbox. All round-2 commits use wo
 Both rounds' requested verification is complete apart from the three explicitly skipped process cases and the existing expected failure. No test wrapper remains running, temporary verification copies were removed with `shutil.rmtree`, and no `.hypothesis` directory remains. No evidence logs, JSON evidence or bundles were staged.
 
 The hub owns live policy installation and notifying Fleet ops, and must retain the documented #222 merge seam. The publishing layer's command-surface boundary and disabled remote Git transports remain explicit limitations above.
+
+
+## Round 3: CI at `3e37f8017`
+
+The three supplied failures were confirmed in the local Python 3.12 shard-2 log (2,571 passes, 13 skips, three failures). No additional shard logs for this head were present in the supplied review directory. No network remote was contacted.
+
+1. Capability text had been appended inside `render.notice_header`, changing C-15.1's first-line format. `notice_header` now returns only the contracted header. Shared `notice_intro` adds known capability and publication evidence on the following line; the daemon and hook fallback both use it. The e2e header assertion remains unchanged and now checks the separate capability line. Unit regressions cover all capabilities and publication-only evidence; fake notice expectations check the complete lines, and the independent invariant no longer permits capability suffixes in the header.
+2. The prune proofs still asserted schema 7. They now compare the store and report with `SCHEMA_VERSION`, retaining exact table, foreign-key, trigger, reader, partition, backup and restore checks. Prune already used `SELECT *` fingerprints, whole-row decision dumps and a complete `VACUUM INTO` copy, so the four launch columns needed no special copying or partitioning code. Its preflight now also compares every expected column against the current schema DDL before opening a writer or creating backups. A regression enumerates every ADD COLUMN migration, removes that column from a disposable current-version store, and requires refusal without changing the store. New migration columns therefore enter the regression automatically. Separate cases perturb each launch column and require its hash to change and its bytes to survive pruning and the backup copy; the partition/restore property also seeds nondefault launch evidence.
+3. The D-SH1 migration numbers remain 8 and 9. Their only numeric definitions are `SHELL_REQUIREMENT_MIGRATION` and `LAUNCH_CAPABILITY_MIGRATION` in `subfleet/store.py`; migration keys and the capability backfill use those constants, and `SCHEMA_VERSION` follows the capability migration. Migration tests reconstruct previous schemas by reversing the migration table's ADD COLUMN statements, rather than removing literal SQL declarations or inserting literal version numbers. A regression simulates a competing migration taking the first slot and checks the capability backfill after both D-SH1 steps move.
+
+### Renumbering at the release merge
+
+If #131 merges first, change the two constants in `subfleet/store.py` to 9 and 10 and retain #131's migration at its allocated number. No D-SH1 migration keys, backfill condition, schema assertion, test fixture SQL, or test filenames need edits. `SCHEMA_VERSION` follows automatically. `store_schema.sql` already describes the resulting columns and does not need a numbering edit. This report's historical version descriptions may be updated for clarity.
+
+### Notice reader audit
+
+- `subfleet/hooks.py`: `render_pending` delivers the complete multiline text; `job_summary` now shares `notice_intro`; offline hook reads return the text unchanged. SessionStart, UserPromptSubmit and PostToolUse keep their existing delivery and marking behavior.
+- `subfleet/cli.py`: `format_notices` deliberately displays the first line only and has a new multiline regression. `format_job` displays full notice text. `wait_jobs` / `_wait_summary` render structured job/attempt fields rather than parsing notice text.
+- `subfleet/offline.py` and `subfleet/store.py`: show/list/notices readers retain the full text; notice fingerprints hash the full text. `subfleet/notify_push.py::offer` forwards the complete text without parsing it. Import and retention retain the text as row data. Daemon append-only notice annotations already start new lines.
+- Repository hook scripts and entry points (`bin/`, `private/guard/never-rules-hook.sh`, shell scripts under `tools/`, and workflow files): no reader of the C-15.1 text header. The guard hook parses command input, independently of completion notices.
+- `app/Sources/`: no C-15.1 header parser. `TaskNotification` parses Claude's separate XML task-notification format, and Timeline/UIConversationRecovery use that structured result.
+- `tests/fake/notice_invariant.py` parses the first line independently of production rendering and now rejects an appended capability as part of the out value.
+
+### Round-3 verification status
+
+Blocked before collection: the exact locked `uv run` attempt acquired the shared lock, then stopped before pytest collection because the sandbox cannot write `/Users/maxghenis/.cache/uv/sdists-v9/.git`. `uv sync` and `uv run --no-sync` fail at the same default-cache initialization. The default cache was not redirected or cleaned. A copy of an existing uv-built environment is local to this workspace; missing locked dependencies were copied read-only from the default uv cache. Permission to invoke that environment's Python directly under the same shared lock has been requested and is pending. No pytest result is claimed. The user has not authorized the fallback, so it was not run.
+
+All changed Python files pass AST parsing, and `git diff --check` passes. Regression-only commits precede implementation commits. The red regression replay at `3e37f8017` and the green suite remain unexecuted; the prepared source copy was removed during cleanup.
+
+Every requested file remains unrun (zero executed; no collection occurred):
+
+| File | Executed | Status |
+| --- | ---: | --- |
+| `tests/unit/test_prune_217.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_notice_rendering.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/fake/test_notice_header.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_cli.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_offline.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_store_migration_2.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_store_readers.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_store_properties.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/fake/test_state_contract.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/fake/test_review_needs_shell.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/fake/test_review_launch_permissions.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/unit/test_review_publish_guard.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_codex_turn_completed_e2e.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_conversation_titles_e2e.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_conversation_wakes_e2e.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_conversations.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_guard_and_isolation.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_http_isolation.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_legacy_cockpit.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_milestone1_codex.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_milestone2_claude.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_notice_job_state.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_recovery.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_reserve.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_review_r2_strand_e2e.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_review_r3_strand_timing_e2e.py` | 0 | unrun: uv cache sandbox restriction |
+| `tests/e2e/test_stop_bound.py` | 0 | unrun: uv cache sandbox restriction |
+
+Round-3 implementation commits are `e43108c15` (notice lines), `7798a5b2d` (prune column validation), and `006e6af96` (migration constants). Regression commits are `32218fc70`, `92f844876`, `42c76110d` and fixture refinement `c94009ac3`. All use the required co-author trailer. The shared index and `.git` pointer are read-only, so commits live in workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, preserving ancestry at `3e37f8017`. Nothing was pushed. No sub-agent, live store, daemon, policy, or caller checkout was modified. No test runner remains running, and no `.hypothesis` directory remains. Temporary test storage and the regression source copy were removed with `shutil.rmtree`; no logs, JSON evidence or bundles were staged.
