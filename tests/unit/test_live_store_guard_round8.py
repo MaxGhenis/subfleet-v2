@@ -108,15 +108,13 @@ def test_credential_shell_runner_cannot_escape_to_emulated_system_path(tmp_path)
     """Even a wrapping runner cannot return the emulated system reader's blob."""
     system = StandIn(tmp_path / "emulated-system")
     recorder = StandIn(tmp_path / "recorder")
-    # Bind an isolated guard to synthetic system/recorder directories. No real
-    # system binary or globally installed hook is replaced by this probe.
-    guard = credentials._exec_guard([], system_dirs=(str(system.path.parent),),
-                                    recorder_dirs=(str(recorder.path.parent),))
+    # Present the system PATH at the audit boundary, then emulate its contents
+    # with a temporary recorder only if approved. The unchanged base returns
+    # the fixture blob; even a broken guard never starts the real reader.
     def runner(argv, **kwargs):
         command = ["/bin/sh", "-c", 'security "$@"', "fixture", *argv[1:]]
-        env = {"PATH": str(system.path.parent)}
-        guard("subprocess.Popen", (command[0], command, None, env))
-        return subprocess.run(command, env=env, **kwargs)
+        sys.audit("subprocess.Popen", command[0], command, None, {"PATH": "/usr/bin:/bin"})
+        return subprocess.run(command, env={"PATH": str(system.path.parent)}, **kwargs)
     with pytest.raises(credentials.KeychainExecRefused):
         credentials.resolve_credential(Credential("claude", "fixture-ref", "keychain-token"), runner=runner)
     assert system.count() == recorder.count() == 0
