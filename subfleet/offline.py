@@ -251,6 +251,10 @@ class Offline:
             if row is None:
                 raise LookupError(f"no job {job_id!r} in {self.store_path}")
             job = self._job_dict(row)
+            cancel = conn.execute("SELECT ts,data_json FROM events WHERE job_id=? "
+                                  "AND kind='job.cancel_requested' ORDER BY event_id LIMIT 1",
+                                  (job_id,)).fetchone()
+            job["cancel"] = {"at": cancel["ts"], **json.loads(cancel["data_json"])} if cancel else None
             job["attempts"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]

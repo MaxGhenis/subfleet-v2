@@ -209,6 +209,8 @@ class KillArgs:
     confirm_dead: bool = False
     force_release: bool = False
     operator_note: str | None = None
+    session_id: str | None = None
+    reason: str | None = None
 
 
 @dataclass

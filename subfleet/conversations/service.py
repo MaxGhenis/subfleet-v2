@@ -1042,17 +1042,10 @@ class ConversationService:
         so a handoff that never committed can find the jobs it cancelled and put
         their messages back (C-30.3, D-18)."""
         daemon = self.daemon
-        with daemon.store.transaction("job.cancel_requested", job_id=job_id, data=by) as tx:
-            if tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
-                return False
-            changed = tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?), state='cancelled', "
-                                 "rc=130, finished_at=?, wait_reason=NULL, next_check_at=NULL "
-                                 "WHERE job_id=? AND state IN ('queued','waiting')", (utcnow(), utcnow(), job_id)).rowcount
-            if not changed:
-                return False
-            tx.execute("DELETE FROM leases WHERE holder=?", (job_id,))
-        daemon._notify()
-        return bool(changed)
+        marker = dict(by or {})
+        reason = marker.pop("by", "message-cancelled")
+        return daemon._request_cancel(job_id, {**marker, "by": "daemon", "reason": reason,
+                                               "running_s": daemon._running_s(job_id)}, without_attempt=True)
 
     def op_turn_interrupt(self, args, peer) -> dict:
         mid = canonical_uuid(args["message_id"])
@@ -1739,8 +1732,9 @@ class ConversationService:
             "SELECT 1 FROM events e JOIN jobs j USING(job_id) "
             "WHERE e.kind='job.cancel_requested' AND j.job_id=? AND j.state='cancelled' "
             "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=j.job_id) "
-            "AND json_extract(data_json,'$.by')=? AND json_extract(data_json,'$.request_id')=?",
-            (job_id, marker["by"], marker["request_id"])))
+            "AND (json_extract(data_json,'$.by')=? OR (json_extract(data_json,'$.by')='daemon' "
+            "AND json_extract(data_json,'$.reason')=?)) AND json_extract(data_json,'$.request_id')=?",
+            (job_id, marker["by"], marker["by"], marker["request_id"])))
 
     # --- ops: attachments, catalog ---------------------------------------------
 
@@ -2260,10 +2254,8 @@ class ConversationService:
         now = self.store.message(mid)
         if (now["state"] == CANCELLED or now["turn_seq"] != message["turn_seq"]) \
                 and not self._cancel_job_without_attempt(job["job_id"]):
-            with self.daemon.store.transaction("job.cancel_requested", job_id=job["job_id"]) as tx:
-                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?",
-                           (utcnow(), job["job_id"]))
-            self.daemon._notify()
+            self.daemon._request_cancel(job["job_id"], {"by": "daemon", "reason": "message-withdrawn",
+                                                       "running_s": self.daemon._running_s(job["job_id"])})
 
     def _provider_tries(self, message: dict, *, besides: str | None = None) -> int:
         """How many of this message's turn jobs, other than `besides`, used up a
@@ -2603,11 +2595,12 @@ class ConversationService:
             runner.contained = True
         daemon = self.daemon
         job_id = attempt_id.rsplit("/", 1)[0]
-        with daemon.store.transaction("job.cancel_requested", job_id=job_id, attempt_id=attempt_id) as tx:
-            tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?",
-                       (utcnow(), job_id))
+        reason = (runner.stop_reason if runner else None) or "interrupt"
+        with daemon.store.transaction("attempt.containment_requested", job_id=job_id, attempt_id=attempt_id) as tx:
+            daemon._request_cancel(job_id, {"by": "daemon", "reason": reason, "running_s": daemon._running_s(job_id)},
+                                   attempt_id=attempt_id)
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?) WHERE attempt_id=?",
-                       ((runner.stop_reason if runner else None) or "interrupt", attempt_id))
+                       (reason, attempt_id))
         daemon._notify()
 
     def stop(self, attempt: dict, job: dict, reason: str) -> bool:

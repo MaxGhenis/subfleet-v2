@@ -1851,7 +1851,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
             result = client.call_settled("kill", _asdict(protocol.KillArgs(
                 job_id=job_id, confirm_dead=bool(args.confirm_dead),
                 force_release=bool(args.force_release),
-                operator_note=args.note)), on_lost=_asking_again(
+                operator_note=args.note, session_id=session_id(), reason=args.reason)), on_lost=_asking_again(
                     "kill", f"sending the kill of {job_id} again, which is safe to repeat "
                             f"(C-7.1)"))
             if result.get("requeried") and result.get("status") in ("already finished",
@@ -3120,6 +3120,7 @@ def build_parser() -> argparse.ArgumentParser:
     resolution.add_argument("--force-release", action="store_true",
                             help="record an operator override and release (C-5.7)")
     p_kill.add_argument("--note", help="operator note recorded with the resolution")
+    p_kill.add_argument("--reason", help="reason recorded with the cancel request")
     _add_json(p_kill)
     p_kill.set_defaults(handler=cmd_kill)
 

@@ -34,6 +34,7 @@ import pytest
 from subfleet import protocol
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
@@ -55,7 +56,7 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
                             "approval_wait_s": 3600}}
 
 
-class FakeDaemon:
+class FakeDaemon(Daemon):
     def __init__(self, root: Path):
         self.root = root
         self.log = logging.getLogger("test-conversations")

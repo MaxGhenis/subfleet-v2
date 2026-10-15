@@ -200,7 +200,7 @@ def test_finalization_time_is_charged_to_later_attempts(wall):
     service._finalize(finalizing)
     # The provider receipt predates finalization. The terminal attempt must end
     # when finalization completes, so that a retry cannot shed that running time.
-    assert service.store.get_attempt(first['attempt_id'])['finished_at'] == stamp(0)
+    assert datetime.fromisoformat(service.store.get_attempt(first['attempt_id'])['finished_at']) == NOW
 
 
 def test_reserved_time_and_unstarted_attempts_do_not_spend_the_wall(wall, monkeypatch):

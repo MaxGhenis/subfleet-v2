@@ -105,7 +105,11 @@ LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
 #: 8.4 KB for a running attempt on 2026-10-02, and `SELECT *` read it for every
 #: live attempt twenty times a second.
 LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
-             "j.started_at AS job_started_at,j.max_wall_s "
+             "a.started_at,a.reserved_at,j.max_wall_s,"
+             "COALESCE((SELECT SUM(MAX(0,unixepoch(p.finished_at,'subsec')-"
+             "unixepoch(p.started_at,'subsec'))) FROM attempts p WHERE p.job_id=a.job_id "
+             "AND p.attempt_id<>a.attempt_id AND p.state NOT IN "
+             "('reserved','starting','running','finalizing')),0.0) AS prior_running_s "
              "FROM attempts a LEFT JOIN jobs j USING(job_id) "
              "WHERE a.state IN ('reserved','starting','running','finalizing')")
 #: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
@@ -3143,7 +3147,7 @@ class Daemon:
         return record
 
     def dispatch(self, op: str, args: dict, arrived: float | None = None, *,
-                 client_gone: Callable[[], bool] | None = None) -> dict:
+                 client_gone: Callable[[], bool] | None = None, peer: AuditToken | None = None) -> dict:
         """Answer one op (C-16.2). `arrived` is when its request was read off the
         socket (`time.monotonic()`), for a `wait`, whose deadline runs from then;
         `client_gone`, from the socket, lets a long read stop early (C-16.7)."""
@@ -3209,6 +3213,7 @@ class Daemon:
             mcp = ((self._read_json(self.root / "jobs" / a.job_id / "manifest.json") or {}).get("mcp")
                    if job.get("mcp_servers") not in (None, "[]") else None)
             return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "mcp": mcp,
+                    "cancel": self._cancel_info(a.job_id),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
@@ -3219,7 +3224,7 @@ class Daemon:
             return self.wait(protocol.coerce_args(protocol.WaitArgs, args), arrived=arrived,
                              client_gone=client_gone)
         if op == "kill":
-            return self.kill(protocol.coerce_args(protocol.KillArgs, args))
+            return self.kill(protocol.coerce_args(protocol.KillArgs, args), pid=peer.pid if peer else None)
         if op == "lanes":
             a = protocol.coerce_args(protocol.LanesArgs, args)
             if a.action == "transfer":
@@ -3799,7 +3804,90 @@ class Daemon:
                 job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 
-    def kill(self, args: protocol.KillArgs) -> dict:
+    def _running_s(self, job_id: str) -> float:
+        """D-WALL1: execution across attempts, including a live finalization.
+
+        A receipt's finished_at is the provider's end, not the end of a live
+        finalization. Starting rows from an older daemon can lack started_at;
+        reserved_at is their only durable start. Unlaunched terminal rows have
+        no start and spend no budget.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        total = 0.0
+        for row in self.store.query("SELECT state,started_at,reserved_at,finished_at FROM attempts WHERE job_id=?",
+                                    (job_id,)):
+            if row["state"] == "reserved":
+                continue
+            start = row["started_at"] or (row["reserved_at"] if row["state"] == "starting" else None)
+            end = now if row["state"] in LIVE else row["finished_at"]
+            if start and end:
+                total += max(0.0, _seconds_between(start, end))
+        return total
+
+    def _cancel_info(self, job_id: str) -> dict | None:
+        row = self.store.one("SELECT ts,data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' "
+                             "ORDER BY event_id LIMIT 1", (job_id,))
+        return {"at": row["ts"], **json.loads(row["data_json"])} if row else None
+
+    @staticmethod
+    def _cancel_requester(job: dict, data: dict) -> str:
+        if data.get("by") != "client" or not job.get("caller_session") \
+                or job["caller_session"] == data.get("session_id"):
+            return ""
+        return (f"cancel requested by session {data.get('session_id') or '(unknown)'} "
+                f"(pid {data.get('pid') if data.get('pid') is not None else 'unknown'}): {data['reason']}")
+
+    def _request_cancel(self, job_id: str, data: dict, *, family: bool = False,
+                        without_attempt: bool = False, attempt_id: str | None = None,
+                        killed_by: str | None = None) -> bool:
+        """D-KILL1: first request and requester notices commit with cancellation.
+
+        A family shares one instant and transaction; every affected job has its
+        own event so inspection never has to guess which parent was cancelled.
+        """
+        with self.store.transaction("job.cancel_requested", job_id=job_id, attempt_id=attempt_id, data=data) as tx:
+            job = self._job(job_id)
+            if job["state"] in TERMINAL or job["cancel_requested_at"]:
+                return False
+            if without_attempt and tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
+                return False
+            rows = (tx.execute("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
+                               "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
+                               "SELECT j.* FROM jobs j JOIN family f USING(job_id)", (job_id,)).fetchall()
+                    if family else [job])
+            now = utcnow()
+            for raw in rows:
+                row = dict(raw)
+                if row["state"] in TERMINAL or row["cancel_requested_at"]:
+                    continue
+                record = data if row["job_id"] == job_id else {**data, "parent_job_id": job_id}
+                if row["job_id"] != job_id and data["by"] == "daemon":
+                    record["running_s"] = self._running_s(row["job_id"])
+                # Nested savepoints keep descendant events atomic with the root.
+                event = (self.store.transaction("job.cancel_requested", job_id=row["job_id"], data=record)
+                         if row["job_id"] != job_id else contextlib.nullcontext(tx))
+                with event as inner:
+                    inner.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=?", (now, row["job_id"]))
+                    if row["job_id"] == job_id and killed_by:
+                        inner.execute("UPDATE attempts SET killed_by=? WHERE attempt_id=?", (killed_by, attempt_id))
+                    active = inner.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
+                                           "('reserved','starting','running','finalizing','quarantined')",
+                                           (row["job_id"],)).fetchone()
+                    requester = self._cancel_requester(row, record)
+                    if not active:
+                        inner.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,"
+                                      "next_check_at=NULL WHERE job_id=?", (now, row["job_id"]))
+                        inner.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
+                        earlier = self._earlier_attempt(inner, row)
+                        summary = "cancelled while waiting to retry" + earlier if earlier else "cancelled before launch"
+                        self._notice(inner, row, summary + ("\n" + requester if requester else ""))
+                    elif requester:
+                        inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                                      "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
+        self._notify()
+        return True
+
+    def kill(self, args: protocol.KillArgs, *, pid: int | None = None) -> dict:
         job = self._job(args.job_id)
         quarantine = self.store.one("SELECT * FROM attempts WHERE job_id=? AND state='quarantined' ORDER BY seq DESC LIMIT 1", (args.job_id,))
         if args.confirm_dead or args.force_release:
@@ -3807,26 +3895,10 @@ class Daemon:
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
             self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
             return {"job_id": args.job_id, "status": "resolution requested"}
-        with self.store.transaction("job.cancel_requested", job_id=args.job_id) as tx:
-            job = self._job(args.job_id)
-            if job["state"] in TERMINAL:
-                return {"job_id": args.job_id, "status": "already finished"}
-            rows = tx.execute("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) SELECT j.* FROM jobs j JOIN family f USING(job_id)", (args.job_id,)).fetchall()
-            now = utcnow()      # C-7.3: one cancel, one instant, for the whole family
-            for raw in rows:
-                row = dict(raw)
-                if row["state"] in TERMINAL:
-                    continue
-                tx.execute("UPDATE jobs SET cancel_requested_at=COALESCE(cancel_requested_at,?) WHERE job_id=?", (now, row["job_id"]))
-                active = tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (row["job_id"],)).fetchone()
-                if not active:
-                    tx.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (now, row["job_id"]))
-                    tx.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
-                    # C-13.1, C-15.1: a job with an attempt behind it was waiting to try again.
-                    earlier = self._earlier_attempt(tx, row)
-                    self._notice(tx, row, "cancelled while waiting to retry" + earlier if earlier
-                                 else "cancelled before launch")
-        self._notify()
+        if job["state"] in TERMINAL:
+            return {"job_id": args.job_id, "status": "already finished"}
+        self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
+                                         "pid": pid, "reason": args.reason or "client-request"}, family=True)
         return {"job_id": args.job_id, "status": "cancel requested"}
 
     def _notice(self, tx, job: dict, summary: str, *, again: bool = False) -> None:
@@ -3992,7 +4064,10 @@ class Daemon:
             return True                     # C-5.10: a pass that raised is repeated on its clock
         if time.monotonic() >= self._inspect_next.get(aid, 0):
             return True                     # C-5.12: an inspection is due
-        if a["cancel_requested_at"] or age(a["job_started_at"]) >= a["max_wall_s"]:
+        # SQLite's tick projection rounds timestamps to milliseconds. Offer a
+        # pass slightly early; the pass computes exact durations before acting.
+        if a["cancel_requested_at"] or (a["prior_running_s"] + max(0.0, age(a["started_at"]))
+                                         >= a["max_wall_s"] - 0.002):
             return True
         child = self._children.get(aid)
         if child is not None and child.poll() is not None:
@@ -5645,9 +5720,6 @@ class Daemon:
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
                      if job["kind"] != "turn" else "attended")
-            if job["started_at"] and age(job["started_at"]) >= job["max_wall_s"]:
-                self.kill(protocol.KillArgs(job["job_id"]))
-                continue
             if job["wait_reason"] == "route" and job["next_check_at"] and job["next_check_at"] > utcnow():
                 # C-6.12: not a capacity wait, so it holds nobody back (C-6.9) and
                 # no released lease brings it forward. It says what it met.
@@ -7331,8 +7403,8 @@ class Daemon:
                                                         (a["job_id"],)).fetchone()[0]:
                     # Review IR-2: a message withdrawn during launch never starts.
                     raise procs.InspectionError("cancelled during launch")
-                tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
-                           (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
+                tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=?,started_at=? WHERE attempt_id=? AND state='reserved'",
+                           (child.pid, child.pid, boot, started, launch.native_session_id, utcnow_ms(), a["attempt_id"]))
                 if root:
                     # D-CEN1: committed with the identity, before the gate opens, so
                     # every census of this attempt, after a restart too, has its root.
@@ -7402,6 +7474,13 @@ class Daemon:
             return
         job = self._job(a["job_id"])
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        if not job["cancel_requested_at"]:
+            running_s = self._running_s(job["job_id"])
+            if running_s >= job["max_wall_s"]:
+                self._request_cancel(job["job_id"], {"by": "daemon", "reason": "max_wall_s", "running_s": running_s},
+                                     family=True, attempt_id=aid, killed_by="max_wall_s")
+                job = self._job(a["job_id"])
+                a = self.store.get_attempt(aid)
         if a["state"] == "finalizing":
             self._finalize(a)
             return
@@ -7409,7 +7488,7 @@ class Daemon:
         receipt = self._read_json(adir / "exit.json")
         if start and a["state"] == "starting":
             with self.store.transaction("attempt.running", job_id=a["job_id"], attempt_id=aid) as tx:
-                tx.execute("UPDATE attempts SET state='running',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,started_at=? WHERE attempt_id=? AND state='starting'",
+                tx.execute("UPDATE attempts SET state='running',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,started_at=COALESCE(started_at,?) WHERE attempt_id=? AND state='starting'",
                            (start["guardian_pid"], start["pgid"], start["boot_id"], start["proc_start"], start["started_at"], aid))
             self._starting_deadlines.pop(aid, None)
             self._boundary("running", a["job_id"], aid)
@@ -7419,15 +7498,10 @@ class Daemon:
         if receipt:
             self._begin_finalizing(a, receipt)
             return
-        if job["cancel_requested_at"] or age(job["started_at"]) >= job["max_wall_s"]:
+        if job["cancel_requested_at"]:
             if job["kind"] == "turn" and self.conversations.stop(
-                    a, job, "wall-limit" if not job["cancel_requested_at"] else "operator-kill"):
+                    a, job, "wall-limit" if a["killed_by"] == "max_wall_s" else "operator-kill"):
                 return      # D-13, IR-4: the provider is stopped first; containment follows
-            if not job["cancel_requested_at"]:
-                with self.store.transaction("job.wall_limit", job_id=job["job_id"]) as tx:
-                    tx.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=? AND cancel_requested_at IS NULL", (utcnow(), job["job_id"]))
-                    tx.execute("UPDATE attempts SET killed_by='max_wall_s' WHERE attempt_id=?", (aid,))
-                a = self.store.get_attempt(aid)
             self._kill_attempt(a)
             return
         if a["state"] == "starting":
@@ -8360,9 +8434,9 @@ class Daemon:
                 evidence["lane_fault"] = fault
             if again:
                 evidence["auth_dead_again"] = {"lane_id": a["lane_id"], "lane_left_enabled": True}
-            tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
+            tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=? WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
-                        outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
+                        outcome.native_session_id, outcome.transcript_path, utcnow_ms(), a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
@@ -8689,7 +8763,7 @@ class Daemon:
         return sha
 
     def _respond(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
-                 arrived: float | None = None) -> None:
+                 arrived: float | None = None, *, peer: AuditToken | None = None) -> None:
         def gone() -> bool:
             return descriptors.client_gone(conn)
 
@@ -8706,7 +8780,7 @@ class Daemon:
                 self._count_connection("abandoned", req.op)
             return
         if req.op != "wait":
-            return self._answer(conn, write_lock, req, arrived, gone)
+            return self._answer(conn, write_lock, req, arrived, gone, **({"peer": peer} if req.op == "kill" else {}))
         with self._waits_answered:
             self._waits_answering += 1
         try:
@@ -8717,9 +8791,10 @@ class Daemon:
                 self._waits_answered.notify_all()
 
     def _answer(self, conn: socket.socket, write_lock: threading.Lock, req: protocol.Request,
-                arrived: float | None, client_gone: Callable[[], bool]) -> None:
+                arrived: float | None, client_gone: Callable[[], bool], *, peer: AuditToken | None = None) -> None:
         try:
-            response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone))
+            response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone,
+                                                       **({"peer": peer} if req.op == "kill" else {})))
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
         except (ValueError, TypeError, KeyError) as exc:
@@ -8767,7 +8842,7 @@ class Daemon:
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
-        return pool.submit(self._respond, conn, write_lock, req, arrived)
+        return pool.submit(self._respond, conn, write_lock, req, arrived, **({"peer": peer} if req.op == "kill" else {}))
 
     def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()

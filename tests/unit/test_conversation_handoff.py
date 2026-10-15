@@ -23,6 +23,7 @@ import pytest
 
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Exit
+from subfleet.daemon import Daemon as RealDaemon
 from subfleet.conversations import service as service_module
 from subfleet.conversations.service import CLAIMED, ConversationService
 from subfleet.conversations.store import ConversationError
@@ -35,8 +36,8 @@ ASK = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", 
 CODEX = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "read-only", "auto_continue": True}
 
 
-class Daemon:
-    """The daemon seams the service calls, without a control loop."""
+class Daemon(RealDaemon):
+    """Real main-store cancellation, with no pools or control loop."""
 
     def __init__(self, root: Path):
         self.root = root
