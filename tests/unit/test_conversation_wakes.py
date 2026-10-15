@@ -45,14 +45,15 @@ def settle_all(svc, cid):
 
 def test_pr_poll_worker_receives_owning_policy_and_resets(svc, monkeypatch):
     from subfleet.launch_env import build_environment, helper_policy
-    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
+    baseline = {"PATH": "/usr/bin:/bin", "HOME": str(svc.root / "user-home")}
+    monkeypatch.setattr(os, "environ", {**baseline, "GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
     svc.daemon.policy["env"] = {"pass": ["GH_TOKEN"]}
     svc.wakes.now = lambda: 1000
     cid = bound(svc)
     register(svc, cid, prs=["o/r#1"])
     # Start the pool outside any scope, including on Python builds that inherit
     # thread contexts. Its task must establish the policy itself.
-    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == {}
+    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == baseline
     seen = []
     def run(argv, **kwargs):
         assert argv[:3] == ["gh", "api", "graphql"]
@@ -64,9 +65,9 @@ def test_pr_poll_worker_receives_owning_policy_and_resets(svc, monkeypatch):
         svc.wakes.control_tick()
         assert svc.wakes._poll_future is not None
         svc.wakes._poll_future.result(timeout=30)
-        assert build_environment() == {"OTHER_TOKEN": "dummy"}
-    assert seen == [{"GH_TOKEN": "dummy"}]
-    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == {}
+        assert build_environment() == {**baseline, "OTHER_TOKEN": "dummy"}
+    assert seen == [{**baseline, "GH_TOKEN": "dummy"}]
+    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == baseline
 
 
 def test_completion_batches_once_and_restarts(svc):

@@ -197,7 +197,8 @@ def test_timer_helpers_use_owning_policy_across_threads(tmp_path, monkeypatch, e
     from subfleet.launch_env import helper_policy
     from subfleet.store import Store
     from subfleet.timers import Timers
-    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
+    baseline = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path / "user-home")}
+    monkeypatch.setattr(os, "environ", {**baseline, "GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
     policy = {"env": {"pass": ["GH_TOKEN"]}, "models": {}, "caps": {},
               "sessions": {"mirror_interval_s": 0}, "reset_credits": {"enabled": False}}
     with Store(tmp_path / "state.sqlite3") as store:
@@ -208,7 +209,7 @@ def test_timer_helpers_use_owning_policy_across_threads(tmp_path, monkeypatch, e
         setattr(timer, attribute, pool)
         seen = []
         try:
-            assert pool.submit(build_environment).result(timeout=30) == {}
+            assert pool.submit(build_environment).result(timeout=30) == baseline
             if entry == "request":
                 monkeypatch.setattr(timer, "keepalive_cycle", lambda: seen.append(build_environment()))
                 timer.start()
@@ -226,8 +227,8 @@ def test_timer_helpers_use_owning_policy_across_threads(tmp_path, monkeypatch, e
                     adapter = SimpleNamespace(probe_status=lambda lane, env:
                         seen.append(build_environment()) or {"status": "ok"})
                     timer._read_probe(adapter, SimpleNamespace(lane_id="dummy"), {})
-                assert build_environment() == {"OTHER_TOKEN": "dummy"}
-            assert seen == [{"GH_TOKEN": "dummy"}]
-            assert pool.submit(build_environment).result(timeout=30) == {}
+                assert build_environment() == {**baseline, "OTHER_TOKEN": "dummy"}
+            assert seen == [{**baseline, "GH_TOKEN": "dummy"}]
+            assert pool.submit(build_environment).result(timeout=30) == baseline
         finally:
             timer.stop()
