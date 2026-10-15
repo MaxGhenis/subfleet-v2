@@ -88,7 +88,7 @@ def test_policy_reaches_helpers_with_mandatory_git_removals(path, tmp_path, monk
                 salvage._git(tmp_path, "rev-parse", "HEAD")
             else:
                 from subfleet.conversations import diff
-                diff._git_bytes(tmp_path, "diff", "--binary")
+                diff._git(tmp_path, "diff", "--binary")
     assert seen
     for env in seen:
         assert env["GH_TOKEN"] == "dummy"
