@@ -57,7 +57,7 @@ def arrange(core, *, state="running", receipt=None, cancelled=False, started=Non
             inspect_in=3600.0, retry=False, failed=False, kind="run"):
     """Put the one attempt in a given situation; `inspect_in` is seconds until its next inspection (None: never set)."""
     with core.store.transaction("fixture.arrange") as tx:
-        tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", (state, ATTEMPT))
+        tx.execute("UPDATE attempts SET state=?,started_at=? WHERE attempt_id=?", (state, started or utcnow(), ATTEMPT))
         tx.execute("UPDATE jobs SET cancel_requested_at=?,started_at=?,max_wall_s=?,kind=? WHERE job_id=?",
                    (utcnow() if cancelled else None, started or utcnow(), max_wall_s, kind, JOB))
     path = attempt_dir(core.root, JOB, 1) / "exit.json"
@@ -238,9 +238,9 @@ def test_the_ticks_statement_reads_no_evidence_and_finds_the_same_attempts(core)
     arrange(core, cancelled=True, started=LONG_AGO, max_wall_s=77)
     row = tick_row(core)
     job = core.store.get_job(JOB)
-    assert set(row) == {"attempt_id", "job_id", "seq", "state", "cancel_requested_at", "job_started_at", "max_wall_s"}
+    assert set(row) == {"attempt_id", "job_id", "seq", "state", "cancel_requested_at", "started_at", "reserved_at", "prior_running_s", "max_wall_s"}
     assert (row["job_id"], row["seq"], row["state"]) == (JOB, 1, "running")
-    assert (row["cancel_requested_at"], row["job_started_at"], row["max_wall_s"]) == (
+    assert (row["cancel_requested_at"], row["started_at"], row["max_wall_s"]) == (
         job["cancel_requested_at"], job["started_at"], job["max_wall_s"])
 
 
