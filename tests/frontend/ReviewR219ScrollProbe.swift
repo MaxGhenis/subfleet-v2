@@ -83,6 +83,14 @@ struct ReviewR219ScrollProbe {
                 host.layoutSubtreeIfNeeded()
                 samples.append(sample(host))
             }
+            // A first events page may arrive before any follow-key change. No catch-up jump.
+            feed.rows += 30
+            var latePage: [[String: Double]] = []
+            for _ in 0..<30 {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+                host.layoutSubtreeIfNeeded()
+                latePage.append(sample(host))
+            }
             // Rows arrive while the log is read (settling): each change jumps, without animation.
             var settling: [[String: Double]] = []
             for _ in 0..<5 {
@@ -94,7 +102,7 @@ struct ReviewR219ScrollProbe {
                     settling.append(sample(host))
                 }
             }
-            out.append(["name": name, "opening": samples, "settling": settling])
+            out.append(["name": name, "opening": samples, "late_page": latePage, "settling": settling])
         }
         let result: [String: Any] = ["runs": out, "visible_windows": NSApp.windows.filter(\.isVisible).count,
                                      "os": ProcessInfo.processInfo.operatingSystemVersionString]

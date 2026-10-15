@@ -461,4 +461,5 @@ def test_r8_opening_stays_at_the_end_after_late_measurement(opening_scroll, path
     run = next(run for run in opening_scroll["runs"] if run["name"] == path)
     assert run["opening"][-1]["found"] == 1
     assert abs(run["opening"][-1]["from_end"]) <= 2, run["opening"]
+    assert abs(run["late_page"][-1]["from_end"]) <= 2, run["late_page"]
     assert abs(run["settling"][-1]["from_end"]) <= 2, run["settling"]
