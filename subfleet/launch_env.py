@@ -1,10 +1,12 @@
 """C-12.3/4, D-ENV1: select ambient names before adding launch authority.
 
-No prefixes are trusted. In particular, a new SUBFLEET_* or LC_* name cannot
-smuggle a credential through an otherwise safe configuration namespace.
+Subfleet configuration includes harness hooks; credential words and launch
+markers under that prefix still require explicit authority.
 """
 
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 import re
 
@@ -36,38 +38,67 @@ CONFIG_NAMES = frozenset({
 })
 ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
+_CREDENTIAL_WORD = re.compile(r"(?:^|_)(?:TOKEN|KEY|SECRET|PASSWORD)(?:_|$)", re.IGNORECASE | re.ASCII)
+# These identify a particular launch, not ambient daemon configuration.
+LAUNCH_NAMES = frozenset({
+    "SUBFLEET_ATTACHED_OK", "SUBFLEET_ATTEMPT", "SUBFLEET_JOB", "SUBFLEET_LANE",
+    "SUBFLEET_LANE_ID", "SUBFLEET_PROBE", "SUBFLEET_PUSH_BUNDLE", "SUBFLEET_ROOT",
+    "SUBFLEET_RUN_DETACH", "SUBFLEET_SESSION_ID", "SUBFLEET_TURN_JOB",
+    "SUBFLEET_EXIT_SETTLE_S",  # guardian-only lifetime setting
+})
+_HELPER_PASS: ContextVar[tuple[str, ...]] = ContextVar("subfleet_helper_env_pass", default=())
 
 
 def valid_name(name: object) -> bool:
     return isinstance(name, str) and _VARIABLE_NAME.fullmatch(name) is not None
 
 
+def allowed_name(name: str) -> bool:
+    return name in ALLOWED_NAMES or (
+        name.startswith("SUBFLEET_") and valid_name(name)
+        and name not in LAUNCH_NAMES and _CREDENTIAL_WORD.search(name) is None
+    )
+
+
+@contextmanager
+def helper_policy(policy: Mapping):
+    """Select helper authority for one operation; never mutate process globals.
+
+    Workers enter their own scope. Providers always supply their policy's
+    explicit names, so a helper scope cannot authorize a provider credential.
+    """
+    token = _HELPER_PASS.set(tuple(policy.get("env", {}).get("pass", ())))
+    try:
+        yield
+    finally:
+        _HELPER_PASS.reset(token)
+
+
 def build_environment(additions: Mapping[str, str] | None = None,
                       removals: Iterable[str] = (), *,
-                      pass_names: Iterable[str] = (),
+                      pass_names: Iterable[str] | None = None,
                       environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Select parent names, honor default removals, then explicit authority.
+    """Select parent names and explicit authority, then mandatory removals.
 
     Callers supply only their own additions; never pass an ambient environment
     as additions. Explicit policy names authorize inheritance, not values or
     patterns. Reject malformed programmatic callers as well as policy files.
     """
-    passed = frozenset(pass_names)
+    passed = frozenset(_HELPER_PASS.get() if pass_names is None else pass_names)
     if any(not valid_name(name) for name in passed):
         raise ValueError("environment pass-through requires exact variable names")
     parent = os.environ if environ is None else environ
-    result = {name: parent[name] for name in ALLOWED_NAMES | passed if name in parent}
-    for name in removals:
-        if name not in passed:
-            result.pop(name, None)
+    result = {name: value for name, value in parent.items() if allowed_name(name) or name in passed}
     result.update(additions or {})
+    for name in removals:
+        result.pop(name, None)
     return result
 
 
 def environment_report(environ: Mapping[str, str] | None = None) -> dict[str, list[str]]:
     """Doctor's daemon-side diagnostic: names only, no environment snapshot."""
     parent = os.environ if environ is None else environ
-    return {"extra_names": sorted(set(parent) - ALLOWED_NAMES)}
+    return {"extra_names": sorted(name for name in parent if not allowed_name(name))}
 
 
 def guardian_pass_args(environment: Mapping[str, str]) -> list[str]:
