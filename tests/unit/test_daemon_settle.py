@@ -73,7 +73,7 @@ def daemon(tmp_path, monkeypatch):
     core.store.add_attempt(attempt_id=ATTEMPT, job_id=JOB, seq=1, lane_id="codex-1",
                            model_requested="astra", state="running", guardian_pid=4242,
                            child_pid=4243, pgid=4242, boot_id="boot", proc_start=STARTED,
-                           started_at="2026-09-05T14:00:00Z", evidence_json="{}")
+                           started_at=daemon_module.utcnow(), evidence_json="{}")
     # No real process is signalled or inspected: the leader is gone, signals succeed.
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
     monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)

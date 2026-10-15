@@ -77,7 +77,8 @@ def test_wall_stops_at_sum_of_attempt_running_times(wall, monkeypatch, state):
     assert service.store.get_attempt(aid)['killed_by'] == 'max_wall_s'
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
     service._process_attempt(aid)
-    assert len(cancel_events(service, jid)) == 1
+    assert cancel_events(service, jid) == [{'by': 'client', 'session_id': 'caller', 'pid': None,
+                                          'reason': 'client-request'}]
     if state != 'finalizing':
         assert stopped
 
