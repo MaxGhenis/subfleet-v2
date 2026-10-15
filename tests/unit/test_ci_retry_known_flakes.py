@@ -536,7 +536,9 @@ def test_plugin_write_crash_fails_the_job(project, on_retry):
         def pytest_runtestloop(session):
             if Path('attempt').read_text() == '{2 if on_retry else 1}':
                 import os
-                os.environ[{retry_tool.OUTCOMES_ENV!r}] = str(Path.cwd())
+                outcomes = Path(os.environ[{retry_tool.OUTCOMES_ENV!r}])
+                outcomes.unlink(missing_ok=True)
+                outcomes.mkdir()          # the recorder's next append now fails
     """)
     assert result.returncode == 3, result.stdout + result.stderr
     assert WARNING not in result.stdout
