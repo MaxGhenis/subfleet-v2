@@ -46,7 +46,7 @@ def test_e2e_harness_explicitly_authorizes_nonprefix_hooks(tmp_path, monkeypatch
         harness.close()
 
 
-@pytest.mark.parametrize("word", ["TOKEN", "KEY", "SECRET", "PASSWORD"])
+@pytest.mark.parametrize("word", ["TOKEN", "KEY", "SECRET", "PASSWORD", "tOkEn", "key", "secret", "password"])
 @pytest.mark.parametrize("suffix", ["", "_FILE"])
 def test_configuration_prefix_refuses_credential_words(word, suffix):
     name = "SUBFLEET_TEST_" + word + suffix
@@ -61,6 +61,26 @@ def test_configuration_prefix_keeps_launch_markers_explicit():
     parent = dict.fromkeys(names, "dummy")
     assert build_environment(environ=parent) == {}
     assert build_environment(parent, environ={}) == parent
+
+
+def test_guardian_settle_setting_requires_launch_authority():
+    assert build_environment(environ={"SUBFLEET_EXIT_SETTLE_S": "0"}) == {}
+
+
+@pytest.mark.parametrize("disclaim", [False, True])
+def test_guardian_merge_forwards_selected_environment(monkeypatch, disclaim):
+    from subfleet import daemon, procs
+    selected = {"PATH": "/usr/bin:/bin", "SUBFLEET_ATTEMPT": "dummy/a1"}
+    seen = []
+    child = SimpleNamespace(pid=123)
+    def spawn(argv, **options):
+        seen.append((argv, options))
+        return child
+    monkeypatch.setattr(procs, "spawn_disclaimed", spawn)
+    monkeypatch.setattr(daemon.subprocess, "Popen", spawn)
+    assert daemon.spawn_guardian(["dummy"], disclaim=disclaim, env=selected,
+                                 cwd="/dummy", pass_fds=(9,)) is child
+    assert seen == [(["dummy"], {"env": selected, "cwd": "/dummy", "pass_fds": (9,)})]
 
 
 @pytest.mark.parametrize("mode", ["detached", "resume", "turn", "isolated"])

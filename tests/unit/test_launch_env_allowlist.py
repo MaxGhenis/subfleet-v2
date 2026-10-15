@@ -134,10 +134,9 @@ def test_bounded_property_all_lane_launches(parent, passed, tmp_path, monkeypatc
             lane, launch = launch_for(provider, mode, tmp_path / (provider + mode), patch)
             actual = daemon._launch_environment(lane, launch)
             expected = {k: v for k, v in parent.items() if k in ALLOWED or k in passed}
-            for name in launch.env_remove:
-                if name not in passed:
-                    expected.pop(name, None)
             expected.update(launch.env_add)
+            for name in launch.env_remove:
+                expected.pop(name, None)
             assert_environment(actual, expected)
 
 

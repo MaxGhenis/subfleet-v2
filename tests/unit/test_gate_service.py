@@ -26,6 +26,8 @@ def test_gate_and_merge_helpers_receive_exact_policy(core, tmp_path, monkeypatch
     seen = []
     def runner(argv, **kwargs):
         seen.append(kwargs["env"])
+        if argv[:2] == ["git", "diff"]:
+            return subprocess.CompletedProcess(argv, 0, "dummy patch", "")
         return fake(argv, **kwargs)
     core.gate_runner = runner
     workdir = tmp_path / "source"

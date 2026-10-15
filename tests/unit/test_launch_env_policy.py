@@ -53,11 +53,12 @@ def test_passed_secret_is_exact_and_survives_daemon_start(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("name", ["FOO_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                                   "SUBFLEET_CUSTOM_SECRET", "LC_CUSTOM_PASSWORD"])
-def test_exact_policy_authority_survives_default_removals(name):
+def test_mandatory_removal_beats_exact_policy_authority(name):
     from subfleet.provider_env import ProviderEnvironment
     environment = ProviderEnvironment({"env": {"pass": [name]}, "providers": {"codex": {"ca_bundle": None}}})
-    actual = environment.build("codex", env_remove=(name,), environ={name: "dummy", name + "_OTHER": "dummy"})
-    assert set(actual) == {name}
+    parent = {name: "dummy", name + "_OTHER": "dummy"}
+    assert set(environment.build("codex", environ=parent)) == {name}
+    assert environment.build("codex", env_remove=(name,), environ=parent) == {}
 
 
 def test_daemon_start_refuses_invalid_env_policy_before_spawn(tmp_path, monkeypatch, capsys):

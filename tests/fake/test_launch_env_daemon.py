@@ -12,13 +12,13 @@ from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 from tests.unit.test_launch_env_allowlist import ALLOWED, POLICY, POLLUTION
 
 
-def daemon_spawn_environment(routing_state, monkeypatch, mode, *, passed_pythonpath=False):
+def daemon_spawn_environment(routing_state, monkeypatch, mode, *, pythonpath=None):
     service, harness = routing_state
     parent = {"PATH": "/usr/bin:/bin", **POLLUTION}
-    if passed_pythonpath:
-        parent["PYTHONPATH"] = "/dummy/policy-python"
+    if pythonpath is not None:
+        parent["PYTHONPATH"] = pythonpath
     monkeypatch.setattr(os, "environ", parent)
-    policy = {**POLICY, "env": {"pass": ["PYTHONPATH"]}} if passed_pythonpath else POLICY
+    policy = {**POLICY, "env": {"pass": ["PYTHONPATH"]}} if pythonpath is not None else POLICY
     service._provider_environment = ProviderEnvironment(policy)
     seen = []
     original_popen = daemon_module.subprocess.Popen
@@ -61,7 +61,8 @@ def daemon_spawn_environment(routing_state, monkeypatch, mode, *, passed_pythonp
     assert not (set(env) & set(POLLUTION))
     # Guardian authorization carries names only and covers launch-owned variables.
     passed = {argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass"}
-    assert set(env) - ALLOWED - {"PYTHONPATH"} <= passed
+    bootstrap = {"PYTHONPATH", "SUBFLEET_EXIT_SETTLE_S", "_SUBFLEET_PROVIDER_PYTHONPATH"}
+    assert set(env) - ALLOWED - bootstrap <= passed
     return argv, env
 
 
@@ -85,12 +86,13 @@ def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeyp
 
 @pytest.mark.parametrize("mode", ["detached", "turn", "probe", "enrollment"])
 @pytest.mark.parametrize("relay", [False, True], ids=["stdin", "relay"])
-def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeypatch, tmp_path, mode, relay):
+@pytest.mark.parametrize("pythonpath", [None, "", "/dummy/policy-python"])
+def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeypatch, tmp_path, mode, relay, pythonpath):
     """Run each real daemon launch through the guardian's actual provider seam."""
     from subfleet import guardian
     with monkeypatch.context() as patch:
         argv, environment = daemon_spawn_environment(
-            routing_state, patch, mode, passed_pythonpath=True)
+            routing_state, patch, mode, pythonpath=pythonpath)
     passed = tuple(argv[i + 1] for i, item in enumerate(argv) if item == "--env-pass")
     seen = []
     monkeypatch.setattr(guardian.os, "environ", environment)
@@ -113,5 +115,9 @@ def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeyp
                               env_pass=passed, control_socket=str(tmp_path / "relay.sock") if relay else None)
     finally:
         os.umask(previous)
-    assert seen[0]["PYTHONPATH"] == "/dummy/policy-python"
+    if pythonpath is None:
+        assert "PYTHONPATH" not in seen[0]
+    else:
+        assert seen[0]["PYTHONPATH"] == pythonpath
+    assert "SUBFLEET_EXIT_SETTLE_S" not in seen[0]
     assert not any(name.startswith("_SUBFLEET_") for name in seen[0])
