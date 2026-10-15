@@ -1,39 +1,60 @@
-# D-SH1: reviews that require command execution
+# D-SH1: review launch permissions, capability and publication
 
-Built from release/217 at `3f50142ac1cc` for the microcosm-dynamics coordinator's 2026-10-14 report, measured by the hub: 466 successful read-only Claude reviews during October 7–14, 314 prompts asking for commands, 407 deliverables reporting no shell, and two Track B REQUEST_CHANGES verdicts caused solely by inability to run tests.
+The round-2 design at `~/reviews/subfleet-hub/shell-downgrade-2026-10-14/design-r2.md` supersedes round 1's default. The original evidence was 466 successful read-only Claude reviews during October 7–14, 314 prompts asking for commands, 407 deliverables reporting no shell, and two Track B verdicts caused solely by inability to run tests. Fleet ops' addendum establishes that Codex read-only can run commands but cannot write even temporary files, so it cannot run pytest either.
 
-## Design as built
+## Round 1 retained
 
-A submit carries tri-state `needs_shell`: `--needs-shell` and `--no-needs-shell` (or boolean batch `needs_shell`) override policy. Omission resolves the task's optional `requires` list. The loader accepts only known task names and the distinct requirement `shell`, rejecting unknown requirements and malformed lists. The shipped policy defaults reviews to requiring shell and includes Codex `sol61` and `luna`. Live policy installation remains the hub's responsibility after telling Fleet ops; no live state was accessed.
+- `--needs-shell` / `--no-needs-shell` and boolean batch `needs_shell` override optional task policy `requires`. Only the distinct requirement `shell` is valid. Resolved requirements persist across retries, recovery and native resume; explicit choices affect idempotency.
+- Admission filters incompatible launches before ranking and again at reservation. Exhausted candidates wait with an explanatory `why`; later compatible chain entries remain eligible. Incompatible explicit pins fail at submit with exit 7 and fixes naming workspace-write or a Codex model. Competing demand uses the same requirement.
+- The daemon's policy model map is authoritative for `-m`, including sol61, luna and custom names. Empty pins are rejected. Retired sol still maps to astra with its note.
+- Round 1's boolean shell evidence is superseded by capability below. Its shipped review shell requirement is removed; shell remains opt-in.
 
-The daemon persists the resolved requirement on the job; native resumes inherit it unless explicitly overridden. Changes to an explicit requirement affect the idempotency digest; old submissions without a requirement retain their old digest. The candidate judge removes launches without command execution before ranking and at reservation recheck. Codex offers shell in both supported sandboxes; Claude offers it only in workspace-write. A filtered chain still tries later capable models in order. Exhausted candidates produce a capacity wait whose `why` explains the requirement, never an incompatible fallback. Incompatible explicit model or lane pins fail before job insertion with exit 7 and the fixes `-s workspace-write` or a Codex model. Competing demand excludes incompatible models too.
+Round-1 commits: `e7bb5fb15`, `3ef714a79`, `205ff2fff`, `8eb36a490`, `bde120c1e`, `da07a2758`, `b5165a845`, `05869349d`, `8d96571ac`. The starting merge `a2a3e8f2cc1e` includes release #205. The source was already present in this checkout; no unpublished staging tail needed recovering. Round 1 left verification unfinished; the verification below covers its retained behavior too.
 
-Each new attempt records boolean `has_shell` at reservation and confirms it when constructing its launch. Both adapters include the capability in launch notes. `runs show` and its JSON, the completion notice's first line, and CLI wait summaries expose it. Notice state/rc/path fields remain intact; deliverable and `-o` bytes remain intact. Schema version 8 adds job `needs_shell` (false for old jobs) and nullable attempt `has_shell` (unknown for old attempts) without guessing historical launches.
+## Round 2 implementation and invariants
 
-The CLI's known model names include `sol61` and `luna` and appear in help. They do not constrain parsing: the daemon's live model map determines admissibility, so custom policy names work too. Unknown submit pins fail with exit 7 listing policy models. Retired `sol` retains its mapping to `astra` and its stderr note. Batch models follow the same authority.
+The shipped policy grants `permissions.review = "worktree-write"` and sets no `requires`. This is a policy permission, never a provider sandbox. At submission it resolves to workspace-write only for a new job worktree cut from a committed Git repository. In-place, non-git, isolated reviews and gate rounds resolve directly to read-only. This does not produce a writable result and downgrade it under d261. Explicit workspace-write outside Git remains refused, now with the required read-only escape. Existing writer admission and worktree ownership rules apply to writable reviews.
 
-Existing contract clauses amended: C-11.1 (policy and requirements), C-11.2 (candidate filtering, waits and pins), C-12.4 (Claude tools and attempt evidence), C-15.1 (notice suffix), and C-17.2 (flags, batch key and model pins). The version history cites the report and measurements. No new clause number was needed.
+Attempts record `capability = none | commands | writable` at reservation and confirm it when constructing the launch. Claude read-only is none; Codex read-only is commands; either writable provider is writable. Schema 9 migrates known version-8 shell flags using the stored job sandbox and leaves unknown historical evidence unknown. The deprecated has_shell column remains for additive schema compatibility but new attempts use capability. Historical attempts never receive a fictitious publish denial.
 
-## Invariants and tests
+Completion notices, runs show, its JSON and wait summaries expose the evidence. A none launch says it could not run any command; commands says nothing could be written, temp files included, so pytest could not run. The status response and text count distinct run ids with any restricted attempt reserved in the last 24 hours. Deliverable and `-o` bytes remain unchanged.
 
-- A needs-shell job can reserve only a shell-capable launch or wait. A full Codex lane and hard review chain `[sol61, opus]` leave the review waiting; freeing Codex places it on sol61.
-- Explicit opt-out allows read-only Opus and reports no shell. Workspace-write Opus reports a shell. Both preserve deliverable and export bytes.
-- Invalid pins and malformed/unknown requirements are refused before state insertion. Resolved requirements survive policy edits; boolean overrides are validated and participate in idempotency.
-- Bounded Hypothesis checks cover four-tier chains, lane sets, exclusions, sandbox and requirement choices (80 examples per property, no database). Without the requirement, the complete decision equals frozen base `prepare`, `judge_lane`, `model_reason` and `evaluate` functions from `3f50142ac1cc`.
-- A schema migration regression preserves version-7 rows and leaves historical shell evidence unknown. The shipped-model parser regression prevents CLI/policy drift.
-- Named mutation regressions: `test_hard_review_waits_for_codex_then_runs_with_shell` must detect removal of the candidate filter; `test_d_sh1_launch_notes_report_actual_shell` must detect Claude read-only defaulting to shell.
+Review tasks and every gate round receive the same launch-scoped publishing guard on both providers, including resumes. Git/gh wrappers have embedded targets and policy, placed beside the attempt outside the job worktree. Wrapped git refuses push even with config overrides or marker removal. An inherited Git push URL rewrite and empty GIT_ALLOW_PROTOCOL transport allowlist also deny absolute-path pushes and explicit remote push URLs, even with protocol config overrides. Local Git reads still execute; remote Git transports, including fetch, are unavailable. gh allows pr view/diff/checks and field-free API GETs, and fails closed on write verbs, non-GET methods, fields, aliases, extensions and unknown commands. The never-rules hook is untouched. Explicit host-push submission for a review is refused. Attempts and notices say `publish: denied`.
+
+The wrapper layer was chosen because both providers inherit the launch environment and it avoids provider-specific hook parsing or changes to the pinned never-rules hook. It is a command-surface restriction, not an OS boundary against hostile arbitrary code. Code discarding its environment and selecting alternate or absolute binaries can bypass it; raw HTTPS using a token found on disk is also outside its boundary. It must not be represented as token revocation or an immutable host security boundary.
+
+The #222 branch `fix/launch-env-allowlist-217` was read locally (tip observed `1a2287ca300414b361406c92a3c50c8451be4dc1`). Its `build_environment` applies explicit launch additions after ambient filtering; `guardian_pass_args(env)` carries selected names across the guardian boundary. This change puts PATH, GIT_ALLOW_PROTOCOL and the exact GIT_CONFIG_COUNT/KEY_n/VALUE_n entries in Launch.env_add, using that mechanism rather than broadening ambient inheritance. At merge, keep the daemon's final guard application before #222 captures guardian_pass_args, and retain both adapters' additions. No new ambient allowlist entry or SUBFLEET prefix grant is needed.
+
+Contract clauses C-11.1, C-11.2, C-12.3, C-12.4, C-15.1 and C-17.2 and version history describe the change.
 
 ## Verification
 
-Pending: the foreground baseline pytest command has not produced collection output under the shared lock. Implementation has been prepared and committed using a workspace-local staging tree, while the checkout's base source remains intact for this run. Required suites will run serially with their own holds, at most four workers, temporary Hypothesis storage and the ci profile. No deep profile or repository `.hypothesis` directory is used.
+Every pytest invocation uses its own foreground lockf hold, no lock timeout, the ci profile and temporary Hypothesis storage. There is only one pytest process at a time. The writable-worktree regression invokes pytest in-process to exercise its tmp_path fixture without starting a second pytest process. All Git targets are disposable local file:// repositories and gh is fake. No provider, live store or GitHub endpoint is used.
 
-## Commits and remaining work
+Tests-first commit `a643b05d1` produced 45 expected failures against the round-1 head. Implementation commit `497b13787` includes the policy, evidence, launch guard and contract. The first implementation check found the old notice invariant parser, a repeated in-process pytest module basename and an existing stale migration-version expectation; these fixtures were corrected without changing deliverable semantics.
 
-- `e7bb5fb15`: failing regressions and frozen base routing functions (tests first).
-- `3ef714a79`: implementation, contract and supporting compatibility tests.
-- `205ff2fff`: preserve positional protocol argument compatibility.
-- `8eb36a490`: keep the source requirement on native resumes; read notice sandbox from the authoritative job row.
+The focused corrected run passed 107 tests in 123.82 seconds: review launch permissions 11, publish guard 33, retained needs-shell 23, migration 15 and policy sandbox 25. After hardening, the unit run completed in 190.93 seconds with 923 passes and three failures. All launch, CLI and adapter tests passed. The stale policy-ramp hash was corrected in `3680dcbdf`; the two retention fixture failures are being checked against the baseline before attributing them to this change.
 
-The sandbox refused the shared index. Commits therefore use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, preserving the base ancestry. No push, history rewrite, live policy edit or caller checkout write occurred.
+| Unit file (`tests/unit/`) | Passed | Failed in first full run |
+| --- | ---: | ---: |
+| test_policy.py | 186 | 0 |
+| test_policy_disk.py | 57 | 0 |
+| test_policy_ramp.py | 45 | 1 (hash corrected; rerun pending) |
+| test_policy_support.py | 12 | 2 (baseline check pending) |
+| test_policy_tier_preferences.py | 15 | 0 |
+| test_cli.py | 207 | 0 |
+| test_codex_adapter.py | 93 | 0 |
+| test_claude_adapter.py | 172 | 0 |
+| test_review_publish_guard.py | 66 | 0 |
+| test_store_migration_2.py | 15 | 0 |
+| test_offline.py | 33 | 0 |
+| test_notice_rendering.py | 21 | 0 |
+| test_test_module_names.py | 1 | 0 |
 
-Remaining: finish the baseline run, publish staged source into the checkout, run required suites and mutations, and replace this verification section with counts.
+The integration suite invocation remains queued under the shared lock. Baseline and mutation results will be recorded after it completes.
+
+## Delivery and remaining work
+
+The shared Git index is not writable in this sandbox. All round-2 commits use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, with original ancestry and the required co-author trailer. Files in the assigned worktree contain the changes. No caller checkout write, live policy edit, history rewrite, network remote or push occurred.
+
+The hub owns the live policy installation and notifying Fleet ops. Verification and immutable-publication-boundary caveats are tracked above; final test counts follow before delivery.
