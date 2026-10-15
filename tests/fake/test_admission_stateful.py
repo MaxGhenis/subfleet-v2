@@ -381,7 +381,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             self.decided[job["job_id"]] = decision
             return decision
 
-        def probe_census(record):
+        def probe_census(record, *, foreign_ownership=None):
             return Containment(unverifiable=True) if self.quarantine else Containment()
 
         def execute_probe(job, lane, model, holder):
@@ -406,7 +406,9 @@ class AdmissionMachine(RuleBasedStateMachine):
         service._execute_probe = execute_probe
         service._pick = pick
         service._probe_census = probe_census
-        service.term_grace_s = 0
+        # The model has no process whose state could change during settlement.
+        # Paced containment uses a deadline as well as sleep, so both graces are zero.
+        service.term_grace_s = service.kill_settle_s = 0
         for lane_id, meta in self.metadata.items():
             service.timers.metadata[lane_id] = dict(meta)
         return service
