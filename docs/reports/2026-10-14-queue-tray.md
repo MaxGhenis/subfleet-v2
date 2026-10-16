@@ -739,3 +739,13 @@ Generated 2026-10-16T06:37:13.096967+00:00. These per-file results supersede ear
 The four opening-view cases require a successful post-fix full-source run; compiler setup errors do not verify them. Supplementary replay: end distance 0, offset-only Review 250.
 
 <!-- /validation3-latest -->
+
+#### Post-scroll release build — passed
+
+The final source builds successfully with the installed **macOS SDK 26.5** and
+Command Line Tools, including plist validation and ad-hoc signing. Existing
+Sendable-capture and unnecessary-await warnings remain. SDK 26.5 retains the
+State property wrapper and avoids SDK 27's unavailable SwiftUIMacros plugin.
+The SDK is selected only through this job's environment; no installed app,
+compiler files or global developer selection is changed. The built app is
+never installed or launched. The four-case SwiftUI run remains queued.
