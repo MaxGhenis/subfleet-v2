@@ -156,7 +156,7 @@ WAIT_REASONS = {"capacity", "dependency", "approval", "uncertain", "workspace", 
 #: lane can never admit, and the machine and disk guards (C-6.13, C-6.17). A hold with `for_good` (no
 #: lane can ever admit the job, C-11.8) holds nobody either.
 HOLD_NOBODY = {"route", "approval", "uncertain", "workspace", "attempt-live", "lease-held", "pin-unadmittable",
-               "machine-busy", "disk", "conversation-blocked", "message-settled"}
+               "machine-busy", "disk", "conversation-blocked", "message-settled", "lanes-unadmittable"}
 #: C-6.9, C-6.11: holds that exist only in a pool with a count cap (C-6.4a's count per provider included).
 CAPPED_ONLY = {"behind-older-job", "fleet-full", "slot-kept", "parent-cap", "provider-cap", "provider-slot-kept"}
 #: One fleet: its caps, the reserve on or off, lanes whose names may collide, the capacity it starts
@@ -712,11 +712,14 @@ class AdmissionMachine(RuleBasedStateMachine):
                         "slot-kept": {"kept_for", "live", "max_active_attempts", "tier"},
                         "lease-held": {"leases"}, "route": {"error_type", "error", "deferrals", "next_check_at"},
                         "pin-unadmittable": {"lane_id", "reasons", "closures", "since", "fail_at"},
+                        "lanes-unadmittable": {"lane_id", "reasons", "closures", "since", "fail_at", "all_lanes"},
                         "route-moved": {"tries"},
                         # C-6.4a: "`why` and status name `providers.<provider>.max_active_attempts` and say
                         # `<provider>: N of N running`, or identify an older peer keeping a slot".
                         "provider-cap": {"provider", "live", "max_active_attempts", "key"},
                         "provider-slot-kept": {"provider", "live", "max_active_attempts", "key", "kept_for", "tier"}}
+            if reason == "lanes-unadmittable":
+                assert hold["all_lanes"] is True and hold["lane_id"] is None and hold["reasons"]
             missing = required.get(reason, set()) - set(hold)
             assert not missing, f"C-6.11: the {reason} hold on {job_id} lacks {sorted(missing)}: {hold}"
             if reason in ("provider-cap", "provider-slot-kept"):
