@@ -126,13 +126,24 @@ def _restored_copy(adir: Path, receipt: dict | None, launch: Launch,
     return path
 
 
+def restore_stream(adir: Path, launch: Launch, expected_file: str) -> tuple[Path, dict]:
+    """Validate a verdict's recorded evidence without selecting a live candidate."""
+    receipt = read_freeze_receipt(adir)
+    if receipt and receipt.get("file") == expected_file:
+        restored = _restored_copy(adir, receipt, launch)
+        if restored is not None:
+            return restored, receipt
+    raise OSError(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
+
+
 def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, bytes], None],
                   publish_hook: Callable[[str, Path], None] | None = None,
                   opener: Callable[..., BinaryIO] = open_stream) -> Path:
     receipt = read_freeze_receipt(adir)
     if (restored := _restored_copy(adir, receipt, launch)) is not None:
         return restored
-    reset = _entry_exists(adir / "stream.freeze.json")
+    if _entry_exists(adir / "stream.freeze.json"):
+        raise OSError(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
     raw = Path(launch.raw_stream_path) if launch.raw_stream_path else None
     source = next((path for path in (raw, adir / "stream.jsonl")
                    if path is not None and _entry_exists(path)), None)
@@ -172,7 +183,7 @@ def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, byte
                     changed = True
             receipt = {"version": 1, "file": path.name, **capture, "source": str(source),
                        "events": events, "writable_aliases": aliases,
-                       "changed_during_capture": changed, "reset_finalization": reset}
+                       "changed_during_capture": changed}
             # A new output alias or replacement at publication cannot grant
             # frozen authority. Try another fresh inode from the same descriptor.
             if _restored_copy(adir, receipt, launch, stream if events else None) is None:

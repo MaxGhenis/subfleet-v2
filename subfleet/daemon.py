@@ -60,7 +60,7 @@ from .contracts import (
 from .credentials import resolve_credential
 from .provider_env import ProviderEnvironment
 from .guardian import atomic_publish, stream_digest
-from .frozen_stream import freeze_stream, read_freeze_receipt
+from .frozen_stream import freeze_stream, read_freeze_receipt, restore_stream
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
@@ -8273,21 +8273,31 @@ class Daemon:
             return
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
-        stream_failure = None
-        try:
-            frozen_stream = self._freeze_stream(adir, launch)
-            stream_receipt = read_freeze_receipt(adir) or {}
-        except Exception as exc:
-            # A capture failure supplies no completion proof. In particular, do
-            # not let a live path or cached success hide a death this pass found.
-            # Keep the failure in classification and log it after recording end.
-            frozen_stream, stream_receipt = None, {}
-            stream_failure = {"status": "unreadable", "error_type": type(exc).__name__,
-                              "error": refusals.scrubbed_words(exc)[:500]}
+        result_path = adir / "finalization.json"
+        result = self._read_json(result_path)
+        # Round-3 receipts kept the failure only in outcome evidence. They are
+        # durable verdicts too, even though their stream token is null.
+        stream_failure = ((result.get("stream_capture")
+                           or (result.get("outcome", {}).get("evidence") or {}).get("stream_capture"))
+                          if result else None)
+        frozen_stream, stream_receipt = None, {}
+        if not stream_failure:
+            try:
+                if result is not None and "stream" in result:
+                    frozen_stream, stream_receipt = restore_stream(adir, launch, result["stream"])
+                else:
+                    frozen_stream = self._freeze_stream(adir, launch)
+                    stream_receipt = read_freeze_receipt(adir) or {}
+            except Exception as exc:
+                # A missing/changed recorded copy fails capture; it never grants
+                # another read of the provider's live candidate. Only this
+                # validation failure may replace an earlier saved verdict.
+                result = None
+                stream_failure = {"status": "unreadable", "error_type": type(exc).__name__,
+                                  "error": refusals.scrubbed_words(exc)[:500]}
         if frozen_stream is not None:
             launch = dataclasses.replace(launch, raw_stream_path=str(frozen_stream))
         stream_token = stream_receipt.get("file")
-        recapture_deliverable = False
         lane = self.store.get_lane(a["lane_id"])
         adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
         if job["kind"] == "turn":
@@ -8307,17 +8317,16 @@ class Daemon:
                               else "guardian exit receipt has no return code",
                               evidence={"stream_capture": stream_failure} if stream_failure else {})
             attest_status, served_model = "unattested", None
+            if stream_failure:
+                if result is None:
+                    result = {"outcome": dataclasses.asdict(outcome),
+                              "attestation": dataclasses.asdict(AttestationResult(
+                                  Attestation.UNATTESTED, None, "provider stream unreadable")),
+                              "rule": FINALIZATION_RULE, "stream": None,
+                              "stream_capture": {**stream_failure, "class": outcome.cls.value}}
+                    self._publish("finalization", result_path, json_bytes(result))
+                outcome = self._restore_outcome(result["outcome"])
         else:
-            result_path = adir / "finalization.json"
-            result = None if stream_failure else self._read_json(result_path)
-            # Missing/changed copies have no frozen authority. Reclassify and
-            # extract together; a cached interim deliverable is not fresh proof.
-            recapture_deliverable = bool(
-                (result and result.get("stream", stream_token) != stream_token)
-                or (stream_receipt.get("reset_finalization")
-                    and (result is None or result.get("stream") != stream_token)))
-            if recapture_deliverable:
-                result = None
             if result is None:
                 if stream_failure:
                     incomplete_codex = lane.provider == "codex" and job["kind"] != "turn"
@@ -8334,6 +8343,8 @@ class Daemon:
                     attest = adapter.attest(adir, launch, outcome, a["model_requested"])
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
                           "rule": FINALIZATION_RULE, "stream": stream_token}
+                if stream_failure:
+                    result["stream_capture"] = {**stream_failure, "class": outcome.cls.value}
                 self._publish("finalization", result_path, json_bytes(result))
             # A replay of this daemon's own verdict must reach its first pass's
             # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
@@ -8354,10 +8365,10 @@ class Daemon:
                 return None
 
         deliverable_path = adir / "deliverable.md"
-        if (recapture_deliverable or not deliverable_path.exists()) and not lost and not stream_failure:
+        if not deliverable_path.exists() and not lost and not stream_failure:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
-        deliverable = artifact(deliverable_path, "deliverable")
+        deliverable = None if stream_failure else artifact(deliverable_path, "deliverable")
         # C-12.6: cached acceptance uses the fresh provider's content boundary,
         # not the artifact's byte count. Preserve the captured payload itself.
         nonblank_deliverable = False
