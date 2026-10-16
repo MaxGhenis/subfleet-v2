@@ -527,8 +527,8 @@ production change was needed.
 
 The earlier **15/15** tray-view result is retained without rerunning that hold:
 its offscreen probe constructs rows directly and does not exercise the changed
-nested timeline placement. Engine tests are rerun because they also assert
-the store's timeline projection. All remaining render exports use temporary
+nested timeline placement. The planned engine recheck was deferred to preserve time for mutations;
+its prior 75-pass result is retained as described below. All remaining render exports use temporary
 test destinations rather than inherited optional export paths.
 
 #### Review probes — opening pin regression found
@@ -590,9 +590,9 @@ The isolated view compile also timed out at 900 seconds: **4 setup errors**,
 912.65 seconds of pytest time / **915.24 seconds** holding the lock. No
 rendering assertions ran in that hold. The small real-observer replay passes
 after the two-stage main-queue change (end distance 0, Review offset 250),
-but the two full SwiftUI OS-path checks remain **unverified after this fix**.
-The application change is kept with that explicit verification gap; no
-assertion or geometry tolerance has been weakened. All 19 core review probes
+and at that checkpoint the full SwiftUI checks were unverified. The successful
+SDK 26.5 rerun below closes this gap; no assertion or geometry tolerance
+has been weakened. All 19 core review probes
 passed with the selected toolchain.
 
 To preserve time for the required mutants, the full engine hold retains its
@@ -624,13 +624,42 @@ search path. An installed SDK 26.5 uses the existing State property wrapper;
 the UI build and four-case scroll hold are retried with SDK 26.5 using only
 job-local environment settings. Model mutants keep their already-working SDK
 27 environment. The original post-timeline release build passed before this
-SDK selection issue; the post-scroll release result is pending.
+SDK selection issue; the final post-scroll SDK 26.5 release build passed, as recorded below.
+
+
+
+#### Post-scroll release build — passed
+
+The final source builds successfully with the installed **macOS SDK 26.5** and
+Command Line Tools, including plist validation and ad-hoc signing. Existing
+Sendable-capture and unnecessary-await warnings remain. SDK 26.5 retains the
+State property wrapper and avoids SDK 27's unavailable SwiftUIMacros plugin.
+The SDK is selected only through this job's environment; no installed app,
+compiler files or global developer selection is changed. The built app is
+never installed or launched. The four-case SwiftUI run subsequently passed.
+
+#### Opening pin verification — passed
+
+The isolated SDK 26.5 hold passed **4/4**, with **170.58 seconds** of pytest
+time. Both full SwiftUI OS paths satisfy the original two-point end tolerance;
+the deterministic queued-layout replay and offset-only Review regression pass.
+Together with the earlier 19 core cases, the review file is **23/23**. This
+closes the post-fix verification gap from the SDK 27 compiler timeouts.
+
+**tombstone: KILLED** by
+`test_c29_7_a_send_withdrawn_before_its_receipt_keeps_its_line_after_a_tombstone`: the
+mutant removes `person:m2` after the tombstone, so the required line lookup
+raises `StopIteration` at the test's final text assertion. Pytest reports one
+failed named test in **12.04 seconds**, with a **25.96-second** lock hold. The
+runner's conservative assertion-only classifier prints NOT VERIFIED for this
+lookup failure; manual inspection confirms the intended missing-line defect,
+not a compiler or setup failure. The mutation table records this checked result.
 
 <!-- validation3-latest -->
 
 #### Latest continuation checkpoint
 
-Generated 2026-10-16T06:37:13.096967+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
+Generated 2026-10-16T06:50:53.171918+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
 
 | File | Passed | Failed | Setup errors | Skipped | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -669,7 +698,7 @@ Generated 2026-10-16T06:37:13.096967+00:00. These per-file results supersede ear
 | `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | retained prior pass; unaffected row-only view |
 | `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_review_r219_probes.py` | 19 | 0 | 4 | 0 | continuation |
+| `tests/frontend/test_review_r219_probes.py` | 23 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_visual_report_hygiene.py` | 0 | 0 | 0 | 0 | unrun |
@@ -690,7 +719,7 @@ Generated 2026-10-16T06:37:13.096967+00:00. These per-file results supersede ear
 | Mutation | Named test | Result |
 | --- | --- | --- |
 | flicker | `tests/frontend/test_core_queue_tray.py::test_c29_7_an_idle_send_answered_queued_stays_in_the_timeline` | killed |
-| tombstone | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_send_withdrawn_before_its_receipt_keeps_its_line_after_a_tombstone` | unrun |
+| tombstone | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_send_withdrawn_before_its_receipt_keeps_its_line_after_a_tombstone` | killed |
 | waiting-continuation | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_person_send_waits_behind_a_queued_failover_continuation` | unrun |
 | expanded-sizing | `tests/frontend/test_queue_tray_view.py::test_c29_7_an_expanded_tray_whose_rows_fit_is_as_tall_as_its_rows` | unrun |
 | M17 | `tests/frontend/test_core_queue_engine.py::test_c29_7_a_message_that_became_its_own_live_turn_is_interrupted[waiting]` | unrun |
@@ -736,16 +765,6 @@ Generated 2026-10-16T06:37:13.096967+00:00. These per-file results supersede ear
 - `tests/frontend/test_visual_snapshots.py`
 - `tests/frontend/test_visual_suggestions.py`
 
-The four opening-view cases require a successful post-fix full-source run; compiler setup errors do not verify them. Supplementary replay: end distance 0, offset-only Review 250.
+All four opening-view cases passed after the fix with SDK 26.5 (170.58 s pytest). Together with the 19 core review probes, this is 23/23. Supplementary replay: end distance 0, offset-only Review 250. Earlier compiler setup errors are superseded by this successful run.
 
 <!-- /validation3-latest -->
-
-#### Post-scroll release build — passed
-
-The final source builds successfully with the installed **macOS SDK 26.5** and
-Command Line Tools, including plist validation and ad-hoc signing. Existing
-Sendable-capture and unnecessary-await warnings remain. SDK 26.5 retains the
-State property wrapper and avoids SDK 27's unavailable SwiftUIMacros plugin.
-The SDK is selected only through this job's environment; no installed app,
-compiler files or global developer selection is changed. The built app is
-never installed or launched. The four-case SwiftUI run remains queued.
