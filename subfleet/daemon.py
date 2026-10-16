@@ -8027,6 +8027,8 @@ class Daemon:
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
             job = self._job(a["job_id"])
             cancel = bool(job["cancel_requested_at"])
+            # A recovered starting row may predate hours of downtime. No
+            # provider launched, so its execution interval has zero length.
             tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,"
                        "finished_at=COALESCE(started_at,?) WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
@@ -8096,6 +8098,14 @@ class Daemon:
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
+        if a.get("killed_by") == "max_wall_s":
+            # Identity reads and the database commit may have waited since the
+            # first census. Check once more immediately before the first signal.
+            receipt = self._read_json(adir / "exit.json")
+            if receipt:
+                self._supersede_wall_cancel(a)
+                self._begin_finalizing(a, receipt)
+                return
         if a.get("pgid"):
             procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"], proc_start=a["proc_start"])
         deadline = time.monotonic() + self.term_grace_s
