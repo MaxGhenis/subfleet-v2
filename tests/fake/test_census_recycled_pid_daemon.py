@@ -10,7 +10,8 @@ from subfleet import procs, protocol
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
-from tests.unit.test_procs import census
+from tests.unit.test_procs import BOOT_A, START, census
+from tests.unit.test_census_responsibility_races import changing_root
 
 
 # Save the real census before state_daemon replaces the process seam.
@@ -152,3 +153,70 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
         assert result.descendant_pids == {4203, 55000}
         assert result.unverifiable and not result.verified_empty
         assert not result.recycled
+
+
+@pytest.mark.parametrize("path", ["kill", "probe", "finalize", "quarantine", "reap"])
+def test_responsibility_evidence_and_its_walk_never_authorize_signals(state_daemon, monkeypatch, path):
+    """C-5.4–7: even uncertain root-death evidence only holds the attempt.
+
+    Exercise the actual deciding paths, with both an evidence-only seed and a
+    child found solely by walking from it. Signals and waitpid are intercepted
+    before any host pid can be touched.
+    """
+    daemon, harness = state_daemon
+    job_id, attempt, _ = reserve(daemon, harness)
+    monkeypatch.setattr(procs, "containment", CONTAINMENT)
+    _, _, state = changing_root(monkeypatch, timing="after-members", fate="reaped")
+    attempt.update(guardian_pid=42, pgid=42, child_pid=None,
+                   boot_id=BOOT_A, proc_start=START, state="running",
+                   evidence_json=json.dumps({"responsible_root": {"pid": 42, "unique_id": None}}))
+    daemon.store.update_attempt(attempt["attempt_id"], **{key: attempt[key] for key in (
+        "guardian_pid", "pgid", "child_pid", "boot_id", "proc_start", "state", "evidence_json")})
+    first = daemon._contain(attempt)
+    assert 61 in first.responsible_pids
+    assert "61" in json.loads(attempt["evidence_json"])["responsible_identities"]
+    state.scanning = False
+    snapshot = procs.snapshot
+
+    def with_child():
+        table = snapshot()
+        return procs.ProcessTable({**table.rows, 62: (61, 62, "S", attempt["proc_start"])}, table.boot_id)
+
+    monkeypatch.setattr(procs, "snapshot", with_child)
+    assert daemon._contain(attempt).descendant_pids >= {61, 62}
+    signalled, waited = [], []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs.os, "waitpid", lambda pid, flags: waited.append(pid) or (pid, 0))
+    daemon.term_grace_s = daemon.kill_settle_s = daemon.exit_settle_s = 0
+    monkeypatch.setattr(daemon, "_salvage", lambda *a, **k: pytest.fail("salvage with live evidence"))
+    if path == "kill":
+        daemon._kill_attempt(attempt)
+    elif path == "probe":
+        record = {**attempt, "holder": attempt["attempt_id"], "directory": str(harness.root),
+                  **json.loads(attempt["evidence_json"]), "owned_identities": {}}
+        record.pop("attempt_id")
+        record.pop("evidence_json")
+        assert not daemon._contain_probe(record)
+        assert not record["owned_identities"]
+    elif path == "finalize":
+        daemon._finalize(attempt)
+    elif path == "quarantine":
+        daemon._quarantine(attempt, daemon._contain(attempt), "evidence only")
+        daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                                   protocol.KillArgs(job_id, confirm_dead=True))
+        assert daemon.store.list_leases(attempt["attempt_id"]) or daemon.store.list_leases(job_id)
+        daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                                   protocol.KillArgs(job_id, force_release=True, operator_note="fixture"))
+    else:
+        monkeypatch.setattr(procs, "_abandoned", [])
+        daemon._children[attempt["attempt_id"]] = procs.Spawned(["fixture guardian"], 42)
+        daemon._quarantine(attempt, daemon._contain(attempt), "evidence only")
+        monkeypatch.setattr(procs._spawn, "available", False)
+        monkeypatch.setattr(procs.subprocess, "Popen", lambda *a, **k: None)
+        procs.spawn_disclaimed(["next fixture"], env={}, cwd=str(harness.root))
+        assert waited == [42]
+    assert not signalled
+    assert not ({61, 62} & set(waited))
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert not ({"61", "62"} & evidence.get("owned_identities", {}).keys())
