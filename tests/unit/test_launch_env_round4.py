@@ -131,7 +131,9 @@ def test_claude_config_dir_stays_a_lane_addition_in_production(tmp_path):
     assert passed.build("claude", environ=parent)["CLAUDE_CONFIG_DIR"] == str(tmp_path / "other")
 
 
-NAMES = sorted(launch_env.ALLOWED_NAMES | launch_env.TEST_SESSION_NAMES
+# `getattr` keeps a replay against a head without the class meaningful: its
+# cases then fail one by one instead of the module failing to import.
+NAMES = sorted(launch_env.ALLOWED_NAMES | getattr(launch_env, "TEST_SESSION_NAMES", D_ST1_NAMES)
                | {"OTHER", "SUBFLEET_UNREAD", "GH_TOKEN", "SUBFLEET_FAKE_SCENARIO", "PYTEST_CURRENT_TEST"})
 
 
