@@ -1,11 +1,51 @@
 """Review r1 regressions: socket conversation stops retain their requester."""
 import json
 import struct
+import threading
 
 import pytest
 
 from subfleet.conversations.peers import AuditToken
 from tests.unit.test_conversation_service import FakeRunner, conversation, submit, svc  # noqa: F401
+
+
+@pytest.mark.parametrize("op", ["message.cancel", "turn.interrupt"])
+def test_round5_pending_submission_retains_session_and_audit_pid(svc, monkeypatch, op):
+    cid = conversation(svc)
+    mid = submit(svc, cid)
+    entered, resume = threading.Event(), threading.Event()
+    submit_job = svc.daemon.submit
+
+    def pending(*args, **kwargs):
+        entered.set()
+        assert resume.wait(10)
+        return submit_job(*args, **kwargs)
+
+    monkeypatch.setattr(svc.daemon, "submit", pending)
+    errors = []
+
+    def dispatch():
+        try:
+            svc._dispatch()
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=dispatch)
+    worker.start()
+    try:
+        assert entered.wait(10)
+        assert svc.daemon.store.list_jobs() == []
+        peer = AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, 424242, 0, 7))
+        result = svc.handle(op, {"message_id": mid, "session_id": "pending-session", "pid": -123}, peer)
+        assert result["state"] == "cancelled"
+    finally:
+        resume.set()
+        worker.join(10)
+    assert not worker.is_alive() and not errors
+    [job] = svc.daemon.store.list_jobs()
+    assert job["state"] == "cancelled"
+    assert cancel_events(svc, job["job_id"]) == [{"by": "client", "session_id": "pending-session",
+                                               "pid": 424242, "reason": "message-cancelled"}]
 
 
 def cancel_events(svc, job_id):
