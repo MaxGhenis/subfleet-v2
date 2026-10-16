@@ -136,51 +136,81 @@ _SYSTEM_BINARY_DIRECTORIES = (
 )
 
 
-def _env_search_path(argv: list[str], path: str | None) -> str | None:
-    """env can clear, unset, assign or explicitly select the child's PATH.
+# macOS env's getopt string is "-0C:iP:S:u:v". Its "-" option clears like -i, so
+# a lone "-", a "-" inside a group and the "-" that starts any "--name" do too.
+# GNU env's short options are a subset.
+_ENV_FLAGS = "-0iv"
+_ENV_VALUE_OPTIONS = "CPSu"
+# env -S splits on these. It also substitutes `${NAME}`, reads `\` escapes (`\_`
+# is a space, `\c` ends the string) and stops at `#`; those are not emulated.
+_ENV_SPLIT_SPACES = " \t\n\v\f\r"
+_ENV_SPLIT_REFUSED = "$\\#"
 
-    Parse options only before its utility; that utility's arguments are opaque.
-    env -S splits another option/assignment prefix, without running a shell.
-    """
+
+def _env_split(string: str) -> list[str]:
+    """env -S's words, for a string without substitutions, escapes or comments."""
     import shlex
-    args = list(argv[1:])
-    options = True
-    while args:
+    if any(character in string for character in _ENV_SPLIT_REFUSED):
+        raise ValueError("env -S string with a substitution, escape or comment")
+    lexer = shlex.shlex(string, posix=True)
+    lexer.whitespace, lexer.whitespace_split, lexer.commenters = _ENV_SPLIT_SPACES, True, ""
+    return list(lexer)
+
+
+def _env_child(argv: list[str], path: str | None, *, _split=_env_split):
+    """What env does before it runs its utility: (child PATH, -P path, -C directory).
+
+    Options are walked as env's getopt walks them: grouped or not, a value
+    attached or in the next argument, and -S's words in place of the string.
+    NAME=value assignments follow, until the utility, whose arguments are
+    opaque. None is an absent PATH. An option env does not have, or a missing
+    value, raises: env would not run, and the check refuses rather than guess.
+    """
+    args, altpath, chdir = list(argv[1:]), None, None
+    while args and args[0].startswith("-"):
         arg = args.pop(0)
-        if options and arg == "--":
-            options = False
-        elif options and arg in ("-i", "--ignore-environment", "-"):
-            path = None
-        elif options and arg in ("-u", "--unset"):
-            if args and args.pop(0) == "PATH":
-                path = None
-        elif options and (arg.startswith("--unset=") or arg.startswith("-u")):
-            if arg.removeprefix("--unset=").removeprefix("-u") == "PATH":
-                path = None
-        elif options and arg in ("-P", "--path"):
-            path = args.pop(0) if args else None
-        elif options and arg.startswith("--path="):
-            path = arg.partition("=")[2]
-        elif options and (arg in ("-S", "--split-string")
-                          or arg.startswith(("-S", "--split-string="))):
-            if arg in ("-S", "--split-string"):
-                split = args.pop(0) if args else ""
-            else:
-                split = arg[2:] if arg.startswith("-S") else arg.partition("=")[2]
-            args[:0] = shlex.split(split)
-        elif options and arg in ("-C", "--chdir"):
-            if args:
-                args.pop(0)
-        elif options and arg.startswith("-"):
-            # Combined env short flags, including -iv, retain -i's semantics.
-            if not arg.startswith("--") and "i" in arg[1:]:
-                path = None
-        elif "=" in arg:
-            if arg.startswith("PATH="):
-                path = arg.partition("=")[2]
-        else:
+        if arg == "--":
             break
-    return path
+        group = arg[1:] or "-"
+        for index, flag in enumerate(group):
+            if flag in _ENV_FLAGS:
+                if flag in "-i":
+                    path = None
+                continue
+            if flag not in _ENV_VALUE_OPTIONS:
+                raise ValueError(f"env has no option -{flag}")
+            value = group[index + 1:] or (args.pop(0) if args else None)
+            if value is None:
+                raise ValueError(f"env -{flag} needs a value")
+            if flag == "u" and value == "PATH":
+                path = None
+            elif flag == "P":
+                altpath = value
+            elif flag == "C":
+                chdir = value
+            elif flag == "S":
+                args[:0] = _split(value)
+            break
+    for arg in args:
+        if "=" not in arg:
+            break
+        name, _, value = arg.partition("=")
+        if name == "PATH":
+            path = value
+    return path, altpath, chdir
+
+
+def _delegated_searches(name: str, argv: list[str], path: str | None, *, _env=_env_child):
+    """The PATHs a wrapper's command is found through, and the directory it runs in.
+
+    A wrapper searches the PATH it was given and passes it on. env finds its
+    utility through -P's path, if given, and its child searches the PATH env
+    leaves; -C moves the base of relative entries.
+    """
+    if name == "env":
+        child, altpath, chdir = _env(argv, path)
+        return ([child] if altpath is None else [altpath, child]), chdir
+    return [path], None
 
 
 def _launch_paths(env) -> list[str | None]:
@@ -219,8 +249,8 @@ def _searches_system_first(search: str | None, base: str, system, safe, *,
 
 def _unsafe_delegation(event: str, details: tuple, recorders, *,
                        system_dirs=_SYSTEM_BINARY_DIRECTORIES, _fold_name=_fold_name,
-                       _env_path=_env_search_path, _family=_DELEGATING_PROGRAMS,
-                       _paths=_launch_paths, _first=_searches_system_first,
+                       _family=_DELEGATING_PROGRAMS, _paths=_launch_paths,
+                       _searches=_delegated_searches, _first=_searches_system_first,
                        _spelling=_directory_spelling) -> bool:
     if event == "os.system":
         name, argv, env, cwd = "sh", (), None, None
@@ -237,11 +267,12 @@ def _unsafe_delegation(event: str, details: tuple, recorders, *,
         # Only wrappers need recorder identities. Direct Git/Python launches must
         # not reopen every previous nested session's sentinel.
         safe = {_spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
+        argv = [os.fsdecode(arg) for arg in argv]
         start = os.fsdecode(cwd) if cwd is not None else ""
         for path in _paths(env):
-            if name == "env":
-                path = _env_path([os.fsdecode(arg) for arg in argv], path)
-            if _first(path, start, system, safe):
+            searches, chdir = _searches(name, argv, path)
+            base = start if chdir is None else os.path.join(start, chdir)
+            if any(_first(search, base, system, safe) for search in searches):
                 return True
         return False
     except Exception:
