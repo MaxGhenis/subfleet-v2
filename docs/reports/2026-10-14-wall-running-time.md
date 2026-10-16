@@ -528,9 +528,9 @@ checkpoint as the holds complete.
 
 ## Round 4 (2026-10-16): CI at f07751fc1
 
-Status at 2026-10-16 08:26 UTC: fixed-source pytest invocations completed for
-**3 of 54 selected files: 97 passed**.
-**51 selected files remain unrun on the fixed source.** This is a
+Status at 2026-10-16 08:56 UTC: fixed-source pytest invocations completed for
+**4 of 54 selected files: 100 passed**.
+**50 selected files remain unrun on the fixed source.** This is a
 local validation result, not a full CI run. The first clock observation was
 04:51 UTC; the workspace job stamp is 04:46 UTC, so the conservative cutoff for
 starting further runs is 09:16 UTC. Lock waits count against that wall.
@@ -579,9 +579,9 @@ CI evidence rather than a local differential run.
 
 ### Validation
 
-- `9fad7c4fe`: 3 completed files, 97 passed.
+- `9fad7c4fe`: 4 completed files, 99 passed.
 - `f07751fc1`: 8 locally completed files, 249 passed, 17 failed.
-- Fixed source: 3 completed files, 97 passed.
+- Fixed source: 4 completed files, 100 passed.
 
 All local runs use Python 3.14.7 free-threading. Python 3.12 and CI's other
 Python 3.14 build were not rerun. The head-side legacy-hold, stateful-admission
@@ -615,7 +615,7 @@ not run. No logs, JSON evidence or bundles are staged.
 | `tests/fake/test_admission_ramp.py` | — | — | unrun |
 | `tests/fake/test_admission_ramp_retention.py` | — | — | unrun |
 | `tests/fake/test_admission_route_isolation.py` | — | — | unrun |
-| `tests/fake/test_admission_stateful.py` | unrun | unrun | unrun |
+| `tests/fake/test_admission_stateful.py` | 2 passed | unrun | 3 passed |
 | `tests/fake/test_admission_visibility.py` | — | — | unrun |
 | `tests/fake/test_census_recycled_pid_daemon.py` | — | — | unrun |
 | `tests/fake/test_retry_for_good_refusals.py` | — | — | unrun |
@@ -684,6 +684,7 @@ are below; the containing report commit follows them.
 | `917d4cd54` | docs: prioritize base and fixed-source runs after prolonged lock waits |
 | `5c8f7cacd` | docs: record the first passing base-head-fixed cancellation comparison |
 | `b796695c0` | docs: record verified ownership fix and full per-file validation status |
+| `3f98e363a` | docs: record lossless protocol verification and current test ledger |
 
 Delivery: `.git-local/round4.bundle`, prerequisite `f07751fc179f`, advertising
 `refs/heads/fix/wall-counts-running-time-217`. Refresh and verify it against the
