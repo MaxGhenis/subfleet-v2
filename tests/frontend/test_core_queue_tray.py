@@ -1117,7 +1117,7 @@ def queue_timelines(draw):
         steps += [{**local("coverage-send", draw(send_texts)), "held": True},
                   {"receipts": [receipt("coverage-send", count + 1, "queued")], "held": True}]
     if draw(st.sampled_from([True, True, False])):
-        # Exercise repair precedence, then a genuinely eligible head. These
+        # Exercise repair precedence, then an eligible head. These
         # contexts retain a margin under every required seed rather than
         # depending on several rare random state/action combinations.
         settled = [receipt(mid, index + 1, "complete", origin=kinds[mid], continues=continues.get(mid))
@@ -1130,6 +1130,8 @@ def queue_timelines(draw):
                                 receipt("coverage-note", count + 3, "complete", origin="unblock-note"),
                                 receipt("coverage-host", count + 4, "running"),
                                 receipt("coverage-head", count + 5, "queued")], "steer": True}]
+        ask(log, "coverage-host", "coverage-approval")
+        steps.append(log.page())
     return steps
 
 
