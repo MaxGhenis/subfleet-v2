@@ -528,12 +528,18 @@ checkpoint as the holds complete.
 
 ## Round 4 (2026-10-16): CI at f07751fc1
 
-Status at 2026-10-16 08:56 UTC: fixed-source pytest invocations completed for
+Status at 2026-10-16 09:16 UTC: fixed-source pytest invocations completed for
 **4 of 54 selected files: 100 passed**.
 **50 selected files remain unrun on the fixed source.** This is a
 local validation result, not a full CI run. The first clock observation was
 04:51 UTC; the workspace job stamp is 04:46 UTC, so the conservative cutoff for
 starting further runs is 09:16 UTC. Lock waits count against that wall.
+
+The **09:16 UTC cutoff has been reached**. No additional pytest starts are
+authorized. The already-queued fixed-salvage lock wait remains active; its
+cutoff guard will return without pytest when it acquires the lock. The
+remaining 50 selected files are unrun on the fixed source. Foreground
+runner shutdown and scratch cleanup remain pending.
 
 ### Causes and changes
 
@@ -579,7 +585,7 @@ CI evidence rather than a local differential run.
 
 ### Validation
 
-- `9fad7c4fe`: 4 completed files, 99 passed.
+- `9fad7c4fe`: 5 completed files, 146 passed.
 - `f07751fc1`: 8 locally completed files, 249 passed, 17 failed.
 - Fixed source: 4 completed files, 100 passed.
 
@@ -620,7 +626,7 @@ not run. No logs, JSON evidence or bundles are staged.
 | `tests/fake/test_census_recycled_pid_daemon.py` | — | — | unrun |
 | `tests/fake/test_retry_for_good_refusals.py` | — | — | unrun |
 | `tests/fake/test_review_r223_wall_probes.py` | — | — | unrun |
-| `tests/fake/test_salvage_finalization.py` | unrun | unrun | unrun |
+| `tests/fake/test_salvage_finalization.py` | 47 passed | unrun | unrun |
 | `tests/fake/test_state_contract.py` | — | — | unrun |
 | `tests/fake/test_wall_inspection_order.py` | — | — | unrun |
 | `tests/fake/test_wall_running_time.py` | — | — | unrun |
@@ -685,6 +691,7 @@ are below; the containing report commit follows them.
 | `5c8f7cacd` | docs: record the first passing base-head-fixed cancellation comparison |
 | `b796695c0` | docs: record verified ownership fix and full per-file validation status |
 | `3f98e363a` | docs: record lossless protocol verification and current test ledger |
+| `fd3e5be3f` | docs: record bounded admission regression and one hundred passing tests |
 
 Delivery: `.git-local/round4.bundle`, prerequisite `f07751fc179f`, advertising
 `refs/heads/fix/wall-counts-running-time-217`. Refresh and verify it against the
