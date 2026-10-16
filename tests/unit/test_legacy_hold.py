@@ -124,9 +124,14 @@ class FakeDaemon:
         self.store = FakeJobStore()
         self.policy = load_policy(DEFAULT_POLICY_PATH)
         self.submitted: list[str] = []
+        self.cancels: list[tuple] = []
 
     def _notify(self):
         pass
+
+    def _request_cancel(self, job_id, data, **options):
+        self.cancels.append((job_id, data, options))
+        return True
 
     def submit(self, args, *, turn=None):
         job_id = f"job-{len(self.submitted) + 1}"

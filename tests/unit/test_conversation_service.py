@@ -719,8 +719,8 @@ def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, 
 # --- compaction (C-25.4, review IR-6) --------------------------------------------
 
 
-def turn_attempt(svc, message_id: str, *, state: str, n: int) -> str:
-    job_id = f"turn-job-{n}"
+def turn_attempt(svc, message_id: str, *, state: str, n: int, job_id: str | None = None) -> str:
+    job_id = job_id or f"turn-job-{n}"
     svc.daemon.store.add_job(job_id=job_id, request_id=f"turn:{message_id}:{n}", payload_digest="d", kind="turn",
                              workdir="/w", prompt_path="/p", sandbox="read-only", state="running")
     attempt_id = f"{job_id}/a1"

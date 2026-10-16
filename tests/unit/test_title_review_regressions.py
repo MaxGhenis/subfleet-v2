@@ -27,7 +27,7 @@ from subfleet.conversations.store import ConversationStore
 from subfleet.conversations.titles import TITLE_BUDGET_S, TITLE_CANCEL_FRAME, TITLE_FRAME, TITLE_REQUEST_ID
 from subfleet.conversations.turn import TurnSpec
 from subfleet.relay import Ack, RelayServer, read_log
-from tests.unit.test_conversation_service import FakeDaemon
+from tests.unit.test_conversation_service import FakeDaemon, turn_attempt
 from tests.unit.test_turn_runner import INIT_OK, MID, SID, STEER_CAPS, STEER_MID, claim_steer
 
 SETTINGS = {"model": "opus[1m]", "effort": None, "fast": False, "permission": "ask", "auto_continue": True}
@@ -191,6 +191,7 @@ def stop_after_store_access(root: Path, target: int, delay: int) -> tuple[bool, 
         store = svc.store
         cid, adir, spec = first_turn(store, root, "Fix the importer")
         store.set_state(MID, "starting", expect=("queued",))
+        turn_attempt(svc, MID, state="starting", n=0, job_id="job")
         server = RelayServer(root / "unused.sock", adir / "stdin.jsonl")
         server._pipe = os.open(os.devnull, os.O_WRONLY)
         clock = [1000.0]
