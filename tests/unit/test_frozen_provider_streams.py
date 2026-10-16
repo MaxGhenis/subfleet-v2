@@ -497,3 +497,41 @@ def test_copy_linked_to_live_output_during_publication_is_not_frozen(tmp_path, m
     live.write_bytes(encode([COMPLETED]))
     assert snapshot.read_bytes() == payload
     assert readings(adapter, tmp_path, frozen_launch) == expected
+
+
+@pytest.mark.parametrize("boundary", ("copy", "receipt", "validation-error"))
+def test_rejected_copies_are_removed_before_retry_or_failure(tmp_path, monkeypatch, boundary):
+    """C-4.3: no full-size rejected copy may be left without a receipt/artifact."""
+    from subfleet import frozen_stream as module
+    adapter, launch = provider(tmp_path, "codex")
+    (tmp_path / "stream.jsonl").write_bytes(encode([MESSAGE, COMPLETED]))
+    live = tmp_path / "stdout"
+    live.write_bytes(b"")
+    copied = []
+    original_copy = module.atomic_copy
+    original_restore = module._restored_copy
+    def copy(path, stream):
+        # Every previous rejection must be gone before the next full copy.
+        assert not list(tmp_path.glob("stream.frozen-*.jsonl"))
+        capture = original_copy(path, stream)
+        copied.append(path)
+        if boundary != "receipt":
+            live.unlink()
+            os.link(path, live)
+        return capture
+    def publish(role, path, data):
+        atomic_publish(path, data)
+        if role == "stream-freeze":
+            live.unlink()
+            os.link(tmp_path / json.loads(data)["file"], live)
+    def restore(*args, **kwargs):
+        if boundary == "validation-error" and copied:
+            raise OSError(errno.EIO, "validation failed after copy")
+        return original_restore(*args, **kwargs)
+    monkeypatch.setattr(module, "atomic_copy", copy)
+    monkeypatch.setattr(module, "_restored_copy", restore)
+    with pytest.raises(OSError) as error:
+        module.freeze_stream(tmp_path, launch, publish)
+    assert error.value.errno == (errno.EIO if boundary == "validation-error" else errno.ESTALE)
+    assert len(copied) == (1 if boundary == "validation-error" else 3)
+    assert not list(tmp_path.glob("stream.frozen-*.jsonl"))

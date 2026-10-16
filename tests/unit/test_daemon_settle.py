@@ -263,14 +263,15 @@ def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
     assert ended["attestation"] == "unattested"
     classification = json.loads(ended["evidence_json"])["classification"]
     assert classification["stream_capture"]["status"] == "unreadable"
-    assert classification["stream_capture"]["error_type"] == type(error).__name__
+    error_type = "OSError" if cached else type(error).__name__
+    assert classification["stream_capture"]["error_type"] == error_type
     if has_receipt and provider == "codex":
         assert classification["turn_completed"] is False
     job = daemon.store.get_job(JOB)
     assert job["accepted_attempt_id"] is None
     assert not [row for row in daemon.store.list_artifacts(ATTEMPT) if row["role"] in ("raw-stream", "export")]
     assert "stream capture failed" in caplog.text
-    assert type(error).__name__ in caplog.text
+    assert error_type in caplog.text
 
 
 def test_unreadable_provider_files_cannot_repeat_a_freeze_failure(daemon, monkeypatch):
