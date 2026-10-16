@@ -1123,10 +1123,16 @@ child exec; the test session prepends a recording `security` to PATH for bare-na
 shell and env delegation. Intentional executable stand-ins use explicit paths.
 Non-launching credential stubs remain supported.
 
+*Correction (round 9).* The recorder alone contains shell and env delegation
+only while the child keeps the session PATH. Review round 8 ran children given
+`PATH=/usr/bin:/bin`, an empty environment or `env -i`, and each searched a
+system directory first. Round 8 added a check on the wrapper's child PATH, and
+round 9 widened it; both are described below.
+
 | Finding | Executed reproduction at the unchanged production base | Disposition |
 | --- | --- | --- |
 | CI / D-21 | The unmodified startup-freeze identity test raised the account-HOME refusal. | Give the entire session an isolated HOME before collection, preserving it through fixture undo and restoring it at unconfigure. The release test and D-21 production comparison remain unchanged. Explicit account HOME is still refused before store resolution. |
-| P1: shell/env | `sh -c 'security fixture-ref'`, `shell=True`, `/usr/bin/env security fixture-ref`, and a credential runner delegating through a shell each reached the outer recorder once. | Session PATH now prepends its own recorder; all four forms reach that recorder and leave the outer recorder untouched. Source grep found no production keychain path using a shell or env wrapper: the central readers and enrollment wrapper pass argv lists. |
+| P1: shell/env | `sh -c 'security fixture-ref'`, `shell=True`, `/usr/bin/env security fixture-ref`, and a credential runner delegating through a shell each reached the outer recorder once. | Session PATH now prepends its own recorder; all four forms, which keep the session PATH, reach that recorder and leave the outer recorder untouched (see the correction above). Source grep found no production keychain path using a shell or env wrapper: the central readers and enrollment wrapper pass argv lists. |
 | P1: PATH race | A later audit hook changed the supplied PATH from an ordinary recorder to a registered guarded recorder; the bare-name launch was approved. | Refuse the bare program `security` independently of PATH for Popen, posix_spawn, exec and spawn. Explicit paths retain resolved-path and identity checks. The new alias-named reader test preserves the earlier child-PATH property under the stronger rule. |
 | P2: io.open | `Path(root/'data').read_text()` reached the underlying io.open. | Patch io.open as well as builtins.open. |
 | P2: destination | `rename(outside, root/'new')` reached the underlying rename. | Check every operand, including keyword destinations and separate source/destination dir_fd arguments for rename, replace and link. |
@@ -1274,3 +1280,253 @@ bundles, virtual environments and cache directories were not staged. Every
 commit has the requested Claude Opus 5.5 co-author trailer. No history was
 rewritten and nothing was pushed. The hub can read the local branch from
 `.git-local` to integrate these commits.
+
+## Round 8: folded reader names and wrapper PATHs (reviewed head `70f35a118`)
+
+`70f35a118` is round 7 plus the release merges #205 and #210. Review round 8
+(`review-r8.md`, REQUEST_CHANGES) executed two P2s and three P3s. No section was
+written for round 8 when it shipped. This one is assembled from its commits and
+from review round 9, which reran every round-8 input at `a13e5b988`.
+
+| Finding | Fix | Commits |
+| --- | --- | --- |
+| P2: `Security`, `SECURITY` and `ſecurity` name the reader on this volume, and passed the bare-name check through a PATH race | A program name with no directory is folded (NFD, casefold, NFD) before it is compared with `security`, in the guard and in the stand-in safety net (`tests/keychain_standin.py`). | `50dbf9c53` |
+| P2: shell and env delegation was contained only while the child kept the session PATH | The hub chose option (a). Under pytest, a launch of sh, bash, zsh, dash, env, xargs, nice, nohup or taskpolicy is refused when its child PATH reaches a system binary directory before a live session recorder; an absent PATH and env's resets use the wrapper's default. env's `-S` assignments are read. Recorder directories are resolved only for those programs, so direct Git and Python launches do not reopen earlier sessions' sentinels. The codex shim and soak tests put the session recorder first on their `bash` and `sh` PATHs. | `4efb7d045`, `e23c34af8`, `656f8b86c`, `f0d7b8bfa`, `b20ba6f7c` |
+| P3: the session HOME skipped 13 tests | The original `UV_CACHE_DIR` is carried before HOME changes, and the folder-spelling, v1-parity and compat tests read the account home through `pwd`. | `1a65f70a5` |
+| P3: the trap missed a firmlink spelling, `io.FileIO` and `os.chdir` | Each root's firmlink spelling is forbidden, and `io.FileIO` and `os.chdir` are checked. | `4037fcdd8` |
+| P3: the threat model was not in the contract | C-20.6 states D-ST1, the wrappers, their defaults and the exclusions, among them `DirEntry.stat` and `sqlite3`. | `4037fcdd8` |
+
+The regressions and mutation witnesses are `836b75867`, `6e680ecc5`,
+`18bd95bca`, `2ab86ac55`, `a971e23e4`, `09a7e5fea` and `7b29d6717`.
+
+The hub then merged release/217 with #181 (`4e27b8e3e`). CI failed
+`test_handler_refusals.py::test_every_refusal_the_daemon_builds_names_a_known_reason`
+on both Pythons, because the guard's refusal named no reason. `ac69a0a9d` gives
+both of the guard's raises the reason `keychain-test-guard`, whose template keeps
+the same message and fix. `a13e5b988` moves the m12 mutant's anchor to that
+raise.
+
+Round 8's own holds were not recorded here. The commit messages record two hub
+runs: 976 passed for `ac69a0a9d` (handler refusals, daemon refusals CLI, the main
+guard file, agent-secret credentials and protocol secrecy), and 23 passed in the
+round-7 mutation file for `a13e5b988`. Review round 9 verified the round at
+`a13e5b988` on Python 3.12.14 and 3.14.7:
+
+- every round-8 input was refused: the four spellings through a real PATH race
+  and through `posix_spawnp`, 17 shell and env forms as real launches, and
+  `resolve_credential` and `_keychain_blob` through a delegating runner;
+- about 400 in-process wrapper launches by ordinary tests were approved;
+- the 13 HOME tests ran with no skips;
+- 266 production observations outside pytest matched release byte for byte.
+
+It approved #198 with five P3s, which round 9 below takes up.
+
+## Round 9: the wrapper check's follow-ups (base `f305f6214`)
+
+Base: `f305f6214`, release/217 with #198 merged. Review round 9 (`review-r9.md`,
+APPROVE) listed five non-blocking P3s, each from executed inputs. Every input
+became a regression in `tests/unit/test_live_store_guard_round9.py` before any
+fix, and the file was run against the base source first: **43 of 75 failed**.
+The 32 passes were approval controls and spellings the base already refused. An
+approved launch runs only `sw_vers`, and the failure prints what the child
+printed. The reader is named only as a string.
+
+### Findings and fixes
+
+| Finding | Approved at the base | Fix | Commit |
+| --- | --- | --- | --- |
+| P3-1: the wrapper check approved a launch whenever computing it raised | A deleted working directory (`getcwd`), through `subprocess` and `os.system`; a text and a bytes `PATH` key; an unbalanced quote after `env -S`'s `#` or `\c` stop. Each ran `/usr/bin/sw_vers`. | A wrapper launch whose check cannot finish is refused. The working directory is read only for a relative entry. Each PATH key the child receives is judged, so a launch with both is approved only when both are safe. Non-wrapper launches are unchanged. | `2ce0aba1d` |
+| P3-2: env's options were only partly parsed | `env -vu PATH`, `-vuPATH`, `-vP /usr/bin`, `-vS '…'`, `-S 'PATH=${SYS} …'` and `-S 'PATH=/usr/bin\_sw_vers'`. Also approved: `-v-` and `--i` (getopt reads `-` as env's clear option), `-S` split on a vertical tab or form feed, `-P` with the recorder first while the child keeps `/usr/bin` first, and `-C /` with `PATH=usr/bin`. | env's options are walked with macOS env's getopt string `-0C:iP:S:u:v`: grouped or not, a value attached or separate, and `-S`'s words in place. `-P`'s path, the child's PATH and `-C`'s directory are all judged. An `-S` string containing `$`, `\` or `#` is refused rather than emulated, and so are an option env does not have and a missing value. | `d2aced90f` |
+| P3-3: `//usr/bin` and `//bin` did not count | `sh -c` with `PATH=//usr/bin` resolved `//usr/bin/sw_vers`. bash with `HOME=/usr` and `PATH=~/bin` ran `/usr/bin/sw_vers`. | Leading slashes collapse before the comparison, and the Data-volume prefix is removed only as a whole component. A string check cannot know the child's HOME, so a `~` entry before the recorder fails closed. | `6cf732bdf` |
+| P3-4: the docstring said "shells"; C-20.6's exclusions were incomplete | With PATH `/usr/bin:/bin`: `/bin/ksh`, `/bin/csh`, `/bin/tcsh`, `/usr/bin/time`, `script`, `lockf` and `caffeinate`; `arch` with `-c`, `-d PATH` or `-e PATH=/usr/bin`. | Eight programs join the list (below). The docstring and C-20.6 name the same 17 programs, what the check reads, how it compares spellings, and what is out of scope. A test checks that both name exactly the code's list. | `4709da1d3` |
+| P3-5: no round-8 or round-9 section; round 7 overstated the recorder | | These two sections, and a correction in round 7's threat model. | this report |
+
+### The wrapper list, program by program
+
+Each program was run outside pytest with `sw_vers` as its operand: with an empty
+PATH it was not found, and with PATH `/usr/bin` it ran.
+
+| Program | Decision | Why |
+| --- | --- | --- |
+| `ksh`, `csh`, `tcsh` | added | Shells: `-c`'s command is found through PATH, as for sh, bash, zsh and dash. |
+| `time` | added | Runs its utility through PATH. |
+| `script` | added | `script [file [command ...]]` runs the command through PATH. |
+| `caffeinate` | added | Runs its utility through PATH. |
+| `lockf` | added | Runs its command through PATH. The review listed it among the approved inputs. |
+| `arch` | added | Searches its own PATH for its program (empty PATH: "Can't find sw_vers in PATH"), and runs it with the environment its `-c`, `-d` and `-e` leave. Both PATHs are judged. |
+| `find` | out of scope | Runs a command through PATH only for `-exec`, `-execdir`, `-ok` and `-okdir`. It is a search tool: refusing every `find` launch with a system PATH would refuse plain searches, and `-execdir` runs its utility from each directory it visits, so a relative entry's meaning is not in the launch. No test or production path launches `find`. |
+
+C-20.6 also names as out of scope:
+
+- other PATH-searching programs (`sudo`, `sandbox-exec`, `xcrun`, interpreters);
+- a wrapper run under another name;
+- path aliases, such as a symlink to `/usr/bin`, since the check compares
+  spellings and probes no directory;
+- PATH changes made inside the shell: a shell string, a login shell's profile,
+  `BASH_ENV`, `ENV` or `ZDOTDIR`;
+- deliberate shell strings naming the reader's absolute path.
+
+### Invariants
+
+For every launch while a test session is live:
+
+1. A named wrapper is approved only if no search it makes meets a system binary
+   directory before a live recorder. That covers every PATH key the child
+   receives (an absent PATH is the wrapper's default), env's `-P` path and the
+   PATH env leaves, and arch's own PATH and its program's.
+2. The check fails closed: if any step raises, the launch is refused.
+3. The verdict does not depend on how a directory is spelled: repeated or
+   leading slashes, `.` and `..` segments, a trailing slash, case and Unicode
+   form give the same answer.
+4. Launches of other programs are judged exactly as before.
+5. Outside pytest, with no live session, behaviour is unchanged. Importing
+   installs no guard, and an installed guard is inert.
+
+Three bounded Hypothesis properties (150 derandomized examples each, no example
+database) state 1 and 3:
+
+- env arguments drawn from the option string (grouped, attached or separate
+  `-0`, `-v`, `-u`, `-C`, `-i`, `-`, `-P`, `-S` with any of env's split
+  characters, and assignments), each reaching a system-directory spelling
+  first, are refused;
+- every listed wrapper with a system-directory spelling ahead of the recorder,
+  or with no PATH, is refused;
+- harmless env options, and a PATH with the recorder ahead of any spelling,
+  stay approved.
+
+A spelling is drawn as 1 to 3 leading slashes, `.` segments, `<real
+directory>/..` detours, mixed case (and `ſ` for `s`), repeated separators and a
+trailing `/`, `//` or `/.`. Invariant 5 is the production differential below.
+
+### Mutation check
+
+`tests/unit/test_live_store_guard_round9_mutations.py` copies the source to a
+shadow, runs a named round-9 test in a fresh Python child (not pytest) against
+the unmutated copy as a control, then against one exact source mutation. The
+mutant must fail that test, and an approving mutant runs only `sw_vers` or `ls`.
+The first three are the review's requested mutations.
+
+| Mutant | Mutation | Named test it fails |
+| --- | --- | --- |
+| fail-open | the wrapper check's `except` returns False | `test_p3_1_a_check_that_cannot_finish_is_refused` |
+| leading-slash-collapse | leading slashes kept | `test_p3_3_double_slash_system_directory_is_refused` |
+| grouped-options | only the first flag of a group read | `test_p3_2_grouped_env_options_are_walked` |
+| first-path-key-only | only the first PATH key judged | `test_p3_1_text_and_bytes_path_keys_are_both_judged` |
+| working-directory-always | `getcwd` read for every entry | `test_p3_1_absolute_entries_never_read_the_working_directory` |
+| split-escapes-emulated | `$`, `\` and `#` no longer refused in `-S` | `test_p3_2_env_split_string_env_would_rewrite_is_refused` |
+| split-spaces-shlex | `-S` split without `\v` and `\f` | `test_p3_2_env_split_string_env_would_rewrite_is_refused` |
+| altpath-only | `-P`'s path judged, the child's PATH not | `test_p3_2_env_alternate_path_and_child_path_are_both_judged` |
+| chdir-ignored | `-C` ignored | `test_p3_2_env_chdir_is_the_base_of_relative_entries` |
+| tilde-entry | `~` entries compared as text | `test_p3_3_tilde_entry_is_refused` |
+| family-ksh | ksh dropped from the list | `test_p3_4_named_wrappers_with_system_path_are_refused` |
+| arch-child-path | arch's program's PATH not judged | `test_p3_4_arch_environment_options_are_judged` |
+
+All 12 controls passed, and all 12 mutants failed their named tests, in hold 1
+and again in hold 3. In hold 1 the file still failed: its check looked for
+"NAMED TEST FAILED: <name>" on one line, while the probe printed it on two. That
+check was corrected; the mutants were not changed.
+
+### Production outside pytest
+
+`tools/live_store_guard_production_differential.py` repeats the review's kinds of
+observation. For each source tree it starts a fresh child with no pytest
+marker, a synthetic HOME and a recording `security` first on PATH. The child
+records:
+
+- whether importing installs the guard, and the refusal texts;
+- `keychain_command` for 4 references, 12 reader spellings (`security`,
+  `Security`, `ſecurity`, `/usr/bin/security`, `//usr/bin/security`, the
+  firmlink spelling, the recorder, `sh`, …), 3 runners and 3 agent-secret
+  settings;
+- `resolve_credential` for 9 credentials and `_keychain_blob` for 9 service and
+  reader pairs, each through 6 recording runners (a blob, an empty value, a
+  miss, `OSError`, a timeout, `AdapterError`), with the argv and options each
+  runner received;
+- the rendered text of every handler reason with 6 sets of details, and of the
+  guard's own refusal;
+- the guard's verdict on 13 synthetic launch events, round 9's inputs among
+  them, with no pin and with a dead session's pin;
+- 11 real launches with the guard installed: `sh`, `env`, `ksh`, `time`,
+  `caffeinate` and `arch` find `sw_vers` through `/usr/bin` or `//usr/bin`, as
+  before.
+
+The base `f305f6214` (from `git archive`) and this branch each gave **1,487
+observations, identical line for line**: import 3, `keychain_command` 432,
+`resolve_credential` 54, `_keychain_blob` 54, refusal texts 907, guard 26,
+launches 11. The recording `security` never ran. The only change outside pytest
+is the new helpers' definitions; nothing calls them without a live session.
+
+### Validation
+
+Each hold ran one foreground pytest, one worker, under the shared lock, on
+Python 3.12.14 (pytest 9.1.1, Hypothesis 6.168.1, uv 0.11.7), capped below 20
+minutes by an alarm in the runner. A scratch plugin counted wrapper launches made
+in-process: once before the guard's hook (attempts) and once after it
+(approved). An attempt with no matching approval was refused.
+
+| Hold | Files | Result | Time |
+| --- | --- | --- | --- |
+| 0 (earlier in this job) | round 9's regressions against the base source | 43 failed, 32 passed | 58.65 s |
+| 1 | round 9 and its mutations | 83 passed; 12 mutation cases failed on the output check above | 90.95 s |
+| 3 | every guard file, the guard properties, codex shim, soak tools, handler refusals, agent-secret credentials, fake state contract, test-module names | **1,214 passed** | 187.42 s |
+| 4 | retention, workspace and guard-trust files | pending: queued for the lock when this was committed | |
+
+Hold 2 was a rerun of the mutation file alone. It was cancelled while it was
+still queued for the lock, and its file ran in hold 3 instead.
+
+| File | Passed |
+| --- | ---: |
+| unit/test_live_store_guard.py | 324 |
+| unit/test_live_store_guard_round3.py | 22 |
+| unit/test_live_store_guard_round4.py | 8 |
+| unit/test_live_store_guard_round5.py | 11 |
+| unit/test_live_store_guard_round6.py | 112 |
+| unit/test_live_store_guard_round7.py | 50 |
+| unit/test_live_store_guard_round7_mutations.py | 23 |
+| unit/test_live_store_guard_round8.py | 100 |
+| unit/test_live_store_guard_round8_mutations.py | 4 |
+| unit/test_live_store_guard_round9.py | 83 |
+| unit/test_live_store_guard_round9_mutations.py | 12 |
+| unit/test_live_store_guard_state_root.py | 22 |
+| unit/test_keychain_exec_guard_properties.py | 3 |
+| unit/test_codex_shim.py | 31 |
+| unit/test_soak_tools.py | 49 |
+| unit/test_handler_refusals.py | 315 |
+| unit/test_agent_secret_credentials.py | 7 |
+| fake/test_state_contract.py | 37 |
+| unit/test_test_module_names.py | 1 |
+
+In hold 3, the guard files' synthetic and real probes made most of the wrapper
+events. The codex shim, soak and guard properties files share that count, so it
+cannot single out ordinary tests: 802 attempts, 392 approved.
+
+### Not covered
+
+- Python 3.14: not run in this round.
+- The full suite, the e2e and frontend tests, and CI: not run. The branch is
+  not pushed.
+- The scratch-environment site files that review round 9 ran (stop watchdog,
+  procs, census): not run. They launch `/bin/ps`, Python, the guardian and git,
+  none of them a listed program, so the wrapper check returns before reading
+  anything.
+
+### Delivery
+
+The branch `fix/live-store-guard-p3-217` is checked out in the caller's
+worktree, so this job committed on a detached HEAD from `f305f6214`. Subfleet
+keeps it under `refs/subfleet-salvage/`. Tests came first:
+
+- `4a7f93c7a` test: the review's inputs as regressions (43 of 75 fail at the base).
+- `2ce0aba1d` fix: refuse a wrapper launch whose check cannot finish (P3-1).
+- `d2aced90f` fix: walk env's options as its getopt does (P3-2).
+- `6cf732bdf` fix: `//usr/bin`, `//bin` and `~` entries (P3-3).
+- `4709da1d3` fix: name every checked wrapper, and C-20.6's exact scope (P3-4).
+- `fede3297d` test: each round-9 rule fails a named test when mutated.
+- `0249dc1bf` test: the production differential tool.
+- The documentation commit holding these two sections (P3-5).
+
+Only named files were staged, and no log, JSON evidence or bundle was. Every
+commit has the Claude Opus 5.5 co-author trailer. Nothing was pushed, and no
+history was rewritten. Nothing ran the keychain reader, and every escape was
+shown with `sw_vers`. No live store, network remote or sub-agent was used, and
+no `.hypothesis` folder remains.
