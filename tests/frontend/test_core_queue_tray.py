@@ -1116,6 +1116,20 @@ def queue_timelines(draw):
     if draw(st.sampled_from([True, True, False])):
         steps += [{**local("coverage-send", draw(send_texts)), "held": True},
                   {"receipts": [receipt("coverage-send", count + 1, "queued")], "held": True}]
+    if draw(st.sampled_from([True, True, False])):
+        # Exercise repair precedence, then a genuinely eligible head. These
+        # contexts retain a margin under every required seed rather than
+        # depending on several rare random state/action combinations.
+        settled = [receipt(mid, index + 1, "complete", origin=kinds[mid], continues=continues.get(mid))
+                   for index, mid in enumerate(mids)]
+        settled.append(receipt("coverage-send", count + 1, "complete"))
+        steps += [{"receipts": settled},
+                  {"receipts": [receipt("coverage-earlier", count + 2, "queued"),
+                                receipt("coverage-note", count + 3, "queued", origin="unblock-note")], "held": True},
+                  {"receipts": [receipt("coverage-earlier", count + 2, "complete"),
+                                receipt("coverage-note", count + 3, "complete", origin="unblock-note"),
+                                receipt("coverage-host", count + 4, "running"),
+                                receipt("coverage-head", count + 5, "queued")], "steer": True}]
     return steps
 
 
@@ -1542,4 +1556,5 @@ def test_c29_7_a_queued_send_becoming_the_head_is_not_a_new_own_send(core_probe)
     steps += [log.page(), {"receipts": [receipt("host", 1, "complete")]}]
     result = run_queue(core_probe, [{**step, "at_bottom": False} for step in steps])
     assert result["moves"][-1] == "stay"
-    assert "person:mine" in ids(result["snapshots"][-1])
+    assert "person:mine" not in ids(result["snapshots"][-1])
+    assert "mine" in tray(result["snapshots"][-1])
