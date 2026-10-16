@@ -811,3 +811,202 @@ run ended. The runner, logs, JUnit files, staged copies and the control
 archive were in one scratch folder outside the repository; it is removed at
 the end. No process of this job remains. The ignored `.venv` (Python 3.12)
 remains; the bytecode caches the runs wrote are removed. Nothing was pushed.
+
+## Round 4: #222 meets #198 (2026-10-16)
+
+Base: the hub's merge `e5948f430` of `release/217` (`f305f6214`, with #198,
+D-ST1, and #224) into this branch. Review r3
+(`~/reviews/subfleet-hub/launch-env-2026-10-14/review-r3.md`) approved
+`f694b8ffa` with three P3s. The hub's five integration decisions are
+implemented as given, and the choices it left open are listed under
+"Choices". No credential store, secret loader, live store, live daemon or
+live process was read or changed, and every test value is a dummy.
+
+### What failed at `e5948f430`, and which rule each test encodes
+
+A locked run of the hold that failed (`tests/unit/test_live_store_guard*.py`,
+`test_agent_secret_credentials.py`, `test_handler_refusals.py`) gave 39 failed
+and 961 passed, the hub's count. With `test_every_subfleet_name_the_package_reads_is_listed`,
+40 tests failed in all:
+
+| Tests at `e5948f430` | Count | Rule encoded | Cause | Test changed? |
+| --- | --- | --- | --- | --- |
+| `test_collection_phase_is_isolated`, `test_configure_phase_is_isolated[override]`, `test_test_override_wins`, `test_undo_restores_session_safe_path` ×4, each `[adapter-projects]` | 7 | D-ST1: a resolver under the session uses the session's isolated `CLAUDE_CONFIG_DIR`, and undo restores it | the launch selection dropped the session's `CLAUDE_CONFIG_DIR`, so `_config_projects_dir` refused | no |
+| `test_e2e_child_has_every_guard_variable` | 1 | D-ST1: an e2e child resolves the harness's own config directory | the same drop, in the child | no |
+| `test_unconfigure_restores_environment_and_expires_captured_child` ×3, round 3's `test_captured_daemon_environment_expires_after_cleanup[test-call-*]` ×2 and `test_captured_daemon_environment_guards_a_live_session_child`, round 4's four marker-lifetime tests | 10 | D-ST1: a daemon environment captured in the session carries its markers and isolated paths, and expires with it | `cli.daemon_env` dropped every unlisted D-ST1 name | no |
+| `test_outside_pytest_matches_release_217` ×21 | 21 | #198: production is release/217's, for every kind | the differential called the new `_config_projects_dir` on a namespace with no `provider_environment` | yes: decision 2, below |
+| `test_every_subfleet_name_the_package_reads_is_listed` | 1 | #222: every `SUBFLEET_*` name the package spells is classified | 14 D-ST1 names were in no class | yes: it gains the test-session class (decision 1) |
+
+The 18 tests that encode D-ST1's rule pass unchanged. The differential and the
+classification test changed only where they encoded the old adapter shape and
+the old three-class scheme.
+
+### Decision 1: D-ST1's names in D-ENV1's scheme
+
+`launch_env.TEST_SESSION_NAMES` is a fourth exact-name class beside
+configuration, launch markers and retired names. It holds D-ST1's three
+markers and every `home_paths.SAFE_HOME_PATHS` name that is not already
+configuration: 15 names, derived from D-ST1's one registry so the two cannot
+drift. The builder selects them **only while the parent is itself in a live
+test session** (`home_paths.under_pytest`, which now takes the parent's
+mapping): the marker with a sentinel whose identity still matches, a bare
+marker, or `PYTEST_CURRENT_TEST`. So every child a test launches carries them,
+and they expire with the session. Outside a session none is selected, and
+production's selection is exactly the one review r3 approved.
+
+Per name, with where it is set and read and why its value can hold no secret:
+
+| Name | Class | Set by | Read by | Value |
+| --- | --- | --- | --- | --- |
+| `SUBFLEET_UNDER_PYTEST` | test session | `tests/conftest.py`, the e2e harness | `home_paths.under_pytest`; `credentials`' import-time guard | the flag `1` |
+| `SUBFLEET_PYTEST_SESSION` | test session | `tests/conftest.py`; the e2e harness copies it | `home_paths.under_pytest`; the keychain exec guard's pins | the session's `mkdtemp` directory |
+| `SUBFLEET_PYTEST_SESSION_ID` | test session | `tests/conftest.py`; copied likewise | `home_paths.session_alive` | `dev:ino:token`: the sentinel file's device and inode, and the 64-hex token written into that file. It proves a sentinel is the session's own. It authenticates to no service, and a process that holds it can only refuse more. |
+| `SUBFLEET_CODEX_APP_HOME` | test session | `SAFE_HOME_PATHS` | `home_paths.codex_app_home` (test-only seam) | a path beneath an isolated test base |
+| `SUBFLEET_DESKTOP_LOGIN` | test session | likewise | `home_paths.desktop_login_path` (test-only) | likewise |
+| `SUBFLEET_PROVIDER_HOME` | test session | likewise | `home_paths.provider_home` (test-only) | likewise |
+| `SUBFLEET_V1_STATE` | test session | likewise | `importer`, `lanes_transfer` (test-only) | likewise |
+| `SUBFLEET_DELEGATE_STATE` | test session | likewise | `importer` (test-only) | likewise |
+| `SUBFLEET_V1_ROSTER_DIR` | test session | likewise | `importer`, `lanes_transfer` (test-only) | likewise |
+| `SUBFLEET_V1_LAUNCH_AGENTS` | test session | likewise | `lanes_transfer` (test-only) | likewise |
+| `SUBFLEET_LAUNCHD_PLIST` | test session | likewise | `cli.launchd_plist_path` (test-only) | likewise |
+| `SUBFLEET_HOST_HOME` | test session | likewise | `host_push._credential_paths`, for `host_credentials` and `_environment` (test-only) | likewise |
+| `SUBFLEET_HOST_CONFIG` | test session | likewise | likewise (test-only) | likewise |
+| `SUBFLEET_AGENT_SECRET` | test session; reviewed backstop exception (`SECRET`) | likewise | `credentials.keychain_command` (test-only) | the path of the session's stand-in `agent-secret` executable. It is only ever executed, never read as a credential. |
+| `CLAUDE_CONFIG_DIR` | test session | likewise; the e2e harness sets its own | the Claude adapter (through the launch environment), `claude_mcp.global_config_path`, `home_paths.protected_provider_homes` | a path beneath an isolated test base. In production it stays a home lane's own addition, or `env.pass`. |
+| `SUBFLEET_SESSION_STORE`, `SUBFLEET_DESKTOP_LOG`, `SUBFLEET_CLAUDE_DIR`, `SUBFLEET_HOME`, `SUBFLEET_CLAUDE_SETTINGS`, `SUBFLEET_RESET_INHIBIT` | configuration (`CONFIG_NAMES`, from round 3) | `SAFE_HOME_PATHS` in tests; operators in production | production readers, through `home_path` | paths |
+| `CLAUDE_LANE_AGENT_SECRET` | none: dropped everywhere | D-ST1 removes it from the session | `credentials.keychain_command` in the daemon itself | a helper path, but `SECRET` and unlisted, so never inherited |
+| `SUBFLEET_DEV_APP_EXECUTABLE` | configuration | D-ST1 removes it from the session | the daemon's development-app person boundary (D-PB1, `conversations/service.py`) | a path |
+
+"Test-only" means `home_path(..., test_only=True)`: outside pytest the
+override is ignored and the release default is used, so nothing in production
+reads the value. `test_live_session_values_hold_no_credential` checks the live
+values: the flag, the sentinel's identity format, and that every isolated path
+is absolute and lies beneath the session's base or pytest's base temporary
+directory.
+
+### Decision 2: the outside-pytest differential, per kind
+
+The child now builds a real `ClaudeAdapter`, whose `provider_environment` is a
+`ProviderEnvironment`, in place of a bare namespace. Every mode (7) and home
+spelling (3) still runs, and every kind is still compared:
+
+| Kind | Decision |
+| --- | --- |
+| `sessions.mirror.store_dir`, `sessions.revive.session_store_dir`, `sessions.desktop.log_path`, `sessions.transcripts.claude_dir`, `notify_push.claude_dir`, `client.state_root`, `guard.preflight._state_root`, `hooks.settings_path`, `adapters.claude_mcp.global_config_path`, `doctor.check_never_rules` | still equal to release, unchanged. `claude_mcp` and `doctor` were never reached at `e5948f430`, because the loop stopped at the adapter; both pass now. |
+| the four fixed homes and six legacy seams | still equal to release, unchanged |
+| `adapters.claude._config_projects_dir` | **D-ENV1's intended change.** The expectation is now release's own function evaluated with the launch's selected environment as `os.environ`. The child also asserts that the selection holds no `CLAUDE_CONFIG_DIR`, and that the answer equals release whenever the daemon has no non-empty `CLAUDE_CONFIG_DIR`. The parent asserts the answer differs from release exactly in the `absolute`, `relative` and `tilde` modes with an ordinary HOME. With a literal `~` HOME, both may refuse alike, which depends on the Python version. |
+| the same, under explicit authority | **equal to release.** With `env.pass: ["CLAUDE_CONFIG_DIR"]`, and with a home lane's own `CLAUDE_CONFIG_DIR` (`~/lane-home`) under either policy, the answer is exactly release's, in every mode. |
+
+This found one difference that was not D-ENV1's intent. The merge's fallback
+was `Path(env["HOME"]) / ".claude"`, where release used `Path.home()`. They
+differ for an empty HOME (`.` against `/`) and, on Python 3.12, for a literal
+`~` HOME: release refuses with "Could not determine home directory", and the
+merge did not. `adapters.claude._launch_home` now spells the launch's HOME as
+`Path.home()` does: a launch inherits HOME by name, so it is the daemon's own
+value. On Python 3.12, the nine cases with a literal `~` HOME cover it. So does
+`test_launch_home_is_spelled_as_release_spelled_it`, for those spellings and an
+empty HOME, on every version.
+
+### Decision 3: every other failure
+
+None. Each D-ST1 failure was fixed in code by decision 1, and no D-ST1 test
+changed.
+
+### Decision 4: the keychain runner rule
+
+**Kept, with one refinement.** A reader is handed the allowlisted environment
+when no runner is supplied, as before. `credentials.native_runner` now also
+counts `subprocess.run` itself passed as the runner, the same identity D-ST1's
+`keychain_command` already treats as native. Any other runner, such as
+#198's stand-ins, gets no `env` and builds its own.
+
+- **Why not pass `env` to every runner:** #198's runners must keep working.
+  Round 8's `test_credential_shell_runner_cannot_escape_to_emulated_system_path`
+  wraps `subprocess.run(command, env={...}, **kwargs)`. An imposed `env` would
+  raise `TypeError` before its exec guard could refuse.
+- **Production:** no caller supplies a runner. `ClaudeAdapter()` is built bare
+  by the registry, `cli`, `conversations.launch` and `conversations.classify`.
+  `resolve_credential` is called with no runner from the timers and the
+  daemon, and `_keychain_blob` only from `home_login`. So production's
+  keychain reader always gets the allowlisted environment.
+- **Shown:** `test_the_native_reader_gets_the_allowlisted_environment` runs a
+  stand-in reader script for each of the three readers, with no runner and
+  with `subprocess.run`. The script records only its environment's names: an
+  unlisted lane variable, an unrelated token and `CLAUDE_LANE_AGENT_SECRET`
+  are absent, and the markers are present.
+  `test_a_supplied_stand_in_runner_builds_its_own_environment` shows a stand-in
+  receives no `env`.
+
+### Decision 5: review r3's P3s
+
+- **P3-1.** `check_lane_credentials` also refuses an env-kind lane variable
+  that some launch inherits without policy: `launch_env.inherited_name`, which
+  covers the default allowlist, a harness hook or a test session's name. It
+  runs at both callers: `daemon start` (exit 2, naming `credential_ref` and the
+  variable, before any spawn, never a value) and daemon startup, after the
+  roster is seeded, which releases its lock. The resolve guard uses the same
+  predicate and stays the second line of defence for a lane added later.
+- **P3-3.** `daemon.main` catches `PolicyError` and exits 2, printing the
+  message to stderr, which is `daemon.log` under both `daemon start` and
+  launchd. Any invalid policy now ends the same way. launchd's `KeepAlive`
+  still restarts it.
+- **P3-2.** `environment_report(references=...)` lists the lane variables the
+  daemon holds apart, as `lane_credentials`, and leaves them out of
+  `extra_names`. `daemon.status` passes the store's references. Doctor's
+  allowlist row warns only on other names, and a new pass row, "daemon lane
+  credential variables", lists the lane variables by name. It is `unknown`
+  for an older or malformed daemon. Called without references,
+  `environment_report` keeps its round-3 shape.
+  `test_daemon_status_and_doctor_expose_only_extra_names` gains the new key,
+  the one test changed for this.
+
+### Choices
+
+- **Session-scoped, not unconditional.** The hub preferred exact
+  `CONFIG_NAMES` entries. Two names rule that out:
+  - `CLAUDE_CONFIG_DIR` must reach a test's children, because D-ST1's tests
+    require it and the adapter reads it from the launch environment. But D-ENV1
+    deliberately keeps it out of production launches (C-12.4; hub decision 2).
+  - `SUBFLEET_AGENT_SECRET` trips the backstop.
+  A session-scoped class satisfies both, and leaves production's allowlist and
+  doctor's report byte-for-byte as approved. The 13 harmless names could have
+  been unconditional, but one rule for one registry is simpler, and every one
+  of them is ignored outside pytest anyway.
+- **Liveness, not the bare marker.** Selection follows `under_pytest(parent)`,
+  so a daemon environment captured during a session and replayed after cleanup
+  passes none of the names on. Its children are ordinary processes, as D-ST1's
+  expiry tests require.
+- **The parent decides.** `build_environment(environ=...)` checks the mapping
+  it selects from, not the calling process, so a guardian's second selection
+  and a captured mapping are judged by their own markers.
+- **The backstop still applies to session names.** Only
+  `SUBFLEET_AGENT_SECRET` trips a word, and it is a reviewed exception: a path,
+  selected only in a live session, never read in production.
+- **No contract-merge tool run.** The hub resolved the contract by hand at
+  `e5948f430`. This round edits C-10.5, C-11.1, C-12.3, C-17.8 and C-20.6 in
+  place.
+- **Commits sit on a detached HEAD** at `e5948f430`'s descendants, in the
+  shared Git index. Nothing was pushed.
+
+### Invariants
+
+- **A session changes only session names.** For every parent *p* and passed
+  set *P*: `names(build(p, P)) = A(p) ∪ P(p) ∪ (S(p) if live(p))`. Here *A* is the
+  production allowlist, *S* the session names present, and *live* is
+  `under_pytest(p)`. Values are copied unchanged. `environment_report(p)`
+  names exactly `p − A(p) − (S(p) if live(p))`. A bounded Hypothesis property
+  covers four session states (none, bare, live, expired), random subsets of
+  the allowlist, the session names and five others, and three passed names
+  (60 derandomized examples).
+- **Production is unchanged.** With no live session, the selection equals
+  round 3's, for every parent: the property's `none` and `expired` states, and
+  `test_outside_a_live_session_production_selection_is_unchanged`.
+- **Every child of a live session carries the session.** The helper, the
+  daemon (`cli.daemon_env`), both providers and the guardian's second
+  selection hold every D-ST1 name with its value. The daemon's own
+  `SUBFLEET_HOME` is the one exception.
+- **No inherited lane variable.** For every roster accepted by `daemon start`
+  or daemon startup: `references(L) ∩ {n : inherited_name(n)} = ∅`.
+- **The projects folder.** For every mode and HOME spelling outside pytest:
+  `new = release ∘ selected-environment`. It equals release under explicit
+  authority.
