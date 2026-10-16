@@ -43,7 +43,7 @@ MUTANTS = {
         'frozenset({"subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn"})',
         'frozenset({"subprocess.Popen", "os.exec", "os.spawn"})', 'spawn'),
     'm12-adapter-error': (CREDENTIALS,
-        'raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX)',
+        'raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX, reason="keychain-test-guard")',
         'raise PermissionError(_REFUSAL)', 'code'),
     'm13-home-root': (HOMES, 'return (home / ".subfleet").resolve()',
         'return (provider_home() / ".subfleet").resolve()', 'home-root'),
