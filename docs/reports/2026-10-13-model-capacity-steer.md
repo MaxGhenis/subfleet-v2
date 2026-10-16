@@ -407,6 +407,17 @@ The two-site fix and C-6.9 clarification are committed as `b7738f35e`. The
 whole-chain check is used only when a decision with a live steer reports
 standing refusals. A job without a live steer retains its existing rule.
 Commit `4142cd96f` adds a second bounded stateful CI invocation with seed
-`314159`, once per interpreter, retaining the default search. The first
-required suite group is queued. Remaining results will be recorded after the
-locked runs.
+`314159`, once per interpreter, retaining the default search. The capacity
+group passed **72 cases in 143.86 s**: `test_capacity_steer_daemon.py` 42,
+`test_capacity_steer_route.py` 22, and `test_capacity_steer_mutations.py` 8.
+All four new frozen-clock regressions pass.
+
+The committed wall-clock regression was called through a temporary parametrized
+pytest wrapper with fresh fixtures: **100/100 unpinned-review cases and 100/100
+Opus-pin cases passed**, 200 cases in one pytest, **119.51 s**. No clock was
+frozen in this run. The full invocation, including its lock queue, took
+2,270.89 s. The wrapper is kept only in ignored `.git-local/r5_repeat.py`.
+
+The default CI stateful run is queued; its explicit-seed run and the other
+three required suite groups remain unrun. Remaining results will be recorded
+after the locked runs.
