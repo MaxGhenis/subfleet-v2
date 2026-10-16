@@ -7961,8 +7961,10 @@ class Daemon:
         observed = utcnow_ms()
         if owned != before or evidence.get("last_observed_alive_at") != observed:
             evidence["last_observed_alive_at"] = observed
-            evidence["owned_identities"] = owned
-            with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            if owned != before:
+                evidence["owned_identities"] = owned
+            kind = "attempt.processes_recorded" if owned != before else "attempt.observed_alive"
+            with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
 
     def _unlaunched(self, a: dict, detail: str, *, deferred: SalvageError | None = None) -> None:
