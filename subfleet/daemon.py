@@ -3415,7 +3415,8 @@ class Daemon:
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
                     "priority_callers": self._priority_callers_status(),
-                    "environment": environment_report(),           # C-17.8: names only
+                    # C-17.8: names only; the lanes' own variables listed apart.
+                    "environment": environment_report(references=self._lane_credential_references()),
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
@@ -9596,6 +9597,11 @@ def main(argv: list[str] | None = None) -> int:
     except DaemonUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 69
+    except PolicyError as exc:
+        # C-11.1: a refused policy or lane roster is exit 2 with its message in
+        # daemon.log, not a traceback.
+        print(f"subfleet daemon: {exc}", file=sys.stderr)
+        return int(Exit.INVALID_INPUT)
     log_open_file_limit(daemon.log, *limits)
     daemon.log.info("stack dumps: `kill -USR1 %d` (or `subfleet daemon stacks`) writes every "
                     "thread's Python stack to this log", os.getpid())

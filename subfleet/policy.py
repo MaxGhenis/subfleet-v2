@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .launch_env import valid_name
+from .launch_env import inherited_name, valid_name
 from .contracts import (
     CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -343,13 +343,21 @@ def check_lane_credentials(policy: Mapping[str, Any], references: Iterable[str],
     """D-ENV1: `env.pass` is for noncredential names. An env-kind lane's
     reference is the daemon's alone and reaches only its own lane, resolved into
     its credential, so a policy naming one is refused wherever the lanes are
-    known: `daemon start` and daemon startup (`credentials.env_references`)."""
+    known: `daemon start` and daemon startup (`credentials.env_references`).
+    So is a reference that launches inherit without policy (the default
+    allowlist, or a test session's names): it would reach every helper."""
     references = frozenset(references)
     for index, name in enumerate((policy.get("env") or {}).get("pass", ())):
         if name in references:
             raise PolicyError(path, f"env.pass[{index}]",
                               "names a lane's credential reference, which reaches only its own lane; "
                               "remove it (the daemon holds each lane's credential without it)")
+    inherited = sorted(name for name in references if inherited_name(name))
+    if inherited:
+        raise PolicyError(Path(path).parent / "lanes.json", "credential_ref",
+                          f"{', '.join(inherited)}: an env-kind lane's variable that every launch "
+                          "inherits cannot hold one lane's credential; store the lane's OAuth token "
+                          "under a daemon variable off the launch allowlist and point the lane at it")
 
 
 def load_policy(path: str | Path) -> dict[str, Any]:

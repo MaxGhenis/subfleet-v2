@@ -513,6 +513,34 @@ def check_daemon_environment(root: Path) -> dict[str, Any]:
     return row(check, PASS, "all daemon names are allowlisted", "nothing to do while this passes")
 
 
+def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
+    """C-17.8: the env-kind lanes' variables the daemon holds, on their own row.
+
+    They belong in the daemon, which hands each only to its own lane, so they
+    are listed, not warned about; names only, never values.
+    """
+    check = "daemon lane credential variables"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        return row(check, UNKNOWN, "daemon environment names unavailable",
+                   "start the daemon and run `subfleet doctor` again")
+    report = status.get("environment") if isinstance(status, dict) else None
+    names = report.get("lane_credentials") if isinstance(report, dict) else None
+    if not isinstance(names, list):
+        return row(check, UNKNOWN, "daemon does not list lane credential variables (predates C-17.8's row)",
+                   "restart it on this release when no jobs are running")
+    from .launch_env import valid_name
+    if any(not isinstance(name, str) for name in names):
+        return row(check, UNKNOWN, "daemon returned malformed environment names",
+                   "restart it on this release when no jobs are running")
+    if not names:
+        return row(check, PASS, "the daemon holds no env-kind lane variable", "nothing to do")
+    display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
+    return row(check, PASS, "held by the daemon alone, each for its own lane: " + ", ".join(display),
+               "nothing to do; no launch inherits them")
+
+
 def check_live(root: Path) -> dict[str, Any]:
     """`--live`: one `ping` against the daemon (C-16.2).
 
@@ -689,6 +717,7 @@ def checks(root: Path, *, live: bool = False,
         check_socket_path(root),
         check_daemon_lock(root),
         check_daemon_environment(root),
+        check_daemon_lane_credentials(root),
         check_launchd_limit(),
         check_queued_pins(root),
         check_mirror(root),
