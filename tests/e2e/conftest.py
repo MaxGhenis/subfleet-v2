@@ -18,6 +18,7 @@ from typing import NamedTuple
 
 import pytest
 
+from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, SAFE_HOME_PATHS
 from tests.e2e import dev_app as development_app
 from tests.fake.profile import derived_identity as claude_identity
 
@@ -126,7 +127,13 @@ class E2E:
         projects.mkdir(parents=True)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith(("SUBFLEET_", "CLAUDE", "CODEX", "ANTHROPIC", "GIT_"))}
+        self.env.update({name: str(user_home / "isolated" / relative)
+                         for name, relative in SAFE_HOME_PATHS.items()})
+        for name in (PYTEST_SESSION, PYTEST_SESSION_ID):
+            if name in os.environ:
+                self.env[name] = os.environ[name]
         self.env.update({
+            PYTEST_MARKER: "1",
             "HOME": str(user_home), "SUBFLEET_HOME": str(self.root),
             "PATH": os.pathsep.join((str(binary_dir), "/usr/sbin", "/sbin", "/bin",
                                      os.environ.get("PATH", "/usr/bin"))),
@@ -138,6 +145,8 @@ class E2E:
             "E2E_CLAUDE_TOKEN_1": "fake-subscription-token-1",
             "E2E_CLAUDE_TOKEN_2": "fake-subscription-token-2",
             "CLAUDE_FAKE_PROJECTS_DIR": str(projects),
+            "SUBFLEET_CLAUDE_DIR": str(user_home / ".claude"),
+            "CLAUDE_CONFIG_DIR": str(user_home / ".claude"),
             "SUBFLEET_FAKE_DIAGNOSTICS_PATH": str(self.root / "codex-env.json"),
             "SUBFLEET_FAKE_ENV_REPORT": str(self.root / "claude-env.json"),
             "SUBFLEET_FAKE_STDIN_REPORT": str(self.root / "claude-stdin.md"),

@@ -363,8 +363,9 @@ def check_never_rules(settings: Path | None = None) -> dict[str, Any]:
     v2 never writes this entry — it belongs to the guard, not to subfleet — so
     the honest report when the file cannot be read is `unknown`, not a failure.
     """
-    path = (settings if settings is not None
-            else Path("~/.claude/settings.json").expanduser())
+    from .home_paths import home_path
+    path = (settings if settings is not None else Path(home_path(
+        "SUBFLEET_CLAUDE_SETTINGS", lambda: "~/.claude/settings.json", test_only=True)).expanduser())
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -528,8 +529,8 @@ def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
     """
     from . import descriptors
     if plist is None:
-        from .cli import PLIST_PATH            # deferred: doctor does not load the CLI at import
-        plist = Path(PLIST_PATH).expanduser()
+        from .cli import launchd_plist_path    # deferred: doctor does not load the CLI at import
+        plist = launchd_plist_path()
     check = "launchd open-file limit"
     if not plist.exists():
         return row(check, UNKNOWN, f"no launchd job at {plist}; the daemon raises its own limit at start",
