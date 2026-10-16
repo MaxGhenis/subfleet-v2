@@ -230,3 +230,39 @@ def test_responsibility_evidence_and_its_walk_never_authorize_signals(
     assert not ({61, 62} & set(waited))
     evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
     assert not ({"61", "62"} & evidence.get("owned_identities", {}).keys())
+
+
+def test_a_new_responsibility_identity_cannot_inherit_snapshot_group_authority(state_daemon, monkeypatch):
+    """C-5.4–6: a pid's new birth cannot borrow its former holder's group row."""
+    daemon, harness = state_daemon
+    _, attempt, _ = reserve(daemon, harness)
+    monkeypatch.setattr(procs, "containment", CONTAINMENT)
+    _, _, state = changing_root(monkeypatch, timing="never", fate="alive", known_unique=True)
+    state.scanning = False
+    state.starts[61] = "new escaped responsibility member"
+    state.fake.unique[61] = 101
+    snapshot = procs.snapshot
+
+    def stale_group_row():
+        table = snapshot()
+        return procs.ProcessTable({**table.rows, 61: (42, 42, "S", "old group member")}, BOOT_A)
+
+    monkeypatch.setattr(procs, "snapshot", stale_group_row)
+    monkeypatch.setattr(procs, "same_process", lambda pid, boot, start:
+                        boot == BOOT_A and state.starts.get(pid) == start)
+    attempt.update(guardian_pid=42, pgid=42, child_pid=None, boot_id=BOOT_A, proc_start=START,
+                   state="running", evidence_json=json.dumps({"responsible_root": {"pid": 42, "unique_id": 98}}))
+    daemon.store.update_attempt(attempt["attempt_id"], **{key: attempt[key] for key in (
+        "guardian_pid", "pgid", "child_pid", "boot_id", "proc_start", "state", "evidence_json")})
+    first = daemon._contain(attempt)
+    assert first.identities[61].proc_start == state.starts[61]
+    assert 61 in first.responsible_pids and 61 not in first.group_pids
+    signalled = []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(attempt)
+    assert set(signalled) == {42}
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence["responsible_identities"]["61"]["proc_start"] == state.starts[61]
+    assert "61" not in evidence["owned_identities"]
