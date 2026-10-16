@@ -388,14 +388,18 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
     notice, = daemon.store.list_notices()
     # C-15.1: the header is the job's state and rc, not the attempt's `ok; rc=0`
     # (incident: 2026-09-24); the summary names the attempt's class and rc.
-    header, summary, *kept = notice["text"].splitlines()
+    header, capability, summary, *kept = notice["text"].splitlines()
+    assert capability == (
+        "ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+        "temp files included, so pytest could not run")
     if cancel_first:
-        assert header.split("; ran ", 1)[0] == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
+        assert header == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
         assert kept == [f"output kept, not accepted: {adir / 'deliverable.md'}"]
     else:
-        assert header.split("; ran ", 1)[0] == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
+        assert header == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
         assert kept == []
     assert summary.startswith("attempt a1: ok, rc=0: ")
+    assert (adir / "deliverable.md").read_bytes() == b"fixture result\n"
     if not cancel_first:
         result = daemon.dispatch("kill", {"job_id": job_id})
         assert result["status"] == "already finished"
