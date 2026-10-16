@@ -218,6 +218,7 @@ def test_a_fresh_member_survives_an_older_owned_identity(monkeypatch, known_uniq
     """C-5.5: recycling an old owned birth cannot discard a newly observed child."""
     row, core, state = changing_root(monkeypatch, timing="after-members", fate="reaped",
                                      known_unique=known_unique)
+    state.fake.unique[61] = 100  # R=98, its earlier owned birth=99, then this child.
     snapshot = procs.snapshot
 
     def member_in_table():
