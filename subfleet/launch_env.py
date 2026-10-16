@@ -33,7 +33,8 @@ NETWORK_NAMES = frozenset({
 })
 # Every SUBFLEET_* configuration name the package reads (bin/codex included),
 # and the guard preflight's timeout. tests/unit/test_launch_env_round3.py fails
-# when the package spells a SUBFLEET_* name this, LAUNCH_NAMES or RETIRED_NAMES lacks.
+# when the package spells a SUBFLEET_* name this, TEST_SESSION_NAMES,
+# LAUNCH_NAMES or RETIRED_NAMES lacks.
 CONFIG_NAMES = frozenset({
     "SUBFLEET_CLAUDE_DIR", "SUBFLEET_CLAUDE_SETTINGS", "SUBFLEET_CODEX_GUARD_CACHE",
     "SUBFLEET_CODEX_HOMES", "SUBFLEET_CODEX_UNIFIED_EXEC", "SUBFLEET_DAEMON_BIN",
