@@ -486,15 +486,23 @@ def test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision(fleet, m
             time.sleep(1.5)
         done.set()
 
+    other = threading.Thread(target=holder, name="test-holder")
+
     def pick(job, **options):
         decision = real(job, **options)
-        threading.Thread(target=holder, name="test-holder").start()
+        other.start()
         assert holding.wait(10)
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     started = time.monotonic()
-    service._admit()
-    assert done.is_set() and time.monotonic() - started >= 1.5     # the reservation waited for the lock
+    try:
+        service._admit()
+    finally:
+        elapsed = time.monotonic() - started
+        if other.ident is not None:
+            other.join(10)
+    assert not other.is_alive() and done.is_set()
+    assert elapsed >= 1.5                                        # the reservation waited for the lock
     assert service._route_evaluations == {**ZERO, "reused": 1}
     assert admitted(service, job_id)
 
