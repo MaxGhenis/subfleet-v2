@@ -96,7 +96,8 @@ def send(sock, op, **args):
     # A connection over the cap may be answered and closed before the request is
     # sent (C-16.7); the answer is still there to read, whichever errno the send met.
     try:
-        sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
+        # The op names the request; C-25.7's correlation token has no `.` (`daemon.status`).
+        sock.sendall((json.dumps({"v": 1, "id": op.replace(".", "-"), "op": op, "args": args}) + "\n").encode())
     except OSError as exc:
         if exc.errno not in SEND_MET_CLOSE_ERRNOS:
             raise

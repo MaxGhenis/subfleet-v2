@@ -27,7 +27,7 @@ import unicodedata
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 
-from . import folders, retention_fs as rfs
+from . import folders, refusals, retention_fs as rfs
 from .adapters.base import AdapterError
 from .policy import DISK_DEFAULTS, push_settings
 
@@ -76,7 +76,10 @@ SAFE_CONFIG = ("-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false
 
 
 class PushError(ValueError):
-    pass
+    def __init__(self, message: str, *, kind: str | None = None, errno_name: str | None = None):
+        super().__init__(message)
+        self.kind = kind
+        self.errno_name = errno_name
 
 
 class Deadline:
@@ -176,12 +179,15 @@ def _read_metadata(path: Path, cap: int, *, optional: bool = False) -> str | Non
     except (FileNotFoundError, NotADirectoryError):
         if optional:
             return None
-        raise PushError(f"checkout metadata {str(path)!r} is missing") from None
+        raise PushError(f"checkout metadata {str(path)!r} is missing", kind="metadata-missing") from None
     except OSError as exc:
         why = {errno.ELOOP: "is a symlink", errno.EFBIG: f"is larger than {cap} bytes",
                errno.EINVAL: "is not a regular file"}.get(
             exc.errno, f"cannot be read ({errno.errorcode.get(exc.errno, exc.errno)})")
-        raise PushError(f"checkout metadata {str(path)!r} {why}") from None
+        kind = {errno.ELOOP: "metadata-symlink", errno.EFBIG: "metadata-large",
+                errno.EINVAL: "metadata-special"}.get(exc.errno, "metadata-unreadable")
+        raise PushError(f"checkout metadata {str(path)!r} {why}", kind=kind,
+                        errno_name=errno.errorcode.get(exc.errno)) from None
     return data.decode("utf-8")
 
 
@@ -199,7 +205,7 @@ def _resolve(path: Path) -> Path:
     try:
         return path.resolve()
     except RuntimeError:
-        raise PushError(f"checkout metadata {str(path)!r} is a symlink loop") from None
+        raise PushError(f"checkout metadata {str(path)!r} is a symlink loop", kind="metadata-symlink") from None
 
 
 def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
@@ -212,15 +218,16 @@ def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
             continue
         break
     else:
-        raise PushError("push requires a committed Git checkout with an origin")
+        raise PushError("push requires a committed Git checkout with an origin", kind="checkout-missing")
     gitdir = top / ".git"
     if stat.S_ISREG(info.st_mode):
         text = _read_metadata(gitdir, POINTER_CAP).strip()
         if not text.startswith("gitdir: "):
-            raise PushError("invalid checkout gitdir")
+            raise PushError("invalid checkout gitdir", kind="gitdir-invalid")
         gitdir = _resolve(top / text[8:])
     elif not stat.S_ISDIR(info.st_mode):
-        raise PushError(f"{str(gitdir)!r} must be a directory or a gitdir file, not a symlink or special file")
+        raise PushError(f"{str(gitdir)!r} must be a directory or a gitdir file, not a symlink or special file",
+                        kind="gitdir-invalid")
     common = gitdir
     pointer = _read_metadata(gitdir / "commondir", POINTER_CAP, optional=True)
     if pointer is not None:
@@ -263,7 +270,7 @@ def checkout_metadata(workdir: Path, *, _look: _MetadataLook | None = None) -> t
     if remote and remote.startswith('"') and remote.endswith('"'):
         remote = remote[1:-1]
     if not remote:
-        raise PushError("push requires a checkout with an origin URL in its local config")
+        raise PushError("push requires a checkout with an origin URL in its local config", kind="origin-missing")
 
     def read_ref(value: str) -> str:
         for _ in range(8):
@@ -285,7 +292,7 @@ def checkout_metadata(workdir: Path, *, _look: _MetadataLook | None = None) -> t
                     if line.endswith(" " + ref) and SHA.fullmatch(line.split(" ", 1)[0]):
                         return line.split(" ", 1)[0]
             break
-        raise PushError("push requires a checkout HEAD naming a committed baseline")
+        raise PushError("push requires a checkout HEAD naming a committed baseline", kind="baseline-missing")
 
     head = _read_metadata(gitdir / "HEAD", POINTER_CAP).strip()
     branch = head.removeprefix("ref: refs/heads/") if head.startswith("ref: refs/heads/") else None
@@ -327,7 +334,7 @@ def check_object_store(workdir: Path, *, in_place: bool, _look: _MetadataLook | 
         info = None
     if info is not None and (not stat.S_ISREG(info.st_mode) or info.st_size):
         raise PushError("push requires a full clone: the checkout is shallow; "
-                        "run git fetch --unshallow there, or push it yourself")
+                        "run git fetch --unshallow there, or push it yourself", kind="shallow")
     if in_place:
         return
     alternates = _read_metadata(common / "objects/info/alternates", POINTER_CAP, optional=True)
@@ -335,7 +342,7 @@ def check_object_store(workdir: Path, *, in_place: bool, _look: _MetadataLook | 
                                       for line in alternates.splitlines()):
         raise PushError("push requires a checkout that holds its own objects: this one borrows them "
                         "through objects/info/alternates (git clone --shared or --reference); "
-                        "run git repack -a -d and remove that file, or pass --in-place")
+                        "run git repack -a -d and remove that file, or pass --in-place", kind="alternates")
     configs = look.configs
     # Section names compare in any case, as Git reads them; keys are lowercased.
     promisor = any(
@@ -345,7 +352,7 @@ def check_object_store(workdir: Path, *, in_place: bool, _look: _MetadataLook | 
         for config in configs for section in config.sections())
     if promisor:
         raise PushError("push requires a full clone: this one is a partial clone whose missing objects "
-                        "its promisor remote supplies; clone it without --filter, or pass --in-place")
+                        "its promisor remote supplies; clone it without --filter, or pass --in-place", kind="partial")
 
 
 def _environment() -> dict[str, str]:
@@ -365,11 +372,30 @@ def validate_write_location(workdir: Path) -> None:
         look = _MetadataLook(workdir)
         _, _, current, _ = checkout_metadata(workdir, _look=look)
         if current in {"main", "master"}:
-            raise PushError("writable in-place jobs require a feature branch")
+            raise PushError("writable in-place jobs require a feature branch", kind="protected-branch")
         check_object_store(workdir, in_place=True, _look=look)
     except Exception as exc:  # noqa: BLE001 - every refusal is this job's, never the pass's
         raise AdapterError(f"workspace refused: {_reason(exc)}", code=7,
-                           fix="choose a committed feature branch in a full clone") from exc
+                           fix="choose a committed feature branch in a full clone", reason="push-location",
+                           details=_refusal_details(exc)) from exc
+
+
+def _refusal_details(exc: BaseException) -> dict:
+    """Select checked context from the check's kind, never its exception text."""
+    kind = exc.kind if isinstance(exc, PushError) else None
+    if isinstance(exc, UnicodeDecodeError):
+        kind = "config-utf8"
+    elif isinstance(exc, configparser.MissingSectionHeaderError):
+        kind = "config-header"
+    elif isinstance(exc, configparser.Error):
+        kind = "config-invalid"
+    if type(kind) is not str or kind not in refusals.CHECKOUT_REFUSALS:
+        return {}
+    message, fix = refusals.CHECKOUT_REFUSALS[kind]
+    details = {"checkout_problem": message, "checkout_fix": fix}
+    if isinstance(exc, PushError) and refusals.checked("errno_name", exc.errno_name):
+        details["errno_name"] = exc.errno_name
+    return details
 
 
 def _reason(exc: BaseException) -> str:
@@ -580,7 +606,8 @@ def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_
         return remote, head, default, current, top
     except (ValueError, OSError, configparser.Error) as exc:
         raise AdapterError(f"host push refused: {exc}", code=7,
-                           fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy") from exc
+                           fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy",
+                           reason="push-refused") from exc
 
 
 def _open_directory(root: Path) -> int:
@@ -865,7 +892,8 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
 def _workspace_refused(exc: BaseException) -> AdapterError:
     return AdapterError(f"host push workspace refused: {_reason(exc)}", code=7,
                         fix="resubmit from a full clone whose origin and HEAD still name the commit "
-                            "to start from, or omit --push-branch")
+                            "to start from, or omit --push-branch", reason="push-checkout",
+                        details=_refusal_details(exc))
 
 
 def _clone_object(source_fd: int, target: Path) -> bool:
@@ -899,18 +927,18 @@ def _copy_object(source_fd: int, target: Path, remaining: int) -> int:
     """
     before = os.fstat(source_fd)
     if not stat.S_ISREG(before.st_mode):
-        raise PushError("baseline object is not a regular file")
+        raise PushError("baseline object is not a regular file", kind="object-special")
     if before.st_blocks * 512 < before.st_size:
-        raise PushError("baseline object is sparse")
+        raise PushError("baseline object is sparse", kind="sparse")
     if before.st_size > remaining:
-        raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes")
+        raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes", kind="object-budget")
     if _clone_object(source_fd, target):
         copied = target.stat().st_size
         if copied > remaining:
             # A source can grow during the atomic clone. It allocated no data
             # blocks, and the oversized snapshot never survives this refusal.
             target.unlink()
-            raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes")
+            raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes", kind="object-budget")
     else:
         copied = 0
         with target.open("xb") as output:
@@ -922,7 +950,7 @@ def _copy_object(source_fd: int, target: Path, remaining: int) -> int:
                 copied += len(chunk)
     if (copied != before.st_size
             or not rfs.same_content_signature(before, os.fstat(source_fd))):
-        raise PushError("baseline object changed while copying")
+        raise PushError("baseline object changed while copying", kind="object-changed")
     return copied
 
 

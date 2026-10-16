@@ -213,6 +213,8 @@ class HandoffError(ValueError):
 
 #: What `scrub_secrets` puts in place of what it removes.
 _PLACEHOLDERS = (REDACTED, "[PRIVATE KEY REDACTED]", "[BASE64 DATA OMITTED]", "[BASE64 OMITTED]")
+#: Public marker vocabulary for consumers that cut scrubbed text.
+REDACTION_MARKERS = _PLACEHOLDERS
 #: A run that looks like a secret value rather than a word or a key name: six or
 #: more of `[A-Za-z0-9_-]`, with a letter and a digit.
 _VALUE_RUN_RE = re.compile(r"[\w-]{6,}")
@@ -276,8 +278,8 @@ def _linear_sub(pattern: re.Pattern, replacement, text: str) -> str:
     return "".join(parts)
 
 
-def _quoted_ends(text: str) -> dict[int, int]:
-    """Index matching quotes once, respecting escapes and line boundaries.
+def _quoted_ends(text: str, *, multiline: bool = False) -> dict[int, int]:
+    """Index matching quotes once, respecting escapes and, for excerpts, line boundaries.
 
     A failed quoted assignment must not rescan the rest of its line for each
     later candidate. Unescaped quotes can close the previous quote of their
@@ -290,7 +292,8 @@ def _quoted_ends(text: str) -> dict[int, int]:
         if len(char) > 1:
             continue
         if char in "\r\n":
-            previous.clear()
+            if not multiline:
+                previous.clear()
         else:
             if char in previous:
                 ends[previous[char]] = match.start()
@@ -299,13 +302,14 @@ def _quoted_ends(text: str) -> dict[int, int]:
 
 
 def _scrub_named_values(text: str, replace: Callable[[str, str], str],
-                       *, quoted: bool = False, flags: bool = False) -> str:
+                       *, quoted: bool = False, flags: bool = False, multiline: bool = False) -> str:
     """Replace assignment/flag values in linear scans, preserving rule order."""
     parts: list[str] = []
     cursor = 0
     quote_ends: dict[int, int] | None = None
+    ranges: list[tuple[int, int, str]] = []
     for token in _IDENTIFIER_RE.finditer(text):
-        if token.start() < cursor:
+        if token.start() < cursor and not (quoted and multiline):
             continue
         key = token.group()
         if not _SENSITIVE_SUFFIX_RE.search(key[-17:]):
@@ -332,7 +336,7 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                 if value_start == len(text) or text[value_start] not in "\"'":
                     continue
                 if quote_ends is None:
-                    quote_ends = _quoted_ends(text)
+                    quote_ends = _quoted_ends(text, multiline=multiline)
                 closing = quote_ends.get(value_start)
                 if closing is None:
                     continue
@@ -344,6 +348,19 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     continue
                 end = value.end()
                 out = text[start:value_start] + REDACTED
+        if quoted and multiline:
+            # A surrounding assignment can end at an inner value's opening
+            # quote. Mask the union of overlapping matches, including the inner
+            # value beyond that quote, instead of skipping its candidate key.
+            if ranges and start < ranges[-1][1]:
+                previous_start, previous_end, previous_out = ranges[-1]
+                ranges[-1] = (previous_start, max(previous_end, end), previous_out)
+            else:
+                ranges.append((start, end, out))
+        else:
+            parts.extend((text[cursor:start], replace(text[start:end], out)))
+            cursor = end
+    for start, end, out in ranges:
         parts.extend((text[cursor:start], replace(text[start:end], out)))
         cursor = end
     parts.append(text[cursor:])
@@ -358,10 +375,12 @@ def scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = Fal
     A text longer than MAX_SCRUB_CHARS keeps a scrubbed head and tail with a
     marker between them (`scrub_bounded`). `whole` scrubs all of it, for a text
     whose length its caller bounds: the assembled handoff brief, whose section
-    caps policy keeps within the same bound (C-23.36)."""
+    caps policy keeps within the same bound (C-23.36). Whole-text callers also
+    mask quoted assignment values across line breaks, before any folding or cut;
+    excerpts retain their within-line rules so no match crosses an excerpt cut."""
     if len(text) > MAX_SCRUB_CHARS and not whole:
         return scrub_bounded(text, None, strip_reminders=strip_reminders)
-    return _scrub(text, strip_reminders)
+    return _scrub(text, strip_reminders, multiline=whole)
 
 
 def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False) -> tuple[str, int]:
@@ -537,9 +556,13 @@ def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
                                (_DATA_URI_RE, "[BASE64 DATA OMITTED]")), tally)
 
 
-def _scrub(text: str, strip_reminders: bool) -> tuple[str, int]:
+def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tuple[str, int]:
     """`scrub_secrets` on a text within its work bound."""
     tally = _Tally()
+    if multiline:
+        # Mask the original value before headers or reminders can consume its
+        # closing quote. Whole-text callers never cut through these assignments.
+        text = _scrub_named_values(text, tally, quoted=True, multiline=True)
     text = _resolve_blocks(text, strip_reminders, tally)
     text = _apply_rules(text, (
         (_JWT_RE, REDACTED),
@@ -549,7 +572,7 @@ def _scrub(text: str, strip_reminders: bool) -> tuple[str, int]:
         (_HEADER_RE, lambda match: match.group(1) + REDACTED),
         (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
     ), tally)
-    text = _scrub_named_values(text, tally, quoted=True)
+    text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
     text = _scrub_named_values(text, tally)
     text = _scrub_named_values(text, tally, flags=True)
     return text, tally.total

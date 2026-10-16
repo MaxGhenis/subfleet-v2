@@ -82,6 +82,8 @@ let codecs: [String: OpCodec] = {
         codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
         codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
         codec(Ops.conversationHandoff), codec(Ops.workspaceCheck), codec(Ops.conversationWake),
+        codec(Ops.suggestionCreate), codec(Ops.suggestionList), codec(Ops.suggestionStart), codec(Ops.suggestionDismiss),
+        codec(Ops.suggestionWithdraw),
     ]
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
@@ -171,6 +173,8 @@ func project(_ item: TimelineItem) -> [String: Any] {
         out["exit_code"] = notice.exitCode as Any? ?? NSNull(); out["detail"] = notice.detail
     case .steered(let messageID):
         out["type"] = "steered"; out["steered"] = messageID
+    case .suggestion(let suggestion):
+        out["type"] = "suggestion"; out["suggestion"] = jsonObject(suggestion)
     }
     return out
 }
