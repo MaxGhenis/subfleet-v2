@@ -126,7 +126,6 @@ def test_round5_seven_hour_recovery_never_charges_an_absent_provider(clocked, mo
     service._starting_deadlines[aid] = 0
     service._process_attempt(aid)
     assert service._running_s(jid) == 0
-    service.dispatch("kill", {"job_id": jid})  # Release this example's queued retry.
     clock.t += timedelta(seconds=61)
     service.store.update_job(jid, next_check_at=None)
     service._admit()
@@ -160,7 +159,10 @@ def test_round5_wall_property_excludes_downtime(clocked, monkeypatch, down_s, st
     monkeypatch.setattr(procs, "liveness", lambda *args: "dead")
     service._starting_deadlines[aid] = 0
     service._process_attempt(aid)
-    assert service._running_s(jid) == 0
+    try:
+        assert service._running_s(jid) == 0
+    finally:
+        service.dispatch("kill", {"job_id": jid})  # Release this example's queued retry.
 
 
 def running(clocked, monkeypatch):
