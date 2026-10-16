@@ -4,7 +4,7 @@ Base: `release/217`, `3f50142ac1cc`. Reported on 2026-10-14 by the d1063 key-rot
 
 ## Original exact-name allowlist
 
-`subfleet/launch_env.py` owns the default selection. The table records round 1's finite set and its rationale. Round 2 additionally admits noncredential `SUBFLEET_*` configuration, with credential-word and launch-marker exclusions described below. Unknown `LC_*` names remain excluded.
+`subfleet/launch_env.py` owns the default selection. The table records round 1's finite set and its rationale. Round 2 additionally admitted noncredential `SUBFLEET_*` configuration by prefix. Round 3 replaces that with exact names, the harness's own prefixes and a substring credential-word backstop, and gives each env-kind lane credential to its own lane only (see "Round 3" at the end). Unknown `LC_*` names remain excluded.
 
 | Name | Reason |
 | --- | --- |
@@ -510,3 +510,304 @@ preflight's exact `env_pass` credential/CA names. G: account for the merged
 guardian-only settle setting, and bind the outcomes path before tests run.
 
 </details>
+
+
+## Round 3: review r2 (2026-10-16)
+
+Base `1a4eb9c66`. Review r2 (`~/reviews/subfleet-hub/launch-env-2026-10-14/review-r2.md`)
+requested changes: one P2 and three P3 findings. The hub's design decisions
+(Max delegated Subfleet design) are implemented as given; the judgement calls
+are listed under "Choices". No credential store, secret loader, live store,
+live daemon or live process was read or changed, and every test value is a
+dummy.
+
+### Changes
+
+1. **P2, the `SUBFLEET_` prefix admitted credentials.** `launch_env.allowed_name`
+   no longer admits a prefix.
+   - **Exact configuration names.** `CONFIG_NAMES` lists every `SUBFLEET_*`
+     configuration name the package reads, plus `CODEX_GUARD_PREFLIGHT_TIMEOUT`.
+     `tests/unit/test_launch_env_round3.py` generates the inventory: it parses
+     every module (string constants and keyword names) and `bin/`'s shell
+     reads, and fails on a `SUBFLEET_*` name that is neither listed, a launch
+     marker, nor retired. It also fails on a listed name nothing reads, and
+     shows the only name built at run time is compat's `CARPOOL_*` aliasing
+     (no `CARPOOL_*` name is admitted).
+   - **Retired names.** `RETIRED_NAMES`: `SUBFLEET_ALLOW_API_LANE` and
+     `SUBFLEET_STATE_DIR` are read only to say they are ignored, so they are
+     never inherited and doctor names them.
+   - **Harness hooks.** `HARNESS_PREFIXES` (`SUBFLEET_FAKE_`, `SUBFLEET_E2E_`) and
+     `HARNESS_NAMES` (`SUBFLEET_LIVE`, exact). A test shows no production module
+     spells a name under them, and that every hook the fakes and the e2e, fake
+     and live harnesses spell is admitted.
+   - **Substring backstop.** `CREDENTIAL_WORDS`, matched anywhere in a name, in
+     any case, refuse it whether or not it is listed or harness-shaped. The
+     words are the hub's: TOKEN, KEY, SECRET, PASSWORD, PASSWD, PASSPHRASE, PASS,
+     PWD, CREDENTIAL, CRED, AUTH, OAUTH, BEARER, COOKIE, JWT, PAT, PRIVKEY,
+     WEBHOOK. Exact `env.pass` names are still explicit authority.
+   - **Reviewed exceptions.** `CREDENTIAL_EXCEPTIONS` holds the four admitted
+     names a word matches by accident, each holding a path, never a secret:
+     `PATH` ("PAT"), `SSH_AUTH_SOCK` (the agent's socket; its keys stay in the
+     agent), `SUBFLEET_FAKE_DIAGNOSTICS_PATH` and `SUBFLEET_FAKE_RELEASE_PATH`
+     (the fake providers' report and release files). A test pins the set and
+     checks each member trips a word and is otherwise admitted.
+   - **Doctor.** `environment_report` lists every name the allowlist drops, so
+     each unlisted `SUBFLEET_*` name now appears in `extra_names`, by name only.
+2. **P3, env-kind credentials crossed lanes.** A lane's credential now reaches
+   only that lane.
+   - `credentials.env_references` names the daemon variables env-kind lanes use,
+     from `Lane` objects or roster rows.
+   - `ProviderEnvironment` takes `references`, and withholds every reference from
+     both parent selection and `env.pass`. The daemon wires it to the store, read
+     at each launch, and so do the timers' heal and version runs.
+     `build_environment` gains `withheld` for this. A lane's own value arrives
+     only through `resolve_credential`, as its `CLAUDE_CODE_OAUTH_TOKEN`
+     addition.
+   - `policy.check_lane_credentials` refuses an `env.pass` entry that is some
+     lane's reference (exit 2, `env.pass[i]`). It runs in `daemon start` before
+     the spawn, and at daemon startup after the roster is seeded.
+     `_released_on_failure` gives back the lock, store and log.
+   - `daemon start` gives the daemon process alone every reference named in
+     `lanes.json` or the store (read-only), so an env-kind lane needs no policy
+     entry.
+   - `resolve_credential` refuses an env-kind reference the allowlist admits,
+     because every launch inherits such a name.
+   - The e2e harness's policy no longer passes `E2E_CLAUDE_TOKEN_*`. The fake
+     Codex now reports which names it saw (never values), so the e2e isolation
+     test checks that neither provider holds either reference.
+3. **P3, stale comment.** `Launch.env_remove` now says mandatory removals apply
+   last and win over the parent, policy names and `env_add`. It names
+   `test_mandatory_removal_also_beats_selected_additions`, and a test reads the
+   comment.
+4. **P3, suggestion resume.** `_resume_start` enters `helper_policy` with the
+   daemon's policy, so the file pool's `git worktree add` carries `env.pass`
+   names. The pattern matches `wakes._poll_prs`.
+
+Contract: C-10.5, C-11.1, C-12.3 and C-17.8 state these rules, with a dated
+entry under "Changes in version 3".
+
+Commits after `1a4eb9c66`, tests first:
+
+- `d976c7a55`: the regressions, and the test oracles that change by design.
+- `61abb0eaa`: exact Subfleet names, harness prefixes and the backstop (P2).
+- `b38f6ebeb`: lane credentials reach only their own lane (P3).
+- `968e1ca10`: the `env_remove` comment (P3).
+- `59b1d7fcb`: the resumed suggestion start's helper policy (P3).
+- `4395b629e`: the acceptance contract.
+- `4499dd5f0` and `40d8e178d`: two test refinements, made after the control
+  run (see below).
+- This report.
+
+### Choices
+
+- **Retired names stay out of the allowlist.** The hub said to generate the
+  list from the package's reads. `SUBFLEET_ALLOW_API_LANE` (`cli.py`) and
+  `SUBFLEET_STATE_DIR` (`compat.py`) are read, but only to say they are ignored.
+  They are classified as retired rather than admitted, so doctor flags a leftover.
+- **Three names are added to the list:** `SUBFLEET_DAEMON_BIN` (the CLI's daemon
+  override), `SUBFLEET_V1_BIN` (compat) and `SUBFLEET_NO_AUTOPICK`
+  (`bin/codex`). Round 2's prefix admitted them; round 1's list lacked them.
+  `SUBFLEET_HOME` and `SUBFLEET_RETENTION_DORMANT` also appear in
+  `CONFIG_NAMES`, so the one list is complete. Round 1's oracle gains the three
+  new names.
+- **No `home_path(...)` helper exists in this package.** Names read through
+  module constants (`SETTINGS_ENV`, `STORE_ENV`, `TIMEOUT_ENV` and others) are
+  string constants, so the scan covers them.
+- **The daemon-only list comes from the lane roster, not a new policy key.**
+  `daemon start` reads `lanes.json` and the store. The launchd plist is
+  unchanged: as before, an env-kind lane under launchd needs the variable
+  added to the daemon's environment by hand.
+- **The resolve guard is an addition.** It makes "never forwarded by the
+  allowlist" hold for every spawn path, helpers included, not only for the
+  daemon's provider launches.
+- **Every reference is withheld, the lane's own included.** The provider gets
+  its token as `CLAUDE_CODE_OAUTH_TOKEN`, so no provider needs the reference
+  name. Withholding filters the parent, not additions, so a lane whose
+  reference is literally `CLAUDE_CODE_OAUTH_TOKEN` still gets its own token.
+- **Commits sit on a detached HEAD.** This job's worktree started detached at
+  `1a4eb9c66`, and `fix/launch-env-allowlist-217` is checked out in the
+  caller's worktree. Each commit descends from `1a4eb9c66`, so the branch can
+  fast-forward to the last one. The shared Git index accepted the commits;
+  no workspace-local metadata was needed. Nothing was pushed.
+
+### Invariants
+
+- **No credential word.** For every name *n*: `allowed_name(n)` implies that *n*
+  is listed or harness-shaped, and that *n* is a reviewed exception or holds no
+  credential word in any case. A bounded Hypothesis property covers prefix ×
+  affixes × word × case (60 derandomized examples).
+- **Reports and selection agree.** `environment_report` names exactly the
+  parent names `allowed_name` rejects, and never a value.
+- **No lane reference in any launch.** For every launch of lane *ℓ*,
+  `names(launch) ∩ references(lanes) = ∅`. The only lane credential value in a
+  Claude launch is *ℓ*'s own; a Codex launch holds none. This is checked
+  through the daemon's own seams (`_credential_environment`,
+  `_launch_environment`, `_relaunch_env`) for three channels: policy, the old
+  prefix, and harness names.
+- **Policy and lanes are disjoint.** For every policy *P* and roster *L*
+  accepted by `daemon start` or daemon startup,
+  `P.env.pass ∩ references(L) = ∅`.
+- **The inventory is complete.** Every `SUBFLEET_*` name the package spells is
+  classified (generated, not remembered).
+
+### Control: the regressions at `1a4eb9c66`
+
+The new and changed regressions were run against `git archive d976c7a55`, the
+tests commit, whose production code equals `1a4eb9c66`. The run used the
+workspace's Python 3.12 `.venv`, from the archive directory. Result:
+**65 failed, 11 passed in 91.6 s**.
+
+The control ran the tests as of `d976c7a55`. The two later test commits were
+not re-run against `1a4eb9c66`; this is deduced from reading them:
+
+- `4499dd5f0` narrows a staleness check on the inventory test. That test fails
+  at `1a4eb9c66` before reaching the check, on `RETIRED_NAMES`.
+- `40d8e178d` rewrites membership checks to print booleans, not mappings
+  (`not in set(env)`, `not any(value == ...)`, `env.get(...)`). Each rewritten
+  check is logically equivalent to the one it replaces.
+
+- **All 15 of the review's names fail**, in one parametrized case: each
+  survives `build_environment`.
+- **38 more assertion failures:**
+  - all 18 backstop words: round 2 applied no credential check to a listed name;
+  - 7 harness and exact-name cases;
+  - the 3 lane-crossing channels, where the Codex launch held both references;
+  - doctor's baseline (2);
+  - 8 single cases:
+    - the real-case daemon start;
+    - the unread-setting case;
+    - daemon start holding both rosters' references;
+    - the comment test;
+    - the resume regression: the pooled `git worktree add` environment lacked
+      `GIT_CONFIG_GLOBAL`;
+    - round 2's harness test;
+    - the fake-daemon `SUBFLEET_TEST_OAUTH` Codex launch;
+    - the startup case, where a policy passing a lane credential started the
+      daemon.
+- **3 missing refusals:** `daemon start` with a passed reference (seed and store
+  rosters) did not raise `PolicyError`, and an allowlisted reference resolved.
+- **9 absent interfaces:** the new constants and
+  `ProviderEnvironment(references=...)`.
+- **The 11 that pass are expected to:** 9 exact-name cases where the old prefix
+  gives the same answer, compat's construction guard, and a noncredential
+  `env.pass` start.
+
+### Validation
+
+Each hold was one pytest process in the foreground, under its own hold of the
+shared lock. Every hold used one worker, Python 3.12.14 (GIL), and its own
+scratch `TMPDIR` and Hypothesis directory. A hold that reached 19 minutes would
+have stopped with a `KeyboardInterrupt` and teardown; none did.
+
+| Hold | Files | Result | Lock wait |
+| --- | --- | --- | --- |
+| Control | the new and changed regressions, on `git archive d976c7a55` | 65 failed, 11 passed (91.6 s), as expected | 12 min |
+| A | the brief's holds 1, 2, 3, 5 and 6, plus the three contract parsers | 757 passed (312.2 s) | 12 min |
+| B1 | `tests/e2e/test_conversations.py`, `test_milestone2_claude.py`, `test_guard_and_isolation.py` | 41 passed, 15 skipped (321.7 s) | 18 min |
+| B2 | the other e2e files that set `SUBFLEET_FAKE_*`, the four other e2e files on the same harness policy, and the unit files that call `daemon_env` | 301 passed, 1 skipped (487.7 s) | 29 min |
+| C | the 13 other test files that touch environment selection, found by grep | 1955 passed, 1 skipped (584.2 s) | 16 min |
+
+Hold A, by file:
+
+- `tests/unit/test_launch_env_allowlist.py`: 27 passed
+- `tests/unit/test_launch_env_helpers.py`: 20 passed
+- `tests/unit/test_launch_env_mutations.py`: 34 passed
+- `tests/unit/test_launch_env_policy.py`: 26 passed
+- `tests/unit/test_launch_env_round2.py`: 66 passed
+- `tests/unit/test_launch_env_round3.py`: 67 passed
+- `tests/fake/test_launch_env_daemon.py`: 34 passed
+- `tests/unit/test_policy.py`: 178 passed
+- `tests/unit/test_policy_support.py`: 14 passed
+- `tests/unit/test_agent_secret_credentials.py`: 7 passed
+- `tests/unit/test_doctor.py`: 44 passed
+- `tests/unit/test_doctor_ca_bundle.py`: 16 passed
+- `tests/unit/test_doctor_identity.py`: 13 passed
+- `tests/unit/test_conversation_service.py`: 98 passed
+- `tests/unit/test_suggestions.py`: 30 passed
+- `tests/fake/test_suggestions_fake.py`: 1 passed
+- `tests/fake/test_state_contract.py`: 37 passed
+- `tests/unit/test_test_module_names.py`: 1 passed
+- `tests/unit/test_invariants_index.py`: 25 passed
+- `tests/unit/test_desktop_ledger.py`: 4 passed
+- `tests/unit/test_retention_turn_contract.py`: 2 passed
+- `tests/process/test_guardian_process.py`: 5 passed (process inspection was allowed)
+- `tests/process/test_census_responsibility_process.py`: 8 passed
+
+Hold B1, by file:
+
+- `tests/e2e/test_conversations.py`: 29 passed, 15 skipped
+- `tests/e2e/test_milestone2_claude.py`: 7 passed
+- `tests/e2e/test_guard_and_isolation.py`: 5 passed
+
+The 15 skips are lane-only: 10 person-only requests and 5 refused because the
+lane carries Subfleet's markers. CI runs them outside a lane.
+
+Hold B2, by file:
+
+- `tests/e2e/test_conversation_wakes_e2e.py`: 4 passed
+- `tests/e2e/test_legacy_cockpit.py`: 1 passed
+- `tests/e2e/test_milestone1_codex.py`: 9 passed
+- `tests/e2e/test_recovery.py`: 2 passed
+- `tests/e2e/test_reserve.py`: 4 passed
+- `tests/e2e/test_review_r2_strand_e2e.py`: 2 passed
+- `tests/e2e/test_review_r3_strand_timing_e2e.py`: 2 passed
+- `tests/e2e/test_stop_bound.py`: 3 passed
+- `tests/e2e/test_suggestions_e2e.py`: 1 passed, 1 skipped (person-only, lane-only skip)
+- `tests/e2e/test_codex_turn_completed_e2e.py`: 3 passed
+- `tests/e2e/test_conversation_titles_e2e.py`: 9 passed
+- `tests/e2e/test_http_isolation.py`: 1 passed
+- `tests/e2e/test_notice_job_state.py`: 1 passed
+- `tests/unit/test_cli.py`: 222 passed
+- `tests/unit/test_daemon_verbs.py`: 20 passed
+- `tests/unit/test_rediscovery_git_trace.py`: 17 passed
+
+Hold C, by file. These are the test files outside the brief's list that
+touch environment selection, credentials, the CARPOOL aliasing or a
+`SUBFLEET_TEST_*` name:
+
+- `tests/fake/test_launch_env_providers.py`: 6 passed (the brief's
+  `tests/unit/test_launch_env*.py` glob misses this file)
+- `tests/fake/test_daemon_launch.py`: 9 passed
+- `tests/fake/test_detached_cwd_pins.py`: 18 passed
+- `tests/unit/test_codex_ca_bundle.py`: 46 passed
+- `tests/unit/test_codex_ca_bundle_provider.py`: 6 passed
+- `tests/unit/test_compat.py`: 1615 passed
+- `tests/unit/test_conversation_wakes.py`: 22 passed
+- `tests/unit/test_guard_trust.py`: 98 passed
+- `tests/unit/test_guardian.py`: 12 passed
+- `tests/unit/test_stop_alarm.py`: 2 passed
+- `tests/unit/test_timers_busy_read.py`: 115 passed
+- `tests/process/test_guardian_qos_process.py`: 2 passed, 1 skipped (the
+  `inherit` case: this lane's own process is clamped, as in review r2)
+- `tests/process/test_guardian_relay.py`: 4 passed
+
+**Hold layout.** The brief listed six holds. With about ten `lockf` waiters
+(one waited 88 minutes) and lock waits of 12 to 33 minutes, I ran its holds 1,
+2, 3, 5 and 6 as one pytest (hold A), and split the e2e files in two (B1, B2).
+Hold C adds the files outside the brief's list that touch environment
+selection. Each hold stayed one pytest process, one worker, under 20 minutes,
+with a 19-minute bound enforced in-process. I stopped a queued hold 1 and the first
+queued control while they waited; neither held the lock or had started
+pytest.
+
+### Not run
+
+- **Lane-only skips:** 16 cases, 15 in `tests/e2e/test_conversations.py` (10
+  person-only, 5 refused for the lane's markers) and 1 in
+  `test_suggestions_e2e.py` (person-only). They need a terminal outside a lane,
+  and CI runs them.
+- **The QoS `inherit` case** (`test_guardian_qos_process.py`): this lane runs
+  clamped.
+- **The rest of the suite, never run:** every test file not named in holds A,
+  B1, B2 and C. That includes the rest of `tests/unit`, `tests/fake` and
+  `tests/process`, all of `tests/frontend` and `tests/live`, and Python 3.14.
+  CI runs the full suite on 3.12 and 3.14 at the pushed head.
+- **Live authentication and the live daemon:** off limits, and not touched.
+
+### Cleanup
+
+Every hold's scratch `TMPDIR` and Hypothesis directory were removed when its
+run ended. The runner, logs, JUnit files, staged copies and the control
+archive were in one scratch folder outside the repository; it is removed at
+the end. No process of this job remains. The ignored `.venv` (Python 3.12)
+remains; the bytecode caches the runs wrote are removed. Nothing was pushed.
