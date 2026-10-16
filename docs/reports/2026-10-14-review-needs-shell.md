@@ -233,6 +233,31 @@ The hub's corrected notice decision supersedes the line-two interpretation in ro
 
 Source audit: `cli.format_notices` reads only the first-line header; `hooks.render_pending` passes through complete notice text and `hooks.job_summary` builds the fallback. The daemon's `_notice`, `_export_error` and `_push_job` write or annotate notices. Offline/store/protocol notice readers retain the text; conversation wakes use structured job rows. App `TaskNotification` parses its own XML fields and `Timeline` displays notice text, without indexing a C-15.1 summary. Searches of the package, hooks, CLI, app, bin and tools found no production summary reader using a numeric line index or header/summary unpacking. The unrelated `lanes_transfer._indent_of` slice reads roster formatting. All indexed test readers were audited: notice-header, notice-rendering, review-needs-shell, review-launch-permissions, state-contract, salvage-finalization, workspace-transient, record-secrecy (through the salvage helper), and the e2e notice-job-state assertion. The salvage/workspace helper checks capability is final before exposing the unchanged body to existing assertions.
 
-The initial hold installed dependencies in task scratch and stopped during collection because a test import edit was misindented. Commit `7a6d974a1` corrects that edit; every unit/fake Python source then passed AST parsing. The serial red rerun is pending the shared test lock. Production patches remain unapplied at this checkpoint. The remaining CI corrections cover the host-push test's current-schema assertion (`7` versus `SCHEMA_VERSION`), the authorization migration fixture's missing `needs_shell` column/default, and the provider-cap test's stale release policy hash. Other literal schema values belong to deliberately historical fixtures or the independent conversation-store schema.
+The initial hold installed dependencies in task scratch and stopped during collection because a test import edit was misindented. Commit `7a6d974a1` corrects that edit; every unit/fake Python source then passed AST parsing. The corrected tests-first red run on CPython 3.14.7 freethreaded completed **103 failed, 378 passed in 371.61 seconds**. Those failures cover the notice layout and later annotations, handoff/scheduler policy resolution, and the three stale schema/policy assertions.
 
-Verification is pending. The requested focused files are arranged into two serial holds; the complete fake/unit sweep has 400 files in six balanced holds with at most four workers. Each invocation waits for the shared lock without a wait timeout, uses task-local uv/Hypothesis storage and the bounded ci profile, and removes `SUBFLEET_RETENTION_DORMANT` from the test environment. Final per-file results and cleanup status will replace this checkpoint before completion.
+Implementation commits:
+
+- `6175077b0`: one complete notice renderer puts capability last in the daemon and hook fallback. Later export/push annotations go before that footer; the summary and all other preceding lines retain their order. C-15.1's contradictory header/line-two descriptions are corrected.
+- `49f5efcfb`: handoff and the scheduler's demand, lane-refusal and model-reason paths call `policy.resolve_sandbox`. A handoff probes committed Git state only for conditional authority; scheduler routing uses the job's recorded commit and isolation/in-place/gate context. The daemon already delegates its conversion to the same resolver; its remaining raw permission read only decides whether a Git probe is needed.
+- `66aa7602c` and `4df38b232`: source inspection found that the new handoff Git probe could otherwise escape the CLI's error handler on a transient Git failure. Tests precede the correction. It now returns an actionable operational handoff error before prompt staging/submission, omits private Git output, and retains the explicit read-only escape. Explicit sandbox choices do not need this conditional probe.
+- `70314d9ed`: the schema-six host-push test follows `SCHEMA_VERSION`; the authorization migration fixture expects `needs_shell` and proves its default is false. The provider-cap test still checks exact input-byte preservation and its actual SHA-256, without pinning a prior release's policy hash. Other literal schema values belong to deliberately historical fixtures or the independent conversation-store schema.
+
+The first green focused hold used CPython 3.12.14 and passed **656 tests in 298.66 seconds**, with **304 seconds of lock occupancy**, no failures or skips:
+
+| File | Passed |
+| --- | ---: |
+| `tests/fake/test_notice_header.py` | 24 |
+| `tests/fake/test_policy_sandbox.py` | 25 |
+| `tests/fake/test_record_secrecy.py` | 44 |
+| `tests/fake/test_review_launch_permissions.py` | 15 |
+| `tests/fake/test_review_needs_shell.py` | 23 |
+| `tests/fake/test_salvage_finalization.py` | 47 |
+| `tests/fake/test_state_contract.py` | 37 |
+| `tests/fake/test_workspace_transient.py` | 24 |
+| `tests/unit/test_notice_rendering.py` | 35 |
+| `tests/unit/test_policy.py` | 186 |
+| `tests/unit/test_policy_sandbox_resolution.py` | 42 |
+| `tests/unit/test_policy_support.py` | 14 |
+| `tests/unit/test_sessions_handoff.py` | 140 |
+
+Verification checkpoint: the second focused hold is queued, followed by the complete 400-file fake/unit sweep in six balanced holds with at most four workers. Each foreground invocation waits for the shared lock without a wait timeout, uses task-local uv/Hypothesis storage and the bounded ci profile, and removes `SUBFLEET_RETENTION_DORMANT` from the test environment. Final per-file results, any unrun files and cleanup status will follow before completion.
