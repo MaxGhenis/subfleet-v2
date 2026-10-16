@@ -150,12 +150,21 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             f"deliverable={deliverable}; out={out}")
 
 
-def notice_intro(job: Mapping[str, Any], state_root: str | Path, *,
-                 require_file: bool = False) -> str:
-    """The C-15.1 header, followed by launch evidence on its own line."""
-    header = notice_header(job, state_root, require_file=require_file)
+def notice_text(job: Mapping[str, Any], state_root: str | Path, summary: str, *,
+                require_file: bool = False) -> str:
+    """C-15.1: preserve every existing line; launch evidence is the final line."""
+    text = notice_header(job, state_root, require_file=require_file) + "\n" + summary
     capability = attempt_shell_text(job)
-    return header + (f"\n{capability}" if capability else "")
+    return text + (f"\n{capability}" if capability else "")
+
+
+def append_notice_detail(text: str, detail: str) -> str:
+    """Add a later export/push result before recorded launch evidence, if any."""
+    body, separator, last = text.rpartition("\n")
+    if separator and (last.startswith(("ran read-only on ", "ran workspace-write on "))
+                      or last == "publish: denied"):
+        return body + "\n" + detail + "\n" + last
+    return text + "\n" + detail
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:

@@ -3921,7 +3921,7 @@ class Daemon:
         latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
                             (row["job_id"],)).fetchone()
         notice_job = {**dict(row), "attempt": dict(latest) if latest else None}
-        text = render.notice_intro(notice_job, self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
+        text = render.notice_text(notice_job, self.root, summary + self._moved_on(tx, row["job_id"]))
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -8690,8 +8690,16 @@ class Daemon:
                    "(export_error IS NULL OR export_error<>?)", (error, job_id, error))
         # A legacy loser may still be running when the winner decides. Its
         # completion notice then appears later, before the loser's own export.
-        tx.execute("UPDATE notices SET text=text || ? WHERE job_id=? AND instr(text,?)=0",
-                   ("\n" + error, job_id, error))
+        Daemon._notice_detail(tx, job_id, error, once=True)
+
+    @staticmethod
+    def _notice_detail(tx, job_id: str, detail: str, *, once: bool = False) -> None:
+        """Preserve the notice body and keep capability evidence last."""
+        rows = tx.execute("SELECT notice_id,text FROM notices WHERE job_id=?", (job_id,)).fetchall()
+        for notice_id, text in rows:
+            if not once or detail not in text:
+                tx.execute("UPDATE notices SET text=? WHERE notice_id=?",
+                           (render.append_notice_detail(text, detail), notice_id))
 
     #: C-8.5: a push whose verification was cut short this many times (a
     #: restart, or a fault of the daemon's own) fails instead of retrying again.
@@ -8766,7 +8774,7 @@ class Daemon:
             if not error:
                 tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote_key=? AND branch_key=?",
                            (sha, job_id, host_push.ownership_key(remote), host_push.fold(branch)))
-            tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job_id))
+            self._notice_detail(tx, job_id, line)
 
     def _publish_bundle(self, job: dict) -> str:
         """Intake, verify and publish one accepted job's bundle; the pushed SHA."""

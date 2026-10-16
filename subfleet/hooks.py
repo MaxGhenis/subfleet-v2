@@ -372,8 +372,9 @@ def job_summary(job: dict[str, Any], root: Path) -> str:
     and it is named only when the file is there (a job imported from v1 keeps
     its deliverable in the v1 run directory).
     """
-    return (render.notice_intro(job, Path(root).resolve(), require_file=True) + "\n"
-            f"no notice row for this job — subfleet runs show {job.get('job_id')}")
+    return render.notice_text(job, Path(root).resolve(),
+                              f"no notice row for this job — subfleet runs show {job.get('job_id')}",
+                              require_file=True)
 
 
 # --- talking to the daemon ----------------------------------------------------
