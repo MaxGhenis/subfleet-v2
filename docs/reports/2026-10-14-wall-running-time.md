@@ -529,8 +529,9 @@ checkpoint as the holds complete.
 ## Round 4 (2026-10-16): CI at f07751fc1
 
 Status: fixes committed; original-head and `9fad7c4fe` comparison runs and final
-regression validation are in progress. Round 4 started at 04:51 UTC; no new
-holds will start after 09:21 UTC (the requested 4 h 30 m checkpoint).
+regression validation are in progress. The first clock observation was 04:51 UTC.
+The workspace job stamp is 04:46 UTC, so no new holds will start after 09:16 UTC
+(the conservative 4 h 30 m checkpoint).
 
 The shared index refused `index.lock` with `Operation not permitted`. Round-4
 commits use workspace-local `.git-local`, on
@@ -583,3 +584,11 @@ The default uv cache is outside writable roots, so uv uses the task's disposable
 scratch cache. Hypothesis uses the bounded `ci` profile and scratch storage.
 No logs, JSON evidence or bundles are staged. Detailed counts and final status
 will replace this in-progress ledger.
+
+Checkpoint, 05:36 UTC: six original-head files completed: 189 passed and
+14 failed, matching all reported conversation/title and frontend failures.
+`test_daemon_settle.py` is waiting for its lock hold. Base and fixed-source
+results are still pending. The local interpreter is Python 3.14.7 free-threading;
+this is not a claim of rerunning both CI interpreters. A provisional delivery
+bundle in `.git-local/round4.bundle` verifies against the original-head
+prerequisite; it will be refreshed after the final report commit.
