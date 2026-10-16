@@ -105,7 +105,8 @@ def home(tmp_path, monkeypatch):
     fifo = day / ROLLOUT
     os.mkfifo(fifo)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("SUBFLEET_CLAUDE_DIR", raising=False)
+    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(home / ".claude"))
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(home / ".codex"))
     return SimpleNamespace(path=home, fifo=fifo)
 
 

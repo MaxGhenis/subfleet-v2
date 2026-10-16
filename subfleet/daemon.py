@@ -9741,8 +9741,11 @@ def stop_request(stopping: threading.Event, arm: Callable[[], bool | None]) -> C
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="subfleet supervised daemon")
     parser.add_argument("--foreground", action="store_true")
-    parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
+    parser.add_argument("--state-root", default=None)
     args = parser.parse_args(argv)
+    if args.state_root is None:
+        from .home_paths import home_path
+        args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet", accept_empty=True)
     limits = descriptors.raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)

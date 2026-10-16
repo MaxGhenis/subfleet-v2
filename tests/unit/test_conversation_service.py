@@ -910,6 +910,8 @@ def test_a_persisted_writable_conversation_refuses_an_unspellable_protected_home
     home = sealed / "User-Home"
     (home / ".claude").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(home / ".codex"))
     writable = {**SETTINGS, "permission": "accept-edits"}
     cid = conversation(svc, settings=writable)
     mid = str(uuid.uuid4())
