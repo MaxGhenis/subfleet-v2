@@ -126,10 +126,13 @@ def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
     return []
 
 
-# Wrapper children exec outside Python's audit machinery. Compare PATH strings
+# The shells, and the programs that run a command named by their operands through
+# PATH. Their children exec outside Python's audit machinery. Compare PATH strings
 # before inspecting any executable, so a reset path cannot escape the recorder.
+# C-20.6 names exactly these; other PATH-searching programs are out of its scope.
 _DELEGATING_PROGRAMS = frozenset({
-    "sh", "bash", "zsh", "dash", "env", "xargs", "nice", "nohup", "taskpolicy",
+    "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh",
+    "env", "xargs", "nice", "nohup", "taskpolicy", "time", "script", "caffeinate", "lockf", "arch",
 })
 _SYSTEM_BINARY_DIRECTORIES = (
     "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/gnu/bin",
@@ -200,16 +203,43 @@ def _env_child(argv: list[str], path: str | None, *, _split=_env_split):
     return path, altpath, chdir
 
 
-def _delegated_searches(name: str, argv: list[str], path: str | None, *, _env=_env_child):
+def _arch_child(argv: list[str], path: str | None) -> str | None:
+    """The PATH arch gives its program: -c clears, -d unsets and -e sets, in order.
+
+    arch reads every other "-name" before the program as an architecture.
+    """
+    args = list(argv[1:])
+    while args and args[0].startswith("-"):
+        arg = args.pop(0)
+        if arg == "-c":
+            path = None
+        elif arg in ("-arch", "-d", "-e"):
+            if not args:
+                raise ValueError(f"arch {arg} needs a value")
+            value = args.pop(0)
+            if arg == "-d" and value == "PATH":
+                path = None
+            elif arg == "-e" and value.partition("=")[0] == "PATH":
+                if "=" not in value:
+                    raise ValueError("arch -e needs NAME=value")
+                path = value.partition("=")[2]
+    return path
+
+
+def _delegated_searches(name: str, argv: list[str], path: str | None, *,
+                        _env=_env_child, _arch=_arch_child):
     """The PATHs a wrapper's command is found through, and the directory it runs in.
 
     A wrapper searches the PATH it was given and passes it on. env finds its
     utility through -P's path, if given, and its child searches the PATH env
-    leaves; -C moves the base of relative entries.
+    leaves; -C moves the base of relative entries. arch searches its own PATH,
+    and its program the one arch's options leave.
     """
     if name == "env":
         child, altpath, chdir = _env(argv, path)
         return ([child] if altpath is None else [altpath, child]), chdir
+    if name == "arch":
+        return [path, _arch(argv, path)], None
     return [path], None
 
 
@@ -331,14 +361,24 @@ def install_keychain_exec_guard() -> bool:
     """Refuse, under pytest, any launch that would start the login keychain's reader.
 
     Bare `security` names (NFD/casefold/NFD) are refused independently of PATH,
-    including PATH
-    changes by later audit hooks. Explicit paths retain folded-path and identity
-    checks. The test session puts a recording `security` first on PATH. Shells
-    and env-family wrappers are refused when their child PATH reaches a system
-    binary directory before a live session recorder, including absent PATH and
-    env resets. This check compares strings without probing system directories.
-    Deliberate absolute reader paths inside shell strings are outside C-20.6
-    (D-ST1); production readers use argv.
+    including PATH changes by later audit hooks. Explicit paths retain
+    folded-path and identity checks. The test session puts a recording
+    `security` first on PATH.
+
+    It also refuses a launch of sh, bash, zsh, dash, ksh, csh, tcsh, env, xargs,
+    nice, nohup, taskpolicy, time, script, caffeinate, lockf or arch whose child
+    can search a system binary directory before a live session recorder. It
+    judges every PATH key the child receives (an absent PATH is the wrapper's
+    default), env's options as env's getopt reads them, with -P's path, the
+    child's PATH and -C's directory, and arch's -c, -d and -e. It compares
+    spellings without probing a directory: leading slashes collapsed, dot
+    segments resolved, case and Unicode folded. A `~` entry, an env -S string
+    using `$`, `\\` or `#`, and any other wrapper launch whose check cannot
+    finish are refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
+    such as find -exec and interpreters; a wrapper run under another name; path
+    aliases, such as a symlink to /usr/bin; PATH changes made inside the shell,
+    by a shell string or a login shell's profile; and deliberate absolute reader
+    paths inside shell strings. Production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through
