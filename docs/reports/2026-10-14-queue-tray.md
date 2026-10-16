@@ -802,39 +802,198 @@ are removed with Python `shutil.rmtree`; no `.hypothesis` directory is retained.
 
 ## Fix-4 — 2026-10-16
 
-Work is confined to the assigned checkout. The shared Git metadata is read-only;
-commits use workspace-local `.git-local` on `feat/queue-tray-217`. No history is
-rewritten and nothing is pushed. The local `origin/release/217` ref was merged
-at `f305f621462a`; the sole conflict, in the acceptance contract's change list,
-was resolved by keeping both independent amendments (queue tray and test-store
-isolation). Merge commit: `11ce065a1`.
+Work stayed in the assigned checkout. The shared Git index is read-only, so
+commits are on `feat/queue-tray-217` in workspace-local `.git-local` metadata.
+The original `.git` pointer and caller checkout are untouched. No push or
+history rewrite occurred. The deliverable transfer bundle is
+`docs/reports/2026-10-16-queue-tray-fix4.bundle` (not staged).
 
-Tests-first commit: `3854b542c`. The initial locked baseline ran seven retry
-regressions against unchanged app code and all seven failed (18.45 seconds).
-The complete locked baseline then failed all 27 tests in 77.64 seconds,
-including the property and both reveal cases. No provided companion review/design/probe
-files were present in this checkout or at the caller paths in the brief; their
-location was requested. Until supplied, the findings and D1–D3 quoted in the
-brief are the source for the implementation and locally reconstructed cases.
-The reconstruction is not claimed to be the review's exact executed inputs.
+### Merge and behavior
 
-D1 records initial placement and permits only forward movement. An unbound
-claim, retry or cleared block cannot release a tray row. An idle timeline send
-stays there when deferred, held or requeued, with its reason and Withdraw.
-D2 adds the transcript-free `conversation.status` read (conversation state and
-all message identities), hydrates needed receipts through `message.status`,
-and publishes the refresh together with its page. Event pages hydrate unknown
-messages too. Unblock actions refresh message identities, daemon continuations
-are discovered through the watch path, and `turn.completed` sets message state.
-D3 releases a conversation's opening pin before approval and search row reveals,
-including an already scheduled pin. The contract and desktop design agree.
+Merged the existing local `origin/release/217` at `f305f621462a`, including #198
+and #224, before implementation. The sole conflict was the acceptance contract's
+Changes list; both independent amendments (queue tray and test-store isolation)
+were retained. Merge commit: `11ce065a1`. No remote operation was performed.
 
-Preview tests use Swift Character segmentation for grapheme counts and prefixes,
-including decomposed accents, emoji modifiers/ZWJ sequences and flags. Coverage
-keeps `REACHED = 5` and the 300-history batch, runs seeds 0–4, and requires every
-case to reach at least `2 × REACHED`. Ordinary queued receipts immediately after
-held sends get a dedicated generator branch. Build replacement now propagates
-removal errors; only staging-trap cleanup remains best effort.
+D1 records first placement and moves it only forward. An unbound claim, retry
+or cleared block does not release a tray row. A message already in the timeline
+stays there through defer, hold and requeue, naming the reason and offering
+Withdraw. Missed steers say unread until the current turn ends only while that
+turn is live. Receipts expose job binding separately from a dispatcher claim.
 
-Validation status: in progress. Final per-file counts, mutation results, unrun
-files, commits and cleanup status will be recorded before delivery.
+D2's settle re-read uses the new, read-only **`conversation.status`** op, with
+capability `conversation.status.v1`. It returns conversation state and every
+message identity in sequence order, without opening or reading a transcript.
+All identities are intentional: a repair that settled before the next watch
+page must still be discovered. `message.status` hydrates unknown/changed IDs
+in batches of 200 before the focused update is published. Event pages hydrate
+unknown IDs, including referenced steers and reset-replay pages. Unblock refreshes identities; watch
+refreshes discover daemon continuations. `turn.completed` sets message state.
+Historical accepted, approval and completion events cannot overwrite a newer
+receipt's state; receipt timestamps win ties.
+
+D3 suspends the opening pin before the app reveals an approval or search row,
+including pin work already scheduled. C-29.7, C-27.5 and C-29.12 now agree in
+the acceptance contract and desktop design. Final app-bundle removal propagates
+errors; only staging-trap cleanup retains `ignore_errors`.
+
+### Regression and coverage evidence
+
+Tests-first commit `3854b542c` preceded production edits. The initial locked
+baseline failed seven retry cases in 18.45 seconds. The full baseline failed
+all **27/27** initial cases in 77.64 seconds against unchanged production code
+after the release merge, including real-store/service dispatch histories and
+both AppKit row-reveal cases. The generated histories include claim → requeue
+→ defer and a watch page during submit. Later tests add binding/requeue,
+201-ID hydration, event-side repair hydration, external-writer withdrawal,
+and newer-receipt versus old-event replay.
+
+`review-r2.md`, `design-r3.md` and `review-r2-probes/` were absent from the
+assigned checkout and checked companion locations. Their location was requested
+but not supplied. Implementation follows D1–D3 quoted in the brief. Local cases
+reconstruct N1/N2 (15 retry variants), N5/N5b/N6, N8 and N9; these are **not
+claimed to be the review's exact executed histories**. The three supplied
+probe paths below remain unavailable and unrun.
+
+Every generated queue replay now asserts that no person message is drawn in
+the timeline and later in the tray. The independent placement oracle remembers
+its own history. Preview expectations count Swift `Character` grapheme clusters,
+including combining accents, skin-tone/ZWJ emoji and flags.
+
+Coverage retains `REACHED = 5` and 300 histories per seed, runs seeds 0–4 and
+requires every case to reach at least **10**. The generator gives held sends an
+immediate queued receipt, explicitly creates a repair ahead of an earlier
+person message, creates an eligible live steer host, and puts a pending approval
+on that host. This raises the weak receipt, steer-offer and approval margins
+without lowering `REACHED` or changing the no-flicker assertion.
+
+| Seed | Lowest case count | Send retained through receipt |
+| --- | ---: | ---: |
+| 0 | 34 | 222 |
+| 1 | 19 | 244 |
+| 2 | 41 | 237 |
+| 3 | 59 | 217 |
+| 4 | 23 | 234 |
+
+### Four targeted mutations
+
+Each mutation runs its named regression against a passing control and requires
+an assertion failure from an isolated mutant binary. Compilation errors do not
+count as kills. Mutants never edit production source in place.
+
+| Mutation | Named regression |
+| --- | --- |
+| claim moves tray row | `test_n1_n2_claim_requeue_defer_never_releases_a_tray_row` |
+| deferred timeline row returns to tray | `test_d1_a_deferred_timeline_send_never_goes_back` |
+| skip unknown-ID hydration | `test_n5_n5b_n6_watch_discovers_repairs_before_publishing` |
+| app scroll retains opening pin | `test_n9_app_row_scroll_suspends_even_an_already_scheduled_pin` |
+
+### Final-source validation
+
+The app build passed using SDK 26.5 with `app/build.sh build/fix4-app` at
+production commit `7e5395e28`; the one-line reset-replay follow-up is `3aa3b8732`.
+The final build status is recorded below. Builds stay in this workspace and
+are not installed. The broad hold used `7e5395e28`; the queued review, extra
+frontend and approval-reach runs include `3aa3b8732`. Two earlier
+compiles rejected concurrently modified input; both were rerun successfully.
+Earlier iteration failures prompted stronger generator contexts, one corrected
+idle-note expectation, and protection against stale event state. The broad hold
+also exposed an old approval test expecting a completed turn to remain live.
+Commit `cce88b522` instead requires its state to become complete and the older
+pending approval to retain Review; the complete approval-reach file is rerun.
+Per-file rows use the latest run and the hold table retains that iteration's
+failure explicitly.
+
+All pytest processes use the blocking shared `lockf`, default bounded Hypothesis
+profile, no xdist workers, `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`, and
+a job-local uv cache because the default cache is not writable. SDK 26.5 and
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off` are required by this environment. Cached
+probes consolidate the requested frontend groups into one serialized hold.
+
+| Hold | Passed | Failed | Errors | Skipped | Pytest seconds | Locked seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| daemon | 108 | 0 | 0 | 0 | 86.00 | not instrumented |
+| required | 337 | 1 | 0 | 0 | 752.03 | 765 |
+
+| File | Passed | Failed | Errors | Skipped | Status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `tests/frontend/test_app_cutover_start.py` | 13 | 0 | 0 | 0 | run |
+| `tests/frontend/test_conversation_view.py` | 6 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_approval_reach.py` | 40 | 1 | 0 | 0 | run |
+| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_queue_tray_fix4_mutations.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | run |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | run |
+| `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_review_r219_fix4.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_review_r219_probes.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_report_hygiene.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_review_fixes.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_round_five.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_round_four.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_round_three.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_round_two.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_snapshots.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_visual_suggestions.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/unit/test_conversation_refresh.py` | 2 | 0 | 0 | 0 | run |
+| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | run |
+| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | run |
+
+Unavailable review probes, unrun:
+
+- `review-r2-probes/test_review_r219_r2_probes.py`
+- `review-r2-probes/test_review_r219_r1orig_probes.py`
+- `review-r2-probes/ReviewR219R2RevealProbe.swift`
+
+Final-source total recorded so far: **445 passed, 1 failed, 0 errors, 0 skipped**, across 18 files.
+
+### Commits
+
+- `11ce065a1` — Merge origin/release/217 for queue tray fix 4
+- `3854b542c` — test: pin queue placement, repair discovery, and row reveal regressions
+- `aab71829f` — fix: keep queue placement forward and hydrate focused conversation pages
+- `199ea374b` — fix: preserve newer receipts when replaying completion events
+- `03112b69b` — test: enforce forward placement across every replay and align prior oracles
+- `64addba73` — test: kill queue placement, missing hydration, and retained-pin mutations
+- `8d217759e` — test: assert the idle repair note remains a non-withdrawable notice
+- `ba9a59849` — test: strengthen seeded steer and repair coverage margins
+- `a54a5ef3f` — test: ensure pending-card coverage has a seeded margin
+- `7e5395e28` — fix: preserve receipt state throughout historical event replay
+- `cce88b522` — test: keep approval review reachable after a newer turn completes
+- `e7e98d358` — test: hydrate unknown repair identities during reset replay
+- `3aa3b8732` — fix: hydrate event identities through reset rebuilding pages
+
+Checkpoint: final holds are pending or active; pending tests are not counted as
+passes. No new hold will be initiated at or after 19:38 UTC (4 h 30 m). Existing
+foreground lock waiters will finish before cleanup. A final report commit will
+supersede this checkpoint with their results and the remaining unrun files.
