@@ -105,10 +105,11 @@ def test_round5_receipt_between_wall_check_and_kill_settlement_wins(clocked, mon
 @settings(max_examples=32, deadline=None, derandomize=True, phases=[Phase.generate],
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(stage=st.sampled_from(["initial", "inspection", "cancel", "settle"]), shared=st.booleans(),
-       cap=st.integers(2, 21600), before=st.integers(1, 10), after=st.integers(1, 10))
-def test_round5_wall_receipt_interleavings(clocked, monkeypatch, stage, shared, cap, before, after):
+       cap=st.integers(2, 21600), exit_delta=st.integers(-10, 10), after=st.integers(1, 10))
+def test_round5_wall_receipt_interleavings(clocked, monkeypatch, stage, shared, cap, exit_delta, after):
+    exit_s = max(1, cap + exit_delta)
     with monkeypatch.context() as patch:
-        receipt_interleaving(clocked, patch, stage, shared, max(1, cap - before), cap + after, cap)
+        receipt_interleaving(clocked, patch, stage, shared, exit_s, max(cap, exit_s) + after, cap)
 
 
 @pytest.mark.parametrize("state", ["starting", "running", "reserved"])
@@ -195,6 +196,30 @@ def test_round5_fresh_exit_check_overrules_a_shared_live_table(clocked, monkeypa
     monkeypatch.setattr(service, "_kill_attempt", lambda *args, **kwargs: pytest.fail("provider was wall-killed"))
     service._process_attempt(aid)
     assert service.store.get_job(jid)["cancel_requested_at"] is None
+
+
+def test_round5_late_interim_rc_zero_still_cannot_claim_a_wall_success(clocked, monkeypatch):
+    service, clock, jid, aid = running(clocked, monkeypatch)
+    service._request_cancel(jid, {"by": "daemon", "reason": "max_wall_s", "running_s": 21601},
+                            attempt_id=aid, killed_by="max_wall_s")
+    contain = service._contain
+    censuses = 0
+
+    def census(a):
+        nonlocal censuses
+        censuses += 1
+        if censuses == 3:
+            success_receipt(service, jid, aid, clock.t.isoformat())
+            (service.root / "jobs" / jid / "a1" / "stream.jsonl").write_text("")
+        return contain(a)
+
+    monkeypatch.setattr(service, "_contain", census)
+    monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: True)
+    service._kill_attempt(service.store.get_attempt(aid))
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["state"] == "cancelled"
+    assert service.store.get_job(jid)["accepted_attempt_id"] is None
+    assert service.store.get_attempt(aid)["killed_by"] == "max_wall_s"
 
 
 def running(clocked, monkeypatch):
