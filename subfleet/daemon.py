@@ -3893,7 +3893,8 @@ class Daemon:
         if not self._job(job_id)["cancel_requested_at"]:
             return None
         row = self.store.one("SELECT ts,data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' "
-                             "ORDER BY event_id LIMIT 1", (job_id,))
+                             "AND event_id>COALESCE((SELECT MAX(event_id) FROM events WHERE job_id=? "
+                             "AND kind='job.wall_cancel_superseded'),0) ORDER BY event_id LIMIT 1", (job_id, job_id))
         return cancel_info(row["ts"], row["data_json"]) if row else None
 
     def _supersede_wall_cancel(self, a: dict) -> None:
