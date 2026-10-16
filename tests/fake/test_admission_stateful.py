@@ -1121,3 +1121,22 @@ class ProviderCapMachine(AdmissionMachine):
 
 ProviderCapMachine.TestCase.settings = PROFILE
 TestAdmissionPassProviderCaps = ProviderCapMachine.TestCase
+
+
+def test_a_permanently_excluded_retry_does_not_hold_a_younger_provider_peer():
+    """CI's minimized trace: two transients exclude the fleet's only lane.
+
+    C-11.8 lets the younger peer pass during the older retry's durable refusal
+    grace. C-6.9 still applies to every waiter that could use a lane.
+    """
+    machine = ProviderCapMachine()
+    job = {"tier": "standard", "model": None, "task": None, "pin": None,
+           "legacy": False, "authorize": False, "exclusions": "[]"}
+    try:
+        machine.fleet(cap=None, per_lane=None, reserve=False, claude=[], codex_email=None,
+                      second_codex=False, capacity=[], queue=[dict(job), dict(job)],
+                      probe="ok", prove=None, provider_caps={"codex": 1})
+        machine.fair_capacity_drains_the_queue()
+        assert machine.store.query("SELECT 1 FROM events WHERE kind='job.pin_unadmittable'")
+    finally:
+        machine.teardown()
