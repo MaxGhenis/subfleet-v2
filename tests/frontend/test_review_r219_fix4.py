@@ -21,7 +21,7 @@ def test_n1_n2_claim_requeue_defer_never_releases_a_tray_row(core_probe, retry):
     # A queued row must survive both an ended host and the claim's unbound waiting state.
     steps = [{"receipts": [receipt("host", 1, "running"), receipt("mine", 2, "queued")]},
              {"receipts": [receipt("host", 1, "complete")]}]
-    for _ in range(1 + retry % 3):
+    for _ in range(1 + retry):
         steps += [{"receipts": [receipt("mine", 2, "waiting", reason="dispatching")]},
                   {"receipts": [receipt("mine", 2, "queued")]},
                   {"receipts": [receipt("mine", 2, "queued", reason="deferred: disk busy")]}]
@@ -154,6 +154,7 @@ def test_n8_missed_steer_names_the_wait_after_host_ends(core_probe, tmp_path, re
         result = store_probe(core_probe, [{"open": opening}, {"receipts": h.call("message.status", message_ids=[host, mid])["messages"]}])
         assert placement(result["layouts"][cid], mid) == "timeline"
         assert "until the current turn ends" not in result["statuses"][mid].lower()
+        assert result["queued_withdrawals"][mid] == {"action": "cancel", "message_id": mid}
         if "deferred:" in reason:
             assert "Deferred: disk busy" in result["statuses"][mid]
         if reason.startswith("held:"):
@@ -176,3 +177,71 @@ def test_n9_app_row_scroll_suspends_even_an_already_scheduled_pin(fix4_pin, caus
     assert fix4_pin["visible_windows"] == 0
     assert abs(run["after_queued_pin"] - 250) <= 2, run
     assert abs(run["after_history"] - 250) <= 2, run
+
+
+def test_d1_binding_releases_the_row_and_later_requeues_keep_it_in_the_timeline(core_probe):
+    result = run_queue(core_probe, [
+        {"receipts": [receipt("host", 1, "running"), receipt("mine", 2, "queued")]},
+        {"receipts": [receipt("host", 1, "complete")]},
+        {"receipts": [{**receipt("mine", 2, "waiting", reason="admission: waiting"), "job_id": "job-mine"}]},
+        {"receipts": [receipt("mine", 2, "queued", reason="deferred: try again")]},
+        {"held": True}])
+    snaps = result["snapshots"]
+    assert ["mine" in tray(s) for s in snaps] == [True, True, False, False, False]
+    assert snaps[-1]["timeline"]["turns"]["mine"]["queued_withdrawal"] == {"action": "cancel", "message_id": "mine"}
+
+
+def test_d2_hydrates_every_unknown_id_beyond_the_status_batch_bound(core_probe, tmp_path):
+    h = ServiceHarness(tmp_path / "state")
+    server = ServiceServer(h)
+    try:
+        cid = h.create()["conversation_id"]
+        steps = [{"open": h.call("conversation.open", conversation_id=cid)}, {"focus": cid}]
+        previous, mids = None, []
+        for index in range(201):
+            previous = h.submit(cid, f"message {index}", after=previous)["message_id"]
+            mids.append(previous)
+        page = h.call("conversation.watch", after=0, wait_s=0)
+        result = store_probe(core_probe, steps + [{"watch": page, "refresh_socket": str(server.path)}])
+        layout = result["layouts"][cid]
+        assert all(placement(layout, mid) != "absent" for mid in mids)
+        reads = [r["args"]["message_ids"] for r in server.requests if r["op"] == "message.status"]
+        assert sorted(map(len, reads)) == [1, 200]
+        assert set().union(*map(set, reads)) == set(mids)
+    finally:
+        server.close()
+        h.close()
+
+
+def test_d2_an_event_page_hydrates_a_note_before_it_can_become_an_empty_person_bubble(core_probe, tmp_path):
+    h = ServiceHarness(tmp_path / "state")
+    server = ServiceServer(h)
+    try:
+        cid = h.create()["conversation_id"]
+        host = h.submit(cid, "host")["message_id"]
+        h.store.set_state(host, "interrupted")
+        h.store.update_conversation(cid, blocked_by="unfinished-turn")
+        steps = [{"open": h.call("conversation.open", conversation_id=cid)}, {"focus": cid}]
+        h.call("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
+        note = next(m for m in h.store.messages(cid) if m["origin"] == "unblock-note")
+        h.store.append_events(conversation_id=cid, message_id=note["message_id"], attempt_id="note/a1",
+                              events=[("stdout", "0", 0, "accepted", {})], stdout_offset=1, stdin_seq=0)
+        page = h.call("conversation.events", conversation_id=cid, after=0, wait_s=0)
+        result = store_probe(core_probe, steps + [{"events": page, "conversation_id": cid, "refresh_socket": str(server.path)}])
+        item = next(i for i in result["layouts"][cid]["items"] if i["message_id"] == note["message_id"])
+        assert item["type"] == "notice" and "stopped turn was left" in item["text"]
+        assert [r["op"] for r in server.requests] == ["message.status"]
+    finally:
+        server.close()
+        h.close()
+
+
+def test_d1_an_unbound_external_writer_wait_keeps_its_timeline_reason_and_withdraw(core_probe):
+    result = run_queue(core_probe, [local("mine", "idle send"),
+        {"receipts": [receipt("mine", 1, "waiting", reason="external-writer: pid 42")]}])
+    last = result["snapshots"][-1]
+    assert "mine" not in tray(last)
+    turn = last["timeline"]["turns"]["mine"]
+    assert turn["shows_acknowledgment"]
+    assert "close it there to continue here" in turn["status_text"]
+    assert turn["queued_withdrawal"] == {"action": "cancel", "message_id": "mine"}

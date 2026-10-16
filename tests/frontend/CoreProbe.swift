@@ -182,6 +182,8 @@ func project(_ item: TimelineItem) -> [String: Any] {
 func project(_ turn: TurnTimeline) -> [String: Any] {
     [
         "message_id": turn.messageID, "seq": turn.seq as Any? ?? NSNull(), "state": turn.state,
+        "job_id": turn.jobID as Any? ?? NSNull(), "has_bound_job": turn.hasBoundJob,
+        "queued_withdrawal": project(turn.queuedWithdrawal), "shows_acknowledgment": turn.showsMessageAcknowledgment,
         "continues": turn.continues as Any? ?? NSNull(), "first_event": turn.firstEventSeq as Any? ?? NSNull(),
         "state_reason": turn.stateReason as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
         "person_text": turn.personText as Any? ?? NSNull(), "locally_sent": turn.locallySent, "phases": turn.phases.map(\.phase), "accepted": turn.accepted,

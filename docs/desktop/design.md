@@ -798,6 +798,7 @@ ops (D-8) are marked †.
 |---|---|
 | `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}, codex_writable}`. A daemon without it answers "unknown op"; the client then sends no conversation op. `conversation_schema` versions the ops' shapes, not the store (§3): an added op is a capability (`diff.v1` for the two diff ops, with `limits.diff_bytes` and `limits.diff_files`; `runs.v1` for `conversation.runs`), not a new schema. |
 | `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; conversations include `last_activity`, the later of `updated_at` and their native transcript mtime from the last catalog run, sorted descending before applying `limit`; no transcript scan. `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
+| `conversation.status` | `{conversation_id}` → `{conversation, message_ids}` in sequence order, including queued and settled identities. Advertised as `conversation.status.v1`. Reads state and identities only; no transcript or message bodies. The app fetches unknown and changed receipts with `message.status` before publishing a focused page. |
 | `conversation.open` | `{conversation_id}` or `{native:{provider, session_id, home?}}` → `{conversation, messages (latest 50), events_cursor, pending_approvals}`. Opening a native session creates its row once, applying D-9's mapping. |
 | `conversation.create` | `{request_id, provider?, workspace?, workspace_kind?, allow_main†, title?, settings}` → `{conversation, created}`; omitted provider means Claude, and an empty/omitted workspace means a private scratch folder stable by request id. Ask, Accept edits and Bypass in an in-place repo on `main`/`master` require `allow_main`; Claude Bypass is writable for protected-folder checks, including handoff (C-26.10). A worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}`. |
 | `workspace.check` | `{workspace?, provider?, permission?, workspace_kind?, allow_main?}` → `{ok, reason, fix, workspace}`; read-only folder admission using create's C-26.10 and C-13.2 checks, on the file pool. An empty/omitted workspace previews scratch without creating it; omitted provider means Claude. Advertised as `workspace.check.v1`: only a ready daemon known to lack it skips the preview and lets create decide. Until readiness is established, Start is disabled with a reason; folder validation resumes when the daemon is ready. |
@@ -823,7 +824,8 @@ ops (D-8) are marked †.
 | `conversation.handoff` | `{request_id, from:{conversation_id} or {native:{provider, session_id, home?}}, to:{provider, settings, workspace?, title?, allow_main?†}, confirm_widen?†}` → `{conversation, created, brief: Receipt, moved:[Receipt], withdrawn:[message_id], handoff_from}` (D-18). A target above Ask or on main is person-only, as `conversation.create`. Refusals: `live-turn` and `source-changed` (exit 2, nothing changed; send again), `no-history`, `request-id-conflict` (2), `lane-run` (7). |
 
 Receipt: `{message_id, conversation_id, seq, origin, state, state_reason,
-created, settings, served, stop_requested, updated_at}`.
+created, settings, served, stop_requested, updated_at, job_id}`. `job_id` is
+null during an unbound dispatch claim and names the durable job once bound.
 
 Event kinds: `status`, `accepted`, `served`, `text.delta`, `text`,
 `thinking.delta`, `thinking`, `tool.started`, `tool.completed`, `diff`,
@@ -1097,25 +1099,37 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   turn, and the strip said "Needs your approval" with only a Stop.
 - Display order remains the order turns began (each turn's first event), with
   the final Timeline API's request-id approval joins and reconciliation. The
-  queue is projected into a compact tray above the composer (C-29.7), rather
-  than full person bubbles below the current turn. A message belongs there
-  exactly while a turn, a conversation block, or an earlier dispatchable
-  message is ahead of it. The idle head stays in the timeline before and after
-  its queued receipt, since every submit first answers queued. Dispatch order
-  puts repairs first, then missed steers, ordinary messages and wakes, retaining
-  sequence order within each group and arrival order for unreceipted sends.
-  A queued failover continuation stays a timeline notice and counts as ahead.
-  Withdraw uses the existing outbox path before receipt and message.cancel
-  afterwards, with bounded dispatching retries and a status read before stopping
-  only that message's own live turn. A second withdrawal is settled already;
-  an unblock note cannot be withdrawn. Pre-start withdrawals, including
-  tombstones, leave one line. Only an eligible head offers Send now, through
-  the existing steer engine; busy rows hide their actions and show a spinner.
-  The tray expands from three rows plus Show N more into a list capped at
-  200 points of rows, and shrinks when fewer rows remain. C-29.17 can attach its
-  existing notice view by message id to the same row, with its actions intact.
+  queue is projected into a compact tray above the composer (C-29.7). Initial
+  placement uses the dispatcher: a live turn, a conversation block, an earlier
+  dispatchable message, or a deferral puts a waiting message in the tray. An
+  idle first send stays in the timeline across its queued receipt. Placement
+  then moves only forward: a tray row stays through claims, retries and cleared
+  blocks until a job binds it; a message shown in the timeline stays there
+  through requeues, deferrals and holds, with the reason and Withdraw on its
+  status line. A missed steer says “Unread until the current turn ends.” only
+  while that turn is live. Dispatch order puts repairs first, then missed
+  steers, ordinary messages and wakes, with sequence order within each group
+  and arrival order for unreceipted sends. A queued failover continuation stays
+  a timeline notice and counts as ahead. Before publishing a focused watch or
+  event page, the app fetches message.status for identities it has not learned.
+  Focused watch refreshes use conversation.status for the conversation state
+  and message ids, with no transcript read. Unblock actions refresh these ids
+  too, and daemon-created continuations are learned by the same watch path.
+  turn.completed updates the message state even without another receipt.
+  Withdraw uses the outbox before receipt and message.cancel afterwards, with
+  bounded dispatching retries and a status read before stopping only that
+  message's own live turn. A second withdrawal is settled already; an unblock
+  note cannot be withdrawn. Pre-start withdrawals, including tombstones, leave
+  one line. Only an eligible head offers Send now, through the steer engine;
+  busy rows hide their actions and show a spinner. The tray expands from three
+  rows plus Show N more into a list capped at 200 points of rows, and shrinks
+  when fewer rows remain. QueueTray.notice is an optional seam; the
+  conversation view currently supplies no per-message notices.
 - Conversations get fresh view identity when selected and, on macOS 15+, an
-  initial bottom scroll anchor. While Timeline.startReading's log read settles,
+  initial bottom scroll anchor. An explicit app scroll to an approval or search
+  row suspends that conversation’s opening pin, including any scheduled pin,
+  so later measurement and history cannot undo the reveal (C-27.5, C-29.12).
+  While Timeline.startReading's log read settles,
   changes jump to the end without animation. The person's own new send glides;
   other changes follow only with the end on screen. Remote event-only turns do
   not count as the person's own send. Approval positioning on opening also has

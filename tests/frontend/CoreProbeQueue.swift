@@ -58,6 +58,7 @@ func runQueue(_ data: Data) throws -> [String: Any] {
     var moves: [String] = []
     var snapshots: [[String: Any]] = []
     for step in input["steps"]?.array ?? [] {
+        timeline.setQueueHeld(step["held"]?.bool == true)
         if let page = step["page"] {
             timeline.apply(page: try page.decode(EventsPage.self))
         } else if let receipts = step["receipts"] {
@@ -75,6 +76,7 @@ func runQueue(_ data: Data) throws -> [String: Any] {
         } else if step["focus"]?.bool == true {
             timeline.startReading()
         }
+        timeline.recordQueuePlacements()
         let layout = timeline.layout(held: step["held"]?.bool == true, steerOffered: step["steer"]?.bool == true)
         let next = layout.followKey(length: queueProbeLength)
         moves.append(moveWord(FollowKey.move(from: key, to: next, atBottom: step["at_bottom"]?.bool ?? true)))
@@ -138,7 +140,10 @@ func runQueueWords(_ data: Data) throws -> [String: Any] {
         }
         return steerCandidate(rows) as Any? ?? NSNull()
     }
-    return ["previews": previews, "statuses": statuses, "titles": titles, "visible": visible, "moves": moves,
+    let characters = (input["characters"]?.array ?? []).map { value in
+        (value.string ?? "").map(String.init)
+    }
+    return ["characters": characters, "previews": previews, "statuses": statuses, "titles": titles, "visible": visible, "moves": moves,
             "stops": stops, "steer": steer, "preview_limit": queuePreviewLimit,
             "dispatcher_live_states": MessageState.live.map(\.rawValue).sorted()]
 }

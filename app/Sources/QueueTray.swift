@@ -2,9 +2,10 @@
 // timeline and sits in a compact tray pinned above the composer, in the order
 // the daemon sends the queue, with Withdraw (design §12, C-29.7). Foundation only.
 //
-// A queued person message waits here if something is ahead of it or the daemon
-// deferred it. Messages sent as steers always remain timeline bubbles. A queued
-// receipt alone does not move it here: every message.submit answers queued.
+// Initial placement uses what is ahead or a deferral. It then moves only
+// forward: a tray row stays until binding, and a timeline bubble never returns
+// here on a retry, deferral or hold. Steers always remain timeline bubbles.
+// A queued receipt alone does not move a row: every message.submit answers queued.
 // Queued failover continuations stay as timeline notices, but count as ahead.
 // Withdrawn messages, including tombstones, leave a compact timeline line.
 
@@ -147,18 +148,10 @@ extension Timeline {
     /// The tray's message ids, in the order the daemon sends them. `held`: a
     /// block holds the conversation (`blocked_by`), so nothing sent now starts.
     func trayMessageIDs(held: Bool) -> [String] {
-        // Use the dispatcher's states (turn.py LIVE_STATES), not the narrower
-        // set of turns that can be stopped or receive a new steer.
-        var ahead = held || turns.values.contains { $0.messageState.map(MessageState.live.contains) ?? false }
-        var out: [String] = []
-        for id in queue {
-            guard let turn = turn(id) else { continue }
-            // The first send with nothing ahead stays in the timeline across its receipt.
-            let deferred = turn.stateReason?.hasPrefix("deferred:") == true
-            if (ahead || deferred) && turn.continues == nil && !turn.sentAsSteer { out.append(id) }
-            ahead = true
+        queue.filter { id in
+            guard let turn = turn(id) else { return false }
+            return turn.queuePlacement == .tray && !turn.sentAsSteer && turn.continues == nil
         }
-        return out
     }
 
     /// The tray's rows.
@@ -174,7 +167,7 @@ extension Timeline {
     func layout(held: Bool, steerOffered: Bool = false, assistant: String = "Claude") -> ConversationLayout {
         var tray = queueTray(held: held, assistant: assistant)
         let live = liveMessageID != nil
-        if steerOffered, live, let head = steerCandidate(tray), let index = tray.firstIndex(where: { $0.id == head }) {
+        if steerOffered, live, let head = steerCandidate(tray), turn(head)?.messageState == .queued, let index = tray.firstIndex(where: { $0.id == head }) {
             tray[index].canSteer = true
         }
         let inTray = Set(tray.map(\.id))

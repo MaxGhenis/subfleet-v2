@@ -722,6 +722,7 @@ struct SearchRevealer: View {
                         try? await Task.sleep(nanoseconds: delay)
                         // Gone, or another conversation shown: this reveal is done with.
                         if Task.isCancelled { break }
+                        ConversationOpeningPin.revealRow(in: conversationID)
                         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(reveal.itemID, anchor: .center) }
                     }
                     if palette.reveal == reveal { palette.reveal = nil }

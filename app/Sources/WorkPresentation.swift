@@ -140,6 +140,7 @@ extension TurnTimeline {
     /// Queued and steered messages still need their own delivery acknowledgment.
     var showsMessageAcknowledgment: Bool {
         (messageState.map(MessageState.terminal.contains) ?? false) || isReadSteer || isUnreadSteer || messageState == .queued || messageState == .steering
+            || (messageState == .waiting && !hasBoundJob)
             || messageState == .deliveryUnknown || messageState == .unknown || (messageState == nil && state == "sending")
     }
 }

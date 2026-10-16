@@ -253,7 +253,8 @@ def test_r3_a_block_read_late_moves_the_head_out_and_back(core_probe, settle):
             places = positions(core_probe, groups, cid, later)
             truth_live = harness.store.message(host)["state"] in LIVE_STATES
             truth_blocked = harness.store.conversation(cid)["blocked_by"]
-            assert any(request["op"] == "conversation.open" for request in server.requests)
+            assert any(request["op"] == "conversation.status" for request in server.requests)
+            assert not any(request["op"] == "conversation.open" for request in server.requests)
         finally:
             server.close()
             harness.close()

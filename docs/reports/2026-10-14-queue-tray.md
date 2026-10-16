@@ -799,3 +799,42 @@ No logs, JSON evidence or bundle is staged. Nothing is pushed, no history is
 rewritten, and the caller's checkout and live application state are untouched.
 Temporary uv/Hypothesis/compiler scratch and isolated mutant source copies
 are removed with Python `shutil.rmtree`; no `.hypothesis` directory is retained.
+
+## Fix-4 — 2026-10-16
+
+Work is confined to the assigned checkout. The shared Git metadata is read-only;
+commits use workspace-local `.git-local` on `feat/queue-tray-217`. No history is
+rewritten and nothing is pushed. The local `origin/release/217` ref was merged
+at `f305f621462a`; the sole conflict, in the acceptance contract's change list,
+was resolved by keeping both independent amendments (queue tray and test-store
+isolation). Merge commit: `11ce065a1`.
+
+Tests-first commit: `3854b542c`. The initial locked baseline ran seven retry
+regressions against unchanged app code and all seven failed (18.45 seconds).
+The complete locked baseline then failed all 27 tests in 77.64 seconds,
+including the property and both reveal cases. No provided companion review/design/probe
+files were present in this checkout or at the caller paths in the brief; their
+location was requested. Until supplied, the findings and D1–D3 quoted in the
+brief are the source for the implementation and locally reconstructed cases.
+The reconstruction is not claimed to be the review's exact executed inputs.
+
+D1 records initial placement and permits only forward movement. An unbound
+claim, retry or cleared block cannot release a tray row. An idle timeline send
+stays there when deferred, held or requeued, with its reason and Withdraw.
+D2 adds the transcript-free `conversation.status` read (conversation state and
+all message identities), hydrates needed receipts through `message.status`,
+and publishes the refresh together with its page. Event pages hydrate unknown
+messages too. Unblock actions refresh message identities, daemon continuations
+are discovered through the watch path, and `turn.completed` sets message state.
+D3 releases a conversation's opening pin before approval and search row reveals,
+including an already scheduled pin. The contract and desktop design agree.
+
+Preview tests use Swift Character segmentation for grapheme counts and prefixes,
+including decomposed accents, emoji modifiers/ZWJ sequences and flags. Coverage
+keeps `REACHED = 5` and the 300-history batch, runs seeds 0–4, and requires every
+case to reach at least `2 × REACHED`. Ordinary queued receipts immediately after
+held sends get a dedicated generator branch. Build replacement now propagates
+removal errors; only staging-trap cleanup remains best effort.
+
+Validation status: in progress. Final per-file counts, mutation results, unrun
+files, commits and cleanup status will be recorded before delivery.

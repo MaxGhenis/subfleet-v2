@@ -365,7 +365,7 @@ struct ConversationView: View {
                             .onDisappear { atBottom = false }
                     }
                     .padding(Theme.space.column)
-                    .background(ConversationOpeningPin())
+                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id))
                     .conversationColumn(conversation.conversation_id, proxy: proxy)
                     .frame(maxWidth: .infinity)
                 }
@@ -502,6 +502,7 @@ struct ConversationView: View {
         let target = approvals.target(in: timeline, reveal: &reveal)
         if !reveal { model.revealed(id) }
         guard let target else { return }
+        ConversationOpeningPin.revealRow(in: id)
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.
         DispatchQueue.main.async {
@@ -649,6 +650,13 @@ struct TurnStatusLine: View {
                     Text(model.state.timelines[conversation.conversation_id]?.statusText(
                         of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
                         .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                }
+                if turn.queuedWithdrawal != .none {
+                    Button("Withdraw") {
+                        model.withdrawQueued(QueuedMessage(turn: turn), conversationID: conversation.conversation_id)
+                    }
+                    .buttonStyle(.link).readingFont(.caption)
+                    .disabled(model.withdrawingMessages.contains(turn.messageID))
                 }
                 if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                     Button {

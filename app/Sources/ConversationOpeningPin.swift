@@ -6,13 +6,30 @@ import AppKit
 import SwiftUI
 
 struct ConversationOpeningPin: NSViewRepresentable {
-    func makeNSView(context: Context) -> OpeningPinView { OpeningPinView() }
-    func updateNSView(_ view: OpeningPinView, context: Context) { view.attach() }
+    var conversationID: String? = nil
+    func makeNSView(context: Context) -> OpeningPinView {
+        let view = OpeningPinView()
+        view.conversationID = conversationID
+        return view
+    }
+    func updateNSView(_ view: OpeningPinView, context: Context) {
+        view.conversationID = conversationID
+        view.attach()
+    }
+
+    static func revealRow(in conversationID: String) {
+        NotificationCenter.default.post(name: .conversationRowScroll, object: conversationID)
+    }
 
     static func dismantleNSView(_ view: OpeningPinView, coordinator: ()) { view.detach() }
 }
 
+extension Notification.Name {
+    static let conversationRowScroll = Notification.Name("SubfleetConversationRowScroll")
+}
+
 final class OpeningPinView: NSView {
+    var conversationID: String?
     private weak var scroll: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     private var inputMonitor: Any?
@@ -37,6 +54,10 @@ final class OpeningPinView: NSView {
         document.postsFrameChangedNotifications = true
         found.contentView.postsBoundsChangedNotifications = true
         let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { [weak self] note in
+            guard let self, note.object as? String == self.conversationID else { return }
+            self.personScrolled = true
+        })
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document,
                                              queue: .main) { [weak self] _ in self?.schedulePin() })
         observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: found.contentView,

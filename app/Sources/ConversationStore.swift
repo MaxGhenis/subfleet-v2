@@ -490,6 +490,7 @@ struct ConversationStoreState: Equatable {
         conversations = list.conversations.map(withWatchActivity).sorted(by: conversationIsMoreRecent)
         catalog = list.catalog ?? catalog
         for conversation in list.conversations {
+            timelines[conversation.conversation_id]?.setQueueHeld(conversation.blocked_by != nil || conversation.live_elsewhere == true)
             pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
         }
     }
@@ -524,6 +525,7 @@ struct ConversationStoreState: Equatable {
         }
         conversations.sort(by: conversationIsMoreRecent)
         pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
+        timelines[conversation.conversation_id]?.setQueueHeld(conversation.blocked_by != nil || conversation.live_elsewhere == true)
         // A native session that now has a conversation leaves the catalog list.
         if let native = conversation.native_session_id {
             catalog?.items.removeAll { $0.provider == conversation.provider && $0.native_session_id == native }
@@ -536,6 +538,7 @@ struct ConversationStoreState: Equatable {
         upsert(open.conversation)
         let id = open.conversation.conversation_id
         var timeline = timelines[id] ?? Timeline(conversationID: id)
+        timeline.setQueueHeld(open.conversation.blocked_by != nil || open.conversation.live_elsewhere == true)
         timeline.apply(receipts: open.messages)
         if let history = open.history { timeline.apply(history: history, provider: open.conversation.provider) }
         timeline.attach(approvals: open.pending_approvals)
@@ -543,10 +546,35 @@ struct ConversationStoreState: Equatable {
         timelines[id] = timeline
     }
 
+    func knownMessageIDs(in conversationID: String) -> Set<String> {
+        Set(timelines[conversationID]?.turns.values.filter { $0.seq != nil && $0.origin != nil }.map(\.messageID) ?? [])
+    }
+
+    mutating func apply(refresh: ConversationRefresh) {
+        upsert(refresh.conversation)
+        let id = refresh.conversation.conversation_id
+        var timeline = timelines[id] ?? Timeline(conversationID: id)
+        timeline.setQueueHeld(refresh.conversation.blocked_by != nil || refresh.conversation.live_elsewhere == true)
+        timeline.apply(receipts: refresh.receipts)
+        timelines[id] = timeline
+    }
+
+    @discardableResult
+    mutating func apply(update: WatchUpdate) -> WatchResult {
+        if let conversation = update.conversation { upsert(conversation) }
+        let result = apply(watch: update.page)
+        if let conversation = update.conversation {
+            apply(refresh: ConversationRefresh(conversation: conversation, receipts: update.receipts))
+        }
+        return result
+    }
+
     mutating func focus(_ conversationID: String?) {
         focusedConversationID = conversationID
         if let conversationID, timelines[conversationID] == nil {
-            timelines[conversationID] = Timeline(conversationID: conversationID)
+            var timeline = Timeline(conversationID: conversationID)
+            timeline.setQueueHeld(conversation(conversationID)?.blocked_by != nil || conversation(conversationID)?.live_elsewhere == true)
+            timelines[conversationID] = timeline
         }
         // Its events are read again from where they stopped (C-27.5).
         if let conversationID { timelines[conversationID]?.startReading() }
@@ -563,6 +591,13 @@ struct ConversationStoreState: Equatable {
     mutating func apply(history page: HistoryPage, conversationID: String) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
         timeline.apply(history: page, provider: conversation(conversationID)?.provider ?? "")
+        timelines[conversationID] = timeline
+    }
+
+    mutating func apply(receipts: [Receipt], conversationID: String) {
+        var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
+        timeline.setQueueHeld(conversation(conversationID)?.blocked_by != nil || conversation(conversationID)?.live_elsewhere == true)
+        timeline.apply(receipts: receipts)
         timelines[conversationID] = timeline
     }
 
@@ -935,19 +970,47 @@ final class ConversationEngine {
     /// Refresh the focused conversation before publishing changed message states.
     /// Watch rows deliberately carry no blocked_by. Read without `open`'s outbox
     /// chain bookkeeping: this runs on the feed thread, not the outbox queue.
-    func watchUpdate(after: Int, focusedConversationID: String?, wait: Double? = nil) throws -> WatchUpdate {
+    func watchUpdate(after: Int, focusedConversationID: String?, knownMessageIDs: Set<String> = [], wait: Double? = nil) throws -> WatchUpdate {
         let page = try watch(after: after, wait: wait)
-        return try refreshing(page, after: after, focusedConversationID: focusedConversationID)
+        return try refreshing(page, after: after, focusedConversationID: focusedConversationID, knownMessageIDs: knownMessageIDs)
     }
 
-    func refreshing(_ page: WatchPage, after: Int, focusedConversationID: String?) throws -> WatchUpdate {
-        var conversation: Conversation?
-        if page.superseded != true, let id = focusedConversationID,
-           page.changes.contains(where: { $0.seq > after && $0.conversation_id == id && $0.message_id != nil }) {
-            let opened = try client.call(Ops.conversationOpen, ConversationOpenArgs.conversation(id))
-            conversation = opened.conversation
+    func refreshConversation(_ id: String, knownMessageIDs: Set<String> = [], changed: Set<String> = []) throws -> ConversationRefresh {
+        let result = try client.call(Ops.conversationStatus, ConversationStatusArgs(conversation_id: id))
+        let wanted = Set(result.message_ids).subtracting(knownMessageIDs).union(changed)
+        return ConversationRefresh(conversation: result.conversation, receipts: try receipts(for: wanted))
+    }
+
+    /// message.status takes at most 200 ids; large first catch-ups must hydrate
+    /// all of them before advancing the watch cursor.
+    func receipts(for ids: Set<String>) throws -> [Receipt] {
+        let ids = ids.sorted()
+        var receipts: [Receipt] = []
+        for start in stride(from: 0, to: ids.count, by: 200) {
+            receipts += try status(Array(ids[start..<min(start + 200, ids.count)]))
         }
-        return WatchUpdate(page: page, conversation: conversation)
+        return receipts
+    }
+
+    func refreshing(_ page: WatchPage, after: Int, focusedConversationID: String?, knownMessageIDs: Set<String> = []) throws -> WatchUpdate {
+        if page.superseded != true, let id = focusedConversationID {
+            let changes = page.changes.filter { $0.seq > after && $0.conversation_id == id }
+            if !changes.isEmpty {
+                let refresh = try refreshConversation(id, knownMessageIDs: knownMessageIDs,
+                                                       changed: Set(changes.compactMap(\.message_id)))
+                return WatchUpdate(page: page, conversation: refresh.conversation, receipts: refresh.receipts)
+            }
+        }
+        return WatchUpdate(page: page, conversation: nil, receipts: [])
+    }
+
+    func unknownReceipts(in page: EventsPage, knownMessageIDs: Set<String>) throws -> [Receipt] {
+        guard page.superseded != true, !page.reset else { return [] }
+        var ids = Set(page.events.compactMap(\.message_id))
+        for event in page.events where event.kind == "steer.delivered" || event.kind == "steer.missed" {
+            if let id = event.data["message_id"]?.string { ids.insert(id) }
+        }
+        return try receipts(for: ids.subtracting(knownMessageIDs))
     }
 
     func runs(conversationID: String, limit: Int = 50) throws -> [RunSummary] {
@@ -1204,6 +1267,8 @@ final class ConversationEngine {
         for _ in 0..<maxPages {
             let after = state.timelines[conversationID]?.cursor ?? 0
             let page = try events(conversationID: conversationID, after: after, wait: 0)
+            let receipts = try unknownReceipts(in: page, knownMessageIDs: state.knownMessageIDs(in: conversationID))
+            state.apply(receipts: receipts, conversationID: conversationID)
             switch state.apply(events: page, conversationID: conversationID) {
             case .superseded: return
             case .reset:
@@ -1218,9 +1283,9 @@ final class ConversationEngine {
     /// Drain the watch feed without waiting (the launch baseline, or a catch-up).
     func drainWatch(_ state: inout ConversationStoreState, maxPages: Int = 64) throws {
         for _ in 0..<maxPages {
-            let update = try watchUpdate(after: state.watchCursor, focusedConversationID: state.focusedConversationID, wait: 0)
-            if let conversation = update.conversation { state.upsert(conversation) }
-            guard case .applied(let count) = state.apply(watch: update.page), count > 0 else { return }
+            let known = state.focusedConversationID.map { state.knownMessageIDs(in: $0) } ?? []
+            let update = try watchUpdate(after: state.watchCursor, focusedConversationID: state.focusedConversationID, knownMessageIDs: known, wait: 0)
+            guard case .applied(let count) = state.apply(update: update), count > 0 else { return }
         }
     }
 }
@@ -1233,9 +1298,15 @@ final class ConversationEngine {
 /// once the feed answers again, so the app kept its banner and stopped sending
 /// (review of the descriptor hotfix, F7).
 /// Internal feed result; it does not change the daemon's watch protocol.
+struct ConversationRefresh {
+    let conversation: Conversation
+    let receipts: [Receipt]
+}
+
 struct WatchUpdate {
     let page: WatchPage
     let conversation: Conversation?
+    let receipts: [Receipt]
 }
 
 struct WatchLoop {
@@ -1250,6 +1321,7 @@ struct WatchLoop {
     var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
 
     var focusedConversationID: () -> String? = { nil }
+    var knownMessageIDs: (String) -> Set<String> = { _ in [] }
 
     /// The pause after the `failures`th failure in a row: 2 s more each time, at most 30 s.
     static func backoff(failures: Int) -> TimeInterval { min(30, Double(failures) * 2) }
@@ -1261,7 +1333,9 @@ struct WatchLoop {
                 let page = try engine.watch(after: after)
                 // Focus can change during the long poll. Refresh the conversation
                 // that is focused when it answers, before delivering the page.
-                let update = try engine.refreshing(page, after: after, focusedConversationID: focusedConversationID())
+                let focused = focusedConversationID()
+                let known = focused.map(knownMessageIDs) ?? []
+                let update = try engine.refreshing(page, after: after, focusedConversationID: focused, knownMessageIDs: known)
                 deliver(update)
                 if failures > 0 { regained() }
                 failures = 0

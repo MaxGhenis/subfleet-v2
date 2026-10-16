@@ -91,7 +91,7 @@ fi
 plutil -lint "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 if [ -e "$OUTPUT/$NAME.app" ]; then
-  python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$OUTPUT/$NAME.app"
+  python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$OUTPUT/$NAME.app"
 fi
 mv "$APP" "$OUTPUT/$NAME.app"
 printf 'Built: %s/%s.app (%s)\n' "$OUTPUT" "$NAME" "$BUNDLE_ID"

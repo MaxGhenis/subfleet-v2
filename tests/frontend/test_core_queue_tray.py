@@ -6,9 +6,9 @@ pinned above the composer, in the order the daemon sends the queue, with
 Withdraw (app/Sources/QueueTray.swift). These tests pin what the conversation
 view reads from the timeline:
 
-- a message waits in the tray exactly while something is ahead of it: a live
-  turn, a block, or an earlier dispatchable message; the idle head stays in
-  the timeline before and after a queued receipt;
+- initial placement uses a live turn, block, deferral or earlier dispatchable
+  message; a tray row leaves on binding and a timeline message never goes back;
+  the idle head stays in the timeline before and after a queued receipt;
 - order matches next_dispatchable: repairs, missed steers, ordinary messages,
   wakes, then sequence, with unreceipted sends in arrival order; a queued
   failover continuation remains a timeline notice but counts as ahead;
@@ -37,7 +37,8 @@ import tempfile
 import uuid
 
 import pytest
-from hypothesis import HealthCheck, event, example, given, settings, strategies as st
+from hypothesis import HealthCheck, event, example, given, seed, settings, strategies as st
+from functools import lru_cache
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness
@@ -62,6 +63,28 @@ assert _limit, f"queuePreviewLimit in {QUEUE_TRAY_SWIFT} is no longer a plain in
 CORE_PREVIEW_LIMIT = int(_limit.group(1))
 EMPTY_KEY = {"last": None, "last_is_own_send": False, "followed": None, "followed_length": 0, "tray": [],
              "settling": True, "has_history": False, "local_send": None, "live": False, "held": False}
+
+
+_character_probe = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def swift_character_oracle(core_probe):
+    global _character_probe
+    _character_probe = core_probe
+
+
+@lru_cache(maxsize=8192)
+def swift_characters(text: str) -> tuple[str, ...]:
+    """Swift Character units, independent of queuePreview and its cut.
+
+    Python's len/slices count Unicode code points. Ask the native language's
+    generic segmentation primitive for non-ASCII strings (CRLF is one unit too).
+    """
+    if text.isascii() and "\r\n" not in text:
+        return tuple(text)
+    assert _character_probe is not None
+    return tuple(queue_words(_character_probe, characters=[text])["characters"][0])
 
 
 def run_queue(core_probe, steps: list[dict], cid: str = CID) -> dict:
@@ -233,18 +256,18 @@ def test_c29_7_a_send_behind_a_live_turn_waits_in_the_tray_until_it_starts(core_
     assert tray(answered) == ["m2"]
     assert tray_row(answered, "m2")["sending"] is False and tray_row(answered, "m2")["status"] is None
     assert tray_row(answered, "m2")["withdraw"] == {"action": "cancel", "message_id": "m2"}
-    # Once the host receipt settles, nothing is ahead: the send stays in the timeline.
-    assert tray(completed) == ["m2"] and tray(ended) == []
-    assert ended["layout"]["title"] is None
-    assert "person:m2" in ids(ended)
-    for snapshot in (sending, answered, completed):
+    # Ending the host changes the heading; the row leaves only on binding.
+    assert tray(completed) == tray(ended) == ["m2"]
+    assert ended["layout"]["title"] == "1 message queued; it goes next"
+    assert "person:m2" not in ids(ended)
+    for snapshot in (sending, answered, completed, ended):
         assert "person:m2" not in ids(snapshot)
         assert snapshot["layout"]["followed"] == "text:m1:0"
     assert tray(started) == [] and started["layout"]["title"] is None
     assert ids(started)[-1] == "person:m2" and shown(started, "person:m2")["state"] == "running"
     assert ids(running)[-1] == "text:m2:0" and running["layout"]["followed"] == "text:m2:0"
     # Tray changes glide; the newly pinned live strip jumps to keep the visible end anchored.
-    assert result["moves"][3:] == ["glide", "stay", "stay", "glide", "jump", "glide"]
+    assert result["moves"][3:] == ["glide", "stay", "jump", "stay", "glide", "glide"]
 
 
 def test_c29_7_a_send_into_an_idle_conversation_shows_in_the_timeline(core_probe):
@@ -306,15 +329,13 @@ def test_c29_7_an_idle_send_answered_queued_stays_in_the_timeline(core_probe):
 
     for snapshot in idle:
         assert tray(snapshot) == [] and f"person:{mid}" in ids(snapshot)
-    out_of_tray = [tray(snapshot) == [] for snapshot in moved]
-    # Once out of the tray with nothing ahead of it, it stays out.
-    assert out_of_tray == sorted(out_of_tray)
+    assert all(tray(snapshot) == ["m2"] for snapshot in moved)
 
 
 def test_c29_7_a_held_conversation_keeps_even_the_first_send_in_the_tray(core_probe):
     """C-29.7, C-24.5: while a block holds the conversation nothing sent starts,
-    so the first send waits in the tray; once the block clears it shows in the
-    timeline and a later send waits behind it."""
+    so the first send waits in the tray; clearing the block keeps both queued
+    sends there until their job binds."""
     log = Log()
     log.add("m1", "accepted")
     log.add("m1", "turn.completed", state="interrupted")
@@ -328,8 +349,8 @@ def test_c29_7_a_held_conversation_keeps_even_the_first_send_in_the_tray(core_pr
     assert one["layout"]["title"] == "1 message queued; it waits until the conversation can continue"
     assert tray(two) == ["m2", "m3"]
     assert two["layout"]["title"] == "2 messages queued; they wait until the conversation can continue"
-    assert tray(cleared) == ["m3"] and ids(cleared)[-1] == "person:m2"
-    assert cleared["layout"]["title"] == "1 message queued; it follows the message ahead"
+    assert tray(cleared) == ["m2", "m3"] and "person:m2" not in ids(cleared)
+    assert cleared["layout"]["title"] == "2 messages queued; they go in order"
 
 
 def test_c29_7_a_queued_unblock_note_heads_the_tray_and_is_not_withdrawn(core_probe):
@@ -693,7 +714,8 @@ def ref_preview(text: str | None, attachments: int) -> str:
     folded = " ".join(split_words(text))
     if not folded:
         return ref_images(attachments) if attachments > 0 else "(message text not available)"
-    cut = folded[:PREVIEW_LIMIT - 1] + "…" if len(folded) > PREVIEW_LIMIT else folded
+    characters = swift_characters(folded)
+    cut = "".join(characters[:PREVIEW_LIMIT - 1]) + "…" if len(characters) > PREVIEW_LIMIT else folded
     return f"{cut} ({ref_images(attachments)})" if attachments > 0 else cut
 
 
@@ -761,12 +783,15 @@ def did_nothing(timeline: dict, mid: str) -> bool:
 
 def waits_in_queue(timeline: dict, mid: str) -> bool:
     turn = timeline["turns"][mid]
-    return (mid != CONVERSATION_KEY and turn["state"] in ("queued", "sending")
+    unbound_wait = turn["state"] == "waiting" and not turn.get("job_id") and (turn["state_reason"] == "dispatching"
+        or (turn["state_reason"] or "").startswith(("deferred:", "external-writer:")))
+    return (mid != CONVERSATION_KEY and (turn["state"] in ("queued", "sending") or unbound_wait)
             and turn["first_event"] is None and did_nothing(timeline, mid))
 
 
 def is_live(timeline: dict) -> bool:
-    return any(turn["state"] in LIVE for mid, turn in timeline["turns"].items() if mid != CONVERSATION_KEY)
+    return any(turn["state"] in LIVE and not waits_in_queue(timeline, mid)
+               for mid, turn in timeline["turns"].items() if mid != CONVERSATION_KEY)
 
 
 def ref_queue(timeline: dict, arrival: dict[str, int]) -> list[str]:
@@ -781,17 +806,23 @@ def ref_queue(timeline: dict, arrival: dict[str, int]) -> list[str]:
                                             arrival[mid]))
 
 
-def ref_tray(timeline: dict, arrival: dict[str, int], held: bool, steers: set[str] = frozenset()) -> list[str]:
-    """A queued message waits in the tray; so does one with no receipt when
-    anything is ahead of it: a live turn, a block, an earlier queue member."""
-    ahead = held or any(turn["state"] in LIVE_STATES for turn in timeline["turns"].values())
-    out = []
-    for mid in ref_queue(timeline, arrival):
-        if (ahead or (timeline["turns"][mid]["state_reason"] or "").startswith("deferred:")) \
-                and mid not in steers and timeline["turns"][mid]["continues"] is None:
-            out.append(mid)
+def ref_tray(timeline: dict, arrival: dict[str, int], held: bool, steers: set[str], placements: dict[str, str]) -> list[str]:
+    """D1's historical oracle: decide on first appearance; only move forward.
+
+    This remembers the expected placement itself, without reading the app's
+    placement field. Dispatch order comes from the independent queue reference.
+    """
+    queue = ref_queue(timeline, arrival)
+    turns = timeline["turns"]
+    ahead = held or any(t["state"] in LIVE_STATES and mid not in queue for mid, t in turns.items())
+    for mid, turn in turns.items():
+        if mid not in queue or mid in steers or turn["continues"] is not None:
+            placements[mid] = "timeline"
+    for mid in queue:
+        if mid not in placements:
+            placements[mid] = "tray" if ahead or (turns[mid]["state_reason"] or "").startswith("deferred:") else "timeline"
         ahead = True
-    return out
+    return [mid for mid in queue if placements[mid] == "tray"]
 
 
 def withdrawn_before_start(timeline: dict, mid: str) -> bool:
@@ -909,10 +940,12 @@ def replay(steps: list[dict]) -> list[dict]:
 # MARK: - Generated timelines
 
 TEXT_ALPHABET = ["a", "b", "z", "Q", ".", " ", " ", "\n", "\r", "\t", "\u00a0", "\u2003", "\u00e9", "\u2014"]
-short_texts = st.text(alphabet=st.sampled_from(TEXT_ALPHABET), max_size=24)
+GRAPHEMES = ["e\u0301", "👩🏽‍💻", "🇬🇧", "👨‍👩‍👧‍👦"]
+short_texts = st.lists(st.sampled_from(TEXT_ALPHABET + GRAPHEMES), max_size=24).map("".join)
 preview_lengths = st.integers(CORE_PREVIEW_LIMIT + 1, CORE_PREVIEW_LIMIT * 2)
 long_texts = st.one_of(
     preview_lengths.map(lambda size: "x" * size),
+    st.tuples(st.sampled_from(GRAPHEMES), preview_lengths).map(lambda entry: entry[0] * entry[1]),
     preview_lengths.map(lambda size: "word\n" * (size // 4 + 1)),
     preview_lengths.map(lambda size: "first line\n" + "x" * size),
 )
@@ -1064,6 +1097,9 @@ def queue_timelines(draw):
                                  for index, mid in enumerate(mids)], "held": False},
                   {**log.page(), "held": False}, {**log.page(), "held": False},
                   {**local("own-fresh", "a new question"), "held": False, "at_bottom": False}]
+    if draw(st.sampled_from([True, True, False])):
+        steps += [{**local("coverage-send", draw(send_texts)), "held": True},
+                  {"receipts": [receipt("coverage-send", count + 1, "queued")], "held": True}]
     return steps
 
 
@@ -1075,12 +1111,12 @@ PROPERTY = settings(max_examples=40, deadline=None, derandomize=True,
 @given(text=long_texts)
 def test_c29_7_generated_long_text_always_needs_a_cut(core_probe, text):
     folded = " ".join(text.split())
-    assert len(folded) > CORE_PREVIEW_LIMIT
+    assert len(swift_characters(folded)) > CORE_PREVIEW_LIMIT
     words = queue_words(core_probe, previews=[{"text": text, "attachments": 0}])
-    assert words["previews"] == [folded[:CORE_PREVIEW_LIMIT - 1] + "…"]
+    assert words["previews"] == ["".join(swift_characters(folded)[:CORE_PREVIEW_LIMIT - 1]) + "…"]
 
 
-def check_layout(step: dict, snapshot: dict, known: dict) -> None:
+def check_layout(step: dict, snapshot: dict, known: dict, placements: dict[str, str]) -> None:
     """Every statement of the tray rule, on one snapshot."""
     timeline, layout = snapshot["timeline"], snapshot["layout"]
     turns, held, live = timeline["turns"], step.get("held", False), is_live(timeline)
@@ -1107,7 +1143,7 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
 
     # (2) The tray is the reference tray, in the order the daemon sends it.
     queue = ref_queue(timeline, known["arrival"])
-    assert tray_ids == ref_tray(timeline, known["arrival"], held, known["steers"])
+    assert tray_ids == ref_tray(timeline, known["arrival"], held, known["steers"], placements)
 
     # (3) No turn that has started is in the tray; every pending card is in the timeline.
     for mid in tray_ids:
@@ -1117,16 +1153,12 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
                    for item in timeline["items"])
     assert all(row in layout_ids and owners[row] not in tray_ids for row in timeline["pending_items"])
 
-    # (4) At most one queue message is in the timeline: a send with nothing ahead of it.
-    in_timeline = [mid for mid in queue if f"person:{mid}" in layout_ids and turns[mid]["continues"] is None and mid not in known["steers"]]
-    assert len(in_timeline) <= 1
-    if in_timeline:
-        assert in_timeline == queue[:1]
-        assert not held and not any(t["state"] in LIVE_STATES for t in turns.values())
+    # (4) A timeline message stays there across later holds and deferrals.
+    assert all(placements[mid] == "tray" for mid in tray_ids)
 
     # (5) Each row's Withdraw and Steer; with (2), the whole row as the rule writes it.
     candidate = tray_ids[0] if tray_ids and turns[tray_ids[0]]["origin"] in ("person", None) \
-        and turns[tray_ids[0]]["state"] != "sending" else None
+        and turns[tray_ids[0]]["state"] == "queued" else None
     steer = bool(step.get("steer")) and live
     assert layout["tray"] == [ref_row(timeline, mid, steer and mid == candidate) for mid in tray_ids]
     assert layout["title"] == ref_title([turns[mid]["origin"] for mid in tray_ids], live, held, bool(queue and queue[0] not in tray_ids))
@@ -1143,7 +1175,7 @@ def check_layout(step: dict, snapshot: dict, known: dict) -> None:
         suffix = f" ({ref_images(row['attachments'])})"
         body = row["preview"][:-len(suffix)] if row["attachments"] and row["preview"].endswith(suffix) \
             else row["preview"]
-        assert len(body) <= PREVIEW_LIMIT
+        assert len(swift_characters(body)) <= PREVIEW_LIMIT
 
 
 def labels(steps: list[dict], result: dict) -> set[str]:
@@ -1222,8 +1254,13 @@ def test_c29_7_property_the_tray_holds_the_queue_as_the_daemon_sends_it(core_pro
     of the timeline and the tray, the tray's order, rows, Withdraw, Steer and
     title, the followed row, and the previews, against the reference."""
     result = run_queue(core_probe, steps)
+    placements, seen_person = {}, set()
     for step, snapshot, known in zip(steps, result["snapshots"], replay(steps)):
-        check_layout(step, snapshot, known)
+        check_layout(step, snapshot, known, placements)
+        # No-flicker is stronger than timeline -> tray -> timeline: a single
+        # timeline -> tray transition already fails, for every generated history.
+        assert not seen_person.intersection(row["id"] for row in snapshot["layout"]["tray"])
+        seen_person.update(item["message_id"] for item in snapshot["layout"]["items"] if item["type"] == "person")
     for label in sorted(labels(steps, result)):
         event(label)
 
@@ -1276,8 +1313,7 @@ WORD_ALPHABET = TEXT_ALPHABET + ["-", ":", "x", "\u2028"]
 
 
 @PROPERTY
-@given(previews=st.lists(st.fixed_dictionaries({"text": st.one_of(st.none(), st.text(st.sampled_from(WORD_ALPHABET),
-                                                                                       max_size=40), long_texts),
+@given(previews=st.lists(st.fixed_dictionaries({"text": st.one_of(st.none(), st.lists(st.sampled_from(WORD_ALPHABET + GRAPHEMES), max_size=40).map("".join), long_texts),
                                                  "attachments": st.integers(0, 3)}), max_size=20),
        statuses=st.lists(st.one_of(st.none(), st.sampled_from(ANY_REASON + ["deferred:", "handoff-rolled-back"]),
                                    st.text(st.sampled_from(["a", "b", "-", ":", " ", "d"]), max_size=12)), max_size=20),
@@ -1300,7 +1336,7 @@ def test_c29_7_property_the_trays_words_for_any_input(core_probe, previews, stat
         assert "\n" not in preview and "\u2028" not in preview
         suffix = f" ({ref_images(entry['attachments'])})"
         body = preview[:-len(suffix)] if entry["attachments"] and preview.endswith(suffix) else preview
-        assert len(body) <= PREVIEW_LIMIT
+        assert len(swift_characters(body)) <= PREVIEW_LIMIT
     for entry in visible:
         shown_rows, hidden = ref_visible(entry["count"], entry["expanded"], entry["limit"])
         assert shown_rows + hidden == max(0, entry["count"])
@@ -1322,13 +1358,15 @@ CASES = [
 ]
 
 
-def test_c29_7_the_generated_timelines_reach_every_case(core_probe):
+@pytest.mark.parametrize("coverage_seed", range(5))
+def test_c29_7_the_generated_timelines_reach_every_case(core_probe, coverage_seed):
     """C-29.7: the property tests are not vacuous: over a batch drawn as they draw
     theirs (the same generator and settings, derandomized, with more examples),
     every case they check comes up in several timelines."""
     seen: Counter = Counter()
     examples = []
 
+    @seed(coverage_seed)
     @settings(PROPERTY, max_examples=COVERAGE_BATCH)
     @given(steps=queue_timelines())
     def collect(steps):
@@ -1340,8 +1378,8 @@ def test_c29_7_the_generated_timelines_reach_every_case(core_probe):
         for steps, result in zip(group, run_queue_batch(core_probe, group)):
             for label in labels(steps, result):
                 seen[label] += 1
-    thin = {case: seen[case] for case in CASES if seen[case] < REACHED}
-    print("Queue timeline coverage:", {case: seen[case] for case in CASES})
+    thin = {case: seen[case] for case in CASES if seen[case] < 2 * REACHED}
+    print(f"Queue timeline coverage seed {coverage_seed}:", {case: seen[case] for case in CASES})
     assert not thin, (thin, dict(seen))
 
 
@@ -1393,8 +1431,8 @@ def test_c29_7_property_receipts_never_flicker_a_send_out_of_the_timeline(core_p
                 assert mid not in tray(snapshot)
                 assert f"person:{mid}" in ids(snapshot)
         elif defer:
-            assert mid in tray(snaps[index + 2])
-            assert tray_row(snaps[index + 2], mid)["can_withdraw"]
+            assert (mid in tray(snaps[index + 2])) == (mid in tray(before))
+            assert snaps[index + 2]["timeline"]["turns"][mid]["queued_withdrawal"] == {"action": "cancel", "message_id": mid}
 
 
 def test_c29_7_the_apps_dispatcher_states_equal_the_daemons(core_probe):

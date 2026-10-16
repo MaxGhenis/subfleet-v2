@@ -94,6 +94,7 @@ protocol LongPollArgs {
 enum Ops {
     static let capabilities = DaemonOperation<NoArgs, Capabilities>(name: "capabilities")
     static let conversationList = DaemonOperation<ConversationListArgs, ConversationListResult>(name: "conversation.list")
+    static let conversationStatus = DaemonOperation<ConversationStatusArgs, ConversationStatusResult>(name: "conversation.status")
     static let conversationOpen = DaemonOperation<ConversationOpenArgs, ConversationOpenResult>(name: "conversation.open")
     static let conversationCreate = DaemonOperation<ConversationCreateArgs, ConversationCreateResult>(name: "conversation.create")
     static let conversationSettings = DaemonOperation<ConversationSettingsArgs, ConversationResult>(name: "conversation.settings")
@@ -127,7 +128,7 @@ enum Ops {
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
     static let names = [
-        capabilities.name, conversationList.name, conversationOpen.name, conversationCreate.name,
+        capabilities.name, conversationList.name, conversationStatus.name, conversationOpen.name, conversationCreate.name,
         conversationSettings.name, conversationRename.name, conversationUnblock.name, conversationHistory.name,
         conversationEvents.name, conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name,
         messageSteer.name, turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name,
@@ -319,6 +320,8 @@ struct Receipt: Codable, Equatable {
     /// C-24.9: the running turn's message this one was steered into, or null.
     var steered_into: String?
     var created_at: String? = nil
+    /// A durable job binding; a dispatch claim has none.
+    var job_id: String? = nil
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -494,6 +497,15 @@ struct ConversationOpenArgs: Codable, Equatable {
     static func native(provider: String, sessionID: String, home: String? = nil) -> ConversationOpenArgs {
         .init(conversation_id: nil, native: NativeSessionRef(provider: provider, session_id: sessionID, home: home))
     }
+}
+
+struct ConversationStatusArgs: Codable, Equatable {
+    var conversation_id: String
+}
+
+struct ConversationStatusResult: Codable, Equatable {
+    var conversation: Conversation
+    var message_ids: [String]
 }
 
 struct ConversationOpenResult: Codable, Equatable {

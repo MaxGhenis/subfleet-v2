@@ -283,7 +283,8 @@ final class UIModel: ObservableObject {
                       deliver: { update in DispatchQueue.main.sync { self?.fold(watch: update) } },
                       lost: { error in DispatchQueue.main.async { self?.lostDaemon(error) } },
                       regained: { DispatchQueue.main.async { self?.regainedDaemon() } },
-                      focusedConversationID: { DispatchQueue.main.sync { self?.state.focusedConversationID } }).run()
+                      focusedConversationID: { DispatchQueue.main.sync { self?.state.focusedConversationID } },
+                      knownMessageIDs: { id in DispatchQueue.main.sync { self?.state.knownMessageIDs(in: id) ?? [] } }).run()
         }
     }
 
@@ -293,8 +294,7 @@ final class UIModel: ObservableObject {
         // One publication: a settled host must never expose the tray projection
         // with a block from the previous list refresh.
         var next = state
-        if let conversation = update.conversation { next.upsert(conversation) }
-        next.apply(watch: page)
+        next.apply(update: update)
         state = next
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
@@ -355,10 +355,16 @@ final class UIModel: ObservableObject {
                 guard let cursor else { return }
                 do {
                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+                    let known = DispatchQueue.main.sync { self?.state.knownMessageIDs(in: conversationID) ?? [] }
+                    let receipts = try engine.unknownReceipts(in: page, knownMessageIDs: known)
                     failures = 0
                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
                         guard let self, self.eventsGeneration == generation else { return nil }
-                        return self.state.apply(events: page, conversationID: conversationID)
+                        var next = self.state
+                        next.apply(receipts: receipts, conversationID: conversationID)
+                        let result = next.apply(events: page, conversationID: conversationID)
+                        self.state = next
+                        return result
                     }
                     switch result {
                     case nil, .superseded?: return
@@ -1059,9 +1065,17 @@ final class UIModel: ObservableObject {
         guard let engine else { return }
         Task {
             do {
-                let (conversation, receipt) = try await onOutbox { try engine.perform(choice.action, conversationID: conversationID) }
-                if let conversation { state.upsert(conversation) }
-                if let receipt { state.apply(receipt: receipt) }
+                let known = state.knownMessageIDs(in: conversationID)
+                let (conversation, receipt, refresh) = try await onOutbox {
+                    let (conversation, receipt) = try engine.perform(choice.action, conversationID: conversationID)
+                    let refresh = try engine.refreshConversation(conversationID, knownMessageIDs: known)
+                    return (conversation, receipt, refresh)
+                }
+                var next = state
+                if let conversation { next.upsert(conversation) }
+                if let receipt { next.apply(receipt: receipt) }
+                next.apply(refresh: refresh)
+                state = next
             } catch {
                 report(error)
             }
