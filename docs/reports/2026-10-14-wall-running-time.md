@@ -754,8 +754,10 @@ The running-without-provider and reserved recovery controls passed.
 
 ### Validation status
 
-Fixed-source groups are in progress: the wall hold completed with **76 passed**
-in **633.01 s**, acquired at 15:59:12 UTC. The table records completed runs.
+Fixed-source groups are in progress: **281 passed, 6 skipped across 8 files**.
+The wall hold passed 76 in 633.01 s (acquired 15:59:12 UTC); the conversation
+hold passed 205 with 6 skipped in 426.73 s (acquired 16:20:47 UTC). The table
+records completed runs.
 Each invocation has its own foreground `lockf -k` hold, waits without a lock
 acquisition timeout, uses no xdist, and has a 1,190 s execution bound inside
 its hold. The first hold acquired at 15:13:05 UTC. Python is 3.14.7 free-threaded;
@@ -770,11 +772,11 @@ stamp); the job ends by 21:03:33 UTC.
 | `tests/fake/test_wall_running_time.py` | 35 passed |
 | `tests/fake/test_wall_inspection_order.py` | 18 passed |
 | `tests/fake/test_review_r223_wall_probes.py` | 23 passed |
-| `tests/unit/test_conversation_steer_service.py` | unrun |
-| `tests/unit/test_conversation_titles.py` | unrun |
-| `tests/unit/test_title_review_regressions.py` | unrun |
-| `tests/unit/test_review_r223_conv_probes.py` | unrun |
-| `tests/unit/test_legacy_hold.py` | unrun |
+| `tests/unit/test_conversation_steer_service.py` | 45 passed |
+| `tests/unit/test_conversation_titles.py` | 89 passed |
+| `tests/unit/test_title_review_regressions.py` | 4 passed |
+| `tests/unit/test_review_r223_conv_probes.py` | 17 passed |
+| `tests/unit/test_legacy_hold.py` | 50 passed, 6 skipped |
 | `tests/unit/test_daemon_settle.py` | unrun |
 | `tests/unit/test_daemon_inspection_load.py` | unrun |
 | `tests/unit/test_inspection_pacing_properties.py` | unrun |
