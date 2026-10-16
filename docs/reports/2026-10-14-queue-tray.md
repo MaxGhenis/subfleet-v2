@@ -486,3 +486,19 @@ remotes are used.
 The build script's Python `shutil.rmtree` cleanup is retained solely as the
 behavior-preserving workaround for the sandbox's recursive-removal guard.
 The app is built locally only; native view probes use synthetic state offscreen.
+
+#### Nested delivery fix — verified
+
+`Timeline.placedSteers` now leaves a child in its own timeline place when its
+host is itself selected for placement inside another turn. Delivery markers
+stay with the host's events; they must not move the child's bubble ahead of
+the relocated host's bubble. The minimized two-event history in
+`test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says` was committed
+before this production change (`8057d4f07`) and now passes with all 150 bounded
+generated histories.
+
+The steer/approval hold passed **96/96** in **512.50 seconds**: steer 43, steer
+properties 2, approval reach 41, approval notification 10. This verifies both
+the production fix and the already-committed correction to
+`test_c24_9_journaled_steers_restore_after_a_restart`: pending/refused steers
+belong exactly once in the timeline and never in the tray.

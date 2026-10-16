@@ -1144,7 +1144,13 @@ struct Timeline: Equatable {
                 }
             }
         }
-        return out
+        // A host's own bubble can move into another turn. Its delivery markers
+        // stay with its events, so placing its children there would show them
+        // before their host. Keep those children in their own timeline places.
+        return out.filter { id in
+            guard let host = turns[id]?.steerDeliveredIn else { return false }
+            return !out.contains(host)
+        }
     }
 
     /// Message ids in the order the timeline shows them: the turns in the order
