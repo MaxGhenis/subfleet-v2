@@ -454,3 +454,48 @@ def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
     finally:
         if restart:
             active.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+def test_legacy_recapture_cannot_rebind_an_unversioned_verdict(state_daemon, monkeypatch, restart):
+    """C-4.3: an older daemon's replacement copy cannot inherit a cached verdict."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    result = json.loads((adir / "finalization.json").read_text())
+    result.pop("stream")  # A verdict from before stream tokens were recorded.
+    (adir / "finalization.json").write_text(json.dumps(result))
+    receipt_path = adir / "stream.freeze.json"
+    receipt = json.loads(receipt_path.read_text())
+    original = adir / receipt["file"]
+    replacement = adir / "stream.frozen-legacy-recapture.jsonl"
+    replacement.write_bytes(original.read_bytes())
+    original.unlink()
+    info = replacement.stat()
+    receipt.update(file=replacement.name, device=info.st_dev, inode=info.st_ino, reset_finalization=True)
+    receipt_path.write_text(json.dumps(receipt))
+    (adir / "last.md").write_bytes(b"Written after the attempt exited.")
+    monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("reclassified replacement copy"))
+    monkeypatch.setattr(adapter, "deliverable", lambda *args: pytest.fail("extracted late last.md"))
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        result = json.loads((adir / "finalization.json").read_text())
+        assert result["stream_capture"]["status"] == "unreadable"
+        assert (adir / "deliverable.md").read_bytes() == b"Finished."
+        assert out.read_bytes() == b"previous export\n"
+        assert not [r for r in active.store.list_artifacts(attempt["attempt_id"])
+                    if r["role"] in ("raw-stream", "deliverable", "export")]
+    finally:
+        if restart:
+            active.close()
