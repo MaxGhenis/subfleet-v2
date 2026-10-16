@@ -478,7 +478,10 @@ def test_r5_due_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, monkeyp
     """
     from subfleet import actions, capacity, ids, policy, scheduler, store, timers
 
-    instant = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)
+    # The fleet fixture stamps its readings on the real clock before this test freezes
+    # time. A fixed 2026-10-16T12:00Z passed before that moment and failed after it, so
+    # the frozen clock starts on a whole second, a minute ahead of the real one.
+    instant = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=1)
 
     class Clock(datetime):
         @classmethod
