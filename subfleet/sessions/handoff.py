@@ -48,10 +48,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from ..contracts import DEFAULT_CAPS, SCRUB_MAX_CHARS
+from ..contracts import DEFAULT_CAPS, SCRUB_MAX_CHARS, Exit
 from ..policy import resolve_sandbox
 from ..protocol import POLICY_SANDBOX, SubmitArgs
-from ..salvage import git_head
+from ..salvage import SalvageError, git_head
 from . import registry, transcripts
 
 REDACTED = "[REDACTED]"
@@ -1179,10 +1179,16 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
     chosen = sandbox_for(policy, task, sandbox)
     committed_choice = sandbox_for(policy, task, sandbox, git=True)
     # Only conditional worktree authority needs a committed-repository probe.
-    if chosen != committed_choice and git_head(
-            target, timeout_s=policy.get("caps", {}).get(
-                "workspace_git_timeout_s", DEFAULT_CAPS["workspace_git_timeout_s"])) is not None:
-        chosen = committed_choice
+    if chosen != committed_choice:
+        try:
+            committed = git_head(target, timeout_s=policy.get("caps", {}).get(
+                "workspace_git_timeout_s", DEFAULT_CAPS["workspace_git_timeout_s"])) is not None
+        except SalvageError as exc:
+            raise HandoffError("could not check the handoff workdir's Git commit",
+                               code=Exit.OPERATIONAL,
+                               fix="retry the handoff, or pass -s read-only") from exc
+        if committed:
+            chosen = committed_choice
     if dry_run:
         return Dispatched(brief=brief, request_id=identity, model=model,
                           task=task, tier=tier, sandbox=chosen,
