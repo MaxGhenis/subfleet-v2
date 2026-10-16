@@ -3861,14 +3861,54 @@ class Daemon:
                 or job["state"] in TERMINAL or job["cancel_requested_at"]:
             return False
         running_s = self._running_s(job["job_id"])
-        return running_s >= job["max_wall_s"] and self._request_cancel(
+        if running_s < job["max_wall_s"]:
+            return False
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        # Inspection may have waited across the cap, or used a shared table
+        # taken before the provider exited. Receipts and a fresh exit check
+        # take precedence over that table's earlier observation of liveness.
+        receipt = self._read_json(adir / "exit.json")
+        if receipt:
+            self._begin_finalizing(a, receipt)
+            return False
+        if a["guardian_pid"]:
+            alive = procs.liveness(a["guardian_pid"], a["boot_id"], a["proc_start"])
+            receipt = self._read_json(adir / "exit.json")
+            if receipt:
+                self._begin_finalizing(a, receipt)
+                return False
+            if alive != "alive":
+                if alive == "dead" and a["state"] == "running":
+                    census = self._contain(a)
+                    if census.verified_empty:
+                        self._lost(a)
+                    else:
+                        self._kill_attempt(a, lost=True)
+                return False
+        return self._request_cancel(
             job["job_id"], {"by": "daemon", "reason": "max_wall_s", "running_s": running_s},
             family=True, attempt_id=a["attempt_id"], killed_by="max_wall_s")
 
     def _cancel_info(self, job_id: str) -> dict | None:
+        if not self._job(job_id)["cancel_requested_at"]:
+            return None
         row = self.store.one("SELECT ts,data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' "
                              "ORDER BY event_id LIMIT 1", (job_id,))
         return cancel_info(row["ts"], row["data_json"]) if row else None
+
+    def _supersede_wall_cancel(self, a: dict) -> None:
+        """A natural exit won the wall race. Retain the request in the audit
+        trail, but remove its effective cancellation and killed-attempt veto.
+        An operator's cancellation is never superseded here."""
+        with self.store.transaction("job.wall_cancel_superseded", job_id=a["job_id"],
+                                    attempt_id=a["attempt_id"], data={"reason": "provider-exited"}) as tx:
+            actual = self.store.get_attempt(a["attempt_id"])
+            request = self._cancel_info(a["job_id"])
+            if actual["killed_by"] != "max_wall_s" or not request \
+                    or request.get("by") != "daemon" or request.get("reason") != "max_wall_s":
+                return
+            tx.execute("UPDATE jobs SET cancel_requested_at=NULL WHERE job_id=?", (a["job_id"],))
+            tx.execute("UPDATE attempts SET killed_by=NULL WHERE attempt_id=?", (a["attempt_id"],))
 
     @staticmethod
     def _cancel_requester(job: dict, data: dict) -> str:
@@ -7676,6 +7716,9 @@ class Daemon:
                     return
                 self._kill_attempt(a)
                 return
+            a = self.store.get_attempt(aid)
+            if a["state"] not in ("starting", "running"):
+                return  # The fresh wall preflight may itself have found the exit.
         if a["state"] == "starting":
             deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
             if time.monotonic() < deadline:
@@ -7983,7 +8026,8 @@ class Daemon:
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
             job = self._job(a["job_id"])
             cancel = bool(job["cancel_requested_at"])
-            tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,finished_at=? WHERE attempt_id=?",
+            tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,"
+                       "finished_at=COALESCE(started_at,?) WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["attempt_id"], job["job_id"]))
             retry = not cancel and self._attempts_left(tx, job, a)
@@ -8031,6 +8075,15 @@ class Daemon:
 
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
         census = self._contain(a)
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        if a.get("killed_by") == "max_wall_s":
+            # A receipt can land after the wall's last check, including while
+            # the initial census runs. No signal has been sent by this kill.
+            receipt = self._read_json(adir / "exit.json")
+            if receipt:
+                self._supersede_wall_cancel(a)
+                self._begin_finalizing(a, receipt)
+                return
         evidence = json.loads(a["evidence_json"] or "{}")
         # Only group members observed while the recorded leader is still ours
         # may become additional signal targets. Escaped/new marker pids remain
@@ -8071,7 +8124,6 @@ class Daemon:
         if not census.verified_empty:
             self._quarantine(a, census, "termination could not verify containment")
             return
-        adir = attempt_dir(self.root, a["job_id"], a["seq"])
         receipt = self._read_json(adir / "exit.json")
         if lost and receipt is None:
             self._lost(a)
@@ -8568,6 +8620,15 @@ class Daemon:
             eligible_states = ("starting", "running", "finalizing") if lost else ("finalizing",)
             if current != a["seq"] or actual["state"] not in eligible_states or job["accepted_attempt_id"] or job["state"] in TERMINAL:
                 return
+            if (actual.get("killed_by") == "max_wall_s" and not lost and rc == 0
+                    and outcome.cls == OutcomeClass.OK and not receipt.get("signal")
+                    and not receipt.get("killed_by")):
+                # The guardian's receipt can become visible only when a kill
+                # settles. A verified completion still wins that wall race;
+                # an interim rc-0 message lacks the proof checked above.
+                self._supersede_wall_cancel(actual)
+                job = self._job(a["job_id"])
+                actual = self.store.get_attempt(a["attempt_id"])
             if stopped_ok and actual.get("killed_by") and job["kind"] != "turn":
                 # C-9.2: an attempt the daemon signalled (an operator's kill, the
                 # wall limit, recovery) did not finish, whatever its rc and its
