@@ -2573,3 +2573,25 @@ def test_an_unreadable_policy_is_left_alone(v1, monkeypatch, content):
     entry = run_import(v1, write_report=False).stores["reset-settings"]
     assert path.read_text() == content
     assert entry.imported == 0 and entry.reasons["policy-unreadable"] == 1
+
+
+def test_fixture_run_states_do_not_need_host_process_inspection(v1, monkeypatch):
+    """Synthetic live/dead records have fixed identities even in a denied kernel."""
+    def unavailable(pid):
+        raise importer.procs.InspectionError("fixture process inspection denied")
+
+    monkeypatch.setattr(importer.procs, "proc_start", unavailable)
+    run_import(v1)
+    states = {row["job_id"]: row["state"] for row in rows(v1["root"], "SELECT * FROM jobs")}
+    assert states["20260905-100300-lost"] == "lost"
+    assert states["20260905-100400-live"] == "running"
+
+
+def test_uninspectable_unfinalized_run_stays_external(monkeypatch):
+    """C-5.3: unavailable inspection cannot authorize adoption of a real run."""
+    def unavailable(pid):
+        raise importer.procs.InspectionError("fixture process inspection denied")
+
+    monkeypatch.setattr(importer.procs, "identity", unavailable)
+    assert importer._run_is_live({"pid": 999_999_997, "rc": None, "finished_at": None}) == (
+        True, "pid-inspection-failed")
