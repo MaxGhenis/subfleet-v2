@@ -419,6 +419,39 @@ def test_the_sandbox_comes_from_the_tasks_policy_permission(policy):
     assert handoff.sandbox_for(policy, "build", "read-only") == "read-only"
 
 
+@pytest.mark.parametrize("permission", ["task", "fallback"])
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize("override", [None, "policy", "read-only", "workspace-write"])
+def test_handoff_resolves_conditional_permissions(policy, permission, committed, override):
+    policy["permissions"] = {"review" if permission == "task" else "*": "worktree-write"}
+    expected = ("workspace-write" if committed else "read-only") if override in (None, "policy") else override
+    assert handoff.sandbox_for(policy, "review", override, git=committed) == expected
+
+
+@pytest.mark.parametrize("mode", ["committed", "unborn", "non-git"])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_review_handoff_uses_its_actual_repository(home, repo, policy, tmp_path, mode, dry_run):
+    fx.transcript(home, SESSION, conversation())
+    target = repo
+    if mode != "committed":
+        target = tmp_path / mode
+        target.mkdir()
+        if mode == "unborn":
+            subprocess.run(["git", "-C", str(target), "init", "-q"], check=True, capture_output=True)
+    staged = tmp_path / "prompt.md"
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(
+        daemon, policy, session_id=SESSION, last=False, model="opus", task="review",
+        stage_prompt=lambda text: (staged.write_text(text), staged)[1],
+        workdir=target, dry_run=dry_run)
+    expected = "workspace-write" if mode == "committed" else "read-only"
+    assert result.sandbox == expected
+    if dry_run:
+        assert daemon.submits == []
+    else:
+        assert daemon.submits[0].sandbox == expected
+
+
 def test_a_dry_run_prints_the_brief_and_dispatches_nothing(home, repo, policy):
     """C-17.4: the brief is the thing to inspect before it is sent anywhere."""
     fx.transcript(home, SESSION, conversation())
