@@ -510,3 +510,7 @@ lock). Both 200-example membership/no-flicker properties passed. The corrected
 it excludes missed steers from expected tray order while independently
 requiring their timeline bubbles, including both retained explicit examples.
 No queue production code changed for this expectation correction.
+
+The continuation's full release `app/build.sh` passes after the timeline fix,
+including plist validation and ad-hoc signing. Existing Sendable-capture and
+unnecessary-await warnings remain. No installed app or live state is touched.
