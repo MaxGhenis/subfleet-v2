@@ -2,6 +2,9 @@
 
 from dataclasses import asdict, replace
 import json
+import errno
+import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -13,7 +16,7 @@ from subfleet.contracts import Credential, ExitInfo, Outcome, OutcomeClass
 from subfleet.daemon import Daemon
 from tests.conftest import LANE_EMAIL, LANE_IDENTITY
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
-from tests.frozen_streams import frozen_identity, make_frozen
+from tests.frozen_streams import NONREGULAR_KINDS, frozen_identity, make_frozen
 
 
 def stage_provider(daemon, harness, name, out):
@@ -60,7 +63,7 @@ def replay(daemon, harness, attempt, finalizing, restart, monkeypatch):
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
 @pytest.mark.parametrize("checkpoint", ("finalization", "deliverable"))
-@pytest.mark.parametrize("kind", ("empty", "directory", "fifo", "symlink", "dangling-symlink"))
+@pytest.mark.parametrize("kind", ("empty", *NONREGULAR_KINDS))
 def test_claude_frozen_stream_survives_interrupted_finalization(
         state_daemon, monkeypatch, restart, checkpoint, kind):
     daemon, harness = state_daemon
@@ -104,6 +107,131 @@ def test_claude_frozen_stream_survives_interrupted_finalization(
     finally:
         if successor is not None:
             successor.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("raw", ("stream.jsonl", "custom.jsonl", "stdout", "parent-alias",
+                                 "same-canonical", "post-copy-link", "unlinked-writer", "fstat-link"))
+def test_writable_stream_alias_cannot_supply_later_completion(
+        state_daemon, monkeypatch, restart, raw):
+    """Port #209's hard-link input: cached auth-dead, rc 0, interim text."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    live = adir / "stdout"
+    raw_path = adir / raw
+    if raw == "parent-alias":
+        (adir / "alias").symlink_to(adir, target_is_directory=True)
+        raw_path = adir / "alias" / "stdout"
+    elif raw == "same-canonical":
+        live = raw_path = adir / "stream.jsonl"
+    elif raw in ("post-copy-link", "unlinked-writer", "fstat-link"):
+        raw_path = adir / "stream.jsonl"
+    launch = replace(launch, stdout_path=str(live), raw_stream_path=str(raw_path))
+    saved = asdict(launch)
+    saved.pop("env_add")
+    (adir / "launch.json").write_text(json.dumps(saved))
+    live.write_bytes(b"")
+    (adir / "stderr").write_bytes(b"Your refresh token was revoked.\n")
+    if raw in ("stream.jsonl", "custom.jsonl", "post-copy-link", "unlinked-writer"):
+        os.link(live, adir / "stream.jsonl")
+    elif raw == "fstat-link":
+        (adir / "stream.jsonl").write_bytes(b"")
+    verdict = Outcome(OutcomeClass.AUTH_DEAD, "cached old authentication rejection")
+    attest = adapter.attest(adir, launch, verdict, attempt["model_requested"])
+    (adir / "finalization.json").write_text(json.dumps({
+        "outcome": asdict(verdict), "attestation": asdict(attest)}))
+    (adir / "deliverable.md").write_bytes(b"Interim progress, not a finished turn.")
+    captured = {p: (adir / p).read_bytes() for p in ("finalization.json", "deliverable.md", "exit.json")}
+    observed = []
+    answered = Daemon._answered
+    def observe(outcome, cls):
+        observed.append(outcome.cls.value)
+        return answered(outcome, cls)
+    monkeypatch.setattr(Daemon, "_answered", staticmethod(observe))
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    # Hold the writer descriptor across write-then-rename, as a provider would.
+    with live.open("ab", buffering=0) as writer:
+        writer_identity = os.fstat(writer.fileno())
+        if raw == "unlinked-writer":
+            live.unlink()
+        with pytest.MonkeyPatch.context() as race:
+            if raw == "fstat-link":
+                original_fstat = os.fstat
+                candidate_identity = (adir / "stream.jsonl").stat().st_ino
+                checks = []
+                def link_at_decision(fd):
+                    info = original_fstat(fd)
+                    if info.st_ino == candidate_identity:
+                        checks.append(fd)
+                        if len(checks) == 2:
+                            live.unlink()
+                            os.link(adir / "stream.jsonl", live)
+                    return info
+                race.setattr(os, "fstat", link_at_decision)
+            with pytest.raises(RuntimeError, match="interrupted salvage"):
+                daemon._finalize(finalizing)
+        monkeypatch.setattr(daemon, "_salvage", salvage)
+        if raw == "post-copy-link":
+            (adir / "stream.jsonl").unlink()
+            os.link(live, adir / "stream.jsonl")
+        if raw == "fstat-link":
+            with live.open("ab") as linked_writer:
+                linked_writer.write(b'{"type":"turn.completed"}\n')
+        else:
+            writer.write(b'{"type":"turn.completed"}\n')
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert observed == ["auth-dead", "auth-dead"]
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "auth-dead"
+        assert out.read_bytes() == b"previous export\n"
+        artifacts = [row for row in active.store.list_artifacts(attempt["attempt_id"])
+                     if row["role"] == "raw-stream"]
+        assert len(artifacts) == 1
+        frozen = Path(artifacts[0]["path"])
+        assert frozen.read_bytes() == b""
+        assert frozen.stat().st_nlink == 1
+        assert (frozen.stat().st_dev, frozen.stat().st_ino) != (writer_identity.st_dev, writer_identity.st_ino)
+        assert {p: (adir / p).read_bytes() for p in captured} == captured
+        assert not active.store.query("SELECT 1 FROM artifacts WHERE attempt_id=? AND role='export'",
+                                      (attempt["attempt_id"],))
+        if raw == "custom.jsonl":
+            assert not os.path.lexists(launch.raw_stream_path)
+    finally:
+        if restart:
+            active.close()
+
+
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@pytest.mark.parametrize("raw", ("custom.jsonl", None))
+def test_authoritative_canonical_stream_is_raw_artifact(state_daemon, monkeypatch, name, raw):
+    daemon, harness = state_daemon
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(
+        daemon, harness, name, harness.root / "out.md")
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    frozen = adir / "stream.jsonl"
+    payload = (adir / "stdout").read_bytes()
+    frozen.write_bytes(payload)
+    launch = replace(launch, raw_stream_path=str(adir / raw) if raw else None)
+    saved = asdict(launch)
+    saved.pop("env_add")
+    (adir / "launch.json").write_text(json.dumps(saved))
+    daemon._finalize(finalizing)
+    assert daemon.store.get_job(job_id)["state"] == "succeeded"
+    artifacts = [row for row in daemon.store.list_artifacts(attempt["attempt_id"])
+                 if row["role"] == "raw-stream"]
+    assert len(artifacts) == 1
+    assert (artifacts[0]["bytes"], artifacts[0]["sha256"]) == (
+        len(payload), hashlib.sha256(payload).hexdigest())
+    assert Path(artifacts[0]["path"]).read_bytes() == payload
+    if raw:
+        assert not os.path.lexists(launch.raw_stream_path)
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
@@ -159,3 +287,215 @@ def test_cached_ok_uses_fresh_deliverable_content_boundary(
     finally:
         if successor is not None:
             successor.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("damage", ("delete", "replace", "in-place", "live-alias", "post-copy-link"))
+def test_lost_frozen_copy_records_failure_without_reading_live_candidate(
+        state_daemon, monkeypatch, restart, damage):
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    monkeypatch.setattr(daemon, "_salvage", lambda *args: (_ for _ in ()).throw(RuntimeError("interrupted salvage")))
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    frozen = daemon._freeze_stream(adir, launch)
+    fresh = b'{"type":"item.completed","item":{"type":"agent_message","text":"Fresh interim."}}\n'
+    if damage == "post-copy-link":
+        # Preserve the published inode, then give the provider a writable name
+        # for it. Restart must invalidate both cached classification and text.
+        identity = frozen.stat().st_ino
+        (adir / "stdout").unlink()
+        os.link(frozen, adir / "stdout")
+        (adir / "stdout").write_bytes(fresh)
+        assert frozen.stat().st_ino == identity
+        assert os.path.samefile(frozen, adir / "stdout")
+    else:
+        (adir / "stdout").write_bytes(fresh)
+        if damage != "in-place":
+            frozen.unlink()
+        if damage in ("replace", "in-place"):
+            frozen.write_bytes(b"")
+        elif damage == "live-alias":
+            os.link(adir / "stdout", frozen)
+    if Path(launch.raw_stream_path) != frozen:
+        Path(launch.raw_stream_path).write_bytes(fresh)
+    classified, extracted = [], []
+    classify, deliverable = adapter.classify, adapter.deliverable
+    def classify_again(*args):
+        classified.append(True)
+        return classify(*args)
+    def extract_again(*args):
+        extracted.append(True)
+        return deliverable(*args)
+    monkeypatch.setattr(adapter, "classify", classify_again)
+    monkeypatch.setattr(adapter, "deliverable", extract_again)
+    successor = None
+    try:
+        active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+        successor = active if restart else None
+        assert classified == extracted == []
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
+        assert (adir / "deliverable.md").read_bytes() == b"Finished."
+        result = json.loads((adir / "finalization.json").read_text())
+        assert result["stream_capture"]["status"] == "unreadable"
+        assert not [r for r in active.store.list_artifacts(attempt["attempt_id"])
+                    if r["role"] in ("raw-stream", "deliverable", "export")]
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert out.read_bytes() == b"previous export\n"
+    finally:
+        if successor is not None:
+            successor.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("failure", ("eio", "legacy-eio", "stderr-permission"))
+@pytest.mark.parametrize("complete", (False, True), ids=("late-completion", "already-complete"))
+@pytest.mark.parametrize("name,expected", (("codex", "transient"), ("claude", "unknown")))
+def test_capture_failure_is_sticky_after_io_recovers(
+        state_daemon, monkeypatch, restart, failure, complete, name, expected):
+    """C-4.3/C-9.2: neither a replay nor a new daemon may retry failed capture."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, name, out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    if not complete:
+        (adir / "stdout").write_bytes(
+            b'{"type":"item.completed","item":{"type":"agent_message","text":"Interim progress only."}}\n')
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    stderr = adir / "stderr"
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            if failure in ("eio", "legacy-eio"):
+                def unreadable(*args):
+                    raise OSError(errno.EIO, "capture failed")
+                patch.setattr(daemon, "_freeze_stream", unreadable)
+            else:
+                stderr.chmod(0)  # Real kernel PermissionError, no capture stub.
+            with pytest.raises(RuntimeError, match="interrupted salvage"):
+                daemon._finalize(finalizing)
+    finally:
+        stderr.chmod(0o600)
+    if failure == "legacy-eio":
+        result = json.loads((adir / "finalization.json").read_text())
+        result.pop("stream_capture", None)
+        (adir / "finalization.json").write_text(json.dumps(result))
+    saved = (adir / "finalization.json").read_bytes()
+    assert json.loads(saved)["outcome"]["cls"] == expected
+    if not complete:
+        with (adir / "stdout").open("ab") as stream:
+            stream.write(b'{"type":"turn.completed"}\n' if name == "codex" else
+                         b'{"type":"result","is_error":false,"result":"Late answer."}\n')
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == expected
+        assert active.store.get_job(job_id)["state"] == "failed"
+        assert (adir / "finalization.json").read_bytes() == saved
+        result = json.loads(saved)
+        capture = (result["outcome"]["evidence"]["stream_capture"] if failure == "legacy-eio"
+                   else result["stream_capture"])
+        assert capture["status"] == "unreadable"
+        assert not (adir / "deliverable.md").exists()
+        assert not (adir / "stream.freeze.json").exists()
+        assert not list(adir.glob("stream.frozen-*"))
+        assert not [r for r in active.store.list_artifacts(attempt["attempt_id"])
+                    if r["role"] in ("raw-stream", "deliverable", "export")]
+        assert out.read_bytes() == b"previous export\n"
+        active._process_attempt(attempt["attempt_id"])
+        assert (adir / "finalization.json").read_bytes() == saved
+    finally:
+        if restart:
+            active.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
+        state_daemon, monkeypatch, restart):
+    """C-8.2: a second pass cannot erase a valid capture and extract late last.md."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    saved = (adir / "finalization.json").read_bytes()
+    captured = (adir / "deliverable.md").read_bytes()
+    freeze_calls = []
+    with pytest.MonkeyPatch.context() as patch:
+        def unreadable(*args):
+            freeze_calls.append(True)
+            raise OSError(errno.EIO, "second-pass capture failed")
+        patch.setattr(daemon, "_freeze_stream", unreadable)
+        with pytest.raises(RuntimeError, match="interrupted salvage"):
+            daemon._finalize(finalizing)
+    (adir / "last.md").write_bytes(b"Written after the attempt exited.")
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert active.store.get_job(job_id)["state"] == "succeeded"
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "ok"
+        assert (adir / "deliverable.md").read_bytes() == captured == b"Finished."
+        assert out.read_bytes() == captured
+        assert (adir / "finalization.json").read_bytes() == saved
+        assert freeze_calls == []
+    finally:
+        if restart:
+            active.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+def test_legacy_recapture_cannot_rebind_an_unversioned_verdict(state_daemon, monkeypatch, restart):
+    """C-4.3: an older daemon's replacement copy cannot inherit a cached verdict."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    result = json.loads((adir / "finalization.json").read_text())
+    result.pop("stream")  # A verdict from before stream tokens were recorded.
+    (adir / "finalization.json").write_text(json.dumps(result))
+    receipt_path = adir / "stream.freeze.json"
+    receipt = json.loads(receipt_path.read_text())
+    original = adir / receipt["file"]
+    replacement = adir / "stream.frozen-legacy-recapture.jsonl"
+    replacement.write_bytes(original.read_bytes())
+    original.unlink()
+    info = replacement.stat()
+    receipt.update(file=replacement.name, device=info.st_dev, inode=info.st_ino, reset_finalization=True)
+    receipt_path.write_text(json.dumps(receipt))
+    (adir / "last.md").write_bytes(b"Written after the attempt exited.")
+    monkeypatch.setattr(adapter, "classify", lambda *args: pytest.fail("reclassified replacement copy"))
+    monkeypatch.setattr(adapter, "deliverable", lambda *args: pytest.fail("extracted late last.md"))
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        result = json.loads((adir / "finalization.json").read_text())
+        assert result["stream_capture"]["status"] == "unreadable"
+        assert (adir / "deliverable.md").read_bytes() == b"Finished."
+        assert out.read_bytes() == b"previous export\n"
+        assert not [r for r in active.store.list_artifacts(attempt["attempt_id"])
+                    if r["role"] in ("raw-stream", "deliverable", "export")]
+    finally:
+        if restart:
+            active.close()

@@ -64,6 +64,7 @@ def daemon(tmp_path, monkeypatch):
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)
+    core.crash_hook = core.publish_hook = None    # what __init__ sets; C-4.3's stream freeze reads publish_hook
     home = root / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                              str(home), LaneOwner.V2, False))
@@ -219,6 +220,88 @@ def with_launch(core, monkeypatch):
                                      stderr_path=str(adir / "stderr"), raw_stream_path=None,
                                      native_session_id=None, lane_id="codex-1")
     monkeypatch.setattr(daemon_module, "get_adapter", lambda provider: StubAdapter())
+
+
+@pytest.mark.parametrize("error", [OSError("capture I/O failed"), RuntimeError("capture bug")],
+                         ids=["oserror", "unexpected"])
+@pytest.mark.parametrize("has_receipt", [False, True], ids=["dead-guardian", "exit-receipt"])
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize("cached", [False, True], ids=["first-capture", "cached-success"])
+def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
+        daemon, monkeypatch, caplog, error, has_receipt, provider, cached):
+    """C-4.2/C-9.2: failed capture cannot wedge death or accept live completion proof."""
+    with_launch(daemon, monkeypatch)
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE lanes SET provider=? WHERE lane_id='codex-1'", (provider,))
+    if has_receipt:
+        publish_receipt(daemon)
+        daemon._begin_finalizing(attempt(daemon), json.loads(receipt_path(daemon).read_text()))
+    adir = attempt_dir(daemon.root, JOB, 1)
+    # Even a previous success verdict and captured answer cannot supply proof
+    # after this capture fails. The live stream above claims completion too.
+    if cached:
+        (adir / "finalization.json").write_text(json.dumps({
+            "outcome": {"cls": "ok", "detail": "cached success"},
+            "attestation": {"status": "attested", "served_model": "astra"},
+            "rule": daemon_module.FINALIZATION_RULE, "stream": "previous-copy.jsonl"}))
+        (adir / "deliverable.md").write_bytes(b"cached answer\n")
+    daemon._contain = lambda a: EMPTY
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+
+    def fail_freeze(*args):
+        raise error
+
+    monkeypatch.setattr(daemon, "_freeze_stream", fail_freeze)
+    monkeypatch.setattr(StubAdapter, "classify", lambda *args: pytest.fail("live classification"))
+    monkeypatch.setattr(StubAdapter, "deliverable", lambda *args: pytest.fail("live extraction"))
+    with caplog.at_level(logging.WARNING, logger=daemon.log.name):
+        daemon._process_attempt(ATTEMPT)
+    ended = attempt(daemon)
+    assert ended["state"] == ("failed" if has_receipt else "lost"), ended
+    assert ended["finished_at"]
+    assert ended["outcome_class"] == ("transient" if has_receipt and provider == "codex" else "unknown")
+    assert ended["attestation"] == "unattested"
+    classification = json.loads(ended["evidence_json"])["classification"]
+    assert classification["stream_capture"]["status"] == "unreadable"
+    error_type = "OSError" if cached else type(error).__name__
+    assert classification["stream_capture"]["error_type"] == error_type
+    if has_receipt and provider == "codex":
+        assert classification["turn_completed"] is False
+    job = daemon.store.get_job(JOB)
+    assert job["accepted_attempt_id"] is None
+    assert not [row for row in daemon.store.list_artifacts(ATTEMPT) if row["role"] in ("raw-stream", "export")]
+    assert "stream capture failed" in caplog.text
+    assert error_type in caplog.text
+
+
+def test_unreadable_provider_files_cannot_repeat_a_freeze_failure(daemon, monkeypatch):
+    """The same read error in diagnostics cannot prevent recording a failed capture."""
+    with_launch(daemon, monkeypatch)
+    publish_receipt(daemon)
+    daemon._begin_finalizing(attempt(daemon), json.loads(receipt_path(daemon).read_text()))
+    daemon._contain = lambda a: EMPTY
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("provider files unreadable")
+
+    monkeypatch.setattr(daemon, "_freeze_stream", unreadable)
+    monkeypatch.setattr(daemon, "_artifact", unreadable)
+    daemon._process_attempt(ATTEMPT)
+    ended = attempt(daemon)
+    assert ended["state"] == "failed" and ended["finished_at"]
+    assert ended["outcome_class"] == "transient"
+    assert daemon.store.get_job(JOB)["accepted_attempt_id"] is None
+
+
+def test_bare_daemon_has_optional_hook_defaults(tmp_path):
+    """Bare cores get the same optional hooks as __init__, including real publish."""
+    core = object.__new__(Daemon)
+    assert core.crash_hook is None
+    assert core.publish_hook is None
+    core._boundary("test", JOB, ATTEMPT)
+    path = tmp_path / "published"
+    core._publish("test", path, b"published\n")
+    assert path.read_bytes() == b"published\n"
 
 
 def never_census(a):

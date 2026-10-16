@@ -54,12 +54,13 @@ from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
-    ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
 from .credentials import resolve_credential
 from .provider_env import ProviderEnvironment
-from .guardian import atomic_publish
+from .guardian import atomic_publish, stream_digest
+from .frozen_stream import freeze_stream, read_freeze_receipt, restore_stream
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
@@ -606,6 +607,10 @@ def _released_on_failure(init: Callable[..., None]) -> Callable[..., None]:
 
 
 class Daemon:
+    # Optional hooks also exist on test cores assembled without __init__.
+    crash_hook: Callable[[str, str, str | None], None] | None = None
+    publish_hook: Callable[[str, Path], None] | None = None
+
     #: C-6.17: the last latch written to the store (`_save_disk_latch`).
     _disk_saved_hold = False
     _disk_saved_source = "policy"
@@ -8235,14 +8240,12 @@ class Daemon:
     @staticmethod
     def _artifact(path: Path, role: str) -> dict | None:
         try:
-            if role == "raw-stream":
-                with open_stream(path) as stream:
-                    contents = stream.read()
-            else:
-                contents = read_regular(path)      # only a regular file is an artifact
+            opener = open_stream if role == "raw-stream" else open_regular
+            with opener(path) as stream:
+                digest = stream_digest(stream)
         except (FileNotFoundError, NotRegularFile):
             return None
-        return {"role": role, "path": str(path), "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)}
+        return {"role": role, "path": str(path), **digest}
 
     @staticmethod
     def _restore_outcome(data: dict) -> Outcome:
@@ -8254,6 +8257,10 @@ class Daemon:
             data["closure"] = Closure(**{**closure, "reason": ClosureReason(closure["reason"]),
                                          "clock_source": ClockSource(closure["clock_source"])})
         return Outcome(**data)
+
+    def _freeze_stream(self, adir: Path, launch: Launch) -> Path:
+        """C-4.3/C-9.2: copy once; replay the recorded daemon-owned inode."""
+        return freeze_stream(adir, launch, self._publish, self.publish_hook, open_stream)
 
     def _finalize(self, a: dict, *, lost: bool = False) -> None:
         job = self._job(a["job_id"])
@@ -8277,17 +8284,36 @@ class Daemon:
             return
         self._exit_settle.pop(a["attempt_id"], None)
         launch = self._saved_launch(a)
-        # Both stream-json CLIs write their raw protocol to stdout. Freeze that
-        # stream once after containment only when both frozen candidates are absent.
-        # Do not shadow an authoritative canonical entry with a new custom file.
-        if launch.raw_stream_path and not any(os.path.lexists(path) for path in
-                                             (launch.raw_stream_path, adir / "stream.jsonl")):
+        result_path = adir / "finalization.json"
+        result = self._read_json(result_path)
+        # Round-3 receipts kept the failure only in outcome evidence. They are
+        # durable verdicts too, even though their stream token is null.
+        stream_failure = ((result.get("stream_capture")
+                           or (result.get("outcome", {}).get("evidence") or {}).get("stream_capture"))
+                          if result else None)
+        frozen_stream, stream_receipt = None, {}
+        if job["kind"] != "turn" and not stream_failure:
             try:
-                data = read_regular(Path(launch.stdout_path))       # never waiting in open()
-            except (FileNotFoundError, NotRegularFile):
-                data = None                                        # no regular stdout to freeze
-            if data is not None:
-                self._publish("raw-stream", Path(launch.raw_stream_path), data)
+                if result is not None and "stream" in result:
+                    frozen_stream, stream_receipt = restore_stream(adir, launch, result["stream"])
+                else:
+                    frozen_stream = self._freeze_stream(adir, launch)
+                    stream_receipt = read_freeze_receipt(adir) or {}
+                    if result is not None and stream_receipt.get("reset_finalization"):
+                        # An older daemon replaced the copy but did not bind
+                        # this legacy verdict to it before interruption.
+                        raise OSError(errno.ESTALE, "legacy verdict predates replacement stream copy")
+            except Exception as exc:
+                # A missing/changed recorded copy fails capture; it never grants
+                # another read of the provider's live candidate. Only this
+                # validation failure may replace an earlier saved verdict.
+                result = None
+                frozen_stream, stream_receipt = None, {}
+                stream_failure = {"status": "unreadable", "error_type": type(exc).__name__,
+                                  "error": refusals.scrubbed_words(exc)[:500]}
+        if frozen_stream is not None:
+            launch = dataclasses.replace(launch, raw_stream_path=str(frozen_stream))
+        stream_token = stream_receipt.get("file")
         lane = self.store.get_lane(a["lane_id"])
         adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
         if job["kind"] == "turn":
@@ -8304,19 +8330,37 @@ class Daemon:
         older_verdict = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
-                              else "guardian exit receipt has no return code")
+                              else "guardian exit receipt has no return code",
+                              evidence={"stream_capture": stream_failure} if stream_failure else {})
             attest_status, served_model = "unattested", None
+            if stream_failure:
+                if result is None:
+                    result = {"outcome": dataclasses.asdict(outcome),
+                              "attestation": dataclasses.asdict(AttestationResult(
+                                  Attestation.UNATTESTED, None, "provider stream unreadable")),
+                              "rule": FINALIZATION_RULE, "stream": None,
+                              "stream_capture": {**stream_failure, "class": outcome.cls.value}}
+                    self._publish("finalization", result_path, json_bytes(result))
+                outcome = self._restore_outcome(result["outcome"])
         else:
-            result_path = adir / "finalization.json"
-            result = self._read_json(result_path)
             if result is None:
-                exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
-                outcome = adapter.classify(adir, launch, exit_info)
-                if exit_info.spawn_error:
-                    outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
-                attest = adapter.attest(adir, launch, outcome, a["model_requested"])
+                if stream_failure:
+                    incomplete_codex = lane.provider == "codex" and job["kind"] != "turn"
+                    outcome = Outcome(OutcomeClass.TRANSIENT if incomplete_codex else OutcomeClass.UNKNOWN,
+                                      "Codex exited before its turn completed" if incomplete_codex
+                                      else "provider stream unreadable: completion could not be verified",
+                                      evidence={"stream_capture": stream_failure})
+                    attest = AttestationResult(Attestation.UNATTESTED, None, "provider stream unreadable")
+                else:
+                    exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})
+                    outcome = adapter.classify(adir, launch, exit_info)
+                    if exit_info.spawn_error:
+                        outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
+                    attest = adapter.attest(adir, launch, outcome, a["model_requested"])
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
-                          "rule": FINALIZATION_RULE}
+                          "rule": FINALIZATION_RULE, "stream": stream_token}
+                if stream_failure:
+                    result["stream_capture"] = {**stream_failure, "class": outcome.cls.value}
                 self._publish("finalization", result_path, json_bytes(result))
             # A replay of this daemon's own verdict must reach its first pass's
             # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
@@ -8325,15 +8369,26 @@ class Daemon:
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
+
+        def artifact(path: Path, role: str) -> dict | None:
+            try:
+                return self._artifact(path, role)
+            except OSError:
+                if not stream_failure:
+                    raise
+                # The source's read error may affect stdout or other evidence
+                # too. Diagnostics must not repeat it and hide this death.
+                return None
+
         deliverable_path = adir / "deliverable.md"
-        if not deliverable_path.exists() and not lost:
+        if not deliverable_path.exists() and not lost and not stream_failure:
             contents = adapter.deliverable(adir, launch, outcome)
             self._publish("deliverable", deliverable_path, contents or b"")
-        deliverable = self._artifact(deliverable_path, "deliverable")
+        deliverable = None if stream_failure else artifact(deliverable_path, "deliverable")
         # C-12.6: cached acceptance uses the fresh provider's content boundary,
         # not the artifact's byte count. Preserve the captured payload itself.
         nonblank_deliverable = False
-        if deliverable:
+        if deliverable and not stream_failure:
             payload = read_regular(deliverable_path)
             nonblank_deliverable = bool(payload.decode("utf-8", "replace").strip()
                                        if lane.provider == "claude" else payload.strip())
@@ -8344,7 +8399,8 @@ class Daemon:
         provider_verdict = {"class": outcome.cls.value, "detail": outcome.detail}
         if not lost and lane.provider == "codex" and job["kind"] != "turn":
             from .adapters.codex import completion_evidence
-            completion = completion_evidence(adir, launch)
+            completion = ({"turn_completed": False, "turn_failed": False, "last_event_type": None}
+                          if stream_failure else completion_evidence(adir, launch))
             outcome = dataclasses.replace(outcome, evidence={**outcome.evidence, **completion})
             spawn_error = receipt.get("spawn_error") or outcome.evidence.get("spawn_error")
             if (older_verdict and outcome.cls != OutcomeClass.OK and rc == 0
@@ -8393,14 +8449,14 @@ class Daemon:
             # ended at once frees its lane rather than handing the hold to another.
             self._record_answer(a["lane_id"], "finalization", attempt=a)
         artifacts = [x for x in [deliverable,
-                     self._artifact(Path(launch.stdout_path), "stdout"),
-                     self._artifact(Path(launch.stderr_path), "stderr"),
-                     self._artifact(adir / "launch.json", "launch"),
-                     self._artifact(Path(launch.stdin_path), "prompt-sent")
+                     artifact(Path(launch.stdout_path), "stdout"),
+                     artifact(Path(launch.stderr_path), "stderr"),
+                     artifact(adir / "launch.json", "launch"),
+                     artifact(Path(launch.stdin_path), "prompt-sent")
                      if launch.stdin_path and Path(launch.stdin_path).name == "prompt.sent.md" else None,
-                     self._artifact(adir / "lane.log", "lane-log"),
-                     self._artifact(Path(launch.raw_stream_path), "raw-stream") if launch.raw_stream_path else None,
-                     self._artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
+                     artifact(adir / "lane.log", "lane-log"),
+                     artifact(frozen_stream, "raw-stream") if stream_receipt.get("events") else None,
+                     artifact(self.root / "jobs" / job["job_id"] / "manifest.json", "manifest")] if x]
         # C-26.10: a turn works in its conversation's workspace and writes no salvage ref;
         # its receipt records HEAD after and its end snapshot (C-26.14).
         trees, salvage_evidence = None, {}
@@ -8502,6 +8558,9 @@ class Daemon:
                     # no notice).
                     summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        if stream_failure:
+            self.log.warning("attempt %s stream capture failed (%s): %s", a["attempt_id"],
+                             stream_failure["error_type"], stream_failure["error"])
         if fault is not None:
             self.log.warning("job %s: lane %s went auth-dead on attempt a%d (%s); the lane is disabled and the "
                              "job moves on to the next lane, this attempt not counted (C-4.5)",
