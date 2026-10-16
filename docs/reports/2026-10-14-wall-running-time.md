@@ -735,7 +735,7 @@ between cancellation and kill settlement failed too. Starting recovery charged
 The running-without-provider and reserved recovery controls passed.
 
 - D-WALL1: enforce the cap only after re-reading the receipt and checking
-  current exit status. Re-read again after the kill's first census. A receipt
+  current exit status. Re-read again after the kill's first census and its pre-signal commit. A receipt
   found before signaling takes the finalization path. A late, verified success
   at settlement supersedes the wall cancellation and its killed-attempt veto;
   the original request and the supersession remain in the audit trail. Online
@@ -745,32 +745,42 @@ The running-without-provider and reserved recovery controls passed.
   its recorded start, contributing zero seconds. Seven-hour recovery tests
   cover starting, running without a provider, and reserved, then one second
   of the next attempt. Bounded properties cover receipt/inspection/cap/kill
-  interleavings (32 examples) and absent-provider downtime (20 examples).
+  interleavings (at most 32 examples) and absent-provider downtime (at most 20 examples).
 - D-KILL1: persist the first requester with the conversation stop in one
   transaction, keyed by message and turn sequence. Pending submission and
   admission repair apply that requester when the job exists. Both operations
   retain the stated session and audit-token pid 424242, including after the
   conversation store is closed and reopened.
 
-### Validation status
+### Validation
 
-Fixed-source groups are in progress: **609 passed, 6 skipped across 19 files**.
-The wall hold passed 76 in 633.01 s (acquired 15:59:12 UTC); the conversation
-hold passed 205 with 6 skipped in 426.73 s (acquired 16:20:47 UTC). The table
-records completed runs. The daemon/inspection hold passed 195 in 114.40 s
-(acquired 16:55:41 UTC). The six legacy skips require real process identity
-inspection through the `process_inspection_available` prerequisite. The
-admission/refusal/salvage/replay hold passed 68 in 270.64 s (acquired 18:06:46 UTC).
-The native frontend hold passed 65 in 120.64 s (acquired 18:24:34 UTC); its
-short-path harness directories and module caches were tracked and removed.
-Each invocation has its own foreground `lockf -k` hold, waits without a lock
-acquisition timeout, uses no xdist, and has a 1,190 s execution bound inside
-its hold. The first hold acquired at 15:13:05 UTC. Python is 3.14.7 free-threaded;
-Hypothesis uses the bounded ci profile and task scratch. The unwritable default
-uv cache is replaced by a scratch cache. JUnit counting evidence, caches and
-Hypothesis storage are deleted after each invocation with `shutil.rmtree`.
-The conservative no-new-holds cutoff is 19:33:33 UTC (4 h 30 m after the job
-stamp); the job ends by 21:03:33 UTC.
+Final status, 2026-10-16 18:40 UTC:
+**647 passed, 6 skipped, zero failed across all 21 requested files.**
+No requested file remains unrun. The six skipped legacy-hold cases use the
+`process_inspection_available` prerequisite for real process identity reads;
+they are unexecuted and are not counted as passes. The new round-5 regressions
+all ran and passed. This is local validation on Python 3.14.7 free-threaded;
+other Python versions and a full repository CI run were not executed here.
+
+The six fixed-source groups ran separately, in the requested order, each in
+its own foreground `lockf -k` hold, without a lock timeout or xdist. The baseline
+regression invocation had its own hold too. Fixed-source results and pytest
+runtimes: wall 76 / 633.01 s; conversation 205 passed, 6 skipped / 426.73 s;
+daemon/inspection 195 / 114.40 s; admission/retry/salvage/replay 68 / 270.64 s;
+native frontend 65 / 120.64 s; state/module names 38 / 23.85 s.
+All holds completed below twenty minutes; the longest pytest runtime was
+633.01 s, excluding the lock wait. The no-new-holds cutoff was 19:33:33 UTC,
+conservatively measured from the job's 15:03:33 UTC stamp.
+
+`SUBFLEET_RETENTION_DORMANT` was unset. Hypothesis used bounded ci settings and
+scratch storage; no deep profile ran. The unwritable default uv cache was
+replaced with a disposable scratch cache. JUnit counting evidence, uv/Swift
+module caches and Hypothesis storage were removed after each invocation. The
+frontend's short `/tmp` harness directories were tracked and removed without
+changing their socket paths. The dependency environment and workspace build
+and Python caches were removed after validation. No `.hypothesis` directory,
+task-owned pytest, runner or guardian remains. No logs, JSON evidence or bundles
+are staged.
 
 | File | Fixed source |
 | --- | --- |
@@ -793,14 +803,38 @@ stamp); the job ends by 21:03:33 UTC.
 | `tests/frontend/test_core_protocol.py` | 9 passed |
 | `tests/frontend/test_core_outbox.py` | 13 passed |
 | `tests/frontend/test_core_steer.py` | 43 passed |
-| `tests/fake/test_state_contract.py` | unrun |
-| `tests/unit/test_test_module_names.py` | unrun |
+| `tests/fake/test_state_contract.py` | 37 passed |
+| `tests/unit/test_test_module_names.py` | 1 passed |
 
-### Commit storage
+### Commit storage and delivery
 
 The shared index rejected `index.lock` with `Operation not permitted`.
 Commits use workspace-local `.git-local` on
-`fix/wall-counts-running-time-217`, descending from the assigned head. Named
-files only are staged. Every commit carries the requested co-author trailer;
-no history is rewritten and nothing is pushed. The original `.git` pointer is
-preserved. The final local delivery bundle and commit ledger follow validation.
+`fix/wall-counts-running-time-217`, descending from `547a164e5f43`. Named files
+only were staged; the original `.git` pointer and shared index are preserved.
+Every commit carries `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+No history was rewritten and nothing was pushed.
+
+Delivery: `.git-local/round5.bundle`, prerequisite
+`547a164e5f43427cb8a47effd4b8970c6029c707`, advertising
+`refs/heads/fix/wall-counts-running-time-217`. `git bundle verify` and
+`git bundle list-heads` verify the prerequisite and advertised branch. The
+containing final-report commit is the bundle tip; the preceding steps are below.
+
+| Commit | Step |
+| --- | --- |
+| `adaf12a7b` | test: reproduce round-five wall races and pending cancellation attribution |
+| `abc560b26` | test: isolate generated wall histories and release queued examples |
+| `31b15f36c` | fix: let provider receipts win wall races and exclude unlaunched downtime |
+| `4df9057c3` | fix: persist the requester across pending conversation submission |
+| `8decf0cf1` | test: cover durable stop identity and cancellation after a wall race |
+| `2f287d214` | fix: display the effective requester after a superseded wall cancellation |
+| `1e1dbea88` | docs: record round-five reproductions and validation checkpoint |
+| `f9055594a` | test: bound cap interleavings and retain the incomplete-result veto |
+| `3606f4bbe` | test: cover a receipt arriving during the pre-signal database commit |
+| `37c4161a5` | fix: recheck the receipt after committing the kill intent |
+| `a09f5170a` | docs: record seventy-six passing wall and review regressions |
+| `ebc1c6e83` | docs: record passing pending-requester and conversation validation |
+| `69ac18f27` | docs: record passing daemon settlement and pacing properties |
+| `0ad5d1878` | docs: record passing admission, retry, salvage and replay validation |
+| `0da9521bc` | docs: record sixty-five passing native frontend tests |
