@@ -165,7 +165,9 @@ def test_existing_secret_shaped_workspace_explains_refusal_on_wire_and_cli(svc, 
         raise DaemonError(error["code"], error["message"], error["fix"])
 
     monkeypatch.setattr(cli.Client, "call", refuse)
-    assert run("--title", "Fixture", "--tldr", "Fixture", "--brief", "Fixture",
+    brief = tmp_path / "brief.md"
+    brief.write_text("Fixture")
+    assert run("--title", "Fixture", "--tldr", "Fixture", "--brief-file", str(brief),
                "--workspace", str(workspace)) == 2
     output = capsys.readouterr()
     assert expected in output.err and response["error"]["fix"] in output.err
