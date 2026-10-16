@@ -659,11 +659,24 @@ runner's conservative assertion-only classifier prints NOT VERIFIED for this
 lookup failure; manual inspection confirms the intended missing-line defect,
 not a compiler or setup failure. The mutation table records this checked result.
 
+#### Hold-start cutoff — 07:23 UTC
+
+No further holds will start. Both mutation waiters were interrupted at
+07:22:59 UTC before lock acquisition (`waiting-continuation`, `expanded-sizing`);
+neither started pytest. Their acquisition markers remain absent. All twelve
+independent mutant probes were prepared, but only **flicker** and **tombstone**
+have actual killed-test evidence. The other ten remain unrun.
+
+The 16-file frontend hold acquired the lock at **07:09:58 UTC** and is still
+active at this cutoff, with no failure markers so far. Its results are pending
+and are not counted as passes. It will finish before cleanup; its final result
+will supersede this checkpoint. Fifteen other frontend files remain unrun.
+
 <!-- validation3-latest -->
 
 #### Latest continuation checkpoint
 
-Generated 2026-10-16T06:50:53.171918+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
+Generated 2026-10-16T07:23:27.200145+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
 
 | File | Passed | Failed | Setup errors | Skipped | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -672,36 +685,36 @@ Generated 2026-10-16T06:50:53.171918+00:00. These per-file results supersede ear
 | `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_approval_reach.py` | 41 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | prior pass; continuation recheck pending |
 | `tests/frontend/test_core_queue_tray.py` | 45 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_search.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_search.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | retained prior pass; unaffected row-only view |
 | `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
 | `tests/frontend/test_review_r219_probes.py` | 23 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 0 | unrun |
@@ -737,27 +750,11 @@ Generated 2026-10-16T06:50:53.171918+00:00. These per-file results supersede ear
 
 #### Files not yet run in this continuation
 
-- `tests/frontend/test_core_client.py`
-- `tests/frontend/test_core_diff.py`
-- `tests/frontend/test_core_draft.py`
-- `tests/frontend/test_core_idle.py`
 - `tests/frontend/test_core_live.py`
 - `tests/frontend/test_core_live_failure.py`
-- `tests/frontend/test_core_markdown.py`
-- `tests/frontend/test_core_protocol.py`
-- `tests/frontend/test_core_question_card.py`
-- `tests/frontend/test_core_search.py`
-- `tests/frontend/test_core_suggestions.py`
-- `tests/frontend/test_core_suggestions_r1b.py`
-- `tests/frontend/test_core_text_scale.py`
-- `tests/frontend/test_core_titles.py`
 - `tests/frontend/test_disk_ruling.py`
 - `tests/frontend/test_menu_view.py`
-- `tests/frontend/test_pr124_fixes_ui.py`
-- `tests/frontend/test_pr124_recovery_properties.py`
-- `tests/frontend/test_pr124_review_r2_fixes_ui.py`
 - `tests/frontend/test_reading_view.py`
-- `tests/frontend/test_review_pr127_timeline.py`
 - `tests/frontend/test_status_model.py`
 - `tests/frontend/test_visual_progress.py`
 - `tests/frontend/test_visual_report_hygiene.py`
