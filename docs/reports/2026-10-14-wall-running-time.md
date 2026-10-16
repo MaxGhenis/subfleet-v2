@@ -577,8 +577,9 @@ requested co-author trailer; no history is rewritten and nothing is pushed.
 
 ### Validation ledger
 
-Each failing file runs separately at the original head and base before final
-validation. Each pytest owns a separate foreground `lockf -k` hold of
+Each failing file is scheduled separately at the base and fixed source.
+Original-head reproductions are local where listed; deferred head runs use the
+supplied CI evidence explicitly. Each pytest owns a separate foreground `lockf -k` hold of
 `/private/tmp/claude-501/subfleet-suites.lock`, with no lock timeout and no xdist.
 The default uv cache is outside writable roots, so uv uses the task's disposable
 scratch cache. Hypothesis uses the bounded `ci` profile and scratch storage.
@@ -592,3 +593,15 @@ results are still pending. The local interpreter is Python 3.14.7 free-threading
 this is not a claim of rerunning both CI interpreters. A provisional delivery
 bundle in `.git-local/round4.bundle` verifies against the original-head
 prerequisite; it will be refreshed after the final report commit.
+
+At 06:00 UTC, after extended lock waits, the remaining original-head reruns
+(`test_legacy_hold.py`, `test_admission_stateful.py`, `test_salvage_finalization.py`)
+were deferred in favor of the required base and fixed-source executions. The
+supplied CI logs remain the head-side failure evidence for those three files;
+they are not counted as local executions.
+
+The quarantine method and its failing test have identical syntax trees at
+`9fad7c4fe` and `f07751fc1`; the base execution remains pending. Seven local
+head files have completed with 230 passed and 16 failed. Both daemon-settle
+failures reproduced, including the duplicate ownership event (the read-count
+assertions pass). No fixed-source passing result is claimed at this checkpoint.
