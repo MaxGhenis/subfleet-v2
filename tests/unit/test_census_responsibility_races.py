@@ -138,6 +138,17 @@ def test_a_known_id_root_replaced_mid_scan_cannot_save_a_successors_child(monkey
     assert "60" not in json.loads(row["evidence_json"]).get("responsible_identities", {})
 
 
+@pytest.mark.parametrize("timing", ["before-members", "mid-scan"])
+def test_a_late_successor_cannot_supply_responsibility_walk_seeds(monkeypatch, timing):
+    """Review r2's exact S=42/100 and C=60/101, for the final-read mutation."""
+    row, core, state = changing_root(monkeypatch, timing=timing, fate="successor")
+    result = Daemon._contain(core, row)
+    assert state.fake.unique[42] == 100 and state.fake.unique[60] == 101
+    assert 60 not in result.responsible_pids
+    assert "60" not in json.loads(row["evidence_json"]).get("responsible_identities", {})
+    assert result.unverifiable and not result.verified_empty
+
+
 def test_a_known_dead_root_without_members_can_verify_empty(monkeypatch):
     row, core, state = changing_root(monkeypatch, timing="never", fate="alive", known_unique=True)
     state.scanning = False
