@@ -36,6 +36,7 @@ VALID = {
     "job_id": ("20261013-014534-astra", "20260925-000000-none", "20261013-014534-gate-review-2"),
     "lane_id": ("codex-1", "claude-12", "codex-999999999"),
     "task": ("build", "review", "authored-prose"),
+    "model": ("opus", "sol61", "gpt-6.1-sol"),
     "count": (0, 2, 999),
     "limit": (1, 20),
 }
@@ -180,6 +181,7 @@ SHAPES = {
     "job_id": r"[0-9]{8}-[0-9]{6}-[a-z0-9-]{1,40}",
     "lane_id": r"(codex|claude)-[1-9][0-9]{0,8}",
     "task": r"[a-z][a-z0-9-]{0,39}",
+    "model": r"[a-z][a-z0-9._-]{0,79}",
 }
 
 
@@ -236,6 +238,38 @@ def test_an_argument_refusal_keeps_its_words_for_direct_callers_only():
     response = wire_reply(op="submit", error=error)
     assert response["error"]["message"] == protocol.REFUSAL_MESSAGES["invalid-args"]
     assert SENTINEL not in json.dumps(response)
+
+
+@pytest.mark.parametrize("model", ("absent", "", False, 0, SENTINEL, "ghp_" + "A" * 36))
+def test_unknown_model_refusal_names_only_a_checked_model(model):
+    error = AdapterError(SENTINEL, code=7, fix=SENTINEL,
+                         reason="unknown-pinned-model", details={"model": model})
+    response = wire_reply(op="submit", error=error)
+    named = " absent" if model == "absent" else ""
+    assert response["error"] == {
+        "code": 7, "message": f"unknown pinned model{named}",
+        "fix": "pin a model from the live policy",
+    }
+
+
+@pytest.mark.parametrize("details", (
+    {"model": "opus", "sandbox": "read-only"},
+    {"model": SENTINEL, "sandbox": "read-only"},
+    {"model": "opus", "sandbox": SENTINEL},
+    {"model": "ghp_" + "A" * 36, "sandbox": "read-only"},
+    {},
+))
+def test_shell_refusal_names_values_only_when_both_are_checked(details):
+    error = AdapterError(SENTINEL, code=7, fix=SENTINEL,
+                         reason="needs-shell", details=details)
+    response = wire_reply(op="submit", error=error)
+    message = ("needs a shell: opus runs read-only jobs without one"
+               if details == {"model": "opus", "sandbox": "read-only"}
+               else "needs a shell: the pinned launch runs without one")
+    assert response["error"] == {
+        "code": 7, "message": message,
+        "fix": "pass -s workspace-write, or pin a Codex model",
+    }
 
 
 def test_a_refusal_by_policy_keeps_its_reason_and_names_the_way_out():

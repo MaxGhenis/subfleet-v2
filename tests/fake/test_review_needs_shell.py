@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from subfleet import cli, scheduler
+from subfleet import cli, protocol, scheduler
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
@@ -61,7 +61,7 @@ def test_hard_review_waits_for_codex_then_runs_with_shell(shell_state):
 @pytest.mark.parametrize('sandbox,override,expected', [
     ('read-only', False, False), ('workspace-write', None, True),
 ])
-def test_opus_attempt_and_first_notice_line_report_shell(shell_state, sandbox, override, expected):
+def test_opus_attempt_and_second_notice_line_report_shell(shell_state, sandbox, override, expected):
     service, harness = shell_state
     if sandbox == 'workspace-write':
         repository(service, harness)
@@ -83,7 +83,11 @@ def test_opus_attempt_and_first_notice_line_report_shell(shell_state, sandbox, o
     assert shown['attempts'][0]['capability'] == ('writable' if expected else 'none')
     text = f"ran {sandbox} on claude-10 (opus) with {'a shell' if expected else 'no shell'}"
     notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
-    assert text in notice['text'].splitlines()[0]
+    header, capability, *_ = notice['text'].splitlines()
+    assert header == (f"{job}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
+                      f"out={harness.root / 'result.md'}")
+    suffix = ' (writable)' if expected else ': it could not run any command'
+    assert capability == text + suffix + '; publish: denied'
     assert text in cli._wait_summary(shown)
     assert (harness.root / 'result.md').read_text() == 'fixture result\n'
     assert (adir / 'deliverable.md').read_text() == 'fixture result\n'
@@ -110,6 +114,10 @@ def test_unsatisfiable_read_only_pin_refused_before_store(shell_state, changes):
     assert refused.value.code == 7
     assert 'needs a shell' in str(refused.value)
     assert '-s workspace-write' in refused.value.fix and 'Codex' in refused.value.fix
+    assert protocol.refusal_text(refused.value) == (
+        'needs a shell: opus runs read-only jobs without one',
+        'pass -s workspace-write, or pin a Codex model',
+    )
     assert not service.store.list_jobs()
 
 
@@ -120,6 +128,10 @@ def test_unknown_pin_is_daemon_refusal_listing_policy_models(shell_state, bad_mo
         service.dispatch('submit', harness.submit_args(pinned_model=bad_model, task='review', tier='hard', needs_shell=False))
     assert refused.value.code == 7
     assert all(name in str(refused.value) for name in service.policy['models'])
+    named = ' absent' if bad_model == 'absent' else ''
+    assert protocol.refusal_text(refused.value) == (
+        f'unknown pinned model{named}', 'pin a model from the live policy',
+    )
     assert not service.store.list_jobs()
 
 
