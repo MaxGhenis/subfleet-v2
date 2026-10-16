@@ -528,18 +528,17 @@ checkpoint as the holds complete.
 
 ## Round 4 (2026-10-16): CI at f07751fc1
 
-Status: fixes committed; original-head and `9fad7c4fe` comparison runs and final
-regression validation are in progress. The first clock observation was 04:51 UTC.
-The workspace job stamp is 04:46 UTC, so no new holds will start after 09:16 UTC
-(the conservative 4 h 30 m checkpoint).
-
-The shared index refused `index.lock` with `Operation not permitted`. Round-4
-commits use workspace-local `.git-local`, on
-`fix/wall-counts-running-time-217`, based on the assigned `f07751fc179f`.
-The original `.git` pointer and index are preserved. All commits include the
-requested co-author trailer; no history is rewritten and nothing is pushed.
+Status at 2026-10-16 07:48 UTC: fixed-source pytest invocations completed for
+**2 of 54 selected files: 88 passed**.
+**52 selected files remain unrun on the fixed source.** This is a
+local validation result, not a full CI run. The first clock observation was
+04:51 UTC; the workspace job stamp is 04:46 UTC, so the conservative cutoff for
+starting further runs is 09:16 UTC. Lock waits count against that wall.
 
 ### Causes and changes
+
+Where a requested base run is unrun below, attribution is based on source and
+CI evidence rather than a local differential run.
 
 - Conversation stop/title fixtures had runners named `host/a1` or `job/a1`
   without corresponding jobs or attempts in their real job store. Parsing those
@@ -578,43 +577,118 @@ requested co-author trailer; no history is rewritten and nothing is pushed.
   eligible lane before applying a zero fleet cap, reaching the intended held
   start and retaining all ref, notice and work-preservation assertions.
 
-### Validation ledger
+### Validation
 
-Each failing file is scheduled separately at the base and fixed source.
-Original-head reproductions are local where listed; deferred head runs use the
-supplied CI evidence explicitly. Each pytest owns a separate foreground `lockf -k` hold of
-`/private/tmp/claude-501/subfleet-suites.lock`, with no lock timeout and no xdist.
-The default uv cache is outside writable roots, so uv uses the task's disposable
-scratch cache. Hypothesis uses the bounded `ci` profile and scratch storage.
-No logs, JSON evidence or bundles are staged. Detailed counts and final status
-will replace this in-progress ledger.
+- `9fad7c4fe`: 2 completed files, 88 passed.
+- `f07751fc1`: 8 locally completed files, 249 passed, 17 failed.
+- Fixed source: 2 completed files, 88 passed.
 
-Checkpoint, 05:36 UTC: six original-head files completed: 189 passed and
-14 failed, matching all reported conversation/title and frontend failures.
-`test_daemon_settle.py` is waiting for its lock hold. Base and fixed-source
-results are still pending. The local interpreter is Python 3.14.7 free-threading;
-this is not a claim of rerunning both CI interpreters. A provisional delivery
-bundle in `.git-local/round4.bundle` verifies against the original-head
-prerequisite; it will be refreshed after the final report commit.
+All local runs use Python 3.14.7 free-threading. Python 3.12 and CI's other
+Python 3.14 build were not rerun. The head-side legacy-hold, stateful-admission
+and salvage failures use the supplied CI logs; those three files were not
+rerun locally at the head after prolonged lock waits. No local passing count
+is inferred from CI. Each completed base/head/fixed result below is counted
+once per file and version. The stateful file has one additional round-4 case.
 
-At 06:00 UTC, after extended lock waits, the remaining original-head reruns
-(`test_legacy_hold.py`, `test_admission_stateful.py`, `test_salvage_finalization.py`)
-were deferred in favor of the required base and fixed-source executions. The
-supplied CI logs remain the head-side failure evidence for those three files;
-they are not counted as local executions.
+Each pytest runs in the foreground, alone under its own `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout or xdist.
+The longest reported pytest runtime so far is 131.42 s;
+that duration excludes waiting for the shared lock. Future runs log lock
+acquisition and refuse to start pytest after the cutoff. Hypothesis uses the
+bounded `ci` profile and task scratch storage. The default uv cache is outside
+writable roots, so a disposable cache inside task scratch is used.
 
-The quarantine method and its failing test have identical syntax trees at
-`9fad7c4fe` and `f07751fc1`; the base execution remains pending. Seven local
-head files have completed with 230 passed and 16 failed. Both daemon-settle
-failures reproduced, including the duplicate ownership event (the read-count
-assertions pass). No fixed-source passing result is claimed at this checkpoint.
+Rows marked `unrun` are the complete remaining list by file for that version;
+`—` means no base/head comparison was requested for a regression-only file.
+Skipped cases were not executed. Tests outside these 54 selected files were
+not run. No logs, JSON evidence or bundles are staged.
 
-Checkpoint, 06:52 UTC: `tests/unit/test_conversation_steer_service.py` now
-completes the comparison: **45 passed at 9fad7c4fe**, **43 passed / 2 failed
-at f07751fc1**, and **45 passed with round-4 fixtures**. The job id parsed from
-`host/a1` is correct; the missing job/attempt rows caused the failures. The
-original stop and concurrency assertions remain intact. The production
-ownership-event fix is next, via the daemon-settle base/fixed pair. Later pairs
-prioritize the protocol, admission, salvage, legacy and census causes before
-returning to remaining title/outbox/steer files. Broad requested regressions
-remain queued after failing-file verification; extra round-3 probes are last.
+| File | 9fad7c4fe | f07751fc1 | Round 4 |
+| --- | --- | --- | --- |
+| `tests/fake/test_admission_disk.py` | — | — | unrun |
+| `tests/fake/test_admission_held_waiters.py` | — | — | unrun |
+| `tests/fake/test_admission_latency.py` | — | — | unrun |
+| `tests/fake/test_admission_lease_waiters.py` | — | — | unrun |
+| `tests/fake/test_admission_liveness.py` | — | — | unrun |
+| `tests/fake/test_admission_priority.py` | — | — | unrun |
+| `tests/fake/test_admission_properties.py` | — | — | unrun |
+| `tests/fake/test_admission_ramp.py` | — | — | unrun |
+| `tests/fake/test_admission_ramp_retention.py` | — | — | unrun |
+| `tests/fake/test_admission_route_isolation.py` | — | — | unrun |
+| `tests/fake/test_admission_stateful.py` | unrun | unrun | unrun |
+| `tests/fake/test_admission_visibility.py` | — | — | unrun |
+| `tests/fake/test_census_recycled_pid_daemon.py` | — | — | unrun |
+| `tests/fake/test_retry_for_good_refusals.py` | — | — | unrun |
+| `tests/fake/test_review_r223_wall_probes.py` | — | — | unrun |
+| `tests/fake/test_salvage_finalization.py` | unrun | unrun | unrun |
+| `tests/fake/test_state_contract.py` | — | — | unrun |
+| `tests/fake/test_wall_inspection_order.py` | — | — | unrun |
+| `tests/fake/test_wall_running_time.py` | — | — | unrun |
+| `tests/frontend/test_core_app_cutover_reading.py` | — | — | unrun |
+| `tests/frontend/test_core_approval_notification.py` | — | — | unrun |
+| `tests/frontend/test_core_approval_reach.py` | — | — | unrun |
+| `tests/frontend/test_core_client.py` | — | — | unrun |
+| `tests/frontend/test_core_diff.py` | — | — | unrun |
+| `tests/frontend/test_core_draft.py` | — | — | unrun |
+| `tests/frontend/test_core_idle.py` | — | — | unrun |
+| `tests/frontend/test_core_live.py` | — | — | unrun |
+| `tests/frontend/test_core_live_failure.py` | — | — | unrun |
+| `tests/frontend/test_core_markdown.py` | — | — | unrun |
+| `tests/frontend/test_core_outbox.py` | unrun | 10 passed, 3 failed | unrun |
+| `tests/frontend/test_core_protocol.py` | unrun | 8 passed, 1 failed | unrun |
+| `tests/frontend/test_core_question_card.py` | — | — | unrun |
+| `tests/frontend/test_core_search.py` | — | — | unrun |
+| `tests/frontend/test_core_steer.py` | unrun | 41 passed, 2 failed | unrun |
+| `tests/frontend/test_core_steer_properties.py` | — | — | unrun |
+| `tests/frontend/test_core_store.py` | — | — | unrun |
+| `tests/frontend/test_core_suggestions.py` | — | — | unrun |
+| `tests/frontend/test_core_suggestions_r1b.py` | — | — | unrun |
+| `tests/frontend/test_core_text_scale.py` | — | — | unrun |
+| `tests/frontend/test_core_timeline.py` | — | — | unrun |
+| `tests/frontend/test_core_titles.py` | — | — | unrun |
+| `tests/unit/test_census_responsibility_failures.py` | unrun | 19 passed, 1 failed | unrun |
+| `tests/unit/test_conversation_handoff.py` | — | — | unrun |
+| `tests/unit/test_conversation_service.py` | — | — | unrun |
+| `tests/unit/test_conversation_steer_service.py` | 45 passed | 43 passed, 2 failed | 45 passed |
+| `tests/unit/test_conversation_titles.py` | unrun | 85 passed, 4 failed | unrun |
+| `tests/unit/test_daemon_inspection_load.py` | — | — | unrun |
+| `tests/unit/test_daemon_settle.py` | 43 passed | 41 passed, 2 failed | 43 passed |
+| `tests/unit/test_inspection_pacing_properties.py` | — | — | unrun |
+| `tests/unit/test_legacy_hold.py` | unrun | unrun | unrun |
+| `tests/unit/test_review_r223_conv_probes.py` | — | — | unrun |
+| `tests/unit/test_settle_properties.py` | — | — | unrun |
+| `tests/unit/test_tick_prefilter.py` | — | — | unrun |
+| `tests/unit/test_title_review_regressions.py` | unrun | 2 passed, 2 failed | unrun |
+
+### Commits and delivery
+
+The shared index refused `index.lock` with `Operation not permitted`. Commits
+use workspace-local `.git-local`, on `fix/wall-counts-running-time-217`, with
+`f07751fc179f` as ancestor. The original `.git` pointer and shared index remain
+preserved. Every commit carries the requested Claude Opus 5.5 co-author trailer.
+No history was rewritten and nothing was pushed. Source and checkpoint commits
+are below; the containing report commit follows them.
+
+| Commit | Step |
+| --- | --- |
+| `5942d2a77` | test: give cancellation fixtures job identities and socket audit tokens |
+| `0050f2e88` | test: separate liveness observations from process ownership changes |
+| `2ab39bcdb` | fix: keep paced liveness updates distinct from ownership evidence |
+| `62e71c067` | test: retain CI provider-cap trace for an exhausted retry lane |
+| `e764f8f3b` | test: apply permanent retry refusal semantics to admission and salvage fixtures |
+| `1fc28e91e` | docs: checkpoint round-four CI causes and fixture corrections |
+| `5adb653cb` | test: drive permanent retry contention in a bounded Hypothesis context |
+| `fd014f227` | test: advance inspection observations relative to the fixture clock |
+| `40bb6b554` | test: retain numeric pids in frontend person verdicts |
+| `671953e02` | docs: record initial CI reproductions and the conservative test cutoff |
+| `917d4cd54` | docs: prioritize base and fixed-source runs after prolonged lock waits |
+| `5c8f7cacd` | docs: record the first passing base-head-fixed cancellation comparison |
+
+Delivery: `.git-local/round4.bundle`, prerequisite `f07751fc179f`, advertising
+`refs/heads/fix/wall-counts-running-time-217`. Refresh and verify it against the
+final report commit before delivery.
+
+Cleanup status: pending. Before finishing, wait for the foreground runner to
+exit, remove task scratch and both comparison archives with Python
+`shutil.rmtree`, and verify there is no `.hypothesis` folder. Preserve the
+workspace-local Git metadata and dependency environment for review.
