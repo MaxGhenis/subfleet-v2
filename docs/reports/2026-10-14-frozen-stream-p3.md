@@ -391,3 +391,155 @@ Round-3 commits before this report:
 - `06571c8a5`: artifact-based Codex and Claude e2e assertions.
 - `9a5e41555`: first-capture and repeated-read-error regressions.
 - `73386b6be`: freeze failures settle without completion proof, plus contract.
+
+
+## Round 4: review r3, base `d8e4c0c0de44`
+
+Review: `~/reviews/subfleet-2110/frozen-stream-p3/review-r3.md`, read in full.
+Work stayed in the assigned checkout; no network Git remotes, pushes, sub-agents
+or production state/processes were used.
+
+Regressions were committed first in `0cb14ce5a`. With production unchanged at
+`d8e4c0c0de44`, all **45 selected cases failed**: 36 replay/copy-authority cases,
+six turn cases and three rejected-copy cleanup cases. Both recorded-failure
+and recorded-success replay shapes failed in process and after constructing a
+new `Daemon`; the real mode-000 stderr cases use the kernel's PermissionError,
+restore readability before replay, and have no capture stub. Failure cases
+include already-complete streams, late completion and legacy round-3 records.
+The changelog finding is documentary; it has no meaningful runtime regression.
+
+Finding dispositions:
+
+1. Capture failures now have an explicit durable `stream_capture` record with
+   class and error in `finalization.json`. Replay also recognises round-3's
+   outcome-evidence-only failure records. A saved failure skips freezing,
+   extraction and the completion reader; its verdict remains byte-identical.
+   A saved success validates its recorded copy without calling the capture
+   routine. Missing, replaced, modified or newly writable recorded copies
+   become capture failures and never trigger another live-candidate read.
+   Cached deliverables cannot become artifact rows or exports on that path.
+   The receipt reader audit found `_finalize` is the sole direct reader;
+   salvage retries, `_process_attempt` and restart recovery route through it.
+   Run inspection and offline CLI views consume artifact rows. The legacy
+   `reset_finalization` marker also rejects an unbound cached verdict after an
+   older daemon replaced its copy; both replay and restart have regressions.
+2. Conversation turns bypass stream capture. The real `TurnAdapter` classifies
+   a driver's `turn.json` complete as ok/succeeded despite injected ENOSPC or
+   EIO on the capture path; both providers store no frozen stream or receipt.
+   C-4.3 and C-26.8 state the exemption.
+3. Each rejected copy is unlinked before retry and on any exception, including
+   failure after receipt publication. The regressions check cleanup between
+   retries and after all three rejected copies, plus a validation I/O error.
+4. The contract changelog now records rounds 3 and 4: transient/unknown failure
+   settlement, best-effort diagnostics, artifact readers, sticky failure
+   verdicts and the turn exemption. C-4.3/C-8.2 remove the superseded recapture
+   rule. The round-2 changelog marks that historical rule as superseded.
+
+Follow-up commits: `3a8040a96` (durable verdicts and round-3/4 changelog),
+`925b4f0cc` (turn exemption), `03e099a43` (rejected-copy cleanup),
+`d4ec51f9f` (additional legacy-recapture tests), and `a76317a6b` (legacy receipt
+binding and clearing captured-artifact state on failure). The two additional
+cases were added after the executed 45-case baseline check; at base, the
+`reset_finalization` branch reclassifies and extracts instead of recording a
+capture failure. They were not separately executed against base.
+
+Final validation on 2026-10-16, functional code head `a76317a6b`:
+**2,267 distinct tests passed, 69 skipped, zero post-fix failures**. Counts use
+the latest full run of each file, without double-counting repeated stream and
+settlement checks. Every requested file was invoked. All 47 fix-specific cases
+passed, including both additional legacy-recapture cases.
+
+The sandbox cannot obtain macOS boot/process identity. Existing C-5.3 guards
+skipped 63 e2e cases (all four e2e files below) and six legacy-hold process cases.
+Those cases did not execute; no end-to-end pass is claimed. The sole warning
+is the existing Codex `zip` parametrization deprecation.
+
+Turn coverage follows the literal `turn.json`/`TurnAdapter` matches and actual
+settlement calls, including imported `_on_outcome`/`_settle_runner` and
+`writable_turn` helpers, the runner/driver checks and conversation e2e file.
+Incidental JSON-return helpers, settings checks and static view fixtures do not
+drive a turn through settlement.
+
+| File under `tests/` | Passed | Skipped |
+| --- | ---: | ---: |
+| `e2e/test_codex_turn_completed_e2e.py` | 0 | 3 |
+| `e2e/test_conversations.py` | 0 | 44 |
+| `e2e/test_milestone1_codex.py` | 0 | 9 |
+| `e2e/test_milestone2_claude.py` | 0 | 7 |
+| `fake/test_codex_turn_completed_fake.py` | 105 | 0 |
+| `fake/test_finalization_replay.py` | 10 | 0 |
+| `fake/test_frozen_stream_nonregular.py` | 94 | 0 |
+| `fake/test_record_secrecy.py` | 44 | 0 |
+| `fake/test_salvage_adversarial.py` | 8 | 0 |
+| `fake/test_salvage_finalization.py` | 47 | 0 |
+| `fake/test_state_contract.py` | 37 | 0 |
+| `fake/test_turn_trees.py` | 18 | 0 |
+| `unit/test_approval_resolution.py` | 33 | 0 |
+| `unit/test_claude_turn.py` | 61 | 0 |
+| `unit/test_codex_turn.py` | 58 | 0 |
+| `unit/test_codex_turn_completed.py` | 41 | 0 |
+| `unit/test_conversation_fifo_reads.py` | 26 | 0 |
+| `unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 |
+| `unit/test_conversation_service.py` | 98 | 0 |
+| `unit/test_conversation_state_reads.py` | 18 | 0 |
+| `unit/test_conversation_steer_service.py` | 45 | 0 |
+| `unit/test_conversation_titles.py` | 89 | 0 |
+| `unit/test_daemon_settle.py` | 61 | 0 |
+| `unit/test_empty_provider_results.py` | 334 | 0 |
+| `unit/test_frozen_provider_streams.py` | 201 | 0 |
+| `unit/test_inspection_pacing_properties.py` | 1 | 0 |
+| `unit/test_legacy_hold.py` | 50 | 6 |
+| `unit/test_prune_217.py` | 9 | 0 |
+| `unit/test_retention_archive.py` | 109 | 0 |
+| `unit/test_review_r2_repro.py` | 31 | 0 |
+| `unit/test_review_r5_repro.py` | 17 | 0 |
+| `unit/test_review_r6_probes.py` | 30 | 0 |
+| `unit/test_review_r6_restart.py` | 5 | 0 |
+| `unit/test_sessions_transcripts.py` | 71 | 0 |
+| `unit/test_settle_properties.py` | 129 | 0 |
+| `unit/test_steer_invariants.py` | 248 | 0 |
+| `unit/test_test_module_names.py` | 1 | 0 |
+| `unit/test_timers_retention.py` | 20 | 0 |
+| `unit/test_turn_replay.py` | 33 | 0 |
+| `unit/test_turn_runner.py` | 76 | 0 |
+
+All runs used separate foreground `lockf -k` holds, no lock timeout, one
+pytest process and one worker, `env -u SUBFLEET_RETENTION_DORMANT`, disabled
+pytest cache, disposable TMPDIR/Hypothesis storage and `HYPOTHESIS_PROFILE=ci`.
+Tests kept their bounded settings; `deep` was never used. Dependencies were
+installed with `uv run` into this checkout's `.venv`, with `UV_CACHE_DIR` inside
+each task TMPDIR because the default cache is outside writable roots. Python
+was 3.14.7 freethreaded with `PYTHON_GIL=1`. No test was skipped for cache access.
+
+| Hold | Result | Pytest seconds |
+| --- | --- | ---: |
+| Baseline selected regressions | 45 expected failures | 74.35 |
+| Initial stream/settlement checks | 351 passed, 3 deselected | 137.66 |
+| Full stream pair | 293 passed | 107.63 |
+| Turn unit/fake coverage and Claude e2e | 1,154 passed, 13 skipped | 737.57 |
+| Codex completion | 146 passed, 3 skipped | 50.82 |
+| Settlement/replay/salvage | 248 passed | 75.85 |
+| Retention | 138 passed, 9 skipped | 234.75 |
+| Contract plus stream recheck | 333 passed | 234.39 |
+| Conversation e2e and steer properties | 248 passed, 44 skipped | 267.54 |
+
+Every hold stayed below 20 minutes. Lock queues were waited out without
+relaunching a runner. All requested holds started before the 4 h 30 m cutoff.
+The skipped cases listed above, Python 3.12, the broader full/process/frontend/
+live suites and CI were not executed in this job.
+
+Cleanup removed task TMPDIRs with Python `shutil.rmtree`, restoring owner
+write/search permission on read-only test directories first when needed.
+Temporary dependencies and bytecode were removed; no `.hypothesis` folder
+remains. The foreground runner finished with no task process left running.
+`git diff --check` passes.
+
+Shared Git metadata is outside the writable roots. All commits use
+`.git-local/repository.git` on `fix/frozen-stream-p3`, borrowing base objects
+read-only. The original `.git` pointer and detached HEAD are preserved. The
+ignored delivery bundle is `docs/reports/2026-10-14-frozen-stream-p3.bundle`,
+with prerequisite `d8e4c0c0de44` and the workspace-local branch. Only named source,
+test and documentation files were staged; every commit has the requested
+co-author trailer. No logs, JSON evidence or bundles were staged. No push.
+
+DONE
