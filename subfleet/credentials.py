@@ -250,7 +250,7 @@ def _exec_guard(pins: list[tuple[str, str]], *, system_dirs=_SYSTEM_BINARY_DIREC
             return  # Arguments the launch itself rejects before starting anything.
         if (refused or any(target == "security" or _matches(target, _native)
                            for target in starts)) and _active(pins):
-            raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX)
+            raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX, reason="keychain-test-guard")
 
     return guard
 
@@ -322,7 +322,7 @@ def keychain_command(reference: str, security_bin: str = "security", *,
     # the early refusal that explains itself; the exec guard below is the rule.
     if (under_pytest() and (runner is None or runner is _NATIVE_RUNNER)
             and _starts_keychain_binary(security_bin)):
-        raise AdapterError(_REFUSAL, code=7, fix=_REFUSAL_FIX)
+        raise AdapterError(_REFUSAL, code=7, fix=_REFUSAL_FIX, reason="keychain-test-guard")
     return [security_bin, "find-generic-password", "-s", reference, "-w"]
 
 
