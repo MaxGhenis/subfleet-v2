@@ -83,13 +83,15 @@ final class OpeningPinView: NSView {
 
     private func schedulePin() {
         guard !personScrolled, !pinScheduled else { return }
-        // Let SwiftUI finish this layout before scrolling. A new measurement
-        // schedules another pass, even when no FollowKey changed.
+        // Coalesce this SwiftUI update first, then run after the scroll work
+        // queued by that update. Offset-only Review jumps schedule nothing.
         pinScheduled = true
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.pinScheduled = false
-            self.pin()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pinScheduled = false
+                self.pin()
+            }
         }
     }
 

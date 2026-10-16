@@ -585,3 +585,18 @@ allows 900 seconds for compilation plus the existing 60-second probe bound,
 remaining within a 20-minute hold. Its geometry/assertion tolerances are
 unchanged. Parallel preparation is stopped during this rerun. Prepared view
 mutants receive the same compile budget outside their eventual pytest holds.
+
+The isolated view compile also timed out at 900 seconds: **4 setup errors**,
+912.65 seconds of pytest time / **915.24 seconds** holding the lock. No
+rendering assertions ran in that hold. The small real-observer replay passes
+after the two-stage main-queue change (end distance 0, Review offset 250),
+but the two full SwiftUI OS-path checks remain **unverified after this fix**.
+The application change is kept with that explicit verification gap; no
+assertion or geometry tolerance has been weakened. All 19 core review probes
+passed with the selected toolchain.
+
+To preserve time for the required mutants, the full engine hold retains its
+earlier 75-pass result rather than taking the planned additional hold; its
+withdrawal branches are unchanged, and the named engine mutation targets
+exercise the current code. The unaffected row-only tray-view result remains
+15 passed. Remaining files and mutants will be listed explicitly at cutoff.
