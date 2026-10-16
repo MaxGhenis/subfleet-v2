@@ -57,14 +57,14 @@ from .contracts import (
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
-from .credentials import resolve_credential
+from .credentials import env_references, resolve_credential
 from .provider_env import ProviderEnvironment
 from .launch_env import environment_report, guardian_pass_args, helper_policy
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
-                     policy_hash, ramp_settings, resolve_model, turn_cap)
+from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
+                     disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
@@ -798,7 +798,10 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
-        self._provider_environment = ProviderEnvironment(self.policy, log=self.log)
+        # D-ENV1: every launch withholds the lanes' credential references, read
+        # from the store at each launch; a lane gets only its own, resolved.
+        self._provider_environment = ProviderEnvironment(self.policy, log=self.log,
+                                                         references=self._lane_credential_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
@@ -820,6 +823,9 @@ class Daemon:
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
         self._seed_lanes()
+        # D-ENV1: policy validation that needs the lanes: env.pass may not name
+        # a lane's credential reference. `_released_on_failure` gives back the rest.
+        check_lane_credentials(self.policy, self._lane_credential_references(), policy_path)
         # 13: retention's pass (d635) can hold one worker for minutes; the other
         # twelve are what attempts, admission and exports had before.
         self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
@@ -3117,6 +3123,10 @@ class Daemon:
         if environment is not None:
             adapter.provider_environment = environment
         return adapter
+
+    def _lane_credential_references(self) -> frozenset[str]:
+        """D-ENV1: the daemon variables env-kind lanes name; no launch inherits one."""
+        return env_references(self.store.list_lanes())
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))

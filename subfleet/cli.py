@@ -63,8 +63,9 @@ from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_I
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
+from .credentials import env_references
 from .launch_env import build_environment
-from .policy import PolicyError, load_policy
+from .policy import PolicyError, check_lane_credentials, load_policy
 from .store import notice_fingerprint
 
 PROG = "subfleet"
@@ -2475,19 +2476,39 @@ def _daemond_argv(root: Path) -> list[str]:
 
 
 # Historical exclusions retained for compatibility consumers. Daemon startup
-# selects from launch_env.ALLOWED_NAMES and policy names; this tuple no longer
-# defines the environment boundary (C-12.3/4, D-ENV1).
+# selects from launch_env's allowlist, policy names and the lanes' credential
+# references; this tuple no longer defines the environment boundary (C-12.3/4, D-ENV1).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
                 "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
                 *GIT_LOCATION_ENV, "GIT_INDEX_FILE", *GIT_PATHSPEC_ENV)
 
 
+def _lane_credential_references(root: Path) -> frozenset[str]:
+    """D-ENV1: env-kind lane references from the seed roster and the store.
+
+    The daemon seeds `lanes.json` into the store at startup, and the store may
+    hold lanes the file no longer lists; either may be absent.
+    """
+    try:
+        roster = json.loads((root / "lanes.json").read_bytes())
+    except (OSError, ValueError):
+        roster = []
+    if isinstance(roster, dict):
+        roster = roster.get("lanes", [])
+    rows = [row for row in roster if isinstance(row, dict)] if isinstance(roster, list) else []
+    return env_references([*rows, *(_lane_rows(root) or [])])
+
+
 def daemon_env(root: Path) -> dict[str, str]:
     policy_path = root / "policy.json"
     policy = load_policy(policy_path) if policy_path.exists() else {}
+    references = _lane_credential_references(root)
+    check_lane_credentials(policy, references, policy_path)
+    # The daemon holds each env-kind lane credential so it can resolve it; every
+    # launch withholds them, and each lane receives only its own (D-ENV1).
     return build_environment({"SUBFLEET_HOME": str(root)},
-                             pass_names=policy.get("env", {}).get("pass", ()))
+                             pass_names=(*policy.get("env", {}).get("pass", ()), *sorted(references)))
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:

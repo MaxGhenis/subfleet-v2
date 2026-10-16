@@ -339,6 +339,19 @@ def _fraction(value: Any, maximum: float = 1) -> bool:
             and math.isfinite(value) and 0 <= value <= maximum)
 
 
+def check_lane_credentials(policy: Mapping[str, Any], references: Iterable[str], path: str | Path) -> None:
+    """D-ENV1: `env.pass` is for noncredential names. An env-kind lane's
+    reference is the daemon's alone and reaches only its own lane, resolved into
+    its credential, so a policy naming one is refused wherever the lanes are
+    known: `daemon start` and daemon startup (`credentials.env_references`)."""
+    references = frozenset(references)
+    for index, name in enumerate((policy.get("env") or {}).get("pass", ())):
+        if name in references:
+            raise PolicyError(path, f"env.pass[{index}]",
+                              "names a lane's credential reference, which reaches only its own lane; "
+                              "remove it (the daemon holds each lane's credential without it)")
+
+
 def load_policy(path: str | Path) -> dict[str, Any]:
     """C-11.1: validate routing data and retain the hash of the bytes evaluated.
 

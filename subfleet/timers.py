@@ -20,7 +20,7 @@ from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
-from .credentials import resolve_credential
+from .credentials import env_references, resolve_credential
 from .sessions.transcripts import read_regular
 from .store import Store
 
@@ -454,6 +454,10 @@ class Timers:
                 for row in self.store.query("SELECT lane_id,identity,label,account_key,enabled FROM lanes "
                                             "WHERE provider='claude' ORDER BY created_at,rowid")]
 
+    def _provider_environment(self) -> ProviderEnvironment:
+        """The daemon's launch selection: no lane's credential reference (D-ENV1)."""
+        return ProviderEnvironment(self.policy, references=lambda: env_references(self.store.list_lanes()))
+
     def _card_sensor(self):
         if self._cards_sensor is None:
             from .adapters.claude import ENROLL_MODEL, ENROLL_PROMPT, home_login
@@ -465,8 +469,8 @@ class Timers:
                 login_reader=home_login,
                 heal=lambda home: claude_cards.heal_turn(home, claude_bin=claude_bin, model=ENROLL_MODEL,
                                                          prompt=ENROLL_PROMPT, cancel=self.cancel,
-                                                         environment=ProviderEnvironment(self.policy)),
-                version=lambda: claude_cards.cli_version(claude_bin, environment=ProviderEnvironment(self.policy)),
+                                                         environment=self._provider_environment()),
+                version=lambda: claude_cards.cli_version(claude_bin, environment=self._provider_environment()),
                 now=self.now)
         return self._cards_sensor
 

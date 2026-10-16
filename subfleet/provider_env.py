@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 import logging
 import os
 import ssl
@@ -43,20 +43,32 @@ class ProviderEnvironment:
     A shared instance logs an unusable path once, including concurrent launches.
     Presence, even an empty value, is an operator choice. If the operator set
     both variables, both are preserved; Subfleet only ever adds one itself.
+
+    D-ENV1: `references` returns the daemon variables env-kind lanes name, read
+    at each launch. None is inherited or passed by name: a lane's own value
+    arrives only as its resolved credential, in that lane's additions.
     """
 
-    def __init__(self, policy: Mapping[str, Any], *, log: logging.Logger | None = None):
+    def __init__(self, policy: Mapping[str, Any], *, log: logging.Logger | None = None,
+                 references: Callable[[], Iterable[str]] | None = None):
         self.policy = policy
         self.pass_names = tuple(policy.get("env", {}).get("pass", ()))
+        self.references = references if references is not None else (lambda: ())
         self.log = log if log is not None else logging.getLogger(__name__)
         self._warned: set[str] = set()
         self._warning_lock = threading.Lock()
+
+    def withheld(self) -> frozenset[str]:
+        """Every lane's credential reference, never selected from a parent."""
+        return frozenset(self.references())
 
     def additions(self, provider: str, env_add: Mapping[str, str] | None = None, *,
                   environ: Mapping[str, str] | None = None) -> dict[str, str]:
         """Build Launch.env_add without mutating the daemon's environment."""
         environ = os.environ if environ is None else environ
-        result = {name: environ[name] for name in self.pass_names if name in environ}
+        withheld = self.withheld()
+        result = {name: environ[name] for name in self.pass_names
+                  if name in environ and name not in withheld}
         result.update(env_add or {})
         if provider != "codex":
             return result
@@ -106,7 +118,9 @@ class ProviderEnvironment:
 
         A launch selects with ``additions`` once, then uses that result for
         adapter inspection, preflight and its guardian. Recovery selects anew.
-        Ambient name selection is repeated at every process boundary.
+        Ambient name selection is repeated at every process boundary, and
+        withholds every lane's credential reference each time.
         """
         environ = os.environ if environ is None else environ
-        return build_environment(env_add, env_remove, pass_names=self.pass_names, environ=environ)
+        return build_environment(env_add, env_remove, pass_names=self.pass_names, environ=environ,
+                                 withheld=self.withheld())

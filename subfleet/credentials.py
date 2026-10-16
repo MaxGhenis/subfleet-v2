@@ -2,13 +2,35 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
-from .launch_env import build_environment
+from .launch_env import allowed_name, build_environment, valid_name
 from .adapters.base import AdapterError
-from .contracts import Credential
+from .contracts import Credential, Lane
+
+
+def env_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[str]:
+    """D-ENV1: the daemon variables env-kind lanes name, from lanes or roster rows.
+
+    The daemon alone holds them. Each lane receives only its own, resolved into
+    its credential; every launch withholds all of them by name.
+    """
+    references = set()
+    for lane in lanes:
+        if isinstance(lane, Mapping):
+            credential = lane.get("credential")
+            if not isinstance(credential, Mapping):
+                credential = {"kind": lane.get("credential_kind"), "ref": lane.get("credential_ref")}
+            kind, ref = credential.get("kind"), credential.get("ref")
+        else:
+            kind, ref = lane.credential.kind, lane.credential.ref
+        if kind == "env" and valid_name(ref):
+            references.add(ref)
+    return frozenset(references)
 
 
 def keychain_command(reference: str, security_bin: str = "security") -> list[str]:
@@ -32,6 +54,11 @@ def resolve_credential(credential: Credential) -> dict[str, str]:
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
         return {key: str(Path(credential.ref).expanduser().resolve())}
     if credential.kind == "env" and credential.provider == "claude":
+        if allowed_name(credential.ref):
+            # D-ENV1: every launch inherits an allowlisted name, so it cannot be one lane's.
+            raise AdapterError("lane environment credential names a variable every launch inherits", code=7,
+                               fix=f"store the lane OAuth token under a daemon variable other than {credential.ref}",
+                               reason="credential-env")
         token = os.environ.get(credential.ref)
         if not token or not token.strip():
             raise AdapterError("could not resolve lane environment credential", code=7,
