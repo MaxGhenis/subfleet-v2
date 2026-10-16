@@ -528,37 +528,41 @@ checkpoint as the holds complete.
 
 ## Round 4 (2026-10-16): CI at f07751fc1
 
-Status at 2026-10-16 09:16 UTC: fixed-source pytest invocations completed for
+Final status, 2026-10-16 09:27 UTC: fixed-source pytest invocations completed for
 **4 of 54 selected files: 100 passed**.
 **50 selected files remain unrun on the fixed source.** This is a
 local validation result, not a full CI run. The first clock observation was
 04:51 UTC; the workspace job stamp is 04:46 UTC, so the conservative cutoff for
-starting further runs is 09:16 UTC. Lock waits count against that wall.
+starting further runs was 09:16 UTC. Lock waits count against that wall.
 
-The **09:16 UTC cutoff has been reached**. No additional pytest starts are
-authorized. The already-queued fixed-salvage lock wait remains active; its
-cutoff guard will return without pytest when it acquires the lock. The
-remaining 50 selected files are unrun on the fixed source. Foreground
-runner shutdown and scratch cleanup remain pending.
+The no-new-test cutoff was enforced. The queued fixed-salvage invocation
+acquired the lock at **09:25 UTC**, returned **77** without starting
+pytest, and the foreground runner then exited. No pytest ran after the
+cutoff. No further selected-file runs were started. The 50 fixed-source
+files marked `unrun` below include every requested broad regression
+group. This round did not complete all requested validation.
 
 ### Causes and changes
 
 Where a requested base run is unrun below, attribution is based on source and
 CI evidence rather than a local differential run.
 
-- Conversation stop/title fixtures had runners named `host/a1` or `job/a1`
-  without corresponding jobs or attempts in their real job store. Parsing those
+- Round-3 conversation attribution (`3acd284b0`, `a36f2776e`) exposed stop/title
+  fixtures with runners named `host/a1` or `job/a1` without corresponding jobs or attempts in their real job store. Parsing those
   attempt ids produced the correct job id, but round 3's new attribution write
   could not find that job. The fixtures now create the missing rows and retain
   every existing stop, title ordering and concurrency assertion. The legacy
   hold double records the newly required cancellation request.
-- The frontend harness still passed integer pids after the daemon's peer seam
-  became a saved audit token. It now supplies audit tokens for direct calls and
+- The frontend harness passed integer pids to an interface that receives a
+  saved audit token. `3acd284b0` began reading its pid, exposing the fixture
+  mismatch. The harness now supplies audit tokens for direct calls and
   reads them from sockets. Its cancellation seam records requests. The protocol
   stand-in runner now has an attempt id, and the lossless round-trip test also
-  asserts the client attribution. No application reply field or wire shape is
-  changed.
-- Round 3's `_record_owned` wrote a second `attempt.processes_recorded` event
+  asserts the client attribution. Production captures `peer_token(conn)` at
+  accept and forwards it unchanged through the reader and request dispatcher.
+  No application reply field or wire shape is changed.
+- Round 3's `0c86a27ad` made `_record_owned` write a second
+  `attempt.processes_recorded` event
   whenever the observation clock advanced, even when membership did not change.
   It also materialized an empty ownership map when a living guardian had left
   its recorded group. Liveness still advances durably from the pass's existing
@@ -566,10 +570,14 @@ CI evidence rather than a local differential run.
   ownership claim is created. The pacing regression now advances its clock
   deterministically and checks both the updated observation and the original
   ownership-event count.
-- The quarantine reaping double now supplies its receipt reader and an isolated
-  root. Its original reaping assertions are unchanged.
-- The admission machine's FIFO oracle omitted the new `lanes-unadmittable` hold.
-  A retry whose two transient failures excluded the fleet's only lane correctly
+- The quarantine reaping failure predates round 3: its test and `_quarantine`
+  have identical syntax trees at `9fad7c4fe` and `f07751fc1`. Its `SimpleNamespace`
+  double lacked the legitimate receipt reader and root; both are now supplied
+  using isolated scratch. Original reaping assertions are unchanged. Its base
+  and fixed-source executions remain unrun, so this classification is based on
+  the source comparison and the reproduced head failure.
+- The admission machine's FIFO oracle omitted `f91b3ee4f`'s new
+  `lanes-unadmittable` hold. A retry whose two transient failures excluded the fleet's only lane correctly
   holds nobody back (C-11.8). The oracle now applies that rule and validates the
   hold's required evidence. A deterministic replay retains CI's minimized trace.
   This changes the old oracle's assumption that an unrecognized hold competes;
@@ -578,10 +586,11 @@ CI evidence rather than a local differential run.
   existing acceptance rule downgrades those success claims to transient. The
   dedicated regression requests two transient outcomes explicitly.
 - The held-start salvage fixture also exhausted its only lane after two
-  transients. The new permanent-refusal check correctly runs before workspace
+  transients. `f91b3ee4f`'s permanent-refusal check runs before workspace
   preparation, so no a3 baseline was written. That fixture now supplies a spare
-  eligible lane before applying a zero fleet cap, reaching the intended held
-  start and retaining all ref, notice and work-preservation assertions.
+  eligible lane before applying a zero fleet cap so it can reach the intended
+  held start. All ref, notice and work-preservation assertions remain. The fixed
+  file was not executed before the cutoff.
 
 ### Validation
 
@@ -589,20 +598,20 @@ CI evidence rather than a local differential run.
 - `f07751fc1`: 8 locally completed files, 249 passed, 17 failed.
 - Fixed source: 4 completed files, 100 passed.
 
-All local runs use Python 3.14.7 free-threading. Python 3.12 and CI's other
+All local runs used Python 3.14.7 free-threading. Python 3.12 and CI's other
 Python 3.14 build were not rerun. The head-side legacy-hold, stateful-admission
 and salvage failures use the supplied CI logs; those three files were not
 rerun locally at the head after prolonged lock waits. No local passing count
 is inferred from CI. Each completed base/head/fixed result below is counted
 once per file and version. The stateful file has one additional round-4 case.
 
-Each pytest runs in the foreground, alone under its own `lockf -k` hold of
+Each pytest ran in the foreground, alone under its own `lockf -k` hold of
 `/private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout or xdist.
-The longest reported pytest runtime so far is 131.42 s;
-that duration excludes waiting for the shared lock. Future runs log lock
-acquisition and refuse to start pytest after the cutoff. Hypothesis uses the
+The longest reported pytest runtime was 131.42 s;
+that duration excludes waiting for the shared lock. Later runs logged lock
+acquisition and checked the cutoff before starting pytest. Hypothesis used the
 bounded `ci` profile and task scratch storage. The default uv cache is outside
-writable roots, so a disposable cache inside task scratch is used.
+writable roots, so a disposable cache inside task scratch was used.
 
 Rows marked `unrun` are the complete remaining list by file for that version;
 `—` means no base/head comparison was requested for a regression-only file.
@@ -666,7 +675,7 @@ not run. No logs, JSON evidence or bundles are staged.
 | `tests/unit/test_tick_prefilter.py` | — | — | unrun |
 | `tests/unit/test_title_review_regressions.py` | unrun | 2 passed, 2 failed | unrun |
 
-### Commits and delivery
+### Commit storage and delivery
 
 The shared index refused `index.lock` with `Operation not permitted`. Commits
 use workspace-local `.git-local`, on `fix/wall-counts-running-time-217`, with
@@ -692,12 +701,15 @@ are below; the containing report commit follows them.
 | `b796695c0` | docs: record verified ownership fix and full per-file validation status |
 | `3f98e363a` | docs: record lossless protocol verification and current test ledger |
 | `fd3e5be3f` | docs: record bounded admission regression and one hundred passing tests |
+| `ca7665e37` | docs: stop test starts at the wall checkpoint and list unrun files |
 
 Delivery: `.git-local/round4.bundle`, prerequisite `f07751fc179f`, advertising
-`refs/heads/fix/wall-counts-running-time-217`. Refresh and verify it against the
-final report commit before delivery.
+`refs/heads/fix/wall-counts-running-time-217`. The final report commit is the bundle tip;
+`git bundle verify` and `git bundle list-heads` verify its prerequisite and
+advertised branch before delivery.
 
-Cleanup status: pending. Before finishing, wait for the foreground runner to
-exit, remove task scratch and both comparison archives with Python
-`shutil.rmtree`, and verify there is no `.hypothesis` folder. Preserve the
-workspace-local Git metadata and dependency environment for review.
+Cleanup complete: the foreground runner exited; task scratch (including the
+private uv cache and Hypothesis storage) and both comparison archives were
+removed with Python `shutil.rmtree`. A workspace scan found no `.hypothesis`
+folder. The workspace-local Git metadata, delivery bundle and dependency
+environment remain for review. No task-owned pytest or runner remains.
