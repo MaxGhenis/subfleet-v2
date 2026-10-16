@@ -60,7 +60,10 @@ func scrollViews(_ view: NSView) -> [NSScrollView] {
     // Distance from the end: 0 means the bottom of the content is in view.
     let fromEnd = document.isFlipped ? height - visible.maxY : visible.minY
     return ["found": 1, "offset": Double(visible.minY), "content": Double(height), "viewport": Double(visible.height),
-            "from_end": Double(fromEnd)]
+            "from_end": Double(fromEnd), "document_bounds_y": Double(document.bounds.minY),
+            "document_bounds_height": Double(document.bounds.height), "document_frame_y": Double(document.frame.minY),
+            "clip_document_end": Double(scroll.contentView.documentRect.maxY),
+            "bottom_inset": Double(scroll.contentInsets.bottom)]
 }
 
 @main

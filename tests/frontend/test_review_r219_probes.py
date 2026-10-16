@@ -458,7 +458,9 @@ def opening_scroll(tmp_path_factory):
     from tests.frontend.swift import ROOT, compile_probe
     binary = compile_probe(tmp_path_factory.mktemp("r219-scroll") / "probe",
                            ROOT / "tests/frontend/ReviewR219ScrollProbe.swift", "SUBFLEET_VIEW_TEST")
-    return run_probe(binary)
+    result = run_probe(binary)
+    write_json(binary.parent / "opening.json", result)
+    return result
 
 
 @pytest.mark.parametrize("path", ["anchor-15", "emulated-14"])
@@ -468,5 +470,5 @@ def test_r8_opening_stays_at_the_end_after_late_measurement(opening_scroll, path
     assert run["opening"][-1]["found"] == 1
     assert abs(run["opening"][-1]["from_end"]) <= 2, run["opening"]
     assert abs(run["late_page"][-1]["from_end"]) <= 2, run["late_page"]
-    assert abs(run["settling"][-1]["from_end"]) <= 2, run["settling"]
+    assert abs(run["settling"][-1]["from_end"]) <= 2, run["settling"][-1]
     assert run["after_person"][-1]["from_end"] > 100, run["after_person"]

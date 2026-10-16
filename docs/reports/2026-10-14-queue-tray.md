@@ -530,3 +530,15 @@ its offscreen probe constructs rows directly and does not exercise the changed
 nested timeline placement. Engine tests are rerun because they also assert
 the store's timeline projection. All remaining render exports use temporary
 test destinations rather than inherited optional export paths.
+
+#### Review probes — opening pin regression found
+
+The full independent review file completed in **282.31 seconds**
+(**285.85 seconds** holding the lock): **19 passed, 2 failed**. Both failures
+are `test_r8_opening_stays_at_the_end_after_late_measurement`: after settling,
+the macOS 15+ path was 41 points above the end and emulated macOS 14 was
+12 points above it. Opening and late-page checks passed; no window was visible.
+The required two-point end tolerance is retained. The probe now records
+document bounds/frame origins, clip document end and content inset alongside
+the existing samples, and retains synthetic JSON only in temporary evidence.
+This diagnostic test step precedes an application fix.
