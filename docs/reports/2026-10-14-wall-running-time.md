@@ -754,7 +754,8 @@ The running-without-provider and reserved recovery controls passed.
 
 ### Validation status
 
-Fixed-source groups are in progress; the table records only completed runs.
+Fixed-source groups are in progress: the wall hold completed with **76 passed**
+in **633.01 s**, acquired at 15:59:12 UTC. The table records completed runs.
 Each invocation has its own foreground `lockf -k` hold, waits without a lock
 acquisition timeout, uses no xdist, and has a 1,190 s execution bound inside
 its hold. The first hold acquired at 15:13:05 UTC. Python is 3.14.7 free-threaded;
@@ -766,9 +767,9 @@ stamp); the job ends by 21:03:33 UTC.
 
 | File | Fixed source |
 | --- | --- |
-| `tests/fake/test_wall_running_time.py` | unrun |
-| `tests/fake/test_wall_inspection_order.py` | unrun |
-| `tests/fake/test_review_r223_wall_probes.py` | unrun |
+| `tests/fake/test_wall_running_time.py` | 35 passed |
+| `tests/fake/test_wall_inspection_order.py` | 18 passed |
+| `tests/fake/test_review_r223_wall_probes.py` | 23 passed |
 | `tests/unit/test_conversation_steer_service.py` | unrun |
 | `tests/unit/test_conversation_titles.py` | unrun |
 | `tests/unit/test_title_review_regressions.py` | unrun |
