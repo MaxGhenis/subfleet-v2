@@ -1455,6 +1455,10 @@ class ConversationService:
             if job and self._cancel_job_without_attempt(
                     job["job_id"], client=self._client_cancel(args, peer, "message-cancelled")):
                 self.store.set_state(message_id, CANCELLED, reason="withdrawn", expect=(WAITING,))
+            elif job:
+                # A reservation can precede runner adoption. Its recovered
+                # containment must keep the socket requester as the first cause.
+                self.daemon._request_cancel(job["job_id"], self._client_cancel(args, peer, "stopped"))
             elif job is None:
                 # Waiting to be submitted again (a re-admission or a deferral): no
                 # provider has it. The dispatcher also withdraws a stopped message.

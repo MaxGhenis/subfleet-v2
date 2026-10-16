@@ -77,7 +77,7 @@ def test_interrupt_before_runner_adoption_retains_the_client(svc, peer, state):
     aid = job_id + "/a1"
     svc.daemon.store.add_attempt(attempt_id=aid, job_id=job_id, seq=1,
                                  lane_id="claude-1", model_requested="opus", state="starting")
-    svc.store.set_state(mid, state)
+    svc.store.set_state(mid, state, reason="admission: awaiting runner adoption")
     svc.handle("turn.interrupt", {"message_id": mid, "session_id": "stated-session"}, peer)
     svc._on_contain(aid)  # A recovered runner can arrive after the handler returned.
     assert cancel_events(svc, job_id) == [{"by": "client", "session_id": "stated-session",
