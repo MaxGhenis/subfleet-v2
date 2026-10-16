@@ -172,7 +172,7 @@ def test_existing_secret_shaped_workspace_explains_refusal_on_wire_and_cli(svc, 
     assert "SECRET7" not in output.out + output.err
 
 
-@pytest.mark.parametrize("kind,repair", [("environment", "binary"), ("config", "configuration")])
+@pytest.mark.parametrize("kind,repair", [("environment", "binaries"), ("config", "configuration")])
 def test_real_guard_nontrust_verdict_gives_its_own_repair(tmp_path, monkeypatch, kind, repair):
     from subfleet.guard import preflight as guard
 

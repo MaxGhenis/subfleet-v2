@@ -20,9 +20,12 @@ def test_daemon_log_scrubs_config_errors_with_unterminated_repr_quotes(tmp_path)
     logger = logging.getLogger("protocol-secrecy")
     handler = logging.FileHandler(tmp_path / "daemon.log")
     logger.addHandler(handler)
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
     try:
         response = wire_reply(op="submit", error=error)
     finally:
+        logger.setLevel(previous_level)
         logger.removeHandler(handler)
         handler.close()
     logged = (tmp_path / "daemon.log").read_text()
@@ -31,11 +34,14 @@ def test_daemon_log_scrubs_config_errors_with_unterminated_repr_quotes(tmp_path)
     assert "SECRET7-left" not in str(response)
 
 
-KEYS = st.sampled_from([
+CREDENTIAL_KEYS = st.sampled_from([
     "api_key", "api-key", "token", "secret", "password", "passwd", "authorization", "cookie",
     "credential", "credentials", "private_key", "signing-key", "secret_access_key", "access-key-id",
     "access_token", "refresh_token", "client-secret", "oauth_token", "auth-token", "SERVICE_PASSWORD",
 ])
+KEYS = st.one_of(CREDENTIAL_KEYS, st.tuples(
+    st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=12),
+    st.sampled_from(["_", "-"]), CREDENTIAL_KEYS).map(lambda parts: "".join(parts))).map(str.upper)
 
 
 @pytest.mark.parametrize("style", ["none", "single", "double", "repr-single", "repr-double",
