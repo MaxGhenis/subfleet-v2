@@ -1,8 +1,9 @@
 """C-12.3/4, D-ENV1: select ambient names before adding launch authority.
 
 Ambient authority is a finite list of exact names, plus the test harness's
-own prefixes. A credential word anywhere in a name refuses it, listed or not,
-unless a reviewed exception says why that name holds no secret.
+own prefixes, plus a live test session's own names (D-ST1). A credential word
+anywhere in a name refuses it, listed or not, unless a reviewed exception says
+why that name holds no secret.
 """
 
 from collections.abc import Iterable, Mapping
@@ -10,6 +11,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import os
 import re
+
+from .home_paths import PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, SAFE_HOME_PATHS, under_pytest
 
 
 # The twenty names observed in the working launchd daemon on 2026-10-14.
@@ -42,6 +45,16 @@ CONFIG_NAMES = frozenset({
     "SUBFLEET_V1_BIN", "CODEX_GUARD_PREFLIGHT_TIMEOUT",
 })
 ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
+# D-ST1 (C-20.6): a test session's markers and isolated store paths, as
+# tests/conftest.py and the e2e harness set them: a flag, the session directory,
+# its sentinel's identity, or a path beneath the session's own base. None holds
+# a credential. Each is selected only while the parent is itself in a live
+# session (home_paths.under_pytest), so every child a test launches keeps
+# refusing the person's stores and expires with that session. Outside a session
+# none is selected: production keeps exactly the lists above, and
+# CLAUDE_CONFIG_DIR stays a lane's own addition (C-12.4).
+TEST_SESSION_NAMES = frozenset({PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+                                *SAFE_HOME_PATHS}) - ALLOWED_NAMES
 # Read only to say they are ignored: v1's state root and the retired API-lane
 # override. Never inherited, so doctor names them.
 RETIRED_NAMES = frozenset({"SUBFLEET_ALLOW_API_LANE", "SUBFLEET_STATE_DIR"})
@@ -63,6 +76,9 @@ CREDENTIAL_EXCEPTIONS = frozenset({
     "SSH_AUTH_SOCK",                   # the agent's socket; its keys stay in the agent
     "SUBFLEET_FAKE_DIAGNOSTICS_PATH",  # where the fake Codex writes its report
     "SUBFLEET_FAKE_RELEASE_PATH",      # a file whose creation releases a fake provider
+    # A test session's stand-in agent-secret executable ("SECRET"). Only a live
+    # session selects it, and production never reads it (home_path test_only).
+    "SUBFLEET_AGENT_SECRET",
 })
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
 # These identify a particular launch, not ambient daemon configuration.
@@ -84,10 +100,29 @@ def harness_name(name: str) -> bool:
         name.startswith(prefix) and len(name) > len(prefix) for prefix in HARNESS_PREFIXES))
 
 
+def _no_credential_word(name: str) -> bool:
+    return name in CREDENTIAL_EXCEPTIONS or CREDENTIAL_PATTERN.search(name) is None
+
+
 def allowed_name(name: str) -> bool:
     """Ambient authority: a listed name or a harness hook, never a credential word."""
-    return ((name in ALLOWED_NAMES or harness_name(name))
-            and (name in CREDENTIAL_EXCEPTIONS or CREDENTIAL_PATTERN.search(name) is None))
+    return (name in ALLOWED_NAMES or harness_name(name)) and _no_credential_word(name)
+
+
+def session_name(name: str) -> bool:
+    """A test session's name (D-ST1), admitted only while that session lives."""
+    return name in TEST_SESSION_NAMES and _no_credential_word(name)
+
+
+def inherited_name(name: str) -> bool:
+    """Whether some launch may inherit `name` from its parent without `env.pass`."""
+    return allowed_name(name) or session_name(name)
+
+
+def _selected(parent: Mapping[str, str]):
+    """The parent names the default selection admits, a live session's included."""
+    session = under_pytest(parent)
+    return lambda name: allowed_name(name) or (session and session_name(name))
 
 
 @contextmanager
@@ -123,22 +158,32 @@ def build_environment(additions: Mapping[str, str] | None = None,
         raise ValueError("environment pass-through requires exact variable names")
     withheld = frozenset(withheld)
     parent = os.environ if environ is None else environ
+    selected = _selected(parent)
     result = {name: parent[name] for name in parent
-              if (allowed_name(name) or name in passed) and name not in withheld}
+              if (selected(name) or name in passed) and name not in withheld}
     result.update(additions or {})
     for name in removals:
         result.pop(name, None)
     return result
 
 
-def environment_report(environ: Mapping[str, str] | None = None) -> dict[str, list[str]]:
+def environment_report(environ: Mapping[str, str] | None = None, *,
+                       references: Iterable[str] | None = None) -> dict[str, list[str]]:
     """Doctor's daemon-side diagnostic: names only, no environment snapshot.
 
     Every name the allowlist drops is listed, including each unlisted
-    SUBFLEET_* name and the lane credential references the daemon holds.
+    SUBFLEET_* name. Given the lanes' credential references, the ones the
+    daemon holds are listed apart, as `lane_credentials`: they belong in the
+    daemon, which withholds each from every launch but its own lane's.
     """
     parent = os.environ if environ is None else environ
-    return {"extra_names": sorted(name for name in parent if not allowed_name(name))}
+    selected = _selected(parent)
+    held = frozenset(() if references is None else references)
+    report = {"extra_names": sorted(name for name in parent
+                                    if not selected(name) and name not in held)}
+    if references is not None:
+        report["lane_credentials"] = sorted(name for name in parent if name in held)
+    return report
 
 
 def guardian_pass_args(environment: Mapping[str, str]) -> list[str]:
