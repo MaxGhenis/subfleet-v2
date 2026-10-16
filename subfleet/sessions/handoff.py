@@ -123,6 +123,8 @@ _ASSIGN_SEPARATOR_RE = re.compile(r"[\"']?\s*[:=]\s*")
 _PLAIN_VALUE_RE = re.compile(r"[^\s,;\"']+")
 _FLAG_VALUE_RE = re.compile(r"[ \t]+(?P<value>[^\s-][^\s]*)")
 _QUOTE_EVENT_RE = re.compile(r"\\[^\n]|[\"'\r\n]")
+_VALUE_QUOTE_RE = re.compile(r"\\*[\"']")
+_LINE_END_RE = re.compile(r"[\r\n]|\Z")
 _SYSTEM_REMINDER_RE = re.compile(
     r"<system-reminder>.*?</system-reminder>", re.DOTALL | re.IGNORECASE
 )
@@ -307,6 +309,8 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
     parts: list[str] = []
     cursor = 0
     quote_ends: dict[int, int] | None = None
+    line_ends = None
+    line_end = -1
     ranges: list[tuple[int, int, str]] = []
     for token in _IDENTIFIER_RE.finditer(text):
         if token.start() < cursor and not (quoted and multiline):
@@ -333,15 +337,26 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                 start -= 1
             value_start = separator.end()
             if quoted:
-                if value_start == len(text) or text[value_start] not in "\"'":
+                opening = _VALUE_QUOTE_RE.match(text, value_start)
+                if opening is None:
                     continue
                 if quote_ends is None:
                     quote_ends = _quoted_ends(text, multiline=multiline)
                 closing = quote_ends.get(value_start)
                 if closing is None:
-                    continue
-                end = closing + 1
-                out = text[start:value_start + 1] + REDACTED + text[closing]
+                    # A repr-escaped or unterminated quote must never expose its
+                    # value. Without a reliable closing delimiter, redact to the
+                    # line/record boundary. Advance one shared iterator so nested
+                    # candidates cannot repeatedly scan the same suffix.
+                    if line_ends is None:
+                        line_ends = _LINE_END_RE.finditer(text)
+                    while line_end < value_start:
+                        line_end = next(line_ends).start()
+                    end = line_end
+                    out = text[start:value_start] + REDACTED
+                else:
+                    end = closing + 1
+                    out = text[start:value_start + 1] + REDACTED + text[closing]
             else:
                 value = _PLAIN_VALUE_RE.match(text, value_start)
                 if value is None:

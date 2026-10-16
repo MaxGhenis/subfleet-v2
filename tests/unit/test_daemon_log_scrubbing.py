@@ -29,7 +29,7 @@ def test_daemon_log_scrubs_config_errors_with_unterminated_repr_quotes(tmp_path)
         logger.removeHandler(handler)
         handler.close()
     logged = (tmp_path / "daemon.log").read_text()
-    assert "refused" in logged and "MissingSectionHeaderError" in logged
+    assert "refused" in logged and "File contains no section headers" in logged
     assert "SECRET7-left" not in logged
     assert "SECRET7-left" not in str(response)
 
