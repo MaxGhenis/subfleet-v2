@@ -462,3 +462,27 @@ file passed all 15 (101.88 s). The steer/approval hold completed in 109.87 s:
 The six-file conversation/timeline/outbox/store hold is queued. Both new
 steer regression updates await verification; the nested placement fix follows
 after the active hold, keeping source changes out of a running compilation.
+
+### Continuation — 2026-10-16, head `8057d4f07`
+
+This continuation began at 02:53 UTC in the assigned clean checkout. Its
+4 h 30 m cutoff for starting holds is 07:23 UTC. It preserves the completed
+validation above and does not count queued runs as passes. The saved
+`20261015-144104-pr219-validate2-uncommitted.patch` applies cleanly. Its
+nested-delivery fix is being checked against the regression already committed
+in `8057d4f07`.
+
+The default uv cache is unwritable, so the explicitly authorized fallback
+cache, Hypothesis storage and compiler caches are inside this continuation's
+`sf-r219v2-*` scratch directory. All pytest processes are
+foreground, sequential and separately locked, with no acquisition timeout or
+workers. Bounded properties use their existing settings and the CI profile;
+no deep profile is used. Evidence is ignored under
+`build/r219v2-continuation/`. Workspace-local `.git-local` metadata retains
+branch `feat/queue-tray-217`, with read-only shared-object alternates; the
+shared index and caller's checkout are untouched. No sub-agents or network
+remotes are used.
+
+The build script's Python `shutil.rmtree` cleanup is retained solely as the
+behavior-preserving workaround for the sandbox's recursive-removal guard.
+The app is built locally only; native view probes use synthetic state offscreen.
