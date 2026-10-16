@@ -216,7 +216,8 @@ def test_d2_hydrates_every_unknown_id_beyond_the_status_batch_bound(core_probe, 
         h.close()
 
 
-def test_d2_an_event_page_hydrates_a_note_before_it_can_become_an_empty_person_bubble(core_probe, tmp_path):
+@pytest.mark.parametrize("reset", [False, True], ids=["ordinary-page", "reset-replay"])
+def test_d2_an_event_page_hydrates_a_note_before_it_can_become_an_empty_person_bubble(core_probe, tmp_path, reset):
     h = ServiceHarness(tmp_path / "state")
     server = ServiceServer(h)
     try:
@@ -230,7 +231,12 @@ def test_d2_an_event_page_hydrates_a_note_before_it_can_become_an_empty_person_b
         h.store.append_events(conversation_id=cid, message_id=note["message_id"], attempt_id="note/a1",
                               events=[("stdout", "0", 0, "accepted", {})], stdout_offset=1, stdin_seq=0)
         page = h.call("conversation.events", conversation_id=cid, after=0, wait_s=0)
-        result = store_probe(core_probe, steps + [{"events": page, "conversation_id": cid, "refresh_socket": str(server.path)}])
+        if reset:
+            # The first reset invalidates the old cursor; the second reset page
+            # is applied while rebuilding and still needs unknown identities.
+            page = {**page, "reset": True, "floor": page["next"]}
+        event_step = {"events": page, "conversation_id": cid, "refresh_socket": str(server.path)}
+        result = store_probe(core_probe, steps + [event_step] * (2 if reset else 1))
         item = next(i for i in result["layouts"][cid]["items"] if i["message_id"] == note["message_id"])
         assert item["type"] == "notice" and "stopped turn was left" in item["text"]
         assert [r["op"] for r in server.requests] == ["message.status"]
