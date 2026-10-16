@@ -713,3 +713,86 @@ private uv cache and Hypothesis storage) and both comparison archives were
 removed with Python `shutil.rmtree`. A workspace scan found no `.hypothesis`
 folder. The workspace-local Git metadata, delivery bundle and dependency
 environment remain for review. No task-owned pytest or runner remains.
+
+## Round 5 (2026-10-16): receipt races, starting recovery, pending requester
+
+Base: `547a164e5f43` (the release/217 union). The requested `review-r2.md`
+was absent from the assigned checkout and checked temporary locations; this
+round uses the executed inputs quoted in the fix brief. No caller workspace,
+live state, network Git remote or sub-agent is used.
+
+### Reproductions and changes
+
+The tests-first run imported the unchanged base implementation and completed
+with **9 failed, 2 passed, 17 deselected** in **519.52 s**. By file:
+`tests/fake/test_wall_inspection_order.py`: 7 failed, 2 passed;
+`tests/unit/test_review_r223_conv_probes.py`: 2 failed. Both shared and fresh
+inspection reproduced `cancelled`, rc 130, for a provider exiting at 21,599 s
+with inspection returning at 21,601 s against a 21,600 s cap. Receipts arriving
+between cancellation and kill settlement failed too. Starting recovery charged
+25,200 s after seven hours with neither receipt. Both pending operations
+(`message.cancel`, `turn.interrupt`) lost session and audit-token pid 424242.
+The running-without-provider and reserved recovery controls passed.
+
+- D-WALL1: enforce the cap only after re-reading the receipt and checking
+  current exit status. Re-read again after the kill's first census. A receipt
+  found before signaling takes the finalization path. A late, verified success
+  at settlement supersedes the wall cancellation and its killed-attempt veto;
+  the original request and the supersession remain in the audit trail. Online
+  and offline displays select the effective cancellation, including a later
+  explicit client request. Existing completion-proof checks still apply.
+- Starting recovery: an attempt that never launched ends its accounting at
+  its recorded start, contributing zero seconds. Seven-hour recovery tests
+  cover starting, running without a provider, and reserved, then one second
+  of the next attempt. Bounded properties cover receipt/inspection/cap/kill
+  interleavings (32 examples) and absent-provider downtime (20 examples).
+- D-KILL1: persist the first requester with the conversation stop in one
+  transaction, keyed by message and turn sequence. Pending submission and
+  admission repair apply that requester when the job exists. Both operations
+  retain the stated session and audit-token pid 424242, including after the
+  conversation store is closed and reopened.
+
+### Validation status
+
+Fixed-source groups are in progress; the table records only completed runs.
+Each invocation has its own foreground `lockf -k` hold, waits without a lock
+acquisition timeout, uses no xdist, and has a 1,190 s execution bound inside
+its hold. The first hold acquired at 15:13:05 UTC. Python is 3.14.7 free-threaded;
+Hypothesis uses the bounded ci profile and task scratch. The unwritable default
+uv cache is replaced by a scratch cache. JUnit counting evidence, caches and
+Hypothesis storage are deleted after each invocation with `shutil.rmtree`.
+The conservative no-new-holds cutoff is 19:33:33 UTC (4 h 30 m after the job
+stamp); the job ends by 21:03:33 UTC.
+
+| File | Fixed source |
+| --- | --- |
+| `tests/fake/test_wall_running_time.py` | unrun |
+| `tests/fake/test_wall_inspection_order.py` | unrun |
+| `tests/fake/test_review_r223_wall_probes.py` | unrun |
+| `tests/unit/test_conversation_steer_service.py` | unrun |
+| `tests/unit/test_conversation_titles.py` | unrun |
+| `tests/unit/test_title_review_regressions.py` | unrun |
+| `tests/unit/test_review_r223_conv_probes.py` | unrun |
+| `tests/unit/test_legacy_hold.py` | unrun |
+| `tests/unit/test_daemon_settle.py` | unrun |
+| `tests/unit/test_daemon_inspection_load.py` | unrun |
+| `tests/unit/test_inspection_pacing_properties.py` | unrun |
+| `tests/unit/test_settle_properties.py` | unrun |
+| `tests/fake/test_admission_stateful.py` | unrun |
+| `tests/fake/test_retry_for_good_refusals.py` | unrun |
+| `tests/fake/test_salvage_finalization.py` | unrun |
+| `tests/fake/test_finalization_replay.py` | unrun |
+| `tests/frontend/test_core_protocol.py` | unrun |
+| `tests/frontend/test_core_outbox.py` | unrun |
+| `tests/frontend/test_core_steer.py` | unrun |
+| `tests/fake/test_state_contract.py` | unrun |
+| `tests/unit/test_test_module_names.py` | unrun |
+
+### Commit storage
+
+The shared index rejected `index.lock` with `Operation not permitted`.
+Commits use workspace-local `.git-local` on
+`fix/wall-counts-running-time-217`, descending from the assigned head. Named
+files only are staged. Every commit carries the requested co-author trailer;
+no history is rewritten and nothing is pushed. The original `.git` pointer is
+preserved. The final local delivery bundle and commit ledger follow validation.
