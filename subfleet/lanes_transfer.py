@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import Exit
+from .home_paths import home_path
 from .sessions.transcripts import NotRegularFile, read_regular
 from .store import Store, utc_now
 
@@ -286,7 +287,8 @@ def v1_codex_scope(home: Path, roster_dir: Path,
     has to be written for it to bite. Returns `{agent label: [home, …]}` for every
     agent that runs v1.
     """
-    agents = Path(agents_dir) if agents_dir is not None else LAUNCH_AGENTS
+    agents = (Path(agents_dir) if agents_dir is not None else
+              Path(home_path("SUBFLEET_V1_LAUNCH_AGENTS", lambda: LAUNCH_AGENTS, test_only=True)))
     discovered = [str(home / f".codex-{index}") for index in CODEX_HOME_RANGE
                   if (home / f".codex-{index}").is_dir()]
     scope: dict[str, list[str]] = {}
@@ -522,14 +524,17 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         raise TransferError(f"unknown lane {lane_id}", Exit.INVALID_INPUT,
                             "subfleet lanes list", reason="unknown-lane",
                             details={"action": "transfer", "lane_id": lane_id})
-    roster_dir = Path(roster_dir) if roster_dir else V1_ROSTER_DIR
-    home = Path(home) if home else Path.home()
+    roster_dir = (Path(roster_dir) if roster_dir else
+                  Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)))
+    from .home_paths import provider_home
+    home = Path(home) if home else provider_home()
     plan = TransferPlan(lane_id, row["provider"], row["account_key"], row["owner"], to_owner)
     if to_owner == "v1":
         plan.blocker = _rollback_blocker(store, lane_id)
     if row["provider"] == "claude":
         if to_owner == "v2":
-            plan.live_v1_runs = v1_live_runs_on_claude_lane(v1_state or V1_STATE_DIR, row)
+            legacy_state = v1_state or home_path("SUBFLEET_V1_STATE", lambda: V1_STATE_DIR, test_only=True)
+            plan.live_v1_runs = v1_live_runs_on_claude_lane(legacy_state, row)
             if plan.live_v1_runs:
                 plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {lane_id}; "
                                 "wait for them or `subfleet kill` them, then run this again")
@@ -547,7 +552,8 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         # all of them at once is moving the directory out of the glob (C-10.4).
         src = Path(lane_home).expanduser()
         dst = Path(state_root) / LANE_HOMES_DIR / lane_id
-        plan.live_v1_runs = v1_live_runs_on_home(v1_state or V1_STATE_DIR, str(src))
+        legacy_state = v1_state or home_path("SUBFLEET_V1_STATE", lambda: V1_STATE_DIR, test_only=True)
+        plan.live_v1_runs = v1_live_runs_on_home(legacy_state, str(src))
         if plan.live_v1_runs:
             plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {src}; "
                             "wait for them or `subfleet kill` them, then run this again")

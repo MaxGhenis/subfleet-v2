@@ -197,7 +197,7 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
     """C-17.1 `daemon install --dry-run` prints the plist and writes nothing."""
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(tmp_path / "subfleetd"))
     target = tmp_path / "com.subfleet.daemon.plist"
-    monkeypatch.setattr(cli, "PLIST_PATH", str(target))
+    monkeypatch.setenv("SUBFLEET_LAUNCHD_PLIST", str(target))
     assert cli.main(["daemon", "install", "--dry-run"]) == 0
     captured = capsys.readouterr()
     plist = plistlib.loads(captured.out.encode())
@@ -217,11 +217,12 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
 
 
 def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
-    """C-2.1 the state root is $SUBFLEET_HOME, default ~/.subfleet/."""
+    """C-2.1, C-23.28: pytest must explicitly name its isolated state root."""
     from subfleet.client import state_root
     assert state_root() == root
     monkeypatch.delenv("SUBFLEET_HOME")
-    assert state_root() == Path("~/.subfleet").expanduser()
+    with pytest.raises(RuntimeError, match="SUBFLEET_HOME"):
+        state_root()
 
 
 def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
