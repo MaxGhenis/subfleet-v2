@@ -1,6 +1,8 @@
 """Checked refusal context keeps the reason and repair without exception text."""
 import errno
 import json
+import os
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,7 @@ from subfleet.daemon import Daemon
 from subfleet.contracts import Credential, Lane, LaneOwner
 from tests.fake.guard import install_guard
 from tests.unit.test_protocol_secrecy import wire_reply
+from tests.unit.test_conversation_service import svc  # noqa: F401
 
 
 @pytest.mark.parametrize("kind,words", [
@@ -110,6 +113,7 @@ def test_conversation_session_refusal_keeps_a_checked_verb(verb):
 
 
 @pytest.mark.parametrize("reason,status,fix", [
+    ("bad-workspace", "secret-shaped", "choose another folder or use a new scratch folder"),
     ("bad-workspace", "gone", "dismiss it or restore its folder"),
     ("not-a-repository", "no-longer-repository", "dismiss it or restore its checkout"),
 ])
@@ -136,3 +140,85 @@ def test_unchecked_recorded_workspace_status_is_withheld(status):
     assert suggestions.error_details(error) == {}
     assert suggestions.error_fix(error) == suggestions.ERROR_FIXES["not-a-repository"]
     assert suggestions.scrub_error(error) == "not-a-repository: " + suggestions.ERROR_MESSAGES["not-a-repository"]
+
+
+def test_existing_secret_shaped_workspace_explains_refusal_on_wire_and_cli(svc, tmp_path, monkeypatch, capsys):
+    from subfleet import cli
+    from subfleet.client import DaemonError
+    from tests.unit.test_suggest_cli import run
+
+    workspace = tmp_path / "work password=SECRET7folder"
+    workspace.mkdir()
+    args = {"request_id": str(uuid.uuid4()), "title": "Fixture", "tldr": "Fixture", "brief": "Fixture",
+            "workspace": str(workspace)}
+    response = wire_reply(svc, args=args)
+    expected = "bad-workspace: the folder's path cannot be used because it looks like it holds a secret"
+    assert response["ok"] is False and response["error"]["code"] == 2
+    assert response["error"]["message"] == expected
+    assert response["error"]["fix"] == "choose another folder or use a new scratch folder"
+    assert suggestions.response_details(expected) == {"workspace_status": "secret-shaped"}
+    assert str(workspace) not in json.dumps(response) and "SECRET7" not in json.dumps(response)
+    assert svc.store.query("SELECT suggestion_id FROM suggestions") == []
+
+    def refuse(*args, **kwargs):
+        error = response["error"]
+        raise DaemonError(error["code"], error["message"], error["fix"])
+
+    monkeypatch.setattr(cli.Client, "call", refuse)
+    assert run("--title", "Fixture", "--tldr", "Fixture", "--brief", "Fixture",
+               "--workspace", str(workspace)) == 2
+    output = capsys.readouterr()
+    assert expected in output.err and response["error"]["fix"] in output.err
+    assert "SECRET7" not in output.out + output.err
+
+
+@pytest.mark.parametrize("kind,repair", [("environment", "binary"), ("config", "configuration")])
+def test_real_guard_nontrust_verdict_gives_its_own_repair(tmp_path, monkeypatch, kind, repair):
+    from subfleet.guard import preflight as guard
+
+    install_guard(tmp_path)
+    monkeypatch.setattr(guard, "_jq_available", lambda: True)
+    if kind == "config":
+        monkeypatch.setenv(guard.TIMEOUT_ENV, "not-a-number")
+    else:
+        monkeypatch.delenv(guard.TIMEOUT_ENV, raising=False)
+    lane = Lane("codex-1", "codex", "codex:fixture", Credential("codex", str(tmp_path), "home"),
+                str(tmp_path), LaneOwner.V2, False)
+    verdicts = []
+    with pytest.raises(AdapterError) as raised:
+        Daemon._guard_override(SimpleNamespace(codex_bin=str(tmp_path / "missing-codex")), lane,
+                               str(tmp_path), state_root=tmp_path, recorder=verdicts.append)
+    assert verdicts[0].kind == kind
+    response = wire_reply(op="submit", error=raised.value)
+    message, fix = response["error"]["message"], response["error"]["fix"]
+    assert "(" + kind + ")" in message
+    assert repair in fix and "subfleet doctor" in fix
+    assert all(word not in message + fix for word in ("SHA-256", "TRUST", "pinned Codex version"))
+
+
+def test_workspace_check_and_create_share_unsearchable_protected_path_repair(svc, tmp_path, monkeypatch):
+    from subfleet import folders
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    real_spelling = folders.spelling
+
+    def spelling(path):
+        if os.fspath(path) == str(home / ".claude"):
+            return str(path), "password=SECRET7unsearchable"
+        return real_spelling(path)
+
+    monkeypatch.setattr(folders, "spelling", spelling)
+    monkeypatch.setattr(svc, "_person", lambda *args: None)
+    args = {"workspace": svc.test_workspace, "permission": "accept-edits"}
+    checked = svc.op_workspace_check(args, None)
+    with pytest.raises(ConversationError) as raised:
+        svc.op_conversation_create({"request_id": str(uuid.uuid4()), "provider": "claude",
+                                    "workspace": svc.test_workspace, "confirm_widen": True,
+                                    "settings": {"model": "opus", "permission": "accept-edits"}}, None)
+    assert raised.value.reason == "protected-workspace"
+    assert checked["ok"] is False
+    assert checked["fix"] == raised.value.fix == (
+        "make every directory above it searchable, or choose Ask or read-only")
+    assert "SECRET7" not in json.dumps(checked)
