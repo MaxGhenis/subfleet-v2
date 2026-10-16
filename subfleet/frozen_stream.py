@@ -168,28 +168,34 @@ def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, byte
             aliases = _writable_aliases(stream, source, launch)
         for _ in range(3):
             path = adir / f"stream.frozen-{uuid4().hex}.jsonl"
-            stream.seek(0)
-            if publish_hook:
-                publish_hook("raw-stream", path)
-            # Always copying covers unknown/unlinked writers and changes after
-            # the identity decision. Retries retain this one source descriptor.
-            capture = atomic_copy(path, stream)
-            changed = False
-            if events:
-                after = os.fstat(stream.fileno())
-                try:
-                    changed = _stamp(before) != _stamp(after) or _stamp(before) != _stamp(source.lstat())
-                except FileNotFoundError:
-                    changed = True
-            receipt = {"version": 1, "file": path.name, **capture, "source": str(source),
-                       "events": events, "writable_aliases": aliases,
-                       "changed_during_capture": changed}
-            # A new output alias or replacement at publication cannot grant
-            # frozen authority. Try another fresh inode from the same descriptor.
-            if _restored_copy(adir, receipt, launch, stream if events else None) is None:
-                continue
-            publish("stream-freeze", adir / "stream.freeze.json",
-                    (json.dumps(receipt, sort_keys=True) + "\n").encode())
-            if _restored_copy(adir, receipt, launch, stream if events else None) is not None:
-                return path
+            accepted = False
+            try:
+                stream.seek(0)
+                if publish_hook:
+                    publish_hook("raw-stream", path)
+                # Always copying covers unknown/unlinked writers and changes after
+                # the identity decision. Retries retain this one source descriptor.
+                capture = atomic_copy(path, stream)
+                changed = False
+                if events:
+                    after = os.fstat(stream.fileno())
+                    try:
+                        changed = _stamp(before) != _stamp(after) or _stamp(before) != _stamp(source.lstat())
+                    except FileNotFoundError:
+                        changed = True
+                receipt = {"version": 1, "file": path.name, **capture, "source": str(source),
+                           "events": events, "writable_aliases": aliases,
+                           "changed_during_capture": changed}
+                # A new output alias or replacement at publication cannot grant
+                # frozen authority. Try another fresh inode from the same descriptor.
+                if _restored_copy(adir, receipt, launch, stream if events else None) is None:
+                    continue
+                publish("stream-freeze", adir / "stream.freeze.json",
+                        (json.dumps(receipt, sort_keys=True) + "\n").encode())
+                if _restored_copy(adir, receipt, launch, stream if events else None) is not None:
+                    accepted = True
+                    return path
+            finally:
+                if not accepted:
+                    path.unlink(missing_ok=True)
     raise OSError(errno.ESTALE, "stream changed throughout frozen publication", str(path))
