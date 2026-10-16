@@ -245,3 +245,12 @@ def test_d1_an_unbound_external_writer_wait_keeps_its_timeline_reason_and_withdr
     assert turn["shows_acknowledgment"]
     assert "close it there to continue here" in turn["status_text"]
     assert turn["queued_withdrawal"] == {"action": "cancel", "message_id": "mine"}
+
+
+@pytest.mark.parametrize("state", ["delivery-unknown", "waiting", "running", "complete"])
+def test_d2_an_old_completion_preserves_a_newer_receipt(core_probe, state):
+    result = run_queue(core_probe, [{"receipts": [{**receipt("mine", 1, state),
+        "updated_at": "2026-09-28T09:00:02Z"}]},
+        {"page": {"events": [{"seq": 1, "message_id": "mine", "kind": "turn.completed",
+            "ts": "2026-09-28T09:00:01Z", "data": {"state": "failed"}}], "next": 1, "reset": False}}])
+    assert result["snapshots"][-1]["timeline"]["turns"]["mine"]["state"] == state

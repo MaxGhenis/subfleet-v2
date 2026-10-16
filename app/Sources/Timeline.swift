@@ -151,6 +151,8 @@ struct TurnTimeline: Equatable {
     /// A message state, or `sending` before the first receipt.
     var state: String
     var stateReason: String?
+    /// A settled receipt can be newer than the log an opening replays.
+    var receiptUpdatedTS: String?
     var settings: ConversationSettings?
     var stopRequested = false
     var locallySent = false
@@ -682,7 +684,10 @@ struct Timeline: Equatable {
                 turn.state = MessageState.running.rawValue
             }
         case "turn.completed":
-            if let state = data["state"]?.string, MessageState(rawValue: state) != nil {
+            let receiptDate = turn.receiptUpdatedTS.flatMap(parseTimestamp)
+            let eventDate = event.ts.flatMap(parseTimestamp)
+            let newerReceipt = receiptDate.flatMap { receipt in eventDate.map { receipt >= $0 } } ?? false
+            if !newerReceipt, let state = data["state"]?.string, MessageState(rawValue: state) != nil {
                 if turn.state != state { turn.stateReason = data["reason"]?.string }
                 turn.state = state
             }
@@ -854,6 +859,7 @@ struct Timeline: Equatable {
         }
         if let job = receipt.job_id { turn.jobID = job; turn.hasBoundJob = true }
         turn.seq = receipt.seq ?? turn.seq
+        turn.receiptUpdatedTS = receipt.updated_at ?? turn.receiptUpdatedTS
         turn.origin = receipt.origin ?? turn.origin
         turn.createdTS = receipt.created_at ?? turn.createdTS
         turn.continues = receipt.continues ?? turn.continues
