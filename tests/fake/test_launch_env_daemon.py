@@ -186,7 +186,7 @@ def test_env_kind_lane_credentials_reach_only_their_own_lane(routing_state, monk
         if channel == "harness":
             with pytest.raises(AdapterError) as error:
                 service._credential_environment(lane)
-            assert error.value.reason == "credential-env"
+            assert error.value.reason == "credential-env-inherited"
             continue
         for env in launched(lane):
             assert env.get("CLAUDE_CODE_OAUTH_TOKEN") == values[own], "its own credential"

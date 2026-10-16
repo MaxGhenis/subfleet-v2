@@ -326,7 +326,7 @@ def test_an_allowlisted_reference_cannot_be_a_lane_credential(monkeypatch):
     monkeypatch.setattr(os, "environ", {"SUBFLEET_FAKE_LANE_ONE": "dummy-one", "E2E_LANE_ONE_TOKEN": "dummy-one"})
     with pytest.raises(AdapterError) as error:
         resolve_credential(Credential("claude", "SUBFLEET_FAKE_LANE_ONE", "env"))
-    assert error.value.reason == "credential-env" and "dummy-one" not in str(error.value) + error.value.fix
+    assert error.value.reason == "credential-env-inherited" and "dummy-one" not in str(error.value) + error.value.fix
     assert resolve_credential(Credential("claude", "E2E_LANE_ONE_TOKEN", "env")) == {
         "CLAUDE_CODE_OAUTH_TOKEN": "dummy-one"}
 

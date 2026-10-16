@@ -58,7 +58,7 @@ def resolve_credential(credential: Credential) -> dict[str, str]:
             # D-ENV1: every launch inherits an allowlisted name, so it cannot be one lane's.
             raise AdapterError("lane environment credential names a variable every launch inherits", code=7,
                                fix=f"store the lane OAuth token under a daemon variable other than {credential.ref}",
-                               reason="credential-env")
+                               reason="credential-env-inherited")
         token = os.environ.get(credential.ref)
         if not token or not token.strip():
             raise AdapterError("could not resolve lane environment credential", code=7,
