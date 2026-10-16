@@ -163,3 +163,23 @@ Every requested file remains unrun (zero executed; no collection occurred):
 | `tests/e2e/test_stop_bound.py` | 0 | unrun: uv cache sandbox restriction |
 
 Round-3 implementation commits are `e43108c15` (notice lines), `7798a5b2d` (prune column validation), and `006e6af96` (migration constants). Regression commits are `32218fc70`, `92f844876`, `42c76110d` and fixture refinement `c94009ac3`. All use the required co-author trailer. The shared index and `.git` pointer are read-only, so commits live in workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, preserving ancestry at `3e37f8017`. Nothing was pushed. No sub-agent, live store, daemon, policy, or caller checkout was modified. No test runner remains running, and no `.hypothesis` directory remains. Temporary test storage and the regression source copy were removed with `shutil.rmtree`; no logs, JSON evidence or bundles were staged.
+
+## Round 4: public refusal integration and executed verification
+
+Base: `a0d24b46c1a3`, including the hub's merge of #181. The shared Git index is still read-only; round-4 commits use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, preserving the base's ancestry. No remote or caller checkout is written.
+
+The baseline hold reproduced all nine reported failures in 215.63 seconds:
+
+| File | Passed | Failed |
+| --- | ---: | ---: |
+| `tests/unit/test_handler_refusals.py` | 314 | 1 |
+| `tests/fake/test_review_needs_shell.py` | 21 | 2 |
+| `tests/fake/test_review_launch_permissions.py` | 9 | 6 |
+
+The AST refusal check identifies two constructors without a public reason: the unknown pinned model and the unsatisfiable pinned shell requirement. Both need handler templates and checked details, including value-free fallbacks. The eight notice failures expect capability/publication evidence in the first line even though round 3 moved it to its own line. Comparing `f3b287771` with `a0d24b46c` confirms #181 changed neither `subfleet/render.py` nor these two fake test files. Production rendering already follows C-15.1 and needs no change.
+
+Tests-first commit `fdaffe9e5` checks the exact first-line header independently of the renderer, capability/publication evidence on the second line, unchanged deliverable/output bytes, public wire refusals, and malformed or credential-shaped detail fallbacks. The focused regression run is queued on the shared lock; implementation and final validation results will be recorded below.
+
+All holds use one foreground pytest process, the shared lock without a wait timeout, `env -u SUBFLEET_RETENTION_DORMANT`, no pytest cache, and scratch Hypothesis storage with the bounded `ci` profile. The sandbox cannot write uv's default cache, so `UV_CACHE_DIR` points inside the permitted task scratch directory. Dependencies installed successfully there. The conservative cutoff for starting holds is 2026-10-16 07:27 UTC (4 h 30 m after checkout creation).
+
+Verification status: baseline complete; focused regression, final green groups, and all 17 `tests/e2e/test_*.py` files pending. Scratch data is retained until final cleanup; no logs, XML, JSON evidence, or bundles are staged.
