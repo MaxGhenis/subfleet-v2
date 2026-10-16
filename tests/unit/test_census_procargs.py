@@ -308,6 +308,7 @@ def test_d_cen1_an_unknown_root_unique_id_keeps_every_member(monkeypatch):
     census(monkeypatch, parents=ROWS + f"60 1 60 S {START}\n", session=BOOT_A)
     kernel_with(monkeypatch, processes={60: b""}, responsible={60: 42}, unique={60: 1})
     result = procs.containment(None, None, None, ATTEMPT, root=ROOT,
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, START)},
                                responsible_root=procs.ResponsibleRoot(42, BOOT_A, None))
     assert result.responsible_pids == {60}
 
@@ -331,16 +332,18 @@ def test_d_cen1_an_attempt_without_a_root_keeps_three_sources(monkeypatch):
     assert not [call for call in fake.calls if call[0] == "responsible"]
 
 
-def test_d_cen1_a_census_reads_each_candidate_once_per_source(monkeypatch):
+def test_d_cen1_a_census_reads_each_candidate_once_and_rechecks_its_root(monkeypatch):
     """C-5.12: one listing and, per live candidate of this user, one state read, one
-    buffer and one responsibility read; another user's pid costs the state read alone."""
+    buffer and one responsibility read, plus one final root-holder read;
+    another user's pid costs the state read alone."""
     census(monkeypatch, parents=ROWS, session=BOOT_A)
     fake = kernel_with(monkeypatch, processes={42: b"", 43: b"", 60: b""}, others={61})
     procs.containment(42, 42, None, ATTEMPT, root=ROOT, responsible_root=procs.ResponsibleRoot(42, BOOT_A, 1))
     assert fake.calls.count(("pids",)) == 1
     for pid in (42, 43, 60):
         assert [call for call in fake.calls if call[1:] == (pid,)] == [
-            ("process", pid), ("arguments", pid), ("responsible", pid)]
+            ("process", pid), ("arguments", pid), ("responsible", pid)
+        ] + ([("process", pid)] if pid == 42 else [])
     assert [call for call in fake.calls if call[1:] == (61,)] == [("process", 61)]
 
 
@@ -547,5 +550,6 @@ def test_d_cen1_a_proven_other_boot_excludes_an_unknown_sequence_root(monkeypatc
     census(monkeypatch, parents=ROWS, session=BOOT_A)
     kernel_with(monkeypatch, processes={60: b""}, responsible={60: 42})
     result = procs.containment(None, None, None, ATTEMPT, root=ROOT,
+                               recorded_identities={42: procs.ProcessIdentity(42, BOOT_B, START)},
                                responsible_root=procs.ResponsibleRoot(42, BOOT_B, None))
     assert not result.responsible_pids and result.verified_empty
