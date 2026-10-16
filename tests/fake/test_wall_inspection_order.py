@@ -3,7 +3,7 @@ import json
 from datetime import timedelta
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, Phase, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module, procs
 from tests.fake.test_review_r223_wall_probes import clocked, mark_starting  # noqa: F401
@@ -84,6 +84,8 @@ def receipt_interleaving(clocked, monkeypatch, stage, shared, exit_s, inspect_s,
     assert job["cancel_requested_at"] is None
     assert attempt["killed_by"] is None and attempt["signal"] is None and attempt["rc"] == 0
     assert service._cancel_info(jid) is None
+    from subfleet.offline import Offline
+    assert Offline(service.root).show_job(jid)["cancel"] is None
     assert service._running_s(jid) == exit_s
     if stage in ("initial", "inspection"):
         assert signals == []
@@ -100,7 +102,7 @@ def test_round5_receipt_between_wall_check_and_kill_settlement_wins(clocked, mon
     receipt_interleaving(clocked, monkeypatch, stage, True, 21599, 21601, 21600)
 
 
-@settings(max_examples=32, deadline=None, derandomize=True,
+@settings(max_examples=32, deadline=None, derandomize=True, phases=[Phase.generate],
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(stage=st.sampled_from(["initial", "inspection", "cancel", "settle"]), shared=st.booleans(),
        cap=st.integers(2, 21600), before=st.integers(1, 10), after=st.integers(1, 10))
@@ -142,7 +144,7 @@ def test_round5_seven_hour_recovery_never_charges_an_absent_provider(clocked, mo
     assert service.store.get_job(jid)["cancel_requested_at"] is None
 
 
-@settings(max_examples=20, deadline=None, derandomize=True,
+@settings(max_examples=20, deadline=None, derandomize=True, phases=[Phase.generate],
           suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(down_s=st.integers(1, 7 * 3600), state=st.sampled_from(["starting", "running", "reserved"]))
 def test_round5_wall_property_excludes_downtime(clocked, monkeypatch, down_s, state):
@@ -163,6 +165,36 @@ def test_round5_wall_property_excludes_downtime(clocked, monkeypatch, down_s, st
         assert service._running_s(jid) == 0
     finally:
         service.dispatch("kill", {"job_id": jid})  # Release this example's queued retry.
+
+
+def test_round5_client_cancel_after_superseded_wall_keeps_its_requester(clocked, monkeypatch):
+    service, clock, jid, aid = running(clocked, monkeypatch)
+    service._request_cancel(jid, {"by": "daemon", "reason": "max_wall_s", "running_s": 21601},
+                            attempt_id=aid, killed_by="max_wall_s")
+    success_receipt(service, jid, aid, clock.t.isoformat())
+    service._kill_attempt(service.store.get_attempt(aid))
+    assert service.store.get_job(jid)["cancel_requested_at"] is None
+    client = {"by": "client", "session_id": "later-client", "pid": 424242, "reason": "explicit-stop"}
+    service._request_cancel(jid, client)
+    assert service._cancel_info(jid)["by"] == "client"
+    assert service._cancel_info(jid)["session_id"] == "later-client"
+    from subfleet.offline import Offline
+    assert Offline(service.root).show_job(jid)["cancel"]["pid"] == 424242
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["state"] == "cancelled"
+
+
+@pytest.mark.parametrize("alive", ["dead", "unknown"])
+def test_round5_fresh_exit_check_overrules_a_shared_live_table(clocked, monkeypatch, alive):
+    service, clock, jid, aid = running(clocked, monkeypatch)
+    service.store.update_job(jid, max_wall_s=21600)
+    clock.t += timedelta(seconds=21601)
+    table = procs.ProcessTable({424242: (1, 424242, "S", "fixture-start")}, "unit-test-boot")
+    monkeypatch.setattr(service, "_process_table", lambda due: (table, due + 1))
+    monkeypatch.setattr(procs, "liveness", lambda *args: alive)
+    monkeypatch.setattr(service, "_kill_attempt", lambda *args, **kwargs: pytest.fail("provider was wall-killed"))
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["cancel_requested_at"] is None
 
 
 def running(clocked, monkeypatch):

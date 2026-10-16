@@ -6,11 +6,13 @@ import threading
 import pytest
 
 from subfleet.conversations.peers import AuditToken
+from subfleet.conversations.store import ConversationStore
 from tests.unit.test_conversation_service import FakeRunner, conversation, submit, svc  # noqa: F401
 
 
 @pytest.mark.parametrize("op", ["message.cancel", "turn.interrupt"])
-def test_round5_pending_submission_retains_session_and_audit_pid(svc, monkeypatch, op):
+@pytest.mark.parametrize("reopen", [False, True], ids=["same-store", "reopened-store"])
+def test_round5_pending_submission_retains_session_and_audit_pid(svc, monkeypatch, op, reopen):
     cid = conversation(svc)
     mid = submit(svc, cid)
     entered, resume = threading.Event(), threading.Event()
@@ -38,6 +40,9 @@ def test_round5_pending_submission_retains_session_and_audit_pid(svc, monkeypatc
         peer = AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, 424242, 0, 7))
         result = svc.handle(op, {"message_id": mid, "session_id": "pending-session", "pid": -123}, peer)
         assert result["state"] == "cancelled"
+        if reopen:
+            svc.store.close()
+            svc.store = ConversationStore(svc.root)
     finally:
         resume.set()
         worker.join(10)
