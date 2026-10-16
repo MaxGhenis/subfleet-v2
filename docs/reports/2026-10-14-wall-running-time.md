@@ -525,3 +525,61 @@ conversation group, settle/pacing/prefilter group, admission groups, CLI/offline
 pin-grace/C-11.8 files, remaining fixture-audit files and four required mutation
 checks remain to run. Final per-file counts and omissions will replace this
 checkpoint as the holds complete.
+
+## Round 4 (2026-10-16): CI at f07751fc1
+
+Status: fixes committed; original-head and `9fad7c4fe` comparison runs and final
+regression validation are in progress. Round 4 started at 04:51 UTC; no new
+holds will start after 09:21 UTC (the requested 4 h 30 m checkpoint).
+
+The shared index refused `index.lock` with `Operation not permitted`. Round-4
+commits use workspace-local `.git-local`, on
+`fix/wall-counts-running-time-217`, based on the assigned `f07751fc179f`.
+The original `.git` pointer and index are preserved. All commits include the
+requested co-author trailer; no history is rewritten and nothing is pushed.
+
+### Causes and changes
+
+- Conversation stop/title fixtures had runners named `host/a1` or `job/a1`
+  without corresponding jobs or attempts in their real job store. Parsing those
+  attempt ids produced the correct job id, but round 3's new attribution write
+  could not find that job. The fixtures now create the missing rows and retain
+  every existing stop, title ordering and concurrency assertion. The legacy
+  hold double records the newly required cancellation request.
+- The frontend harness still passed integer pids after the daemon's peer seam
+  became a saved audit token. It now supplies audit tokens for direct calls and
+  reads them from sockets. Its cancellation seam records requests. The protocol
+  stand-in runner now has an attempt id, and the lossless round-trip test also
+  asserts the client attribution. No application reply field or wire shape is
+  changed.
+- Round 3's `_record_owned` wrote a second `attempt.processes_recorded` event
+  whenever the observation clock advanced, even when membership did not change.
+  It also materialized an empty ownership map when a living guardian had left
+  its recorded group. Liveness still advances durably from the pass's existing
+  inspection; unchanged membership uses `attempt.observed_alive`, and no empty
+  ownership claim is created. The pacing regression now advances its clock
+  deterministically and checks both the updated observation and the original
+  ownership-event count.
+- The quarantine reaping double now supplies its receipt reader and an isolated
+  root. Its original reaping assertions are unchanged.
+- The admission machine's FIFO oracle omitted the new `lanes-unadmittable` hold.
+  A retry whose two transient failures excluded the fleet's only lane correctly
+  holds nobody back (C-11.8). The oracle now applies that rule and validates the
+  hold's required evidence. A deterministic replay retains CI's minimized trace.
+  This changes the old oracle's assumption that an unrecognized hold competes;
+  it does not relax FIFO for a job that can use a lane.
+- The held-start salvage fixture also exhausted its only lane after two
+  transients. The new permanent-refusal check correctly runs before workspace
+  preparation, so no a3 baseline was written. That fixture now supplies a spare
+  eligible lane before applying a zero fleet cap, reaching the intended held
+  start and retaining all ref, notice and work-preservation assertions.
+
+### Validation ledger
+
+Each failing file runs separately at the original head and base before final
+validation. Each pytest owns a separate foreground `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`, with no lock timeout and no xdist.
+The default uv cache is outside writable roots, so uv uses the task's disposable
+scratch cache. Hypothesis uses the bounded `ci` profile and scratch storage.
+No logs, JSON evidence or bundles are staged. Detailed counts and final status
+will replace this in-progress ledger.
