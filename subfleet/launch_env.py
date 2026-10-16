@@ -1,7 +1,8 @@
 """C-12.3/4, D-ENV1: select ambient names before adding launch authority.
 
-Subfleet configuration includes harness hooks; credential words and launch
-markers under that prefix still require explicit authority.
+Ambient authority is a finite list of exact names, plus the test harness's
+own prefixes. A credential word anywhere in a name refuses it, listed or not,
+unless a reviewed exception says why that name holds no secret.
 """
 
 from collections.abc import Iterable, Mapping
@@ -27,22 +28,43 @@ NETWORK_NAMES = frozenset({
     "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
     "http_proxy", "https_proxy", "all_proxy", "no_proxy",
 })
-# Exact configuration names consumed by Subfleet, never launch/session markers.
+# Every SUBFLEET_* configuration name the package reads (bin/codex included),
+# and the guard preflight's timeout. tests/unit/test_launch_env_round3.py fails
+# when the package spells a SUBFLEET_* name this, LAUNCH_NAMES or RETIRED_NAMES lacks.
 CONFIG_NAMES = frozenset({
     "SUBFLEET_CLAUDE_DIR", "SUBFLEET_CLAUDE_SETTINGS", "SUBFLEET_CODEX_GUARD_CACHE",
-    "SUBFLEET_CODEX_HOMES", "SUBFLEET_CODEX_UNIFIED_EXEC", "SUBFLEET_DESKTOP_LOG",
-    "SUBFLEET_DEV_APP_EXECUTABLE", "SUBFLEET_GIT_TIMEOUT_S", "SUBFLEET_GUARD_TRUST",
-    "SUBFLEET_HOOK_COMMAND", "SUBFLEET_HOOK_TIMEOUT_S", "SUBFLEET_NOTIFY_MODE",
-    "SUBFLEET_PROVIDER_QOS", "SUBFLEET_RESET_INHIBIT", "SUBFLEET_RETENTION_QOS",
-    "SUBFLEET_SESSION_STORE", "SUBFLEET_TICKLE", "CODEX_GUARD_PREFLIGHT_TIMEOUT",
+    "SUBFLEET_CODEX_HOMES", "SUBFLEET_CODEX_UNIFIED_EXEC", "SUBFLEET_DAEMON_BIN",
+    "SUBFLEET_DESKTOP_LOG", "SUBFLEET_DEV_APP_EXECUTABLE", "SUBFLEET_GIT_TIMEOUT_S",
+    "SUBFLEET_GUARD_TRUST", "SUBFLEET_HOME", "SUBFLEET_HOOK_COMMAND",
+    "SUBFLEET_HOOK_TIMEOUT_S", "SUBFLEET_NO_AUTOPICK", "SUBFLEET_NOTIFY_MODE",
+    "SUBFLEET_PROVIDER_QOS", "SUBFLEET_RESET_INHIBIT", "SUBFLEET_RETENTION_DORMANT",
+    "SUBFLEET_RETENTION_QOS", "SUBFLEET_SESSION_STORE", "SUBFLEET_TICKLE",
+    "SUBFLEET_V1_BIN", "CODEX_GUARD_PREFLIGHT_TIMEOUT",
 })
 ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
-_VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
-_CREDENTIAL_WORD = re.compile(
-    r"(?:^|_)(?:TOKENS?|KEYS?|APIKEYS?|SECRETS?|PASSWORDS?|PASSWD|"
-    r"CREDENTIALS?|AUTHORIZATION|BEARER|COOKIES?)[0-9]*(?:_|$)",
-    re.IGNORECASE | re.ASCII,
+# Read only to say they are ignored: v1's state root and the retired API-lane
+# override. Never inherited, so doctor names them.
+RETIRED_NAMES = frozenset({"SUBFLEET_ALLOW_API_LANE", "SUBFLEET_STATE_DIR"})
+# Test-only hooks for the fake providers and the e2e and live harnesses. No
+# production code reads a name under these (tests/unit/test_launch_env_round3.py).
+HARNESS_PREFIXES = ("SUBFLEET_FAKE_", "SUBFLEET_E2E_")
+HARNESS_NAMES = frozenset({"SUBFLEET_LIVE"})
+# Backstop: a name holding one of these anywhere, in any case, is never ambient
+# authority, listed or not. Exact policy names stay explicit authority.
+CREDENTIAL_WORDS = (
+    "TOKEN", "KEY", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "PASS", "PWD",
+    "CREDENTIAL", "CRED", "AUTH", "OAUTH", "BEARER", "COOKIE", "JWT", "PAT",
+    "PRIVKEY", "WEBHOOK",
 )
+CREDENTIAL_PATTERN = re.compile("|".join(CREDENTIAL_WORDS), re.IGNORECASE | re.ASCII)
+# Reviewed: admitted names a word matches by accident. Each holds a path.
+CREDENTIAL_EXCEPTIONS = frozenset({
+    "PATH",                            # executable search path ("PAT")
+    "SSH_AUTH_SOCK",                   # the agent's socket; its keys stay in the agent
+    "SUBFLEET_FAKE_DIAGNOSTICS_PATH",  # where the fake Codex writes its report
+    "SUBFLEET_FAKE_RELEASE_PATH",      # a file whose creation releases a fake provider
+})
+_VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
 # These identify a particular launch, not ambient daemon configuration.
 LAUNCH_NAMES = frozenset({
     "SUBFLEET_ATTACHED_OK", "SUBFLEET_ATTEMPT", "SUBFLEET_JOB", "SUBFLEET_LANE",
@@ -57,11 +79,15 @@ def valid_name(name: object) -> bool:
     return isinstance(name, str) and _VARIABLE_NAME.fullmatch(name) is not None
 
 
+def harness_name(name: str) -> bool:
+    return name in HARNESS_NAMES or (valid_name(name) and any(
+        name.startswith(prefix) and len(name) > len(prefix) for prefix in HARNESS_PREFIXES))
+
+
 def allowed_name(name: str) -> bool:
-    return name in ALLOWED_NAMES or (
-        name.startswith("SUBFLEET_") and valid_name(name)
-        and name not in LAUNCH_NAMES and _CREDENTIAL_WORD.search(name) is None
-    )
+    """Ambient authority: a listed name or a harness hook, never a credential word."""
+    return ((name in ALLOWED_NAMES or harness_name(name))
+            and (name in CREDENTIAL_EXCEPTIONS or CREDENTIAL_PATTERN.search(name) is None))
 
 
 @contextmanager
@@ -81,18 +107,24 @@ def helper_policy(policy: Mapping):
 def build_environment(additions: Mapping[str, str] | None = None,
                       removals: Iterable[str] = (), *,
                       pass_names: Iterable[str] | None = None,
-                      environ: Mapping[str, str] | None = None) -> dict[str, str]:
+                      environ: Mapping[str, str] | None = None,
+                      withheld: Iterable[str] = ()) -> dict[str, str]:
     """Select parent names and explicit authority, then mandatory removals.
 
     Callers supply only their own additions; never pass an ambient environment
     as additions. Explicit policy names authorize inheritance, not values or
-    patterns. Reject malformed programmatic callers as well as policy files.
+    patterns. `withheld` names are never taken from the parent, even when
+    allowlisted or passed: lane credential references, which reach their own
+    lane only as an addition. Reject malformed programmatic callers as well as
+    policy files.
     """
     passed = frozenset(_HELPER_PASS.get() if pass_names is None else pass_names)
     if any(not valid_name(name) for name in passed):
         raise ValueError("environment pass-through requires exact variable names")
+    withheld = frozenset(withheld)
     parent = os.environ if environ is None else environ
-    result = {name: parent[name] for name in parent if allowed_name(name) or name in passed}
+    result = {name: parent[name] for name in parent
+              if (allowed_name(name) or name in passed) and name not in withheld}
     result.update(additions or {})
     for name in removals:
         result.pop(name, None)
@@ -100,7 +132,11 @@ def build_environment(additions: Mapping[str, str] | None = None,
 
 
 def environment_report(environ: Mapping[str, str] | None = None) -> dict[str, list[str]]:
-    """Doctor's daemon-side diagnostic: names only, no environment snapshot."""
+    """Doctor's daemon-side diagnostic: names only, no environment snapshot.
+
+    Every name the allowlist drops is listed, including each unlisted
+    SUBFLEET_* name and the lane credential references the daemon holds.
+    """
     parent = os.environ if environ is None else environ
     return {"extra_names": sorted(name for name in parent if not allowed_name(name))}
 
