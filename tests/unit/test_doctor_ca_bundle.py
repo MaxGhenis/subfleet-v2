@@ -30,11 +30,13 @@ def ca_values(env):
 def test_doctor_version_check_uses_root_policy_environment(tmp_path, bundle, monkeypatch, provider):
     from subfleet import doctor
     baseline = {"HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin", "LANG": "C",
-                "SUBFLEET_TEST_REPORT": str(tmp_path / "report")}
+                "SUBFLEET_FAKE_REPORT": str(tmp_path / "report")}
     monkeypatch.setattr(os, "environ", {
         **baseline, "LANE_METADATA_TOKEN": "dummy-authorized",
         "LANE_METADATA_TOKEN_EXTRA": "dummy-denied", "UNRELATED_TOKEN": "dummy-denied",
         "SUBFLEET_TEST_TOKEN": "dummy-denied", "SUBFLEET_ATTEMPT": "foreign/a1",
+        # Round 3: only listed configuration and harness hooks pass (D-ENV1).
+        "SUBFLEET_TEST_REPORT": str(tmp_path / "denied-report"),
     })
     root = tmp_path / "state"
     root.mkdir()

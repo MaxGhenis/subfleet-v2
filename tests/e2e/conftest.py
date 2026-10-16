@@ -114,12 +114,13 @@ class E2E:
         # here describes admission mechanics the rule sits on top of, so it starts off.
         self.policy_update(lambda policy: policy.setdefault("reserve", {}).update(models=[]))
         # Runtime observers and fake-provider state are deliberate harness
-        # authority. Keep production's non-Subfleet defaults restrictive.
+        # authority. Keep production's non-Subfleet defaults restrictive. The
+        # Claude lanes' E2E_CLAUDE_TOKEN_* references are not named: a lane
+        # credential reaches only its own lane, as its token (D-ENV1).
         self.policy_update(lambda policy: policy.setdefault("env", {}).update({"pass": [
             "PYTHONPATH", "CLAUDE_FAKE_PROJECTS_DIR", "GIT_CONFIG_NOSYSTEM",
             "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
             "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
-            "E2E_CLAUDE_TOKEN_1", "E2E_CLAUDE_TOKEN_2",
         ]}))
         binary_dir = self.root / "bin"
         binary_dir.mkdir()

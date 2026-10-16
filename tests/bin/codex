@@ -136,6 +136,7 @@ def main() -> int:
         "cwd": os.getcwd(),
         "stdin": stdin.decode("utf-8", "replace"),
         "env": {key: os.environ.get(key) for key in ENV_KEYS},
+        "env_keys": sorted(os.environ),
     }
     if scenario == "nested-setsid":
         diagnostics["nested_grandchild_pid"] = nested_grandchild()

@@ -2,19 +2,27 @@
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
 from subfleet import daemon as daemon_module
+from subfleet.adapters import registry
+from subfleet.adapters.base import AdapterError
+from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.policy import PolicyError
 from subfleet.provider_env import ProviderEnvironment
+from tests.claude_code import claude_code_active
+from tests.fake.conftest import Harness
 from tests.fake.test_probe_recovery import reserved_probe
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
+from tests.fake_adapter import FakeAdapter
 from tests.unit.test_launch_env_allowlist import ALLOWED, POLICY, POLLUTION
 
 
-def daemon_spawn_environment(routing_state, monkeypatch, mode, *, pythonpath=None):
+def daemon_spawn_environment(routing_state, monkeypatch, mode, *, pythonpath=None, extra=None):
     service, harness = routing_state
-    parent = {"PATH": "/usr/bin:/bin", **POLLUTION}
+    parent = {"PATH": "/usr/bin:/bin", **POLLUTION, **(extra or {})}
     if pythonpath is not None:
         parent["PYTHONPATH"] = pythonpath
     monkeypatch.setattr(os, "environ", parent)
@@ -123,3 +131,94 @@ def test_guardian_bootstrap_preserves_provider_pythonpath(routing_state, monkeyp
         assert seen[0]["PYTHONPATH"] == pythonpath
     assert "SUBFLEET_EXIT_SETTLE_S" not in seen[0]
     assert not any(name.startswith("_SUBFLEET_") for name in seen[0])
+
+
+def test_review_r2_real_case_reaches_no_codex_guardian(routing_state, monkeypatch):
+    """Review r2: the env-kind example set in the daemon's shell reached a Codex lane."""
+    service, _ = routing_state
+    argv, env = daemon_spawn_environment(routing_state, monkeypatch, "detached",
+                                         extra={"SUBFLEET_TEST_OAUTH": "dummy-oauth"})
+    assert "SUBFLEET_TEST_OAUTH" not in env and "SUBFLEET_TEST_OAUTH" not in argv
+    assert "dummy-oauth" not in env.values()
+    assert "SUBFLEET_TEST_OAUTH" in service.dispatch("daemon.status", {})["environment"]["extra_names"]
+
+
+# Each way a lane's reference reached other launches before round 3.
+CHANNELS = {
+    # Round 2's e2e policy passed both references. Validation now refuses that
+    # policy; this sets it beneath validation, where the launch still withholds them.
+    "policy": ("E2E_LANE_ONE_TOKEN", "E2E_LANE_TWO_TOKEN"),
+    # Round 2's prefix rule admitted these to every launch.
+    "prefix": ("SUBFLEET_TEST_OAUTH", "SUBFLEET_LANE_TWO_OAUTH"),
+    # A harness name every launch inherits can never be one lane's credential.
+    "harness": ("SUBFLEET_FAKE_LANE_ONE", "SUBFLEET_FAKE_LANE_TWO"),
+}
+
+
+@pytest.mark.parametrize("channel", sorted(CHANNELS))
+def test_env_kind_lane_credentials_reach_only_their_own_lane(routing_state, monkeypatch, channel):
+    """Review r2 P3: lane 1's launch holds neither lane 2's name nor value; Codex holds neither."""
+    service, harness = routing_state
+    references, values = CHANNELS[channel], ("dummy-lane-one", "dummy-lane-two")
+    lanes = [Lane(f"claude-{index + 1}", "claude", f"claude:lane-{index + 1}",
+                  Credential("claude", reference, "env"), None, LaneOwner.V2, False)
+             for index, reference in enumerate(references)]
+    for lane in lanes:
+        service.store.put_lane(lane)
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **dict(zip(references, values))})
+    if channel == "policy":
+        service._provider_environment.pass_names = references
+    prompt = harness.workdir / "prompt.md"
+    prompt.write_text("Reply OK")
+
+    def launched(lane):
+        """The daemon's own seams: credential, launch and the relaunch after a restart."""
+        credential = service._credential_environment(lane)
+        launch = FakeAdapter().build_launch(SimpleNamespace(workdir=str(harness.workdir)), "fake/a1",
+                                            harness.workdir, lane, credential, "fake", None, prompt, None)
+        return service._launch_environment(lane, launch), service._relaunch_env(lane.lane_id)
+
+    for env in launched(service.store.get_lane("codex-1")):
+        assert not set(references) & set(env)
+        assert not set(values) & set(env.values())
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+    for own, lane in enumerate(lanes):
+        if channel == "harness":
+            with pytest.raises(AdapterError) as error:
+                service._credential_environment(lane)
+            assert error.value.reason == "credential-env"
+            continue
+        for env in launched(lane):
+            assert env["CLAUDE_CODE_OAUTH_TOKEN"] == values[own]
+            assert not set(references) & set(env)
+            assert values[1 - own] not in env.values()
+
+
+def test_daemon_refuses_a_policy_passing_a_lane_credential(tmp_path, monkeypatch):
+    """Policy validation at startup, after the roster is seeded; the lock is released."""
+    root = tmp_path / "state"
+    root.mkdir()
+    Harness(root)
+    # As `routing_state` starts its daemon: no host identity, keychain or provider.
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+    monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+    monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+    claude_code_active(monkeypatch, tmp_path / "claude")
+    roster = json.loads((root / "lanes.json").read_text())
+    roster.append({"lane_id": "claude-1", "provider": "claude", "account_key": "claude:lane-1",
+                   "credential_kind": "env", "credential_ref": "E2E_LANE_ONE_TOKEN", "owner": "v2"})
+    (root / "lanes.json").write_text(json.dumps(roster))
+    policy = json.loads((root / "policy.json").read_text())
+    policy["env"] = {"pass": ["E2E_LANE_ONE_TOKEN"]}
+    (root / "policy.json").write_text(json.dumps(policy))
+    try:
+        started = daemon_module.Daemon(root)
+    except PolicyError as exc:
+        assert exc.key == "env.pass[0]"
+    else:
+        started.close()
+        pytest.fail("a policy passing a lane credential started the daemon")
+    policy["env"] = {"pass": []}
+    (root / "policy.json").write_text(json.dumps(policy))
+    daemon_module.Daemon(root).close()

@@ -40,8 +40,12 @@ def test_e2e_harness_explicitly_authorizes_nonprefix_hooks(tmp_path, monkeypatch
         child = ProviderEnvironment(policy).build("claude", environ=daemon)
         required = {"PYTHONPATH", "CLAUDE_FAKE_PROJECTS_DIR", "GIT_CONFIG_NOSYSTEM",
                     "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
-                    "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "E2E_CLAUDE_TOKEN_1", "E2E_CLAUDE_TOKEN_2"}
+                    "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"}
         assert required <= child.keys()
+        # Round 3: the lanes' references are the daemon's alone (D-ENV1).
+        references = {"E2E_CLAUDE_TOKEN_1", "E2E_CLAUDE_TOKEN_2"}
+        assert references <= daemon.keys()
+        assert not references & child.keys()
     finally:
         harness.close()
 
