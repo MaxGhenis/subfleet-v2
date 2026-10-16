@@ -8,6 +8,7 @@ from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.fake.test_review_pr131_probes import BOOT, confirm_dead, ident, script_table
 from tests.fake.test_quarantine_self_resolve import Clock
 from tests.fake.test_workspace_contract import repository
+from tests.fake_kernel import ScriptedMarkerKernel
 
 
 def quarantine(daemon, harness, *, owned=None, held=None):
@@ -189,6 +190,9 @@ def test_a_writer_forking_after_the_table_read_does_not_lose_its_child(
         world[301] = (300, 301, 'Ss', 'late-child')
         return ''
     monkeypatch.setattr(procs, '_read', marker_read)
+    # The merged census reads kernel buffers. Keep the fork at the marker
+    # listing boundary, after the process-table snapshot, inside this world.
+    monkeypatch.setattr(procs, 'kernel', ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     from tests.fake.test_review_pr131_probes import ORIGINAL_CENSUS
     monkeypatch.setattr(procs, 'containment', ORIGINAL_CENSUS)
     clock.advance()
@@ -220,6 +224,7 @@ def test_forked_child_keeping_markers_holds_across_many_paces_after_parent_exits
         world[301] = (300, 301, 'Ss', 'late-child')
         return f'301 writer {marker}\n'
     monkeypatch.setattr(procs, '_read', marker_read)
+    monkeypatch.setattr(procs, 'kernel', ScriptedMarkerKernel(lambda *a, **kw: procs._read(*a, **kw)))
     monkeypatch.setattr(procs, '_stat', lambda pid: world[pid][2])
     monkeypatch.setattr(procs, 'identity', lambda pid: procs.ProcessIdentity(pid, BOOT, world[pid][3]))
     monkeypatch.setattr(procs, 'process_group', lambda pid: world[pid][1])
