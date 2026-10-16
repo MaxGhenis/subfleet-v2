@@ -32,6 +32,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
+import re
 import tempfile
 import uuid
 
@@ -53,6 +54,9 @@ REPAIR_ORIGINS = ("unblock-note", "failover")      # subfleet/conversations/stor
 WITHDRAWN_REASONS = ("withdrawn", "withdrawn-before-receipt")
 NOTE_PREVIEW = "Note to the next turn: the stopped turn is left, not resumed"
 PREVIEW_LIMIT = 280
+CORE_PREVIEW_LIMIT = int(re.search(r"let queuePreviewLimit = (\d+)",
+                                  (Path(__file__).resolve().parents[2] / "app/Sources/QueueTray.swift")
+                                  .read_text()).group(1))
 EMPTY_KEY = {"last": None, "last_is_own_send": False, "followed": None, "followed_length": 0, "tray": [],
              "settling": True, "has_history": False, "local_send": None, "live": False, "held": False}
 
@@ -1058,6 +1062,15 @@ PROPERTY = settings(max_examples=40, deadline=None, derandomize=True,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 
 
+@PROPERTY
+@given(text=long_texts)
+def test_c29_7_generated_long_text_always_needs_a_cut(core_probe, text):
+    folded = " ".join(text.split())
+    assert len(folded) > CORE_PREVIEW_LIMIT
+    words = queue_words(core_probe, previews=[{"text": text, "attachments": 0}])
+    assert words["previews"] == [folded[:CORE_PREVIEW_LIMIT - 1] + "…"]
+
+
 def check_layout(step: dict, snapshot: dict, known: dict) -> None:
     """Every statement of the tray rule, on one snapshot."""
     timeline, layout = snapshot["timeline"], snapshot["layout"]
@@ -1319,6 +1332,7 @@ def test_c29_7_the_generated_timelines_reach_every_case(core_probe):
             for label in labels(steps, result):
                 seen[label] += 1
     thin = {case: seen[case] for case in CASES if seen[case] < REACHED}
+    print("Queue timeline coverage:", {case: seen[case] for case in CASES})
     assert not thin, (thin, dict(seen))
 
 
