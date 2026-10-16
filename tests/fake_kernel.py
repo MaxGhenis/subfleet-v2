@@ -42,7 +42,8 @@ class FakeKernel:
     """`processes` maps a live, readable pid to its buffer, or to None for a read the
     kernel refuses. `others` are other users' pids (EPERM: listed, never readable),
     `exiting` pids have begun to exit, `responsible` maps a pid to its responsible
-    process's pid (absent: its own), `unique` to its unique id (absent: the pid).
+    process's pid (absent: its own), `unique` to its unique id (absent: the pid), and `starts` to its kernel birth
+    rendered as ps lstart (absent: the standard census fixture start).
     `fail` names reads that raise `InspectionError`: "pids", or ("process" |
     "responsible", pid)."""
 
@@ -50,13 +51,15 @@ class FakeKernel:
 
     def __init__(self, processes: dict[int, bytes | None] | None = None, *, others: Iterable[int] = (),
                  exiting: Iterable[int] = (), responsible: dict[int, int] | None = None,
-                 unique: dict[int, int] | None = None, fail: Iterable = (), responsibility: bool = True,
+                 unique: dict[int, int | None] | None = None, fail: Iterable = (), responsibility: bool = True,
+                 starts: dict[int, str | None] | None = None,
                  gone_after_process: Iterable[int] = ()):
         self.processes = dict(processes or {})
         self.others = set(others)
         self.exiting = set(exiting)
         self.boss = dict(responsible or {})
         self.unique = dict(unique or {})
+        self.starts = dict(starts or {})
         self.fail = set(fail)
         self.responsibility = responsibility
         self.gone_after_process = set(gone_after_process)
@@ -76,7 +79,8 @@ class FakeKernel:
             return None
         if pid in self.gone_after_process and sum(1 for call in self.calls if call == ("process", pid)) > 1:
             return None
-        return procs.KernelProcess(pid, pid in self.exiting, self.unique.get(pid, pid))
+        return procs.KernelProcess(pid, pid in self.exiting, self.unique.get(pid, pid),
+                                   self.starts.get(pid, "Sat Sep  5 10:00:00 2026"))
 
     def arguments(self, pid: int, buffer=None) -> bytes | None:
         self.calls.append(("arguments", pid))

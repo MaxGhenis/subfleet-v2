@@ -10,7 +10,8 @@ from subfleet import procs, protocol
 from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
-from tests.unit.test_procs import census
+from tests.unit.test_procs import BOOT_A, START, census
+from tests.unit.test_census_responsibility_races import changing_root
 
 
 # Save the real census before state_daemon replaces the process seam.
@@ -152,3 +153,126 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
         assert result.descendant_pids == {4203, 55000}
         assert result.unverifiable and not result.verified_empty
         assert not result.recycled
+
+
+@pytest.mark.parametrize("path", ["kill", "probe", "finalize", "quarantine", "reap"])
+@pytest.mark.parametrize("persisted", [False, True], ids=["just-observed", "persisted"])
+@pytest.mark.parametrize("stale_owned", [False, True], ids=["unowned", "old-owned-birth"])
+def test_responsibility_evidence_and_its_walk_never_authorize_signals(
+        state_daemon, monkeypatch, path, persisted, stale_owned):
+    """C-5.4–7: even uncertain root-death evidence only holds the attempt.
+
+    Exercise the actual deciding paths, with both an evidence-only seed and a
+    child found solely by walking from it. Signals and waitpid are intercepted
+    before any host pid can be touched.
+    """
+    daemon, harness = state_daemon
+    job_id, attempt, _ = reserve(daemon, harness)
+    monkeypatch.setattr(procs, "containment", CONTAINMENT)
+    _, _, state = changing_root(monkeypatch, timing="after-members", fate="reaped")
+    attempt.update(guardian_pid=42, pgid=42, child_pid=None,
+                   boot_id=BOOT_A, proc_start=START, state="running",
+                   evidence_json=json.dumps({"responsible_root": {"pid": 42, "unique_id": None}}))
+    expected_owned = ({"61": asdict(procs.ProcessIdentity(61, BOOT_A, "old owned birth"))}
+                      if stale_owned else {})
+    if stale_owned:
+        state.fake.unique[61] = 100  # Leave birth 99 for the earlier owned incarnation.
+        attempt["evidence_json"] = json.dumps({**json.loads(attempt["evidence_json"]),
+                                               "owned_identities": expected_owned})
+    if persisted:
+        state.scanning = False
+        state.fake.processes.pop(42)
+        state.starts.pop(42)
+        state.fake.boss[61] = 61
+        evidence = json.loads(attempt["evidence_json"])
+        evidence["responsible_identities"] = {"61": asdict(procs.ProcessIdentity(61, BOOT_A, START))}
+        attempt["evidence_json"] = json.dumps(evidence)
+    daemon.store.update_attempt(attempt["attempt_id"], **{key: attempt[key] for key in (
+        "guardian_pid", "pgid", "child_pid", "boot_id", "proc_start", "state", "evidence_json")})
+    first = daemon._contain(attempt)
+    assert 61 in (first.descendant_pids if persisted else first.responsible_pids)
+    assert "61" in json.loads(attempt["evidence_json"])["responsible_identities"]
+    state.scanning = False
+    snapshot = procs.snapshot
+
+    def with_child():
+        table = snapshot()
+        return procs.ProcessTable({**table.rows, 62: (61, 62, "S", attempt["proc_start"])}, table.boot_id)
+
+    monkeypatch.setattr(procs, "snapshot", with_child)
+    assert daemon._contain(attempt).descendant_pids >= {61, 62}
+    signalled, waited = [], []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs.os, "waitpid", lambda pid, flags: waited.append(pid) or (pid, 0))
+    current_starts = {**state.starts, 62: START}
+    monkeypatch.setattr(procs, "same_process", lambda pid, boot, start:
+                        boot == BOOT_A and current_starts.get(pid) == start)
+    daemon.term_grace_s = daemon.kill_settle_s = daemon.exit_settle_s = 0
+    monkeypatch.setattr(daemon, "_salvage", lambda *a, **k: pytest.fail("salvage with live evidence"))
+    if path == "kill":
+        daemon._kill_attempt(attempt)
+    elif path == "probe":
+        record = {**attempt, "holder": attempt["attempt_id"], "directory": str(harness.root),
+                  **json.loads(attempt["evidence_json"]), "owned_identities": expected_owned}
+        record.pop("attempt_id")
+        record.pop("evidence_json")
+        assert not daemon._contain_probe(record)
+        assert record["owned_identities"] == expected_owned
+    elif path == "finalize":
+        daemon._finalize(attempt)
+    elif path == "quarantine":
+        daemon._quarantine(attempt, daemon._contain(attempt), "evidence only")
+        daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                                   protocol.KillArgs(job_id, confirm_dead=True))
+        assert daemon.store.list_leases(attempt["attempt_id"]) or daemon.store.list_leases(job_id)
+        daemon._resolve_quarantine(daemon.store.get_attempt(attempt["attempt_id"]),
+                                   protocol.KillArgs(job_id, force_release=True, operator_note="fixture"))
+    else:
+        monkeypatch.setattr(procs, "_abandoned", [])
+        daemon._children[attempt["attempt_id"]] = procs.Spawned(["fixture guardian"], 42)
+        daemon._quarantine(attempt, daemon._contain(attempt), "evidence only")
+        monkeypatch.setattr(procs._spawn, "available", False)
+        monkeypatch.setattr(procs.subprocess, "Popen", lambda *a, **k: None)
+        procs.spawn_disclaimed(["next fixture"], env={}, cwd=str(harness.root))
+        assert waited == [42]
+    assert not signalled
+    assert not ({61, 62} & set(waited))
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence.get("owned_identities", {}) == expected_owned
+
+
+def test_a_new_responsibility_identity_cannot_inherit_snapshot_group_authority(state_daemon, monkeypatch):
+    """C-5.4–6: a pid's new birth cannot borrow its former holder's group row."""
+    daemon, harness = state_daemon
+    _, attempt, _ = reserve(daemon, harness)
+    monkeypatch.setattr(procs, "containment", CONTAINMENT)
+    _, _, state = changing_root(monkeypatch, timing="never", fate="alive", known_unique=True)
+    state.scanning = False
+    state.starts[61] = "new escaped responsibility member"
+    state.fake.unique[61] = 101
+    snapshot = procs.snapshot
+
+    def stale_group_row():
+        table = snapshot()
+        return procs.ProcessTable({**table.rows, 61: (42, 42, "S", "old group member")}, BOOT_A)
+
+    monkeypatch.setattr(procs, "snapshot", stale_group_row)
+    monkeypatch.setattr(procs, "same_process", lambda pid, boot, start:
+                        boot == BOOT_A and state.starts.get(pid) == start)
+    attempt.update(guardian_pid=42, pgid=42, child_pid=None, boot_id=BOOT_A, proc_start=START,
+                   state="running", evidence_json=json.dumps({"responsible_root": {"pid": 42, "unique_id": 98}}))
+    daemon.store.update_attempt(attempt["attempt_id"], **{key: attempt[key] for key in (
+        "guardian_pid", "pgid", "child_pid", "boot_id", "proc_start", "state", "evidence_json")})
+    first = daemon._contain(attempt)
+    assert first.identities[61].proc_start == state.starts[61]
+    assert 61 in first.responsible_pids and 61 not in first.group_pids
+    signalled = []
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
+    daemon.term_grace_s = daemon.kill_settle_s = 0
+    daemon._kill_attempt(attempt)
+    assert set(signalled) <= {42}
+    evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence["responsible_identities"]["61"]["proc_start"] == state.starts[61]
+    assert "61" not in evidence["owned_identities"]

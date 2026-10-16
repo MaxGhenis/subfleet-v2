@@ -25,6 +25,8 @@ import uuid
 import pytest
 
 from subfleet import procs
+from subfleet.daemon import Daemon
+from tests.unit.test_census_procargs import core_for
 
 REPO = Path(__file__).resolve().parents[2]
 PERL_ESCAPE = ("import os, sys\n"
@@ -306,7 +308,10 @@ guardian.linger()
 
 
 @pytest.mark.parametrize("known_unique", [True, False])
-def test_d_cen1_a_real_recycled_root_and_its_child_are_strangers(tmp_path, known_unique):
+@pytest.mark.parametrize("after_snapshot,matching_snapshot", [(False, False), (True, False), (True, True)],
+                         ids=["before-ps", "after-absent-ps", "after-matching-ps"])
+def test_d_cen1_a_real_recycled_root_and_its_child_are_strangers(
+        tmp_path, monkeypatch, known_unique, after_snapshot, matching_snapshot):
     """The reviewer's executed input: a self-responsible S and its child C recorded
     under a dead root's start identity and older (or unknown) kernel sequence."""
     pidfile = tmp_path / "member"
@@ -321,11 +326,42 @@ def test_d_cen1_a_real_recycled_root_and_its_child_are_strangers(tmp_path, known
         own = procs.identity(source.pid)
         assert own is not None and member is not None
         sequence = procs.kernel.process(source.pid).unique_id
+        assert procs.kernel.responsible(source.pid) == source.pid
+        assert procs.kernel.responsible(member.pid) == source.pid
+        if after_snapshot:
+            # S and C replace either an absent root or a matching original row
+            # after ps. Listings, kernel reads and individual start reads stay real.
+            seen = procs.snapshot()
+            rows = {pid: row for pid, row in seen.rows.items() if pid not in {source.pid, member.pid}}
+            if matching_snapshot:
+                rows[source.pid] = (*seen.rows[source.pid][:3], "old start")
+            monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, seen.boot()))
         result = procs.containment(source.pid, source.pid, None, "absent-marker",
             recorded_identities={source.pid: procs.ProcessIdentity(source.pid, own.boot_id, "old start")},
             responsible_root=procs.ResponsibleRoot(source.pid, own.boot_id, sequence - 1 if known_unique else None))
-        assert set(result.recycled) == {source.pid}
-        assert result.verified_empty and not result.responsible_pids
+        assert not result.responsible_pids
+        assert result.live_pids <= ({source.pid} if matching_snapshot else set())
+        assert set(result.identities) <= ({source.pid} if matching_snapshot else set())
+        if after_snapshot:
+            assert not result.recycled
+            if not known_unique:
+                assert f"responsibility root identity unavailable for pid {source.pid}" in result.errors
+                assert result.unverifiable and not result.verified_empty
+            elif not matching_snapshot:
+                assert result.verified_empty
+        else:
+            assert set(result.recycled) == {source.pid}
+            assert result.verified_empty
+        row = {"attempt_id": "absent-marker", "job_id": "job", "seq": 1,
+               "guardian_pid": source.pid, "pgid": source.pid, "child_pid": None,
+               "boot_id": own.boot_id, "proc_start": "old start",
+               "evidence_json": json.dumps({"responsible_root": {
+                   "pid": source.pid, "unique_id": sequence - 1 if known_unique else None}})}
+        core = core_for(row)
+        saved = Daemon._contain(core, row)
+        assert not saved.responsible_pids
+        assert "responsible_identities" not in json.loads(row["evidence_json"])
+        assert not [event for event in core.store.events if event[0] == "attempt.responsible_recorded"]
         assert source.poll() is None and procs.liveness(member.pid, member.boot_id, member.proc_start) == "alive"
     finally:
         stop_identity(member)
