@@ -558,7 +558,8 @@ class Timers:
         # Desktop Codex identity is observed read-only; it is never a lane.
         try:
             from .adapters.codex import _identity, _read_auth
-            identity = _identity(_read_auth(Path.home() / '.codex'))
+            from .home_paths import codex_app_home
+            identity = _identity(_read_auth(codex_app_home()))
             self._app_account = 'codex:' + str(identity.get('account_id') or identity.get('email') or '')
         except (OSError, ValueError):
             self._app_account = None

@@ -381,13 +381,18 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
-def _keychain_blob(service: str, *, security_bin: str = "security") -> str | None:
+def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
+    from ..credentials import keychain_command
+    execute = runner or subprocess.run
     try:
-        done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
-                              capture_output=True, text=True, timeout=15, env=build_environment())
-    except (OSError, subprocess.SubprocessError):
+        # D-ENV1: the native reader gets the allowlisted environment; a supplied
+        # runner (D-ST1's stand-ins under pytest) builds its own.
+        done = execute(keychain_command(service, security_bin, runner=execute),
+                       capture_output=True, text=True, timeout=15,
+                       **({} if runner is not None else {"env": build_environment()}))
+    except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
@@ -526,7 +531,7 @@ class ClaudeAdapter(Adapter):
         self,
         *,
         claude_bin: str = "claude",
-        runner: Callable[..., Any] = subprocess.run,
+        runner: Callable[..., Any] | None = None,
         now: Callable[[], datetime] | None = None,
         new_session_id: Callable[[], str] | None = None,
         projects_dir: str | Path | None = None,
@@ -537,7 +542,9 @@ class ClaudeAdapter(Adapter):
     ) -> None:
         self.claude_bin = claude_bin
         self.provider_environment = ProviderEnvironment({})
-        self._runner = runner
+        self._runner = runner or subprocess.run
+        # D-ENV1: only the native runner is handed the allowlisted environment.
+        self._native_runner = runner is None
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -562,8 +569,8 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
-                capture_output=True, text=True, timeout=15, env=build_environment(),
+                keychain_command(ref, self._security_bin, runner=self._runner),
+                capture_output=True, text=True, timeout=15, **self._runner_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             raise AdapterError(
@@ -607,10 +614,10 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
-                capture_output=True, text=True, timeout=15, env=build_environment(),
+                keychain_command(ref, self._security_bin, runner=self._runner),
+                capture_output=True, text=True, timeout=15, **self._runner_environment(),
             )
-        except (OSError, subprocess.SubprocessError):
+        except (AdapterError, OSError, subprocess.SubprocessError):
             return None
         if getattr(done, "returncode", 1) != 0:
             return None
@@ -1292,13 +1299,21 @@ class ClaudeAdapter(Adapter):
             / f"{session_id}.jsonl"
         )
 
+    def _runner_environment(self) -> dict[str, dict[str, str]]:
+        """The native runner's allowlisted environment, read afresh (D-ENV1); a
+        supplied runner builds its own."""
+        return {"env": build_environment()} if self._native_runner else {}
+
     def _config_projects_dir(self, credential_env: dict[str, str] | None = None) -> Path:
         if self._projects_dir is not None:
             return self._projects_dir
         env = self.provider_environment.assemble(credential_env)
-        config = env.get("CLAUDE_CONFIG_DIR")
-        home = Path(env["HOME"]) if "HOME" in env else Path.home()
-        base = Path(config).expanduser() if config else home / ".claude"
+        from ..home_paths import home_path
+        # The launch's own CLAUDE_CONFIG_DIR, else its HOME's .claude (D-ENV1); under
+        # pytest a missing override refuses the person's store (D-ST1).
+        base = Path(home_path("CLAUDE_CONFIG_DIR",
+                              lambda: (Path(env["HOME"]) if "HOME" in env else Path.home()) / ".claude",
+                              env=env, expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:

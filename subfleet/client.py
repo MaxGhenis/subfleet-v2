@@ -87,7 +87,8 @@ def state_root(env: dict[str, str] | None = None) -> Path:
     every caller's cwd, and a file URI cannot express one at all.
     """
     env = os.environ if env is None else env
-    root = Path(env.get("SUBFLEET_HOME") or DEFAULT_STATE_ROOT).expanduser()
+    from .home_paths import home_path
+    root = Path(home_path("SUBFLEET_HOME", lambda: DEFAULT_STATE_ROOT, env=env)).expanduser()
     return root if root.is_absolute() else Path.cwd() / root
 
 
