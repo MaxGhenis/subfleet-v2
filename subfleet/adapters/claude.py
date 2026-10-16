@@ -381,17 +381,27 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
+def _launch_home(env: dict[str, str]) -> Path:
+    """The launch's HOME, spelled as release/217's `Path.home()` resolved it.
+
+    A launch inherits HOME by name, so it is the daemon's own value, and
+    `Path.home()` keeps its rules for an empty or unexpandable `~` HOME.
+    """
+    home = env.get("HOME")
+    return Path.home() if home is None or home == os.environ.get("HOME") else Path(home)
+
+
 def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
-    from ..credentials import keychain_command
+    from ..credentials import keychain_command, native_runner
     execute = runner or subprocess.run
     try:
         # D-ENV1: the native reader gets the allowlisted environment; a supplied
         # runner (D-ST1's stand-ins under pytest) builds its own.
         done = execute(keychain_command(service, security_bin, runner=execute),
                        capture_output=True, text=True, timeout=15,
-                       **({} if runner is not None else {"env": build_environment()}))
+                       **({"env": build_environment()} if native_runner(runner) else {}))
     except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
@@ -544,7 +554,8 @@ class ClaudeAdapter(Adapter):
         self.provider_environment = ProviderEnvironment({})
         self._runner = runner or subprocess.run
         # D-ENV1: only the native runner is handed the allowlisted environment.
-        self._native_runner = runner is None
+        from ..credentials import native_runner
+        self._native_runner = native_runner(runner)
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -1311,8 +1322,7 @@ class ClaudeAdapter(Adapter):
         from ..home_paths import home_path
         # The launch's own CLAUDE_CONFIG_DIR, else its HOME's .claude (D-ENV1); under
         # pytest a missing override refuses the person's store (D-ST1).
-        base = Path(home_path("CLAUDE_CONFIG_DIR",
-                              lambda: (Path(env["HOME"]) if "HOME" in env else Path.home()) / ".claude",
+        base = Path(home_path("CLAUDE_CONFIG_DIR", lambda: _launch_home(env) / ".claude",
                               env=env, expand_override=True))
         return base / "projects"
 
