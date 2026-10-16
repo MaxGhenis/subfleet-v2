@@ -138,6 +138,16 @@ def test_a_known_id_root_replaced_mid_scan_cannot_save_a_successors_child(monkey
     assert "60" not in json.loads(row["evidence_json"]).get("responsible_identities", {})
 
 
+def test_a_known_dead_root_without_members_can_verify_empty(monkeypatch):
+    row, core, state = changing_root(monkeypatch, timing="never", fate="alive", known_unique=True)
+    state.scanning = False
+    for pid in {42, *state.real}:
+        state.fake.processes.pop(pid)
+        state.starts.pop(pid)
+    result = Daemon._contain(core, row)
+    assert result.verified_empty and not result.errors
+
+
 @pytest.mark.parametrize("known_unique", [False, True], ids=["missing-id", "known-id"])
 def test_a_member_reused_before_identity_capture_cannot_save_the_new_holder(monkeypatch, known_unique):
     row, core, state = changing_root(monkeypatch, timing="never", fate="alive", known_unique=known_unique)
@@ -192,6 +202,7 @@ def test_birth_order_and_observed_children_survive_every_root_transition(
             row, core, state = changing_root(patch, timing=timing, fate=fate, known_unique=known_unique,
                                              pid=pid, sequence=sequence, gap=gap, children=children)
             first = Daemon._contain(core, row)
+            assert state.changed == (fate != "alive")
             saved = json.loads(row["evidence_json"]).get("responsible_identities", {})
             assert str(state.stranger) not in saved
             assert state.stranger not in first.responsible_pids
