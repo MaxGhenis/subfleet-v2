@@ -382,13 +382,15 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
-def _keychain_blob(service: str, *, security_bin: str = "security") -> str | None:
+def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
+    from ..credentials import keychain_command
+    execute = runner or subprocess.run
     try:
-        done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
-                              capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
+        done = execute(keychain_command(service, security_bin, runner=execute),
+                       capture_output=True, text=True, timeout=15)
+    except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
@@ -527,7 +529,7 @@ class ClaudeAdapter(Adapter):
         self,
         *,
         claude_bin: str = "claude",
-        runner: Callable[..., Any] = subprocess.run,
+        runner: Callable[..., Any] | None = None,
         now: Callable[[], datetime] | None = None,
         new_session_id: Callable[[], str] | None = None,
         projects_dir: str | Path | None = None,
@@ -537,7 +539,7 @@ class ClaudeAdapter(Adapter):
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
-        self._runner = runner
+        self._runner = runner or subprocess.run
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -562,7 +564,7 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
         except (OSError, subprocess.SubprocessError):
@@ -607,10 +609,10 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
-        except (OSError, subprocess.SubprocessError):
+        except (AdapterError, OSError, subprocess.SubprocessError):
             return None
         if getattr(done, "returncode", 1) != 0:
             return None
@@ -1299,7 +1301,9 @@ class ClaudeAdapter(Adapter):
         config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
             "CLAUDE_CONFIG_DIR"
         )
-        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        from ..home_paths import home_path
+        base = Path(config).expanduser() if config else Path(home_path(
+            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude", expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:

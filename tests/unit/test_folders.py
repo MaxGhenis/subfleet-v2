@@ -8,6 +8,7 @@ extends another's (`/a/b:c` beside `/a/b`) is never mistaken for it.
 from __future__ import annotations
 
 import os
+import pwd
 import sqlite3
 
 import pytest
@@ -331,7 +332,7 @@ def test_a_mount_point_and_a_firmlinked_folder_are_spelled_as_the_system_shows_t
     volume's firmlink (`/System/Volumes/Data/Users/…`) is the one under `/Users`."""
     import os
     assert folders.spelling("/") == ("/", None)
-    home = folders.canonical(os.path.expanduser("~"))
+    home = folders.canonical(pwd.getpwuid(os.getuid()).pw_dir)
     data = "/System/Volumes/Data" + home
     if not home.startswith("/Users/") or not os.path.isdir(data) or not os.path.samefile(data, home):
         pytest.skip("needs a home under the Data volume's /Users firmlink, as macOS has")

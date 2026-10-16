@@ -162,9 +162,8 @@ def launched_by_subfleet(env: Any = None) -> str | None:
 
 
 def settings_path() -> Path:
-    override = os.environ.get(SETTINGS_ENV)
-    return (Path(override).expanduser() if override
-            else Path("~/.claude/settings.json").expanduser())
+    from .home_paths import home_path
+    return Path(home_path(SETTINGS_ENV, lambda: "~/.claude/settings.json")).expanduser()
 
 
 def hook_command() -> str:

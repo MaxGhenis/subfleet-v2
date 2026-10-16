@@ -64,6 +64,7 @@ from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
 from .store import notice_fingerprint
+from .home_paths import home_path
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
@@ -2857,13 +2858,18 @@ def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+def launchd_plist_path() -> Path:
+    return Path(home_path("SUBFLEET_LAUNCHD_PLIST", lambda: PLIST_PATH,
+                          test_only=True)).expanduser()
+
+
 def cmd_daemon_install(args: argparse.Namespace) -> int:
     if getattr(args, "hooks", False):
         return cmd_daemon_install_hooks(args)
     root = _root(args)
     already_running = _daemon_alive(Client(root))
     plist = _plist(root)
-    target = Path(PLIST_PATH).expanduser()
+    target = launchd_plist_path()
     if args.dry_run:
         sys.stdout.write(plist.decode())
         note(f"{PROG} daemon install --dry-run: would write {target} and load it")

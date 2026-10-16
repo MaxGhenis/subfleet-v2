@@ -219,6 +219,9 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "credential-env": ("could not resolve lane environment credential",
                        "set the lane's credential variable in the daemon environment to the lane OAuth token"),
     "credential-kind": ("unsupported credential kind for provider", None),
+    # D-ST1: the test-only keychain guard (credentials.py); both of its raises read the same.
+    "keychain-test-guard": ("refusing personal keychain read under pytest",
+                            "provide an isolated credential runner or executable"),
     "credential-keychain": ("could not resolve lane keychain credential",
                             "unlock the configured credential store and verify the lane reference with agent-secret"),
     "claude-keychain-read": ("claude: could not read the lane keychain item",
