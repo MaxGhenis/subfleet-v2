@@ -135,7 +135,8 @@ NAMES = sorted(launch_env.ALLOWED_NAMES | launch_env.TEST_SESSION_NAMES
                | {"OTHER", "SUBFLEET_UNREAD", "GH_TOKEN", "SUBFLEET_FAKE_SCENARIO", "PYTEST_CURRENT_TEST"})
 
 
-@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(max_examples=60, deadline=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(names=st.sets(st.sampled_from(NAMES), max_size=25),
        state=st.sampled_from(["none", "bare", "live", "expired"]),
        passed=st.sets(st.sampled_from(["OTHER", "GH_TOKEN", "CLAUDE_CONFIG_DIR"]), max_size=3))
@@ -166,6 +167,22 @@ def test_bounded_property_a_session_changes_only_session_names(names, state, pas
     assert set(child) == (production | session if live else production)
     default = {name for name in parent if launch_env.allowed_name(name)}
     assert set(environment_report(parent)["extra_names"]) == set(parent) - default - (session if live else set())
+
+
+@pytest.mark.parametrize("home", ["", "/", "/fake/home", "/fake/home/", "~/fake-home", "relative-home"])
+def test_launch_home_is_spelled_as_release_spelled_it(monkeypatch, home):
+    """The projects folder's fallback is release/217's `Path.home()`, refusals included."""
+    monkeypatch.setenv("HOME", home)
+    released = outcome(Path.home)
+    assert outcome(lambda: claude._launch_home({"HOME": home})) == released
+    assert outcome(lambda: claude._launch_home({})) == released
+
+
+def outcome(call):
+    try:
+        return ("value", call())
+    except Exception as error:
+        return ("exception", type(error).__name__, str(error))
 
 
 # --- the keychain runner rule ---------------------------------------------------------
