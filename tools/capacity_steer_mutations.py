@@ -8,8 +8,8 @@ files clean:
 
 With `SUBFLEET_SUITE_LOCK` set to a lock file path (the hub's
 `/private/tmp/claude-501/subfleet-suites.lock`), each pytest run waits for its own hold of
-that lock (`/usr/bin/lockf -k`). `SUBFLEET_SUITE_LOCK_WAIT_S` sets the queue wait
-(default 60 seconds), independently of the time a pytest holds the lock. It rewrites `subfleet/daemon.py`, `subfleet/scheduler.py`
+that lock (`/usr/bin/lockf -k`), without a queue timeout. It rewrites
+`subfleet/daemon.py`, `subfleet/scheduler.py`
 or `subfleet/adapters/codex.py` in place, one mutation at a time, and restores the file
 whatever happens. Only exit 1 with a named selected pytest regression failing counts as a
 kill; infrastructure failures stop the tool with a nonzero exit. Every run gets its own
@@ -80,16 +80,39 @@ MUTATIONS = {
         (ADAPTER,)),
 }
 
+# Review r5: an empty steered decision has no standing-refusal evaluations.
+EMPTY_DUE = ("                            if (not decision.chosen_lane and not rotation\n"
+             "                                    and decision_job.get(\"capacity_steer\")\n"
+             "                                    and (not decision.evaluations or for_good)):\n")
+EMPTY_MOVED = ("                if (not rotation and decision_job.get(\"capacity_steer\")\n"
+               "                        and (not decision.evaluations or moved_for_good)):\n")
+EMPTY_TEST = FAKE + "::test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled"
+ROTATION_TEST = FAKE + "::test_r6_rotation_refusals_never_release_the_waiters_fifo_slot"
+MUTATIONS.update({
+    "r6: omit the empty decision at the due-look site": (
+        [(DAEMON, EMPTY_DUE, EMPTY_DUE.replace("not decision.evaluations or ", ""))],
+        (EMPTY_TEST + "[due-due-look-one-slot]",)),
+    "r6: omit the empty decision at the route-moved site": (
+        [(DAEMON, EMPTY_MOVED, EMPTY_MOVED.replace("not decision.evaluations or ", ""))],
+        (EMPTY_TEST + "[due-route-moved-one-slot]",)),
+    "r6: omit the rotation guards": (
+        [(DAEMON, "None if decision.chosen_lane or rotation\n", "None if decision.chosen_lane\n"),
+         (DAEMON, "None if rotation else scheduler.refused_for_good(\n", "scheduler.refused_for_good(\n"),
+         (DAEMON, EMPTY_DUE, EMPTY_DUE.replace(" and not rotation", "")),
+         (DAEMON, EMPTY_MOVED, EMPTY_MOVED.replace("not rotation and ", ""))],
+        (ROTATION_TEST,)),
+})
+
 
 def pytest(tests: tuple[str, ...]) -> subprocess.CompletedProcess:
     argv = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *tests]
     lock = os.environ.get("SUBFLEET_SUITE_LOCK")
-    lock_wait = os.environ.get("SUBFLEET_SUITE_LOCK_WAIT_S", "60")
-    with tempfile.TemporaryDirectory(prefix="sf-r207f3-") as directory:
+    with tempfile.TemporaryDirectory(prefix="sf-r207f6-") as directory:
         env = {**os.environ, "TMPDIR": directory + "/",
                "HYPOTHESIS_STORAGE_DIRECTORY": str(Path(directory) / "hyp"),
                "HYPOTHESIS_PROFILE": "ci", "PYTHONDONTWRITEBYTECODE": "1"}
-        return subprocess.run(["/usr/bin/lockf", "-k", "-t", lock_wait, lock, *argv] if lock else argv,
+        env.pop("SUBFLEET_RETENTION_DORMANT", None)
+        return subprocess.run(["/usr/bin/lockf", "-k", lock, *argv] if lock else argv,
                               env=env, capture_output=True, text=True)
 
 
@@ -120,7 +143,9 @@ def main() -> int:
                     path.write_text(originals[path])
             failed = next((line[7:].split(" - ")[0] for line in run.stdout.splitlines()
                            if line.startswith("FAILED ")
-                           and any(line[7:].startswith(test + "::test_") for test in tests)), "")
+                           and any(line[7:].split(" - ")[0] == test
+                                   or line[7:].startswith(test + "[")
+                                   or line[7:].startswith(test + "::test_") for test in tests)), "")
             if run.returncode and (run.returncode != 1 or not failed):
                 print(f"INFRASTRUCTURE ERROR  {name}: exit {run.returncode}; no verified regression failure\n"
                       + run.stdout + run.stderr, file=sys.stderr, flush=True)
