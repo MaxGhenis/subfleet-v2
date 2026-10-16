@@ -156,7 +156,9 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
 
 
 @pytest.mark.parametrize("path", ["kill", "probe", "finalize", "quarantine", "reap"])
-def test_responsibility_evidence_and_its_walk_never_authorize_signals(state_daemon, monkeypatch, path):
+@pytest.mark.parametrize("persisted", [False, True], ids=["just-observed", "persisted"])
+def test_responsibility_evidence_and_its_walk_never_authorize_signals(
+        state_daemon, monkeypatch, path, persisted):
     """C-5.4–7: even uncertain root-death evidence only holds the attempt.
 
     Exercise the actual deciding paths, with both an evidence-only seed and a
@@ -170,10 +172,18 @@ def test_responsibility_evidence_and_its_walk_never_authorize_signals(state_daem
     attempt.update(guardian_pid=42, pgid=42, child_pid=None,
                    boot_id=BOOT_A, proc_start=START, state="running",
                    evidence_json=json.dumps({"responsible_root": {"pid": 42, "unique_id": None}}))
+    if persisted:
+        state.scanning = False
+        state.fake.processes.pop(42)
+        state.starts.pop(42)
+        state.fake.boss[61] = 61
+        evidence = json.loads(attempt["evidence_json"])
+        evidence["responsible_identities"] = {"61": asdict(procs.ProcessIdentity(61, BOOT_A, START))}
+        attempt["evidence_json"] = json.dumps(evidence)
     daemon.store.update_attempt(attempt["attempt_id"], **{key: attempt[key] for key in (
         "guardian_pid", "pgid", "child_pid", "boot_id", "proc_start", "state", "evidence_json")})
     first = daemon._contain(attempt)
-    assert 61 in first.responsible_pids
+    assert 61 in (first.descendant_pids if persisted else first.responsible_pids)
     assert "61" in json.loads(attempt["evidence_json"])["responsible_identities"]
     state.scanning = False
     snapshot = procs.snapshot

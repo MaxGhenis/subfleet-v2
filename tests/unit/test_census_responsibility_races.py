@@ -170,6 +170,16 @@ def test_an_unreadable_final_holder_preserves_members_as_evidence(monkeypatch, f
     assert result.unverifiable and not result.verified_empty
 
 
+@pytest.mark.parametrize("known_unique", [False, True])
+def test_a_member_without_a_unique_id_survives_the_successor_ceiling(monkeypatch, known_unique):
+    row, core, state = changing_root(monkeypatch, timing="after-members", fate="successor",
+                                     known_unique=known_unique)
+    state.fake.unique[61] = None
+    result = Daemon._contain(core, row)
+    assert 61 in result.responsible_pids
+    assert "61" in json.loads(row["evidence_json"])["responsible_identities"]
+
+
 @pytest.mark.parametrize("known_unique", [False, True], ids=["missing-id", "known-id"])
 @pytest.mark.parametrize("timing", TIMINGS)
 @settings.get_profile("ci")
