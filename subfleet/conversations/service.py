@@ -283,6 +283,12 @@ class ConversationService:
             if req.op in suggestions.SUGGESTION_OPS:
                 response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
                                          suggestions.error_fix(exc))
+            elif "workspace_status" in suggestions.error_details(exc):
+                # C-26.10: a checked folder status (an unreadable protected-path
+                # spelling) answers with the template `workspace.check` gives; its
+                # own words name the path and the OS error, for daemon.log only.
+                response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc), suggestions.error_fix(exc))
+                refusals.log_detail(self.log, req.op, exc)
             else:
                 response = protocol.fail(req.id, exc.code, suggestions.scrubbed_line(f"{exc.reason}: {exc}"),
                                          suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
