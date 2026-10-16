@@ -565,6 +565,12 @@ struct Timeline: Equatable {
         let id = event.message_id ?? Timeline.conversationKey
         ensureTurn(id)
         guard var turn = turns[id] else { return }
+        // Parse dates only for state transitions, rather than streamed deltas.
+        func acceptsStateUpdate() -> Bool {
+            guard let receiptDate = turn.receiptUpdatedTS.flatMap(parseTimestamp),
+                  let eventDate = event.ts.flatMap(parseTimestamp) else { return true }
+            return eventDate > receiptDate
+        }
         turn.firstEventSeq = turn.firstEventSeq ?? event.seq
         if firstEventTS == nil, let ts = event.ts {
             firstEventTS = ts
@@ -597,7 +603,7 @@ struct Timeline: Equatable {
         case "accepted":
             turn.accepted = true
             if turn.phases.last?.phase != "accepted" { turn.phases.append(PhaseStamp(phase: "accepted", ts: event.ts)) }
-            if ["sending", "queued", "waiting", "starting"].contains(turn.state) {
+            if acceptsStateUpdate(), ["sending", "queued", "waiting", "starting"].contains(turn.state) {
                 turn.state = MessageState.running.rawValue
             }
         case "served":
@@ -668,7 +674,7 @@ struct Timeline: Equatable {
                                                content: .approval(card), ts: event.ts))
             }
             // Only forward: a message the daemon has settled (ended, delivery unknown) stays so.
-            if !(turn.messageState.map { $0.isTerminal || $0 == .deliveryUnknown } ?? false) {
+            if acceptsStateUpdate(), !(turn.messageState.map { $0.isTerminal || $0 == .deliveryUnknown } ?? false) {
                 turn.state = MessageState.approvalNeeded.rawValue
             }
         case "approval.resolved":
@@ -680,14 +686,11 @@ struct Timeline: Equatable {
                 turn.items[index].content = .approval(card)
             }
             turn.answeredTS = event.ts ?? turn.answeredTS
-            if turn.pendingApprovals.isEmpty && turn.state == MessageState.approvalNeeded.rawValue {
+            if acceptsStateUpdate(), turn.pendingApprovals.isEmpty && turn.state == MessageState.approvalNeeded.rawValue {
                 turn.state = MessageState.running.rawValue
             }
         case "turn.completed":
-            let receiptDate = turn.receiptUpdatedTS.flatMap(parseTimestamp)
-            let eventDate = event.ts.flatMap(parseTimestamp)
-            let newerReceipt = receiptDate.flatMap { receipt in eventDate.map { receipt >= $0 } } ?? false
-            if !newerReceipt, let state = data["state"]?.string, MessageState(rawValue: state) != nil {
+            if acceptsStateUpdate(), let state = data["state"]?.string, MessageState(rawValue: state) != nil {
                 if turn.state != state { turn.stateReason = data["reason"]?.string }
                 turn.state = state
             }

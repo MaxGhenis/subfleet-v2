@@ -257,3 +257,19 @@ def test_d2_an_old_completion_preserves_a_newer_receipt(core_probe, state):
         {"page": {"events": [{"seq": 1, "message_id": "mine", "kind": "turn.completed",
             "ts": "2026-09-28T09:00:01Z", "data": {"state": "failed"}}], "next": 1, "reset": False}}])
     assert result["snapshots"][-1]["timeline"]["turns"]["mine"]["state"] == state
+
+
+@pytest.mark.parametrize("state", ["queued", "waiting", "approval-needed", "delivery-unknown", "complete"])
+def test_d2_old_acceptance_and_approval_events_preserve_a_newer_receipt(core_probe, state):
+    events = [{"seq": 1, "message_id": "mine", "kind": "accepted", "ts": "2026-09-28T09:00:01Z", "data": {}},
+              {"seq": 2, "message_id": "mine", "kind": "approval.requested", "ts": "2026-09-28T09:00:01Z",
+               "data": {"request_id": "old", "kind": "tool", "tool": "Bash", "options": ["allow", "deny"]}},
+              {"seq": 3, "message_id": "mine", "kind": "approval.resolved", "ts": "2026-09-28T09:00:01Z",
+               "data": {"request_id": "old", "decision": "allow"}},
+              {"seq": 4, "message_id": "mine", "kind": "turn.completed", "ts": "2026-09-28T09:00:01Z",
+               "data": {"state": "failed"}}]
+    steps = [{"receipts": [{**receipt("mine", 1, state, reason="deferred: retry"),
+                           "updated_at": "2026-09-28T09:00:02Z"}]}]
+    steps += [{"page": {"events": [event], "next": event["seq"], "reset": False}} for event in events]
+    result = run_queue(core_probe, steps)
+    assert all(s["timeline"]["turns"]["mine"]["state"] == state for s in result["snapshots"])
