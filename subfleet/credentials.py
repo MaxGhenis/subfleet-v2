@@ -126,66 +126,175 @@ def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
     return []
 
 
-# Wrapper children exec outside Python's audit machinery. Compare PATH strings
+# The shells, and the programs that run a command named by their operands through
+# PATH. Their children exec outside Python's audit machinery. Compare PATH strings
 # before inspecting any executable, so a reset path cannot escape the recorder.
+# C-20.6 names exactly these; other PATH-searching programs are out of its scope.
 _DELEGATING_PROGRAMS = frozenset({
-    "sh", "bash", "zsh", "dash", "env", "xargs", "nice", "nohup", "taskpolicy",
+    "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh",
+    "env", "xargs", "nice", "nohup", "taskpolicy", "time", "script", "caffeinate", "lockf", "arch",
 })
 _SYSTEM_BINARY_DIRECTORIES = (
     "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/gnu/bin",
 )
 
 
-def _env_search_path(argv: list[str], path: str | None) -> str | None:
-    """env can clear, unset, assign or explicitly select the child's PATH.
+# macOS env's getopt string is "-0C:iP:S:u:v". Its "-" option clears like -i, so
+# a lone "-", a "-" inside a group and the "-" that starts any "--name" do too.
+# GNU env's short options are a subset.
+_ENV_FLAGS = "-0iv"
+_ENV_VALUE_OPTIONS = "CPSu"
+# env -S splits on these. It also substitutes `${NAME}`, reads `\` escapes (`\_`
+# is a space, `\c` ends the string) and stops at `#`; those are not emulated.
+_ENV_SPLIT_SPACES = " \t\n\v\f\r"
+_ENV_SPLIT_REFUSED = "$\\#"
 
-    Parse options only before its utility; that utility's arguments are opaque.
-    env -S splits another option/assignment prefix, without running a shell.
-    """
+
+def _env_split(string: str) -> list[str]:
+    """env -S's words, for a string without substitutions, escapes or comments."""
     import shlex
-    args = list(argv[1:])
-    options = True
-    while args:
+    if any(character in string for character in _ENV_SPLIT_REFUSED):
+        raise ValueError("env -S string with a substitution, escape or comment")
+    lexer = shlex.shlex(string, posix=True)
+    lexer.whitespace, lexer.whitespace_split, lexer.commenters = _ENV_SPLIT_SPACES, True, ""
+    return list(lexer)
+
+
+def _env_child(argv: list[str], path: str | None, *, _split=_env_split):
+    """What env does before it runs its utility: (child PATH, -P path, -C directory).
+
+    Options are walked as env's getopt walks them: grouped or not, a value
+    attached or in the next argument, and -S's words in place of the string.
+    NAME=value assignments follow, until the utility, whose arguments are
+    opaque. None is an absent PATH. An option env does not have, or a missing
+    value, raises: env would not run, and the check refuses rather than guess.
+    """
+    args, altpath, chdir = list(argv[1:]), None, None
+    while args and args[0].startswith("-"):
         arg = args.pop(0)
-        if options and arg == "--":
-            options = False
-        elif options and arg in ("-i", "--ignore-environment", "-"):
-            path = None
-        elif options and arg in ("-u", "--unset"):
-            if args and args.pop(0) == "PATH":
-                path = None
-        elif options and (arg.startswith("--unset=") or arg.startswith("-u")):
-            if arg.removeprefix("--unset=").removeprefix("-u") == "PATH":
-                path = None
-        elif options and arg in ("-P", "--path"):
-            path = args.pop(0) if args else None
-        elif options and arg.startswith("--path="):
-            path = arg.partition("=")[2]
-        elif options and (arg in ("-S", "--split-string")
-                          or arg.startswith(("-S", "--split-string="))):
-            if arg in ("-S", "--split-string"):
-                split = args.pop(0) if args else ""
-            else:
-                split = arg[2:] if arg.startswith("-S") else arg.partition("=")[2]
-            args[:0] = shlex.split(split)
-        elif options and arg in ("-C", "--chdir"):
-            if args:
-                args.pop(0)
-        elif options and arg.startswith("-"):
-            # Combined env short flags, including -iv, retain -i's semantics.
-            if not arg.startswith("--") and "i" in arg[1:]:
-                path = None
-        elif "=" in arg:
-            if arg.startswith("PATH="):
-                path = arg.partition("=")[2]
-        else:
+        if arg == "--":
             break
+        group = arg[1:] or "-"
+        for index, flag in enumerate(group):
+            if flag in _ENV_FLAGS:
+                if flag in "-i":
+                    path = None
+                continue
+            if flag not in _ENV_VALUE_OPTIONS:
+                raise ValueError(f"env has no option -{flag}")
+            value = group[index + 1:] or (args.pop(0) if args else None)
+            if value is None:
+                raise ValueError(f"env -{flag} needs a value")
+            if flag == "u" and value == "PATH":
+                path = None
+            elif flag == "P":
+                altpath = value
+            elif flag == "C":
+                chdir = value
+            elif flag == "S":
+                args[:0] = _split(value)
+            break
+    for arg in args:
+        if "=" not in arg:
+            break
+        name, _, value = arg.partition("=")
+        if name == "PATH":
+            path = value
+    return path, altpath, chdir
+
+
+def _arch_child(argv: list[str], path: str | None) -> str | None:
+    """The PATH arch gives its program: -c clears, -d unsets and -e sets, in order.
+
+    arch reads every other "-name" before the program as an architecture.
+    """
+    args = list(argv[1:])
+    while args and args[0].startswith("-"):
+        arg = args.pop(0)
+        if arg == "-c":
+            path = None
+        elif arg in ("-arch", "-d", "-e"):
+            if not args:
+                raise ValueError(f"arch {arg} needs a value")
+            value = args.pop(0)
+            if arg == "-d" and value == "PATH":
+                path = None
+            elif arg == "-e" and value.partition("=")[0] == "PATH":
+                if "=" not in value:
+                    raise ValueError("arch -e needs NAME=value")
+                path = value.partition("=")[2]
     return path
 
 
+def _delegated_searches(name: str, argv: list[str], path: str | None, *,
+                        _env=_env_child, _arch=_arch_child):
+    """The PATHs a wrapper's command is found through, and the directory it runs in.
+
+    A wrapper searches the PATH it was given and passes it on. env finds its
+    utility through -P's path, if given, and its child searches the PATH env
+    leaves; -C moves the base of relative entries. arch searches its own PATH,
+    and its program the one arch's options leave.
+    """
+    if name == "env":
+        child, altpath, chdir = _env(argv, path)
+        return ([child] if altpath is None else [altpath, child]), chdir
+    if name == "arch":
+        return [path, _arch(argv, path)], None
+    return [path], None
+
+
+def _launch_paths(env) -> list[str | None]:
+    """Each PATH the child receives, or None when it has none.
+
+    Popen and os.posix_spawn encode every key, so a text and a bytes PATH key
+    both reach the child, which reads one of its own choosing: judge each.
+    """
+    if env is None:
+        return [os.environ.get("PATH")]
+    found = [os.fsdecode(value) for key, value in env.items() if os.fsencode(key) == b"PATH"]
+    return found or [None]
+
+
+def _directory_spelling(directory: str, *, _fold_name=_fold_name) -> str:
+    """A directory as C-20.6 compares it, by spelling only.
+
+    Leading slashes collapse (normpath keeps a POSIX `//`), dot segments resolve
+    lexically, case and Unicode fold, and the Data volume's firmlink prefix
+    goes. Symlinks and other aliases are not resolved.
+    """
+    if directory.startswith("/"):
+        directory = "/" + directory.lstrip("/")
+    folded = _fold_name(os.path.normpath(directory))
+    data = "/system/volumes/data"
+    if folded == data or folded.startswith(data + "/"):
+        return folded[len(data):] or "/"
+    return folded
+
+
+def _searches_system_first(search: str | None, base: str, system, safe, *,
+                           _spelling=_directory_spelling) -> bool:
+    """Whether a search of `search` from `base` meets a system directory before a
+    recorder. None is an absent PATH, which the wrapper's default replaces."""
+    for entry in (os.defpath if search is None else search).split(os.pathsep):
+        if entry.startswith("~"):
+            raise ValueError("bash expands ~ in a PATH entry")
+        directory = os.path.join(base, entry)
+        if not os.path.isabs(directory):
+            # Only a relative entry reads the working directory.
+            directory = os.path.join(os.getcwd(), directory)
+        directory = _spelling(directory)
+        if directory in system:
+            return True
+        if directory in safe:
+            return False
+    return False
+
+
 def _unsafe_delegation(event: str, details: tuple, recorders, *,
-                       system_dirs=_SYSTEM_BINARY_DIRECTORIES,
-                       _fold_name=_fold_name, _env_path=_env_search_path, _family=_DELEGATING_PROGRAMS) -> bool:
+                       system_dirs=_SYSTEM_BINARY_DIRECTORIES, _fold_name=_fold_name,
+                       _family=_DELEGATING_PROGRAMS, _paths=_launch_paths,
+                       _searches=_delegated_searches, _first=_searches_system_first,
+                       _spelling=_directory_spelling) -> bool:
     if event == "os.system":
         name, argv, env, cwd = "sh", (), None, None
     else:
@@ -196,29 +305,22 @@ def _unsafe_delegation(event: str, details: tuple, recorders, *,
         name = _fold_name(os.path.basename(os.fsdecode(name)))
     if name not in _family:
         return False
-    # os.get_exec_path handles both string and bytes environments, and supplies
-    # the OS default when PATH is absent. env's resets use that default too.
-    path = os.pathsep.join(os.get_exec_path(env))
-    if name == "env":
-        path = _env_path([os.fsdecode(arg) for arg in argv], path)
-    path = os.defpath if path is None else path
-
-    def spelling(directory):
-        directory = _fold_name(os.path.normpath(directory))
-        return directory.removeprefix("/system/volumes/data") or "/"
-
-    system = {spelling(directory) for directory in system_dirs}
-    # Only wrappers need recorder identities. Direct Git/Python launches must
-    # not reopen every previous nested session's sentinel.
-    safe = {spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
-    base = os.getcwd() if cwd is None else os.fsdecode(cwd)
-    for directory in path.split(os.pathsep):
-        directory = spelling(os.path.join(base, directory))
-        if directory in system:
-            return True
-        if directory in safe:
-            return False
-    return False
+    try:
+        system = {_spelling(directory) for directory in system_dirs}
+        # Only wrappers need recorder identities. Direct Git/Python launches must
+        # not reopen every previous nested session's sentinel.
+        safe = {_spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
+        argv = [os.fsdecode(arg) for arg in argv]
+        start = os.fsdecode(cwd) if cwd is not None else ""
+        for path in _paths(env):
+            searches, chdir = _searches(name, argv, path)
+            base = start if chdir is None else os.path.join(start, chdir)
+            if any(_first(search, base, system, safe) for search in searches):
+                return True
+        return False
+    except Exception:
+        # A wrapper launch whose check cannot finish is refused (C-20.6).
+        return True
 
 
 def _guard_active(pins: list[tuple[str, str]], *, under_pytest=under_pytest,
@@ -259,14 +361,24 @@ def install_keychain_exec_guard() -> bool:
     """Refuse, under pytest, any launch that would start the login keychain's reader.
 
     Bare `security` names (NFD/casefold/NFD) are refused independently of PATH,
-    including PATH
-    changes by later audit hooks. Explicit paths retain folded-path and identity
-    checks. The test session puts a recording `security` first on PATH. Shells
-    and env-family wrappers are refused when their child PATH reaches a system
-    binary directory before a live session recorder, including absent PATH and
-    env resets. This check compares strings without probing system directories.
-    Deliberate absolute reader paths inside shell strings are outside C-20.6
-    (D-ST1); production readers use argv.
+    including PATH changes by later audit hooks. Explicit paths retain
+    folded-path and identity checks. The test session puts a recording
+    `security` first on PATH.
+
+    It also refuses a launch of sh, bash, zsh, dash, ksh, csh, tcsh, env, xargs,
+    nice, nohup, taskpolicy, time, script, caffeinate, lockf or arch whose child
+    can search a system binary directory before a live session recorder. It
+    judges every PATH key the child receives (an absent PATH is the wrapper's
+    default), env's options as env's getopt reads them, with -P's path, the
+    child's PATH and -C's directory, and arch's -c, -d and -e. It compares
+    spellings without probing a directory: leading slashes collapsed, dot
+    segments resolved, case and Unicode folded. A `~` entry, an env -S string
+    using `$`, `\\` or `#`, and any other wrapper launch whose check cannot
+    finish are refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
+    such as find -exec and interpreters; a wrapper run under another name; path
+    aliases, such as a symlink to /usr/bin; PATH changes made inside the shell,
+    by a shell string or a login shell's profile; and deliberate absolute reader
+    paths inside shell strings. Production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through
