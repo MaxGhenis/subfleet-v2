@@ -20,25 +20,30 @@ TIMINGS = ["before-recheck", "before-members", "mid-scan", "after-members", "aft
 
 
 def changing_root(patch, *, timing, fate, known_unique=False, pid=42, sequence=98,
-                  gap=1, children=1):
-    """R, an old listed stranger slot, and post-snapshot escaped children.
+                  gap=1, children=1, midpoint=0):
+    """R, old listed stranger slots, and post-snapshot escaped children.
 
     Death removes each child's responsibility link. Replacement also creates C
     in the already-listed slot; C's unique id follows the successor's. The
-    snapshot never supplies an escapee's identity or a parent/group link to R.
+    One slot follows the real children so a mid-scan change after any child
+    still supplies a stranger. The snapshot never supplies an escapee's
+    identity or a parent/group link to R.
     """
     stranger = pid + 18
+    strangers = {stranger, pid + 40}
     real = set(range(pid + 19, pid + 19 + children))
+    mid_after = pid if midpoint == 0 else sorted(real)[min(midpoint, children) - 1]
     successor = sequence + children + gap
     census(patch, session=BOOT_A)
-    fake = kernel_with(patch, processes={p: b"" for p in {pid, stranger, *real}},
-                       unique={pid: sequence, stranger: sequence - 1,
+    fake = kernel_with(patch, processes={p: b"" for p in {pid, *strangers, *real}},
+                       unique={pid: sequence,
+                               **{p: sequence - i - 1 for i, p in enumerate(sorted(strangers))},
                                **{p: sequence + i + 1 for i, p in enumerate(sorted(real))}},
                        responsible={p: pid for p in {pid, *real}})
     starts = {p: START for p in fake.processes}
-    starts[stranger] = "old unrelated start"
-    state = SimpleNamespace(changed=False, scanning=True, root_reads=0, observed=set(),
-                            fake=fake, real=real, stranger=stranger, successor=successor,
+    starts.update({p: "old unrelated start" for p in strangers})
+    state = SimpleNamespace(changed=False, scanning=True, root_reads=0, observed=set(), observed_uids={},
+                            fake=fake, real=real, stranger=stranger, strangers=strangers, successor=successor,
                             starts=starts)
 
     def change():
@@ -52,14 +57,16 @@ def changing_root(patch, *, timing, fate, known_unique=False, pid=42, sequence=9
         else:
             fake.unique[pid] = successor if fate != "successor-no-id" else None
             starts[pid] = "successor start"
-            fake.unique[stranger] = successor + 1
-            starts[stranger] = "new stranger start"
-            fake.boss[stranger] = pid
+            for i, current in enumerate(sorted(strangers)):
+                fake.unique[current] = successor + i + 1
+                starts[current] = "new stranger start"
+                fake.boss[current] = pid
             if fate == "unreadable":
                 fake.fail.add(("process", pid))
 
     def snapshot():
-        rows = {pid: (1, pid, "S", START), stranger: (1, stranger, "S", "old unrelated start")}
+        rows = {pid: (1, pid, "S", START),
+                **{p: (1, p, "S", "old unrelated start") for p in strangers}}
         if not state.scanning:
             rows = {p: (1, p, "S", starts[p]) for p in fake.processes}
         seen = procs.ProcessTable(rows, BOOT_A)
@@ -88,9 +95,11 @@ def changing_root(patch, *, timing, fate, known_unique=False, pid=42, sequence=9
 
     def boss(current):
         found = responsible(current)
+        if found == pid:
+            state.observed_uids[current] = fake.unique.get(current, current)
         if current in real and found == pid:
             state.observed.add(current)
-        if state.scanning and timing == "mid-scan" and current == pid:
+        if state.scanning and timing == "mid-scan" and current == mid_after:
             change()
         return found
 
@@ -131,6 +140,32 @@ def test_a_child_read_before_root_death_is_saved_and_never_released(monkeypatch,
     assert json.loads(row["evidence_json"])["responsible_identities"]["61"]["proc_start"] == START
 
 
+@pytest.mark.parametrize("known_unique", [False, True], ids=["missing-id", "known-id"])
+@pytest.mark.parametrize("old_state,old_start", [("Z", "old zombie birth"), ("S", "")],
+                         ids=["old-zombie", "missing-start"])
+def test_a_live_kernel_member_survives_an_older_snapshot_row(monkeypatch, known_unique, old_state, old_start):
+    """C-5.5: a newly born K is not the snapshot's zombie or unreadable holder."""
+    row, core, state = changing_root(monkeypatch, timing="after-members", fate="reaped",
+                                     known_unique=known_unique)
+    snapshot = procs.snapshot
+
+    def stale_member_row():
+        seen = snapshot()
+        return (procs.ProcessTable({**seen.rows, 61: (1, 61, old_state, old_start)}, BOOT_A)
+                if state.scanning else seen)
+
+    monkeypatch.setattr(procs, "snapshot", stale_member_row)
+    first = Daemon._contain(core, row)
+    assert 61 in first.responsible_pids
+    assert first.identities[61].proc_start == START
+    assert 61 not in first.shapes
+    assert json.loads(row["evidence_json"])["responsible_identities"]["61"]["proc_start"] == START
+    assert first.unverifiable and not first.verified_empty
+    state.scanning = False
+    later = Daemon._contain(core, row)
+    assert 61 in later.live_pids and not later.verified_empty
+
+
 def test_a_known_id_root_replaced_mid_scan_cannot_save_a_successors_child(monkeypatch):
     row, core, _ = changing_root(monkeypatch, timing="mid-scan", fate="successor", known_unique=True)
     result = Daemon._contain(core, row)
@@ -157,6 +192,48 @@ def test_a_known_dead_root_without_members_can_verify_empty(monkeypatch):
         state.starts.pop(pid)
     result = Daemon._contain(core, row)
     assert result.verified_empty and not result.errors
+
+
+@pytest.mark.parametrize("matching", ["owned", "responsible", None], ids=["owned-live", "responsible-live", "both-recycled"])
+def test_each_recorded_birth_can_keep_a_census_seed(monkeypatch, matching):
+    """C-5.5: neither kind of evidence may mask a matching identity of the other."""
+    census(monkeypatch, session=BOOT_A)
+    rows = {61: (1, 61, "S", START), 62: (61, 62, "S", START)}
+    monkeypatch.setattr(procs, "snapshot", lambda: procs.ProcessTable(rows, BOOT_A))
+    owned = {"61": asdict(procs.ProcessIdentity(61, BOOT_A, START if matching == "owned" else "old ownership"))}
+    named = {"61": asdict(procs.ProcessIdentity(61, BOOT_A, START if matching == "responsible" else "old responsibility"))}
+    row = attempt_row(owned_identities=owned, responsible_identities=named)
+    row["child_pid"] = None
+    result = Daemon._contain(core_for(row), row)
+    if matching is None:
+        assert result.verified_empty and 61 in result.recycled
+    else:
+        assert result.live_pids == {61, 62}
+        assert not result.verified_empty and 61 not in result.recycled
+    assert json.loads(row["evidence_json"])["owned_identities"] == owned
+
+
+@pytest.mark.parametrize("known_unique", [False, True], ids=["missing-id", "known-id"])
+def test_a_fresh_member_survives_an_older_owned_identity(monkeypatch, known_unique):
+    """C-5.5: recycling an old owned birth cannot discard a newly observed child."""
+    row, core, state = changing_root(monkeypatch, timing="after-members", fate="reaped",
+                                     known_unique=known_unique)
+    snapshot = procs.snapshot
+
+    def member_in_table():
+        seen = snapshot()
+        return procs.ProcessTable({**seen.rows, 61: (1, 61, "S", START)}, BOOT_A)
+
+    monkeypatch.setattr(procs, "snapshot", member_in_table)
+    owned = {"61": asdict(procs.ProcessIdentity(61, BOOT_A, "older owned birth"))}
+    row["evidence_json"] = json.dumps({**json.loads(row["evidence_json"]), "owned_identities": owned})
+    first = Daemon._contain(core, row)
+    assert 61 in first.responsible_pids and 61 in first.recycled
+    assert json.loads(row["evidence_json"])["responsible_identities"]["61"]["proc_start"] == START
+    state.scanning = False
+    later = Daemon._contain(core, row)
+    assert 61 in later.live_pids and not later.verified_empty
+    assert json.loads(row["evidence_json"])["owned_identities"] == owned
 
 
 @pytest.mark.parametrize("known_unique", [False, True], ids=["missing-id", "known-id"])
@@ -204,25 +281,32 @@ def test_a_member_without_a_unique_id_survives_the_successor_ceiling(monkeypatch
 @pytest.mark.parametrize("known_unique", [False, True], ids=["missing-id", "known-id"])
 @pytest.mark.parametrize("timing", TIMINGS)
 @settings.get_profile("ci")
-@given(pid=st.integers(100, 10000), sequence=st.integers(2, 1000000),
-       gap=st.integers(1, 10000), children=st.integers(1, 8))
+@given(pid=st.integers(100, 10000), sequence=st.integers(3, 1000000),
+       gap=st.integers(1, 10000), children=st.integers(1, 8), midpoint=st.integers(0, 8))
 def test_birth_order_and_observed_children_survive_every_root_transition(
-        monkeypatch, known_unique, timing, pid, sequence, gap, children):
+        monkeypatch, known_unique, timing, pid, sequence, gap, children, midpoint):
     for fate in ("alive", "successor", "reaped"):
         with monkeypatch.context() as patch:
             row, core, state = changing_root(patch, timing=timing, fate=fate, known_unique=known_unique,
-                                             pid=pid, sequence=sequence, gap=gap, children=children)
+                                             pid=pid, sequence=sequence, gap=gap,
+                                             children=children, midpoint=midpoint)
             first = Daemon._contain(core, row)
             assert state.changed == (fate != "alive")
             saved = json.loads(row["evidence_json"]).get("responsible_identities", {})
-            assert str(state.stranger) not in saved
-            assert state.stranger not in first.responsible_pids
+            assert not {str(p) for p in state.strangers} & saved.keys()
+            assert not state.strangers & first.responsible_pids
+            successors = {p for p, uid in state.observed_uids.items()
+                          if uid is not None and uid >= state.successor}
+            assert not successors & first.responsible_pids
+            assert not {str(p) for p in successors} & saved.keys()
             assert state.observed <= first.responsible_pids
-            assert {str(p) for p in state.observed} <= saved.keys()
+            assert {str(p) for p in state.observed} == saved.keys()
             if state.observed:
                 assert not first.verified_empty
             state.scanning = False
             later = Daemon._contain(core, row)
+            assert not {str(p) for p in state.strangers} & json.loads(row["evidence_json"]).get(
+                "responsible_identities", {}).keys()
             assert state.observed <= later.live_pids
             if state.observed:
                 assert not later.verified_empty

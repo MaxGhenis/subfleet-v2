@@ -157,8 +157,9 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
 
 @pytest.mark.parametrize("path", ["kill", "probe", "finalize", "quarantine", "reap"])
 @pytest.mark.parametrize("persisted", [False, True], ids=["just-observed", "persisted"])
+@pytest.mark.parametrize("stale_owned", [False, True], ids=["unowned", "old-owned-birth"])
 def test_responsibility_evidence_and_its_walk_never_authorize_signals(
-        state_daemon, monkeypatch, path, persisted):
+        state_daemon, monkeypatch, path, persisted, stale_owned):
     """C-5.4–7: even uncertain root-death evidence only holds the attempt.
 
     Exercise the actual deciding paths, with both an evidence-only seed and a
@@ -172,6 +173,11 @@ def test_responsibility_evidence_and_its_walk_never_authorize_signals(
     attempt.update(guardian_pid=42, pgid=42, child_pid=None,
                    boot_id=BOOT_A, proc_start=START, state="running",
                    evidence_json=json.dumps({"responsible_root": {"pid": 42, "unique_id": None}}))
+    expected_owned = ({"61": asdict(procs.ProcessIdentity(61, BOOT_A, "old owned birth"))}
+                      if stale_owned else {})
+    if stale_owned:
+        attempt["evidence_json"] = json.dumps({**json.loads(attempt["evidence_json"]),
+                                               "owned_identities": expected_owned})
     if persisted:
         state.scanning = False
         state.fake.processes.pop(42)
@@ -198,17 +204,20 @@ def test_responsibility_evidence_and_its_walk_never_authorize_signals(
     monkeypatch.setattr(procs.os, "kill", lambda pid, sig: signalled.append(pid))
     monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
     monkeypatch.setattr(procs.os, "waitpid", lambda pid, flags: waited.append(pid) or (pid, 0))
+    current_starts = {**state.starts, 62: START}
+    monkeypatch.setattr(procs, "same_process", lambda pid, boot, start:
+                        boot == BOOT_A and current_starts.get(pid) == start)
     daemon.term_grace_s = daemon.kill_settle_s = daemon.exit_settle_s = 0
     monkeypatch.setattr(daemon, "_salvage", lambda *a, **k: pytest.fail("salvage with live evidence"))
     if path == "kill":
         daemon._kill_attempt(attempt)
     elif path == "probe":
         record = {**attempt, "holder": attempt["attempt_id"], "directory": str(harness.root),
-                  **json.loads(attempt["evidence_json"]), "owned_identities": {}}
+                  **json.loads(attempt["evidence_json"]), "owned_identities": expected_owned}
         record.pop("attempt_id")
         record.pop("evidence_json")
         assert not daemon._contain_probe(record)
-        assert not record["owned_identities"]
+        assert record["owned_identities"] == expected_owned
     elif path == "finalize":
         daemon._finalize(attempt)
     elif path == "quarantine":
@@ -229,7 +238,7 @@ def test_responsibility_evidence_and_its_walk_never_authorize_signals(
     assert not signalled
     assert not ({61, 62} & set(waited))
     evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
-    assert not ({"61", "62"} & evidence.get("owned_identities", {}).keys())
+    assert evidence.get("owned_identities", {}) == expected_owned
 
 
 def test_a_new_responsibility_identity_cannot_inherit_snapshot_group_authority(state_daemon, monkeypatch):
