@@ -410,7 +410,9 @@ class JobSpec:
 class Launch:  # C-12.2
     argv: tuple[str, ...]
     env_add: dict[str, str]         # explicit additions over an allowlisted parent; may hold the credential
-    env_remove: tuple[str, ...]     # default inherited exclusions; explicit policy/additions take precedence
+    env_remove: tuple[str, ...]     # mandatory exclusions, applied last: they win over the parent,
+                                    # policy names and env_add alike (round 1's memory isolation;
+                                    # test_mandatory_removal_also_beats_selected_additions)
     cwd: str
     stdin_path: str | None          # prompt file fed on stdin, or None
     stdout_path: str
