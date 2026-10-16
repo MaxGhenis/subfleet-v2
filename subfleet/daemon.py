@@ -2260,7 +2260,8 @@ class Daemon:
                     except PolicyError as exc:
                         raise AdapterError(f"unknown pinned model {model!r}; policy models: "
                                            + ", ".join(self.policy["models"]), code=7,
-                                           fix="pin a model from the live policy") from exc
+                                           fix="pin a model from the live policy",
+                                           reason="unknown-pinned-model", details={"model": model}) from exc
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
                 needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
@@ -2300,7 +2301,8 @@ class Daemon:
                     raise ValueError("pinned lane and model providers disagree")
                 if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
                     raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
-                                       code=7, fix="pass -s workspace-write, or pin a Codex model")
+                                       code=7, fix="pass -s workspace-write, or pin a Codex model",
+                                       reason="needs-shell", details={"model": task_model, "sandbox": sandbox.value})
                 if lane:
                     self._validate_home(lane)
                 mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None

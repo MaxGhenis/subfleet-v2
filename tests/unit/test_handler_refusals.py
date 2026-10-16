@@ -240,7 +240,7 @@ def test_an_argument_refusal_keeps_its_words_for_direct_callers_only():
     assert SENTINEL not in json.dumps(response)
 
 
-@pytest.mark.parametrize("model", ("absent", "", False, 0, SENTINEL, "ghp_" + "A" * 36))
+@pytest.mark.parametrize("model", ("absent", "", False, 0, SENTINEL, "ghp_" + "a" * 36))
 def test_unknown_model_refusal_names_only_a_checked_model(model):
     error = AdapterError(SENTINEL, code=7, fix=SENTINEL,
                          reason="unknown-pinned-model", details={"model": model})
@@ -256,7 +256,7 @@ def test_unknown_model_refusal_names_only_a_checked_model(model):
     {"model": "opus", "sandbox": "read-only"},
     {"model": SENTINEL, "sandbox": "read-only"},
     {"model": "opus", "sandbox": SENTINEL},
-    {"model": "ghp_" + "A" * 36, "sandbox": "read-only"},
+    {"model": "ghp_" + "a" * 36, "sandbox": "read-only"},
     {},
 ))
 def test_shell_refusal_names_values_only_when_both_are_checked(details):
