@@ -6366,6 +6366,10 @@ class Daemon:
                             for_good = (None if decision.chosen_lane or rotation
                                         else scheduler.refused_for_good(self.policy, decision, decision_job,
                                                                         pin_view()["lanes"]))
+                            if for_good and decision_job.get("capacity_steer"):
+                                # C-6.9, C-9.5: a steer ends, so standing refusal must
+                                # cover the whole chain, as while the job's clock runs.
+                                for_good = unadmittable_now()[0]
                             if not for_good:
                                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
@@ -6691,7 +6695,11 @@ class Daemon:
                 self._count_route(deferred=1)
                 # C-11.8: never from a decision with rotation's lanes left out, which read
                 # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
-                if rotation or not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):
+                moved_for_good = None if rotation else scheduler.refused_for_good(
+                    self.policy, decision, decision_job, pin_view()["lanes"])
+                if moved_for_good and decision_job.get("capacity_steer"):
+                    moved_for_good = unadmittable_now()[0]      # C-6.9, C-9.5: whole chain, as above
+                if not moved_for_good:
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
