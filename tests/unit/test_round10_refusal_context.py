@@ -1,7 +1,9 @@
 """Checked refusal context keeps the reason and repair without exception text."""
 import errno
 import json
+import logging
 import os
+import sys
 import uuid
 from types import SimpleNamespace
 
@@ -116,6 +118,7 @@ def test_conversation_session_refusal_keeps_a_checked_verb(verb):
     ("bad-workspace", "secret-shaped", "choose another folder or use a new scratch folder"),
     ("bad-workspace", "gone", "dismiss it or restore its folder"),
     ("not-a-repository", "no-longer-repository", "dismiss it or restore its checkout"),
+    ("protected-workspace", "unreadable-spelling", "make every directory above it searchable, or choose Ask or read-only"),
 ])
 def test_recorded_workspace_refusal_keeps_its_reason_and_repair(reason, status, fix):
     error = suggestions.SuggestionError(reason, "password=SECRET7", fix="password=SECRET7",
@@ -224,3 +227,116 @@ def test_workspace_check_and_create_share_unsearchable_protected_path_repair(svc
     assert checked["fix"] == raised.value.fix == (
         "make every directory above it searchable, or choose Ask or read-only")
     assert "SECRET7" not in json.dumps(checked)
+
+
+UNREADABLE = "protected-workspace: the folder cannot be checked because a protected path's spelling cannot be read"
+SEARCHABLE = "make every directory above it searchable, or choose Ask or read-only"
+
+
+def test_create_answers_an_unreadable_protected_spelling_with_the_checked_template(svc, tmp_path, monkeypatch):
+    """Review r1 of #225, P3 (C-26.10): `conversation.create` put the unreadable path and
+    its OS error on the wire. It now answers with `workspace.check`'s checked template;
+    its own words go to daemon.log only."""
+    from subfleet import folders
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    real_spelling = folders.spelling
+
+    def spelling(path):
+        if os.fspath(path) == str(home / ".claude"):
+            return str(path), "EACCES"
+        return real_spelling(path)
+
+    monkeypatch.setattr(folders, "spelling", spelling)
+    monkeypatch.setattr(svc, "_person", lambda *args: None)
+    check = wire_reply(svc, op="workspace.check", args={"workspace": svc.test_workspace, "permission": "accept-edits"})
+    handler = logging.FileHandler(tmp_path / "daemon.log")
+    previous_level = svc.log.level
+    svc.log.addHandler(handler)
+    svc.log.setLevel(logging.INFO)
+    try:
+        create = wire_reply(svc, op="conversation.create", args={
+            "request_id": str(uuid.uuid4()), "provider": "claude", "workspace": svc.test_workspace,
+            "confirm_widen": True, "settings": {"model": "opus", "permission": "accept-edits"}})
+    finally:
+        svc.log.setLevel(previous_level)
+        svc.log.removeHandler(handler)
+        handler.close()
+    assert check["ok"] is True and check["result"]["ok"] is False
+    assert check["result"]["reason"] == UNREADABLE and check["result"]["fix"] == SEARCHABLE
+    assert create["ok"] is False and create["error"]["code"] == 7
+    assert create["error"]["message"] == UNREADABLE and create["error"]["fix"] == SEARCHABLE
+    for reply in (check, create):
+        shown = json.dumps(reply)
+        assert str(home) not in shown and ".claude" not in shown and "EACCES" not in shown
+    logged = (tmp_path / "daemon.log").read_text()
+    assert "conversation.create refused" in logged and "cannot tell whether" in logged and "EACCES" in logged
+
+
+def test_unreadable_spelling_status_round_trips_through_the_cli_decoders():
+    """Review r1 of #225, P3: the wire template decodes back to its reason and checked
+    status, is what a suggestion stores, and a CLI `DaemonError` carrying it keeps both."""
+    from subfleet.client import DaemonError
+
+    error = ConversationError("protected-workspace", "cannot tell what /x/password=SECRET7 contains (EACCES)",
+                              code=7, fix="password=SECRET7")
+    error.suggestion_details = {"workspace_status": "unreadable-spelling"}
+    message = suggestions.scrub_error(error)
+    assert message == UNREADABLE and suggestions.error_fix(error) == SEARCHABLE
+    assert suggestions.response_reason(message) == "protected-workspace"
+    assert suggestions.response_details(message) == {"workspace_status": "unreadable-spelling"}
+    assert suggestions.stored_error(message) == message
+    daemon_error = DaemonError(7, message, "password=SECRET7")
+    assert suggestions.scrub_error(daemon_error) == message
+    assert suggestions.error_fix(daemon_error) == SEARCHABLE
+    assert suggestions.error_code(daemon_error) == 7
+    # The status is checked against its reason: another reason never borrows it.
+    forged = suggestions.SuggestionError("bad-workspace", "x", details={"workspace_status": "unreadable-spelling"})
+    assert suggestions.scrub_error(forged) == "bad-workspace: " + suggestions.ERROR_MESSAGES["bad-workspace"]
+
+
+@pytest.mark.parametrize("by_policy", [False, True])
+@pytest.mark.parametrize("kind", refusals._choices()["guard_kind"])
+def test_every_guard_kind_the_checks_admit_renders_its_repair(kind, by_policy):
+    """Review r1 of #225, P3: every kind the checks admit has its repair."""
+    details = refusals.by_policy({"guard_kind": kind}, "build") if by_policy else {"guard_kind": kind}
+    message, fix = refusals.render("guard-preflight", details)
+    assert message.startswith(f"Codex guard preflight refused the writable job ({kind})")
+    assert "subfleet doctor" in fix and fix.endswith("pass -s read-only") == by_policy
+    assert ("SHA-256" in message) == (kind == "trust")
+
+
+def test_a_guard_kind_without_a_repair_renders_the_generic_one(monkeypatch):
+    """Review r1 of #225, P3: a fifth kind admitted by `_choices` alone must not raise
+    inside the renderer; it gets the generic repair and no trust advice."""
+    choices = refusals._choices
+    monkeypatch.setattr(refusals, "_choices",
+                        lambda: {**choices(), "guard_kind": (*choices()["guard_kind"], "fifth")})
+    assert refusals.render("guard-preflight", {"guard_kind": "fifth"}) == (
+        "Codex guard preflight refused the writable job (fifth)", "rerun subfleet doctor")
+
+
+def test_real_guard_version_verdict_asks_for_the_supported_version(tmp_path, monkeypatch):
+    """Review r1 of #225, P3: a Codex whose `--version` differs from TRUST's pin gets the
+    `version` verdict and its own repair through the real preflight, with no trust advice."""
+    from subfleet.guard import preflight as guard
+
+    install_guard(tmp_path)
+    monkeypatch.setattr(guard, "_jq_available", lambda: True)
+    monkeypatch.delenv(guard.TIMEOUT_ENV, raising=False)
+    codex = tmp_path / "codex"
+    codex.write_text("#!" + sys.executable + "\nprint('codex-cli 0.0.1-fixture')\n")
+    codex.chmod(0o755)
+    lane = Lane("codex-1", "codex", "codex:fixture", Credential("codex", str(tmp_path), "home"),
+                str(tmp_path), LaneOwner.V2, False)
+    verdicts = []
+    with pytest.raises(AdapterError) as raised:
+        Daemon._guard_override(SimpleNamespace(codex_bin=str(codex)), lane, str(tmp_path),
+                               state_root=tmp_path, recorder=verdicts.append)
+    assert verdicts[0].kind == "version"
+    response = wire_reply(op="submit", error=raised.value)
+    message, fix = response["error"]["message"], response["error"]["fix"]
+    assert message == "Codex guard preflight refused the writable job (version)"
+    assert fix == "install the supported Codex version, then rerun subfleet doctor"
