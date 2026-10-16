@@ -71,7 +71,8 @@ class ServiceHarness:
                                       requests=ThreadPoolExecutor(4), log=logging.getLogger("frontend-harness"))
         self.service = ConversationService(self.daemon)
         # Person-only operations are the peer check's (C-25.6), exercised live elsewhere.
-        self.service._person = lambda peer, what: Verdict(True, "frontend harness", peer)
+        self.service._person = lambda peer, what: Verdict(
+            True, "frontend harness", peer.pid if peer else None)
         self.store = self.service.store
 
     def close(self) -> None:
