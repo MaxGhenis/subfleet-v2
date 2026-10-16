@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import descriptors, protocol, refusals
+from ..home_paths import codex_app_home, production_state_root, protected_provider_homes
 from ..adapters.base import AdapterError
 from ..contracts import Exit
 from ..ids import holds_credential
@@ -317,7 +318,7 @@ class ConversationService:
         """C-25.6, D-21: the installed app. A development daemon (any state root but
         ~/.subfleet) also accepts the development build named when it started."""
         dev = os.environ.get("SUBFLEET_DEV_APP_EXECUTABLE")
-        if dev and self.root.resolve() != (Path.home() / ".subfleet").resolve():
+        if dev and self.root.resolve() != production_state_root():
             return (*APP_EXECUTABLES, dev)
         return APP_EXECUTABLES
 
@@ -1998,7 +1999,7 @@ class ConversationService:
             homes = [(Path(r["home"]), r["lane_id"]) for r in lanes if r["lane_id"] == conversation["lane_id"]]
         else:
             allowed = [(Path(r["home"]).expanduser().resolve(), r["lane_id"]) for r in lanes]
-            allowed.append(((Path.home() / ".codex").resolve(), None))
+            allowed.append((codex_app_home().resolve(), None))
             if home:
                 wanted = Path(str(home)).expanduser().resolve()
                 homes = [pair for pair in allowed if pair[0] == wanted]
@@ -2131,8 +2132,12 @@ class ConversationService:
         writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
-        protected = [(self.root, "state root"), (Path.home() / ".claude", ".claude"),
-                     (Path.home() / ".codex", ".codex")]
+        # D-ST1: provider homes come from protected_provider_homes() (isolated under pytest);
+        # C-29.14: each carries the public label suggestions.PROTECTED_FOLDERS allows.
+        codex_home = codex_app_home()
+        protected = [(self.root, "state root")]
+        protected += [(home, ".codex" if home == codex_home or home.name == ".codex" else ".claude")
+                      for home in protected_provider_homes()]
         protected += [(Path(row["home"]), "lane home") for row in self.daemon.store.lane_rows() if row.get("home")]
         # Both sides spelled one way (`folders.spelling`): on a case-insensitive volume
         # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed
