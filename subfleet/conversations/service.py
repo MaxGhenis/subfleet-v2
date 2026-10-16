@@ -1337,7 +1337,7 @@ class ConversationService:
                 if runner is None or runner.steer_written(message_id):
                     raise ConversationError("too-late", "the provider may already have this steer",
                                             fix="stop its host with turn.interrupt")
-                if self.store.withdraw(message_id, expect=(STEERING,), stop_at=utcnow()):
+                if self.store.withdraw(message_id, expect=(STEERING,), stop_at=utcnow(), requester=client):
                     return self._receipt(self.store.message(message_id))
                 message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING) and not message["job_id"] and not self._turn_job(message):
@@ -1350,14 +1350,14 @@ class ConversationService:
             # daemon adopting it) records nothing: the refused cancel leaves no stop
             # that a runner starting meanwhile could act on (review of 3c1a34e,
             # finding 3).
-            if self._withdraw(message_id, expect=(QUEUED, WAITING), unbound=True):
+            if self._withdraw(message_id, expect=(QUEUED, WAITING), unbound=True, requester=client):
                 self._cancel_late_job(message_id, client=client)
                 return self._receipt(self.store.message(message_id))
             message = self.store.message(message_id)
         if message["state"] in (QUEUED, WAITING):
             job = self._turn_job(message)
             if job and self._cancel_job_without_attempt(job["job_id"], client=client):
-                self._withdraw(message_id, expect=(QUEUED, WAITING, STARTING))
+                self._withdraw(message_id, expect=(QUEUED, WAITING, STARTING), requester=client)
                 return self._receipt(self.store.message(message_id))
             if job is None and self.store.message(message_id)["state"] == WAITING:
                 # Claimed by the dispatcher, whose job for it is being created (C-24.7).
@@ -1377,11 +1377,13 @@ class ConversationService:
         the message frame over under (`TurnRunner._handover_verdict`, C-24.7)."""
         return self._handovers[hash(message_id) % len(self._handovers)]
 
-    def _withdraw(self, message_id: str, *, expect: tuple[str, ...], unbound: bool = False) -> bool:
+    def _withdraw(self, message_id: str, *, expect: tuple[str, ...], unbound: bool = False,
+                  requester: dict | None = None) -> bool:
         """Withdraw a message with the person's stop, in one conversation-store
         transaction (`ConversationStore.withdraw`), under its handover lock."""
         with self._handover(message_id):
-            return self.store.withdraw(message_id, expect=expect, stop_at=utcnow(), unbound=unbound)
+            return self.store.withdraw(message_id, expect=expect, stop_at=utcnow(), unbound=unbound,
+                                       requester=requester)
 
     def _cancel_late_job(self, message_id: str, *, client: dict | None = None) -> None:
         """Cancel a turn job the dispatcher made for a message just withdrawn, while it has no attempt."""
@@ -1442,7 +1444,8 @@ class ConversationService:
             # Recorded before the runner is looked up (a runner started meanwhile
             # reads it), and under the handover lock: a runner about to write the
             # message sees it first, or has already handed the message over (C-24.7).
-            self.store.update_message(message_id, stop_requested_at=utcnow())
+            self.store.request_stop(message_id, stop_at=utcnow(), requester=self._client_cancel(
+                args, peer, "message-cancelled" if message["state"] == WAITING else "stopped"))
         runner = self._runner_for_message(message_id)
         if runner is not None:
             # Save the socket requester before escalation can synchronously reach
@@ -2405,11 +2408,12 @@ class ConversationService:
             return {"reason": "conversation-blocked", "conversation_id": None,
                     "error_type": error or "manifest", "error": "its turn manifest cannot be read"}
         conversation_id = turn["conversation_id"]
-        message = self.store.one("SELECT state FROM messages WHERE message_id=?", (turn["message_id"],))
+        message = self.store.one("SELECT state,turn_seq FROM messages WHERE message_id=?", (turn["message_id"],))
         if message and message["state"] in TERMINAL_STATES:
             # IR-2: its message was withdrawn (or settled) after the job was
             # made; the job is cancelled while it has no attempt, never run.
-            self._cancel_job_without_attempt(job["job_id"])
+            self._cancel_job_without_attempt(job["job_id"], client=self.store.stop_requester(
+                turn["message_id"], message["turn_seq"]))
             return {"reason": "message-settled", "conversation_id": conversation_id, "state": message["state"]}
         hold = self.store.turn_hold(conversation_id)
         if hold:
@@ -2652,10 +2656,11 @@ class ConversationService:
         # Its job must not run (IR-2): cancelled outright while it has no attempt,
         # else flagged, which `_launch` re-reads before starting.
         now = self.store.message(mid)
+        requester = self.store.stop_requester(mid, message["turn_seq"])
         if (now["state"] == CANCELLED or now["turn_seq"] != message["turn_seq"]) \
-                and not self._cancel_job_without_attempt(job["job_id"]):
-            self.daemon._request_cancel(job["job_id"], {"by": "daemon", "reason": "message-withdrawn",
-                                                       "running_s": self.daemon._running_s(job["job_id"])})
+                and not self._cancel_job_without_attempt(job["job_id"], client=requester):
+            self.daemon._request_cancel(job["job_id"], requester or {
+                "by": "daemon", "reason": "message-withdrawn", "running_s": self.daemon._running_s(job["job_id"])})
 
     def _provider_tries(self, message: dict, *, besides: str | None = None) -> int:
         """How many of this message's turn jobs, other than `besides`, used up a
