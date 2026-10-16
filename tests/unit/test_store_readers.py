@@ -15,15 +15,16 @@ import time
 
 import pytest
 
+from subfleet import procs
 from subfleet.daemon import READ_CONNECTIONS, Daemon
 from subfleet.store import SnapshotWriteError, Store
 
 
 @pytest.fixture(autouse=True)
-def daemon_process_identity(monkeypatch):
-    """These idle-daemon SQL tests do not exercise operating-system identity."""
-    monkeypatch.setattr('subfleet.daemon.procs.boot_id', lambda: 'sql-test-boot')
-    monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda _pid: 'sql-test-start')
+def fixture_process_identity(monkeypatch):
+    """Store concurrency tests use their own daemon identities."""
+    monkeypatch.setattr(procs, "boot_id", lambda: "store-reader-fixture-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "store-reader-fixture-start")
 
 
 def lease(tx, key: str) -> None:

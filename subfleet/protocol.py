@@ -8,6 +8,7 @@ helpers; it has no I/O so both the client and the server import it.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from typing import Any
 
@@ -26,6 +27,8 @@ CONVERSATION_OPS = (
     "conversation.handoff",
     "workspace.check",
     "conversation.wake",
+    # C-25.7: suggested conversations; `suggestion.start` and `suggestion.dismiss` are a person's.
+    "suggestion.create", "suggestion.list", "suggestion.start", "suggestion.dismiss", "suggestion.withdraw",
 )
 
 #: What `decode_request` answers for an op this daemon does not serve. A client
@@ -50,13 +53,60 @@ OPS = (
 )
 
 
-class ProtocolError(Exception):
-    """Raised on a malformed line; carries the exit code the CLI should use."""
+REFUSAL_MESSAGES = {
+    "malformed-request": "request: malformed JSON or an unsupported number",
+    "bad-encoding": "request: invalid UTF-8",
+    "nested-request": "request: nested too deeply",
+    "request-object": "request: must be a JSON object",
+    "request-size": "request: exceeds 1 MiB",
+    "bad-version": f"v: unsupported protocol version; this daemon speaks {PROTOCOL_VERSION}",
+    # Keep the version-discovery prefix used by old clients (C-25.1).
+    "unknown-op": f"{UNKNOWN_OP}: op must name a supported operation",
+    "args-object": "args: must be an object",
+    "invalid-args": "args: required fields are missing or invalid",
+    "refused-args": "args: request was refused",
+    "bad-id": "id: must be a safe token of at most 128 ASCII letters, digits, '-' or '_'",
+    "bad-notice-id": "notice_id: must be an integer",
+    "malformed-response": "malformed response: expected a JSON object with valid fields",
+}
+CORRELATION_ID_MAX = 128
+_CORRELATION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 
-    def __init__(self, message: str, code: Exit = Exit.INVALID_INPUT, fix: str | None = None):
+
+class ProtocolError(Exception):
+    """A request or handler refusal carrying the exit code the CLI should use."""
+
+    def __init__(self, message: str, code: Exit = Exit.INVALID_INPUT, fix: str | None = None,
+                 *, reason: str | None = None, details: dict[str, Any] | None = None):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        # Decoding/argument errors are tagged by request_error. Handler errors
+        # carry separate reasons and checked structural detail, never prose.
+        self.reason = reason
+        self.details = details
+
+
+def request_error(reason: str, code: Exit = Exit.INVALID_INPUT) -> ProtocolError:
+    return ProtocolError(REFUSAL_MESSAGES[reason], code, reason=reason)
+
+
+def correlation_id(value: Any) -> str:
+    """Admit a bounded token before reflecting it, including on refusals.
+
+    Empty/missing means no correlation. Nonnegative JSON integers are accepted
+    as decimal tokens for older clients. Recognized credentials are refused even
+    when their spelling would otherwise fit the token alphabet.
+    """
+    if type(value) is int and 0 <= value < 10 ** CORRELATION_ID_MAX:
+        value = str(value)
+    if type(value) is not str or (value and _CORRELATION_ID.fullmatch(value) is None):
+        raise request_error("bad-id")
+    if value:
+        from .ids import holds_credential
+        if holds_credential(value):         # read whole and from each `-` and `_` (C-1.5's check)
+            raise request_error("bad-id")
+    return value
 
 
 @dataclass
@@ -266,7 +316,7 @@ def service_notice_on_wire(row: dict[str, Any]) -> dict[str, Any]:
 def notice_row(notice_id: Any) -> tuple[str, int]:
     """The table a wire notice id names, and the row id it has there (C-15.3)."""
     if isinstance(notice_id, bool) or not isinstance(notice_id, int):
-        raise ProtocolError(f"notice id must be an integer, not {notice_id!r}")
+        raise request_error("bad-notice-id")
     if notice_id < 0:
         return SERVICE_NOTICE_TABLE, -notice_id
     return JOB_NOTICE_TABLE, notice_id
@@ -396,37 +446,48 @@ class SessionsArgs:
 def encode(obj: Any) -> bytes:
     """One JSON line, UTF-8, trailing newline."""
     if is_dataclass(obj):
+        # Old clients require id even on uncorrelated busy/unknown-op replies.
+        # Only invalid-id refusals omit it, so the rejected token is never sent.
+        omit_id = (isinstance(obj, Response) and not obj.id and obj.error is not None
+                   and obj.error.message == REFUSAL_MESSAGES["bad-id"])
         obj = asdict(obj)
+        if omit_id:
+            obj.pop("id", None)
     return (json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def decode_request(line: bytes | str) -> Request:
     try:
         data = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise ProtocolError(f"malformed request: {exc}") from exc
+    except UnicodeDecodeError:
+        raise request_error("bad-encoding") from None
+    except ValueError:
+        raise request_error("malformed-request") from None
     except RecursionError:
         # C-16.7: a line under 1 MiB can still nest past the parser's depth;
         # answered as malformed, not left to end the connection's reader.
-        raise ProtocolError("malformed request: nested too deeply") from None
+        raise request_error("nested-request") from None
     if not isinstance(data, dict):
-        raise ProtocolError("request must be a JSON object")
-    if data.get("v") != PROTOCOL_VERSION:
-        raise ProtocolError(f"unsupported protocol version {data.get('v')!r}; this daemon speaks {PROTOCOL_VERSION}")
+        raise request_error("request-object")
+    if type(data.get("v")) is not int or data["v"] != PROTOCOL_VERSION:
+        raise request_error("bad-version")
     op = data.get("op")
-    if op not in OPS:
-        raise ProtocolError(f"{UNKNOWN_OP} {op!r}")
-    args = data.get("args") or {}
+    if type(op) is not str or op not in OPS:
+        raise request_error("unknown-op")
+    req_id = correlation_id(data.get("id", ""))
+    args = data.get("args", {})
     if not isinstance(args, dict):
-        raise ProtocolError("args must be an object")
-    return Request(op=op, args=args, id=str(data.get("id", "")))
+        raise request_error("args-object")
+    return Request(op=op, args=args, id=req_id)
 
 
 def decode_response(line: bytes | str) -> Response:
     try:
         data = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise ProtocolError(f"malformed response: {exc}", Exit.OPERATIONAL) from exc
+    except (ValueError, RecursionError):
+        raise request_error("malformed-response", Exit.OPERATIONAL) from None
+    if not isinstance(data, dict):
+        raise request_error("malformed-response", Exit.OPERATIONAL)
     err = data.get("error")
     return Response(
         id=str(data.get("id", "")),
@@ -443,13 +504,45 @@ def coerce_args(cls: type, args: dict[str, Any]) -> Any:
     known = {k: v for k, v in args.items() if k in names}
     try:
         return cls(**known)
-    except TypeError as exc:
-        raise ProtocolError(f"invalid arguments for {cls.__name__}: {exc}") from exc
+    except TypeError:
+        raise request_error("invalid-args") from None
 
 
 def ok(req_id: str, result: dict[str, Any]) -> Response:
-    return Response(id=req_id, ok=True, result=result)
+    return Response(id=correlation_id(req_id), ok=True, result=result)
 
 
 def fail(req_id: str, code: Exit | int, message: str, fix: str | None = None) -> Response:
+    try:
+        req_id = correlation_id(req_id)
+    except ProtocolError:
+        req_id, code, message, fix = "", Exit.INVALID_INPUT, REFUSAL_MESSAGES["bad-id"], None
     return Response(id=req_id, ok=False, error=ErrorBody(code=int(code), message=message, fix=fix))
+
+
+def refusal_text(error: BaseException, *, reason: str = "invalid-args") -> tuple[str, str | None]:
+    """A refusal's public message and fix, wherever it goes: the wire, or a record a
+    client reads (a job's notice, a message's `state_reason`; C-25.7).
+
+    A decoding or argument error (`request_error`, or a `ProtocolError` naming a
+    request reason, which may keep its own words for direct callers) reads its
+    template; a handler refusal reads its own by reason and checked details
+    (`refusals`). Exception messages, args and optional repair text are never inputs.
+    """
+    if isinstance(error, ProtocolError) and type(error.reason) is str and error.reason in REFUSAL_MESSAGES:
+        return REFUSAL_MESSAGES[error.reason], None
+    if isinstance(error, ProtocolError) or hasattr(error, "code"):
+        from .refusals import handler_refusal
+        return handler_refusal(error)
+    if type(reason) is not str or reason not in REFUSAL_MESSAGES:
+        reason = "invalid-args"
+    return REFUSAL_MESSAGES[reason], None
+
+
+def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -> Response:
+    """Request and handler boundaries: closed templates (`refusal_text`) and checked exit codes."""
+    message, fix = refusal_text(error, reason=reason)
+    code = getattr(error, "code", Exit.INVALID_INPUT)
+    if type(code) not in (int, Exit) or code not in tuple(Exit):
+        code = Exit.INVALID_INPUT
+    return fail(req_id, code, message, fix)

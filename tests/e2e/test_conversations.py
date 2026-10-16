@@ -23,6 +23,7 @@ import uuid
 
 import pytest
 
+from subfleet import hooks
 from subfleet.conversations.service import CONTINUATION_TEXT
 from tests.e2e import dev_app as development_app
 
@@ -239,6 +240,13 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     assert "opus[1m]" in models["claude"]["claude-opus-5-5"]["values"]
 
 
+def hook_context(row: dict) -> str | None:
+    """What a hook run added to the session's context: its `additionalContext`, or None."""
+    if not row.get("stdout"):
+        return None
+    return json.loads(row["stdout"])["hookSpecificOutput"]["additionalContext"]
+
+
 @pytest.fixture
 def hooked(e2e):
     """Conversations whose fake Claude runs `subfleet hook <event>` the way
@@ -273,7 +281,10 @@ def test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping(hooke
     assert [(row["hook"], row["source"]) for row in ran] == [
         ("SessionStart", "startup"), ("UserPromptSubmit", None),
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], ran
-    assert all(row.get("rc") == 0 and row.get("stdout") == "" for row in ran), ran
+    assert all(row.get("rc") == 0 for row in ran), ran
+    # C-25.7: the new session's SessionStart tells the agent about `subfleet suggest`
+    # (a resumed one already holds it); nothing else is said, the ping included.
+    assert [hook_context(row) for row in ran] == [hooks.SUGGEST_HINT, None, None, None], ran
     jobs = [conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:0",))[0]["job_id"]
             for mid in (first, second)]
     for row, job_id in zip(ran, [jobs[0], jobs[0], jobs[1], jobs[1]]):
@@ -336,7 +347,9 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], hooks_ran
     started, prompted = hooks_ran[2], hooks_ran[3]
     assert started["rc"] == 0 and prompted["rc"] == 0
-    assert all(row["stdout"] == "" for row in hooks_ran), "the conversation message carries the job's notice once"
+    # The conversation message carries the job's notice once; the new session's
+    # SessionStart says only how to suggest a conversation (C-25.7).
+    assert [hook_context(row) for row in hooks_ran] == [hooks.SUGGEST_HINT] + [None] * 5
     assert "resume nudge" not in started["stdout"] + prompted["stdout"]
     assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
         {"state": "surfaced", "transport": "conversation"}]

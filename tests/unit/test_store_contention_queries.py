@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import capacity
+from subfleet import capacity, procs
 from subfleet.actions import ResetCredits
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
@@ -31,10 +31,10 @@ BASE = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture(autouse=True)
-def daemon_process_identity(monkeypatch):
-    """These idle-daemon SQL tests do not exercise operating-system identity."""
-    monkeypatch.setattr('subfleet.daemon.procs.boot_id', lambda: 'sql-test-boot')
-    monkeypatch.setattr('subfleet.daemon.procs.proc_start', lambda _pid: 'sql-test-start')
+def fixture_process_identity(monkeypatch):
+    """SQL differential tests own their daemon identities, independent of the host."""
+    monkeypatch.setattr(procs, "boot_id", lambda: "store-query-fixture-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "store-query-fixture-start")
 
 
 @pytest.fixture
