@@ -1,5 +1,6 @@
 """D-WALL1: a wall action requires inspected liveness, and loss ends at observed liveness."""
 import json
+from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
@@ -62,6 +63,16 @@ def receipt_interleaving(clocked, monkeypatch, stage, shared, exit_s, inspect_s,
         return result
 
     monkeypatch.setattr(service, "_request_cancel", cancel)
+    transaction = service.store.transaction
+
+    @contextmanager
+    def commit(kind="state.changed", **kwargs):
+        with transaction(kind, **kwargs) as tx:
+            yield tx
+        if kind == "attempt.kill_started" and stage == "signal":
+            publish()  # The database commit can itself wait before signaling.
+
+    monkeypatch.setattr(service.store, "transaction", commit)
     contain = service._contain
     censuses = 0
 
@@ -87,8 +98,9 @@ def receipt_interleaving(clocked, monkeypatch, stage, shared, exit_s, inspect_s,
     from subfleet.offline import Offline
     assert Offline(service.root).show_job(jid)["cancel"] is None
     assert service._running_s(jid) == exit_s
-    if stage in ("initial", "inspection"):
+    if stage != "settle":
         assert signals == []
+    if stage in ("initial", "inspection"):
         assert not service.store.query("SELECT 1 FROM events WHERE job_id=? AND kind='job.cancel_requested'", (jid,))
 
 
@@ -97,14 +109,14 @@ def test_round5_receipt_during_inspection_preserves_21599_second_success(clocked
     receipt_interleaving(clocked, monkeypatch, "inspection", shared, 21599, 21601, 21600)
 
 
-@pytest.mark.parametrize("stage", ["cancel", "settle"])
+@pytest.mark.parametrize("stage", ["cancel", "signal", "settle"])
 def test_round5_receipt_between_wall_check_and_kill_settlement_wins(clocked, monkeypatch, stage):
     receipt_interleaving(clocked, monkeypatch, stage, True, 21599, 21601, 21600)
 
 
 @settings(max_examples=32, deadline=None, derandomize=True, phases=[Phase.generate],
           suppress_health_check=[HealthCheck.function_scoped_fixture])
-@given(stage=st.sampled_from(["initial", "inspection", "cancel", "settle"]), shared=st.booleans(),
+@given(stage=st.sampled_from(["initial", "inspection", "cancel", "signal", "settle"]), shared=st.booleans(),
        cap=st.integers(2, 21600), exit_delta=st.integers(-10, 10), after=st.integers(1, 10))
 def test_round5_wall_receipt_interleavings(clocked, monkeypatch, stage, shared, cap, exit_delta, after):
     exit_s = max(1, cap + exit_delta)
