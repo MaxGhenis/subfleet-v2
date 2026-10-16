@@ -1005,7 +1005,7 @@ final class ConversationEngine {
     }
 
     func unknownReceipts(in page: EventsPage, knownMessageIDs: Set<String>) throws -> [Receipt] {
-        guard page.superseded != true, !page.reset else { return [] }
+        guard page.superseded != true else { return [] }
         var ids = Set(page.events.compactMap(\.message_id))
         for event in page.events where event.kind == "steer.delivered" || event.kind == "steer.missed" {
             if let id = event.data["message_id"]?.string { ids.insert(id) }
