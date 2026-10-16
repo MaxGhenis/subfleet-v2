@@ -264,6 +264,8 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
         assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
     else:
         monkeypatch.setattr(daemon, "_inspect_running", lambda *args: True)  # The simulated provider is live.
+        # D-WALL1 round 5: the wall re-reads the guardian's identity just before it signals.
+        monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
         daemon.store.update_job(job_id, started_at="2026-09-24T07:00:00Z", max_wall_s=60)
         daemon.store.update_attempt(attempt["attempt_id"], started_at="2026-09-24T07:00:00Z")
     daemon._process_attempt(attempt["attempt_id"])            # the kill: SIGTERM, receipt, finalizing
