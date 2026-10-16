@@ -506,3 +506,108 @@ evidence or bundles were staged. Work stayed inside the assigned workspace
 and task-owned temporary directories. No sub-agents, remote Git operations,
 push, release merge, live-store access or live-process changes were performed.
 The hub retains responsibility for the release merge.
+
+## PR #207 fix round 6
+
+Both admission guards now judge a live steered job on its whole original chain
+when the steered decision has no evaluations, as well as when its evaluations
+report standing refusals. A build whose only model is steered away no longer
+keeps a fleet slot when both of that model's lanes are disabled. The existing
+rotation guards remain in place at both sites; the new whole-chain branches
+also exclude rotation. Temporary closures retain the older job's FIFO place.
+
+The local `release/217` tip, `b053e3de8`, was already an ancestor of the assigned
+`96db9a049a49`, so no release merge or conflict resolution was needed. The
+separate `review-r5.md` was absent from the assigned checkout; the detailed
+review finding and candidate fix in the brief supplied the review evidence.
+
+### Regressions and mutations
+
+Tests-first commit `816909915` adds the four due variants (both admission
+paths, caps 1 and 2), four not-due controls, temporary-closure/reopening
+controls for both paths, and rotation controls for both paths. The clock starts
+on a whole second one minute ahead of the real clock, after fixture setup.
+
+On the unchanged `96db9a049` daemon, all four due variants failed at the
+intended assertion that every later Opus job had started: none of one, or one
+of two, started. All eight controls passed: **4 expected regression failures,
+8 passed, 42 deselected in 162.65 s**. The baseline kept the original daemon
+file while the fix was committed directly through the workspace-local index;
+the working file was updated to the committed fix only after that run ended.
+
+Commit `6617048e4` registers three mutations: remove the empty-decision clause
+at either site, or remove the rotation guards. Each selects a named regression.
+The runner now recognizes exact and parametrized test selections and waits for
+the shared lock without a queue timeout. Two unit cases cover named selections.
+
+### Validation
+
+**240 passing executions, 2 skipped, 1 expected failure; 229 distinct passing
+cases.** All requested files were run. Baseline and mutation failures were
+deliberate negative checks, separate from these totals.
+
+| Requested file | Passed | Other |
+| --- | ---: | --- |
+| `tests/unit/test_capacity_steer_route.py` | 22 | — |
+| `tests/fake/test_capacity_steer_daemon.py` | 54 | — |
+| `tests/unit/test_capacity_steer_mutations.py` | 10 | — |
+| `tests/fake/test_admission_stateful.py` | 11 default + 11 seeded | — |
+| `tests/fake/test_admission_priority.py` | 32 | — |
+| `tests/fake/test_routing_end_to_end.py` | 14 | 2 skipped |
+| `tests/fake/test_admission_properties.py` | 27 | 1 xfail |
+| `tests/fake/test_admission_held_waiters.py` | 1 | — |
+| `tests/unit/test_held_waiter_holdback.py` | 6 | — |
+| `tests/unit/test_operator_hold_closures.py` | 15 | — |
+| `tests/fake/test_state_contract.py` | 37 | — |
+
+The routing skips require macOS process inspection unavailable in this sandbox.
+The existing C-6.10 unchanged-verdict case remains an expected failure.
+
+| Locked pytest run | Pytest seconds |
+| --- | ---: |
+| `baseline-r6` | 162.65 |
+| `capacity` | 189.13 |
+| `mutation-1` | 41.23 |
+| `mutation-2` | 32.09 |
+| `mutation-3` | 43.39 |
+| `stateful-default` | 193.93 |
+| `stateful-seed` | 298.20 |
+| `priority` | 125.84 |
+| `operator-state` | 37.43 |
+
+All three requested mutations were killed by these named regressions:
+
+- Mutation 1: `test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled[due-due-look-one-slot]`.
+- Mutation 2: `test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled[due-route-moved-one-slot]`.
+- Mutation 3: `test_r6_rotation_refusals_never_release_the_waiters_fifo_slot[due-look]`.
+- Mutation 3: `test_r6_rotation_refusals_never_release_the_waiters_fifo_slot[route-moved]`.
+
+Each invocation ran in the foreground under its own `lockf -k` hold of the
+shared lock, with no queue timeout and one worker. Recorded pytest runtimes
+were all below 20 minutes. Both stateful runs retained the committed `ci`
+bounds; the second added only `--hypothesis-seed=314159`. No deep profile was
+used. Runs used Python 3.14.7 free threaded, pytest 9.1.1, and Hypothesis 6.168.1.
+The default uv cache was not writable, so every run used a cache in its own
+TMPDIR. Each scratch directory and Hypothesis store was removed with the
+requested `shutil.rmtree` cleanup. No repository `.hypothesis` directory remains.
+
+The full repository suite, Python 3.12, remote CI and the pre-existing fourteen
+mutations were not run. All requested round-6 suites and mutations were run.
+
+### Commits and delivery
+
+- `816909915`: regression and named-selection tests first.
+- `6617048e4`: three named mutations and unbounded lock queue waits.
+- `a2dc9dcb8`: scoped two-site empty-decision fix with rotation protection.
+- This report commit: completed round-6 validation and delivery record.
+
+The shared Git index is outside the writable roots, so commits use the
+workspace-local `.git-local` metadata on `fix/model-capacity-steer`. The
+original `.git` pointer is unchanged. Inspect with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log 96db9a049a49..HEAD`.
+The portable bundle is `.git-local/r207f6.bundle`, verified against the assigned
+`96db9a049a49`. Every commit retains the requested co-author trailer. Only named
+test, source, mutation-tool and report files were staged; no logs, JSON evidence
+or bundles were staged. Work stayed in the assigned checkout and its own scratch
+directories. No sub-agents, remote Git operations, push, live-store access or
+live-process changes were performed. Syntax and whitespace checks passed.
