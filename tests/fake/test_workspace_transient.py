@@ -472,8 +472,7 @@ def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_lau
     and refuses the checkout, switched to `main` meanwhile, once git answers."""
     import subfleet.daemon as daemon_module
     from subfleet.daemon import Daemon
-    from tests.fake.notice_invariant import notice_without_capability
-from tests.fake.test_state_contract import reserve
+    from tests.fake.test_state_contract import reserve
     daemon, harness = state_daemon
     workdir = repository(daemon, harness)
     job_id, attempt, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True,
@@ -535,8 +534,7 @@ def test_c6_8_launch_time_checks_that_get_no_answer_back_off_counted_in_a_row(st
     it, and the notice names every attempt, none of which launched."""
     import subfleet.daemon as daemon_module
     from subfleet.daemon import Daemon
-    from tests.fake.notice_invariant import notice_without_capability
-from tests.fake.test_state_contract import reserve
+    from tests.fake.test_state_contract import reserve
     daemon, harness = state_daemon
     repository(daemon, harness)
     job_id, _, _ = reserve(daemon, harness, sandbox="workspace-write", in_place=True, max_attempts=3)
