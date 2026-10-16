@@ -70,7 +70,8 @@ def read_desktop_account(path: str | Path | None = None) -> str | None:
     is kept between calls is the email alone, which the store already holds.
     """
     global _desktop_hint
-    target = Path(path) if path is not None else Path.home() / ".claude.json"
+    from .home_paths import desktop_login_path
+    target = Path(path) if path is not None else desktop_login_path()
     try:
         found = os.stat(target)
         seen = (found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns, found.st_ctime_ns)
@@ -95,9 +96,10 @@ def cached_desktop_identity(path: str | Path | None = None) -> dict[str, Any]:
     credential beside it does not hold — the 2026-09-05 incident exactly. Only
     `doctor` reads more of it than the email, and only to report a disagreement.
     """
+    from .home_paths import desktop_login_path
+    target = Path(path) if path is not None else desktop_login_path()
     try:
-        value = json.loads(read_regular(Path(path) if path is not None
-                                        else Path.home() / ".claude.json").decode("utf-8"))
+        value = json.loads(read_regular(target).decode("utf-8"))
         account = value.get("oauthAccount") if isinstance(value, dict) else None
     except (OSError, UnicodeError, ValueError):
         return {}
