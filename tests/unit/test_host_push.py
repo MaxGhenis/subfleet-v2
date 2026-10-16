@@ -27,7 +27,7 @@ from subfleet.ids import payload_digest
 from subfleet.offline import Offline
 from subfleet.policy import DEFAULT_POLICY_PATH, PUSH_DEFAULTS, PolicyError, load_policy
 from subfleet.procs import Containment
-from subfleet.store import Store
+from subfleet.store import SCHEMA_VERSION, Store
 
 
 # Repository setup can wait on macOS filesystem flushes under load. This
@@ -678,7 +678,7 @@ def test_schema_six_migration_preserves_jobs_without_authorizing_push(tmp_path):
         assert store.get_job("legacy")["push_branch"] is None
         assert store.query("SELECT * FROM job_pushes") == []
         assert store.query("SELECT * FROM job_owned_branches") == []
-        assert store.one("SELECT max(version) AS version FROM schema_version")["version"] == 7
+        assert store.one("SELECT max(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
 
 
 def test_git_timeout_stops_the_transport_process_group(tmp_path, monkeypatch):
