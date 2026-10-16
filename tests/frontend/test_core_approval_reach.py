@@ -269,7 +269,8 @@ def test_c27_5_a_waiting_card_has_the_strip_when_the_newest_live_turn_has_answer
     log.add("m2", "turn.completed", state="complete")
     result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed"), receipt("m2", 2, "running")]},
                                log.page()])
-    assert result["live_message"] == "m2" and result["turns"]["m2"]["outcome"] is not None
+    assert result["turns"]["m2"]["state"] == "complete" and result["turns"]["m2"]["outcome"] is not None
+    assert result["live_message"] == "m1"
     assert result["pinned_turn"] == "m1" and result["pending_items"] == [card]
     assert result["review_label"] == "Review"
 
