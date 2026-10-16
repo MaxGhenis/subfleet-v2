@@ -418,6 +418,22 @@ Opus-pin cases passed**, 200 cases in one pytest, **119.51 s**. No clock was
 frozen in this run. The full invocation, including its lock queue, took
 2,270.89 s. The wrapper is kept only in ignored `.git-local/r5_repeat.py`.
 
-The default CI stateful run is queued; its explicit-seed run and the other
-three required suite groups remain unrun. Remaining results will be recorded
-after the locked runs.
+The default CI stateful run passed **11 cases in 102.25 s**. A passive
+`finish` audit counts only calls from `attempt_ends`, excluding fair-drain
+successes: 1 model-capacity, 2 transient, 2 ok, 0 limited; one capacity steer
+was recorded. This matches review r4c's baseline coverage. The audit changes
+no generated actions or outcomes and is kept only in ignored metadata. Both
+machines retain 40 examples and at most 30 steps, with no example database.
+Seed `314159` passed **11 cases in 162.07 s**: the random `attempt_ends`
+rule produced **15 model-capacity, 5 transient, 12 ok and 0 limited** finishes.
+It recorded no eligible steers; the default run recorded one. These outcome
+counts reproduce the review's seed evidence. Both full-file invocations also
+passed the existing explicit quota and model-capacity fixture cases. No
+additional outcome coverage is claimed for the random seed.
+
+CI keeps the default search and adds this exact explicit-seed command once on
+the first shard of each Python version (3.12 and 3.14). Its measured extra
+pytest runtime is 162.07 s, within the unchanged 45-minute job budget, with
+40 examples and 30 steps per machine. No deep profile or size override was
+used. The admission/hold-back group is queued; the adapter/completion and
+state/module-name groups remain unrun.
