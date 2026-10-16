@@ -84,7 +84,9 @@ def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeyp
     service, _ = routing_state
     monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION})
     status = service.dispatch("daemon.status", {})
-    assert status["environment"] == {"extra_names": sorted(POLLUTION)}
+    # Round 4 (review r3, P3-2): the lanes' own variables are listed apart; this
+    # roster has no env-kind lane.
+    assert status["environment"] == {"extra_names": sorted(POLLUTION), "lane_credentials": []}
     assert "dummy" not in json.dumps(status["environment"])
     monkeypatch.setattr(doctor.Client, "call", lambda *args, **kwargs: status)
     output = doctor.render([doctor.check_daemon_environment(service.root)])
@@ -222,3 +224,70 @@ def test_daemon_refuses_a_policy_passing_a_lane_credential(tmp_path, monkeypatch
     policy["env"] = {"pass": []}
     (root / "policy.json").write_text(json.dumps(policy))
     daemon_module.Daemon(root).close()
+
+
+def startup_root(tmp_path, monkeypatch, reference, passed=()):
+    """A seeded root whose roster adds one env-kind Claude lane, as `routing_state` starts it."""
+    root = tmp_path / "state"
+    root.mkdir()
+    Harness(root)
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+    monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+    monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+    claude_code_active(monkeypatch, tmp_path / "claude")
+    roster = json.loads((root / "lanes.json").read_text())
+    roster.append({"lane_id": "claude-9", "provider": "claude", "account_key": "claude:lane-9",
+                   "credential_kind": "env", "credential_ref": reference, "owner": "v2"})
+    (root / "lanes.json").write_text(json.dumps(roster))
+    policy = json.loads((root / "policy.json").read_text())
+    policy["env"] = {"pass": list(passed)}
+    (root / "policy.json").write_text(json.dumps(policy))
+    return root, policy
+
+
+@pytest.mark.parametrize("reference", ["HOME", "SUBFLEET_FAKE_LANE_NINE", "SUBFLEET_HOST_HOME"])
+def test_daemon_startup_refuses_a_lane_variable_every_launch_inherits(tmp_path, monkeypatch, reference):
+    """Review r3, P3-1: the start check is the first line of defence, at daemon startup too."""
+    root, policy = startup_root(tmp_path, monkeypatch, reference)
+    with pytest.raises(PolicyError) as error:
+        daemon_module.Daemon(root).close()
+    assert error.value.key == "credential_ref" and reference in str(error.value)
+    # The refusal released the lock: a second start reaches the same check
+    # (from the store now), not "already running".
+    with pytest.raises(PolicyError) as again:
+        daemon_module.Daemon(root).close()
+    assert again.value.key == "credential_ref"
+
+
+@pytest.mark.parametrize("case", ["env-pass", "inherited"])
+def test_daemon_main_exits_two_on_a_refused_startup(tmp_path, monkeypatch, capsys, case):
+    """Review r3, P3-3 (C-11.1): exit 2 with the message, never a traceback in daemon.log."""
+    if case == "env-pass":
+        root, _ = startup_root(tmp_path, monkeypatch, "E2E_LANE_NINE_TOKEN",
+                               passed=["GIT_CONFIG_GLOBAL", "E2E_LANE_NINE_TOKEN"])
+        key = "env.pass[1]"
+    else:
+        root, _ = startup_root(tmp_path, monkeypatch, "LANG")
+        key = "credential_ref"
+    monkeypatch.setenv("E2E_LANE_NINE_TOKEN", "dummy-nine")
+    monkeypatch.setattr(daemon_module.descriptors, "raise_open_file_limit", lambda: (256, 256, 256))
+    monkeypatch.setattr(daemon_module.Daemon, "serve_forever",
+                        lambda self: pytest.fail("a refused startup served"))
+    assert daemon_module.main(["--state-root", str(root)]) == 2
+    err = capsys.readouterr().err
+    assert key in err and "Traceback" not in err and "dummy-nine" not in err
+
+
+def test_daemon_status_lists_a_lane_variable_apart(tmp_path, monkeypatch):
+    """Review r3, P3-2: the daemon holds its lane's variable, and says so apart from extras."""
+    root, _ = startup_root(tmp_path, monkeypatch, "SUBFLEET_TEST_OAUTH")
+    service = daemon_module.Daemon(root)
+    try:
+        monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_TEST_OAUTH": "dummy-oauth",
+                                           "GH_TOKEN": "dummy-gh"})
+        status = service.dispatch("daemon.status", {})["environment"]
+    finally:
+        service.close()
+    assert status == {"extra_names": ["GH_TOKEN"], "lane_credentials": ["SUBFLEET_TEST_OAUTH"]}
+    assert "dummy" not in json.dumps(status)

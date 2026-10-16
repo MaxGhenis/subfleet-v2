@@ -41,8 +41,9 @@ WORDS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "PASS", "
          "CREDENTIAL", "CRED", "AUTH", "OAUTH", "BEARER", "COOKIE", "JWT", "PAT",
          "PRIVKEY", "WEBHOOK")
 # Reviewed: admitted names a word matches by accident, each holding a path.
+# Round 4 adds D-ST1's stand-in agent-secret path, a test session's name.
 REVIEWED_EXCEPTIONS = {"PATH", "SSH_AUTH_SOCK", "SUBFLEET_FAKE_DIAGNOSTICS_PATH",
-                       "SUBFLEET_FAKE_RELEASE_PATH"}
+                       "SUBFLEET_FAKE_RELEASE_PATH", "SUBFLEET_AGENT_SECRET"}
 SUBFLEET_NAME = re.compile(r"SUBFLEET_[A-Z0-9_]*[A-Z0-9]", re.ASCII)
 SHELL_READ = re.compile(r"\$\{?(SUBFLEET_[A-Z0-9_]*[A-Z0-9])", re.ASCII)
 
@@ -130,18 +131,21 @@ def test_review_r2_real_case_env_kind_lane_credential_reaches_no_other_launch(tm
 
 
 def test_every_subfleet_name_the_package_reads_is_listed():
-    """Generated, not remembered: each spelled name is configuration, a marker or retired."""
+    """Generated, not remembered: each spelled name is configuration, a marker,
+    a test session's name (D-ST1, round 4) or retired."""
     found, _ = production()
     listed = {name for name in launch_env.CONFIG_NAMES if name.startswith("SUBFLEET_")}
-    classified = listed | launch_env.LAUNCH_NAMES | launch_env.RETIRED_NAMES
+    session = {name for name in launch_env.TEST_SESSION_NAMES if name.startswith("SUBFLEET_")}
+    classified = listed | session | launch_env.LAUNCH_NAMES | launch_env.RETIRED_NAMES
     missing = {name: sorted(found[name]) for name in set(found) - classified}
-    assert missing == {}, "add each to launch_env.CONFIG_NAMES, LAUNCH_NAMES or RETIRED_NAMES"
-    assert (listed | launch_env.RETIRED_NAMES) - set(found) == set(), "a listed name nothing reads any more"
+    assert missing == {}, ("add each to launch_env.CONFIG_NAMES, LAUNCH_NAMES or RETIRED_NAMES, "
+                           "or to home_paths' test-session registry")
+    assert (listed | session | launch_env.RETIRED_NAMES) - set(found) == set(), "a listed name nothing reads any more"
     # A marker may be named only in a guard's command text (`SUBFLEET_ATTACHED_OK=1`).
     text = "".join(path.read_text() for path in PACKAGE.rglob("*.py") if path != PACKAGE / "launch_env.py")
     assert [name for name in launch_env.LAUNCH_NAMES if name not in text] == []
-    assert not (listed & launch_env.LAUNCH_NAMES or listed & launch_env.RETIRED_NAMES
-                or launch_env.LAUNCH_NAMES & launch_env.RETIRED_NAMES)
+    classes = (listed, session, launch_env.LAUNCH_NAMES, launch_env.RETIRED_NAMES)
+    assert all(not a & b for i, a in enumerate(classes) for b in classes[i + 1:])
 
 
 def test_only_compat_builds_a_subfleet_name_at_run_time():
@@ -208,10 +212,11 @@ def test_backstop_exceptions_are_exact_reviewed_and_necessary():
     trips = launch_env.CREDENTIAL_PATTERN.search
     # Each exception is admitted otherwise and does trip a word: none is dead.
     assert all(trips(name) for name in exceptions)
-    assert all(name in launch_env.ALLOWED_NAMES or name.startswith(launch_env.HARNESS_PREFIXES)
-               for name in exceptions)
+    assert all(name in launch_env.ALLOWED_NAMES | launch_env.TEST_SESSION_NAMES
+               or name.startswith(launch_env.HARNESS_PREFIXES) for name in exceptions)
     # Every admitted name that trips a word was reviewed into the set.
-    assert {name for name in launch_env.ALLOWED_NAMES | harness_used() if trips(name)} <= exceptions
+    admitted = launch_env.ALLOWED_NAMES | launch_env.TEST_SESSION_NAMES | harness_used()
+    assert {name for name in admitted if trips(name)} <= exceptions
 
 
 @pytest.mark.parametrize("word", WORDS)
