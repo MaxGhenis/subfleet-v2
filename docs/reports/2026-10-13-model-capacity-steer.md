@@ -384,3 +384,29 @@ The portable history is `.git-local/r207f4.bundle`, verified against round start
 `59022aba5`. Every commit retains the requested co-author trailer. Only the named
 report file was staged after the restart; no logs, JSON evidence or bundles were
 staged. Nothing was pushed and no PR comment was sent.
+
+
+## PR #207 fix round 5
+
+Round start: `c34c219bf852`. Review `review-r4c.md` was read in full, along
+with its executed candidate diff. Work is confined to the assigned workspace.
+The caller checkout and shared Git metadata are read-only; commits use
+workspace-local `.git-local` metadata on `fix/model-capacity-steer`, leaving the
+original `.git` pointer unchanged. No release merge, push or remote operation
+is part of this round.
+
+Status: deterministic regressions committed as `727720549`; all four failed
+at the intended FIFO assertion against unchanged `c34c219bf852` production
+source (4 failed, 38 deselected, 33.58 s on Python 3.12.14). The first lock
+wait plus execution took 1,326.12 s. Four frozen-clock cases make the older
+steered review due on pass 3: a later Opus pin or unpinned review, each after a
+settled due look or exhausted route retries. Every case verifies that only
+Opus was walked before checking FIFO.
+
+The two-site fix and C-6.9 clarification are committed as `b7738f35e`. The
+whole-chain check is used only when a decision with a live steer reports
+standing refusals. A job without a live steer retains its existing rule.
+Commit `4142cd96f` adds a second bounded stateful CI invocation with seed
+`314159`, once per interpreter, retaining the default search. The first
+required suite group is queued. Remaining results will be recorded after the
+locked runs.
