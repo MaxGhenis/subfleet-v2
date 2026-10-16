@@ -641,8 +641,12 @@ never installed or launched. The four-case SwiftUI run subsequently passed.
 #### Opening pin verification — passed
 
 The isolated SDK 26.5 hold passed **4/4**, with **170.58 seconds** of pytest
-time. Both full SwiftUI OS paths satisfy the original two-point end tolerance;
-the deterministic queued-layout replay and offset-only Review regression pass.
+time. Both full SwiftUI OS paths finish at exactly zero points from the end after
+opening, the late page and lazy measurement. After simulated person scrolling
+they stay 1,721 / 1,699 points above the end; the Review replay stays at 250.
+No window is visible. These are both code paths on macOS 26.6.2, not additional
+physical macOS 14/15 hardware checks. The original two-point tolerance holds.
+The deterministic queued-layout replay and offset-only Review regression pass.
 Together with the earlier 19 core cases, the review file is **23/23**. This
 closes the post-fix verification gap from the SDK 27 compiler timeouts.
 
