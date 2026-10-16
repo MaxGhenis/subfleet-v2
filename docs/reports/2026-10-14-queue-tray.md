@@ -600,3 +600,28 @@ earlier 75-pass result rather than taking the planned additional hold; its
 withdrawal branches are unchanged, and the named engine mutation targets
 exercise the current code. The unaffected row-only tray-view result remains
 15 passed. Remaining files and mutants will be listed explicitly at cutoff.
+
+#### Mutation runner and first verified mutant
+
+The runner can prepare independent native source copies in the foreground,
+then reuse the existing exact-input probe cache in each separately locked
+pytest. Readiness covers source/test bytes, the runner and selected
+compiler/SDK settings; it also checks the exact mutation text. Every runtime
+uses its own temporary Hypothesis directory. Preparation alone is never
+counted as a mutation result. Acquisition markers separate lock waits from
+actual holds. The compile-budget-only Python update was refreshed in three
+prepared copies only after reconstructing their prior signatures and checking
+all Swift inputs and remaining Python inputs byte for byte.
+
+**flicker: KILLED** by
+`test_c29_7_an_idle_send_answered_queued_stays_in_the_timeline`: the queued
+receipt incorrectly put the idle send in the tray. One assertion failed;
+pytest took 18.07 seconds, the lock hold 39.51 seconds. No compile error.
+
+The attempted SDK 27 release build fails because that SDK's SwiftUI `@State`
+requires `SwiftUIMacros.StateMacro`, absent from the Command Line Tools plugin
+search path. An installed SDK 26.5 uses the existing State property wrapper;
+the UI build and four-case scroll hold are retried with SDK 26.5 using only
+job-local environment settings. Model mutants keep their already-working SDK
+27 environment. The original post-timeline release build passed before this
+SDK selection issue; the post-scroll release result is pending.

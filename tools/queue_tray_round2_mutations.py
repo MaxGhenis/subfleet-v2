@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,10 +85,65 @@ MUTANTS = [
 ]
 
 
+def source_signature() -> str:
+    """Only reuse prepared probes for exactly the sources and tests copied."""
+    signature = hashlib.sha256()
+    for folder in ("app", "subfleet", "tests", "private"):
+        for source in sorted((ROOT / folder).rglob("*")):
+            if source.is_file() and source.suffix in (".py", ".swift"):
+                signature.update(str(source.relative_to(ROOT)).encode())
+                signature.update(source.read_bytes())
+    for filename in ("pyproject.toml", "uv.lock", "tools/queue_tray_round2_mutations.py"):
+        signature.update((ROOT / filename).read_bytes())
+    for name in ("DEVELOPER_DIR", "SDKROOT", "SUBFLEET_SWIFT_NESTED_SANDBOX"):
+        signature.update((name + "\0" + os.environ.get(name, "")).encode())
+    return signature.hexdigest()
+
+
+def copy_mutant(copy: Path, mutant: Mutant) -> None:
+    copy.mkdir()
+    for folder in ("app", "subfleet", "tests", "private"):
+        shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for filename in ("pyproject.toml", "uv.lock", "README.md"):
+        shutil.copy2(ROOT / filename, copy / filename)
+    target = copy / mutant.path
+    target.write_text(target.read_text().replace(mutant.before, mutant.after, 1))
+
+
+def prepare(mutant: Mutant, destination: Path, signature: str, results: Path) -> None:
+    """Compile in the foreground; pytest later uses its existing exact-input cache."""
+    ready = destination / "ready"
+    if ready.is_file() and ready.read_text() == signature:
+        print(f"{mutant.name}: already prepared", flush=True)
+        return
+    shutil.rmtree(destination, ignore_errors=True)
+    destination.mkdir(parents=True)
+    copy = destination / "source"
+    copy_mutant(copy, mutant)
+    if mutant.test.startswith(VIEW_TEST):
+        inputs = "[ROOT / 'tests/frontend/QueueTrayViewProbe.swift']"
+        flag = "SUBFLEET_VIEW_TEST"
+    else:
+        inputs = "CORE_PROBE"
+        flag = "SUBFLEET_MODEL_TEST"
+    code = ("from tests.frontend.conftest import CORE_PROBE; "
+            "from tests.frontend.swift import ROOT, compile_probe; "
+            "from pathlib import Path; "
+            "binary=ROOT/'build/prepared/probe'; binary.parent.mkdir(parents=True, exist_ok=True); "
+            f"compile_probe(binary, {inputs}, {flag!r}, timeout={900 if flag == 'SUBFLEET_VIEW_TEST' else 540})")
+    python = ROOT / ".venv/bin/python"
+    command = [str(python) if python.is_file() else sys.executable, "-c", code]
+    with (results / f"{mutant.name}.prepare.log").open("w") as log:
+        subprocess.run(command, cwd=copy, check=True, stdout=log, stderr=subprocess.STDOUT)
+    ready.write_text(signature)
+    print(f"{mutant.name}: prepared (no pytest run)", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*")
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--prepare", action="store_true", help="prepare isolated native probes without running pytest")
     args = parser.parse_args()
     selected = [m for m in MUTANTS if args.only is None or m.name in args.only]
     if args.only and set(args.only) - {m.name for m in MUTANTS}:
@@ -99,25 +157,45 @@ def main() -> int:
         return 0
     results = ROOT / "build/r219f2/mutations"
     results.mkdir(parents=True, exist_ok=True)
+    prepared = ROOT / "build/r219f2/prepared"
+    signature = source_signature()
+    if args.prepare:
+        for mutant in selected:
+            if source_signature() != signature:
+                print("Sources changed; stop preparation before the next mutant", flush=True)
+                return 2
+            prepare(mutant, prepared / mutant.name, signature, results)
+        return 0
     temp_root = subprocess.check_output(["getconf", "DARWIN_USER_TEMP_DIR"], text=True).strip()
     for mutant in selected:
-        with tempfile.TemporaryDirectory(prefix=f"sf-r219f2-{mutant.name}-", dir=temp_root) as scratch:
-            copy = Path(scratch) / "source"
-            copy.mkdir()
-            for folder in ("app", "subfleet", "tests", "private"):
-                shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-            for filename in ("pyproject.toml", "uv.lock", "README.md"):
-                shutil.copy2(ROOT / filename, copy / filename)
-            target = copy / mutant.path
-            target.write_text(target.read_text().replace(mutant.before, mutant.after, 1))
+        ready = prepared / mutant.name / "ready"
+        target = ready.parent / "source" / mutant.path
+        try:
+            use_prepared = (ready.read_text() == signature
+                            and target.read_text() == (ROOT / mutant.path).read_text().replace(mutant.before, mutant.after, 1))
+        except OSError:
+            use_prepared = False
+        with tempfile.TemporaryDirectory(prefix=f"sf-r219v2-{mutant.name}-", dir=temp_root) as scratch:
+            copy = ready.parent / "source" if use_prepared else Path(scratch) / "source"
+            if not use_prepared:
+                copy_mutant(copy, mutant)
             environment = dict(os.environ, TMPDIR=scratch + "/", HYPOTHESIS_STORAGE_DIRECTORY=str(Path(scratch) / "hyp"),
                                HYPOTHESIS_PROFILE="ci")
+            acquired = results / f"{mutant.name}.acquired"
+            acquired.unlink(missing_ok=True)
+            enter = ("import datetime,os,pathlib,sys; "
+                     "pathlib.Path(sys.argv[1]).write_text(datetime.datetime.now(datetime.timezone.utc).isoformat()); "
+                     "os.execvp(sys.argv[2],sys.argv[2:])")
             result = subprocess.run(["/usr/bin/lockf", "-k", "/private/tmp/claude-501/subfleet-suites.lock",
+                                     sys.executable, "-c", enter, str(acquired),
                                      "uv", "run", "pytest", "-q", "-p", "no:cacheprovider", mutant.test],
                                     cwd=copy, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             (results / f"{mutant.name}.log").write_text(result.stdout)
             killed = result.returncode == 1 and "FAILED " in result.stdout and re.search(r"AssertionError|E\s+assert ", result.stdout)
             print(f"{mutant.name}: {'KILLED' if killed else 'NOT VERIFIED'}", flush=True)
+            if acquired.is_file():
+                hold = (datetime.now(timezone.utc) - datetime.fromisoformat(acquired.read_text())).total_seconds()
+                print(f"{mutant.name}: lock hold {hold:.2f}s", flush=True)
             if not killed:
                 print(result.stdout[-3000:])
                 return 1
