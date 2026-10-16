@@ -907,8 +907,13 @@ def replay(steps: list[dict]) -> list[dict]:
 
 TEXT_ALPHABET = ["a", "b", "z", "Q", ".", " ", " ", "\n", "\r", "\t", "\u00a0", "\u2003", "\u00e9", "\u2014"]
 short_texts = st.text(alphabet=st.sampled_from(TEXT_ALPHABET), max_size=24)
-long_texts = st.integers(240, 420).map(lambda n: ("lorem \n ipsum\tdolor " * 25)[:n])
-send_texts = st.one_of(short_texts, short_texts, long_texts)
+preview_lengths = st.integers(CORE_PREVIEW_LIMIT + 1, CORE_PREVIEW_LIMIT * 2)
+long_texts = st.one_of(
+    preview_lengths.map(lambda size: "x" * size),
+    preview_lengths.map(lambda size: "word\n" * (size // 4 + 1)),
+    preview_lengths.map(lambda size: "first line\n" + "x" * size),
+)
+send_texts = st.one_of(short_texts, long_texts)
 STATES = ["queued", "waiting", "starting", "running", "approval-needed", "complete", "failed", "interrupted",
           "cancelled", "delivery-unknown", "steering", "steered"]
 REASONS = {
@@ -967,6 +972,7 @@ def queue_timelines(draw):
             else:
                 state = draw(st.sampled_from(OPENING_STATES))
             batch.append(receipt(mid, index + 1, state, origin=kinds[mid], continues=continues.get(mid),
+                                 text=draw(send_texts),
                                  reason=draw(st.sampled_from(REASONS.get(state, [None])))))
             received.add(mid)
         steps.append(flags({"receipts": batch}))
@@ -998,7 +1004,7 @@ def queue_timelines(draw):
                 state = draw(st.sampled_from(STATES + ["queued", "queued", "running"]))
             reason = draw(st.sampled_from(REASONS.get(state, [None]))) if draw(st.integers(0, 4)) \
                 else draw(st.sampled_from(ANY_REASON))
-            text = draw(st.sampled_from([None, "", "from the daemon"]))
+            text = draw(st.one_of(st.sampled_from([None, "", "from the daemon"]), send_texts))
             step = {"receipts": [receipt(mid, mids.index(mid) + 1, state, origin=kinds[mid],
                                          continues=continues.get(mid), text=text, reason=reason,
                                          stop=draw(st.sampled_from([None, True, False])))]}
