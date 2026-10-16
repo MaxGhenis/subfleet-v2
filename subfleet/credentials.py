@@ -335,20 +335,23 @@ def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]
         token = os.environ.get(credential.ref)
         if not token or not token.strip():
             raise AdapterError("could not resolve lane environment credential", code=7,
-                               fix=f"set {credential.ref} in the daemon environment to the lane OAuth token")
+                               fix=f"set {credential.ref} in the daemon environment to the lane OAuth token",
+                               reason="credential-env")
         return {"CLAUDE_CODE_OAUTH_TOKEN": token}
     if credential.kind != "keychain-token" or credential.provider != "claude":
-        raise AdapterError("unsupported credential kind for provider", code=7)
+        raise AdapterError("unsupported credential kind for provider", code=7, reason="credential-kind")
     execute = runner or subprocess.run
     try:
         result = execute(keychain_command(credential.ref, runner=execute),
                          capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
         raise AdapterError("could not resolve lane keychain credential", code=7,
-                           fix="unlock the configured credential store and verify the lane reference with agent-secret") from None
+                           fix="unlock the configured credential store and verify the lane reference with agent-secret",
+                           reason="credential-keychain") from None
     if result.returncode or not result.stdout.strip():
         raise AdapterError("could not resolve lane keychain credential", code=7,
-                           fix="unlock the configured credential store and verify the lane reference with agent-secret")
+                           fix="unlock the configured credential store and verify the lane reference with agent-secret",
+                           reason="credential-keychain")
     return {"CLAUDE_CODE_OAUTH_TOKEN": result.stdout.rstrip("\r\n")}
 
 

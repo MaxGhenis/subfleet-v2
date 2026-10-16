@@ -38,15 +38,17 @@ import re
 import socket
 import subprocess
 import time
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from . import boot_identity
+from . import boot_identity, ids
 
 from .contracts import Exit
-from .protocol import (PROTOCOL_VERSION, ListArgs, ProtocolError, Request, Response,
-                        decode_response, encode)
+from .protocol import (PROTOCOL_VERSION, REFUSAL_MESSAGES, ListArgs, ProtocolError,
+                        Request, Response,
+                        correlation_id, decode_response, encode)
 
 TABLE_CODES = {int(code) for code in Exit}          # C-17.3
 
@@ -107,6 +109,12 @@ class DaemonError(Exception):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        # An enum selected by exact template validation, never diagnostic prose.
+        # Suggestion CLI errors reconstruct templates from this enum, validated
+        # structural fields and the exit code; arbitrary daemon prose is excluded.
+        from .conversations.suggestions import response_details, response_reason
+        self.suggestion_reason = response_reason(message)
+        self.suggestion_details = response_details(message)
 
     @property
     def busy(self) -> bool:
@@ -157,7 +165,7 @@ class ResponseLost(ProtocolError):
     Raised for every failure after `connect` succeeded: a timeout while sending
     or reading, a reset or broken pipe (even a `sendall` that fails part-way may
     have delivered the whole line), a close with no line, a line past
-    `MAX_RESPONSE_BYTES`, and a line that does not decode. The daemon may have
+    `MAX_RESPONSE_BYTES`, or a complete line that does not decode. The daemon may have
     done the work, so the outcome is unknown, never "not done". It is a
     `ProtocolError` with exit 1 and the message the CLI has always printed, so
     every handler written before it still reports it.
@@ -448,9 +456,18 @@ class Client:
                    request_id: str, timeout: float, stated: float) -> dict[str, Any]:
         """One connection and one request; `timeout` bounds it, `stated` is the
         caller's deadline, which a lost answer's message names."""
+        wire_id = request_id
+        if op == "submit" and request_id:
+            ids.request_id(request_id)
+            try:
+                correlation_id(request_id)
+            except ProtocolError:
+                # C-6.2 keys can contain punctuation or Unicode; the reflected
+                # protocol id has its own alphabet and never changes that key.
+                wire_id = str(uuid.uuid4())
         self.check_available()
         deadline = timeout
-        request = Request(op=op, args=args or {}, id=request_id)
+        request = Request(op=op, args=args or {}, id=wire_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(deadline)
         try:
@@ -488,11 +505,11 @@ class Client:
                                op=op, request_id=request_id)
         try:
             response: Response = decode_response(line)
-        except ProtocolError as exc:              # not JSON: "malformed response: ..."
-            raise ResponseLost(str(exc), op=op, request_id=request_id) from exc
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise ResponseLost(f"malformed response: {exc}", op=op,
-                               request_id=request_id) from exc
+        except (ProtocolError, AttributeError, TypeError, ValueError):
+            # An undecodable reply settles nothing (C-16.3). Keep its contents
+            # and parser exceptions out of the diagnostic used for the retry.
+            raise ResponseLost(REFUSAL_MESSAGES["malformed-response"],
+                               op=op, request_id=request_id) from None
         if response.v != PROTOCOL_VERSION:
             raise ProtocolError(
                 f"the daemon speaks protocol version {response.v}; this CLI speaks "

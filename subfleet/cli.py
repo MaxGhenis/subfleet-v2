@@ -15,6 +15,7 @@
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
   subfleet hook <event>         a Claude Code hook entry point (JSON on stdin)
   subfleet ping [--session ID] TEXT                              (alias: notify)
+  subfleet suggest --title T --tldr S --brief-file F [--worktree]  propose a conversation the owner starts
   subfleet notices [--session ID] [--all] [--ack|--withdraw]   inboxes and where each stands
 
 The verb spellings are v1's and are permanent (plan amendment 1). Stdout carries
@@ -25,6 +26,7 @@ Exit codes are the one table in C-17.3.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -132,6 +134,110 @@ def cmd_wake(args: argparse.Namespace) -> int:
     except (DaemonError, DaemonUnavailable) as exc:
         return fail(getattr(exc, "code", Exit.OPERATIONAL), str(exc))
     emit(result) if args.json else out("Wake recorded: " + result["request_id"])
+    return 0
+
+
+def _uuid_arg(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError("request_id must be a UUID") from None
+
+
+#: The `suggestion.create` op on the file pool runs the same folder and git checks
+#: `conversation.create` runs, each under its own cap; a start also cuts a worktree.
+SUGGEST_TIMEOUT_S = 150.0
+
+
+
+def _suggest_cli_errors(handler):
+    @functools.wraps(handler)
+    def checked(args):
+        try:
+            return handler(args)
+        except Exception as exc:
+            # Includes unexpected client/result/path/caller failures, before
+            # main's general OSError renderer or Python's traceback can print it.
+            from .conversations.suggestions import error_code, error_fix, scrub_error
+            return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    return checked
+
+
+@_suggest_cli_errors
+def cmd_suggest(args: argparse.Namespace) -> int:
+    """`subfleet suggest` (C-25.7): propose a separate conversation the owner starts in
+    the Subfleet app with one click; or withdraw one this conversation or session
+    made, list them, and, from a terminal, start or dismiss one."""
+    from .conversations.suggestions import error_code, error_fix, scrub_error
+    caller = {"session_id": session_id(), "calling_job": os.environ.get("SUBFLEET_TURN_JOB") or None}
+    if args.withdraw:
+        op, payload = "suggestion.withdraw", {"suggestion_id": args.withdraw, **caller}
+    elif args.start:
+        op, payload = "suggestion.start", {"suggestion_id": args.start, "permission": args.permission,
+                                           "confirm_widen": True if args.permission in ("accept-edits", "bypass")
+                                           else None}
+    elif args.dismiss:
+        op, payload = "suggestion.dismiss", {"suggestion_id": args.dismiss}
+    elif args.list:
+        op, payload = "suggestion.list", {}
+    else:
+        missing = [flag for flag, value in (("--title", args.title), ("--tldr", args.tldr),
+                                            ("--brief-file or --brief -", args.brief_file or args.brief)) if not value]
+        if missing:
+            return fail(Exit.INVALID_INPUT, "suggest needs " + ", ".join(missing),
+                        "subfleet suggest --title T --tldr S --brief-file BRIEF.md [--worktree]")
+        if args.brief and args.brief != "-":
+            return fail(Exit.INVALID_INPUT, "--brief takes only '-' (read the brief from stdin); "
+                        "use --brief-file for a file")
+        try:
+            if args.brief_file:
+                with open(args.brief_file, encoding="utf-8") as stream:
+                    brief = stream.read()
+            else:
+                brief = sys.stdin.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            return fail(Exit.INVALID_INPUT, scrub_error(exc, prefix="cannot read the brief: "))
+        try:
+            workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
+        except OSError as exc:
+            return fail(Exit.OPERATIONAL, scrub_error(exc, prefix="cannot resolve the workspace: "))
+        op, payload = "suggestion.create", {
+            "request_id": args.request_id or str(uuid.uuid4()), "title": args.title, "tldr": args.tldr,
+            "brief": brief, "workspace": workspace, "worktree": bool(args.worktree), "provider": args.provider,
+            "model": args.model, **caller}
+    try:
+        result = Client(_root(args)).call(op, payload, timeout=SUGGEST_TIMEOUT_S)
+    except DaemonError as exc:
+        if exc.suggestion_reason == "unknown-op":
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is older than this CLI and has no suggestions",
+                        RESTART_DAEMON)
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    except DaemonUnavailable as exc:
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is unavailable", RESTART_DAEMON)
+    except ProtocolError as exc:
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    if args.json:
+        emit(result)
+        return 0
+    if op == "suggestion.list":
+        for row in result["suggestions"]:
+            out(f"{row['suggestion_id']}\t{row['state']}\t{row['title']}")
+        note(f"{result['open']} open")
+        return 0
+    row = result["suggestion"]
+    out(row["suggestion_id"])
+    if op == "suggestion.create":
+        if result.get("scrubbed"):
+            note(f"note: {result['scrubbed']} secret-shaped value(s) were masked in what you wrote")
+        if row["worktree"] and row.get("workspace_kind") == "in-place":
+            note("note: the folder is not a git checkout, so it starts in place there, not in a worktree")
+        where = ("in this conversation and " if row["origin_conversation_id"] else "") + "under Suggested"
+        note(f"Suggested {row['title']!r}: the owner sees it in the Subfleet app {where}, and starts or "
+             f"dismisses it. Withdraw it if it goes stale: subfleet suggest --withdraw {row['suggestion_id']}")
+    elif op == "suggestion.start":
+        note(f"Started conversation {row['started_conversation_id']}")
+    else:
+        note(f"Suggestion {row['suggestion_id']} is {row['state']}")
     return 0
 
 
@@ -2971,8 +3077,21 @@ def _add_json(parser: argparse.ArgumentParser, *, nested: bool = False) -> None:
     parser.add_argument("--json", **kwargs)
 
 
+
+class _SuggestionErrorParser(argparse.ArgumentParser):
+    """Suggestion errors at both parser levels use fixed text, including unknown options."""
+    def parse_args(self, args=None, namespace=None):
+        values = list(sys.argv[1:] if args is None else args)
+        self._suggestion_context = "suggest" in values
+        return super().parse_args(values, namespace)
+
+    def error(self, message):
+        if getattr(self, "_suggestion_context", False) or self.prog.endswith(" suggest"):
+            self.exit(int(Exit.INVALID_INPUT), "subfleet suggest: invalid arguments; see subfleet suggest --help\n")
+        super().error(message)
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _SuggestionErrorParser(
         prog=PROG, description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-V", "--version", action="store_true",
@@ -3048,7 +3167,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--independent", action="store_true",
                        help="a parent's cancel does not cancel this child (C-7.3)")
     p_run.add_argument("--parent", metavar="JOB", help="parent job id")
-    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id,
+    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id_arg,
                        help="idempotency key (default: a UUID4, printed back)")
     p_run.add_argument("--wait", "--attach", dest="attach", action="store_true",
                        help="block until the job is terminal and return its rc")
@@ -3108,6 +3227,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_wake.add_argument("--request-id")
     _add_json(p_wake, nested=True)
     p_wake.set_defaults(handler=cmd_wake)
+    p_suggest = sub.add_parser(
+        "suggest", help="propose a separate conversation the owner starts in the Subfleet app with one click",
+        description="Propose an out-of-scope follow-up worth a session of its own. The owner sees a card in "
+                    "the Subfleet app (in this conversation, and under Suggested) and starts it with one click; "
+                    "the brief becomes the new conversation's first message, so make it self-contained. "
+                    "Nothing starts until the owner does (C-25.7).")
+    p_suggest.add_argument("--title", help="what the new conversation is, at most 60 characters")
+    p_suggest.add_argument("--tldr", help="one line on why it is worth doing, at most 300 characters")
+    brief = p_suggest.add_mutually_exclusive_group()
+    brief.add_argument("--brief-file", metavar="FILE", help="the brief, a self-contained first message (32 KiB)")
+    brief.add_argument("--brief", metavar="-", help="'-': read the brief from stdin")
+    where = p_suggest.add_mutually_exclusive_group()
+    where.add_argument("--workspace", metavar="DIR", help="the folder it starts in (default: the current directory)")
+    where.add_argument("--no-workspace", action="store_true", help="start it in a new scratch folder")
+    p_suggest.add_argument("--worktree", action="store_true",
+                           help="start it in a worktree of its own when the folder is a git checkout")
+    p_suggest.add_argument("--provider", choices=("claude", "codex"),
+                           help="who answers (default: this conversation's provider, else claude)")
+    p_suggest.add_argument("--model", help="a model this fleet routes (default: the provider's default)")
+    p_suggest.add_argument("--request-id", type=_uuid_arg, help="idempotency key, a UUID (default: a new UUID4)")
+    act = p_suggest.add_mutually_exclusive_group()
+    act.add_argument("--withdraw", metavar="ID", help="withdraw a suggestion this conversation or session made")
+    act.add_argument("--list", action="store_true", help="list open and recently closed suggestions")
+    act.add_argument("--start", metavar="ID", help="start one (a person's, from a terminal)")
+    act.add_argument("--dismiss", metavar="ID", help="dismiss one (a person's, from a terminal)")
+    p_suggest.add_argument("--permission", choices=("read-only", "ask", "accept-edits", "bypass"),
+                           help="with --start: the new conversation's permission (default Ask)")
+    _add_json(p_suggest, nested=True)
+    p_suggest.set_defaults(handler=cmd_suggest)
     p_wait.add_argument("ids", nargs="*")
     p_wait.add_argument("--mine", action="store_true", help="this session's jobs")
     p_wait.add_argument("--last", action="store_true", help="the most recent job")
@@ -3133,7 +3281,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("id")
     p_resume.add_argument("prompt", nargs="?")
     p_resume.add_argument("-o", "--output", help="also write the final response here")
-    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id)
+    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id_arg)
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 
