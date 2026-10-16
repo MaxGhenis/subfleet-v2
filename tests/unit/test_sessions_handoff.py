@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.contracts import Sandbox
+from subfleet.contracts import Exit, Sandbox
 from subfleet.sessions import handoff
 from tests import sessions_fixtures as fx
 
@@ -892,3 +892,34 @@ def test_a_bounded_read_is_bounded_by_the_file_it_reads(tmp_path, monkeypatch):
     text = handoff_module._read_bounded(path, max_bytes=1_000)
     assert grew, "the file never grew: the test checked nothing"
     assert len(text) <= 1_000 + len("\n... [middle omitted] ...\n"), len(text)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("override", [None, "read-only", "workspace-write"])
+def test_handoff_git_probe_failure_is_actionable_and_explicit_sandboxes_need_no_probe(
+        home, repo, policy, tmp_path, monkeypatch, dry_run, override):
+    from subfleet.salvage import SalvageError
+
+    fx.transcript(home, SESSION, conversation())
+    daemon = fx.FakeSessions()
+    staged = tmp_path / "prompt.md"
+
+    def unavailable(*args, **kwargs):
+        raise SalvageError("private fixture Git output", transient=True)
+
+    monkeypatch.setattr(handoff, "git_head", unavailable)
+    args = dict(session_id=SESSION, last=False, model="opus", task="review",
+                sandbox=override, workdir=repo, dry_run=dry_run,
+                stage_prompt=lambda text: (staged.write_text(text), staged)[1])
+    if override is None:
+        with pytest.raises(handoff.HandoffError) as caught:
+            handoff.handoff(daemon, policy, **args)
+        assert caught.value.code == Exit.OPERATIONAL
+        assert str(caught.value) == "could not check the handoff workdir's Git commit"
+        assert caught.value.fix == "retry the handoff, or pass -s read-only"
+        assert daemon.submits == [] and not staged.exists()
+    else:
+        result = handoff.handoff(daemon, policy, **args)
+        assert result.sandbox == override
+        assert staged.exists() is not dry_run
+        assert len(daemon.submits) == (0 if dry_run else 1)
