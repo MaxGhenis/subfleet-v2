@@ -502,3 +502,11 @@ properties 2, approval reach 41, approval notification 10. This verifies both
 the production fix and the already-committed correction to
 `test_c24_9_journaled_steers_restore_after_a_restart`: pending/refused steers
 belong exactly once in the timeline and never in the tray.
+
+The corrected queue-tray hold passed **47/47**: queue tray **45** and notice
+**2**, in **476.01 seconds** of pytest time (**480.80 seconds** holding the
+lock). Both 200-example membership/no-flicker properties passed. The corrected
+`test_c29_7_property_order_matches_the_real_daemons_next_dispatchable` passed:
+it excludes missed steers from expected tray order while independently
+requiring their timeline bubbles, including both retained explicit examples.
+No queue production code changed for this expectation correction.
