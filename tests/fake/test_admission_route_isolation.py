@@ -1335,14 +1335,17 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     assert looks["pick"] > before["pick"]
 
 
+@pytest.mark.parametrize("stall", [0, CAPACITY_RECHECK_BASE_S], ids=["prompt", "a-loaded-runner"])
 @pytest.mark.parametrize("look", [-1, 0, 1], ids=["before-the-retry-is-due", "when-it-is-due", "after"])
-def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, monkeypatch, look):
+def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, monkeypatch, look, stall):
     """The retry's look let its pin go and set a one-second clock; a younger job that
     competes for claude-b arrives. Until the clock is due the younger job waits behind
-    the retry; once it is due both are placed, the retry first (C-6.9). On a held clock:
-    this read the wall clock, and on a loaded machine the one second could run out before
-    the second pass, which then placed both, in order, and had no hold to assert on
-    (review of d04b8b3, which reproduced the three cases under a controlled clock)."""
+    the retry; once it is due both are placed, the retry first (C-6.9). The original
+    test read the wall clock: on a loaded machine the one second could run out before
+    the second pass, which then placed both, in order, and had no younger-job hold
+    to assert on. The held clock makes all three deadline positions explicit.
+    The loaded-runner cases spend that second on the real clock while the test's
+    clock stays held, including before the younger job is submitted."""
     service, harness = fleet
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
@@ -1360,6 +1363,7 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, mon
     assert first["state"] == "waiting" and service._retry_verdicts[retry][1] is False
     due = datetime.fromisoformat(first["next_check_at"].replace("Z", "+00:00"))
     assert due == HeldClock.at + timedelta(seconds=1)
+    time.sleep(stall)
     service.store.update_lane("claude-b", enabled=1)
     younger = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
     HeldClock.at = due + timedelta(seconds=look)
