@@ -229,3 +229,178 @@ worktree pointer and shared metadata remain intact. Inspect with
 Only named test/source/contract/report files were staged. Every commit has
 the requested co-author trailer. No push, remote operation, sub-agent,
 live-store access, cache relocation or history rewrite.
+
+## Round 4: PR #220 review r3, 2026-10-16
+
+Base: `85a7b384f906`, including `release/217` at `2012bbed4`. Read the entire
+`~/reviews/subfleet-2110/census-responsibility-p3/review-r3.md`. This section supersedes
+the round-3 discard and its contract statements.
+
+Tests-first commits: `d3bd42fd9` (Inputs A/B, known-id mid-scan replacement, member-pid
+reuse, five timing boundaries and signal-path regressions), then `c08dac975` (persisted
+evidence exercises the safety premise independently of new discovery, and a member
+without a readable unique id is retained). Additional tests-first commits `ecd22e2c5`,
+`8d061d178` and `243349727` cover stale group authority, normal completion for a known
+dead root, and the exact S=42/100, C=60/101 mutation probes.
+
+Fix `a447cf1f5` replaces the final blanket clear with one in-process holder read for
+both kinds of root. A readable successor excludes only observations at or above its
+unique id. Missing final ordering keeps collected members with an identity diagnostic. A
+known root already gone without provisional members can still verify empty. A changed
+kernel birth removes stale snapshot group membership before any ownership promotion. The
+superseded 12 blanket- discard regression cases and three-timing property are replaced
+by the new birth-order regressions and ten property cases (both root kinds × five
+timings), each with 40 ci examples and all three fates: alive, reaped or replaced. Each
+scenario checks the discovery pass and a later pass. Inputs A/B also check their full
+three-pass sequence.
+
+C-5.1, C-5.5, C-5.12, the version-3 line and the D-CEN1 entry now agree: one
+process-table ps, one additional early root-start ps only for a missing-id root whose
+live snapshot matches, and one additional in-process holder read after each applicable
+responsibility scan. There is no final root-start ps. A failed listing, early rejection
+or proven other boot needs no final holder read. Responsibility births use no additional
+process or syscall beyond the existing member kernel record; members reuse that captured
+live state even when the snapshot describes an older holder. No single-pid ps is needed
+for responsibility observations.
+
+Signal-authority audit (item 2): `Daemon._contain` merges `responsible_identities` only
+into census seeds. `_kill_attempt` and `_contain_probe` obtain individual signal
+authority only from `owned_identities`, adding independently observed group members only
+while the recorded leader is still alive. Neither promotes a responsibility seed or its
+walked descendants. `_finalize` checks containment before salvage; `_resolve_quarantine`
+performs no signalling, including forced release. Salvage does not read responsibility
+identities. `_quarantine` abandons only the stored guardian handle, and
+`spawn_disclaimed` reaps only those handles with `waitpid`; it never constructs handles
+from census evidence. The regression intercepts both raw signal functions and `waitpid`,
+covers a seed plus its walk-only child, and exercises kill, probe containment,
+finalization, quarantine resolution and reaping, both without ownership and with an
+older ownership birth at that same pid. Fresh signal checks are tied to the actual
+current birth, so an accidental promotion would produce a failing raw-signal assertion.
+No signal path using evidence-only seeds was found.
+
+Item 3 uses a bounded fix: capture each responsibility member's birth from its existing
+BSD kernel record, alongside its unique id. The census uses that captured start rather
+than an older snapshot identity or a later `identity(pid)`. The note-2 regression
+replaces K with unrelated Y after the member scan: only K's original identity may be
+persisted, and the following census excludes Y by its different start. Rendering uses
+literal English weekday/month names and UTC, preserving ps's second precision
+independently of ambient locale. The reviewed reuse after the member read is closed.
+Reuse between the separate metadata and responsibility calls remains a non-atomic
+observation limit, now explicit in C-5.5. Same-second reuse remains C-5.3's existing
+limitation.
+
+PR-body paragraph (corrected invariant):
+
+> For both kinds of responsibility root, when the final read identifies a different
+> holder with a readable unique id, observations with readable unique ids at or above
+> that holder's birth bound are excluded. A real child whose live birth and
+> responsibility were consistently captured before R dies predates every successor, so
+> the final root check preserves its captured identity; later censuses keep that
+> identity as a walk seed while it matches. When the final check cannot identify R or
+> bound a successor, collected observations remain evidence with an unverifiable result.
+> A known-id root already gone without observations can still verify empty. This
+> evidence can hold an attempt but grants no signal authority, including to descendants
+> found by walking from it. Capturing a member's birth with its kernel unique id
+> prevents a later pid holder from supplying its identity to that observation. The claim
+> does not assert that every counted process was started by R: same-second reuse without
+> a recorded root unique id, non-atomic kernel observations, and unavailable member or
+> successor ordering may conservatively retain strangers. A ceiling bounds the observed
+> holder; an intervening holder can leave older strangers below that ceiling. Member pid
+> reuse between the separate metadata and responsibility calls can still prevent a
+> consistent capture, as C-5.5 now states. A child whose root dies before its member
+> read, a descendant started with responsibility disclaimed that also escapes the other
+> sources, and an observation without a capturable identity remain C-5.5 limits. Start
+> identities retain C-5.3's second precision.
+
+Baseline on unchanged `85a7b384f906` production code: **11 failed, 5 passed, 28
+deselected in 22.94 s**. The unit file contributed six expected failures: Inputs A/B,
+known-id mid-scan replacement, both member-reuse variants and the new kernel-birth
+field. The five just-observed daemon paths failed because K was discarded; all five
+independently pre-persisted no-signal paths passed. The prepared production fix was
+applied only after this run completed. The first full unit hold returned **207 passed, 1
+failed in 120.94 s**. The only failure was the pre-existing per-candidate read-count
+assertion, which needed the new final root-holder read. The new races file passed all 25
+cases. Tests-first follow-up `1209b0f60` corrects that assertion, adds stale-row and
+overlapping-identity regressions, varies the mid-scan change after any number of
+real-child reads, and checks a later-listed stranger. The focused red run against
+`a447cf1f5` returned **7 failed, 2 passed, 25 deselected in 3.12 s**. Four failures
+reproduce the stale zombie or missing-start row, one the newer responsibility seed
+masked by old ownership, and two a new responsibility birth discarded because an older
+owned birth was recycled. The two controls retain a live owned birth and correctly
+exclude a pid when both recorded births have been recycled.
+
+Refinement `7a45dc285` preserves the live state and birth already read from the kernel,
+omits contradictory snapshot shapes, and retains an identity even when its snapshot row
+lacks a start (with the existing unverifiable diagnostic). `_contain` passes conflicting
+recorded births as census alternatives; a pid is pruned only after all its recorded
+births are proven different. Recycle explanations include `also_recorded` when needed. A
+new responsibility member is saved even when that pass excluded an older owned birth at
+the same pid. None of these alternatives modifies signal ownership. All five no-signal
+paths now cover both an empty ownership map and an older owned incarnation.
+
+Final unit validation: **217 passed in 54.25 s**, including all 34 cases in
+`test_census_responsibility_races.py`. The fake-daemon group returned **29 passed, 4
+skipped in 6.52 s**. All 20 no-signal cases passed, including the older-owned-birth
+variants, as did the separate stale-group-authority regression. The four real-escaper
+cases skipped because boot identity inspection is unavailable in this sandbox. State and
+module-name checks returned **38 passed in 34.32 s** (37 state contract cases and one
+module-name case). Positive validation totals **284 passed, 4 skipped**, with no
+failures or errors. Both mutations completed in the foreground runner under separate
+shared-lock holds, with the required failures and no unexpected errors. All holds were
+started before the conservative 13:42 UTC cutoff. The default uv cache rejected writes
+with EPERM, so the authorized fallback cache is inside that scratch directory. The test
+environment is CPython 3.14.7 with the GIL enabled. Every pytest uses its own foreground
+`lockf -k` hold, without a lock timeout, one worker, `env -u SUBFLEET_RETENTION_DORMANT
+-u PYTHONPATH`, and scratch Hypothesis storage. New timing properties use the bounded ci
+profile (40 examples).
+
+Process inspection probe: `/bin/ps -p <this task's own Python pid> -o lstart=` was
+denied with EPERM. Real process tests require the hub; no live daemon, live store,
+unrelated process or caller checkout was accessed for mutation.
+
+Shared Git index writes were denied with EPERM. Commits therefore use workspace-local
+`.git-local` on `fix/census-responsibility-p3`; the original `.git` pointer and shared
+index are unchanged. Inspect with `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git
+log`. No push or Git remote operation; no sub-agents.
+
+Final positive validation, by file:
+
+| File under `tests/` | Passed | Skipped | Status |
+|---|---:|---:|---|
+| fake/test_census_escapers_daemon.py | 0 | 4 | Inspection denied |
+| fake/test_census_recycled_pid_daemon.py | 29 | 0 | Passed |
+| fake/test_state_contract.py | 37 | 0 | Passed |
+| unit/test_census_identity_uncertainty.py | 8 | 0 | Passed |
+| unit/test_census_procargs.py | 52 | 0 | Passed |
+| unit/test_census_recycled_pid.py | 25 | 0 | Passed |
+| unit/test_census_responsibility_failures.py | 20 | 0 | Passed |
+| unit/test_census_responsibility_identity.py | 17 | 0 | Passed |
+| unit/test_census_responsibility_races.py | 34 | 0 | Passed |
+| unit/test_census_survivors_review.py | 14 | 0 | Passed |
+| unit/test_procs.py | 47 | 0 | Passed |
+| unit/test_test_module_names.py | 1 | 0 | Passed |
+| process/test_census_responsibility_process.py | 0 | 0 | Not run: inspection denied |
+| process/test_census_raw_markers_process.py | 0 | 0 | Not run: inspection denied |
+| process/test_guardian_process.py | 0 | 0 | Not run: inspection denied |
+
+Mutation (a), compiled in memory before pytest import: restoring the blanket clear
+returned **2 failed, 32 deselected in 17.02 s**. Inputs A and B both failed at the
+first-pass assertion that K remains a responsibility member. Mutation (b), omitting the
+after-scan holder read, returned **3 failed, 31 deselected in 6.46 s**: the known-id
+mid-scan input and both exact S=42/100, C=60/101 late-successor timings. All failed
+because stranger 60 re-entered the responsibility source. Both mutations were applied in
+memory only; the production file remained unchanged.
+
+The required deciding unit, fake, state-contract and module-name groups are complete.
+The three process files and four skipped real-escaper cases need the hub's
+inspection-enabled host. The rest of the repository suite and Python 3.12 were not run.
+No deep Hypothesis profile was used.
+
+Delivery bundle: `.git-local/census-responsibility-p3-r4.bundle`, requiring base
+`85a7b384f906`. All commits are on the assigned local branch and carry the requested
+trailer; only named source, test, contract and report files were staged. No logs, JSON
+evidence or bundles were staged.
+Cleanup: removed task scratch (including the uv cache, pytest temporary
+stores, XML reports and mutation runners), the task-created virtualenv and
+bytecode caches with Python `shutil`. No `.hypothesis` directory, pytest
+wrapper or task-owned test process remains. Git whitespace checks passed.
