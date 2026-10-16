@@ -6406,9 +6406,12 @@ class Daemon:
                             for_good = (None if decision.chosen_lane or rotation
                                         else scheduler.refused_for_good(self.policy, decision, decision_job,
                                                                         pin_view()["lanes"]))
-                            if for_good and decision_job.get("capacity_steer"):
+                            if (not decision.chosen_lane and not rotation
+                                    and decision_job.get("capacity_steer")
+                                    and (not decision.evaluations or for_good)):
                                 # C-6.9, C-9.5: a steer ends, so standing refusal must
                                 # cover the whole chain, as while the job's clock runs.
+                                # A fully steered chain has no refusal evaluations.
                                 for_good = unadmittable_now()[0]
                             if not for_good:
                                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
@@ -6737,7 +6740,8 @@ class Daemon:
                 # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
                 moved_for_good = None if rotation else scheduler.refused_for_good(
                     self.policy, decision, decision_job, pin_view()["lanes"])
-                if moved_for_good and decision_job.get("capacity_steer"):
+                if (not rotation and decision_job.get("capacity_steer")
+                        and (not decision.evaluations or moved_for_good)):
                     moved_for_good = unadmittable_now()[0]      # C-6.9, C-9.5: whole chain, as above
                 if not moved_for_good:
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
