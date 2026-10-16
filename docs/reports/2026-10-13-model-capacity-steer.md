@@ -388,52 +388,121 @@ staged. Nothing was pushed and no PR comment was sent.
 
 ## PR #207 fix round 5
 
-Round start: `c34c219bf852`. Review `review-r4c.md` was read in full, along
-with its executed candidate diff. Work is confined to the assigned workspace.
-The caller checkout and shared Git metadata are read-only; commits use
-workspace-local `.git-local` metadata on `fix/model-capacity-steer`, leaving the
-original `.git` pointer unchanged. No release merge, push or remote operation
-is part of this round.
+Review r4c's P2 is fixed at both admission sites: a live steered waiter is
+judged for standing refusal on its whole original chain, after a due look or
+exhausted route retries. The full review and candidate diff were read; the
+candidate's `unadmittable_now()` check is used only when a live-steer decision
+reports standing refusals. Other jobs keep their existing rule. C-6.9 and its
+version-3 history now state this explicitly and cite #207 review r4c/C-9.5.
 
-Status: deterministic regressions committed as `727720549`; all four failed
-at the intended FIFO assertion against unchanged `c34c219bf852` production
-source (4 failed, 38 deselected, 33.58 s on Python 3.12.14). The first lock
-wait plus execution took 1,326.12 s. Four frozen-clock cases make the older
-steered review due on pass 3: a later Opus pin or unpinned review, each after a
-settled due look or exhausted route retries. Every case verifies that only
-Opus was walked before checking FIFO.
+### Tests first and wall-clock repetition
 
-The two-site fix and C-6.9 clarification are committed as `b7738f35e`. The
-whole-chain check is used only when a decision with a live steer reports
-standing refusals. A job without a live steer retains its existing rule.
-Commit `4142cd96f` adds a second bounded stateful CI invocation with seed
-`314159`, once per interpreter, retaining the default search. The capacity
-group passed **72 cases in 143.86 s**: `test_capacity_steer_daemon.py` 42,
-`test_capacity_steer_route.py` 22, and `test_capacity_steer_mutations.py` 8.
-All four new frozen-clock regressions pass.
+Round start: `c34c219bf852`. Test-only commit `727720549` freezes admission
+clocks and makes the older waiter due exactly on pass 3. Both Opus-pin and
+review variants exercise both fix sites, checking that the decision walked
+only Opus. **All four failed at the intended FIFO assertion on unchanged
+baseline source** (4 failed, 38 deselected, 33.58 s), and pass with the fix.
 
-The committed wall-clock regression was called through a temporary parametrized
-pytest wrapper with fresh fixtures: **100/100 unpinned-review cases and 100/100
-Opus-pin cases passed**, 200 cases in one pytest, **119.51 s**. No clock was
-frozen in this run. The full invocation, including its lock queue, took
-2,270.89 s. The wrapper is kept only in ignored `.git-local/r5_repeat.py`.
+The committed wall-clock regression was called through an ignored temporary
+pytest wrapper with fresh fixtures: **100/100 unpinned-review cases and
+100/100 Opus-pin cases passed**, 200 cases in one pytest, **119.51 s**.
+This run used the wall clock. The wrapper remains in `.git-local/r5_repeat.py`
+for inspection; it and its evidence were never staged.
 
-The default CI stateful run passed **11 cases in 102.25 s**. A passive
-`finish` audit counts only calls from `attempt_ends`, excluding fair-drain
-successes: 1 model-capacity, 2 transient, 2 ok, 0 limited; one capacity steer
-was recorded. This matches review r4c's baseline coverage. The audit changes
-no generated actions or outcomes and is kept only in ignored metadata. Both
-machines retain 40 examples and at most 30 steps, with no example database.
-Seed `314159` passed **11 cases in 162.07 s**: the random `attempt_ends`
-rule produced **15 model-capacity, 5 transient, 12 ok and 0 limited** finishes.
-It recorded no eligible steers; the default run recorded one. These outcome
-counts reproduce the review's seed evidence. Both full-file invocations also
-passed the existing explicit quota and model-capacity fixture cases. No
-additional outcome coverage is claimed for the random seed.
+### P3: bounded default and seeded CI
 
-CI keeps the default search and adds this exact explicit-seed command once on
-the first shard of each Python version (3.12 and 3.14). Its measured extra
-pytest runtime is 162.07 s, within the unchanged 45-minute job budget, with
-40 examples and 30 steps per machine. No deep profile or size override was
-used. The admission/hold-back group is queued; the adapter/completion and
-state/module-name groups remain unrun.
+Both full-file stateful runs passed 11 cases, retaining both state machines
+and all nine explicit regressions. Each machine keeps 40 examples and at most
+30 steps, no database, and no size or shrinking overrides. A passive `finish`
+audit counts only calls from `attempt_ends`, excluding fair-drain successes:
+
+| Outcome | Default `ci` | Seed `314159` |
+| --- | ---: | ---: |
+| Model-capacity | 1 | 15 |
+| Transient | 2 | 5 |
+| Ok | 2 | 12 |
+| Limited | 0 | 0 |
+| Eligible capacity steers recorded | 1 | 0 |
+
+These reproduce the review's evidence. The brief explicitly permits this seed;
+random quota/eligible-steer coverage did not increase. Both runs also passed
+the existing explicit quota and model-capacity fixtures. The passive audit
+changes no actions or outcomes and is retained only in ignored metadata.
+
+CI retains the default search and adds this explicit-seed invocation once on
+the first shard of each interpreter (3.12 and 3.14). Its measured additional
+pytest runtime is **162.07 s**, within the unchanged 45-minute job
+budget. The local default run took **102.25 s**. No deep profile was used.
+
+### Validation
+
+**749 passing executions, 2 skipped and 1 expected failure**, including the
+200 wall-clock repetitions and both stateful runs; **538 distinct passing
+cases**. No requested file remains unrun.
+
+| Requested file | Passed | Other |
+| --- | ---: | --- |
+| `tests/fake/test_capacity_steer_daemon.py` | 42 | — |
+| `tests/unit/test_capacity_steer_route.py` | 22 | — |
+| `tests/unit/test_capacity_steer_mutations.py` | 8 | — |
+| `tests/fake/test_admission_stateful.py` | 11 default + 11 seeded | — |
+| `tests/fake/test_admission_priority.py` | 32 | — |
+| `tests/fake/test_admission_properties.py` | 27 | 1 xfail |
+| `tests/fake/test_admission_held_waiters.py` | 1 | — |
+| `tests/unit/test_held_waiter_holdback.py` | 6 | — |
+| `tests/unit/test_operator_hold_closures.py` | 15 | — |
+| `tests/unit/test_codex_adapter.py` | 172 | — |
+| `tests/unit/test_codex_turn_completed.py` | 41 | — |
+| `tests/fake/test_codex_turn_completed_fake.py` | 109 | — |
+| `tests/fake/test_routing_end_to_end.py` | 14 | 2 skipped |
+| `tests/fake/test_state_contract.py` | 37 | — |
+| `tests/unit/test_test_module_names.py` | 1 | — |
+
+The two routing skips require permitted sysctl/ps inspection: macOS boot
+identity is unavailable in this sandbox. The existing C-6.10 unchanged-verdict
+case is the expected failure. The completion units emit one pre-existing
+`parametrize(zip(...))` deprecation warning; no unrelated change was made.
+
+Each row below was one foreground pytest process under its own shared
+`lockf -k` hold, with no queue timeout and one worker. Every hold stayed below
+20 minutes. Runtime excludes the lock queue.
+
+| Hold | Pytest seconds |
+| --- | ---: |
+| Capacity steering, route and mutation units | 143.86 |
+| Wall clock, 100 repetitions per variant | 119.51 |
+| Stateful, default `ci` | 102.25 |
+| Stateful, `ci`, seed `314159` | 162.07 |
+| Admission, priority and hold-back | 144.06 |
+| Adapters, completion and routing | 41.73 |
+| State contract and module names | 17.29 |
+
+Runs used frozen dependencies: Python 3.12.14, pytest 9.1.1, Hypothesis 6.168.1.
+The full suite, Python 3.14, additional E2E/process suites and a standalone
+mutation campaign were not run. All requested files were run. Each TMPDIR,
+Hypothesis store and fallback uv cache was removed with `shutil.rmtree`; no
+`.hypothesis` directory or foreground runner remains. Syntax and whitespace
+checks pass.
+
+### Commits and delivery
+
+- `727720549`: deterministic regressions first.
+- `b7738f35e`: scoped two-site fix and C-6.9 clarification.
+- `4142cd96f`: retain the default CI search and add explicit seed `314159`.
+- `a9e0ab5ba`: baseline reproduction and implementation status report.
+- `d6c61c9a3`: passing capacity group and 100 wall-clock runs per variant.
+- `eb2852641`: default/seeded CI coverage and measured runtime.
+- This final documentation commit: complete per-file validation and delivery.
+
+The shared Git index is outside the writable roots, so commits use
+workspace-local `.git-local` metadata on `fix/model-capacity-steer`; the
+original `.git` pointer is unchanged. Inspect with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log c34c219bf852..HEAD`.
+The portable bundle is `.git-local/r207f5.bundle`, verified against round start
+`c34c219bf852`. Every commit has the requested
+`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer. Only named
+source, test, workflow and documentation files were staged; no logs, JSON
+evidence or bundles were staged. Work stayed inside the assigned workspace
+and task-owned temporary directories. No sub-agents, remote Git operations,
+push, release merge, live-store access or live-process changes were performed.
+The hub retains responsibility for the release merge.
