@@ -401,6 +401,8 @@ Commits before this final report commit (all carry the requested coauthor traile
 
 - `34844dc46` docs: finalize round-five fixes, per-file counts and cutoff status
 
+- `07df2803d` docs: verify scratch cleanup after restoring the read-only fixture
+
 ### Round-five per-file counts
 
 | File | Passed | Skipped | Xfailed | Failed/errors | Latest evidence / pending work |
@@ -808,3 +810,5 @@ Commits before this final report commit (all carry the requested coauthor traile
 | `tests/unit/test_weekly_rank_vs_base.py` | 26 | 0 | 0 | 0 | full-01 |
 
 Cleanup verified: task scratch, uv cache and Hypothesis storage were removed. The first pass left a deliberately read-only test-fixture directory; its owner write permission was restored inside task scratch before the final removal. No workspace `.hypothesis` remains. All owned pytest and queued test runners exited; the final queued invocation never started pytest. Nothing was pushed. Commits remain in workspace-local `.git-local` metadata because the shared Git index is read-only.
+
+The final comparison with the base removed one extra blank line at the end of the new policy-resolution test file. Its code is unchanged; no additional pytest invocation was started after the cutoff. The complete diff passes the whitespace check.

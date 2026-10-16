@@ -54,4 +54,3 @@ def test_model_reason_resolves_policy_permissions(policy, source, context, expec
     assert scheduler.model_reason(setup, 0, "opus", [], {}) == (
         "opus: no candidate lanes after exclusions" if expected == "workspace-write" else
         "needs a shell: opus runs read-only jobs without one")
-
