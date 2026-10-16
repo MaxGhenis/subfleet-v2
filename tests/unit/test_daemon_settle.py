@@ -299,7 +299,7 @@ def shared(table: ProcessTable | None, reads: list | None = None):
 
 def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_table(daemon, monkeypatch):
     """C-5.12, C-5.6 the shared table answers "alive" and lists the group; nothing else is asked until the interval ends."""
-    observed = ["2026-10-16T04:00:00.000Z"]
+    observed = [daemon_module.utcnow_ms()]
     monkeypatch.setattr(daemon_module, "utcnow_ms", lambda: observed[0])
     reads = []
     daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S")),
@@ -314,7 +314,7 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     assert owned == {"4242": {"pid": 4242, "boot_id": "boot", "proc_start": STARTED},
                      "4243": {"pid": 4243, "boot_id": "boot", "proc_start": STARTED}}
     assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
-    observed[0] = "2026-10-16T04:00:01.000Z"
+    observed[0] = daemon_module._later(observed[0], 1)
     daemon._inspect_next[ATTEMPT] = 0                     # the interval ends
     daemon._process_attempt(ATTEMPT)
     assert reads == [1, 1]
