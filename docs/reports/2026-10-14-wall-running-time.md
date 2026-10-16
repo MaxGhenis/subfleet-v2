@@ -568,7 +568,10 @@ requested co-author trailer; no history is rewritten and nothing is pushed.
   holds nobody back (C-11.8). The oracle now applies that rule and validates the
   hold's required evidence. A deterministic replay retains CI's minimized trace.
   This changes the old oracle's assumption that an unrecognized hold competes;
-  it does not relax FIFO for a job that can use a lane.
+  it does not relax FIFO for a job that can use a lane. The minimized CI trace logs
+  `ok` twice, but its plain fake Codex stream has no `turn.completed`, so the
+  existing acceptance rule downgrades those success claims to transient. The
+  dedicated regression requests two transient outcomes explicitly.
 - The held-start salvage fixture also exhausted its only lane after two
   transients. The new permanent-refusal check correctly runs before workspace
   preparation, so no a3 baseline was written. That fixture now supplies a spare
@@ -605,3 +608,13 @@ The quarantine method and its failing test have identical syntax trees at
 head files have completed with 230 passed and 16 failed. Both daemon-settle
 failures reproduced, including the duplicate ownership event (the read-count
 assertions pass). No fixed-source passing result is claimed at this checkpoint.
+
+Checkpoint, 06:52 UTC: `tests/unit/test_conversation_steer_service.py` now
+completes the comparison: **45 passed at 9fad7c4fe**, **43 passed / 2 failed
+at f07751fc1**, and **45 passed with round-4 fixtures**. The job id parsed from
+`host/a1` is correct; the missing job/attempt rows caused the failures. The
+original stop and concurrency assertions remain intact. The production
+ownership-event fix is next, via the daemon-settle base/fixed pair. Later pairs
+prioritize the protocol, admission, salvage, legacy and census causes before
+returning to remaining title/outbox/steer files. Broad requested regressions
+remain queued after failing-file verification; extra round-3 probes are last.
