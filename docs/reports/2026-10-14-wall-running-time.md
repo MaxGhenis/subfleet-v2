@@ -528,9 +528,9 @@ checkpoint as the holds complete.
 
 ## Round 4 (2026-10-16): CI at f07751fc1
 
-Status at 2026-10-16 07:48 UTC: fixed-source pytest invocations completed for
-**2 of 54 selected files: 88 passed**.
-**52 selected files remain unrun on the fixed source.** This is a
+Status at 2026-10-16 08:26 UTC: fixed-source pytest invocations completed for
+**3 of 54 selected files: 97 passed**.
+**51 selected files remain unrun on the fixed source.** This is a
 local validation result, not a full CI run. The first clock observation was
 04:51 UTC; the workspace job stamp is 04:46 UTC, so the conservative cutoff for
 starting further runs is 09:16 UTC. Lock waits count against that wall.
@@ -579,9 +579,9 @@ CI evidence rather than a local differential run.
 
 ### Validation
 
-- `9fad7c4fe`: 2 completed files, 88 passed.
+- `9fad7c4fe`: 3 completed files, 97 passed.
 - `f07751fc1`: 8 locally completed files, 249 passed, 17 failed.
-- Fixed source: 2 completed files, 88 passed.
+- Fixed source: 3 completed files, 97 passed.
 
 All local runs use Python 3.14.7 free-threading. Python 3.12 and CI's other
 Python 3.14 build were not rerun. The head-side legacy-hold, stateful-admission
@@ -635,7 +635,7 @@ not run. No logs, JSON evidence or bundles are staged.
 | `tests/frontend/test_core_live_failure.py` | — | — | unrun |
 | `tests/frontend/test_core_markdown.py` | — | — | unrun |
 | `tests/frontend/test_core_outbox.py` | unrun | 10 passed, 3 failed | unrun |
-| `tests/frontend/test_core_protocol.py` | unrun | 8 passed, 1 failed | unrun |
+| `tests/frontend/test_core_protocol.py` | 9 passed | 8 passed, 1 failed | 9 passed |
 | `tests/frontend/test_core_question_card.py` | — | — | unrun |
 | `tests/frontend/test_core_search.py` | — | — | unrun |
 | `tests/frontend/test_core_steer.py` | unrun | 41 passed, 2 failed | unrun |
@@ -683,6 +683,7 @@ are below; the containing report commit follows them.
 | `671953e02` | docs: record initial CI reproductions and the conservative test cutoff |
 | `917d4cd54` | docs: prioritize base and fixed-source runs after prolonged lock waits |
 | `5c8f7cacd` | docs: record the first passing base-head-fixed cancellation comparison |
+| `b796695c0` | docs: record verified ownership fix and full per-file validation status |
 
 Delivery: `.git-local/round4.bundle`, prerequisite `f07751fc179f`, advertising
 `refs/heads/fix/wall-counts-running-time-217`. Refresh and verify it against the
