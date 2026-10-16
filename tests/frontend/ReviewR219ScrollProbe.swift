@@ -66,6 +66,43 @@ func scrollViews(_ view: NSView) -> [NSScrollView] {
             "bottom_inset": Double(scroll.contentInsets.bottom)]
 }
 
+final class OpeningPinDocument: NSView {
+    override var isFlipped: Bool { true }
+}
+
+@MainActor func openingPinScheduleReplay() -> [String: Double] {
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 400))
+    let document = OpeningPinDocument(frame: NSRect(x: 0, y: 0, width: 480, height: 1600))
+    scroll.documentView = document
+    let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = scroll
+    let pin = OpeningPinView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+    document.addSubview(pin)
+    pin.attach()
+    defer { pin.detach(); window.close() }
+    func settle() {
+        for _ in 0..<6 { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+    settle()
+    let clip = scroll.contentView
+    let opening = document.frame.height - clip.bounds.maxY
+    document.setFrameSize(NSSize(width: 480, height: 1800))
+    NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: document)
+    // SwiftUI can queue its bottom-anchor scroll after the height observer's work.
+    DispatchQueue.main.async {
+        clip.scroll(to: NSPoint(x: 0, y: document.frame.height - clip.bounds.height - 12))
+        scroll.reflectScrolledClipView(clip)
+    }
+    settle()
+    let afterLayout = document.frame.height - clip.bounds.maxY
+    // A Review jump changes only the offset, without a person's scroll gesture.
+    clip.scroll(to: NSPoint(x: 0, y: 250))
+    scroll.reflectScrolledClipView(clip)
+    settle()
+    return ["opening_from_end": opening, "after_layout_from_end": afterLayout, "review_offset": clip.bounds.minY]
+}
+
 @main
 struct ReviewR219ScrollProbe {
     @MainActor static func main() throws {
@@ -127,7 +164,7 @@ struct ReviewR219ScrollProbe {
             out.append(["name": name, "opening": samples, "late_page": latePage, "settling": settling,
                         "after_person": afterPerson])
         }
-        let result: [String: Any] = ["runs": out, "visible_windows": NSApp.windows.filter(\.isVisible).count,
+        let result: [String: Any] = ["pin_schedule": openingPinScheduleReplay(), "runs": out, "visible_windows": NSApp.windows.filter(\.isVisible).count,
                                      "os": ProcessInfo.processInfo.operatingSystemVersionString]
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
         withExtendedLifetime(windows) {}

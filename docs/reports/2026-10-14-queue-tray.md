@@ -542,3 +542,10 @@ The required two-point end tolerance is retained. The probe now records
 document bounds/frame origins, clip document end and content inset alongside
 the existing samples, and retains synthetic JSON only in temporary evidence.
 This diagnostic test step precedes an application fix.
+
+The offscreen probe also includes a deterministic AppKit replay: it posts a
+document-height change and queues a bottom-anchor scroll 12 points above the
+end after the observer's work. `test_r8b_an_opening_pin_runs_after_queued_scroll_layout_work`
+requires the pin to finish last; `test_r8c_an_offset_only_review_jump_keeps_its_position`
+requires a subsequent Review-like offset change to stay at 250 points. Both
+regressions are committed before changing `ConversationOpeningPin.swift`.

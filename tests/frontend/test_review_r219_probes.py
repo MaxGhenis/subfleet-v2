@@ -472,3 +472,13 @@ def test_r8_opening_stays_at_the_end_after_late_measurement(opening_scroll, path
     assert abs(run["late_page"][-1]["from_end"]) <= 2, run["late_page"]
     assert abs(run["settling"][-1]["from_end"]) <= 2, run["settling"][-1]
     assert run["after_person"][-1]["from_end"] > 100, run["after_person"]
+
+
+def test_r8b_an_opening_pin_runs_after_queued_scroll_layout_work(opening_scroll):
+    replay = opening_scroll["pin_schedule"]
+    assert abs(replay["opening_from_end"]) <= 2, replay
+    assert abs(replay["after_layout_from_end"]) <= 2, replay
+
+
+def test_r8c_an_offset_only_review_jump_keeps_its_position(opening_scroll):
+    assert abs(opening_scroll["pin_schedule"]["review_offset"] - 250) <= 2, opening_scroll["pin_schedule"]
