@@ -674,9 +674,9 @@ will supersede this checkpoint. Fifteen other frontend files remain unrun.
 
 <!-- validation3-latest -->
 
-#### Latest continuation checkpoint
+#### Final continuation results
 
-Generated 2026-10-16T07:23:27.200145+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
+Generated 2026-10-16T07:26:07.750073+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
 
 | File | Passed | Failed | Setup errors | Skipped | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -685,36 +685,36 @@ Generated 2026-10-16T07:23:27.200145+00:00. These per-file results supersede ear
 | `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_approval_reach.py` | 41 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_client.py` | 18 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_diff.py` | 7 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_draft.py` | 7 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_idle.py` | 1 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_markdown.py` | 42 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | prior pass; continuation recheck pending |
+| `tests/frontend/test_core_protocol.py` | 9 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_question_card.py` | 10 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | retained prior pass; withdrawal branches unchanged |
 | `tests/frontend/test_core_queue_tray.py` | 45 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_search.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_suggestions.py` | 7 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_suggestions_r1b.py` | 4 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_text_scale.py` | 7 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_core_titles.py` | 1 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
-| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_pr124_fixes_ui.py` | 17 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_pr124_recovery_properties.py` | 1 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 19 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | retained prior pass; unaffected row-only view |
 | `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | unrun |
-| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | active core hold; result pending |
+| `tests/frontend/test_review_pr127_timeline.py` | 4 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_review_r219_probes.py` | 23 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | unrun |
 | `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 0 | unrun |
@@ -769,3 +769,33 @@ Generated 2026-10-16T07:23:27.200145+00:00. These per-file results supersede ear
 All four opening-view cases passed after the fix with SDK 26.5 (170.58 s pytest). Together with the 19 core review probes, this is 23/23. Supplementary replay: end distance 0, offset-only Review 250. Earlier compiler setup errors are superseded by this successful run.
 
 <!-- /validation3-latest -->
+
+#### Final closeout
+
+The final 16-file frontend hold passed **174/174** in **929.35 seconds** of
+pytest time, **943.28 seconds** holding the lock (15 min 43 s). Per-file counts
+are in the authoritative table above. No assertion or source change was needed.
+The job therefore records **820 fresh passes across 33 files**, plus the
+retained **75 engine** and **15 tray-view** passes: **910 passes across 35 of
+the 50 required files**, with no unresolved assertion failures or setup errors.
+
+**Two of twelve mutations are killed**. The other ten have no actual pytest
+execution; compiling their isolated probes is preparation only. Fifteen
+frontend files remain unrun and are individually listed above. The pending
+mutation commands were stopped before acquisition at the cutoff. No new hold
+started after 07:23 UTC. Every completed hold was under 20 minutes, with one
+pytest process at a time and no workers. No command is left running.
+
+The two real defects fixed here are nested delivered-steer ordering and
+opening-pin scheduling. The two inherited old-design expectation corrections
+are explicitly verified above, test by test; no additional expectation was
+relaxed. The final release build passes with SDK 26.5. The build script's
+Python cleanup remains solely the behavior-preserving sandbox workaround.
+
+Commits remain on `feat/queue-tray-217` in workspace-local `.git-local` metadata
+because the shared index is read-only. The incremental transfer bundle is
+`docs/reports/2026-10-14-queue-tray-validation3.bundle`, based on `8057d4f07`.
+No logs, JSON evidence or bundle is staged. Nothing is pushed, no history is
+rewritten, and the caller's checkout and live application state are untouched.
+Temporary uv/Hypothesis/compiler scratch and isolated mutant source copies
+are removed with Python `shutil.rmtree`; no `.hypothesis` directory is retained.
