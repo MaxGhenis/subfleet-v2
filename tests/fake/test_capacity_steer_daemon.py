@@ -528,3 +528,155 @@ def test_r5_due_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, monkeyp
     assert "for_good" not in daemon._holds[older]
     assert daemon._holds[later]["reason"] == "behind-older-job"
     assert daemon._holds[later]["behind"] == older
+
+
+@pytest.fixture
+def r6_clock(fleet, monkeypatch):
+    """Fresh fixture readings precede a whole second just ahead of real time."""
+    from subfleet import actions, capacity, ids, policy, scheduler, store, timers
+
+    instant = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    for module in (daemon_module, scheduler, capacity, store, timers, policy, actions, ids):
+        monkeypatch.setattr(module, "datetime", Clock)
+    daemon, _ = fleet
+    for lane in daemon.store.list_lanes():
+        daemon.store.add_reading(Reading(lane.lane_id, "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
+
+    def advance(seconds):
+        nonlocal instant
+        instant += timedelta(seconds=seconds)
+
+    return advance
+
+
+@pytest.mark.parametrize("cap", [1, 2], ids=["one-slot", "two-slots"])
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+@pytest.mark.parametrize("due", [False, True], ids=["not-due", "due"])
+def test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled(
+        fleet, r6_clock, monkeypatch, cap, route_moves, due):
+    """C-6.9/C-11.8: even an empty due decision must release its kept slot."""
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = cap
+    older = submit(daemon, harness, task="build")
+    refuse(daemon, admit(daemon, older))
+    assert admit(daemon, older) is None
+    assert daemon.store.get_job(older)["next_check_at"] == after(1)
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    later = [submit(daemon, harness, pinned_model="opus", task=None) for _ in range(cap)]
+    if due:
+        r6_clock(1)
+    assert (daemon.store.get_job(older)["next_check_at"] == utcnow()) is due
+    assert daemon._capacity_steer(daemon.store.get_job(older), daemon.store.list_attempts(older))
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    daemon._admit()
+    assert len(checks) == ((daemon_module.ROUTE_TRIES if route_moves else 1) if due else 0)
+    assert all(not decision.evaluations and not decision.chain for decision in checks)
+    assert len(daemon.store.list_attempts(older)) == 1
+    assert all(len(daemon.store.list_attempts(job)) == 1 for job in later), daemon._holds
+    assert all(daemon.store.list_attempts(job)[0]["model_requested"] == OPUS for job in later)
+    if not (due and route_moves):
+        assert daemon._holds[older]["for_good"] == ["disabled"]
+
+
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+def test_r6_an_empty_steered_chain_keeps_fifo_until_a_temporary_closure_ends(
+        fleet, r6_clock, monkeypatch, route_moves):
+    """A short closure is capacity: retain the last slot and admit on reopening."""
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 1
+    older = submit(daemon, harness, task="build")
+    row = refuse(daemon, admit(daemon, older))
+    assert admit(daemon, older) is None
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, ASTRA, evidence(row)["capacity_steer"]["until"],
+                                         ClosureReason.PROVIDER_LIMIT,
+                                         ClockSource.REPORTED, "temporary test closure"))
+    later = submit(daemon, harness, pinned_model="opus", task=None)
+    r6_clock(1)
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(daemon, "_route_stands", check)
+        assert admit(daemon, later) is None, daemon._holds
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
+    assert all(not decision.evaluations for decision in checks)
+    assert "for_good" not in daemon._holds[older]
+    assert daemon._holds[later]["reason"] == "slot-kept"
+    assert daemon._holds[later]["kept_for"] == older
+    r6_clock(seconds(evidence(row)["capacity_steer"]["until"], utcnow()))
+    # Both the temporary closures and the steer have ended; refresh the sensor.
+    daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(86400),
+                                     ReadingLabel.PROVIDER, "fixture", utcnow()))
+    resumed = admit(daemon, older)
+    assert resumed is not None and resumed["model_requested"] == ASTRA
+    assert not daemon.store.list_attempts(later)
+
+
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+def test_r6_rotation_refusals_never_release_the_waiters_fifo_slot(
+        fleet, r6_clock, monkeypatch, route_moves):
+    """C-11.8/#153 P3-B: exclusions introduced by probe rotation are temporary."""
+    from subfleet import scheduler
+
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 1
+    older = submit(daemon, harness)
+    later = submit(daemon, harness, pinned_model="opus", task=None)
+    prepare, stands, checks = daemon._prepare_route, daemon._route_stands, []
+
+    def rotated(job, decision_job, exclusions):
+        result = prepare(job, decision_job, exclusions)
+        if job["job_id"] == older:
+            # Model the reservation losing every lane except those omitted by
+            # probe rotation; keep its basis for the normal reservation checks.
+            rotation = tuple(lane.lane_id for lane in daemon.store.list_lanes())
+            basis = {}
+            decision = daemon._route(decision_job, extra_exclusions=(*exclusions, *rotation), basis=basis)
+            basis["rotation"] = rotation
+            daemon._early_routes[job["job_id"]] = (decision, basis)
+        return result
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_prepare_route", rotated)
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    # Reach the standing-refusal guard: the earlier rotation-specific wait is
+    # independently covered by probe-turn tests. Neither guard may infer a
+    # permanent refusal from this partial decision.
+    monkeypatch.setattr(scheduler, "left_out_only", lambda *args: False)
+    assert admit(daemon, later) is None, daemon._holds
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
+    assert all(scheduler.refused_for_good(daemon.policy, decision, daemon.store.get_job(older)) == ["excluded"]
+               for decision in checks)
+    assert "for_good" not in daemon._holds[older]
+    assert daemon._holds[later]["reason"] == "behind-older-job"
+    assert daemon._holds[later]["behind"] == older

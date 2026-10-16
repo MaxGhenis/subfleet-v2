@@ -72,3 +72,17 @@ def test_only_a_named_selected_regression_counts_as_a_kill(runner, monkeypatch, 
     assert mutations.main() == (0 if failed else 1)
     assert f"{int(failed)} of 1 mutations killed" in capsys.readouterr().out
     assert mutations.SCHEDULER.read_text() == "original rule\n"
+
+
+@pytest.mark.parametrize("selection", ["test", "parameter"])
+def test_a_named_node_selection_counts_only_that_regression(runner, monkeypatch, capsys, selection):
+    node = mutations.FAKE + "::test_r6_empty_chain[one-slot]"
+    selected = node if selection == "parameter" else node.split("[")[0]
+    monkeypatch.setattr(mutations, "MUTATIONS", {
+        "named regression": ([(mutations.SCHEDULER, "original rule", "mutated rule")], (selected,)),
+    })
+    monkeypatch.setattr(mutations, "pytest", lambda _: subprocess.CompletedProcess(
+        [], 1, f"FAILED {node} - AssertionError\n1 failed", ""))
+    assert mutations.main() == 0
+    assert "1 of 1 mutations killed" in capsys.readouterr().out
+    assert mutations.SCHEDULER.read_text() == "original rule\n"
