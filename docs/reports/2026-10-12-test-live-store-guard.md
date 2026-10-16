@@ -1469,7 +1469,7 @@ in-process: once before the guard's hook (attempts) and once after it
 | 0 (earlier in this job) | round 9's regressions against the base source | 43 failed, 32 passed | 58.65 s |
 | 1 | round 9 and its mutations | 83 passed; 12 mutation cases failed on the output check above | 90.95 s |
 | 3 | every guard file, the guard properties, codex shim, soak tools, handler refusals, agent-secret credentials, fake state contract, test-module names | **1,214 passed** | 187.42 s |
-| 4 | retention, workspace and guard-trust files | pending: queued for the lock when this was committed | |
+| 4 | guard trust, the three fake workspace files, and retention (qos, worktrees, archive, then five more) | **192 passed, 0 failed**; the 19-minute cap stopped it inside `test_retention_archive.py` | 1,173.15 s |
 
 Hold 2 was a rerun of the mutation file alone. It was cancelled while it was
 still queued for the lock, and its file ran in hold 3 instead.
@@ -1495,14 +1495,33 @@ still queued for the lock, and its file ran in hold 3 instead.
 | unit/test_agent_secret_credentials.py | 7 |
 | fake/test_state_contract.py | 37 |
 | unit/test_test_module_names.py | 1 |
+| unit/test_guard_trust.py (hold 4) | 98 |
+| fake/test_workspace_transient.py (hold 4) | 24 |
+| fake/test_workspace_contract.py (hold 4) | 8 |
+| fake/test_workspace_enospc.py (hold 4) | 1 |
+| unit/test_retention_qos.py (hold 4) | 8 |
+| unit/test_retention_worktrees.py (hold 4) | 15 |
+| unit/test_retention_archive.py (hold 4, stopped by the cap) | 38 |
 
 In hold 3, the guard files' synthetic and real probes made most of the wrapper
 events. The codex shim, soak and guard properties files share that count, so it
 cannot single out ordinary tests: 802 attempts, 392 approved.
 
+Hold 4 ran only ordinary tests, and **every in-process wrapper launch was
+approved: `taskpolicy` 3,216 of 3,216 (retention) and `bash` 1 of 1**. So
+none of them searched a system directory before the recorder.
+
 ### Not covered
 
 - Python 3.14: not run in this round.
+- Hold 4 stopped at its cap, and the 4 h 30 m mark had passed, so no further
+  hold was started. Not run: the rest of `test_retention_archive.py` (38 of
+  its tests passed before the cap), `test_retention_regenerable.py`,
+  `test_retention_81_notes.py`, `test_retention_sweep_race.py`,
+  `test_retention_archive_properties.py` and
+  `test_retention_regenerable_properties.py`. Retention's Git, archive and
+  holder launches all go through `retention_qos.argv`, the path behind the
+  3,216 approved `taskpolicy` launches in hold 4.
 - The full suite, the e2e and frontend tests, and CI: not run. The branch is
   not pushed.
 - The scratch-environment site files that review round 9 ran (stop watchdog,
