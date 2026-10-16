@@ -14,11 +14,12 @@ import time
 from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from tests.fake_kernel import ScriptedMarkerKernel
 
 from subfleet import daemon as dm, procs, protocol
+from tests.fake.conftest import Harness
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.fake.test_review_pr131_probes import (BOOT, NEXT_BOOT, ORIGINAL_CENSUS, confirm_dead, ident,
                                                  quarantine as ro_quarantine, script_table)
@@ -277,20 +278,47 @@ WORLD = st.fixed_dictionaries({
 })
 
 
+@pytest.fixture
+def census_pair(state_daemon, tmp_path, monkeypatch):
+    """Independent alternatives: a census persists claims in its own store."""
+    automatic, automatic_harness = state_daemon
+    operator_root = tmp_path / "operator-state"
+    operator_root.mkdir()
+    operator_harness = Harness(operator_root)
+    operator = dm.Daemon(operator_root)
+    monkeypatch.setattr(operator, "_launch", automatic._launch)
+    try:
+        yield ((automatic, automatic_harness, ro_quarantine(automatic, automatic_harness)),
+               (operator, operator_harness, ro_quarantine(operator, operator_harness)))
+    finally:
+        operator.close()
+        operator_harness.check_notices()
+
+
+# The CI counterexample used identical PIDs in two attempts in one store.
+# The first census published PID 500's claim, changing the second's input.
+PARITY_REGRESSION = {
+    "rows": {300: (1, 301, "Ss", "old"), 100: (1, 300, "S", "old"),
+             301: (1, 300, "S", "new"), 500: (300, 500, "Ss", "old"),
+             200: (200, 300, "Z", "new")},
+    "markers": set(), "held": set(), "owned": {300}, "start": "published",
+    "exit": False, "db_child": False, "boot": BOOT, "table_fails": False,
+    "markers_fail": False,
+}
+
+
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@example(world={**PARITY_REGRESSION, "operator_first": False})
+@example(world={**PARITY_REGRESSION, "operator_first": True})
 @given(world=WORLD)
-def test_automatic_and_confirm_dead_take_the_same_census_and_decision(state_daemon, monkeypatch, world):
-    daemon, harness = state_daemon
-    clock = Clock(monkeypatch, daemon)
-    # Compare independent worlds without repeated admission/manifest writes.
-    # Crash durability has separate coverage; this fixture tests decisions.
-    daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
-    pair = getattr(daemon, "_review_census_pair", None)
-    if pair is None:
-        pair = [ro_quarantine(daemon, harness) for _ in range(2)]
-        daemon._review_census_pair = pair
+def test_automatic_and_confirm_dead_take_the_same_census_and_decision(census_pair, monkeypatch, world):
+    clock = Clock(monkeypatch, census_pair[0][0])
     attempts = []
-    for a in pair:
+    for daemon, harness, a in census_pair:
+        # Reuse admission setup, but never let one alternative publish foreign
+        # ownership claims into the other's world. Durability is tested elsewhere.
+        daemon.store.connection.execute("PRAGMA synchronous=NORMAL")
+        daemon.policy["quarantine_recheck_s"] = 10
         daemon.store.update_attempt(a["attempt_id"], state="running", child_pid=None,
                                     evidence_json=json.dumps({"owned_identities": {
                                         str(p): ident(p, "old") for p in world["owned"]}}),
@@ -313,29 +341,41 @@ def test_automatic_and_confirm_dead_take_the_same_census_and_decision(state_daem
             daemon.store.update_attempt(a["attempt_id"], child_pid=500)
         attempts.append(daemon.store.get_attempt(a["attempt_id"]))
     automatic, operator = attempts
-    # One process has one raw argument buffer. Repeating ps rows for the same
-    # PID would overwrite the first attempt's marker in the kernel adapter.
-    both = " ".join(f"SUBFLEET_ATTEMPT={a['attempt_id']}" for a in attempts)
-    text = "".join(f"{pid} w {both} SUBFLEET_ROOT={daemon.root}\n"
-                   for pid in sorted(world["markers"]))
-    script_table(monkeypatch, world["rows"], markers=text, boot=world["boot"],
-                 table_fails=world["table_fails"], markers_fail=world["markers_fail"])
-    monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, world["boot"], "old")
-                        if pid in world["rows"] and not world["rows"][pid][2].startswith("Z") else None)
-    first = daemon._contain(automatic).to_dict()
-    second = daemon._contain(operator).to_dict()
+
+    def install_world(daemon, a):
+        text = "".join(f"{pid} w SUBFLEET_ATTEMPT={a['attempt_id']} SUBFLEET_ROOT={daemon.root}\n"
+                       for pid in sorted(world["markers"]))
+        script_table(monkeypatch, world["rows"], markers=text, boot=world["boot"],
+                     table_fails=world["table_fails"], markers_fail=world["markers_fail"])
+        monkeypatch.setattr(procs, "identity", lambda pid: procs.ProcessIdentity(pid, world["boot"], "old")
+                            if pid in world["rows"] and not world["rows"][pid][2].startswith("Z") else None)
+
+    automatic_daemon, operator_daemon = (entry[0] for entry in census_pair)
+    install_world(automatic_daemon, automatic)
+    first = automatic_daemon._contain(automatic).to_dict()
+    install_world(operator_daemon, operator)
+    second = operator_daemon._contain(operator).to_dict()
     assert first == second
     clock.advance()
-    order = [(operator, True), (automatic, False)] if world["operator_first"] else [(automatic, False), (operator, True)]
-    for a, by_operator in order:
+    order = [1, 0] if world["operator_first"] else [0, 1]
+    for index in order:
+        daemon, a, by_operator = census_pair[index][0], attempts[index], bool(index)
+        install_world(daemon, a)
         if by_operator:
             daemon._resolve_quarantine(a, protocol.KillArgs(a["job_id"], confirm_dead=True))
         else:
             daemon._resolve_quarantine(a, None)      # what `_recheck_quarantines` calls per due attempt
-    (sa, la), (so, lo) = held(daemon, automatic), held(daemon, operator)
+    (sa, la), (so, lo) = held(automatic_daemon, automatic), held(operator_daemon, operator)
     assert (sa["state"], bool(la)) == (so["state"], bool(lo)), (world, first)
     if sa["state"] == "quarantined":
-        assert json.loads(sa["quarantine_reason"])["errors"] == json.loads(so["quarantine_reason"])["errors"]
+        assert json.loads(sa["quarantine_reason"]) == json.loads(so["quarantine_reason"])
+    else:
+        def release_census(daemon, a):
+            event = daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? AND kind IN "
+                                     "('quarantine.self_resolved','quarantine.confirmed_dead') "
+                                     "ORDER BY event_id DESC LIMIT 1", (a["attempt_id"],))
+            return json.loads(event["data_json"])["containment"]
+        assert release_census(automatic_daemon, automatic) == release_census(operator_daemon, operator)
 
 
 # --- Check 2: provider execution waits for publication, under a real hard kill ---
