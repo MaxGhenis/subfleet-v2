@@ -388,7 +388,7 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
     notice, = daemon.store.list_notices()
     # C-15.1: the header is the job's state and rc, not the attempt's `ok; rc=0`
     # (incident: 2026-09-24); the summary names the attempt's class and rc.
-    header, capability, summary, *kept = notice["text"].splitlines()
+    header, summary, *kept, capability = notice["text"].splitlines()
     assert capability == (
         "ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
         "temp files included, so pytest could not run")

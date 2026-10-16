@@ -74,7 +74,7 @@ def test_read_only_policy_reviews_carry_capability_without_editing_output(shell_
     waited = service.dispatch('wait', {'job_ids': [job], 'deadline_s': 0})
     assert waited['jobs'][0]['attempt']['publish_denied'] is True
     notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
-    header, capability_line, *_ = notice['text'].splitlines()
+    header, *_, capability_line = notice['text'].splitlines()
     assert header == (f"{job}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
                       f"out={output}")
     assert capability_line.startswith(f"ran read-only on {attempt['lane_id']} ({model})")

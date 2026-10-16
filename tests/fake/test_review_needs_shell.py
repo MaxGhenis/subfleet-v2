@@ -61,7 +61,7 @@ def test_hard_review_waits_for_codex_then_runs_with_shell(shell_state):
 @pytest.mark.parametrize('sandbox,override,expected', [
     ('read-only', False, False), ('workspace-write', None, True),
 ])
-def test_opus_attempt_and_second_notice_line_report_shell(shell_state, sandbox, override, expected):
+def test_opus_attempt_and_final_notice_line_report_shell(shell_state, sandbox, override, expected):
     service, harness = shell_state
     if sandbox == 'workspace-write':
         repository(service, harness)
@@ -83,7 +83,7 @@ def test_opus_attempt_and_second_notice_line_report_shell(shell_state, sandbox, 
     assert shown['attempts'][0]['capability'] == ('writable' if expected else 'none')
     text = f"ran {sandbox} on claude-10 (opus) with {'a shell' if expected else 'no shell'}"
     notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
-    header, capability, *_ = notice['text'].splitlines()
+    header, *_, capability = notice['text'].splitlines()
     assert header == (f"{job}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
                       f"out={harness.root / 'result.md'}")
     suffix = ' (writable)' if expected else ': it could not run any command'

@@ -49,7 +49,7 @@ def test_c9_2_c15_1_a_codex_job_cancelled_while_running_is_announced_cancelled(e
     assert not e2e.out.exists()
     assert not e2e.rows("SELECT 1 FROM events WHERE kind='job.exported' AND job_id=?", (identity,))
     notice, = e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))
-    header, capability, summary, kept = notice["text"].splitlines()
+    header, summary, kept, capability = notice["text"].splitlines()
     assert header == f"{identity}: cancelled; rc=130; deliverable=-; out=-"
     assert capability == (
         "ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
