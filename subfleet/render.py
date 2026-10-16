@@ -287,6 +287,7 @@ _PIN_REFUSALS = {
     "config-dir": "{lane} has its own config directory, where the conversation's transcript is not (C-26.2)",
     "owner-v1": "{lane} is owned by Subfleet v1",
     "disabled": "{lane} is disabled",
+    "auth-dead": "{lane}'s provider rejected its credential; a new login or re-enrolment is needed",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",

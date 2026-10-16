@@ -1015,10 +1015,10 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
                                                  setup["now"], far)
                     if permanent_only:
                         standing = [reason for reason in standing if not reason.startswith("closed:")]
-                        standing.extend(dict.fromkeys(
-                            f"closed:{row['scope']}:{row['until_at']}"
-                            for row in closures.get(lane["lane_id"], ()) if row.get("reason") == "auth-dead"
-                            and f"closed:{row['scope']}:{row['until_at']}" in reasons))
+                        if any(row.get("reason") == "auth-dead"
+                               and f"closed:{row['scope']}:{row['until_at']}" in reasons
+                               for row in closures.get(lane["lane_id"], ())):
+                            standing.append("auth-dead")
                     if not standing:
                         refusals = None
                         break
