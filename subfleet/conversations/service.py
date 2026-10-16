@@ -30,7 +30,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from ..launch_env import build_environment
+from ..launch_env import build_environment, helper_policy
 from .. import descriptors, protocol, refusals
 from ..adapters.base import AdapterError
 from ..contracts import Exit
@@ -1233,6 +1233,12 @@ class ConversationService:
                 return
 
     def _resume_start(self, sid: str, tries: int, began: float) -> None:
+        # D-ENV1: a file-pool thread inherits no helper scope, so the worktree's git
+        # must establish the daemon's policy here, as `_run_worker` does for the rest.
+        with helper_policy(getattr(self.daemon, "policy", {})):
+            self._resume_start_scoped(sid, tries, began)
+
+    def _resume_start_scoped(self, sid: str, tries: int, began: float) -> None:
         try:
             with self._suggestion_lock(sid):
                 row = self.suggestions.get(sid)
