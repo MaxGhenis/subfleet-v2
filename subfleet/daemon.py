@@ -8288,11 +8288,16 @@ class Daemon:
                 else:
                     frozen_stream = self._freeze_stream(adir, launch)
                     stream_receipt = read_freeze_receipt(adir) or {}
+                    if result is not None and stream_receipt.get("reset_finalization"):
+                        # An older daemon replaced the copy but did not bind
+                        # this legacy verdict to it before interruption.
+                        raise OSError(errno.ESTALE, "legacy verdict predates replacement stream copy")
             except Exception as exc:
                 # A missing/changed recorded copy fails capture; it never grants
                 # another read of the provider's live candidate. Only this
                 # validation failure may replace an earlier saved verdict.
                 result = None
+                frozen_stream, stream_receipt = None, {}
                 stream_failure = {"status": "unreadable", "error_type": type(exc).__name__,
                                   "error": refusals.scrubbed_words(exc)[:500]}
         if frozen_stream is not None:
