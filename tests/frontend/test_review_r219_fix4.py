@@ -121,8 +121,11 @@ def test_n5_n5b_n6_watch_discovers_repairs_before_publishing(core_probe, tmp_pat
         assert any(r["op"] == "message.status" and new["message_id"] in r["args"]["message_ids"] for r in server.requests)
         assert not any(r["op"] == "conversation.open" for r in server.requests)
         if repair == "leave":
-            note = next(r for r in layout["tray"] if r["id"] == new["message_id"])
-            assert note["origin"] == "unblock-note" and not note["can_withdraw"]
+            # First learned as the idle head: a notice, with no person bubble
+            # or withdrawal. The previously queued person stays in the tray.
+            note = next(i for i in layout["items"] if i["message_id"] == new["message_id"])
+            assert note["type"] == "notice" and "stopped turn was left" in note["text"]
+            assert result["queued_withdrawals"][new["message_id"]] == {"action": "none"}
         else:
             assert next(i for i in layout["items"] if i["message_id"] == new["message_id"])["type"] == "notice"
     finally:
