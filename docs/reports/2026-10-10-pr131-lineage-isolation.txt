@@ -1,0 +1,68 @@
+PR #131: isolate child-run lineage from parent turns
+Base: e331a3edd0665a1423098a54b109d1aa2ee443c0
+Branch: feat/quarantine-self-resolve, local metadata in .git-local
+
+Cause (line numbers at the base commit):
+- daemon.py:6354 passes the shared workdir to procs.containment without other
+  live attempts' ownership. procs.py:769-772 treats a cwd match as a root unless
+  its different attempt marker was visible and verified. Root-only markers
+  take the same path through procs.py:763-766.
+- procs.py:782 captures the process identity AND its group. daemon.py:6367-6373
+  persists these roots with attempt.lineage_recorded. procs.py:642-645 expands
+  the retained group on subsequent censuses. Adopting the parent's waiter
+  therefore adopts its guardian, provider and remaining group members too.
+- This is census discovery, not parent_job_id lookup or an upward ancestry
+  walk from the submitting process. Host event 20 recorded parent ownership
+  before child lineage events 25/26, but the census never consulted that record.
+  Stored evidence omits commands/environments, so it cannot distinguish the
+  first positive cwd read from a root-only marker read; both are reproduced.
+
+Fix:
+- Read other live attempts' launch receipts, owned identity histories and
+  provider identities. Require verified identities to anchor foreign groups.
+- Stop descendant walks at another attempt's boundary, protecting a nested
+  child's verified launch. Exclude foreign roots from every census source and
+  from process/provider ownership recording, including fresh cwd/marker reads.
+- Remove previously adopted foreign evidence. Carry transient exclusions for
+  group members not yet recorded by their owner's paced inspection.
+- An absent foreign leader cannot establish ownership of a potentially reused
+  group. Census roots still grant no signal authority; owned survivors hold
+  leases, and unknown inspection results remain conservative.
+
+Regression and verification:
+- Original production source at e331a3edd, with new regression: 3 failed,
+  1 passed. Hidden/root-only marker cases quarantined the child; the generated
+  lineage-disjointness property failed. Explicit foreign markers passed.
+- Initial fixed isolation/process/daemon-settle run: 161 passed; the generated
+  parent/child/sibling property covered all 36 cases, with no failing cases.
+- Final isolation/process/daemon-settle run: 163 passed in 3.34 seconds,
+  including all 36 generated isolation cases and the two cleanup regressions.
+- S1/S2/K1/L1/P1 process-world proof: 18 passed in 41.78 seconds. Seed 131131,
+  100 passing worlds, zero failures, 11 invalid draws, up to 25 steps per world;
+  SF_WORLD_POOL=1 (the suite also verifies prepared/fresh-world agreement).
+- Quarantine and PR131 review suites (all matching fake/unit suites, including
+  the isolation regression): 260 passed, 27 skipped, 1 expected failure in
+  39.42 seconds. The expected failure is the accepted invisible-writer residual.
+- Canonical identity suites: 161 passed, 3 skipped, 1 expected failure in
+  23.10 seconds. CPython 3.14's installed posixpath source supplies the
+  differential oracle under Python 3.12. The expected failure is the existing
+  P3-6 lack of a deadline for filesystem identity on a hung mount.
+- Final runs total 602 test passes, 30 skips, two existing expected failures.
+  Per-suite counts above include the isolation regression's intentional rerun.
+
+Every pytest process is serial under /usr/bin/lockf -k on
+/private/tmp/claude-501/subfleet-suites.lock. Each proof has a foreground wall
+limit below 25 minutes. TMPDIR is under getconf DARWIN_USER_TEMP_DIR.
+No network pushes, other-workspace writes, sub-agents, logs or JSON evidence
+commits. Temporary proof artifacts and the temporary UV cache were removed.
+
+Host-only verification: tests/e2e/test_review_r3_strand_timing_e2e.py (automatic
+and wake-me) is left for the hub because this sandbox denies real ps inspection.
+Sandbox skips: 20 detached-writer real-census cases and six round-three real
+process probes (one also requires redis-server). One migration test also skips
+because REVIEW_V6_STORE is unset. Real cwd/lsof checks ran, including the
+expected invisible-writer residual; fake process-world tests use no real ps.
+Three filesystem agreement cases skip because hdiutil cannot create the
+Case-sensitive HFS+, HFS+ and ExFAT disk images in this sandbox.
+Implementation head: e11fe2090 (three sequential commits, no history rewrites).
+The final report commit and HEAD are obtained with git --git-dir=.git-local log.

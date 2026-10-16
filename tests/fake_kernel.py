@@ -93,3 +93,32 @@ class FakeKernel:
     def scans(self) -> list[tuple]:
         """The reads only a deciding census makes: the listing and each buffer."""
         return [call for call in self.calls if call[0] in ("pids", "arguments", "responsible")]
+
+
+class ScriptedMarkerKernel(FakeKernel):
+    """Replay a test's scripted marker rows through the raw-buffer interface.
+
+    The callback is always a fixture reader, never the host reader. Listing and
+    late per-pid confirmation keep their original interleaving boundaries.
+    """
+
+    def __init__(self, read):
+        super().__init__(responsibility=False)
+        self.read = read
+        self.argument_reads = {}
+
+    def pids(self):
+        self.processes = from_ps_rows(self.read(["/bin/ps", "-axEww", "-o", "pid=,command="]))
+        self.argument_reads.clear()
+        return super().pids()
+
+    def arguments(self, pid, buffer=None):
+        self.argument_reads[pid] = self.argument_reads.get(pid, 0) + 1
+        if self.argument_reads[pid] == 1:
+            return super().arguments(pid, buffer)
+        command = self.read(["/bin/ps", "-p", str(pid), "-Eww", "-o", "command="], empty_ok=True)
+        # The scalar command has no pid column; generic fixture readers may
+        # still return a complete row.
+        if command.split()[:1] != [str(pid)]:
+            command = f"{pid} {command}"
+        return from_ps_rows(command).get(pid, procargs(["gone"]))

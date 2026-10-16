@@ -40,7 +40,7 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
@@ -77,6 +77,18 @@ CLOSE_WAIT_S = 5.0
 #: reader, only stop short of the oldest snapshot still open.
 WAL_SIZE_LIMIT = 64 * 1024 * 1024
 
+#: C-3.1: the files a writing `Store` applies, in this order, to create or
+#: complete the newest schema. The process-claim projection (C-5.4's claim
+#: authorization) depends on `attempts`, so it follows the main schema.
+#: `prune_decisions` derives the tables it expects from the same list.
+SCHEMA_FILES = ("store_schema.sql", "store_process_claims.sql")
+
+
+def schema_script() -> str:
+    """The newest schema as one script: every file in `SCHEMA_FILES`, in order."""
+    return "\n".join(Path(__file__).with_name(name).read_text() for name in SCHEMA_FILES)
+
+
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
 #: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
 #: newest version, so a fresh database never runs one.
@@ -95,6 +107,13 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
+    # C-5.7: restart-safe census pace and a turn's release notification outbox.
+    # Pre-merge #131 also wrote version 7, with quarantine rather than push
+    # columns. Repeat step 7's idempotent ADDs before recording version 8.
+    8: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
+             ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")) +
+       ("ALTER TABLE attempts ADD COLUMN quarantine_recheck_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE attempts ADD COLUMN quarantine_notice_pending INTEGER NOT NULL DEFAULT 0"),
 }
 
 
@@ -285,14 +304,38 @@ class Store:
                     self._migrate(version)          # records one schema_version row per step
                     self.connection.commit()
                     migrated_from, version = version, SCHEMA_VERSION
-                schema = Path(__file__).with_name("store_schema.sql").read_text()
-                self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
+                claims_present = self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempt_process_claims'").fetchone()
+                receipt_queue_present = self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='process_claim_receipt_pending'").fetchone()
+                if receipt_queue_present:
+                    # The receipt queue predates retry bookkeeping. Preserve
+                    # its work and re-enumerate legacy imports once on upgrade.
+                    columns = {row["name"] for row in self.connection.execute(
+                        "PRAGMA table_info(process_claim_receipt_pending)")}
+                    if "retry_at" not in columns:
+                        self.connection.execute("BEGIN IMMEDIATE")
+                        self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN failures INTEGER NOT NULL DEFAULT 0")
+                        self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN retry_at REAL NOT NULL DEFAULT 0")
+                        self.connection.execute("ALTER TABLE process_claim_receipt_pending ADD COLUMN last_error TEXT")
+                        self.connection.execute("ALTER TABLE process_claim_receipts ADD COLUMN enumerated INTEGER NOT NULL DEFAULT 0")
+                        self.connection.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
+                        self.connection.execute("DROP TRIGGER IF EXISTS process_claim_receipt_changed")
+                        self.connection.commit()
+                self.connection.executescript("BEGIN IMMEDIATE;\n" + schema_script())
                 if (migrated_from is not None and migrated_from < 3) or (version and version < 3):
                     columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
                     for name, declaration in (("isolated_review", "INTEGER NOT NULL DEFAULT 0"),
                                               ("review_root", "TEXT"), ("round_lease", "TEXT")):
                         if name not in columns:
                             self.connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
+                if not claims_present:
+                    # One upgrade backfill, never a read/inspection-time ledger scan.
+                    self.connection.execute("UPDATE attempts SET evidence_json=evidence_json")
+                if not receipt_queue_present:
+                    # Repair late legacy publications missed by the old startup
+                    # bit once, before the upgraded daemon accepts signal work.
+                    self.connection.execute("UPDATE process_claim_receipts SET seeded=0 WHERE singleton=1")
                 if not version:
                     self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utc_now()))
                 if not version or migrated_from is not None:
@@ -324,7 +367,9 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
-                    if column in present:
+                    if not present or column in present:
+                        # Older sparse stores acquire an absent table from the
+                        # current schema immediately after numbered migrations.
                         continue
                 self.connection.execute(statement)
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
@@ -336,13 +381,25 @@ class Store:
         return self.connection
 
     @contextmanager
+    def claim_dispatch(self):
+        """Serialize final signal authorization with every store mutation.
+
+        No SQL transaction spans process/file I/O. The daemon is the sole
+        writable owner; its transaction lock excludes other publisher threads.
+        """
+        with self._lock:
+            yield
+
+    @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
-                    data: Mapping[str, Any] | None = None) -> Iterator[sqlite3.Connection]:
+                    data: Mapping[str, Any] | None = None, audit: bool = True) -> Iterator[sqlite3.Connection]:
         """C-3.2: serialize a mutation and its audit event; nested calls use savepoints.
 
         C-3.7: never inside a `snapshot()` on the same thread (`SnapshotWriteError`);
-        another thread's transaction is how a commit reaches a snapshot's lifetime."""
+        another thread's transaction is how a commit reaches a snapshot's lifetime.
+        `audit=False` is only for retry-clock bookkeeping, never state transitions;
+        it still commits atomically and advances the store generation."""
         if self.read_only:
             raise sqlite3.OperationalError("store is read-only")
         if getattr(self._local, "in_snapshot", False):
@@ -358,7 +415,7 @@ class Store:
             before = self.connection.total_changes
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                if audit and self.connection.total_changes != before:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))

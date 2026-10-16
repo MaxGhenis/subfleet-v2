@@ -1,0 +1,21 @@
+Final S2 audit: complete member identity with incomplete leader table identity
+
+Reproduction: leader-capture-reproduction.txt, 2 failed and 4 passed.
+The independent oracle rejected a child that production validly owned using its
+full original-group table identity and fresh scalar confirmation of the original
+leader. The child handles SIGTERM and setsid()s before its first SIGKILL; fresh
+child identity then permits individual SIGKILL under C-5.3. No post-SIGKILL
+execution is needed. Both attempt and probe consumers reproduced the rejection.
+
+Negative controls: hide the child's table start too, then expose it only via
+later marker/cwd sampling. These four cases hold without individual SIGKILL.
+A complete scalar identity alone does not promote conservative group evidence.
+
+Fix: independent ownership candidates contain only full, non-zombie identities
+from a table of the original group. A successful scalar confirmation of the
+original leader validates those candidates. Reset them for every kill call.
+Paced ownership still requires a fully verified table leader. The primary model
+contains both generated initial scenarios and a transition after group SIGTERM.
+
+No production source changed. Verification is in leader-capture-controls.txt,
+oracle-mutations.txt, final-history/ and the final model proof logs.

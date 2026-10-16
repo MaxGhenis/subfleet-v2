@@ -227,7 +227,7 @@ def test_c4_1_a_probe_that_quarantines_leaves_its_job_uncertain_and_holding_nobo
     service.store.put_lane(lane("codex-2", "codex"))
     measured(service, "codex-2")                            # codex-1 is unmeasured: hard work there probes
     service.term_grace_s = 0
-    service._probe_census = lambda record: Containment(unverifiable=True)
+    service._probe_census = lambda record, *, foreign_ownership=None: Containment(unverifiable=True)
 
     def quarantined(job, lane_row, model, holder):          # what `_execute_probe` returns when it cannot contain
         assert not service._contain_probe(service._probe_record(holder))

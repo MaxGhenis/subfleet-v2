@@ -1,0 +1,238 @@
+Round 13, part 3 continuation, 2026-10-12
+Base fa367caadbae; implementation head ed7c44720672.
+
+Commits on feat/quarantine-self-resolve in workspace-local .git-local:
+- 53c1722c3: index late child receipts before authorizing signals.
+- c2b1201c5: retain every observed identity while its PID holds quarantine.
+- 79a3db7b9: read the canonical status field in the D-QC1 witness.
+- ed7c44720: suppress cached delivery if a pending child receipt appears.
+The sandbox denied the shared index.lock, so the hub must carry this local
+history. The assigned shared checkout HEAD remains fa367caadbae. No history
+was rewritten, no remote was contacted, and no other workspace was changed.
+
+Safety regression:
+The host's unchanged 800-example property counterexample was claims={200},
+source='child', foreign_state='running', same_start=True, same_boot=True,
+guardian_live=True, table_outage=False. Its start.json claims pid 200 with
+BOOT/p200, but the prior head delivered signals to that identity.
+Source attribution: 6eca3ea21 removed per-call foreign start.json reads in
+favor of indexed attempt-row claims. The startup-only imports in 00a4fb8a6
+and e01fe8e01 do not cover a receipt published after daemon construction or
+a child publication dropped from a changed attempt row. The later cached
+snapshot changes retain this gap. This attribution is from source diffs;
+the requested test bisect could not execute because of the shared lock.
+
+The fix retries missing publications on indexed active/quarantined rows and
+reads newly finished/changed rows from a durable receipt queue. Terminal
+history is not scanned in steady-state ownership checks. One upgrade import
+repairs receipts the earlier startup bit could have missed. Imported claims
+advance the existing ownership revision. A cached kill remembers only missing
+active receipts and rechecks those before delivery: a late claim suppresses
+permission, and cannot widen the first census's signal candidates. Queue
+reads begin with the queue via CROSS JOIN and attempt primary-key lookups.
+Added 8 late-publication cases (4 foreign states x table/outage), plus 2
+publication-after-cached-census cases. The original property is unchanged.
+
+Lost identity:
+Source attribution: 5b320ea98 filters resolved_identities out of quarantine
+history before merging. A live pid with a different current start caused the
+older observation to disappear. Preserve all observations while that pid is
+in census.live_pids; discard resolved observations once it is absent. The
+existing witness still requires both first and second, and still checks that
+first remains a containment root on a later recheck. Added an absent-pid
+pruning check while another marker keeps the quarantine alive. Dead lineage
+roots with empty groups still retire before budgeting unresolved roots.
+
+D-QC1:
+Fixed the witness, not the payload: daemon.status's rendered-text field is
+status (also used by the existing front end), not text. The next-check/time
+assertions now read status['status']. why already appends a 'Quarantined ...'
+line with the time and exact subfleet kill <job> --confirm-dead command; its
+original lowercased assertion is preserved. The diagnostic print now also
+uses lower(), so it no longer falsely reports that capitalized guidance is
+missing. Notice, why and command assertions were not weakened.
+
+P7 REMAINS OPEN:
+Requested tests/fake/test_r12orig_liveness.py alone with
+--hypothesis-show-statistics -x. Lockf exited 75 before pytest started; no
+counterexample or statistics were produced. The 200-example/40-step property,
+its deadline, phases, settings and assertions are unchanged. There is no
+supported cause attribution or speculative P7 fix in this continuation.
+
+Validation in this continuation:
+11 foreground lock requests, each with its own TMPDIR and 45-second queue
+wait, all exited 75 ('already locked') before pytest started. The runner had
+a 19-minute outer watchdog, so no hold could reach 20 minutes. No lock was
+held by this job, no pytest process ran, and no detached runner/build exists.
+Every request's TMPDIR was cleaned by the required Python shutil command.
+Host load observed at preparation was 208/180/196; no calmer-load wait was
+performed. Both previously failing real-child cases were requested together
+as their own isolated run but never started; they remain unclassified here.
+
+Bisect archives (code from each revision, same checkpoint test witnesses):
+- Safety: d284f15cf, 00a4fb8a6, 6eca3ea21 requested; none ran.
+- Identity: a0d1f5993 and 5b320ea98 requested; neither ran.
+Copies stayed under the disposable task TMPDIR. No stash/worktree rewrite.
+
+Per-file pytest counts at the new implementation head (all UNRUN):
+  file                                              passed failed unrun cases
+  fake/test_quarantine_ambiguity.py                       0      0     26
+  fake/test_quarantine_review_fixes.py                    0      0     38
+  fake/test_review_pr131_round13.py                       0      0     16
+  fake/test_review_pr131_round13_probes.py                0      0      3
+  fake/test_r12orig_liveness.py                           0      0     41
+  fake/test_quarantine_detached_writers.py                0      0      2 targeted
+  unit/test_quarantine_migration.py                      0      0      2
+  unit/test_quarantine_pacing_store.py                    0      0      1
+  unit/test_census_interleavings.py                       0      0      8
+  unit/test_review_pr131_census_property.py               0      0      1
+  fake/test_r12orig_ownership.py                          0      0      18
+  fake/test_r12orig_signal_authority.py                   0      0      4
+Case counts above were read from literal parametrizations, not collection;
+ownership's unchanged 18-case count also matches the saved baseline suite.
+Other self-resolve, isolation, retention, round-review and process-world
+regression suites were not run here. The caller's fa367caad host results are
+baseline evidence only, not validation of this new implementation.
+
+Non-pytest checks: all 6 changed Python files parse with ast.parse; named-file
+git diff --check passes. No logs, JSON evidence, environments or archives are
+staged. All commits have the requested Co-Authored-By trailer.
+
+The previous round-13 report follows unchanged for historical measurements.
+========================================================================
+
+PR #131 review 13 fix report, 2026-10-12
+Base d284f15cf51d; implementation head 43cdb7627.
+
+Preserved the checkpoint's nine existing commits, including each original
+finding's fix. Added follow-ups; no history rewrite or remote operation.
+Shared index.lock creation was denied by the sandbox. All commits are on
+feat/quarantine-self-resolve in workspace-local .git-local metadata; the hub
+must carry that history. The shared worktree HEAD remains d284f15cf.
+Only the assigned workspace and disposable temporary fixtures were changed.
+
+Invariants:
+- Ownership checks use current PID/start index lookups and claims_by_pid; their
+  work does not scan finished history. Child claims come from attempt rows.
+- Gone/reused roots with empty groups are removed before budgeting unresolved
+  roots. Dead roots alone cannot make a successful rc-0 run lost.
+- Status and notices transfer bounded summaries, never census/history payloads.
+- Signal targets never widen: lineage/cwd/markers/descendants grant no signal
+  authority; cached kills cannot gain an initially absent PID or permission
+  after a foreign revision. Scalar identity/group checks still gate delivery.
+
+P1-1: indexed ownership and one snapshot per kill (6eca3ea, 00a4fb8).
+Follow-ups e01fe8 and 43cdb762 preserve legacy finished child claims even when
+child_pid is null, persist a census's child identity, and build the snapshot
+from the first census table with its live signal-candidate PIDs. A foreign
+revision only suppresses permission. Receipt import is one-time/restart-safe;
+index/backfill construction is outside the timed steady-state checks.
+EXPLAIN: json_each live candidates -> claims PRIMARY KEY(pid,proc_start) ->
+attempt primary key. Active/quarantined branches use their partial indexes.
+Before witness (review's d284 execution): 336,600 comparisons, 301 receipt
+reads; 300 finished attempts cost 4.6-5.2 s recording / 4.1-7.5 s census;
+1,000 cost 10.0-12.7 / 32-38 s.
+After inspect_cost.py TREE N 50, at implementation head (seconds):
+ finished    record_owned (3 calls)       contain (3 calls)
+        0    .003/.001/.032               .047/.002/.015
+      300    .003/.001/.001               .002/.001/.040
+    1,000    .002/.001/.001               .002/.061/.109
+   10,000    .002/.001/.001               .002/.001/.053
+No increasing history trend; all timed calls use the same 22 live processes.
+The largest fixture retains 500,000 descendants and 48.9 MB evidence.
+foreign_cost.py original setup, synthetic snapshot: .000/.000/.000 at
+0/300/1,000 and .001/.000/.000 at 10,000 with all 10,000 receipt files present.
+Head repeat omitting unused receipt creation: .000/.000/.000 at 0/300/1,000;
+.000/.000/.159 at 10,000. Every run selects zero matching terminal claims.
+Host load 26-256 introduces scheduling outliers; medians remain 0-2 ms.
+The original foreign script was patched only for a synthetic snapshot and
+empty-ledger arithmetic. No host processes were inspected.
+
+P1-2: prune verified-gone roots only when their group is empty (5b320ea).
+Rechecks discard gone identity_history observations before checking overflow;
+uncertain identities/reused nonempty groups retain conservative holds.
+Before witness: 4,101 observations caused lost rc125, held native lease after
+three paces and 30 days. After overflow_q.py at 41/100 rounds (4,101/10,001
+observations, 4,100/10,000 distinct tools): 102 roots retained, no overflow,
+verified-empty final census, no errors, every lease released. Original empty
+provider-output fixture finalizes failed rc0; it is not lost or quarantined.
+Repeat using the same FakeAdapter/nonempty stdout as the review witness:
+  observations   record wall s   job/attempt after 3 paces   leases   30 days
+         4,101         15.3       succeeded rc0              []       succeeded
+        10,001         29.4       succeeded rc0              []       succeeded
+
+P2-1: bounded SQL summary and notice (4549d03, f24a8ed).
+reason <=1,024 characters; <=8 errors of <=256 characters; unverifiable;
+live PID count and first 16 integer PIDs. json_valid guards legacy text;
+valid census JSON without a reason gets a generic reason, not census text.
+Before witnesses: replies 5,105,757/4,952,453 bytes. Before table_q at 4,096
+PIDs plus 4,096 history: 2,260,122 wire bytes per quarantine row.
+After table_q: all nine cases 2,246-2,254 bytes per row, independent of history.
+Real quarantine + recheck at 4,096 PIDs/4,096 history, three rows: 9,740-9,746
+wire bytes (<4 MiB); notice 385 bytes; full 1,985,067-byte reason stays in SQL.
+Status dispatch .425/.904 s in two runs; added the exact three-row witness.
+
+P2-2: insertion-ordered dicts for unions, recent history and lineage (a0d1f599).
+Groups are indexed once per process table. Recency/results are preserved.
+Before witness: 11,049,808 equality comparisons. Before micro_q merge seconds
+at 300/1,000/4,096 PIDs with 4,096 history: 24.01/41.51/171.62; retain at 4,096
+roots/captures: 36.56. After two runs, merge .09/.21/.97 and .50/.07/.12;
+retain .06/.20/.57 and .02/.06/.31. All three reference comparisons in each
+run print same=True. Scheduler noise accounts for wall-time variation.
+
+P3-1: step 8 repeats the idempotent push ADD COLUMNs from step 7 (19a32bcb).
+mig.py uses actual release/217 4c6a8a9c9 and pre-merge #131 73df73ff9 sources.
+Before fresh negative replay at d284: 7->8 and 6->7->8 pass; pre-merge-7->8
+records version 8 but SELECT push_branch fails. After: all three paths pass,
+preserve jobs and push_branch='feat/x', add all push/quarantine columns, and
+EXPLAIN searches attempts_quarantine_due. Three migration paths pass; baseline
+has 2 pass / 1 fail. Migration pytest cases remain unrun.
+
+P3-2: next recheck and exact subfleet kill <job> --confirm-dead command in
+notice, why and conflicting-submit refusal; Next check status column (61ae814).
+Before D-QC1 witness failed for absent guidance. Head scenarios report notice
+time/recheck/confirm-dead and why booleans true; an older hold displays Next
+check. The unmodified scenario's newly finished hold is filtered by its age,
+and its missing legacy child publication legitimately holds its push example.
+Repeat supplies modern child publication and an older finished_at, matching
+review fixtures: D-CK1 PID300 stays unsignalled, all three leases stay held
+until it exits, then all release. D-PR1: 6 censuses/6 paces/31 passes, one notice,
+nonempty reused group remains held. Push: no exports/pushes/accepted attempt,
+no publication; all leases released after its writer exits. Missing synthetic
+workdirs create expected salvage errors, not lease-release failures.
+
+Additional probe safety fixes (dd0666e5): persist root removal with clear/update,
+not update alone; supply probe identities for collision checks during table
+outages; reuse its first census ownership snapshot. Three new witnesses pin
+root deletion, terminal collision suppression and one evaluation per kill.
+Cached-absent-target and legacy/status fallback witnesses were also added.
+
+P7 REMAINS OPEN: the ported 200-example/40-step round-12 property is unchanged;
+only its single-owner foreign stub accepts the shared table. Saved review
+log has a failure marker but no traceback/counterexample. Dedicated foreground
+attempt ended at 1,140.08 s with no pytest summary. Its process group stopped
+and temporary directory was cleaned. The original cause is not identified;
+probe fixes above are independent defects, not attribution of that failure.
+No oracle/safety assertion/deadline was weakened.
+
+Tests and remaining work:
+- 0 completed pytest tests in this continuation; 7 lock queue exits 75 and
+  1 property attempt stopped by its 19-minute timer, with no result.
+- Every suite attempt was foreground, alone, under its own lock request and
+  temporary directory; none held the lock for 20 minutes. UV_NO_SYNC was used
+  for later attempts. Required Python shutil cleanup completed.
+- Script evidence: 4 history sizes in both ownership benchmarks; 2 successful
+  overflow sizes; 9 status table cases (twice); 3 merge/reference cases (twice);
+  3 migration paths plus fresh baseline replay; 4 scenario groups. Syntax and
+  git diff --check pass. These are not claimed pytest passes.
+- Unrun: complete review-13 head suite and fresh negative replay at d284;
+  3 probe witnesses; ported ownership 18 / signal authority 4 / liveness 41;
+  unit process/migration checks; status-payload checks; real-process detached
+  writers; copied-production-store latency/one-time upgrade measurements.
+  No live store copy or inspection was attempted, as this job forbids it.
+- Original review finding witnesses failed at d284; preservation controls
+  already passed there. It would be incorrect to claim those controls fail
+  at baseline. Fresh all-witness head/baseline validation remains for the hub.
+
+All source fixes, witnesses and this report are committed locally. No logs,
+JSON evidence, bundles, dependency files or generated fixtures are committed.

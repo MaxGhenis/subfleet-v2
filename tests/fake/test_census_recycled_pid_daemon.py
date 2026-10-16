@@ -11,6 +11,8 @@ from subfleet.contracts import Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.unit.test_procs import census
+from tests.fake.test_quarantine_attempt_isolation import running
+from tests.fake.test_review_pr131_probes import script_table
 
 
 # Save the real census before state_daemon replaces the process seam.
@@ -141,9 +143,13 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
     """C-5.5: exit supplies the child PID; only a recorded identity can prove reuse."""
     daemon, harness = state_daemon
     _, attempt, _ = recycled_attempt(daemon, harness, monkeypatch, CASES[0])
-    attempt["child_pid"] = None
+    # The claim-aware deciding census refreshes the actual attempt row. Keep
+    # this publication gap in that row, rather than only in a stale dict.
+    updates = {"child_pid": None}
     if not recorded:
-        attempt["evidence_json"] = "{}"
+        updates["evidence_json"] = "{}"
+    daemon.store.update_attempt(attempt["attempt_id"], **updates)
+    attempt = daemon.store.get_attempt(attempt["attempt_id"])
     result = daemon._contain(attempt)
     if recorded:
         assert result.verified_empty
@@ -152,3 +158,32 @@ def test_exit_receipt_supplies_child_before_row_refresh(state_daemon, monkeypatc
         assert result.descendant_pids == {4203, 55000}
         assert result.unverifiable and not result.verified_empty
         assert not result.recycled
+
+
+def test_exit_publication_during_census_keeps_the_unseen_child_hold(state_daemon, monkeypatch):
+    """One receipt snapshot governs both the child root and publication hold."""
+    daemon, harness = state_daemon
+    attempt, directory = running(daemon, harness, 200, 201)
+    daemon.store.update_attempt(attempt["attempt_id"], child_pid=None, evidence_json="{}")
+    (directory / "start.json").write_text(json.dumps({
+        "guardian_pid": 200, "pgid": 200, "boot_id": attempt["boot_id"],
+        "proc_start": attempt["proc_start"]}))
+    script_table(monkeypatch, {201: (1, 201, "S", "unpublished-child"),
+                              202: (201, 201, "S", "unpublished-descendant")})
+    read = daemon._read_json
+    reads = []
+
+    def publication(path):
+        if path == directory / "exit.json":
+            reads.append(path)
+            return None if len(reads) == 1 else {"rc": 0, "child_pid": 201}
+        return read(path)
+
+    monkeypatch.setattr(daemon, "_read_json", publication)
+    first = daemon._contain(daemon.store.get_attempt(attempt["attempt_id"]))
+    assert not first.verified_empty
+    assert "guardian child publication unavailable" in first.errors
+    assert len(reads) == 1
+    second = daemon._contain(daemon.store.get_attempt(attempt["attempt_id"]))
+    assert not second.verified_empty and {201, 202} <= second.live_pids
+    assert len(reads) == 2

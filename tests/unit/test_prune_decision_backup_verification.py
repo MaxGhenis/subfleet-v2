@@ -12,6 +12,7 @@ import pytest
 
 from subfleet import prune_decisions as pruning
 from subfleet.store import Store
+from tests.table_order import ordered_select
 
 
 def seed(root):
@@ -38,7 +39,7 @@ def signature(database, connect, surrogate=False):
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
         result = {}
         for name in tables:
-            cursor = conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid')
+            cursor = conn.execute(ordered_select(conn, name))
             columns = [entry[0] for entry in cursor.description]
             result[name] = [tuple(zip(columns, map(read_cell, row))) for row in cursor]
         return result

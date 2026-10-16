@@ -1,0 +1,886 @@
+PR #131 round 14 fixes, 2026-10-12
+Base: deb8c5b25baf1a49cddf0c223cd47d67926884fd.
+
+Commits on feat/quarantine-self-resolve in workspace-local .git-local:
+8d7b6a7e7 Keep quarantine delivery within verified individual targets
+86ffea7ec Serialize claim authorization at delivery and retain incomplete imports
+b0ba1c670 Retry deferred fixture reservations and cover dispatch serialization
+0b99d0b4f Preserve bounded receipt checks and model individual dispatch interleavings
+3c6bfb8e4 Keep reservation retry clocks consistent with capacity evaluation
+c4b2a5c06 Upgrade receipt retry metadata in one transaction
+e96dc118b Witness legacy receipt recovery through interrupted schema upgrade
+5675f3017 Report round 14 safety fixes and locked validation outcomes
+8e8bdac9f Reconfirm process identity after receipt authorization I/O
+
+The shared Git metadata is outside the writable workspace. Local metadata
+uses the original object store read-only; the assigned checkout remains at
+its detached base. The hub must carry the local commits. No history rewrite,
+remote access, push, sub-agent, live store or unrelated live process operation occurred.
+Each commit has the requested Co-Authored-By trailer. Only named files staged.
+
+P1-1: dispatch sends TERM and KILL to verified individual identities from the
+first census/persisted ownership cap. It never uses killpg. An unchanged
+leader cannot prove that the group's current members are unclaimed: a claimed
+process can join after any census. Individual dispatch cannot reach that new
+member. Later censuses/revisions may suppress permission, never enlarge it.
+The retained group predicate is a census check used by regression witnesses;
+it is not a signal dispatch authorization.
+
+P1-2: signal_process finishes scalar identity/group reads before entering its
+authorization context. The final claim check and syscall share the Store's
+writer lock; every daemon indexed claim mutation uses that lock. Pending
+start.json publications also share sidecar flock locks with guardian._receipt.
+The locks remain held through os.kill, without a SQL transaction spanning I/O.
+A final same_process check inside those locks reconfirms identity after receipt
+I/O; a new witness models PID reuse during authorization.
+A concurrent publisher therefore completes before the final authorization or
+after delivery. Noncooperating legacy/missing receipts cannot be proven closed:
+unresolved foreign receipt work refuses all delivery. A cached foreign claim
+revision can only reject the first census's targets. Attempts and probes use
+this same boundary. Added two concurrent-publisher witnesses at the syscall.
+
+P1-3: missing, empty and unreadable receipts keep durable pending entries,
+including terminal attempts and legacy child_pid=None cases. Ordinary ownership
+checks read at most eight due receipts, preserving the unchanged round-13
+receipt-read budget by construction; its regression rerun remains unrun. There is one immediate retry; further failures back off from one
+second to a 60-second ceiling. failures, retry_at and last_error record the
+clear pending state. A kill checks at most 64 pending publications; overflow
+refuses delivery. Work is read from the indexed queue, without repeated scans
+of finished history. Enumeration and completed import have separate durable
+bits; seeded is set only when all pending work has resolved. Upgrade resets
+old completion once and adds retry metadata in one transaction. The upgrade
+witness interrupts that transaction and checks rollback and recovered claims.
+
+P2/P7: reserve submits once, then makes at most four real admission passes for
+documented workspace deferrals on that same job. It advances the fixture's
+clock to the due retry and keeps fixture capacity readings current. Routing,
+retry timestamps and due checks share that clock. Unexpected/persistent holds
+raise an assertion with job, hold, leases and readings instead of IndexError.
+Constructor failure closes daemon/fixture, undoes patches and cleans its
+TemporaryDirectory. Real Git/reservation checks and safety deadlines remain.
+The controlled timeout is evidence of harness fragility, not attribution of
+the exact host run's unidentified admission hold.
+
+Assertion preservation: AST comparisons against deb8c5b25 confirm every
+assertion in the process-world (52), isolation (15), detached-writer (47),
+ported/original r12 ownership (15 each), round-11 (31), and round-13 (39) files
+is unchanged. Signal spies only accept the new authorization keyword. The
+partial-table witness now requires individual delivery plus TERM-before-KILL
+for every initial owned member, retaining its foreign-claim exclusions. World
+escape transitions occur after individual dispatch as well as group delivery;
+all safety/liveness oracles, deadlines and original default settings remain.
+Only the requested reduced run overrides examples/steps via existing env vars.
+
+Executed baseline: original round-14 file at deb8c5b25, 6 failed / 2 passed,
+414.73 s. Failures: group entrant parent=1; scalar receipt/indexed publication;
+terminal late/read-outage receipt; failed startup import. The parent=201 and
+original IndexError reproduction are passing controls, not negative witnesses.
+All process reads/signals were fake.
+
+First head probe run: 17 passed / 1 failed, plus module-name check 1 passed,
+242.02 s. The remaining failure was fixture clock skew: a refreshed reading
+was future-dated for real-time capacity evaluation, causing probe-pending.
+3c6bfb8e4 synchronizes the clocks. Corrected round-14 rerun: 18 passed,
+195.87 s, including attempt/probe variants, constructor cleanup, bounded
+reservation diagnostics, publisher serialization and unresolved-receipt refusal.
+
+Recorded executions: 38 passed / 7 failed across three completed holds,
+including baseline and superseded-head runs. Completed hold pytest times:
+414.73 s, 242.02 s, 195.87 s. The corrected 18-case probe run preceded the
+additional identity reconfirmation safeguard. The final request for all 19
+probes, upgrade witnesses and module-name test expired before pytest. Thus
+final-head validation is outstanding; earlier passes are not claimed reruns.
+
+Per-file most recent completed focused results and final-head unrun cases
+(unrun counts from source parametrizations, not collection):
+file                                         recorded_pass failed head_unrun
+fake/test_review_pr131_round14.py                         18      0    19
+unit/test_test_module_names.py                            1      0     1
+fake/test_review_pr131_round13.py                         0      0    16
+fake/test_review_pr131_round13_probes.py                  0      0     3
+fake/test_quarantine_self_resolve.py                     0      0    13
+fake/test_quarantine_ambiguity.py                        0      0    26
+fake/test_quarantine_review_fixes.py                     0      0    38
+fake/test_review_pr131_round12_ownership.py               0      0    18
+fake/test_review_pr131_round12_signal_authority.py        0      0     4
+fake/test_r12orig_ownership.py                            0      0    18
+fake/test_r12orig_signal_authority.py                     0      0     4
+fake/test_quarantine_process_world.py                    0      0    18
+unit/test_quarantine_receipt_retry.py                    0      0     2
+unit/test_quarantine_migration.py                        0      0     2
+unit/test_quarantine_pacing_store.py                     0      0     1
+
+Also unrun: full fake/test_state_contract.py (37), full isolation (9),
+detached-writer (49), round-11 (54), original liveness (41), other full
+identity/isolation/liveness/real-process suites and benchmarks. Their relevant
+fixture/helper paths were exercised by the focused probes; whole-file tests
+are not counted as run. The full-size process world is unrun too. Its requested
+reduced hold was seed=13114, pool=1, 5 examples/8 steps, deadline unchanged at
+30,000 ms; it expired before pytest started. No examples were discarded.
+
+Mutation verification: tools/review_pr131_r14_mutations.py creates isolated
+source copies, reverting each P1 independently, and requests its own locked
+pytest hold. Group delivery selects the entrant witness (4 attempt/probe
+cases); removing post-confirmation authorization selects scalar publication
+(4 cases); forgetting receipt work/completing incomplete imports selects late,
+read-outage and startup witnesses (3 cases). Every mutant was generated, but
+all three lock requests exited 75 before pytest. Final templates retain the
+new identity safeguard, and all three generated final-head mutants parse.
+These mutations are UNRUN;
+no mutation detection is claimed. Source checkout/history remain untouched.
+
+Lock outcomes: 13 requests expired before pytest (12 x 45 s, 1 x 300 s),
+including the regressions, reduced world and mutations. The five
+regression requests were separately queued for self-resolve, ambiguity,
+review-fix, both original/ported r12 ownership/signal files, and r13 plus
+migration/receipt checks. The hub must run those outstanding validations.
+
+Final static checks: changed Python files parse; git diff --check passes;
+current test module basenames are unique. The report/runner-output commit is
+listed in the final response. The assigned shared HEAD remains deb8c5b25.
+The disposable baseline tree and assertion-comparison file were cleaned.
+No task runner or build remains.
+
+Every actual pytest invocation ran foreground, alone, under its own shared
+lock hold with a separate task TMPDIR and 1100-second outer watchdog. Holds
+were below 20 minutes; no calmer-load wait occurred while holding the lock.
+TMPDIR cleanup used the requested Python shutil.rmtree command. Dependencies
+came from the readable local uv cache into the ignored workspace environment;
+UV_NO_SYNC=1 and workspace-local UV_CACHE_DIR kept default cache writes out.
+No logs, XML/JSON evidence, environments or bundles were staged.
+
+Round 15, 2026-10-12 (base dbc8b726d)
+===================================
+
+Commits in workspace-local .git-local, branch feat/quarantine-self-resolve:
+842259569 Restore scalar-confirmed guardian delivery and current kill fixtures
+5d48a63b4 Keep fake signal delivery inside the authorization context
+0ed5392a2 Scope complete receipt setup to the collision liveness property
+The final report commit is listed in the handoff. Shared Git metadata is outside
+the writable workspace; the assigned shared checkout remains at dbc8b726d.
+The hub must carry these local commits, not just the unchanged shared HEAD.
+
+Cause: this was not one blanket rejection of the new authorize keyword.
+The host world failures actually delivered TERM and KILL to child 200, but
+omitted guardian 100. Production _kill_attempt -> _contain -> leader_live
+confirms the stored guardian with same_process. With the guardian table start
+missing, neither census.identities nor group_identities contains that guardian.
+Only the complete child enters owned. The individual delivery loop therefore
+never calls _signal_owned or authorize for guardian 100: no authorization check
+refused it. Removing group delivery in round 14 exposed this omitted target.
+_contain_probe already explicitly retained its scalar-confirmed guardian.
+
+The production fix mirrors that probe path: inside the existing leader_live
+AND signal_allowed guard, add the recorded guardian identity to owned before
+persisting authority and dispatching individual signals. No new group member
+is authorized. _signal_owned -> procs.signal_process still obtains the claim
+context after scalar reads, checks its allowed value, reconfirms identity after
+receipt I/O, and keeps publication excluded through os.kill. The round-14
+claim, group-entrant and receipt refusal checks are unchanged.
+
+The ambiguity failure has a different, fixture-only cause. Every generated
+example cleared the foreign attempt's evidence and wrote an empty start.json.
+Source-level reconstruction of the host's empty-claims example is:
+_kill_attempt -> _signal_owned -> real procs.signal_process -> authorize ->
+_signal_claim_authority. _foreign_ownership retains that foreign receipt in
+receipt_candidates. Its refresh still finds no child_identity. After sidecar
+and store locking, _signal_claim_authority yields False at its unresolved
+foreign-child check, and signal_process returns without os.kill. This is the
+required round-14 safety refusal, not a dropped authorize call. The liveness
+property now supplies the foreign launch's known child 101 before applying
+the generated claims. All original signal-exclusion and owned-survivor
+assertions remain intact; separate late/empty receipt safety fixtures remain
+empty and unchanged. The third commit corrects an initially overbroad patch
+location; final-head changes affect only the named liveness property.
+
+The state-contract failure was the incompatible lambda described by the host:
+dispatch(kill) -> _kill_attempt -> _signal_owned -> lambda(identity, sig), with
+authorize rejected as a keyword before any context could return a value.
+That test now keeps real signal_process and fakes only getpgid/kill; killpg
+fails explicitly. Its expected protocol is individual TERM/KILL, including the
+recorded guardian and owned child, not the obsolete group protocol.
+
+Audited all tests for signal_process, _signal_owned and variadic lambdas.
+All 17 remaining signal_process stand-ins now use authorized_signal_stub:
+enter authorize(), return False on denial, and execute the fake delivery while
+the context is still active. Forbidden-delivery callbacks are retained.
+Two new unit cases check denial and authorization lifetime. Three new round-15
+cases cover a scalar-confirmed guardian absent from the census identities,
+plus foreign-claimed and ambiguous guardian controls, with real authorization.
+The clear case should fail at dbc8b726d by the missing guardian delivery and
+pass with this one-line fix; that differential is pending execution.
+
+Validation status: all test runs below remain UNRUN pending the shared lock.
+Dynamic tracing was attempted but never entered pytest; the call-path analysis
+above uses the committed source and the supplied host failure outputs, not a
+claimed new runtime trace. The host's prior passes are not head validations.
+
+Requested file                                   round-15 passed/failed/status
+fake/test_review_pr131_round15.py                 0 / 0 / UNRUN (3 cases)
+unit/test_signal_stubs.py                         0 / 0 / UNRUN (2 cases)
+fake/test_quarantine_ambiguity.py                 0 / 0 / UNRUN
+fake/test_state_contract.py                       0 / 0 / UNRUN
+fake/test_quarantine_process_world.py             0 / 0 / UNRUN
+fake/test_r12orig_liveness.py                     0 / 0 / UNRUN (world node)
+fake/test_review_pr131_round12_liveness.py         0 / 0 / UNRUN (world node)
+fake/test_review_pr131_round14.py                 0 / 0 / UNRUN
+fake/test_review_pr131_round13.py                 0 / 0 / UNRUN
+fake/test_review_pr131_round13_probes.py           0 / 0 / UNRUN
+fake/test_quarantine_self_resolve.py              0 / 0 / UNRUN
+
+Other changed stand-in files, each 0 passed / 0 failed / UNRUN:
+fake/test_probe_recovery.py, fake/test_quarantine_attempt_isolation.py,
+fake/test_quarantine_detached_writers.py, fake/test_r12orig_ownership.py,
+fake/test_review_pr131_round11.py, fake/test_review_pr131_round12_ownership.py,
+fake/test_review_pr131_round6.py, fake/test_review_pr131_round6b.py,
+fake/test_review_pr131_round6b_authority.py, unit/test_daemon_settle.py,
+unit/test_inspection_pacing_properties.py. No broader/full-size suite is claimed.
+
+The opt-in plugin tests.review_pr131_r15_bounds preserves every assertion and
+sets ordinary properties to 8 examples, state machines to 5 examples/8 steps,
+database=None, and derandomize=True. Runs request seed 13115 and pooled worlds;
+SF_WORLD_EXAMPLES=5 and SF_WORLD_STEPS=8 also bound TestProcessWorld explicitly.
+Both nominal 200-example r12 world nodes use that reduced budget in this run.
+Storage is under each task TMPDIR, not a worktree .hypothesis directory.
+
+Mutation templates group, confirmation and receipts all parse at final code.
+Their runtime detection and the deb8c5b25 round-14 witness differential are
+UNRUN, not claimed caught. The dbc8b726d guardian differential is UNRUN too.
+Every requested execution uses the existing foreground locked runner, a fresh
+task TMPDIR, one pytest per lock hold, and its 1100-second outer watchdog.
+No calmer-load wait occurs while holding the lock. Lock failures are reported
+as exit 75, never as passed tests or detected mutations.
+
+Static validation: all test modules and daemon.py parse; the stand-in AST audit
+finds exactly 17 authorization wrappers; git diff --check passes. Only named
+files are staged. Dependencies were copied read-only from the caller's venv
+into the ignored workspace venv; bytecode writes and pytest caches are disabled
+for execution attempts. No source, state, process or Git history in the caller's
+checkout is modified. No remote, sub-agent or live application operation occurs.
+
+Final lock outcomes: 13 requests exited 75 before pytest (12 queues of 45 s,
+one of 300 s). They cover two diagnostic traces, two focused-head requests,
+the r14/r13/ambiguity/self-resolution files, state contract, reduced full world,
+the remaining changed stand-in files, all three mutations, and both baseline
+differentials. Zero tests executed, so no runtime pass, negative-baseline
+failure or caught mutation is claimed. The hub must run every UNRUN entry.
+All temporary task directories and disposable source trees were cleaned using
+the requested Python shutil.rmtree cleanup. No runner or build remains, and
+there is no .hypothesis directory in the worktree.
+
+Round 16, 2026-10-12 (base 5b220e3f0d5f)
+======================================
+
+23ac76d1b rebuilds both C-5.6 kill worlds in test_daemon_settle.py. Production
+_record_owned records the group before guardian exit; same_process then sees
+the owned child alive. authorized_signal_stub delivers individual TERM/KILL.
+In the draining world KILL ends scalar liveness while the conservative census
+stays busy for .15 s. The original finalizing/no-quarantine, exact TERM/KILL,
+post-kill reread and receipt assertions remain unchanged. The persistent-census
+neighbor previously passed without signalling anything; it now requires TERM,
+escalation KILL and the subsequent survivor KILL. The exit-receipt settle tests
+already exercise finalization, which does not depend on signal delivery.
+
+Static checks: all 104 original assertions preserved, one delivery assertion
+added; Python parses; git diff --check passes. Production daemon.py matches the
+base byte for byte.
+
+Requested validation                         passed / failed / status
+unit/test_daemon_settle.py                       0 / 0 / UNRUN
+fake/test_state_contract.py                      0 / 0 / UNRUN
+fake/test_review_pr131_round15.py                 0 / 0 / UNRUN
+settle-window mutation (one regression node)     0 / 0 / UNRUN, UNPROVEN
+
+The first unit request hit its 1100-second watchdog (exit 124) without pytest
+output. Separate 45-second lock requests for state-contract, round-15, mutation
+and the unit retry each exited 75: shared lock already locked. No completed
+test result is counted. Other suites were not requested or run in this round.
+
+The disposable mutation set the kill settle deadline to monotonic() + 0.0.
+It could not enter pytest, so no expected regression failure is claimed.
+Its original bytes were restored and verified before cleanup; SHA256:
+87abc310f1384b920283d259f8db5c39a1dab835da3a1c9a4ce1b7ca0bda42d6.
+Production bytes remained unchanged. All task TMPDIRs and the disposable tree
+were cleaned with the requested Python shutil.rmtree command. Requests ran
+foreground, sequentially, each with its own shared-lock request and watchdog.
+
+Commits use workspace-local .git-local on feat/quarantine-self-resolve because
+shared Git metadata is outside the writable workspace. Shared HEAD remains
+5b220e3f0d5f; the hub must carry the local commits. Only the named test and this
+report are staged, in separate commits, with the requested Co-Authored-By
+trailer. The report commit is listed in the handoff. No remote, sub-agent,
+caller-worktree write or live application operation occurred. Host validation
+of the three suites and the negative mutation witness remains outstanding.
+
+Round 17, 2026-10-12/13 (base e2ba0c219fec)
+=========================================
+
+Merge origin/release/217 at 5bd0a3a674c6 into feat/quarantine-self-resolve,
+with two parents and no rebase. Shared Git metadata is outside the writable
+workspace, so the assigned branch and merge use workspace-local .git-local.
+The original shared checkout stays at e2ba0c219fec; the hub must carry the
+local branch tip. No network remote, push, history rewrite or sub-agent.
+
+All ten conflict blocks were combined:
+- docs/acceptance-contract.md (one block, C-5.2 through C-5.7): preserve the
+  durable child publication gate, legacy boot uncertainty, claim/collision
+  rules, marker/cwd/retained-lineage census, paced self-resolution and notices.
+  Add release's absent/zombie parent anchors, recorded orphan roots, receipt
+  PID census-only role, incomparable-root holds, wall-clock exclusion refusal,
+  fresh boot confirmation and persisted recycled-root diagnostics. State the
+  already implemented individual TERM/KILL target cap in C-5.4/C-5.6.
+- subfleet/daemon.py block 1 (_probe_census): route probes through the combined
+  _contain, retaining the foreign_ownership keyword and probe lineage saving.
+  The launch guardian joins recorded identity comparisons without becoming a
+  newly authorized signal target. Probe receipts and attempt receipts now use
+  the same identity-qualified path.
+- subfleet/daemon.py block 2 (claim helpers/_contain): retain every indexed
+  claim, bounded pending/legacy receipt import, sidecar/store dispatch lock,
+  authorization check and individual-signal helper from #131. Combine #185's
+  receipt child PID, start fallbacks, bounds compatibility and recycled audit
+  persistence with all local/provider/ambiguity/retained-group observations.
+  Fresh attempt rows remain authoritative; exit-only child PIDs only seed the
+  deciding census. Caller snapshots retain the saved lineage/reuse evidence.
+- subfleet/procs.py block 1 (Containment fields): keep every #131 field and add
+  #185's recycled diagnostics after them, preserving positional compatibility.
+- subfleet/procs.py block 2 (serialization): retain both lineage_boot_ids and
+  recycled entries; neither contains commands, environments or cwd strings.
+- subfleet/procs.py block 3 (containment signature): retain #131's recorded
+  observation sequences and every authority/lineage argument; accept release's
+  recorded_identities and receipt timestamps as additional, census-only inputs.
+  Merge observations without overwriting an incarnation. Times never prove reuse.
+- subfleet/procs.py block 4 (root/group walk): combine #131's foreign exclusions,
+  ambiguity protection, retained groups and identity-bracketed observations
+  with #185's comparable reuse checks. All observations must prove different
+  before pruning a PID. Retain absent/zombie parent anchors and exit-only
+  children; matching/unknown orphans remain roots after ancestor reuse. A
+  recycled zombie leader discharges only the original group source. Retained
+  sampled groups remain independent holds and grant no signal authority.
+  A table shares one fresh boot confirmation before any UUID mismatch proves
+  root/group death, including the #131 retained-root pruning paths.
+- subfleet/procs.py block 5 (cwd versus late identity capture): retain #131's
+  fresh identity/group/identity bracket and cwd matching. Missing table starts
+  already raise InspectionError and retain unknown roots; the release loop's
+  stale-snapshot fallback cannot replace the stronger later-incarnation check.
+- subfleet/procs.py block 6 (return): preserve every #131 observation, ownership
+  and resolution field, with recycled appended in its matching dataclass slot.
+- tests/unit/test_procs.py (one block): preserve release's live-then-absent
+  marker fixture and its exact verified-empty/no-errors assertion. A marker
+  born after the table gets its state check before fresh identity capture,
+  preserving #131's fresh-read protection and release's no-unneeded-boot rule.
+
+The auto-merged #140 hunks retain canonical submission/resume spelling,
+blocked-key lease queue exclusions, nested writer ancestor retirement fences,
+the resolved detached run_folder's job-held READER row, its atomic admission
+fence and launch's use of that pinned cwd. #192 Store initialize=False composes
+with #131's claim-dispatch locking and imports. Both sides' retention changes
+and the complete state fixture's authorization wrappers remain present.
+
+Initial per-file line-union audit: compare merge-base be66113eaed9, each parent,
+and the working tree for added lines absent from the result and wholly removed
+lines reintroduced. All 212 changed files checked, including automatic merges:
+208 have an exact added-line union, zero removed-line resurrection in every
+file. The four conflict files' rewritten lines are accounted for above; they
+are combinations of the competing APIs, loops, serialization and contract
+paragraphs, not discarded guarantees. No auto-merged hunk lost an addition.
+
+Post-merge fixture integration
+------------------------------
+Release's two unit kill worlds used SimpleNamespace daemons lacking #131's
+claim methods, fresh Store row lookup and authorize keyword. They now retain
+the actual Daemon and signal_process, with only the empty synthetic foreign
+claim oracle, synthetic Store lock and scalar/kernel reads replaced. Recycled
+identities therefore fail the real scalar signal boundary; no stub silently
+ignores authorization. Every group syscall fails explicitly. The survivor
+world pins the entire individual TERM/KILL/KILL protocol, then retains the
+release assertion for the final survivor phase. Its saved ownership and
+quarantine assertions are unchanged. The exit-receipt publication-gap fixture
+now persists its missing PID/identity to the actual Store, so the deciding
+fresh-row census sees exactly the intended missing evidence.
+AST assertion audit versus release: all 44 recycled-PID unit assertions, all
+21 survivor unit assertions and all 24 daemon assertions remain byte-for-byte
+in AST form; one full-delivery assertion is added. No oracle is weakened.
+
+Root-source integration follow-up
+---------------------------------
+The original-attempt group source remains separate from groups freshly learned
+from matching/unknown recorded writers. Those learned groups seed the full
+parent walk immediately and are captured as durable lineage roots, retaining
+exactly the same live PID holds and descendant/group lifetime protection.
+The group_pids field therefore still diagnoses whether #185 discharged the
+original group, even when an independently recorded orphan keeps another
+current group alive. Sampled retained groups remain group sources on later
+censuses. No group of a recorded live writer is dropped from containment.
+
+A freshly confirmed launch reboot is computed before qualifying unrecorded
+old launch roots. It discharges those old PID/group sources without adding a
+false unknown-root error; matching current observations remain independent
+roots. Boot confirmation also qualifies competing-claim protection and retained
+identity resolution, so a stale UUID mismatch cannot silently erase a claim.
+Missing recorded boot identity cannot resolve a live retained identity.
+
+The release generated-table helper now makes fresh proc_start, stat and group
+reads reflect its declared table. Previously it inherited a constant unrelated
+birth time and group=pid from the older generic census stub; #131's fresh late
+marker brackets correctly exposed that inconsistent world. Its complete set
+of 44 original assertions remains unchanged. Existing #131 reboot fixtures now
+supply the fresh boot read their claimed reboot proof requires, retaining every
+existing reboot/group/publication assertion. A new cached-boot retained-root
+witness checks that the writer, original root and claim remain held and that
+all consumers share exactly one fresh boot read.
+
+Additional auto-merge assertion audit: release's unknown-with-missing-record
+assertion supersedes the old live-PID-as-dead expectation; the original exact
+dead assertion is also retained for observed absence. Exact identity errors
+are preserved with release's additional missing-record diagnostic. #131's
+larger group/descendant and either-marker sets retain the stronger writer-hold
+oracles from the first parent; release's narrower pre-#131 sets and group-signal
+protocol are superseded by those documented safety fixes, not relaxed.
+
+First completed locked suite (d9f0cd976, before root-source follow-up):
+145 passed / 13 failed in 400.64 seconds. Per-file: procs 105/6; identity
+uncertainty 7/1; recycled PID 21/4; survivor review 12/2. Ten failures are the
+identified fresh-boot/source-group/scalar-fixture integration issues, corrected
+in the root-source follow-up. Three additional kill-world failures exposed an
+undeclared cwd seam; those synthetic worlds now explicitly contain no cwd
+matches. The gone-marker fixture's subsequent scalar reads now remain absent
+instead of exhausting its two-state iterator. Its exact no-errors/empty
+assertion is unchanged. This completed run is superseded validation, not a
+passing final-head result. The tests had imported their pre-follow-up sources
+before the next code step was written.
+
+Exit publication snapshot follow-up
+-----------------------------------
+The merge exposed a two-read race: the first exit.json read supplied no child
+PID, but a receipt arriving at the later legacy-child-publication check could
+close that hold before its child entered the deciding census. _contain now
+uses one exit receipt snapshot for both child seeding and the publication hold.
+A new witness publishes only after the first read: the first census must keep
+the unseen-child hold, and the second must retain child 201 and descendant 202.
+This tightens the merged proof without changing signal authority or assertions.
+
+Final validation and handoff
+----------------------------
+Commits in workspace-local .git-local on feat/quarantine-self-resolve:
+e2a979a2b merge (parents e2ba0c219fec and release 5bd0a3a674c6)
+d9f0cd976 release census fixture integration
+6b16a3e26 recorded-group/reboot/claim integration and scalar fixture consistency
+a6d489f03 complete cwd and continuing-absence fixtures
+0dc632420 one exit-publication snapshot and regression witness
+The final report commit is listed in the handoff. Every commit has the required
+Co-Authored-By trailer; shared HEAD stays e2ba0c219fec. The hub must import the
+local branch tip, including its merge ancestry, from this workspace.
+
+Reviewer tools: all five requested *_direct.py / *_inputs.py tools completed
+both before and after the root-source corrections, with 50 passed / 0 failed
+in each batch (100 executions, including repeated exit-child cases). Breakdown
+per batch: inputs 4, census_direct 12, direct 15, exit_direct 3, original_direct
+16. Both batches used the exact supplied runner sources. Missing reviewer
+fixtures were recovered byte-for-byte from local salvage commit 9cbf6e083;
+no other worktree or live state was read. The second batch imported a6d489f03,
+before the final single-receipt change. After 0dc632420, six fresh direct calls
+passed: all three exit-child consumers, the recycled probe guardian, the new
+exit-publication race, and the cached-boot retained-root witness. Thus 106
+completed direct executions passed, none failed. The four reviewer exit-child
+cases all pass on the final code. No full pytest result is inferred from direct
+calls, and aggregate runner exit codes were checked against their printed
+per-input PASS/FAIL counts.
+
+One completed pytest hold: 145 passed / 13 failed at d9f0cd976, 400.64 seconds,
+reported above; all thirteen failures have corresponding code/fixture fixes.
+Final full-suite pytest validation is UNRUN, not claimed passing. Of eleven
+separate requests, ten exited 75 before pytest because the shared lock was
+already locked. They included corrected unit/census requests, the new race,
+release fences, the PR suites and module names. Three queues used 300 seconds;
+others used 45 seconds. The successful queue was also 300 seconds. Every
+request used the foreground locked runner, a fresh task TMPDIR, bounded
+Hypothesis storage, no cacheprovider and an 1100-second outer watchdog. No hold
+lasted 20 minutes, no overlapping pytest process or calmer-load wait occurred.
+The opt-in reduced PR/focused requests used tests.review_pr131_r15_bounds
+(8 property examples, 8 steps; 5 state-machine examples); those requests could
+not enter pytest, so no reduced or full property suite pass is claimed.
+
+Host must run the requested full files at the final local tip:
+- tests/unit/test_procs.py
+- tests/unit/test_census_identity_uncertainty.py
+- tests/unit/test_census_recycled_pid.py
+- tests/unit/test_census_survivors_review.py
+- tests/fake/test_census_recycled_pid_daemon.py
+- tests/fake/test_review_r185_adversarial.py
+- tests/fake/test_writer_retention_fence.py
+- tests/fake/test_detached_cwd_pins.py
+- tests/fake/test_policy_sandbox.py
+- tests/fake/test_turn_retention_cwd.py
+- tests/fake/test_review_pr131_round14.py
+- tests/fake/test_review_pr131_round15.py
+- tests/unit/test_daemon_settle.py
+- tests/fake/test_quarantine_ambiguity.py
+- tests/fake/test_quarantine_self_resolve.py
+- tests/fake/test_state_contract.py
+- tests/unit/test_test_module_names.py
+Also unrun: supplemental test_state_fixture_processes.py, census_interleavings,
+review_pr131_census_property, full property profiles, and broader suites or
+mutations not requested here. The causal.py tool is the reviewer's pre-merge
+source-overlay diagnostic, not a direct/input probe, and was not rerun against
+already-integrated replacement anchors. No causal-overlay pass is claimed.
+
+Final line-union audit: all 212 files changed by either parent checked; 205
+retain the exact union of added lines and none resurrect a wholly removed
+line. Rewritten additions in the four conflict files and three ported census
+fixture files are accounted for in this round's resolutions and follow-ups.
+No automatic hunk outside those seven files lost an addition. The audit also
+identified the already-strengthened #131 marker/descendant/delivery oracles and
+release's added unknown-identity diagnostic; their combinations are described
+above. All 44, 21 and 24 original assertions in the ported release files remain
+in AST form; the survivor file adds one and the publication-race file adds five.
+Changed production/test Python parses; module basenames are unique; git diff
+--check passes. Static checks are not counted as pytest passes.
+
+Exact temporary reviewer copies and every task TMPDIR were cleaned. TMPDIR
+cleanup used python3/shutil.rmtree, never rm -rf. No .hypothesis directory,
+active test runner, staged logs, JSON evidence or delivery bundles remain.
+Existing committed artifacts from both parents are preserved. No network
+remote, push, history rewrite, sub-agent, live store or unrelated process
+operation occurred. Only named source/test/report files were staged.
+
+
+Round 18 — release integration fixes at 71463059d
+================================================
+
+This job uses only its assigned isolated workspace. The initial checkout was
+clean. Shared Git metadata is outside the writable sandbox, so each coherent
+step is committed on feat/quarantine-self-resolve in workspace-local .git-local,
+with a read-only object alternate to the shared repository. Shared HEAD and
+index remain untouched. Import the .git-local branch tip, including every
+round-18 commit; the ordinary checkout HEAD remains 71463059d.
+
+Root causes and combined rules
+------------------------------
+1. Detached cwd pin quarantine: _retain_lineage indexed census["identities"],
+   unlike every other optional census field. The release cwd fixture supplies
+   only an uncertain verdict. Missing identities now contribute no new boot
+   observations; all existing roots and evidence survive. The real quarantine
+   transition can retain both reader and writer job-held folder leases. This
+   does not classify a sparse census as empty or grant any signal authority.
+
+2. Exit-publication witness: its function-local imports initialized the helper's
+   ORIGINAL_CENSUS after state_daemon had installed an empty containment stub.
+   Consequently the host failure never reached the production publication
+   guard. Importing running/script_table at collection time restores the actual
+   collector. All 29 assertion expressions remain unchanged. The exact four
+   reviewer r15 exit-child cases are also copied byte-for-byte into the uniquely
+   named tests/fake/test_review_pr131_round18_exit_child.py. The one-receipt
+   production snapshot from round 17 is retained without alteration.
+
+3. Round-14 probes: their child_identity exists while child_pid is omitted.
+   The merged common _contain built a recorded identity under the key "None"
+   and _identity_union raised. The fallback now uses the published identity's
+   own PID only when row/start/exit PID publications are absent. A conflicting
+   PID still fails the identity union. All claim dispatch locks, receipt locks,
+   fresh scalar authorization, individual delivery and target caps are intact.
+   Probe and attempt signal-authority assertions are unchanged.
+
+4. Audit growth: recorded writer groups already seeded the descendant walk,
+   but persisted CensusRoots seeded group_pids on the following pass. An
+   unchanged table therefore changed its source diagnostics and produced an
+   additional quarantine.still_live event. Sampled retained groups now join
+   recorded writer groups in the descendant walk on every pass. Every member
+   and descendant still holds containment, including members of a sampled
+   group whose leader was reused during a failed bracket. group_pids continues
+   to describe the original launch group, as the release recycled-PID oracles
+   require. Shape changes remain audit changes. No audit assertion is changed.
+
+5. Unknown-boot collision release: identity_gone and compare_root rejected a
+   missing boot before considering positive start mismatch. A missing boot
+   still holds when either start is missing or both starts match. Two readable,
+   different starts now prove the old incarnation gone without needing boot
+   proof, consistent with the collector's existing start mismatch rule. A
+   retained root retires only when its sampled group is also empty. Missing
+   boot identity never authorizes a signal; scalar liveness/signal checks are
+   unchanged. Both r12 liveness files keep every original assertion.
+
+6. Real detached writer capture: state_daemon now replaces identity and snapshot,
+   but real_ps's older REAL list restored neither, nor group_members. The
+   parent PID was read from the synthetic fixture table and returned None.
+   real_ps now restores these production readers too. The overflow witness's
+   fresh boot reader also now agrees with its declared table boot, as round-17
+   reboot confirmation requires. All 47 detached-writer and 24 round-three
+   assertion expressions remain unchanged. Real tests still launch and clean
+   up only their own children.
+
+7. Additional six isolation failures: release's deliberately combined root
+   retirement removes dead lineage once its group is empty. The old terminal
+   expectation that roots 200/201 remain forever is superseded by that rule.
+   The exact {200, 201} root assertion is retained while those children are
+   alive, after two full censuses; after their disappearance/finalization the
+   test additionally asserts no remaining roots and exactly their separate
+   owned_identity_history keys. Every prior assertion expression remains in
+   AST form (15 before, 17 after). The timing of this one historical expectation
+   is the only expectation adjustment; success, leases, parent isolation,
+   disjointness and no-quarantine assertions remain at their original points.
+
+Focused new witnesses
+---------------------
+tests/unit/test_review_pr131_round18_census.py has eight cases: six unknown-boot
+start/group combinations, an unchanged two-census comparison after sampled
+root persistence, and sparse census retention. The six combinations check
+matching/missing starts hold, differing starts resolve only the old identity,
+nonempty sampled groups and detached descendants still hold, and incomplete
+identities never acquire signal authority. The unchanged-table case checks the
+entire serialized census, not only event counts. These are supplementary to,
+not substitutes for, the requested reviewer and release suites.
+
+Validation, commits and handoff
+-------------------------------
+Execution results and the final commit list follow below. No pytest pass is
+inferred from static checks or the caller's earlier host results.
+
+First completed locked checks at dac1ab0f6 (all production/fixture fixes):
+- tests/unit/test_review_pr131_round18_census.py: 8 passed, 8.30 seconds.
+- tests/fake/test_review_pr131_round15.py: 3 passed, 12.65 seconds.
+- tests/unit/test_test_module_names.py: 1 passed, 1.04 seconds.
+The latter two checks entered during the original serial file request batch;
+the new census checks entered on a subsequent 300-second queue. Other requested
+files are still pending at this checkpoint. Earlier requests that exited 75
+before pytest are unavailable validation, not failed tests or passing tests.
+
+Reviewer exit-child checkpoint at 4ab89d0a4:
+- tests/fake/test_review_pr131_round18_exit_child.py: 4 passed, 9.37 seconds.
+  This is the exact supplied r15 probe, including all three exit-only child
+  consumers and the recycled probe guardian. No assertion or input is changed.
+Static AST comparison also confirms _contain_probe, _kill_attempt, _signal_owned,
+_unambiguous_signal_identity, liveness, same_process, signal_group, signal_process,
+identities_overlap and protected_pids are unchanged from 71463059d. Static
+comparison is supporting evidence, not counted as additional pytest passes.
+
+Final standalone per-file counts
+-------------------------------
+tests/unit/test_review_pr131_round18_census.py: 8 passed (8.30 s).
+tests/fake/test_review_pr131_round18_exit_child.py: 4 passed (9.37 s).
+tests/fake/test_review_pr131_round15.py: 3 passed (12.65 s).
+tests/unit/test_test_module_names.py: 1 passed (1.04 s).
+tests/fake/test_census_recycled_pid_daemon.py: 0 executed; UNRUN.
+tests/fake/test_detached_cwd_pins.py: 0 executed; UNRUN.
+tests/fake/test_review_pr131_round14.py: 0 executed; UNRUN.
+tests/fake/test_quarantine_review_fixes.py: 0 executed; UNRUN.
+tests/fake/test_quarantine_detached_writers.py: 0 executed; UNRUN.
+tests/fake/test_quarantine_attempt_isolation.py: 0 executed; UNRUN.
+tests/fake/test_review_pr131_round3.py: 0 executed; UNRUN.
+tests/fake/test_r12orig_liveness.py: 0 executed; UNRUN.
+tests/fake/test_review_pr131_round12_liveness.py: 0 executed; UNRUN.
+tests/fake/test_state_contract.py: 0 executed; UNRUN.
+
+Total: 16 passed, zero failed, zero skipped among executed tests. There were
+28 foreground lock requests: four entered pytest and 24 exited 75 in the queue,
+before pytest. Every failed file was requested at least twice; cwd pins three
+times. Four requests used a 300-second queue; the other 24 used 60 seconds.
+The successful new census and copied reviewer probe checks used those longer
+queues. No hold exceeded 20 minutes: an outer 1140-second watchdog covered
+queue plus execution; every completed pytest took at most 12.65 seconds.
+No test waited for calmer load while holding the lock, and no pytest overlapped.
+
+The runner used a fresh task TMPDIR from getconf DARWIN_USER_TEMP_DIR per request,
+HYPOTHESIS_STORAGE_DIRECTORY inside that directory, lockf -k on the required
+/private/tmp/claude-501/subfleet-suites.lock, uv run --offline --no-sync pytest -q
+-p no:cacheprovider, and the existing opt-in tests.review_pr131_r15_bounds plugin
+for most requests. That profile bounds properties to eight examples and state
+machines to five examples/eight steps, with no database. All successful files
+contain ordinary/parametrized cases; no property/state-machine pass is claimed.
+Full property profiles, all 20 real detached-writer cases, and every file marked
+UNRUN remain host work. Queue failures are not collection or assertion failures.
+
+The isolated environment uses CPython 3.14.7 free-threaded, pytest 9.1.1 and
+Hypothesis 6.168.1. Installed test dependencies were copied read-only into this
+workspace's .venv. Its project .pth and console entry points reference only this
+workspace. No dependency network access or Git remote operation was performed.
+All four completed checks ran after the final production/fixture change in
+dac1ab0f6; subsequent commits change only this report.
+
+Host preservation manifest (all 0 executed / UNRUN here)
+-------------------------------------------------------
+Besides the ten requested files marked UNRUN above, the hub should rerun these
+previously passing release/PR groups, each file in its own lock hold:
+- tests/unit/test_procs.py
+- tests/unit/test_census_identity_uncertainty.py
+- tests/unit/test_census_recycled_pid.py
+- tests/unit/test_census_survivors_review.py
+- tests/fake/test_review_r185_adversarial.py
+- tests/fake/test_writer_retention_fence.py
+- tests/fake/test_policy_sandbox.py
+- tests/fake/test_turn_retention_cwd.py
+- tests/fake/test_r12orig_ownership.py
+- tests/fake/test_r12orig_signal_authority.py
+- tests/fake/test_review_pr131_round12_ownership.py
+- tests/fake/test_review_pr131_round12_signal_authority.py
+- tests/unit/test_daemon_settle.py
+- tests/fake/test_probe_recovery.py
+- tests/fake/test_quarantine_self_resolve.py
+- tests/fake/test_quarantine_ambiguity.py
+- tests/fake/test_review_pr131_round6.py
+- tests/fake/test_review_pr131_round6b.py
+- tests/fake/test_review_pr131_round6b_authority.py
+- tests/fake/test_review_pr131_round11.py
+- tests/unit/test_quarantine_migration.py
+- tests/fake/test_review_pr131_probes.py
+- tests/fake/test_quarantine_process_world.py
+Also UNRUN (supplemental proofs, not claimed passing): test_state_fixture_processes,
+quarantine_identity_invariants, turn_retention_cwd_properties, census_interleavings,
+review_pr131_census_property, mutation runners and broader suites not named here.
+After 24 lock-queue denials, no further full-group requests were queued. The
+caller explicitly provides host validation when the queue prevents local runs.
+
+Commits in workspace-local .git-local on feat/quarantine-self-resolve
+------------------------------------------------------------------
+099b65e43 sparse census retention
+6ba4ae690 collection-time production census imports and exact reviewer probe
+cd417d672 published child identity PID fallback
+1907e871b stable retained-group source diagnostics and descendant walks
+eae6a9ab8 unknown-boot start-mismatch resolution and eight focused witnesses
+dac1ab0f6 real inspection restoration, fresh overflow boot, resolved-root fixtures
+4ab89d0a4 root-cause report and first locked checks
+f3b123391 copied reviewer exit-child passes and unchanged signal-boundary audit
+The final handoff/report commit is listed in the final answer. Import that local
+branch tip; the ordinary checkout HEAD remains 71463059d.
+
+Final static and cleanup checks
+--------------------------------
+All eight changed Python files parse. The seven unchanged requested witness
+files (cwd pins, round 14, round 15, review fixes, both r12 liveness files, state
+contract) match 71463059d byte-for-byte. All 115 original assertion expressions
+in the four edited existing test modules remain, with two added expressions
+(117 total); the sole timing adjustment is explained above. The supplied probe
+copy matches byte-for-byte (SHA-256 ca7297edcdb7ca9ec3d40da40680b652dbe3fb18f56836cd25cd5858106e27eb).
+Module basenames are unique, both statically and in the passing pytest check.
+Git diff --check passes. These checks are not additional pytest counts.
+
+Each task TMPDIR was cleaned using the required python3/shutil.rmtree command.
+Task-only temporary runners/logs are removed at handoff; no .hypothesis directory
+or active test runner remains. Only named source, test and report files were
+staged. Existing committed artifacts and release ancestry are preserved. No
+sub-agent, network remote, push, history rewrite, live store, caller worktree
+write or unrelated process operation occurred. Real writer tests never entered
+pytest in this job, so they started no real writer children here.
+
+
+Round 19 — CI failures at f2e9b1dfc
+===================================
+
+The first full CI run on f2e9b1dfc (Python 3.14, run 38366671306) failed 52
+tests in seven files. Four causes explain all 52: one schema mismatch between
+prune and this branch, and three test stand-ins that round 14 and its receipt
+import left behind. One production gap turned up as well: prune did not
+expect schema 8's process-claim tables. No assertion was loosened; the three
+expectation changes schema 8 forces are listed under cause 1.
+
+Commits are on the job's detached workspace HEAD (shared Git metadata was
+writable), on top of f2e9b1dfc. Subfleet keeps them under
+refs/subfleet-salvage/. feat/quarantine-self-resolve is checked out in the
+caller's worktree, so this job did not move it.
+
+Cause 1: prune (#192) against schema 8 (41 + 1 failures, and one gap)
+---------------------------------------------------------------------
+- The prune pass never reads `rowid`. Its fingerprints digest each table's
+  rows as a multiset (`_digest` over `SELECT *`), so its planning, backup
+  verification and after-proofs already covered the two WITHOUT ROWID tables.
+  The 41 "no such column: rowid" failures came from the tests' independent
+  whole-store snapshots, which read every table `ORDER BY rowid`:
+  test_pr192_review_r1 (16), test_prune_decision_backup_verification (13),
+  test_pr192_review_r2 (7) and test_prune_217 (5).
+- Fix: tests/table_order.py orders a rowid table by `rowid`, as before, and a
+  WITHOUT ROWID table by its primary key. That key is unique and is the order
+  SQLite stores the table in. The four helpers use it. Every refusal and
+  equality assertion is unchanged.
+- The production gap: `_require_schema_tables` built its expected tables from
+  store_schema.sql alone. A writing `Store` also applies
+  store_process_claims.sql. A schema 8 store missing any of the five
+  process-claim tables was therefore pruned (3 rows deleted in a mutation
+  check) instead of refused. `store.schema_script()` now names the files a
+  writing `Store` applies; `Store` and the refusal both use it. With the fix
+  all five are refused; reverting it makes each one prune again.
+- Are the claims tables decision dependents? No:
+  * attempt_process_claims and process_claim_receipt_pending reference only
+    `attempts`, and no foreign key in the schema names `decisions`;
+  * all six triggers fire on `attempts`, and a prune writes only `decisions`
+    (DELETE) and `events` (one INSERT per batch);
+  * on populated claims tables, each batch's `total_changes` is exactly its
+    deleted rows plus one audit row. `total_changes` counts rows that
+    triggers and foreign-key actions change (checked directly in SQLite
+    3.53.4), so neither fired;
+  * all five tables are fingerprinted, identical after the delete and after
+    VACUUM, held by the whole-store copy, and put back byte-identical by the
+    published restore recipe.
+- The other guarantees, proven on the claims tables as well:
+  * changed rows in the backup copy are refused, at identical counts too, for
+    all five tables (and a missing or emptied table for both WITHOUT ROWID
+    ones);
+  * a trigger-driven claims change committed after planning stops the pass
+    before its first delete and names `attempts` and the claims tables;
+  * a new WITHOUT ROWID table joins the proof, and drift in it is refused;
+  * the shared lifetime lock still refuses an apply while the daemon runs.
+- Expectations schema 8 supersedes (test_prune_217.py only):
+  1. the restore property expects `{'store': 8, 'build': 8}`;
+  2. the schema test, renamed `test_schema_8_has_no_decision_dependents_...`,
+     expects SCHEMA_VERSION 8 and the five claims tables in the enumeration
+     and fingerprints. It still requires no foreign key to `decisions`. Its
+     "no trigger at all" check is replaced by the exact trigger inventory,
+     all on `attempts`;
+  3. the shared-lifetime-lock test takes its baseline after the daemon
+     opens the store. Schema 8's daemon completes its one-time receipt
+     import there (`process_claim_receipts` goes from (1,0,0) to (1,1,1)).
+     The test asserts that this row is the daemon's only write, and still
+     that the refused apply and the dry run change nothing.
+- Schema version checks: prune's apply refusal, dry-run report and newer-
+  schema refusal all compare against `SCHEMA_VERSION`, so they recognise 8
+  unchanged; test_prune_decisions' SCHEMA_VERSION-1 and schema-99 cases pass.
+  The module docstring and docs/migration.md now say schema 8 and name the
+  claims tables.
+
+Cause 2: round 7's leader-confirmation model (6 failures)
+---------------------------------------------------------
+- `test_fresh_leader_confirmation_respects_member_identity` lets the child
+  escape (`setsid 200`) from a hook on the world's `signal_group` phase.
+  That phase fires only when the daemon calls `procs.signal_group`.
+- Round 14's 8d7b6a7e7 ("Keep quarantine delivery within verified individual
+  targets") removed every production call. `git grep` finds none at
+  8d7b6a7e7, 71463059d or f2e9b1dfc; deb8c5b25, just before it, has five.
+  So the hook never fired and the child stayed in group 100:
+  `assert 100 == 200`.
+- Round 18 (1907e871b, eae6a9ab8, cd417d672) did not cause this and touched
+  no delivery code.
+- The expectation was superseded and the copy was missed. Round 14's
+  0b99d0b4f moved the primary model's two twin scenarios to the `signal`
+  phase but not this one. It now uses the same phase. Both assertions are
+  unchanged: the child escapes before its first SIGKILL, and it is killed
+  exactly when a complete table shape made it owned.
+
+Cause 3: notice tests and signal authority (3 failures)
+-------------------------------------------------------
+- Since 8d7b6a7e7, C-5.4 holds: the daemon signals only recorded,
+  scalar-confirmed and claim-authorized identities, each through
+  `procs.signal_process`, and never calls `killpg`.
+- test_notice_header's stand-in still replaced `procs.signal_group`, and the
+  `state_daemon` fixture reports the guardian unconfirmed (`same_process` is
+  False). The daemon therefore rightly signalled nothing: `sent == []`, no
+  exit receipt was written, and the recovery case found no receipt and ended
+  `lost` instead of `failed`. The daemon is right; the stand-in was stale.
+- Fix: the stand-in confirms only the attempt's live identities and receives
+  the signal at `os.kill`, behind the real `signal_process` identity and
+  authorization checks. `killpg`, or a signal to any other pid, fails the
+  test.
+- The recovery case now models its title: the guardian is dead, and its
+  provider is the writer left, recorded as owned while the guardian led its
+  group (C-5.6). Recovery signals that provider alone.
+- All assertions are unchanged. The recovery case also asserts its single
+  SIGTERM. `test_c9_2_c4_3_the_killed_downgrade_survives_finalization_replay`
+  used the same stand-in. It passed in CI only because the daemon synthesised
+  a rc -15 receipt; it now exercises the rc 0 receipt its title is about.
+
+Cause 4: launch-inspection clock stub (1 failure)
+-------------------------------------------------
+- `test_c5_12_..._after_its_guardian_started` replaced the daemon module's
+  `time` with a namespace holding only `monotonic`.
+- Since 86ffea7ec, the due inspection's ownership record reads the
+  receipt-import queue against `time.time()`. `retry_at` is wall time
+  because it outlives a restart.
+- The code is right. The stub now keeps the real wall clock and still pins
+  only the inspection clock. Every assertion is unchanged.

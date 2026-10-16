@@ -23,7 +23,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Outcome, OutcomeClass
-from subfleet.procs import Containment, ProcessIdentity
+from subfleet.procs import Containment, ProcessIdentity, ProcessTable
 from tests.caps import capped
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -48,6 +48,7 @@ def state_daemon(tmp_path, monkeypatch):
                         lambda pid: daemon_module.procs.snapshot().identity(pid))
     monkeypatch.setattr(daemon_module.procs, "group_members", lambda *args: {})
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
+    monkeypatch.setattr(daemon_module.procs, "cwd_pids", lambda workdir: frozenset())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
     def refuse_real_launch(*args):
@@ -58,6 +59,13 @@ def state_daemon(tmp_path, monkeypatch):
     finally:
         daemon.close()
     harness.check_notices()                 # C-15.1, after every in-process test too
+
+
+@pytest.fixture
+def dead_guardian(monkeypatch):
+    """C-5.12: model an absent guardian for the explicit loss scenarios."""
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: ProcessTable({}, boot_id="unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
 
 
 def test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts(state_daemon):
@@ -253,8 +261,42 @@ def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
 
 def reserve(daemon, harness, **submit_overrides):
     job_id = daemon.dispatch("submit", harness.submit_args(**submit_overrides))["job_id"]
-    daemon._admit()
-    attempt = daemon.store.list_attempts(job_id)[-1]
+    # Admission may legitimately defer a real Git check. Submit once and keep
+    # retrying that job, with a fixture clock rather than sleeping on host load.
+    from datetime import datetime, timedelta
+    real_now = daemon_module.utcnow
+    fixture_now = datetime.fromisoformat(real_now().replace("Z", "+00:00"))
+    class FixtureDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixture_now.astimezone(tz) if tz is not None else fixture_now.replace(tzinfo=None)
+
+    with pytest.MonkeyPatch.context() as clock:
+        # Routing, due checks and retry timestamps must use the same clock.
+        clock.setattr(daemon_module, "datetime", FixtureDatetime)
+        for retry in range(4):
+            daemon._admit()
+            attempts = daemon.store.list_attempts(job_id)
+            if attempts:
+                attempt = attempts[-1]
+                break
+            job = daemon.store.get_job(job_id)
+            hold = daemon._holds.get(job_id)
+            diagnostic = {"job": job, "hold": hold, "leases": daemon.store.list_leases(),
+                          "readings": daemon.store.latest_reading_candidates()}
+            if (job["state"] != "waiting" or job["wait_reason"] != "workspace"
+                    or not job["next_check_at"] or retry == 3):
+                raise AssertionError("fixture reservation was not admitted: " + json.dumps(diagnostic, default=str))
+            fixture_now = datetime.fromisoformat(job["next_check_at"].replace("Z", "+00:00")) + timedelta(seconds=1)
+            # Fixture capacity must remain measured at the advanced instant.
+            # Preserve every reading's actual label/value; never bypass route
+            # checks or refresh unrelated/stale production measurements.
+            for reading in daemon.store.latest_reading_candidates():
+                if reading["source"] == "fixture":
+                    with daemon.store.transaction("fixture.capacity_clock", audit=False) as tx:
+                        tx.execute("UPDATE readings SET observed_at=?,resets_at=? WHERE reading_id=?",
+                                   (daemon_module.utcnow(), (fixture_now + timedelta(hours=1)).isoformat(timespec="seconds").replace("+00:00", "Z"), reading["reading_id"]))
+
     daemon._pending_launches.discard(attempt["attempt_id"])
     adir = daemon.root / "jobs" / job_id / f"a{attempt['seq']}"
     adir.mkdir(mode=0o700)
@@ -351,11 +393,9 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, monkeypatch):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, dead_guardian):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
-    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
@@ -516,25 +556,28 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     guardian = ProcessIdentity(42001, "unit-test-boot", "unit-test-start")
     child = ProcessIdentity(42002, "unit-test-boot", "unit-test-start")
     members = Containment(group_pids=frozenset({42001, 42002}),
-                          identities={42001: guardian, 42002: child})
+                          identities={42001: guardian, 42002: child},
+                          group_identities={42001: guardian, 42002: child})
     census = iter([members, Containment(group_pids=frozenset({42002}), identities={42002: child}),
                    Containment()])
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: next(census))
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: next(census))
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: True)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     signals = []
-    monkeypatch.setattr(daemon_module.procs, "signal_group",
-                        lambda pgid, sig, **identity: signals.append(("group", pgid, sig)))
-    monkeypatch.setattr(daemon_module.procs, "signal_process",
-                        lambda identity, sig: signals.append(("process", identity.pid, sig)))
+    monkeypatch.setattr(daemon_module.procs.os, "getpgid", lambda pid: 42001)
+    monkeypatch.setattr(daemon_module.procs.os, "kill",
+                        lambda pid, sig: signals.append(("process", pid, sig)))
+    monkeypatch.setattr(daemon_module.procs.os, "killpg",
+                        lambda *args: pytest.fail("group delivery is not authorized"))
     daemon.term_grace_s = 0
     daemon.dispatch("kill", {"job_id": job_id})
     daemon._kill_attempt(attempt)
-    assert signals == [("group", 42001, signal.SIGTERM), ("group", 42001, signal.SIGKILL),
+    assert signals == [("process", 42001, signal.SIGTERM), ("process", 42002, signal.SIGTERM),
+                       ("process", 42001, signal.SIGKILL), ("process", 42002, signal.SIGKILL),
                        ("process", 42002, signal.SIGKILL)]
     assert daemon.store.get_attempt(attempt["attempt_id"])["killed_by"] == "operator"
     assert json.loads((adir / "exit.json").read_text())["signal"] == signal.SIGKILL
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: Containment())
     daemon._finalize(daemon.store.get_attempt(attempt["attempt_id"]))
     assert daemon.store.get_job(job_id)["state"] == "cancelled"
     assert daemon.store.query("SELECT * FROM leases") == []
@@ -546,7 +589,7 @@ def test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audit
     job_id, attempt, _ = reserve(daemon, harness, out_path=str(harness.root / "export.md"))
     survivor = Containment(marker_pids=frozenset({42099}))
     daemon._quarantine(attempt, survivor, "escaped fixture")
-    monkeypatch.setattr(daemon, "_contain", lambda attempt: survivor)
+    monkeypatch.setattr(daemon, "_contain", lambda attempt, foreign_ownership=None: survivor)
     args = protocol.KillArgs(job_id, confirm_dead=True)
     daemon._resolve_quarantine(attempt, args)
     assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"

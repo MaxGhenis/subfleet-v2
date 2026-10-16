@@ -24,7 +24,7 @@ def restart(world):
     root = world.core.root
     world.core.close()
     world.core = Daemon(root, desktop_prober=lambda: None)
-    world.core._contain = lambda attempt: Containment()
+    world.core._contain = lambda attempt, foreign_ownership=None: Containment()
     return world.core
 
 

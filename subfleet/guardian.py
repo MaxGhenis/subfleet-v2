@@ -8,14 +8,16 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import procs
-from .procs import boot_id, proc_start
 from .contracts import EXIT_SETTLE_S
+from .process_claims import receipt_claim_lock
+from .procs import InspectionError, boot_id, pipe_above_stdio, proc_start
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
 # daemon at the default QoS (launchd `ProcessType` `Interactive`) never lifts it over the
@@ -31,6 +33,7 @@ PROVIDER_QOS_ENV = "SUBFLEET_PROVIDER_QOS"    # `inherit`: the provider runs at 
 CLAMP_SPAWN_FAILED_RC = 66
 CLAMP_SPAWN_FAILED = b"taskpolicy: posix_spawn: "
 _ERRNO_BY_TEXT = {os.strerror(number): number for number in errno.errorcode}
+
 # D-CEN1: a guardian the daemon started as its own responsible process
 # (`procs.spawn_disclaimed`) is named as responsible by every process the provider
 # starts, and they start, whatever they do to their group, parent, title or
@@ -100,7 +103,12 @@ def atomic_publish(path: str | Path, data: bytes) -> None:
 
 
 def _receipt(path: Path, value: dict) -> None:
-    atomic_publish(path, (json.dumps(value, sort_keys=True) + "\n").encode())
+    data = (json.dumps(value, sort_keys=True) + "\n").encode()
+    if path.name == "start.json":
+        with receipt_claim_lock(path, blocking=True):
+            atomic_publish(path, data)
+    else:
+        atomic_publish(path, data)
 
 
 def _utc() -> str:
@@ -152,7 +160,10 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     (C-26.4): the socket is bound before `start.json` names it, and frames are
     applied once each, in order, logged to `stdin.jsonl`."""
     os.umask(0o077)
-    os.setsid()
+    if os.getsid(0) != os.getpid():
+        # The daemon starts a guardian in its own session before it execs (C-5.1);
+        # one started any other way leads a new one here.
+        os.setsid()
     # Keep the leader alive while a child ignores TERM, so the daemon can
     # recheck the recorded leader before escalating to SIGKILL (C-5.4/5.6).
     signal.signal(signal.SIGTERM, lambda *_: None)
@@ -190,16 +201,72 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     _receipt(attempt_dir / "start.json", start)
     child = None
     spawn_error = None
+    qos = provider_qos()
+    command = provider_argv(argv, qos)
+
+    def record_child():
+        # The guardian has not reaped this child, so its PID cannot yet be
+        # recycled. Publish before waiting or serving the long-lived relay.
+        start["child_pid"] = child.pid
+        try:
+            child_start = proc_start(child.pid)
+        except InspectionError:
+            child_start = None
+        if child_start:
+            start["child_identity"] = {"pid": child.pid, "boot_id": start["boot_id"], "proc_start": child_start}
+        _receipt(attempt_dir / "start.json", start)
+        return bool(child_start)
+
+    def spawn(stdin, stdout, stderr):
+        nonlocal child, spawn_error
+        gate_read, gate_write = pipe_above_stdio()
+        try:
+            error_read, error_write = pipe_above_stdio()
+        except BaseException:
+            os.close(gate_read)
+            os.close(gate_write)
+            raise
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-I", "-S", str(Path(__file__).with_name("provider_gate.py")),
+                 str(gate_read), str(error_write), *command],
+                cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr,
+                pass_fds=(gate_read, error_write))
+            os.close(gate_read)
+            gate_read = None
+            os.close(error_write)
+            error_write = None
+            if record_child():
+                # Both the file and its containing directory are fsynced before
+                # the launcher can exec taskpolicy/provider in its recorded PID.
+                os.write(gate_write, b"1")
+            else:
+                spawn_error = "provider launch identity unavailable; execution gate refused"
+            return error_read
+        except BaseException:
+            os.close(error_read)
+            # A publication failure must close the gate and reap the launcher.
+            # EOF cannot execute provider code, including on a hard parent crash.
+            os.close(gate_write)
+            gate_write = None
+            if child is not None:
+                child.wait()
+            raise
+        finally:
+            for fd in (gate_read, gate_write, error_write):
+                if fd is not None:
+                    os.close(fd)
+
+    error_read = None
+
     try:
-        qos = provider_qos()
-        command = provider_argv(argv, qos)
         try:
             with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
                 if relay is not None:
                     read_end, write_end = os.pipe()
                     try:
-                        child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr)
-                    except OSError:
+                        error_read = spawn(read_end, stdout, stderr)
+                    except BaseException:
                         os.close(write_end)
                         raise
                     finally:
@@ -215,12 +282,22 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                         # credential lookup and worker queueing (C-23.19).
                         if os.environ.get("SUBFLEET_PROBE"):
                             _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                        child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
+                        error_read = spawn(stdin, stdout, stderr)
                         rc = child.wait()
         except OSError as exc:
             rc = 127
             # OSError contains the executable/path and errno, never child env.
             spawn_error = str(exc)
+        finally:
+            if error_read is not None:
+                try:
+                    failure = os.read(error_read, 4096)
+                    if failure:
+                        spawn_error = json.loads(failure)["spawn_error"]
+                finally:
+                    os.close(error_read)
+        if spawn_error:
+            rc, child = 127, None
         if qos and child is not None and not spawn_error:
             spawn_error = clamp_spawn_error(rc, stderr_path, argv[0])
             if spawn_error:

@@ -27,7 +27,7 @@ from subfleet.ids import payload_digest
 from subfleet.offline import Offline
 from subfleet.policy import DEFAULT_POLICY_PATH, PUSH_DEFAULTS, PolicyError, load_policy
 from subfleet.procs import Containment
-from subfleet.store import Store
+from subfleet.store import SCHEMA_VERSION, Store
 
 
 # Repository setup can wait on macOS filesystem flushes under load. This
@@ -94,7 +94,7 @@ def worlds(tmp_path, monkeypatch):
             core = Daemon(root, desktop_prober=lambda: None)
             core.store.put_lane(Lane("test-lane", "codex", "codex:test", Credential("codex", str(home), "home"),
                                      str(home), LaneOwner.V2, False))
-            core._contain = lambda attempt: Containment()
+            core._contain = lambda attempt, foreign_ownership=None: Containment()
             core._saved_launch = lambda attempt: Launch((), {}, (), str(repo), str(root / "prompt"),
                 str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stdout"),
                 str(attempt_dir(root, attempt["job_id"], attempt["seq"]) / "stderr"), None, None)
@@ -665,7 +665,9 @@ def test_schema_six_migration_preserves_jobs_without_authorizing_push(tmp_path):
         assert store.get_job("legacy")["push_branch"] is None
         assert store.query("SELECT * FROM job_pushes") == []
         assert store.query("SELECT * FROM job_owned_branches") == []
-        assert store.one("SELECT max(version) AS version FROM schema_version")["version"] == 7
+        versions = [row["version"] for row in store.query("SELECT version FROM schema_version ORDER BY version")]
+        # Step 7 adds the push columns; later steps (8: quarantine pacing) follow it.
+        assert 7 in versions and versions[-1] == SCHEMA_VERSION
 
 
 def test_git_timeout_stops_the_transport_process_group(tmp_path, monkeypatch):

@@ -270,7 +270,9 @@ def test_d_cen1_responsibility_members_are_counted_and_recorded_without_commands
                                recorded_identities={42: procs.ProcessIdentity(42, BOOT_A, START)})
     assert result.responsible_pids == {42, 43, 60, 61}
     assert 70 not in result.live_pids                         # its own responsible process
-    assert result.shapes[60] == {"ppid": 1, "pgid": 60, "stat": "Ss"}
+    # Fresh responsibility captures share the marker identity/group bracket,
+    # which records generic live state rather than the snapshot's old flags.
+    assert result.shapes[60] == {"ppid": 1, "pgid": 60, "stat": "S"}
     assert result.identities[61] == procs.ProcessIdentity(61, BOOT_A, START)
     shown = json.dumps(result.to_dict())
     assert shown.count('"responsible_pids": [42, 43, 60, 61]') == 1
@@ -394,13 +396,16 @@ class Store:
 
 
 def core_for(row) -> SimpleNamespace:
-    return SimpleNamespace(root=Path("/fixture/state"), store=Store(row), _read_json=lambda path: None)
+    return SimpleNamespace(root=Path("/fixture/state"), store=Store(row), _read_json=lambda path: None,
+        _job=lambda job: {"workdir": "/fixture/work"},
+        _foreign_ownership=lambda *args: procs.ForeignOwnership(),
+        _prune_foreign_lineage=Daemon._prune_foreign_lineage, _save_probe=lambda record: None)
 
 
 def attempt_row(**evidence) -> dict:
     return {"attempt_id": ATTEMPT, "job_id": "job", "seq": 1, "guardian_pid": 42, "pgid": 42, "child_pid": 43,
             "boot_id": BOOT_A, "proc_start": START, "started_at": "2026-10-13T01:00:00Z",
-            "evidence_json": json.dumps(evidence)}
+            "evidence_json": json.dumps(evidence), "state": "finalizing"}
 
 
 def captured(monkeypatch, result: procs.Containment | None = None) -> list[dict]:
@@ -415,9 +420,11 @@ def captured(monkeypatch, result: procs.Containment | None = None) -> list[dict]
 
 def test_d_cen1_contain_passes_the_root_only_for_the_attempts_own_guardian(monkeypatch):
     calls = captured(monkeypatch)
-    Daemon._contain(core_for(attempt_row()), attempt_row(responsible_root={"pid": 42, "unique_id": 77}))
+    row = attempt_row(responsible_root={"pid": 42, "unique_id": 77})
+    Daemon._contain(core_for(row), dict(row))
     assert calls[-1]["responsible_root"] == procs.ResponsibleRoot(42, BOOT_A, 77)
-    Daemon._contain(core_for(attempt_row()), attempt_row(responsible_root={"pid": 41, "unique_id": 77}))
+    row = attempt_row(responsible_root={"pid": 41, "unique_id": 77})
+    Daemon._contain(core_for(row), dict(row))
     assert calls[-1]["responsible_root"] is None              # not this guardian's: three sources
     Daemon._contain(core_for(attempt_row()), attempt_row())
     assert calls[-1]["responsible_root"] is None              # legacy: three sources
@@ -439,10 +446,10 @@ def test_d_cen1_every_member_a_census_sees_is_kept_and_seeds_the_next(monkeypatc
     assert evidence["responsible_identities"] == {"60": asdict(escaper)}     # not the guardian itself
     assert "owned_identities" not in evidence
     assert json.loads(a["evidence_json"]) == evidence          # the caller's row too, as `recycled` is kept
-    assert core.store.events == [("attempt.responsible_recorded", {"pids": [60]})]
+    assert core.store.events == [("attempt.lineage_recorded", None)]
     Daemon._contain(core, dict(row))
-    assert calls[-1]["recorded_identities"][60] == escaper
-    assert len(core.store.events) == 1                         # nothing new: nothing written
+    assert calls[-1]["recorded"][60] == [escaper]
+    assert len(core.store.events) == 2                         # one quarantine lineage transaction per census
 
 
 def test_d_cen1_a_probe_record_keeps_its_members_in_the_record(monkeypatch):
@@ -477,6 +484,14 @@ def test_d_cen1_a_guardian_without_a_root_is_said_once(monkeypatch):
 @pytest.mark.parametrize("unique_id", [1, None])
 def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, unique_id):
     census(monkeypatch, parents=ROWS, session=BOOT_A)
+    cwd_reads = []
+
+    def cwd_pids(workdir):
+        assert workdir == "/fixture/work"
+        cwd_reads.append(workdir)
+        return frozenset()
+
+    monkeypatch.setattr(procs, "cwd_pids", cwd_pids)
     kernel_with(monkeypatch, processes={42: b"", 43: b""},
                 responsible={42: 42, 43: 42}, unique={42: 100, 43: 101})
     row = attempt_row(responsible_root={"pid": 42, "unique_id": unique_id})
@@ -484,8 +499,10 @@ def test_d_cen1_a_recycled_guardian_never_persists_a_stranger(monkeypatch, uniqu
     core = core_for(row)
     result = Daemon._contain(core, dict(row))
     assert result.verified_empty and not result.responsible_pids
+    assert cwd_reads == ["/fixture/work"]
     assert "responsible_identities" not in json.loads(row["evidence_json"])
-    assert core.store.events == [("attempt.processes_recycled", {"recycled": result.to_dict()["recycled"]})]
+    assert core.store.events == [("attempt.lineage_recorded", None),
+        ("attempt.processes_recycled", {"recycled": result.to_dict()["recycled"]})]
 
 
 @pytest.mark.parametrize("first_error", [False, True])

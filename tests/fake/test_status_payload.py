@@ -46,8 +46,14 @@ def test_status_and_lane_hold_stay_small_and_indexed_with_large_history(routing_
             assert len(result["attempts"]) == 33
             assert {row["state"] for row in result["attempts"]} == {
                 "reserved", "starting", "running", "finalizing", "quarantined"}
+            # C-5.7: a quarantined row also says when it ended, why it is held and
+            # when it is next checked; a live row carries nulls there. Never evidence.
             assert all(set(row) == {"attempt_id", "job_id", "seq", "lane_id", "model_requested",
-                                    "state", "reserved_at"} for row in result["attempts"])
+                                    "state", "reserved_at", "finished_at", "quarantine_reason",
+                                    "quarantine_recheck_at"} for row in result["attempts"])
+            assert all(row["finished_at"] is None and row["quarantine_reason"] is None
+                       and row["quarantine_recheck_at"] is None
+                       for row in result["attempts"] if row["state"] != "quarantined")
             assert len(result["jobs"]) == 35
             assert {"queued", "waiting", "quarantine"} <= {row["job_id"] for row in result["jobs"]}
             assert "Running jobs" in result["status"] and "Waiting jobs" in result["status"]

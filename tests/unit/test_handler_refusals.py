@@ -124,6 +124,26 @@ def test_constant_refusal_text_and_its_template_say_the_same_thing():
     assert checked > 100 and differ_at == [], differ_at
 
 
+@pytest.mark.parametrize("reason", ["out-path-held", "worktree-lease"])
+@pytest.mark.parametrize("holder", ["20261013-014534-astra", None, "bad/id",
+                                     "20261013-014534-sk-" + "a" * 20])
+def test_quarantine_holder_and_resolve_hint_reach_the_caller(reason, holder):
+    error = AdapterError(SENTINEL, fix=SENTINEL, reason=reason, details={"job_id": holder})
+    response = wire_reply(op="submit", error=error)
+    shown = response["error"]
+    assert not response["ok"]
+    assert "--confirm-dead" in shown["fix"] and "automatically" in shown["fix"]
+    text = json.dumps(shown)
+    assert SENTINEL not in text
+    if holder == "20261013-014534-astra":
+        assert holder in shown["message"]
+        assert f"subfleet kill {holder} --confirm-dead" in shown["fix"]
+    else:
+        assert shown["message"] == ("output path is held by another job" if reason == "out-path-held"
+                                     else "worktree has a lease")
+        assert holder is None or holder not in text
+
+
 # --- rendering, as properties ----------------------------------------------------
 
 def _values(name):

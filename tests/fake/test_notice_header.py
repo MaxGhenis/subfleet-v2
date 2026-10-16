@@ -9,12 +9,14 @@ job was `cancelled` with rc 130 and nothing had been exported.
 Every test here drives the daemon in process with no provider: each call site
 that writes a notice is reached through the daemon's own code path, and the
 header is read back from the store. Process identity is stubbed exactly as the
-`state_daemon` fixture stubs it; where a signal would be sent, the stub stands
-in for the provider's reaction to it and says so.
+`state_daemon` fixture stubs it, except that a test which kills an attempt also
+confirms the identities it may signal; where a signal would be sent, the stub
+stands in for the provider's reaction to it and says so.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 import signal
@@ -23,9 +25,9 @@ import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet import hooks, render
-from subfleet.procs import Containment
+from subfleet.procs import Containment, ProcessIdentity
 from tests.fake.notice_invariant import notice_mismatches
-from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.fake.test_state_contract import dead_guardian, receipt_fixture, reserve, state_daemon  # noqa: F401
 
 #: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
 INTERIM = b"I am checking the newer validation code before finalizing the review.\n"
@@ -88,12 +90,9 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
     ]
 
 
-def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, monkeypatch):
+def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, dead_guardian):
     """C-4.4, C-15.1 a loss without a receipt: `lost; rc=125`, the attempt's rc unknown."""
     daemon, harness = state_daemon
-    # The fixture guardian is absent; don't inspect the host's real process table.
-    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
-    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
@@ -217,33 +216,59 @@ def test_c15_1_the_hook_fallback_renders_the_row_as_the_notice_does(state_daemon
 
 # --- a signalled attempt is never ok (C-9.2) ----------------------------------
 
-def _codex_exits_zero_on_sigterm(monkeypatch, adir: Path) -> list[int]:
-    """Stand in for the process group the daemon signals.
+#: The running attempt's guardian and provider, as `_running` records them.
+GUARDIAN = ProcessIdentity(42001, "unit-test-boot", "unit-test-start")
+PROVIDER = ProcessIdentity(42002, "unit-test-boot", "unit-test-start")
 
-    No process exists; `signal_group` is where the daemon's SIGTERM would reach
-    the provider, so the stub does what Codex did on 2026-09-24: its last
-    interim message is the deliverable and the guardian records exit 0.
+
+def _codex_exits_zero_on_sigterm(monkeypatch, adir: Path, live=(GUARDIAN,)) -> list[int]:
+    """Stand in for the processes the daemon signals.
+
+    No process exists. The daemon signals each owned identity on its own, after
+    a fresh identity check, and never a whole group (C-5.4, C-5.6). So `live`
+    are the identities `same_process` confirms, and `os.kill` is where the
+    daemon's SIGTERM would reach them. The stub does what Codex did on
+    2026-09-24: its last interim message is the deliverable, the guardian
+    records exit 0, and then nothing of the attempt is left. A signal to any
+    other pid, or to a group, fails the test.
     """
     sent: list[int] = []
+    alive = set(live)
+    real_getpgid = daemon_module.procs.os.getpgid
 
-    def signal_group(pgid, sig, **identity):
+    def liveness(pid, boot_id, proc_start):
+        return "alive" if ProcessIdentity(pid, boot_id, proc_start) in alive else "dead"
+
+    def getpgid(pid):
+        if pid in {ident.pid for ident in live}:
+            return GUARDIAN.pid
+        return real_getpgid(pid)
+
+    def kill(pid, sig):
+        assert pid in {ident.pid for ident in alive}, ("signal to a process the attempt does not own", pid, sig)
         sent.append(int(sig))
         if sig == signal.SIGTERM:
             (adir / "stdout").write_bytes(INTERIM)
             (adir / "stderr").write_bytes(b"")
             (adir / "exit.json").write_text(json.dumps({
-                "rc": 0, "signal": None, "wall_s": 12.0, "child_pid": 42002,
+                "rc": 0, "signal": None, "wall_s": 12.0, "child_pid": PROVIDER.pid,
                 "finished_at": daemon_module.utcnow()}))
-        return True
+            alive.clear()
 
-    monkeypatch.setattr(daemon_module.procs, "signal_group", signal_group)
+    monkeypatch.setattr(daemon_module.procs, "liveness", liveness)
+    monkeypatch.setattr(daemon_module.procs, "same_process",
+                        lambda pid, boot_id, proc_start: liveness(pid, boot_id, proc_start) == "alive")
+    monkeypatch.setattr(daemon_module.procs.os, "getpgid", getpgid)
+    monkeypatch.setattr(daemon_module.procs.os, "kill", kill)
+    monkeypatch.setattr(daemon_module.procs.os, "killpg",
+                        lambda *args: pytest.fail("group delivery is not authorized"))
     return sent
 
 
 def _running(daemon, attempt) -> None:
-    daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
-                                pgid=42001, child_pid=42002, boot_id="unit-test-boot",
-                                proc_start="unit-test-start", started_at=daemon_module.utcnow())
+    daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=GUARDIAN.pid,
+                                pgid=GUARDIAN.pid, child_pid=PROVIDER.pid, boot_id=GUARDIAN.boot_id,
+                                proc_start=GUARDIAN.proc_start, started_at=daemon_module.utcnow())
 
 
 @pytest.mark.parametrize("stopped_by", ["operator", "max_wall_s"])
@@ -323,8 +348,13 @@ def test_c9_2_recovery_of_a_dead_guardians_group_is_not_ok_either(state_daemon, 
     daemon, harness = state_daemon
     job_id, attempt, adir = reserve(daemon, harness, max_attempts=1)
     _running(daemon, attempt)
-    _codex_exits_zero_on_sigterm(monkeypatch, adir)
+    # The guardian is dead. Its provider is the writer left, recorded as owned
+    # while the guardian still led its group (C-5.6), so recovery may signal it.
+    daemon.store.update_attempt(attempt["attempt_id"], evidence_json=json.dumps(
+        {"owned_identities": {str(PROVIDER.pid): dataclasses.asdict(PROVIDER)}}))
+    sent = _codex_exits_zero_on_sigterm(monkeypatch, adir, live=(PROVIDER,))
     daemon._kill_attempt(daemon.store.get_attempt(attempt["attempt_id"]), lost=True)
+    assert sent == [int(signal.SIGTERM)]
     daemon._process_attempt(attempt["attempt_id"])
     row = daemon.store.get_attempt(attempt["attempt_id"])
     assert (row["killed_by"], row["outcome_class"]) == ("recovery", "unknown")

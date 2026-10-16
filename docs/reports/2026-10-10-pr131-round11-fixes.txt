@@ -1,0 +1,92 @@
+PR #131, review round 11 repairs
+
+Starting commit: 85012493bd38. Implementation head: fa686f5f2.
+All work stays in the assigned checkout. Shared git metadata is read-only;
+commits are on feat/quarantine-self-resolve in .git-local. No pushes, caller
+checkout changes, operator-state access, or sub-agents.
+
+Changes:
+- subfleet/procs.py:343 and subfleet/daemon.py:6433: preserve locally recorded
+  ownership and provider history on foreign identity collisions. Foreign
+  cleanup prunes census-only adoption. Missing local boot identity holds.
+- subfleet/procs.py:368: verified local group/ancestry proof also wins an
+  overlapping launch or group claim. Verified independent launch receipts
+  remain boundaries, so nested dispatch isolation is preserved.
+- subfleet/daemon.py:6398: non-terminal foreign owners include quarantined
+  attempts even when their jobs are terminal.
+- subfleet/daemon.py:153,6595 and subfleet/procs.py:597: retain authenticated
+  descendant identities independently of parent links, from paced recording
+  and full censuses. Census-only cwd roots and reused guardian observations
+  confer neither foreign exclusion authority nor signal authority.
+- subfleet/disk.py:19,66 and subfleet/daemon.py:3071: count quarantined disk
+  reservations despite finished_at, until the original TTL or resolution.
+
+Review fixtures are ported to tests/fake/test_review_pr131_round11.py.
+Starting-code proof used an isolated git archive of 85012493bd38; all three
+production files were checked byte-for-byte against that commit.
+
+Eight original review failures at 85012493, all passing after repair:
+- test_local_writer_survives_foreign_history_collision[False-True]
+- test_local_writer_survives_foreign_history_collision[True-True]
+- test_finalization_retains_leases_despite_foreign_history_collision[True]
+- test_kill_signals_local_writer_despite_foreign_history_collision
+- test_finished_child_ignores_known_foreign_writer[running-detached]
+- test_finished_child_ignores_known_foreign_writer[quarantined]
+- test_quarantined_writer_keeps_unexpired_disk_reservation
+- test_quarantine_does_not_allow_extra_disk_placement
+The three different-start controls and all 36 explicit isolation cases were
+already green at the starting commit.
+
+Additional failing-before checks:
+- own recorded ownership invariant over arbitrary foreign histories;
+- full-census foreign descendants after reparenting, running and quarantined;
+- quarantine disk budget across restart, expiry and resolution (two cases);
+- quarantine-aware generated disk I2 and I5 sequences.
+The initial starting-code batch was 15 failed, 54 passed in 12.61 seconds.
+
+The incomplete-local-boot regression additionally failed before and passed
+after (before comparison: 1 failed, 1 passed in 2.30 seconds; after: 2 passed
+in 0.72 seconds). Both the shared-cwd adoption control and the reused-guardian
+adoption control pass before and after. Across the two starting-code batches:
+16 failed, 55 passed. Every one of those 16 failures passes after repair.
+
+Final verification at fa686f5f2: 580 passed, 33 skipped, 1 existing expected
+failure in 107.94 seconds, across 30 suites. The ported review file has all
+53 cases green, including the 36 explicitly enumerated isolation cases.
+The 18 disk-admission unit cases and all finished-run/state-contract checks
+pass. The final run also restores the 11 overlapping-ownership regressions
+found by the intermediate broad run; its failures are not counted as passes.
+
+Property results (all zero failing examples):
+- own ownership survives arbitrary foreign histories: 120 examples;
+- existing finite isolation property: all 36 cases, independently of the
+  36 explicitly enumerated review wrappers;
+- S1/S2/K1/L1/P1 process world: 100 generated worlds, up to 25 steps each,
+  seed 131131, SF_WORLD_POOL=1 (census-covered domain);
+- disk I1-I6: 120 generated sequences per invariant (720 total), with
+  quarantine, resolution, expiry and restart; fractional-byte I1: 300 cases;
+- census group membership: 500 examples; identity/resolver parity: 150;
+  visible-writer trees: 300; at-most-once release: 100; round-three
+  automatic/operator parity: 150.
+
+Suite coverage: procs, daemon settle, quarantine migration/pacing, census
+interleavings/property, disk admission/policy; finished-run containment,
+quarantine isolation/process-world/identity/detached-writer/self-resolution/
+review-fix suites, state contract, admission disk; PR131 probes and review
+rounds 2,3,4,5,6,6b,6b-authority,7-model,11 and migration; strand-timing e2e
+and guardian process (host-only cases skip below).
+
+Proof conditions: Python 3.12.14, pytest 9.1.1, Hypothesis 6.168.5; foreground,
+one pytest process at a time, /usr/bin/lockf -k with
+/private/tmp/claude-501/subfleet-suites.lock; each outer proof bounded to
+1,500 seconds including acquisition. A preliminary 300-second queued proof
+timed out before running any tests and contributes no test results. TMPDIR
+is under getconf DARWIN_USER_TEMP_DIR and is removed after verification.
+All final checks passed; no further production changes followed that run.
+
+Host checks unavailable in this sandbox: 20 detached-writer cases, six real
+round-three cases, four guardian-process cases, and both strand-timing e2e
+cases (ps/boot inspection denied). REVIEW_V6_STORE is unset, so one external
+live-shaped migration case skips. Synthetic migration runs. The existing
+invisible outside-cwd writer residual is an expected failure. The hub must
+rerun the host strand proof; this sandbox does not establish its 5/5 result.

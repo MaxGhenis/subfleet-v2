@@ -4,8 +4,10 @@ Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
 `add_decision` each time a routing verdict left a job waiting). The latest-row
 readers need only two rows per job, but retention archives and the store's
-history method read all rows. No foreign key in schema 7 points at `decisions`.
-#16 stopped the repeats — a wait
+history method read all rows. No foreign key in schema 8 points at `decisions`,
+and no trigger fires on it or on `events`: the process-claim projection schema 8
+keeps (`store_process_claims.sql`) references `attempts` and is maintained by
+triggers on `attempts` alone, which this pass never writes. #16 stopped the repeats — a wait
 that reaches the verdict it reached last time adds no row (C-6.10) — and this
 module is the one-off operator pass that gives back the space the rows already
 written take. The dry run measures how many of them a store holds.
@@ -99,7 +101,7 @@ from pathlib import Path
 from typing import Any
 
 from .guardian import atomic_publish
-from .store import SCHEMA_VERSION, SchemaVersionError, Store, utc_now
+from .store import SCHEMA_VERSION, SchemaVersionError, Store, schema_script, utc_now
 
 STORE_NAME = "state.sqlite3"
 LOCK_NAME = "daemon.lock"
@@ -378,14 +380,16 @@ def _require_schema_tables(database: Path) -> None:
     """Refuse missing expected tables using only a read-only source connection.
 
     Apply the build's schema to an in-memory database to obtain its table names,
-    never to the source. Extra tables remain covered by the content proofs.
+    never to the source: every file a writing `Store` applies (`schema_script`),
+    so schema 8's process-claim tables are expected as well. Extra tables remain
+    covered by the content proofs.
     """
     expected = sqlite3.connect(":memory:")
     source = None
     try:
         source = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
         expected.row_factory = source.row_factory = sqlite3.Row
-        expected.executescript(Path(__file__).with_name("store_schema.sql").read_text())
+        expected.executescript(schema_script())
         missing = sorted(set(_tables(expected)) - set(_tables(source)))
         if missing:
             raise PruneRefused(
@@ -620,7 +624,8 @@ def plan(conn: sqlite3.Connection) -> Plan:
     per attempt), when one of `KEEP_QUERIES` selects it for its job, or when its
     job is not terminal. Everything else is omitted from future full histories
     intentionally: latest answers are preserved, not the original history
-    length. No foreign key names a decision row on schema 7.
+    length. No foreign key names a decision row on schema 8, and no trigger
+    fires on a `decisions` delete.
     """
     states = {row["job_id"]: row["state"] for row in conn.execute("SELECT job_id, state FROM jobs")}
     # `length()` over a TEXT column counts characters, and `store._json` writes

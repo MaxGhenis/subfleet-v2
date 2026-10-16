@@ -254,6 +254,11 @@ TERM_GRACE_S = 15
 # census; neither widens what counts as contained.
 KILL_SETTLE_S = 3
 EXIT_SETTLE_S = 3
+# C-5.9: how long, from the window's first census, a post-receipt census that saw
+# nothing because a source read failed (it is `blind`) may be re-taken before the
+# attempt is quarantined. One census can outlast EXIT_SETTLE_S on its own: its cwd
+# `lsof` is capped at 10 s, and on a loaded host two in a row ran out that cap.
+EXIT_INSPECT_S = 60
 # C-5.12: how often a healthy running attempt's processes are inspected, and the
 # oldest process table that inspection may share. The receipt, a cancel and the
 # wall clock are still read every tick; a death verdict is never taken from a

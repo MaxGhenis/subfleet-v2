@@ -1,0 +1,4 @@
+RUN fixed: 2000 worlds, seed 131
+QUIET fixed: exit 0
+RUN fresh: 500 worlds, seed 11783757351826154477
+QUIET fresh: exit 0

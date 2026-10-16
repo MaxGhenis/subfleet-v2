@@ -60,6 +60,12 @@ def install(patch, rows, marked=(), boot=BOOT_A):
                            for pid, (ppid, pgid, state, began) in rows.items()),
            markers="".join(f"{pid} fake SUBFLEET_ATTEMPT=job/a1 SUBFLEET_ROOT=/fixture "
                             "PRIVATE_TOKEN=secret-sentinel\n" for pid in marked))
+    # #131 brackets late marker/cwd observations with fresh scalar reads. Those
+    # reads must describe this same scripted world, including missing starts.
+    patch.setattr(procs, "proc_start", lambda pid: rows[pid][3] if pid in rows else None)
+    patch.setattr(procs, "_stat", lambda pid: rows[pid][2] if pid in rows else None)
+    patch.setattr(procs, "process_group", lambda pid: rows[pid][1] if pid in rows else None)
+    patch.setattr(procs, "cwd_pids", lambda _: frozenset())
 
 
 def recorded(rows, boot=BOOT_A):
@@ -170,6 +176,7 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
     survivor = guardian + 2
     survivor_identity = procs.ProcessIdentity(survivor, BOOT_A, rows[survivor][3])
     a = {"attempt_id": "job/a1", "job_id": "job", "seq": 1, "guardian_pid": guardian,
+         "state": "running",
          "child_pid": None if leader else child, "pgid": guardian, "boot_id": BOOT_A,
          "proc_start": old.proc_start if leader else rows[guardian][3],
          "started_at": "2026-10-11T01:00:00Z", "evidence_json": json.dumps({
@@ -188,17 +195,26 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
         def get_attempt(self, aid):
             return a
 
-    core = SimpleNamespace(root=Path("/fixture"), store=Store(), term_grace_s=0, kill_settle_s=0,
-                           stopping=SimpleNamespace(wait=lambda _: False),
-                           _read_json=lambda path: {"rc": 0} if path.name == "exit.json" else None,
-                           _begin_finalizing=lambda *args: None, _quarantine=lambda *args: None)
-    core._contain = lambda attempt: Daemon._contain(core, attempt)
+        claim_dispatch = transaction
+
+    # Keep the actual claim-aware daemon methods and signal_process. Only this
+    # world's empty foreign-claim oracle and scalar/kernel seams are synthetic.
+    core = Daemon.__new__(Daemon)
+    core.root, core.store = Path("/fixture"), Store()
+    core.term_grace_s = core.kill_settle_s = 0
+    core.stopping = SimpleNamespace(wait=lambda _: False)
+    core._job = lambda _: {"workdir": str(core.root)}
+    core._foreign_ownership = lambda *args: procs.ForeignOwnership()
+    core._read_json = lambda path: {"rc": 0} if path.name == "exit.json" else None
+    core._begin_finalizing = core._quarantine = lambda *args: None
     with monkeypatch.context() as patch:
         install(patch, rows)
         patch.setattr(procs, "same_process", lambda pid, boot, began:
                       pid in rows and rows[pid][3] == began and boot == BOOT_A)
-        patch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-        patch.setattr(procs, "signal_process", lambda identity, sig: signalled.append(identity))
+        patch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
+        patch.setattr(procs.os, "kill", lambda pid, sig:
+                      signalled.append(procs.ProcessIdentity(pid, BOOT_A, rows[pid][3])))
+        patch.setattr(procs.os, "killpg", lambda *args: pytest.fail("group delivery"))
         Daemon._kill_attempt(core, a)
     assert saved[str(target)] == asdict(old)
     assert all(identity.pid != target for identity in signalled)

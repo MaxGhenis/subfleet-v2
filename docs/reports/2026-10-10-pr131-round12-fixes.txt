@@ -1,0 +1,115 @@
+PR #131, review round 12: process identity ambiguity
+
+Base: 2ba0e174c24237f230f821ad459609e37201c3e0 (no revert of 99bc97cc5).
+Implementation head: 8eb4710abfa4cc93599c46903bb6e8d8db638b47.
+Commits are on feat/quarantine-self-resolve in .git-local because shared git
+metadata is read-only. The final report commit is named in the delivery.
+
+P1 #2 reproduced FIRST, before production edits, using the unchanged review
+signal-authority fixture: 2 failed, 2 passed in 2.81s. Both same-start variants
+[running-True] and [quarantined-True] delivered SIGKILL (202, 9) to the recycled
+foreign writer. Different-start controls passed. Production signal helpers
+were active; inspection and final kernel delivery were scripted.
+
+Fixes (references at the implementation head):
+- subfleet/procs.py:418; subfleet/daemon.py:6687: stale foreign launches cannot
+  hide a verified local group member before its first ownership record.
+  The collision holds without acquiring new ownership or signalling it.
+- subfleet/procs.py:617,624; subfleet/daemon.py:178,6521,6556: durable
+  ambiguous_identities preserve containment through restart, parent exit,
+  repeated census and removal of foreign history. Existing owned records and
+  history survive. An ambiguous census cannot become verified_empty.
+- subfleet/daemon.py:6426,6482,6505,4190,6832: active and terminal ownership
+  histories invalidate signal authority. Attempt and probe signals recheck
+  claims at delivery. Group delivery requires unambiguous observed members;
+  incomplete inspection with competing claims suppresses group signals.
+  Without competing claims, scalar confirmation retains the existing
+  original-group escalation protocol and its K1 progress guarantee.
+- subfleet/procs.py:440,466,983,1084; subfleet/daemon.py:6730: ambiguous
+  leaders/members cannot authenticate foreign group exclusion or new local
+  provider/descendant ownership. Direct qualified foreign identities still
+  work without group receipts. Late own-marker group proofs use the existing
+  identity/group/identity bracket, preserving failed-confirmation safeguards.
+- subfleet/procs.py:1035,1040,1045; tests/fake/test_finished_run_containment.py:58:
+  [absent] is excluded after two stable foreign-marker/identity reads, with
+  native lease release. [reused] now holds: quarantined, native lease retained,
+  no new owned record. The prior table incarnation makes it ambiguous even
+  when the later foreign marker is stable. This reconciles 99bc97cc5's waiter
+  regression with CI's [reused-before-marker] safety requirement.
+- subfleet/procs.py:380,466; subfleet/daemon.py:6474: legacy boot timestamps
+  use the existing boot matcher in scalar ownership proofs and cross-attempt
+  collision detection. Leaderless members also qualify against the writer's
+  boot. New witnesses cover a foreign group before paced recording during a
+  table outage and two foreign histories matching through different boot
+  formats. These additional legacy witnesses have NOT executed yet.
+- docs/acceptance-contract.md:213 records the C-5.6 ambiguity rule.
+
+Fixture changes and proof domain:
+Round-12 ownership/signal/liveness fixtures are ported. Same-second kill
+assertions now require hold and no delivery; different starts/boots retain
+positive controls. P1 #2 preserves old local ownership and suppresses the
+signal; the foreign attempt holds instead of acquiring new ambiguous ownership.
+The process-world parity harness (test_quarantine_process_world.py:408) stores
+alternate executions using the same synthetic PIDs. Its foreign census is
+scoped to that single-owner domain, including restart. Kernel S2 and non-vacuous
+K1 checks remain intact; real cross-attempt claims use the independent signal
+property in test_quarantine_ambiguity.py:261 (800 examples, raw-claim oracle).
+
+Executed before/after results:
+- Pristine base: four P1 #1 same-second witnesses failed (finalize/kill crossed
+  with guardian/child foreign launch). Finalization released the lease; kill
+  hid the writer. CI [reused-before-marker] and the new signal invariant also
+  failed. That batch: 6 failed, 22 passed in 26.73s.
+- The late-child/ambiguous-foreign-anchor witness separately failed on the
+  pristine base: its cwd identity was wrongly excluded.
+- At b0b160cab, the broad 34-file run finished with 3 failed, 670 passed,
+  31 skipped, 1 xfailed in 1271.19s. All four same-second P1 #1 witnesses,
+  four different-start controls and all four P1 #2 variants passed. CI marker
+  scope and both finished-waiter variants passed, including lease assertions.
+- Required proofs passed there: round-11 regressions; all 36 isolation cases;
+  ownership at 800 examples each in the original property and ported wrapper;
+  the independent no-signal-to-ambiguous-identity property at 800 examples;
+  S1/S2/K1/L1/P1 at 200 worlds x 40 steps; disk I1-I6.
+- The three broad-run failures were test_procs' qualified direct foreign
+  identity [foreign-True] and round6b_authority's failed-confirmation probe
+  cases [stable-marker-probe] and [unavailable-marker-probe]. Commits
+  45bb54b9b and 18d337bb6 repair these. An earlier bounded guard for the
+  partial-table group protocol and three process-world probe cases passed 5/5.
+
+Latest verification remains BLOCKED:
+Two serial final-verification wrappers timed out waiting for the required
+shared lock, after 50 and 65 minutes respectively. Neither started pytest.
+There is therefore no fresh pytest result for 45bb54b9b/18d337bb6's three
+repairs or the legacy refinements in 85be402aa/8eb4710ab. The prepared legacy
+before/after stage also never executed. Syntax parsing and git diff --check
+passed. The hub must verify the latest head; this report does not claim a
+fully green latest-head run. The planned full run deselected only the duplicate
+100-world TestProcessWorld case, retaining the required 200-world proof.
+
+Sub-second start time: evaluated, deferred.
+The installed macOS SDK declares proc_pidinfo (libproc.h:96),
+PROC_PIDTBSDINFO=3 (sys/proc_info.h:723), and uint64_t pbi_start_tvsec/usec
+(:80-81). ctypes against /usr/lib/libproc.dylib returned the full 136-byte
+structure for this task's own Python process, errno=0, matching PID and usec
+107056. Safe integration exceeds this repair: guardian/provider receipts,
+attempt launch rows, owned/history/census records, ProcessTable, liveness and
+both signal helpers need coordinated format and comparison changes. Old records
+must retain second-resolution fallback. Adding a wildcard optional field would
+break hash/set semantics and create non-transitive equality between a coarse
+record and two distinct precise records. Capture must bracket lstart and keep
+per-PID table inspection bounded. File this as a format/migration follow-up;
+the stored identity format remains unchanged here.
+
+Sandbox/host limits:
+The 31 skips were 20 real detached-writer cases, 6 round-3 process cases
+(one also needs redis-server), 4 guardian cases, and 1 migration fixture without
+REVIEW_V6_STORE. ps/sysctl/boot inspection is denied; no bypass was added.
+One existing round-3 invisible intermittent-writer residual is an expected
+failure. Strand e2e/timing files were not run: the hub must run its strand 5/5
+and detached-writer proofs on the host, plus the latest-head checks above.
+
+Every pytest invocation was serial, foreground and bounded under /usr/bin/lockf
+-k /private/tmp/claude-501/subfleet-suites.lock. TMPDIR was created under
+getconf DARWIN_USER_TEMP_DIR and removed afterwards. Logs/JSON evidence were
+not committed. Work stayed in the assigned checkout; no caller modifications,
+operator-state access, sub-agents, history rewrites or network pushes.

@@ -27,6 +27,8 @@ def codex_ca_bundle(policy: Mapping[str, Any]) -> str | None:
     """C-10.8: an omitted setting uses the system PEM bundle; null opts out."""
     return policy.get("providers", {}).get("codex", {}).get("ca_bundle", CODEX_CA_BUNDLE)
 
+# C-5.7: durable pacing of automatic quarantine censuses; not a force release.
+QUARANTINE_RECHECK_S = 600.0
 # C-8.5: host credential use is opt-in both in policy and on each job.
 PUSH_DEFAULTS = {"enabled": False, "allowed_remotes": [], "protected": [],
                  "max_bundle_mb": 256, "max_commits": 100}
@@ -357,6 +359,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         raise PolicyError(path, "$", f"cannot read policy JSON: {error}") from error
     if not isinstance(value, dict):
         fail("$", "must be an object")
+    pace = value.setdefault("quarantine_recheck_s", QUARANTINE_RECHECK_S)
+    if (not isinstance(pace, (int, float)) or isinstance(pace, bool)
+            or not math.isfinite(pace) or pace <= 0):
+        fail("quarantine_recheck_s", "must be a positive finite number of seconds")
     required = ("tiers", "chains", "fallback", "permissions", "models", "retired",
                 "desktop_login", "caps", "reset_credits")
     for key in required:

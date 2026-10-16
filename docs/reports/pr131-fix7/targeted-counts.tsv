@@ -1,0 +1,10 @@
+tests.fake.test_review_pr131_probes	21
+tests.fake.test_review_pr131_round4	10
+tests.fake.test_review_pr131_round5	24
+tests.fake.test_review_pr131_round6	16
+tests.fake.test_review_pr131_round6b	16
+tests.fake.test_review_pr131_round6b_authority	8
+tests.unit.test_census_interleavings	8
+tests.unit.test_procs	96
+tests.unit.test_quarantine_mutations	6
+TOTAL	205

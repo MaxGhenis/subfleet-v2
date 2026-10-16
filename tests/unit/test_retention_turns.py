@@ -38,6 +38,27 @@ def stamp(minutes: int) -> str:
     return f"2026-02-01T00:{minutes:02d}:00Z"
 
 
+def test_a_released_turns_notification_survives_retention_until_delivered(retained):
+    """C-5.7: a crash between stores must not lose the outbox or its manifest."""
+    store, root = retained
+    job(store, root, "released", kind="turn", created=stamp(0), state="lost")
+    manifest = root / "jobs" / "released" / "manifest.json"
+    manifest.write_text('{"turn":{"conversation_id":"fixture","message_id":"fixture"}}')
+    store.add_attempt(attempt_id="released/a1", job_id="released", seq=1, lane_id="claude-1",
+                      model_requested="opus", state="lost", quarantine_notice_pending=1)
+    def sweep():
+        return retention.maintenance(store, root, max_jobs=0, turn_max_jobs=0, turn_max_bytes=0,
+                                     turn_keep_s=0, holders=lambda *args, **kwargs: {})
+    first = sweep()
+    assert "released" in first["protected"] and "released" not in first["pruned"]
+    assert first["pin_reasons"]["released"] == "quarantine-notice"
+    assert store.get_attempt("released/a1")["quarantine_notice_pending"] == 1
+    assert manifest.is_file() and not store.list_leases()
+    store.update_attempt("released/a1", quarantine_notice_pending=0)
+    second = sweep()
+    assert second["pruned"] == ["released"] and store.get_job("released") is None
+
+
 def test_each_pool_prunes_only_against_its_own_budget(retained):
     """C-8.4, C-26.12: a pool over budget prunes its own oldest jobs; the other pool,
     within its budget, loses nothing, however old its jobs are."""

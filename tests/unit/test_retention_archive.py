@@ -955,7 +955,7 @@ def test_rebuilding_a_conversation_worktree_removes_only_its_own_registration(wo
 
 # --- every pin keeps its job ---------------------------------------------------------------
 
-PINS = ["running", "queued", "gate-review", "live-attempt", "quarantined", "unread-notice", "parent",
+PINS = ["running", "queued", "gate-review", "live-attempt", "quarantined", "quarantine-notice", "unread-notice", "parent",
         "job-lease", "attempt-lease", "worktree-lease", "salvage-unresolvable", "gate-evidence",
         "conversation", "turn-keep-days", "explicit", "resume-fence"]
 
@@ -973,8 +973,10 @@ def test_every_pin_keeps_its_job(world, pin):
     w.job("free", worktree=False)
     before = snapshot(wt)
     kwargs = {}
-    if pin in ("live-attempt", "quarantined", "attempt-lease", "salvage-unresolvable"):
+    if pin in ("live-attempt", "quarantined", "quarantine-notice", "attempt-lease", "salvage-unresolvable"):
         w.attempt("pinned", {"live-attempt": "running", "quarantined": "quarantined"}.get(pin, "succeeded"))
+    if pin == "quarantine-notice":
+        w.store.update_attempt("pinned/a1", quarantine_notice_pending=1)
     if pin == "unread-notice":
         w.store.add_notice("pinned", "done", "session-1")
     if pin == "parent":
@@ -1514,6 +1516,41 @@ def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world):
     finally:
         holder.kill()
         holder.wait()
+
+
+@pytest.mark.real_lsof
+@pytest.mark.skipif(not os.access("/usr/sbin/lsof", os.X_OK), reason="needs lsof")
+def test_real_lsof_protects_a_file_held_by_an_unmarked_detached_writer(world):
+    """C-5.7 residual: retention still sees open files held by an invisible
+    orphan, even outside the worktree cwd/group and without Subfleet markers.
+    """
+    import select
+    import sys
+    w = world
+    wt = w.job("job-file-holder")
+    held_file = wt / "held-file"
+    held_file.write_text("writer progress")
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"SUBFLEET_ATTEMPT", "SUBFLEET_ROOT"}}
+    holder = subprocess.Popen(
+        [sys.executable, "-I", "-c",
+         "import sys; f=open(sys.argv[1], 'r+b'); print('ready', flush=True); sys.stdin.buffer.read()",
+         str(held_file)], cwd=w.root, env=env, start_new_session=True,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        assert select.select([holder.stdout], [], [], 10)[0], "holder failed to open its file"
+        assert holder.stdout.readline() == b"ready\n"
+        result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
+        assert result["pruned"] == [] and "busy" in result["deferred"]["job-file-holder"], result
+        assert held_file.is_file() and w.store.get_job("job-file-holder")
+    finally:
+        holder.stdin.close()
+        try:
+            holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            holder.kill()
+            holder.wait()
+        holder.stdout.close()
 
 
 # --- the survey and the command line ---------------------------------------------------

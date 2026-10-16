@@ -14,6 +14,7 @@ import pytest
 
 from subfleet import prune_decisions as pruning
 from subfleet.store import Store
+from tests.table_order import ordered_select
 
 
 def seed(root):
@@ -33,7 +34,7 @@ def seed(root):
 
 def snapshot(database, connect=sqlite3.connect):
     with contextlib.closing(connect(database)) as conn:
-        return {name: conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid').fetchall()
+        return {name: conn.execute(ordered_select(conn, name)).fetchall()
                 for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
 

@@ -1,0 +1,21 @@
+Round-8 item 2 — primary model coverage
+
+The primary World now varies table, identity, and confirmation start visibility
+without changing kernel truth, and can return a partial per-PID identity. The
+primary machine has visibility and paced ownership rules, plus initialization
+scenarios for missing-start pacing and both owned/unowned escapes. Independent
+confirmation refuses an empty or unavailable start. Reviewer visibility and
+liveness controls now run against this primary model, without an extension.
+
+The first primary run: 100 passing worlds, zero generated failures, fixed seed
+2026100908; 12 pytest checks passed and the pending S1 probe strict-xfailed.
+See item2-model-100.txt. The final 2,000 + 500 proof will run after item 3 so
+that it also exercises the stronger lease and worktree oracle.
+
+Historical replay adds 977999487 (before round-five's missing-start repair) to
+the seven existing cases on 887552207, 951d9623f and 684dc4d130c5. The missing
+start case forks a child, hides its table start during paced capture, lets it
+escape and orphans it, then invokes both resolvers. Old production releases
+while the covered child lives: a minimized S1 counterexample. Head retains it.
+Logs and the complete re-proof table are in history-summary.txt and model-*.
+All historical runs restore exact production bytes; no production changes.

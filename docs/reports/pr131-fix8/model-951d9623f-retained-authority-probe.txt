@@ -1,0 +1,72 @@
+F
+=================================== FAILURES ===================================
+___________________________ TestProcessWorld.runTest ___________________________
+
+self = <hypothesis.stateful.ProcessWorldMachine.TestCase testMethod=runTest>
+
+    def runTest(self):
+>       run_state_machine_as_test(cls, settings=self.settings)
+
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:507: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:271: in run_state_machine_as_test
+    state_machine_test()
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:122: in run_state_machine
+    @given(st.data())
+               ^^^
+tests/fake/test_quarantine_process_world.py:382: in initial
+    self.kill(consumer)
+tests/fake/test_quarantine_process_world.py:438: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:1061: in precondition_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:438: in kill
+    @rule(consumer=st.sampled_from(["attempt", "probe"]))
+               ^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/hypothesis/stateful.py:934: in rule_wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+tests/fake/test_quarantine_process_world.py:453: in kill
+    self.daemon._contain_probe(record)
+subfleet/daemon.py:4012: in _contain_probe
+    procs.signal_process(owned[target], signal.SIGKILL)
+subfleet/procs.py:778: in signal_process
+    os.kill(recorded.pid, sig)
+tests/fake/test_quarantine_process_world.py:282: in <lambda>
+    self.patch.setattr(procs.os, "kill", lambda pid, sig: self.world.signal(pid, sig))
+                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.fake.test_quarantine_process_world.World object at 0x10ca9ba10>
+pid = 200, sig = <Signals.SIGKILL: 9>, via_group = False
+
+    def signal(self, pid, sig, *, via_group=False):
+        p = self.processes.get(pid)
+        assert not self.resolving, "resolvers must never signal"
+>       assert p is not None and not p.zombie and (
+            p.pgid == 100 or (pid, p.start) in self.owned), (
+            "S2 stray signal", pid, self.rows(), self.trace)
+E       AssertionError: ('S2 stray signal', 200, {100: (1, 100, 'S', 'guardian-start'), 200: (1, 700, 'S', 'start-2')}, [('read', 'table', 1), ('spawn', 99, 'start-1', 700, True), ('read', 'markers', 1), ('read', 'identity', 1), ('read', 'group', 1), ('spawn', 200, 'start-2', 700, True), ('exit', 99), ('read', 'confirm', 1), ('read', 'cwd', 1), ('read', 'table', 1), ('read', 'markers', 1), ('read', 'identity', 1), ('read', 'group', 1), ('read', 'confirm', 1), ('read', 'cwd', 1)])
+E       Failing test case:
+E       state = ProcessWorldMachine()
+E       state.initial(source='marker', scenario='retained-authority', consumer='probe')
+E       state.teardown()
+
+tests/fake/test_quarantine_process_world.py:245: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4503570816:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501409136:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501410816:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501413168:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501415184:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501417200:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501416864:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501421232:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501419216:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4508193120:daemon.py:750 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED tests/fake/test_quarantine_process_world.py::TestProcessWorld::runTest
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 20.59s

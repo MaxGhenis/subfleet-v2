@@ -119,10 +119,11 @@ def test_recorded_setsid_survivor_is_individually_signalled(monkeypatch, child_r
     """C-5.4, C-5.6: the filter keeps previously owned escaped survivors signalable."""
     rows = {43: (1 if child_root else 42, 43, "Ss", start(1))}
     a = {"attempt_id": "job/a1", "job_id": "job", "seq": 1, "guardian_pid": 42,
+         "state": "running",
          "child_pid": 43 if child_root else None, "pgid": 42, "boot_id": BOOT_A, "proc_start": start(),
          "started_at": "2026-10-11T01:00:00Z",
          "evidence_json": json.dumps({"owned_identities": {"43": asdict(ident(43, 1))}})}
-    signalled, quarantined, saved = [], [], {}
+    delivered, quarantined, saved = [], [], {}
 
     class Store:
         @contextmanager
@@ -133,19 +134,32 @@ def test_recorded_setsid_survivor_is_individually_signalled(monkeypatch, child_r
             if sql.startswith("UPDATE attempts SET killed_by"):
                 saved.update(json.loads(args[1])["owned_identities"])
 
-    core = SimpleNamespace(root=Path("/fixture"), store=Store(), term_grace_s=0, kill_settle_s=0,
-                           stopping=SimpleNamespace(wait=lambda _: False),
-                           _read_json=lambda _: None,
-                           _publish=lambda *args: None,
-                           _quarantine=lambda *args: quarantined.append(args),
-                           _begin_finalizing=lambda *args: pytest.fail("live survivor finalized"))
-    core._contain = lambda attempt: Daemon._contain(core, attempt)
+        def get_attempt(self, aid):
+            return a
+
+        claim_dispatch = transaction
+
+    core = Daemon.__new__(Daemon)
+    core.root, core.store = Path("/fixture"), Store()
+    core.term_grace_s = core.kill_settle_s = 0
+    core.stopping = SimpleNamespace(wait=lambda _: False)
+    core._job = lambda _: {"workdir": str(core.root)}
+    core._foreign_ownership = lambda *args: procs.ForeignOwnership()
+    core._read_json = core._publish = lambda *args: None
+    core._quarantine = lambda *args: quarantined.append(args)
+    core._begin_finalizing = lambda *args: pytest.fail("live survivor finalized")
     install(monkeypatch, rows)
     monkeypatch.setattr(procs, "same_process", lambda pid, boot, began:
                         pid in rows and boot == BOOT_A and rows[pid][3] == began)
-    monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-    monkeypatch.setattr(procs, "signal_process", lambda owned, sig: signalled.append((owned, sig)))
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: rows[pid][1])
+    monkeypatch.setattr(procs.os, "kill", lambda pid, sig: delivered.append((ident(pid, 1), sig)))
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: pytest.fail("group delivery"))
     Daemon._kill_attempt(core, a)
+    # #131 also sends individually during TERM and escalation. Pin that full
+    # protocol, then preserve the release witness's exact survivor-phase check.
+    assert delivered == [(ident(43, 1), signal.SIGTERM), (ident(43, 1), signal.SIGKILL),
+                         (ident(43, 1), signal.SIGKILL)]
+    signalled = delivered[2:]
     assert signalled == [(ident(43, 1), signal.SIGKILL)]
     assert saved["43"] == asdict(ident(43, 1))
     assert len(quarantined) == 1
