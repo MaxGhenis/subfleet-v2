@@ -8281,7 +8281,7 @@ class Daemon:
                            or (result.get("outcome", {}).get("evidence") or {}).get("stream_capture"))
                           if result else None)
         frozen_stream, stream_receipt = None, {}
-        if not stream_failure:
+        if job["kind"] != "turn" and not stream_failure:
             try:
                 if result is not None and "stream" in result:
                     frozen_stream, stream_receipt = restore_stream(adir, launch, result["stream"])
