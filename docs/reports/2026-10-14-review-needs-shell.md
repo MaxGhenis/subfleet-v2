@@ -260,14 +260,547 @@ The first green focused hold used CPython 3.12.14 and passed **656 tests in 298.
 | `tests/unit/test_policy_support.py` | 14 |
 | `tests/unit/test_sessions_handoff.py` | 140 |
 
-Verification checkpoint at 10:00 UTC: both focused holds completed with **1,472 passed and one e2e skip**, across all 22 focused files. The second focused hold passed 816 and skipped `tests/e2e/test_notice_job_state.py` because permitted macOS ps/sysctl inspection is unavailable; it occupied the lock for 179 seconds. Full batch 1 then passed 1,962, skipped 44 for the same boot-identity prerequisite, and xfailed one existing P3-6 hung-mount wall-bound limitation (346 seconds of lock occupancy). A later smaller hold passed 491, skipped 20 and xfailed one existing limitation (309 seconds).
+Latest recorded results at the cutoff (report written 12:06 UTC on 2026-10-16): **13,260 passed, 97 skipped, two xfailed, five pre-fix platform-test failures and zero errors** in the latest complete result for each of **401 / 401 scoped files**. The scope is all 400 fake/unit files plus the edited e2e notice file. The last two fixture corrections are committed but unverified because their queued replay never acquired the lock before the cutoff. Repeated executions are counted once. When a hold stopped early, only files whose complete collected tests finished their required phases are credited.
 
-One parallel hold was interrupted after reporting three failures and then stalling near completion. It exceeded the requested 20-minute bound by 30 seconds: direct inspection/signalling of the owned controller was denied, and the tool interrupt ended it at 09:25:03 UTC after acquisition at 09:04:33 UTC. Its master PID was confirmed gone. No JUnit document or complete per-file outcomes survived that interruption, so its partial passes are not credited and its three reported failures remain unclassified at this checkpoint. The affected files are being replayed with immediate phase/failure records, preserving the interrupted run's Hypothesis examples; later work will use those results to diagnose failures and avoid losing partial evidence.
+| Hold | Passed | Skipped | Xfailed | Failed/errors | Lock seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| focus-1 | 656 | 0 | 0 | 0 | 304 |
+| focus-2 | 816 | 1 | 0 | 0 | 179 |
+| full-01 | 1962 | 44 | 1 | 0 | 346 |
+| small-01 | 491 | 20 | 1 | 0 | 309 |
+| diag-02 | 1754 | 8 | 0 | 3 | 714 |
+| finish-01 | 1065 | 4 | 0 | 1 | 347 |
+| complete-01 (recovered complete files) | 3046 | 11 | 0 | 1 | 1161 |
+| last-01 | 2181 | 4 | 0 | 2 | 653 |
+| final-01 | 1900 | 5 | 0 | 5 | 859 |
 
-Completed-file results at this checkpoint are **3,672 passed, 65 skipped, two xfailed, and zero failures in the completed runs, across 104 of 401 scoped files** (400 fake/unit files plus the edited e2e file). This does not clear the three failures in the interrupted batch. The remaining files and final per-file results will be recorded before completion. Each foreground invocation waits for the shared lock without a wait timeout, uses task-local uv/Hypothesis storage and the bounded ci profile, and removes `SUBFLEET_RETENTION_DORMANT` from the test environment. Four-worker full holds and serial focused holds are used; no source changes are pending and nothing has been pushed.
+All verification holds used CPython 3.12.14. 61 latest file outcomes still rely on complete phase records rather than a completed pytest session; their rows identify complete phase records.
 
-The diagnostic replay subsequently completed in 714 seconds of lock occupancy: **1,754 passed, eight skipped and three failed**, all three in `tests/unit/test_importer.py`. Two failures came from synthetic live/lost records consulting a blocked host process inspector; the third required proving a real child's Subfleet environment marker, also unavailable in this sandbox. Tests-first commit `9e04065a5` adds deterministic-state and fail-closed regressions. Commit `3d60a3aff` supplies identities only for the synthetic fixture's reserved PIDs, delegates other PIDs to the real inspector, and applies the existing inspection prerequisite only to the real-marker branch. Production importer behavior remains fail-closed. A whole-file importer replay and four balanced remaining holds are pending. The hub's local failed-test list was checked again and contains no additional failures beyond the notice/workspace, handoff, schema, provider-hash and authorization-column failures already addressed above.
 
-The next hold finished with **1,065 passed, four skipped and one failed** in 347 seconds of lock occupancy, stopping at the first failure. Its complete importer file is now green (**149 passed, one skipped**), clearing all three diagnostic failures. The new failure was the real QoS thread-measurement test calling `/bin/ps -M` where execution is denied despite the executable being present. Commit `cb2655495` probes that permission before starting the owned clamped child; the existing thread-count/priority assertions still run when inspection is allowed. Reporting credits only files whose collected tests completed all required phases; partially executed files are repacked with the remaining suite and the QoS replay.
+One earlier parallel hold reported three failures and stalled near completion. It occupied the lock from 09:04:33 to 09:25:03 UTC: **20 minutes 30 seconds**, exceeding the requested bound by 30 seconds. Direct inspection/signalling of the owned controller was denied; the tool interrupt ended the execution and the master PID was confirmed gone. No complete JUnit document survived, so none of its partial passes are credited. The diagnostic replay classified and reproduced all three failures; later complete-file replay cleared them. All other recorded completed holds are shown above.
 
-A later hold reached 3,069 of 3,070 finished cases but left one bounded scheduler property running. It was interrupted at 11:09:42 UTC after **19 minutes 21 seconds**, and its owned controller was confirmed gone. Immediate phase records recovered complete results for **62 files**; the unfinished `tests/unit/test_unadmittable_pin.py` is not credited. The hook command's notice assertions passed before its real worker census encountered denied `/bin/ps`; commit `9bb0c2f00` adds the narrow census prerequisite. Current complete-file totals are **9,287 passed, 88 skipped, two xfailed and one pre-fix hook failure**, across **267 / 401 files**. The remaining 135-file plan includes whole-file hook and scheduler replays, with slow properties first and one-node scheduling chunks on four workers.
+A later hold was interrupted at 11:09:42 UTC after **19 minutes 21 seconds**, with 3,069 of 3,070 cases finished and one bounded scheduler property still running. Its controller was confirmed gone. Per-phase records recovered complete results for 62 files; no partial result for `tests/unit/test_unadmittable_pin.py` is credited. The table labels this as recovered complete-file evidence rather than a completed pytest run. The unfinished file and the hook replay were moved to the front of the remaining plan, with four workers and one-node scheduling chunks to distribute slow properties earlier.
+
+The wider sweep found additional test-fixture prerequisites. Importer synthetic live/lost records depended on real host process inspection, which this sandbox denies. Tests-first commit `9e04065a5` adds deterministic fixture and fail-closed regressions; `3d60a3aff` supplies identities only for two reserved synthetic PIDs, delegates other PIDs to the real inspector, and guards only the real-child ownership-marker branch. The complete importer replay passed 149 and skipped one; production importer behavior stays fail-closed. The QoS tool test also assumed an existing `/bin/ps` could execute. Commit `cb2655495` probes `ps -M` permission before starting the owned clamped child; the actual thread-count and priority assertions remain active when inspection is permitted. The hook command test likewise completed its notice-delivery assertions before its real worker census hit denied `/bin/ps` execution. Commit `9bb0c2f00` adds a narrow permission prerequisite to that census, retaining the actual no-worker assertion wherever permitted. The doctor table tests had the same dependency for synthetic live/dead lock identities. Tests-first commit `7f3e787ff` preserves UNKNOWN for denied inspection; `ddf43cd9b` supplies deterministic boot/start probes to the live/dead fixtures and asserts the recorded PID is inspected, while exercising the real identity comparison and leaving production behavior unchanged. The final broad hold found four stack-dump probes with undeclared boot/process prerequisites and one kernel-ceiling probe assuming sysctl access. Commit `700d45b8a` guards real-child signal checks and supplies a synthetic identity only to the handler-order unit, preserving its actual registration/lock assertions. Commit `4a5379362` independently probes sysctl permission before comparing the descriptor helper with the kernel value; an available probe still requires the helper to return that exact positive integer.
+
+The phase-recovered files and final fixture corrections were selected for a final verification hold. It remained queued through the cutoff and did not start; the exact unrun replay paths are listed below.
+
+The hub failed-test list was reread and contained no additional CI failures beyond those addressed here. Each foreground pytest invocation waits for the shared lock without a wait timeout, removes `SUBFLEET_RETENTION_DORMANT`, uses bounded Hypothesis ci settings and task-local uv/Hypothesis storage, and starts at most four workers. No new hold is requested at or after 12:04 UTC; the acquired-lock runner also checks that cutoff before starting pytest.
+
+Skip and expected-failure reasons across the recorded results:
+
+- 4: Offline wheel-matrix tests: sortedcontainers 2.4.0 is absent from the scratch uv cache.
+- 1: C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable
+- 73: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- 1: C-6.10: the wait is keyed on its kind as well as its verdict, so a job that alternates between lease-held and slot-kept records one verdict again on every alternation (not fixed here: the probe-pending key has no decision to key on)
+- 1: P3-6: filesystem identity has no wall-clock bound for a hung mount
+- 1: cross-version differential needs the CPython 3.14 oracle source
+- 1: explicit local-repo benchmark
+- 1: hdiutil create Case-sensitive HFS+: hdiutil: create failed - Device not configured
+- 1: hdiutil create ExFAT: hdiutil: create failed - Device not configured
+- 1: hdiutil create HFS+: hdiutil: create failed - Device not configured
+- 1: hook no-worker check requires permitted process inspection
+- 1: kern.ipc.somaxconn is 0: no room above the old queue of 64
+- 11: phase recovery: prerequisite reason unavailable without JUnit
+- 1: sandbox denies process inspection; bounded turn unit tests cover this seam
+
+Files never invoked: none. **The final 63-file replay did not acquire the lock before the 12:04 UTC cutoff and was cancelled; its foreground runner exited 130 without starting pytest.** Two files have committed fixture/prerequisite corrections awaiting post-fix replay: `tests/fake/test_daemon_stacks.py` (four pre-fix failures) and `tests/unit/test_descriptors.py` (one pre-fix failure). The other 61 files have complete per-test phase evidence from the interrupted hold, but their planned completed-session verification was not run. The five failures in the totals above therefore describe the last pre-fix executions, not a post-fix result. All 16 files explicitly requested in the five initial regression groups passed: **1,307 passed, zero skipped and zero failures**. No new hold was started at or after the cutoff.
+
+### Unrun replays at the cutoff
+
+| File | Unrun work |
+| --- | --- |
+| `tests/fake/test_daemon_stacks.py` | Post-fix whole-file replay |
+| `tests/unit/test_descriptors.py` | Post-fix whole-file replay |
+| `tests/unit/test_retention_salvage_properties.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_stop_watchdog.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_detached_retention_fence.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_compat.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_store_properties.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_retention_regenerable_properties.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_sessions_mirror_safety.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_turn_overlap.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_retention_worktrees.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_stop_alarm.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_lane_pilot.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_scheduler_tier_preferences.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_legacy_hold.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_review130_pass.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_salvage.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_conversation_steer_service.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_host_push_metadata.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_census_responsibility_failures.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_operator_hold_closures.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_round10_refusal_context.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_suggestion_secret_properties.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_suggestions_review_boundaries.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_host_push_export.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_store_readers.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_review_r3_measure.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_native_maintenance_startup.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_sessions_cli.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_provider_qos.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_descriptors_desktop.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_host_push_validated_top.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_guardian_qos.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_codex_ca_bundle.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_status_json.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_prune_decision_fingerprints.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_lanes_transfer.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_desktop_in_use.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_main_refusal_write_dir.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_status_payload.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_continuation_r2.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_sessions_revive_reads.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_sessions_revive.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_policy_disk.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_enrollment_guardian.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_finalization_replay.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_doctor_ca_bundle.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_prune_decision_backup_verification.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_mcp_cli_contract.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_codex_turn.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_picker.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_review_pr127_pr_wakes.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_routing_tier_preferences.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_daemon_qos_tools.py` | Completed-session verification of complete phase records |
+| `tests/fake/test_picker_native.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_conversation_state_reads.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_guardian.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_salvage_optional_transient.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_claude_identity.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_pr124_review_r2_fixes.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_scoped_stream_capacity.py` | Completed-session verification of complete phase records |
+| `tests/unit/test_store_snapshot_plans.py` | Completed-session verification of complete phase records |
+
+Commits before this final report commit (all carry the requested coauthor trailer):
+
+- `714348099` test: preserve notice body positions before final capability evidence
+- `aa7903b07` test: keep capability last after host push annotations
+- `dfe4a141f` test: resolve conditional permissions in handoff and shell routing
+- `7a6d974a1` test: correct local imports in workspace notice regressions
+- `d63b97789` docs: record round-five regressions, reader audit and validation checkpoint
+- `6175077b0` fix: append capability after the complete notice body
+- `49f5efcfb` fix: resolve conditional policy permissions before handoff and shell routing
+- `70314d9ed` test: follow the current store schema and policy bytes
+- `66aa7602c` test: cover conditional handoff Git probe failures and explicit escapes
+- `4df38b232` fix: report conditional handoff probe errors without exposing Git output
+- `53f61070a` docs: record round-five fixes and 656 green focused checks
+- `784467bed` docs: record focused checks, full-sweep progress and interrupted hold
+- `9e04065a5` test: cover importer fixture identities with unavailable process inspection
+- `3d60a3aff` test: isolate synthetic importer identities from host inspection
+- `cb2655495` test: guard real QoS measurement when process inspection is denied
+- `33ac652cd` docs: record importer replay and bounded full-sweep diagnostics
+- `9bb0c2f00` test: guard the hook worker census when ps execution is denied
+- `23b81c735` docs: record complete-file recovery before the final two holds
+- `7f3e787ff` test: keep doctor lock identity unknown when inspection is denied
+- `ddf43cd9b` test: make doctor lock identities independent of host inspection
+- `700d45b8a` test: declare process-inspection prerequisites for stack-dump probes
+- `4a5379362` test: require sysctl permission for the real kernel ceiling probe
+
+### Round-five per-file counts
+
+| File | Passed | Skipped | Xfailed | Failed/errors | Latest evidence / pending work |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `tests/e2e/test_notice_job_state.py` | 0 | 1 | 0 | 0 | focus-2 |
+| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_held_waiters.py` | 1 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_admission_latency.py` | 14 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_lease_waiters.py` | 16 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_admission_liveness.py` | 32 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_priority.py` | 32 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_properties.py` | 27 | 0 | 1 | 0 | small-01 |
+| `tests/fake/test_admission_ramp.py` | 19 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_ramp_retention.py` | 11 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_route_isolation.py` | 90 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_stateful.py` | 2 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_admission_visibility.py` | 43 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_batch_label.py` | 9 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_canonical_identity.py` | 24 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_canonical_identity_fix2.py` | 21 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_canonical_identity_fix3.py` | 17 | 0 | 1 | 0 | full-01 |
+| `tests/fake/test_canonical_identity_fix4.py` | 11 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_canonical_identity_fix5.py` | 13 | 1 | 0 | 0 | small-01 |
+| `tests/fake/test_capacity_wait_backoff.py` | 30 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_census_escapers_daemon.py` | 0 | 4 | 0 | 0 | small-01 |
+| `tests/fake/test_census_recycled_pid_daemon.py` | 8 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_codex_ca_bundle_fake.py` | 0 | 6 | 0 | 0 | small-01 |
+| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_conversation_pools.py` | 2 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_conversation_wakes_fake.py` | 4 | 0 | 0 | 0 | small-01 |
+| `tests/fake/test_crash_matrix.py` | 0 | 9 | 0 | 0 | small-01 |
+| `tests/fake/test_daemon_contract.py` | 0 | 21 | 0 | 0 | full-01 |
+| `tests/fake/test_daemon_descriptors.py` | 12 | 1 | 0 | 0 | final-01 |
+| `tests/fake/test_daemon_launch.py` | 9 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_daemon_stacks.py` | 1 | 1 | 0 | 4 | final-01; pre-fix failures, post-fix replay unrun |
+| `tests/fake/test_descriptor_exhaustion.py` | 0 | 2 | 0 | 0 | finish-01 |
+| `tests/fake/test_detached_cwd_pins.py` | 18 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_detached_retention_fence.py` | 89 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_enrollment_guardian.py` | 0 | 1 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_fake_provider.py` | 13 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_folder_spelling.py` | 7 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_frozen_stream_nonregular.py` | 32 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_gate_end_to_end.py` | 10 | 1 | 0 | 0 | finish-01 |
+| `tests/fake/test_identity_rollback.py` | 5 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_idle_cost.py` | 0 | 2 | 0 | 0 | last-01 |
+| `tests/fake/test_interactive_claude_titles.py` | 6 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_interactive_steer.py` | 13 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_lane_fault.py` | 20 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_lane_pilot.py` | 24 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_lanes_enroll.py` | 15 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_lanes_reenroll.py` | 19 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_lanes_reenroll_keychain.py` | 1 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_launch_gates_above_stdio.py` | 0 | 9 | 0 | 0 | full-01 |
+| `tests/fake/test_lost_acknowledgement.py` | 0 | 3 | 0 | 0 | full-01 |
+| `tests/fake/test_main_refusal_write_dir.py` | 5 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_mcp_job_contract.py` | 12 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_native_maintenance_startup.py` | 41 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_notice_delivery.py` | 15 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_notice_header.py` | 24 | 0 | 0 | 0 | focus-1 |
+| `tests/fake/test_picker_native.py` | 3 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_policy_sandbox.py` | 25 | 0 | 0 | 0 | focus-1 |
+| `tests/fake/test_probe_cancel.py` | 24 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_probe_recovery.py` | 9 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_probe_turn.py` | 43 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_prompt_seam.py` | 8 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_provider_active_cap_fake.py` | 60 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_provider_cap_review_evidence.py` | 5 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_provider_qos.py` | 0 | 2 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_record_secrecy.py` | 44 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_request_routing.py` | 3 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_reserve_authorization.py` | 12 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_reserve_authorization_validation.py` | 11 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_reset_credit_incident.py` | 19 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_resume_cli.py` | 0 | 1 | 0 | 0 | diag-02 |
+| `tests/fake/test_resume_contract.py` | 23 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_retention_dormant.py` | 7 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_review130_ab.py` | 12 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_review_launch_permissions.py` | 15 | 0 | 0 | 0 | focus-1 |
+| `tests/fake/test_review_needs_shell.py` | 23 | 0 | 0 | 0 | focus-1 |
+| `tests/fake/test_review_r185_adversarial.py` | 1 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_route_view.py` | 8 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_routing_end_to_end.py` | 14 | 2 | 0 | 0 | diag-02 |
+| `tests/fake/test_routing_tier_preferences.py` | 5 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_salvage_adversarial.py` | 8 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_salvage_finalization.py` | 47 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_sessions_end_to_end.py` | 27 | 6 | 0 | 0 | full-01 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | focus-1 |
+| `tests/fake/test_state_fixture_processes.py` | 4 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_status_payload.py` | 2 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/fake/test_suggestions_fake.py` | 1 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_tier_hold_by_demand.py` | 27 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_timers_busy_admission.py` | 1 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_timers_end_to_end.py` | 6 | 1 | 0 | 0 | diag-02 |
+| `tests/fake/test_turn_listing.py` | 9 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_turn_retention_cwd.py` | 6 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_turn_retention_cwd_properties.py` | 1 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_turn_retention_job_directory.py` | 2 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_turn_retention_job_properties.py` | 1 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_turn_retention_quarantine.py` | 10 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_turn_trees.py` | 12 | 0 | 0 | 0 | final-01 |
+| `tests/fake/test_turn_wait_reasons.py` | 7 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_unadmittable_pin_admission.py` | 24 | 0 | 0 | 0 | full-01 |
+| `tests/fake/test_unadmittable_pin_rereview.py` | 6 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_unadmittable_pin_review.py` | 7 | 0 | 0 | 0 | diag-02 |
+| `tests/fake/test_workspace_contract.py` | 8 | 0 | 0 | 0 | last-01 |
+| `tests/fake/test_workspace_enospc.py` | 1 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_workspace_transient.py` | 24 | 0 | 0 | 0 | focus-1 |
+| `tests/fake/test_writable_fanout.py` | 28 | 0 | 0 | 0 | finish-01 |
+| `tests/fake/test_writer_retention_fence.py` | 23 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_ci_retry_known_flakes.py` | 70 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_claude_adapter.py` | 172 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_cli.py` | 230 | 0 | 0 | 0 | focus-2 |
+| `tests/unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_codex_adapter.py` | 93 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_codex_shim.py` | 31 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_compat.py` | 1615 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | 21 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_conversation_peers_attachments.py` | 44 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_conversation_reconcile.py` | 36 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_conversation_redact.py` | 9 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_conversation_state_reads.py` | 18 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_conversation_store.py` | 32 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_conversation_stream_assertion.py` | 13 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_conversation_waits.py` | 9 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_conversation_wakes.py` | 21 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_daemon_accept.py` | 5 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_daemon_connections.py` | 30 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_daemon_fifo_reads.py` | 27 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_daemon_init_release.py` | 2 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_daemon_inspection_properties.py` | 4 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_daemon_integration.py` | 7 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_daemon_qos_tools.py` | 3 | 1 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_daemon_verbs.py` | 15 | 5 | 0 | 0 | full-01 |
+| `tests/unit/test_decision_horizon.py` | 7 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_descriptors.py` | 15 | 0 | 0 | 1 | final-01; pre-fix failures, post-fix replay unrun |
+| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_desktop_account_cache.py` | 3 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_desktop_in_use.py` | 13 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_desktop_ledger.py` | 4 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_disk_admission.py` | 27 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_disk_floor.py` | 60 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_doctor.py` | 45 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_doctor_ca_bundle.py` | 16 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_doctor_identity.py` | 13 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_empty_provider_results.py` | 334 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_enrollment_runner.py` | 7 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_fake_codex_http.py` | 7 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_filesystem_identity_agreement.py` | 10 | 3 | 0 | 0 | final-01 |
+| `tests/unit/test_folders.py` | 23 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_forget_paced.py` | 2 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_fresh_until.py` | 1 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_frozen_provider_streams.py` | 48 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_gate_admission.py` | 24 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_gate_merge.py` | 59 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_gate_replay.py` | 23 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_gate_revision.py` | 16 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_gate_service.py` | 23 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_gate_verdict.py` | 45 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_guard_overlay.py` | 22 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_guard_trust.py` | 98 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_guardian.py` | 12 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_guardian_qos.py` | 14 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_handler_refusals.py` | 330 | 0 | 0 | 0 | focus-2 |
+| `tests/unit/test_held_waiter_holdback.py` | 6 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_hook_cost.py` | 3 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_hooks.py` | 66 | 1 | 0 | 0 | last-01 |
+| `tests/unit/test_hooks_native_guard.py` | 18 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_host_push.py` | 120 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_host_push_admission.py` | 15 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_host_push_build.py` | 10 | 1 | 0 | 0 | last-01 |
+| `tests/unit/test_host_push_build_budget.py` | 15 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_host_push_cli.py` | 7 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_host_push_config_cost.py` | 7 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_host_push_copy.py` | 11 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_host_push_export.py` | 10 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_host_push_intake.py` | 13 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_host_push_metadata.py` | 33 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_host_push_mutations.py` | 24 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_host_push_names.py` | 13 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_host_push_quarantine_restart.py` | 8 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_host_push_restart.py` | 4 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_host_push_retention.py` | 2 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_host_push_storage_recovery.py` | 2 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_host_push_storage_retry_budget.py` | 60 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_host_push_store_completion_pr183.py` | 2 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_host_push_store_interleavings.py` | 26 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_host_push_trees.py` | 5 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_host_push_validated_top.py` | 8 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_importer.py` | 149 | 1 | 0 | 0 | finish-01 |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_invariants_index.py` | 25 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_lane_answers.py` | 27 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_lanes_transfer.py` | 79 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_lease_waiter_selection.py` | 6 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_legacy_hold.py` | 50 | 6 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_limit_from_model_text.py` | 95 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_lockwatch.py` | 20 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_mcp_cli_contract.py` | 6 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_mcp_scheduler_contract.py` | 5 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_mirror_flags_faults.py` | 29 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_mirror_flags_model.py` | 12 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_mirror_flags_stateful.py` | 2 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_native_operations.py` | 28 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_notice_rendering.py` | 35 | 0 | 0 | 0 | focus-1 |
+| `tests/unit/test_notify_push.py` | 31 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_operator_hold_closures.py` | 15 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_operator_notices.py` | 79 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_person_boundary.py` | 97 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_person_boundary_identity.py` | 25 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_picker.py` | 39 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_placement_ramp.py` | 26 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_policy.py` | 186 | 0 | 0 | 0 | focus-1 |
+| `tests/unit/test_policy_disk.py` | 57 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_policy_ramp.py` | 46 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_policy_sandbox_resolution.py` | 42 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_policy_support.py` | 14 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_policy_tier_preferences.py` | 15 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_pr124_fixes.py` | 10 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_pr124_review_r2_fixes.py` | 6 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_pr192_review_r1.py` | 21 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_pr192_review_r2.py` | 9 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_procs.py` | 47 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_protocol_secrecy.py` | 322 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_provider_active_cap.py` | 50 | 0 | 0 | 0 | focus-2 |
+| `tests/unit/test_prune_217.py` | 27 | 0 | 0 | 0 | focus-2 |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_prune_restore.py` | 4 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_quota_projection.py` | 28 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_rank_review_report.py` | 3 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_reap_liveness.py` | 7 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_rediscovery_git_trace.py` | 17 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_relay.py` | 11 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_render.py` | 20 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_render_quota_projection.py` | 23 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_reserve_authorization_plumbing.py` | 5 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_reset_credit_claim_timing.py` | 2 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_reset_credit_demand.py` | 68 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_reset_credit_properties.py` | 11 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_reset_credit_review_r1.py` | 22 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_reset_credit_review_r2.py` | 52 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_reset_credit_review_r3.py` | 23 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_reset_credit_review_r3_mutants.py` | 12 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_resource_identity.py` | 10 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_retention_81_notes.py` | 38 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_retention_archive.py` | 109 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_retention_archive_properties.py` | 2 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_retention_case_alias.py` | 56 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_retention_nested_leases.py` | 27 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_retention_ordinary_trees.py` | 0 | 4 | 0 | 0 | diag-02 |
+| `tests/unit/test_retention_qos.py` | 8 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_retention_readback.py` | 37 | 0 | 0 | 0 | finish-01 |
+| `tests/unit/test_retention_rediscovery.py` | 17 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_retention_regenerable.py` | 26 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_retention_regenerable_properties.py` | 1 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_retention_salvage_properties.py` | 2 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_retention_shared_folders.py` | 62 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_retention_sweep_race.py` | 13 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_retention_turn_contract.py` | 2 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_retention_turn_workdirs.py` | 1 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_retention_turns.py` | 7 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_retention_worktrees.py` | 15 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_review130_pass.py` | 21 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_review_pr127_fixes.py` | 12 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_review_pr127_history.py` | 6 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_review_pr127_pr_wakes.py` | 7 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_review_pr127_report.py` | 1 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_review_pr127_requests.py` | 17 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_review_pr127_service.py` | 8 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_review_publish_guard.py` | 66 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_review_r2_repro.py` | 31 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_review_r3_measure.py` | 6 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_review_r3_repro.py` | 12 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_review_r4_repro.py` | 27 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_review_r5_repro.py` | 17 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_review_r6_probes.py` | 30 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_review_r6_restart.py` | 5 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_round10_refusal_context.py` | 41 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_route_check.py` | 24 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_salvage.py` | 31 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_salvage_optional_transient.py` | 15 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_salvage_unindexable.py` | 86 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_scheduler.py` | 97 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_scheduler_priority_callers.py` | 9 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_scheduler_split.py` | 3 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_scheduler_tier_preferences.py` | 9 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_scheduler_turns.py` | 10 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_scheduler_weekly.py` | 33 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_scoped_stream_capacity.py` | 17 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_sessions_cli.py` | 142 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_sessions_handoff.py` | 140 | 0 | 0 | 0 | focus-1 |
+| `tests/unit/test_sessions_handoff_excerpts.py` | 153 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_sessions_headless_properties.py` | 5 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_sessions_mirror.py` | 41 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_sessions_mirror_cache_coherence.py` | 4 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_sessions_mirror_fifo.py` | 49 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_sessions_mirror_hot_health.py` | 6 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_sessions_mirror_hot_progress.py` | 16 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_sessions_mirror_hot_regressions.py` | 22 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_sessions_mirror_inventory.py` | 8 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_sessions_mirror_load_gap.py` | 85 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_sessions_mirror_safety.py` | 28 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_sessions_mirror_write_churn.py` | 3 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_sessions_nudge.py` | 44 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_sessions_registry.py` | 24 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_sessions_revive.py` | 45 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_sessions_revive_reads.py` | 10 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_sessions_transcripts.py` | 71 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_soak_tools.py` | 49 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_status_json.py` | 56 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_steer_invariants.py` | 248 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_stop_alarm.py` | 1 | 1 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_stop_watchdog.py` | 26 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_store_contention_queries.py` | 212 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_store_ids.py` | 27 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_store_migration_2.py` | 21 | 0 | 0 | 0 | focus-2 |
+| `tests/unit/test_store_properties.py` | 3 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_store_readers.py` | 26 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_store_snapshot_plans.py` | 4 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_suggest_cli.py` | 7 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_suggest_hint.py` | 10 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_suggestion_error_boundaries.py` | 22 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_suggestion_properties.py` | 1 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_suggestion_secret_properties.py` | 7 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_suggestion_structural_errors.py` | 40 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_suggestions.py` | 29 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_suggestions_r1b_adversarial.py` | 30 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_suggestions_r3_channels.py` | 14 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_suggestions_review_boundaries.py` | 7 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_suggestions_review_multiline.py` | 6 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_suggestions_review_response.py` | 3 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_tick_prefilter.py` | 30 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_timers_alerts.py` | 17 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_timers_busy_read.py` | 115 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_timers_daemon.py` | 4 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_timers_keepalive.py` | 14 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_timers_probe.py` | 35 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_timers_reset_credits.py` | 47 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_timers_retention.py` | 20 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_title_review_regressions.py` | 4 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_turn_attachment_replay.py` | 13 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_turn_overlap.py` | 10 | 0 | 0 | 0 | complete-01; complete phase records, completed-session replay unrun |
+| `tests/unit/test_turn_replay.py` | 33 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_turn_runner.py` | 76 | 0 | 0 | 0 | diag-02 |
+| `tests/unit/test_ultracode_effort.py` | 39 | 0 | 0 | 0 | final-01 |
+| `tests/unit/test_unadmittable_pin.py` | 12 | 0 | 0 | 0 | last-01 |
+| `tests/unit/test_wait_hub.py` | 44 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_wake_cli.py` | 2 | 0 | 0 | 0 | full-01 |
+| `tests/unit/test_weekly_rank_vs_base.py` | 26 | 0 | 0 | 0 | full-01 |
