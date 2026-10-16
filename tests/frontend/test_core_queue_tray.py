@@ -54,9 +54,12 @@ REPAIR_ORIGINS = ("unblock-note", "failover")      # subfleet/conversations/stor
 WITHDRAWN_REASONS = ("withdrawn", "withdrawn-before-receipt")
 NOTE_PREVIEW = "Note to the next turn: the stopped turn is left, not resumed"
 PREVIEW_LIMIT = 280
-CORE_PREVIEW_LIMIT = int(re.search(r"let queuePreviewLimit = (\d+)",
-                                  (Path(__file__).resolve().parents[2] / "app/Sources/QueueTray.swift")
-                                  .read_text()).group(1))
+QUEUE_TRAY_SWIFT = Path(__file__).resolve().parents[2] / "app/Sources/QueueTray.swift"
+# The whole declaration must be a plain integer literal: a prefix match would read
+# `2_800` as 2 and `280 * 2` as 280 (delta review of fix 3), so anything else stops collection.
+_limit = re.search(r"^let queuePreviewLimit = ([0-9]+)$", QUEUE_TRAY_SWIFT.read_text(), re.MULTILINE)
+assert _limit, f"queuePreviewLimit in {QUEUE_TRAY_SWIFT} is no longer a plain integer literal; update this reader"
+CORE_PREVIEW_LIMIT = int(_limit.group(1))
 EMPTY_KEY = {"last": None, "last_is_own_send": False, "followed": None, "followed_length": 0, "tray": [],
              "settling": True, "has_history": False, "local_send": None, "live": False, "held": False}
 
