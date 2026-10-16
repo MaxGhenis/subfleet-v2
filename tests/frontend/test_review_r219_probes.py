@@ -457,7 +457,7 @@ def test_r3b_every_dispatcher_live_state_holds_the_tray(core_probe, ahead):
 def opening_scroll(tmp_path_factory):
     from tests.frontend.swift import ROOT, compile_probe
     binary = compile_probe(tmp_path_factory.mktemp("r219-scroll") / "probe",
-                           ROOT / "tests/frontend/ReviewR219ScrollProbe.swift", "SUBFLEET_VIEW_TEST")
+                           ROOT / "tests/frontend/ReviewR219ScrollProbe.swift", "SUBFLEET_VIEW_TEST", timeout=900)
     result = run_probe(binary)
     write_json(binary.parent / "opening.json", result)
     return result

@@ -549,3 +549,39 @@ end after the observer's work. `test_r8b_an_opening_pin_runs_after_queued_scroll
 requires the pin to finish last; `test_r8c_an_offset_only_review_jump_keeps_its_position`
 requires a subsequent Review-like offset change to stay at 250 points. Both
 regressions are committed before changing `ConversationOpeningPin.swift`.
+
+The diagnostic hold reproduced **3 failures / 1 pass** in **268.31 seconds**
+(**282.72 seconds** holding the lock). Both original paths still finish
+41/12 points above the end; the deterministic queued-scroll replay finishes
+12 points above it. Its later offset-only Review stays at 250 and passes.
+Document bounds and frame agree and there is no bottom inset, confirming
+ordering rather than a coordinate-oracle error. No window is visible.
+
+An initial run-loop scheduling candidate did not fix the queued-scroll replay
+and was discarded without committing application code. Its full review hold
+had 3 failures, 1 pass and 19 setup errors (537.42 seconds; 552.73 seconds
+holding the lock). The setup errors are a separate environment failure:
+`swiftc` attempted to spawn a missing `clang` under `/Applications/Xcode.app`.
+This job now selects the existing Command Line Tools and SDK using only its
+`DEVELOPER_DIR`/`SDKROOT` environment; the person's Xcode selection is unchanged.
+
+The revised fix coalesces the current SwiftUI update on the main queue before
+queueing the actual pin after that update's scroll work. The geometry triggers
+and person-scroll release are retained, including offset-only Review behavior.
+A small compiled replay runs inside the next review hold before pytest, so a
+scheduling failure is detected before another full-source compilation.
+
+The small replay now compiles and links with the pinned Command Line Tools.
+One attempted hold ended before pytest because that build had not yet finished
+(0 tests, 0.21 seconds holding the lock); it is not counted as verification.
+The retry is queued only after the executable exists.
+
+With the pinned toolchain, the replay passed at zero points from the end
+(Review stayed at 250), and all 19 core review cases passed. The full-source
+view compilation hit its 540-second fixture bound, so the four view cases
+had setup errors, not assertion failures. That hold took 776.42 seconds of
+pytest time (789.00 seconds holding the lock). The isolated four-case rerun
+allows 900 seconds for compilation plus the existing 60-second probe bound,
+remaining within a 20-minute hold. Its geometry/assertion tolerances are
+unchanged. Parallel preparation is stopped during this rerun. Prepared view
+mutants receive the same compile budget outside their eventual pytest holds.
