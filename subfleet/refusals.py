@@ -386,6 +386,16 @@ _SHAPES = {
 }
 
 
+#: A guard preflight verdict kind (`guard.preflight`) and its repair (C-14.2): the
+#: kinds `checked` admits are this table's, so each one renders its own repair.
+GUARD_REPAIRS = {
+    "trust": "rerun subfleet doctor",
+    "version": "install the supported Codex version, then rerun subfleet doctor",
+    "config": "correct the guard preflight configuration, then rerun subfleet doctor",
+    "environment": "restore the required directories and binaries, then rerun subfleet doctor",
+}
+
+
 def _choices() -> dict[str, tuple[str, ...]]:
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
     return {
@@ -397,7 +407,7 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "branch": ("main", "master"),
         "provider": ("claude", "codex"),
         "session_verb": ("resume", "revive"),
-        "guard_kind": ("trust", "version", "config", "environment"),
+        "guard_kind": tuple(GUARD_REPAIRS),
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
@@ -452,12 +462,8 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
         kind = details["guard_kind"]
         if kind == "trust":
             message += "; verify hook SHA-256, TRUST and the pinned Codex version"
-        fix = {
-            "trust": "rerun subfleet doctor",
-            "environment": "restore the required directories and binaries, then rerun subfleet doctor",
-            "config": "correct the guard preflight configuration, then rerun subfleet doctor",
-            "version": "install the supported Codex version, then rerun subfleet doctor",
-        }[kind]
+        # The renderer never raises: a kind admitted without a repair gets the generic one.
+        fix = GUARD_REPAIRS.get(kind, HANDLER_MESSAGES["guard-preflight"][1])
     if details.get(BY_POLICY) is True:
         # d261: a writer's refusal of a job its caller did not ask to write.
         task = details.get("task") if checked("task", details.get("task")) else "these"
