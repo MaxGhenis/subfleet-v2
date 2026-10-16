@@ -166,9 +166,9 @@ Round-3 implementation commits are `e43108c15` (notice lines), `7798a5b2d` (prun
 
 ## Round 4: public refusal integration and executed verification
 
-Base: `a0d24b46c1a3`, including the hub's merge of #181. The shared Git index is still read-only; round-4 commits use workspace-local `.git-local` metadata on `fix/review-needs-shell-217`, preserving the base's ancestry. No remote or caller checkout is written.
+Base: `a0d24b46c1a3`, including the hub's merge of #181. The shared Git index is read-only, so commits use `.git-local` metadata on `fix/review-needs-shell-217`, preserving the base's ancestry. Nothing was pushed or written to the caller checkout.
 
-The baseline hold reproduced all nine reported failures in 215.63 seconds:
+The baseline reproduced all nine reported failures in 215.63 seconds (344 passed):
 
 | File | Passed | Failed |
 | --- | ---: | ---: |
@@ -176,18 +176,51 @@ The baseline hold reproduced all nine reported failures in 215.63 seconds:
 | `tests/fake/test_review_needs_shell.py` | 21 | 2 |
 | `tests/fake/test_review_launch_permissions.py` | 9 | 6 |
 
-The AST refusal check identifies two constructors without a public reason: the unknown pinned model and the unsatisfiable pinned shell requirement. Both need handler templates and checked details, including value-free fallbacks. The eight notice failures expect capability/publication evidence in the first line even though round 3 moved it to its own line. Comparing `f3b287771` with `a0d24b46c` confirms #181 changed neither `subfleet/render.py` nor these two fake test files. Production rendering already follows C-15.1 and needs no change.
+Causes and fixes:
 
-Tests-first commit `fdaffe9e5` checks the exact first-line header independently of the renderer, capability/publication evidence on the second line, unchanged deliverable/output bytes, public wire refusals, and malformed or credential-shaped detail fallbacks. Its focused red run completed in 71.87 seconds: 18 failed, 8 passed, 338 deselected. All eight corrected notice cases passed; the 11 new template cases and seven strengthened admission checks failed because the two refusals still rendered the generic operation fallback.
+- **One refusal-vocabulary failure, two constructors:** unknown pinned models and unsatisfiable pinned shell requirements had no public reason. Commit `1c05d7803` adds `unknown-pinned-model` and `needs-shell`, templates, and model/sandbox details. Model names must match a bounded shape and pass the existing credential check; sandbox values come from `Sandbox`. Both templates have fallbacks that name no value and retain their repairs. Direct callers keep the raw diagnostics and policy model list; public messages use checked details.
+- **Eight stale notice assertions:** the Opus cases (2) and read-only policy review cases (6) still expected capability/publication evidence in the first line after round 3 moved it to its own line. Comparing `f3b287771` with `a0d24b46c` confirms #181 changed neither the renderer nor those two fake test files. Tests now check the exact C-15.1 header, capability/publication on line two, and unchanged deliverable/output bytes. Production rendering already matched the design.
+- **Two additional state-contract failures:** the acceptance/cancellation parameters still unpacked header/summary/retained output without the capability line, counting the attempt summary as retained output. Their state and acceptance assertions passed. Commit `85d98603d` reads the separate capability line, removes permissive header-suffix handling, and checks unchanged deliverable bytes for both outcomes. All 37 state cases then passed.
 
-The implementation gives both constructors public reasons, `unknown-pinned-model` and `needs-shell`, and supplies model/sandbox details. Model details must match a bounded name shape and pass the existing credential check; sandbox details must be a `Sandbox` value. Templates have value-free fallbacks that retain their repairs. Raw diagnostics and the policy's model list remain available to direct callers; wire messages use only validated details. Credential regressions use lowercase tokens that match the name shape, exercising credential rejection as well. The notice renderer and deliverables are unchanged.
+Tests-first commit `fdaffe9e5` adds wire/detail regressions and corrects the eight notice cases. Its focused red run was 18 failed, 8 passed, 338 deselected in 71.87 seconds: the eight corrected notice cases passed while the missing public reasons failed. Credential cases use lowercase tokens that fit the model-name shape, exercising credential rejection too. The full three-file green rerun passed 368 in 106.03 seconds. Notice/CLI passed 312 in 127.80 seconds. Store/state initially passed 112 and failed the two stale assertions in 223.31 seconds; the unchanged four unit files retain their 77 passes, and the full state rerun passed 37 in 35.64 seconds. Refusal/publication passed 396 in 60.48 seconds. The e2e notice assertions were also checked in source and already follow the separate-line design; the remaining two-line fake notice case has no attempt and correctly has no capability line.
 
-All holds use one foreground pytest process, the shared lock without a wait timeout, `env -u SUBFLEET_RETENTION_DORMANT`, no pytest cache, and scratch Hypothesis storage with the bounded `ci` profile. The sandbox cannot write uv's default cache, so `UV_CACHE_DIR` points inside the permitted task scratch directory. Dependencies installed successfully there. The conservative cutoff for starting holds is 2026-10-16 07:27 UTC (4 h 30 m after checkout creation).
+Final results below are the latest full-file outcomes, without counting red runs or retries twice: **1,192 passed, 105 skipped, zero unresolved failures. All 32 requested files were invoked; no files remain unrun.** The 1,190 unit/fake cases passed. E2e contributed two passing stop-lock observer cases using owned child processes. All 105 other e2e cases skipped at the existing C-5.3 fixture: `macOS boot identity is unavailable` (permitted ps/sysctl inspection is required). Their daemon/process behavior was not exercised in this sandbox.
 
-The full three-file rerun passed in 106.03 seconds: `tests/unit/test_handler_refusals.py` 330 passed, `tests/fake/test_review_needs_shell.py` 23 passed, and `tests/fake/test_review_launch_permissions.py` 15 passed (368 total). Including the lock wait, its invocation took 978.69 seconds.
+| File | Passed | Skipped |
+| --- | ---: | ---: |
+| `tests/unit/test_handler_refusals.py` | 330 | 0 |
+| `tests/fake/test_review_needs_shell.py` | 23 | 0 |
+| `tests/fake/test_review_launch_permissions.py` | 15 | 0 |
+| `tests/unit/test_notice_rendering.py` | 26 | 0 |
+| `tests/fake/test_notice_header.py` | 23 | 0 |
+| `tests/unit/test_cli.py` | 230 | 0 |
+| `tests/unit/test_offline.py` | 33 | 0 |
+| `tests/unit/test_prune_217.py` | 27 | 0 |
+| `tests/unit/test_store_migration_2.py` | 21 | 0 |
+| `tests/unit/test_store_readers.py` | 26 | 0 |
+| `tests/unit/test_store_properties.py` | 3 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 |
+| `tests/unit/test_protocol_secrecy.py` | 322 | 0 |
+| `tests/unit/test_review_publish_guard.py` | 66 | 0 |
+| `tests/e2e/test_codex_turn_completed_e2e.py` | 0 | 3 |
+| `tests/e2e/test_conversation_titles_e2e.py` | 0 | 9 |
+| `tests/e2e/test_conversation_wakes_e2e.py` | 0 | 4 |
+| `tests/e2e/test_conversations.py` | 0 | 44 |
+| `tests/e2e/test_guard_and_isolation.py` | 0 | 5 |
+| `tests/e2e/test_http_isolation.py` | 0 | 1 |
+| `tests/e2e/test_legacy_cockpit.py` | 0 | 1 |
+| `tests/e2e/test_milestone1_codex.py` | 0 | 9 |
+| `tests/e2e/test_milestone2_claude.py` | 0 | 7 |
+| `tests/e2e/test_notice_job_state.py` | 0 | 1 |
+| `tests/e2e/test_recovery.py` | 0 | 2 |
+| `tests/e2e/test_reserve.py` | 0 | 4 |
+| `tests/e2e/test_review_r2_strand_e2e.py` | 0 | 2 |
+| `tests/e2e/test_review_r3_strand_timing_e2e.py` | 0 | 2 |
+| `tests/e2e/test_stop_bound.py` | 2 | 1 |
+| `tests/e2e/test_suggestions_e2e.py` | 0 | 2 |
+| `tests/e2e/test_suggestions_r1b_peer_e2e.py` | 0 | 8 |
 
-Verification status: all 15 requested unit/fake files passed, 1,190 cases total; the 17 `tests/e2e/test_*.py` files are now being invoked individually. Scratch data is retained until final cleanup; no logs, XML, JSON evidence, or bundles are staged.
+Every pytest invocation used its own foreground shared-lock hold, without a lock-wait timeout, `env -u SUBFLEET_RETENTION_DORMANT`, no pytest cache, one worker, scratch Hypothesis storage, and the bounded `ci` profile. The default uv cache is not writable in this sandbox; all runs used `UV_CACHE_DIR` inside the permitted task scratch directory. Dependencies installed there successfully. The longest reported pytest phase was 223.31 seconds; lock waits were separate (the stop-bound invocation waited about 41 minutes, then reported 13.23 seconds of pytest execution). The last invocation was queued at 06:47 UTC and completed at 07:03 UTC, before the conservative 07:27 UTC cutoff for starting holds.
 
-The notice/CLI hold passed all 312 cases in 127.80 seconds: notice rendering 26, fake notice headers 23, CLI 230, offline 33. The store/state hold then ran all 114 cases in 223.31 seconds: prune 27 passed, migrations 21 passed, readers 26 passed, properties 3 passed, state contracts 35 passed and 2 failed. Both additional failures are the acceptance/cancellation parameters of `test_c7_2_state_acceptance_and_cancellation_commit_order`: it still unpacked header/summary/retained output without a capability line, so the actual attempt summary was counted as retained output. Its state and acceptance assertions passed. The test now unpacks the capability line explicitly, checks exact C-15.1 headers without permitting suffixes, and verifies unchanged deliverable bytes for both outcomes. The full state-contract rerun passed all 37 cases in 35.64 seconds; the four unchanged unit files retain their 77 passing results.
-
-The refusal/publication hold passed all 396 cases in 60.48 seconds: daemon refusal CLI 8, protocol secrecy 322, review publication guard 66. Across all requested unit/fake files, the latest full-file results total 1,190 passed with no unresolved failures. E2e results and any unrun files will be recorded after the per-file holds.
+Task scratch storage, including the uv cache and Hypothesis data, was removed with the required `shutil.rmtree` command; absence of both the scratch directory and root `.hypothesis` was checked. Every foreground test runner exited. No logs, XML, JSON evidence, or bundles are staged. All commits carry the required co-author trailer. No shared Git metadata, live service/state, or caller checkout was modified; nothing was pushed, and no sub-agent was used.
