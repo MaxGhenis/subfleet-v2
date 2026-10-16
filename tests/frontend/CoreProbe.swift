@@ -182,9 +182,11 @@ func project(_ item: TimelineItem) -> [String: Any] {
 func project(_ turn: TurnTimeline) -> [String: Any] {
     [
         "message_id": turn.messageID, "seq": turn.seq as Any? ?? NSNull(), "state": turn.state,
+        "job_id": turn.jobID as Any? ?? NSNull(), "has_bound_job": turn.hasBoundJob,
+        "queued_withdrawal": project(turn.queuedWithdrawal), "shows_acknowledgment": turn.showsMessageAcknowledgment,
         "continues": turn.continues as Any? ?? NSNull(), "first_event": turn.firstEventSeq as Any? ?? NSNull(),
         "state_reason": turn.stateReason as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
-        "person_text": turn.personText as Any? ?? NSNull(), "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
+        "person_text": turn.personText as Any? ?? NSNull(), "locally_sent": turn.locallySent, "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
         "served": jsonObject(turn.served), "outcome": turn.outcome.map { ["state": $0.state, "reason": $0.reason as Any? ?? NSNull(),
                                                                            "served_model": $0.servedModel as Any? ?? NSNull()] } as Any? ?? NSNull(),
         "limits": turn.limits.map(jsonObject) as Any? ?? NSNull(), "diff": turn.diff as Any? ?? NSNull(),
@@ -447,6 +449,10 @@ struct CoreProbe {
             let code = MarkdownBounds.code(text, maxLines: Int(arguments[3]) ?? 40)
             emit(["shown_lines": code.shown.split(separator: "\n", omittingEmptySubsequences: false).count,
                   "hidden_lines": code.hiddenLines])
+        case "queue": emit(try runQueue(readFile(arguments[2])))
+        case "queue-words": emit(try runQueueWords(readFile(arguments[2])))
+        case "queue-engine": emit(try runQueueEngine(readFile(arguments[2])))
+        case "queue-state": emit(try runQueueState(readFile(arguments[2])))
         case "fold":
             emit(try runFold(readFile(arguments[2])))
         case "questions":

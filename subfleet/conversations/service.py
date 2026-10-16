@@ -83,7 +83,7 @@ def _suggestion_errors(handler):
 #: C-26.14), and an added op is a capability, not a new version.
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
-                protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
+                protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1", "conversation.status.v1",
                 "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY, suggestions.CAPABILITY)
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
@@ -523,6 +523,17 @@ class ConversationService:
             live = read_catalog(self.root, limit=1, stale_after_s=self._catalog_stale_after_s())["live_elsewhere"]
             view["live_elsewhere"] = canonical_native(view["native_session_id"]) in live
         return view
+
+    def op_conversation_status(self, args, peer) -> dict:
+        """Focused refresh: state and message identities, with no transcript read.
+
+        Include every identity, even if it settled before the client saw its
+        queued change. Bodies are fetched only for unknown/changed identities.
+        """
+        conversation = self.store.conversation(args["conversation_id"])
+        ids = self.store.query("SELECT message_id FROM messages WHERE conversation_id=? ORDER BY seq",
+                               (conversation["conversation_id"],))
+        return {"conversation": self._view_live(conversation), "message_ids": [m["message_id"] for m in ids]}
 
     def op_conversation_open(self, args, peer) -> dict:
         if args.get("conversation_id"):
@@ -1511,7 +1522,7 @@ class ConversationService:
 
     def _receipt(self, message: dict, *, created: bool | None = None, text: bool = False) -> dict:
         out = {k: message.get(k) for k in ("message_id", "conversation_id", "seq", "origin", "continues", "state",
-                                           "state_reason", "settings", "served", "turn_ref", "created_at", "updated_at")}
+                                           "state_reason", "settings", "served", "turn_ref", "job_id", "created_at", "updated_at")}
         out["steered_into"] = steered_into(message.get("state_reason"))
         out["stop_requested"] = bool(message.get("stop_requested_at"))
         if created is not None:

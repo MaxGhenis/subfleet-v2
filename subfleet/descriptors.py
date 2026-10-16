@@ -70,7 +70,7 @@ READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
 #: daemon does (C-26.14). `conversation.open` only reads when it names a
 #: conversation (`read_only`); opened by native session it may create one.
 READ_ONLY_CONVERSATION_OPS = frozenset({
-    "capabilities", "models.list", "conversation.list", "conversation.history",
+    "capabilities", "models.list", "conversation.list", "conversation.status", "conversation.history",
     "conversation.events", "conversation.watch", "conversation.runs", "message.status",
     "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check", "suggestion.list"})
 

@@ -269,7 +269,8 @@ def test_c27_5_a_waiting_card_has_the_strip_when_the_newest_live_turn_has_answer
     log.add("m2", "turn.completed", state="complete")
     result = fold(core_probe, [{"receipts": [receipt("m1", 1, "approval-needed"), receipt("m2", 2, "running")]},
                                log.page()])
-    assert result["live_message"] == "m2" and result["turns"]["m2"]["outcome"] is not None
+    assert result["turns"]["m2"]["state"] == "complete" and result["turns"]["m2"]["outcome"] is not None
+    assert result["live_message"] == "m1"
     assert result["pinned_turn"] == "m1" and result["pending_items"] == [card]
     assert result["review_label"] == "Review"
 
@@ -770,23 +771,24 @@ def rows_of(snapshot: dict, mid: str) -> list[str]:
 
 def waits_in_queue(snapshot: dict, mid: str) -> bool:
     turn = snapshot["turns"][mid]
-    return (mid != CONVERSATION_KEY and turn["state"] in WAITING and turn["continues"] is None
+    return (mid != CONVERSATION_KEY and turn["state"] in WAITING
             and turn["first_event"] is None and rows_of(snapshot, mid) in ([], [f"person:{mid}"]))
 
 
-def queue_priority(turn: dict) -> int:
-    if turn["origin"] in REPAIR_ORIGINS:
-        return 0
-    if (turn["state_reason"] or "").startswith("steer-missed:"):
-        return 1
-    return 2
+def queue_priority(turn: dict) -> tuple[int, int, int, float]:
+    # Independent keys from next_dispatchable: missed status also sorts repairs;
+    # continuations participate, and wakes come after ordinary messages.
+    return (0 if turn["origin"] in REPAIR_ORIGINS else 1,
+            0 if (turn["state_reason"] or "").startswith("steer-missed:") else 1,
+            1 if turn["origin"] == "wake" else 0,
+            turn["seq"] if turn["seq"] is not None else float("inf"))
 
 
 def reference_display_order(snapshot: dict) -> list[str]:
     """The rule, written again: turns in the order they began (first event); a
     message that never began right after the latest that began among the
     messages before it; the no-message rows last of those; queued messages last,
-    in the order the daemon sends them (repairs, missed steers, ordinary)."""
+    in the order the daemon sends them (repairs, missed steers, ordinary, wakes)."""
     order, turns = snapshot["order"], snapshot["turns"]
     queue = [mid for mid in order if waits_in_queue(snapshot, mid)]
     waiting = sorted(queue, key=lambda mid: queue_priority(turns[mid]))
@@ -970,3 +972,22 @@ def test_c27_5_property_answering_the_strips_card_reaches_every_pending_card(cor
                                "next": next_seq, "reset": False}})
         extra.append({"pending": [a["view"] for aid, a in case["pending"].items() if aid not in reached]})
     assert sorted(reached) == sorted(case["pending"]) and len(reached) == len(set(reached))
+
+
+def test_c27_5_queued_continuations_follow_the_daemon_priority(core_probe):
+    log = Log()
+    log.add("parent", "accepted")
+    log.add("parent", "turn.completed", state="complete")
+    result = fold(core_probe, [
+        {"receipts": [
+            receipt("parent", 1, "complete"),
+            receipt("note", 2, "queued", origin="unblock-note"),
+            {**receipt("repair", 3, "queued", origin="failover", continues="parent"),
+             "state_reason": "steer-missed: stopped"},
+            receipt("person", 4, "queued"),
+            receipt("wake", 5, "queued", origin="wake"),
+            receipt("later", 6, "queued"),
+        ]}, log.page(), log.page(),
+    ])
+    assert result["display_order"] == ["parent", "repair", "note", "person", "later", "wake"]
+    check_snapshot(result)
