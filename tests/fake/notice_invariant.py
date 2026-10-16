@@ -57,3 +57,10 @@ def notice_mismatches(rows: Callable[..., list[dict[str, Any]]]) -> list[str]:
             problems.append(f"notice {notice['notice_id']} for {notice['job_id']}: "
                             + "; ".join(wrong) + f" (header: {first})")
     return problems
+
+
+def notice_without_capability(text: str) -> str:
+    """Keep the legacy lines for body assertions, checking evidence is last."""
+    body, separator, capability = text.rpartition("\n")
+    assert separator and re.fullmatch(r"ran (read-only|workspace-write) on .+", capability), text
+    return body

@@ -21,7 +21,7 @@ from subfleet import retention_archive as archives
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.offline import Offline
-from subfleet.store import SCHEMA_VERSION, Store
+from subfleet.store import MIGRATIONS, SCHEMA_VERSION, Store
 
 STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'lost')
 TABLES = {
@@ -39,7 +39,7 @@ STORES = st.lists(st.tuples(st.sampled_from(STATES), st.lists(DECISION, max_size
 
 
 def _seed(root, specs):
-    """Real schema 7, with attempts, timestamp ties and distinct raw JSON bytes."""
+    """Current schema, with launch evidence, timestamp ties and raw JSON bytes."""
     with Store(root / 'state.sqlite3') as store:
         store.put_lane(Lane('codex-1', 'codex', 'codex:one',
                             Credential('codex', '/synthetic/home', 'home'),
@@ -51,13 +51,15 @@ def _seed(root, specs):
             job_id = f'job-{index}'
             store.add_job(job_id=job_id, request_id=job_id, payload_digest='digest',
                           kind='dispatch', workdir=str(root), prompt_path='/synthetic/prompt',
-                          sandbox='read-only', state=state)
+                          sandbox='read-only', state=state, needs_shell=bool(index % 2))
             for seq, (attempt, clock, note, spaced) in enumerate(decisions, 1):
                 attempt_id = f'{job_id}/a{seq}' if attempt else None
                 if attempt:
                     store.add_attempt(attempt_id=attempt_id, job_id=job_id, seq=seq,
                                       lane_id='codex-1', model_requested='gpt-6-astra',
-                                      state='succeeded')
+                                      state='succeeded', has_shell=bool(seq % 2),
+                                      capability=('none', 'commands', 'writable')[seq % 3],
+                                      publish_denied=bool(seq % 2))
                 payload = json.dumps({'policy_hash': 'hash', 'note': note}, ensure_ascii=False)
                 if spaced:
                     payload = ' \n' + payload + '\t '
@@ -113,7 +115,7 @@ def _readers(root):
                         (False, 1, 'middle', False), (False, 1, 'id', False)])
                 for state in STATES], vacuum=True)
 def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
-    """C-11.5: partition, live histories, latest answers, and exact schema-7 restore."""
+    """C-11.5: partition, live histories, latest answers, and exact current restore."""
     with tempfile.TemporaryDirectory(prefix='sf-prune217-property-') as directory:
         root = Path(directory)
         _seed(root, specs)
@@ -144,7 +146,7 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         report = pruning.prune(root, apply=True, confirm=True, vacuum=vacuum,
                                batch_size=3, write_report=False)
         assert _readers(root) == before
-        assert report.schema == {'store': 7, 'build': 7}
+        assert report.schema == {'store': SCHEMA_VERSION, 'build': SCHEMA_VERSION}
         assert report.verification['readers_checked'] == len(states)
         assert report.verification['readers_identical'] == len(states)
         if vacuum:
@@ -170,11 +172,11 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         assert _readers(root) == before
 
 
-def test_schema_7_has_no_decision_dependents_and_hashes_every_table(tmp_path):
+def test_current_schema_has_no_decision_dependents_and_hashes_every_table(tmp_path):
     """C-3.1, C-11.5: the leaf-table and enumeration assumptions hold on this build."""
     _seed(tmp_path, [])
     with Store(tmp_path / 'state.sqlite3', read_only=True) as store:
-        assert SCHEMA_VERSION == 7
+        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == SCHEMA_VERSION
         names = {row['name'] for row in store.query("SELECT name FROM sqlite_master WHERE type='table'")}
         assert names == TABLES == set(pruning._tables(store.connection))
         assert set(pruning._fingerprints(store.connection)) == TABLES - {'decisions', 'events'}
@@ -182,6 +184,48 @@ def test_schema_7_has_no_decision_dependents_and_hashes_every_table(tmp_path):
                     if fk['table'] == 'decisions']
         # The schema has no hidden trigger that could make this DELETE write elsewhere.
         assert store.query("SELECT name FROM sqlite_master WHERE type='trigger'") == []
+
+
+@pytest.mark.parametrize('table,column', [
+    pytest.param(parts[2], parts[5], id=f'{parts[2]}.{parts[5]}')
+    for statements in MIGRATIONS.values() for statement in statements
+    if statement.startswith('ALTER TABLE ') and (parts := statement.split())
+])
+def test_prune_requires_every_migrated_column(tmp_path, table, column):
+    """Adding a migration automatically checks that prune knows its new columns."""
+    _seed(tmp_path, [])
+    database = tmp_path / 'state.sqlite3'
+    with sqlite3.connect(database) as conn:
+        for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
+            if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}:
+                conn.execute(f'DROP INDEX "{index[1]}"')
+        conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
+    before = _tables(database)
+    with pytest.raises(pruning.PruneRefused, match=f'{table}\\.{column}'):
+        pruning.prune(tmp_path, apply=True, confirm=True, write_report=False)
+    assert _tables(database) == before
+    assert not (tmp_path / 'backups').exists()
+
+
+@pytest.mark.parametrize('table,column,changed', [
+    ('jobs', 'needs_shell', 1), ('attempts', 'has_shell', 1),
+    ('attempts', 'capability', 'writable'), ('attempts', 'publish_denied', 1),
+])
+def test_prune_hashes_and_copies_launch_evidence(tmp_path, table, column, changed):
+    _seed(tmp_path, [])
+    database = tmp_path / 'state.sqlite3'
+    with Store(database) as store:
+        store.add_attempt(attempt_id='job-0/a1', job_id='job-0', seq=1,
+                          lane_id='codex-1', model_requested='astra')
+        before = pruning._fingerprints(store.connection)[table]
+        store.connection.execute(f'UPDATE "{table}" SET "{column}"=?', (changed,))
+        after = pruning._fingerprints(store.connection)[table]
+        assert before != after
+    original = _tables(database)
+    report = pruning.prune(tmp_path, apply=True, confirm=True, write_report=False)
+    assert report.fingerprints['before'][table] == report.fingerprints['after'][table] == after
+    assert _tables(database)[table] == original[table]
+    assert _tables(Path(report.backups['copy']['path'])) == original
 
 
 def test_a_new_table_is_included_in_the_proof(tmp_path):

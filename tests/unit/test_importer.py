@@ -25,6 +25,7 @@ from subfleet.conversations.store import ConversationStore
 from subfleet.importer import ImportRefused, import_legacy_cockpit, import_v1
 from subfleet.store import Store
 from tests import legacy_fixtures
+from tests.fake.conftest import process_inspection_available  # noqa: F401
 from tests.legacy_fixtures import (
     LEGACY, LEGACY_SESSION, QUEUED_SESSION, outbox_row, write_outbox, write_transcript,
 )
@@ -37,14 +38,9 @@ CODEX_TWO = "3163881b-4300-4ed1-a2ec-9c5360d10db8"
 APP_ACCOUNT = "390a6216-cdbe-478e-b9f1-42a9dc7f5dd7"
 SESSION = "29c03102-0afc-452f-a605-14a356d334bc"
 
-def _dead_pid() -> int:
-    """A pid `ps` accepts and no process holds: a child that has already been reaped."""
-    child = subprocess.Popen(["/usr/bin/true"])
-    child.wait()
-    return child.pid
-
-
-DEAD_PID = _dead_pid()
+# Outside the host PID range; the fixture supplies their identities directly.
+DEAD_PID = 999_999_991
+LIVE_PID = 999_999_992
 
 
 def offset_now(delta_s: float = 0.0) -> str:
@@ -79,8 +75,18 @@ def run_meta(run_id: str, **overrides: object) -> dict:
 
 
 @pytest.fixture
-def v1(tmp_path: Path) -> dict:
+def v1(tmp_path: Path, monkeypatch) -> dict:
     """A synthetic v1 state tree: roster, homes, runs, notices, outbox, files."""
+    real_identity = importer.procs.identity
+
+    def fixture_identity(pid):
+        if pid == DEAD_PID:
+            return None
+        if pid == LIVE_PID:
+            return importer.procs.ProcessIdentity(pid, "fixture-boot", "fixture-start")
+        return real_identity(pid)
+
+    monkeypatch.setattr(importer.procs, "identity", fixture_identity)
     home = tmp_path / "home"
     state = tmp_path / "v1-state"
     delegate = tmp_path / "delegate"
@@ -131,7 +137,7 @@ def v1(tmp_path: Path) -> dict:
                                          finished_at=None, duration_s=None),
         "20260905-100400-live": run_meta("20260905-100400-live", rc=None,
                                          finished_at=None, duration_s=None,
-                                         pid=os.getpid()),
+                                         pid=LIVE_PID),
         "20260905-100500-claude": run_meta("20260905-100500-claude", family="claude",
                                            model="claude-opus-5", lane=ENROLLED,
                                            codex_home=None, codex_thread_id=None,
@@ -1654,13 +1660,16 @@ def test_a_workers_file_naming_a_lone_surrogate_holds_every_session(v1):
 
 
 @pytest.mark.parametrize("subfleet", [False, True])
-def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet):
+def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet, request):
     """C-30.4, C-26.3 (review M1 and its follow-up): a live Claude process
     registered for a session in `<claude dir>/sessions` keeps this pass from
     placing history there, unless it is Subfleet's own (its environment names
     `SUBFLEET_ATTEMPT`, as a turn that kept running across the restart does).
     It holds no conversation: dispatch and launch make a turn there wait while
     the process lives (`external-writer`), and a hold set now would outlast it."""
+    if subfleet:
+        # This branch must prove the real child's Subfleet marker, beyond liveness.
+        request.getfixturevalue("process_inspection_available")
     cid = _bind(v1)
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "later, in the app", at=50)])
@@ -2573,3 +2582,25 @@ def test_an_unreadable_policy_is_left_alone(v1, monkeypatch, content):
     entry = run_import(v1, write_report=False).stores["reset-settings"]
     assert path.read_text() == content
     assert entry.imported == 0 and entry.reasons["policy-unreadable"] == 1
+
+
+def test_fixture_run_states_do_not_need_host_process_inspection(v1, monkeypatch):
+    """Synthetic live/dead records have fixed identities even in a denied kernel."""
+    def unavailable(pid):
+        raise importer.procs.InspectionError("fixture process inspection denied")
+
+    monkeypatch.setattr(importer.procs, "proc_start", unavailable)
+    run_import(v1)
+    states = {row["job_id"]: row["state"] for row in rows(v1["root"], "SELECT * FROM jobs")}
+    assert states["20260905-100300-lost"] == "lost"
+    assert states["20260905-100400-live"] == "running"
+
+
+def test_uninspectable_unfinalized_run_stays_external(monkeypatch):
+    """C-5.3: unavailable inspection cannot authorize adoption of a real run."""
+    def unavailable(pid):
+        raise importer.procs.InspectionError("fixture process inspection denied")
+
+    monkeypatch.setattr(importer.procs, "identity", unavailable)
+    assert importer._run_is_live({"pid": 999_999_997, "rc": None, "finished_at": None}) == (
+        True, "pid-inspection-failed")

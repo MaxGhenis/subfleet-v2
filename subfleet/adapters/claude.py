@@ -28,6 +28,9 @@ would be a lie about capacity.
 
 from __future__ import annotations
 
+from ..contracts import launch_capability
+from ..review_publish import protect_launch
+
 import hashlib
 import json
 import math
@@ -1336,6 +1339,7 @@ class ClaudeAdapter(Adapter):
             "session_id": session_id,
             "workdir": workdir,
             "sandbox": sandbox,
+            "capability": launch_capability("claude", sandbox).value,
             "transcript_path": str(transcript),
             "transcript_offset": offset,
             "projects_dir": str(transcript.parent.parent),
@@ -1380,7 +1384,7 @@ class ClaudeAdapter(Adapter):
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
-        return Launch(
+        return protect_launch(job, Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
             env_remove=env_remove,
@@ -1395,7 +1399,7 @@ class ClaudeAdapter(Adapter):
                 session_id=session_id, workdir=str(job.workdir), transcript=transcript,
                 sandbox=sandbox,
             ),
-        )
+        ), attempt_dir)
 
     def resume_launch(
         self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
@@ -1430,7 +1434,7 @@ class ClaudeAdapter(Adapter):
         transcript = self.expected_transcript_path(
             job.workdir, native_session_id, credential_env
         )
-        return Launch(
+        return protect_launch(job, Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
             env_remove=env_remove,
@@ -1445,7 +1449,7 @@ class ClaudeAdapter(Adapter):
                 session_id=native_session_id, workdir=str(job.workdir),
                 transcript=transcript, sandbox=sandbox, resumed_from=native_session_id,
             ),
-        )
+        ), attempt_dir)
 
     # --- reading an attempt's artifacts --------------------------------------
 

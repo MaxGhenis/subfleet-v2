@@ -1,6 +1,9 @@
 """Codex subscription adapter (C-9, C-10, C-12); no store or process ownership."""
 from __future__ import annotations
 
+from ..contracts import launch_capability
+from ..review_publish import protect_launch
+
 import base64
 import json
 import math
@@ -542,9 +545,9 @@ class CodexAdapter(Adapter):
         attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         sent_path = attempt_dir / "prompt.sent.md"
         atomic_publish(sent_path, read_regular(prompt_path))
-        return Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
+        return protect_launch(job, Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
                       str(sent_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
-                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id)
+                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id, notes={"capability": launch_capability("codex", sandbox).value, "sandbox": sandbox.value}), attempt_dir)
 
     def build_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                      credential_env: dict[str, str], model_id: str, effort: str | None,

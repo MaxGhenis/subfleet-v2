@@ -22,6 +22,7 @@ from subfleet.adapters.registry import register
 from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.daemon import SALVAGE_SKIPPED_SHOWN, SALVAGE_TRIES
 from subfleet.salvage import SalvageError, SalvageResult
+from tests.fake.notice_invariant import notice_without_capability
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (a fixture)
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_workspace_contract import repository
@@ -60,7 +61,8 @@ def log_text(daemon):
 
 
 def job_notices(daemon, job_id):
-    return [row["text"] for row in daemon.store.list_notices() if row["job_id"] == job_id]
+    return [notice_without_capability(row["text"])
+            for row in daemon.store.list_notices() if row["job_id"] == job_id]
 
 
 def events(daemon, job_id, kind):

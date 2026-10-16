@@ -6,6 +6,9 @@ transactions contain only SQL (C-3.3, C-16.4).
 """
 from __future__ import annotations
 
+from .contracts import launch_has_shell, launch_capability
+from .policy import job_needs_shell, resolve_sandbox
+
 import argparse
 import contextlib
 import ctypes
@@ -73,7 +76,7 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
+from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags
 
 
 def spawn_guardian(command: list[str], *, disclaim: bool, **options):
@@ -1363,6 +1366,8 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
+            if not route:
+                rows["jobs"] = [shell_flags(row) for row in rows["jobs"]]
             if scheduler.provider_caps_on(self.policy):
                 quarantines = self.store.query(PROVIDER_QUARANTINES)
                 if route:
@@ -2093,6 +2098,8 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
+        if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+            raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch", reason="review-publish")
         if args.push_branch is not None and args.kind != "dispatch":
             raise AdapterError("host push is supported for dispatch jobs", code=7,
                                fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
@@ -2141,17 +2148,17 @@ class Daemon:
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
             from_policy = args.sandbox == protocol.POLICY_SANDBOX
-            if from_policy:
-                args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
                 if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
                     # C-6.12: admission merges these with lane ids, so each must be a name.
                     raise ValueError("exclusions must be a list of lane names")
-                sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
                     raise ValueError("workdir must be a directory")
+                if from_policy:
+                    args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
+                sandbox = Sandbox(args.sandbox)
                 review_root = None
                 if args.isolated_review:
                     from .adapters.isolation import validate_isolated_review
@@ -2221,7 +2228,7 @@ class Daemon:
                                            fix="commit a baseline or run it from a repository, or pass -s read-only "
                                                "to run it here without writing", reason="policy-workdir",
                                            details={"repository": where, "task": args.task})
-                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline", reason="writable-repository")
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline, or pass -s read-only", reason="writable-repository")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
                 # spelled one way (`folders.canonical`, as a conversation's workspace
@@ -2247,8 +2254,17 @@ class Daemon:
                 # on every folder above it, by string operations alone (`folders.retiring`).
                 folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
                 model = args.pinned_model
-                if model:
-                    model = resolve_model(self.policy, model)
+                if model is not None:
+                    try:
+                        model = resolve_model(self.policy, model)
+                    except PolicyError as exc:
+                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                                           + ", ".join(self.policy["models"]), code=7,
+                                           fix="pin a model from the live policy",
+                                           reason="unknown-pinned-model", details={"model": model}) from exc
+                if args.needs_shell is not None and type(args.needs_shell) is not bool:
+                    raise ValueError("needs_shell must be true or false")
+                needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
                 if args.task and args.task not in self.policy["chains"]:
                     raise ValueError(f"unknown task {args.task}")
                 if args.tier and args.tier not in self.policy["tiers"]:
@@ -2283,6 +2299,10 @@ class Daemon:
                 provider = self.policy["models"][task_model]["provider"]
                 if lane and lane.provider != provider:
                     raise ValueError("pinned lane and model providers disagree")
+                if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
+                    raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
+                                       code=7, fix="pass -s workspace-write, or pin a Codex model",
+                                       reason="needs-shell", details={"model": task_model, "sandbox": sandbox.value})
                 if lane:
                     self._validate_home(lane)
                 mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
@@ -2300,7 +2320,7 @@ class Daemon:
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
-                    push_branch=args.push_branch, push_remote=push_remote)
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -2344,7 +2364,7 @@ class Daemon:
             values = dataclasses.asdict(args)
             for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
-            values.update(job_id=job_id, state="queued", payload_digest=digest,
+            values.update(job_id=job_id, state="queued", payload_digest=digest, needs_shell=needs_shell,
                           workdir=recorded_workdir, workdir_head=head, out_path=out,
                           push_remote=push_remote, push_default_branch=push_default,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
@@ -2526,11 +2546,15 @@ class Daemon:
         """d261, C-11.1: the sandbox a submit that named none gets. The policy's
         `permissions` entry for the task, else its `*` entry, else read-only; an
         isolated review and a gate round read only, whatever the policy says."""
-        if args.isolated_review or args.kind == "gate-review":
-            return Sandbox.READ_ONLY.value
         permissions = self.policy.get("permissions") or {}
-        chosen = permissions.get(args.task or "") or permissions.get("*") or Sandbox.READ_ONLY.value
-        return chosen if chosen in {s.value for s in Sandbox} else Sandbox.READ_ONLY.value
+        chosen = permissions.get(args.task or "") or permissions.get("*")
+        needs_git = chosen == "worktree-write" and not (
+            args.in_place or args.isolated_review or args.kind == "gate-review")
+        committed = needs_git and git_head(Path(args.workdir).expanduser(),
+            timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None
+        return resolve_sandbox(self.policy, protocol.POLICY_SANDBOX, task=args.task,
+                               in_place=args.in_place, git=committed,
+                               isolated=args.isolated_review, gate=args.kind == "gate-review")
 
     def _accepted_request(self, request_id: Any) -> bool:
         """C-6.2: whether a job already holds `request_id`, so this submit is a retry."""
@@ -2670,6 +2694,7 @@ class Daemon:
             pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
+            needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),
             independent=True, allow_tmp=True, no_preamble=not preamble, mcp_servers=list(recorded))
         resume = {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
                   "native_session_id": native, "lane_id": attempt["lane_id"],
@@ -3221,7 +3246,7 @@ class Daemon:
                 if not isinstance(a.last, int) or a.last < 0:
                     raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
-            jobs = self.store.query(sql, params)
+            jobs = [shell_flags(row) for row in self.store.query(sql, params)]
             batches = self._batches([row["job_id"] for row in jobs])
             return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
                              for row in jobs]}
@@ -3240,7 +3265,8 @@ class Daemon:
             return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "mcp": mcp,
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
-                    "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
+                    "attempts": [shell_flags(row) for row in self.store.query(
+                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))],
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
                     "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
@@ -3378,6 +3404,9 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
+            from .store import RESTRICTED_RUNS_SQL
+            at = utcnow()
+            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(RESTRICTED_RUNS_SQL, (at, at))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
@@ -3827,8 +3856,9 @@ class Daemon:
             if not all(j["state"] in TERMINAL for j in jobs) or pending_exports:
                 return None
             for job in jobs:
-                job["attempt"] = self.store.one(
+                attempt = self.store.one(
                     "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                job["attempt"] = shell_flags(attempt) if attempt is not None else None
                 job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 
@@ -3879,7 +3909,7 @@ class Daemon:
         quarantine's release whose salvage failed or left paths out (C-13.1),
         found after the job's notice went out at the quarantine.
         """
-        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind "
+        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind,sandbox "
                          "FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
         if row is not None and row["kind"] == "turn":
             return      # C-26.12: the conversation, not a notice, carries a turn's end
@@ -3888,7 +3918,10 @@ class Daemon:
                                f"({row['state'] if row else 'no job row'})")
         if not again and tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
-        text = render.notice_header(dict(row), self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
+        latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
+                            (row["job_id"],)).fetchone()
+        notice_job = {**dict(row), "attempt": dict(latest) if latest else None}
+        text = render.notice_text(notice_job, self.root, summary + self._moved_on(tx, row["job_id"]))
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -6612,8 +6645,10 @@ class Daemon:
                             reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
-                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
-                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
+                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,capability,publish_denied,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,?,?,'reserved',?,?,?)",
+                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
+                                    launch_capability(self.policy["models"][decision.chosen_model]["provider"], job["sandbox"]).value,
+                                    job["task"] == "review" or job["kind"] == "gate-review", baseline,
                                     json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
@@ -7361,6 +7396,15 @@ class Daemon:
             else:
                 self._launch_failure(a, f"workdir branch check failed: {said}", rc=int(Exit.OPERATIONAL))
             return
+        has_shell = launch_has_shell(lane.provider, spec.sandbox)
+        if job_needs_shell(self.policy, job) and not has_shell:
+            self._unlaunched(a, f"needs a shell: {model['id']} runs {job['sandbox']} jobs without one")
+            return
+        from .review_publish import protect_launch
+        launch = protect_launch(spec, launch, adir)
+        self.store.update_attempt(a["attempt_id"],
+                                  capability=launch_capability(lane.provider, spec.sandbox).value,
+                                  publish_denied=bool(launch.notes.get("publish_denied")))
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
@@ -8657,8 +8701,16 @@ class Daemon:
                    "(export_error IS NULL OR export_error<>?)", (error, job_id, error))
         # A legacy loser may still be running when the winner decides. Its
         # completion notice then appears later, before the loser's own export.
-        tx.execute("UPDATE notices SET text=text || ? WHERE job_id=? AND instr(text,?)=0",
-                   ("\n" + error, job_id, error))
+        Daemon._notice_detail(tx, job_id, error, once=True)
+
+    @staticmethod
+    def _notice_detail(tx, job_id: str, detail: str, *, once: bool = False) -> None:
+        """Preserve the notice body and keep capability evidence last."""
+        rows = tx.execute("SELECT notice_id,text FROM notices WHERE job_id=?", (job_id,)).fetchall()
+        for notice_id, text in rows:
+            if not once or detail not in text:
+                tx.execute("UPDATE notices SET text=? WHERE notice_id=?",
+                           (render.append_notice_detail(text, detail), notice_id))
 
     #: C-8.5: a push whose verification was cut short this many times (a
     #: restart, or a fault of the daemon's own) fails instead of retrying again.
@@ -8733,10 +8785,12 @@ class Daemon:
             if not error:
                 tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote_key=? AND branch_key=?",
                            (sha, job_id, host_push.ownership_key(remote), host_push.fold(branch)))
-            tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job_id))
+            self._notice_detail(tx, job_id, line)
 
     def _publish_bundle(self, job: dict) -> str:
         """Intake, verify and publish one accepted job's bundle; the pushed SHA."""
+        if job.get("task") == "review" or job["kind"] == "gate-review":
+            raise host_push.PushError("review publish: denied")
         branch, remote = job["push_branch"], job["push_remote"]
         settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
         family = job

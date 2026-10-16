@@ -58,6 +58,10 @@ def test_qos_argv_clamps_only_on_request():
                     reason="taskpolicy(8) and ps -M are macOS's")
 def test_thread_priorities_reads_every_thread_of_a_clamped_process():
     """The rig's own evidence that the clamp applied: `ps -M` per thread, never `ps -E`."""
+    try:
+        repro.thread_priorities(os.getpid())
+    except PermissionError:
+        pytest.skip("QoS thread measurement requires permitted ps -M inspection")
     code = "import threading,time\nfor _ in range(3): threading.Thread(target=time.sleep, args=(5,)).start()\ntime.sleep(5)"
     child = subprocess.Popen(repro.qos_argv("utility", [sys.executable, "-c", code]))
     try:

@@ -313,13 +313,24 @@ def test_daemon_lock_row_passes_with_neither_lock_nor_socket(root):
     assert item["status"] == doctor.PASS and "no daemon" in item["detail"]
 
 
-def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root):
+def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root, monkeypatch):
     """C-5.8 a lock naming a dead pid beside a live socket is the stale case."""
+    from subfleet import client
+
+    seen = []
+
+    def gone(pid):
+        seen.append(pid)
+        return ""
+
+    monkeypatch.setattr(client, "boot_id", lambda: "1")
+    monkeypatch.setattr(client, "proc_start", gone)
     (root / "daemon.sock").touch()
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
     item = doctor.check_daemon_lock(root)
     assert item["status"] == doctor.FAIL and "stale" in item["detail"]
+    assert seen == [999999]
 
 
 def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
@@ -329,14 +340,25 @@ def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
     assert item["status"] == doctor.FAIL and "no daemon.lock" in item["detail"]
 
 
-def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root):
+def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root, monkeypatch):
     """C-5.3 the lock is verified by process identity, not by a bare pid; here
     the fake daemon holds the socket and the lock names this very process."""
-    from subfleet.client import boot_id, proc_start
+    from subfleet import client
+
+    started = "Mon Jan 1 00:00:00 2001"
+    seen = []
+
+    def process_start(pid):
+        seen.append(pid)
+        return started
+
+    monkeypatch.setattr(client, "boot_id", lambda: "1")
+    monkeypatch.setattr(client, "proc_start", process_start)
     daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     (root / "daemon.lock").write_text(json.dumps(
-        {"pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid())}))
+        {"pid": os.getpid(), "boot_id": "1", "proc_start": started}))
     assert doctor.check_daemon_lock(root)["status"] == doctor.PASS
+    assert seen == [os.getpid()]
 
 
 # --- --live -------------------------------------------------------------------
@@ -563,3 +585,16 @@ def test_c16_6_the_descriptor_rows_are_in_the_tables(daemon, root, stub_probes):
     live = {item["check"] for item in doctor.checks(root, live=True)}
     assert "launchd open-file limit" in names and "daemon descriptors" not in names
     assert "daemon descriptors" in live
+
+
+def test_daemon_lock_row_is_unknown_when_process_inspection_is_unavailable(root, monkeypatch):
+    """C-5.3: denied inspection proves neither a stale lock nor a live holder."""
+    from subfleet import client
+
+    (root / "daemon.sock").touch()
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan 1 00:00:00 2001"}))
+    monkeypatch.setattr(client, "_run", lambda argv: (-1, ""))
+    item = doctor.check_daemon_lock(root)
+    assert item["status"] == doctor.UNKNOWN
+    assert "could not report" in item["detail"]

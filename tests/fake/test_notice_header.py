@@ -36,6 +36,10 @@ def notice_lines(daemon, job_id: str) -> list[str]:
     return notice["text"].splitlines()
 
 
+COMMANDS = ("ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+            "temp files included, so pytest could not run")
+
+
 def dashes(job_id: str, state: str, rc: int) -> str:
     return f"{job_id}: {state}; rc={rc}; deliverable=-; out=-"
 
@@ -49,7 +53,8 @@ def test_c15_1_c7_2_acceptance_first_names_the_deliverable_and_out(state_daemon)
     out = harness.root / "export.md"
     job_id, attempt, adir = reserve(daemon, harness, out_path=str(out))
     daemon._finalize(receipt_fixture(daemon, attempt, adir))
-    header, summary = notice_lines(daemon, job_id)
+    header, summary, capability = notice_lines(daemon, job_id)
+    assert capability == COMMANDS
     assert header == (f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
                       f"out={out}")
     assert summary == "attempt a1: ok, rc=0: fake provider succeeded; unattested"
@@ -70,6 +75,7 @@ def test_c15_1_c7_2_cancel_first_names_no_file_and_says_the_output_was_not_accep
         dashes(job_id, "cancelled", 130),
         "attempt a1: ok, rc=0: fake provider succeeded; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
+        COMMANDS,
     ]
     assert not out.exists()
 
@@ -85,6 +91,7 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
         dashes(job_id, "failed", 1),
         "attempt a1: unknown, rc=1: fake provider failed; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}",
+        COMMANDS,
     ]
 
 
@@ -101,6 +108,7 @@ def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, m
     assert notice_lines(daemon, job_id) == [
         dashes(job_id, "lost", 125),
         "attempt a1: unknown, rc=-: guardian lost without exit receipt; unattested",
+        COMMANDS,
     ]
 
 
@@ -162,7 +170,7 @@ def test_c15_1_c4_2_an_attempt_that_never_launched(state_daemon, cancel):
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
     daemon._process_attempt(attempt["attempt_id"])
     state, rc = ("cancelled", 130) if cancel else ("failed", 1)
-    assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc), "reserved-no-launch"]
+    assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc), "reserved-no-launch", COMMANDS]
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -182,7 +190,8 @@ def test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_
     monkeypatch.setattr(daemon_module.procs, "containment",
                         lambda *args, **kwargs: Containment(unverifiable=True))
     daemon._process_attempt(attempt["attempt_id"])
-    header, summary = notice_lines(daemon, job_id)
+    header, summary, capability = notice_lines(daemon, job_id)
+    assert capability == COMMANDS
     assert header == (dashes(job_id, "cancelled", 130) if cancel else dashes(job_id, "lost", 125))
     assert summary.startswith("quarantined: ") and "unverifiable" in summary
 
@@ -288,6 +297,7 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
         dashes(job_id, "cancelled", 130),
         f"attempt a1: unknown, rc=0: {detail}; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
+        COMMANDS,
     ]
 
 
@@ -358,7 +368,8 @@ def test_c12_6_the_empty_deliverable_override_keeps_the_adapters_verdict_too(sta
         "class": "ok", "detail": "fake provider succeeded", "killed_by": None}
     assert notice_lines(daemon, job_id) == [
         dashes(job_id, "failed", 0),
-        "attempt a1: unknown, rc=0: empty deliverable with rc 0; unattested"]
+        "attempt a1: unknown, rc=0: empty deliverable with rc 0; unattested",
+        COMMANDS]
 
 
 # --- the invariant the harness now checks at close ---------------------------
@@ -381,3 +392,16 @@ def test_c15_1_the_close_check_catches_a_notice_that_disagrees_with_its_job(stat
     with daemon.store.transaction("fixture.imported_notice", job_id=other) as tx:
         tx.execute("UPDATE notices SET text=? WHERE job_id=?", ("run finished", other))
     assert notice_mismatches(harness.rows) == []
+
+
+def test_export_failure_keeps_existing_lines_and_capability_last(state_daemon):
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness)
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    before = notice_lines(daemon, job_id)
+    assert before[-1] == COMMANDS
+    error = "export failed: OSError (errno=13)"
+    for _ in range(2):
+        with daemon.store.transaction("test.export-error") as tx:
+            daemon._export_error(tx, job_id, error)
+    assert notice_lines(daemon, job_id) == [*before[:-1], error, COMMANDS]

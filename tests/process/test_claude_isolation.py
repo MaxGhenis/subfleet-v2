@@ -130,7 +130,9 @@ def test_the_credential_reaches_the_child_and_appears_nowhere_else(tmp_path):
     secret = "sk-ant-oat01-NOT-A-REAL-TOKEN"
     assert secret not in " ".join(report["argv"])
     attempt_dir = Path(launch.stdout_path).parent
-    for path in sorted(attempt_dir.iterdir()):
+    # Every regular file at any depth: a launch whose publishing is denied adds a
+    # publish-bin directory of git and gh wrappers, which must not hold it either.
+    for path in sorted(p for p in attempt_dir.rglob("*") if p.is_file()):
         if path.name == "env-report.json":
             continue
         assert secret.encode() not in path.read_bytes(), path
