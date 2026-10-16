@@ -1034,8 +1034,8 @@ class ConversationService:
                                     fix="name a folder, or leave it out for a new scratch folder")
         folder = folders.canonical(workspace)
         if suggestions.holds_secret(folder):
-            raise ConversationError("bad-workspace", "the folder's path holds a value shaped like a secret, which a "
-                                    "suggestion never shows (C-25.5)", fix="name another folder")
+            raise suggestions.SuggestionError("bad-workspace", "the folder's path holds a value shaped like a secret",
+                                              details={"workspace_status": "secret-shaped"})
         repository = self._git_toplevel(folder) if worktree else None
         kind = suggestions.WORKTREE if repository is not None else suggestions.IN_PLACE
         settings = validate_settings(provider, {"model": "suggestion", "permission": self._start_permission(provider)})
@@ -3245,9 +3245,11 @@ def _spelled_or_refused(path: str | Path, workspace: str) -> str:
         return spelled
     what = (f"what {workspace} contains" if os.fspath(path) == workspace
             else f"whether {workspace} contains {path}")
-    raise ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
-                            f"({doubt})", code=7,
-                            fix="make every directory above it searchable, or choose Ask or read-only")
+    error = ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
+                              f"({doubt})", code=7,
+                              fix="make every directory above it searchable, or choose Ask or read-only")
+    error.suggestion_details = {"workspace_status": "unreadable-spelling"}
+    raise error
 
 
 def _iso_ago(seconds: float) -> str:

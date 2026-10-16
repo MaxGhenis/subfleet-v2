@@ -152,6 +152,16 @@ def expected(reason, details) -> tuple[str, str | None]:
             message = form[0].format(**values)
             fix = form[1].format(**values) if form[1] is not None else None
             break
+    if reason == "guard-preflight" and refusals.checked("guard_kind", details.get("guard_kind")):
+        kind = details["guard_kind"]
+        if kind == "trust":
+            message += "; verify hook SHA-256, TRUST and the pinned Codex version"
+        fix = {
+            "trust": "rerun subfleet doctor",
+            "environment": "restore the required directories and binaries, then rerun subfleet doctor",
+            "config": "correct the guard preflight configuration, then rerun subfleet doctor",
+            "version": "install the supported Codex version, then rerun subfleet doctor",
+        }[kind]
     if details.get(refusals.BY_POLICY) is True:
         task = details.get("task") if refusals.checked("task", details.get("task")) else "these"
         message, fix = f"{message} ({task} jobs write by policy)", (fix + "; or " if fix else "") + "pass -s read-only"
@@ -221,9 +231,7 @@ def test_every_reason_reaches_the_wire_with_its_code(reason):
     response = wire_reply(op="submit", error=AdapterError(SENTINEL, code=7, fix=SENTINEL, reason=reason,
                                                          details=details))
     assert response["error"]["code"] == 7
-    message, fix = refusals.HANDLER_MESSAGES[reason]
-    assert response["error"]["message"] == message.format(**details)
-    assert response["error"]["fix"] == (fix.format(**details) if fix is not None else None)
+    assert (response["error"]["message"], response["error"]["fix"]) == expected(reason, details)
 
 
 # --- the seams that build refusals ----------------------------------------------
