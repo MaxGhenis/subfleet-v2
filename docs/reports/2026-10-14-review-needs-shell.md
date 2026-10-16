@@ -399,6 +399,8 @@ Commits before this final report commit (all carry the requested coauthor traile
 - `700d45b8a` test: declare process-inspection prerequisites for stack-dump probes
 - `4a5379362` test: require sysctl permission for the real kernel ceiling probe
 
+- `34844dc46` docs: finalize round-five fixes, per-file counts and cutoff status
+
 ### Round-five per-file counts
 
 | File | Passed | Skipped | Xfailed | Failed/errors | Latest evidence / pending work |
@@ -804,3 +806,5 @@ Commits before this final report commit (all carry the requested coauthor traile
 | `tests/unit/test_wait_hub.py` | 44 | 0 | 0 | 0 | full-01 |
 | `tests/unit/test_wake_cli.py` | 2 | 0 | 0 | 0 | full-01 |
 | `tests/unit/test_weekly_rank_vs_base.py` | 26 | 0 | 0 | 0 | full-01 |
+
+Cleanup verified: task scratch, uv cache and Hypothesis storage were removed. The first pass left a deliberately read-only test-fixture directory; its owner write permission was restored inside task scratch before the final removal. No workspace `.hypothesis` remains. All owned pytest and queued test runners exited; the final queued invocation never started pytest. Nothing was pushed. Commits remain in workspace-local `.git-local` metadata because the shared Git index is read-only.
