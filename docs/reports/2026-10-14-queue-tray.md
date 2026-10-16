@@ -888,13 +888,15 @@ count as kills. Mutants never edit production source in place.
 | skip unknown-ID hydration | `test_n5_n5b_n6_watch_discovers_repairs_before_publishing` |
 | app scroll retains opening pin | `test_n9_app_row_scroll_suspends_even_an_already_scheduled_pin` |
 
-### Final-source validation
+### Validation and final follow-up
 
 The app build passed using SDK 26.5 with `app/build.sh build/fix4-app` at
 production commit `7e5395e28`; the one-line reset-replay follow-up is `3aa3b8732`.
 The final build status is recorded below. Builds stay in this workspace and
 are not installed. The broad hold used `7e5395e28`; the queued review, extra
-frontend and approval-reach runs include `3aa3b8732`. Two earlier
+frontend and approval-reach runs include `3aa3b8732`. All four isolated mutant
+binaries were rebuilt from `3aa3b8732` before those queued holds acquired the
+lock. Two earlier
 compiles rejected concurrently modified input; both were rerun successfully.
 Earlier iteration failures prompted stronger generator contexts, one corrected
 idle-note expectation, and protection against stale event state. The broad hold
@@ -903,6 +905,9 @@ Commit `cce88b522` instead requires its state to become complete and the older
 pending approval to retain Review; the complete approval-reach file is rerun.
 Per-file rows use the latest run and the hold table retains that iteration's
 failure explicitly.
+
+The broad groups were not repeated after the one-line reset follow-up; the
+queued review run explicitly covers ordinary and reset-replay hydration.
 
 All pytest processes use the blocking shared `lockf`, default bounded Hypothesis
 profile, no xdist workers, `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`, and
@@ -914,14 +919,19 @@ probes consolidate the requested frontend groups into one serialized hold.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | daemon | 108 | 0 | 0 | 0 | 86.00 | not instrumented |
 | required | 337 | 1 | 0 | 0 | 752.03 | 765 |
+| review-final | 66 | 0 | 0 | 0 | 1026.78 | 1039 |
+
+Final build at `3aa3b8732`: **passed**.
+
+Targeted mutation checks: **4/4 passed**, review-final (each pass proves its named mutant fails an assertion while its control passes).
 
 | File | Passed | Failed | Errors | Skipped | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
-| `tests/frontend/test_app_cutover_start.py` | 13 | 0 | 0 | 0 | run |
-| `tests/frontend/test_conversation_view.py` | 6 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_approval_reach.py` | 40 | 1 | 0 | 0 | run |
+| `tests/frontend/test_app_cutover_start.py` | 13 | 0 | 0 | 0 | required |
+| `tests/frontend/test_conversation_view.py` | 6 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_approval_reach.py` | 40 | 1 | 0 | 0 | required |
 | `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
@@ -929,32 +939,32 @@ probes consolidate the requested frontend groups into one serialized hold.
 | `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | run |
-| `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | run |
+| `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_queue_tray_fix4_mutations.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | run |
-| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | run |
+| `tests/frontend/test_queue_tray_fix4_mutations.py` | 4 | 0 | 0 | 0 | review-final |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | required |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | required |
 | `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_review_r219_fix4.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_review_r219_probes.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
+| `tests/frontend/test_review_r219_fix4.py` | 39 | 0 | 0 | 0 | review-final |
+| `tests/frontend/test_review_r219_probes.py` | 23 | 0 | 0 | 0 | review-final |
 | `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_visual_report_hygiene.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
@@ -965,9 +975,9 @@ probes consolidate the requested frontend groups into one serialized hold.
 | `tests/frontend/test_visual_round_two.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_visual_snapshots.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_visual_suggestions.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/unit/test_conversation_refresh.py` | 2 | 0 | 0 | 0 | run |
-| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | run |
-| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | run |
+| `tests/unit/test_conversation_refresh.py` | 2 | 0 | 0 | 0 | daemon |
+| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | daemon |
+| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | daemon |
 
 Unavailable review probes, unrun:
 
@@ -975,7 +985,7 @@ Unavailable review probes, unrun:
 - `review-r2-probes/test_review_r219_r1orig_probes.py`
 - `review-r2-probes/ReviewR219R2RevealProbe.swift`
 
-Final-source total recorded so far: **445 passed, 1 failed, 0 errors, 0 skipped**, across 18 files.
+Latest recorded per-file total: **511 passed, 1 failed, 0 errors, 0 skipped**, across 21 files.
 
 ### Commits
 
@@ -992,6 +1002,7 @@ Final-source total recorded so far: **445 passed, 1 failed, 0 errors, 0 skipped*
 - `cce88b522` — test: keep approval review reachable after a newer turn completes
 - `e7e98d358` — test: hydrate unknown repair identities during reset replay
 - `3aa3b8732` — fix: hydrate event identities through reset rebuilding pages
+- `c492091bc` — docs: record fix4 cutoff status and pending verification
 
 Checkpoint: final holds are pending or active; pending tests are not counted as
 passes. No new hold will be initiated at or after 19:38 UTC (4 h 30 m). Existing
