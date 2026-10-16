@@ -121,12 +121,19 @@ def daemon_truth(harness: ServiceHarness, cid: str, mids: list[str]) -> list[str
     Order is next_dispatchable's, read by draining a copy of the queue."""
     rows = {m["message_id"]: m for m in harness.store.messages(cid)}
     conversation = harness.store.conversation(cid)
-    live_now = any(rows[mid]["state"] in LIVE_STATES for mid in mids)
+    # D1: a waiting claim without a job is still pending, not a bound turn.
+    # Drain those claims with the ordinary queue to obtain the daemon's order.
+    claims = {mid for mid in mids if rows[mid]["state"] == "waiting" and not rows[mid]["job_id"]
+              and (rows[mid]["state_reason"] == "dispatching"
+                   or (rows[mid]["state_reason"] or "").startswith(("deferred:", "external-writer:")))}
+    live_now = any(rows[mid]["state"] in LIVE_STATES and mid not in claims for mid in mids)
     blocked = bool(conversation["blocked_by"])
     # Drain: clear the block and settle everything live, then take the head until none is left.
     harness.store.update_conversation(cid, blocked_by=None)
     for mid in mids:
-        if rows[mid]["state"] in LIVE_STATES:
+        if mid in claims:
+            harness.store.set_state(mid, "queued", reason=rows[mid]["state_reason"])
+        elif rows[mid]["state"] in LIVE_STATES:
             harness.store.set_state(mid, "complete")
     order = []
     while heads := harness.store.next_dispatchable(cid):

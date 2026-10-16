@@ -551,7 +551,7 @@ def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
     assert shown == [("person", None, "failed"), ("notice", "Continued after a usage limit on b@example.invalid", None),
                      ("notice", "Withdrawn before it was sent: (message text not available)", None),
                      ("person", None, "queued"), ("person", "typed just now", "sending")]
-    assert result["turns"][ids[3]]["status_text"] == "Queued behind the current turn"
+    assert result["turns"][ids[3]]["status_text"] == "Queued for the next turn"
     assert result["turns"][ids[0]]["status_text"] == "Failed: limited"
     assert result["turns"][ids[4]]["status_text"] == "Sending"
 

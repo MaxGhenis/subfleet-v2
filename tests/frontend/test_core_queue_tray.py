@@ -91,8 +91,19 @@ def run_queue(core_probe, steps: list[dict], cid: str = CID) -> dict:
     """The probe's `queue` command, with a snapshot after every step."""
     steps = [{**step, "snapshot": True} for step in steps]
     with tempfile.TemporaryDirectory(prefix="sf-tray-") as scratch:
-        return run_probe(core_probe, "queue", write_json(Path(scratch) / f"{uuid.uuid4().hex}.json",
-                                                         {"conversation_id": cid, "steps": steps}))
+        result = run_probe(core_probe, "queue", write_json(Path(scratch) / f"{uuid.uuid4().hex}.json",
+                                                          {"conversation_id": cid, "steps": steps}))
+        assert_no_flicker(result)
+        return result
+
+
+def assert_no_flicker(result: dict) -> None:
+    """Every replay, including coverage batches, forbids timeline -> tray."""
+    seen = set()
+    for snapshot in result["snapshots"]:
+        layout = snapshot["layout"]
+        assert not seen.intersection(row["id"] for row in layout["tray"])
+        seen.update(item["message_id"] for item in layout["items"] if item["type"] == "person")
 
 
 def run_queue_batch(core_probe, examples: list[list[dict]]) -> list[dict]:
@@ -100,7 +111,10 @@ def run_queue_batch(core_probe, examples: list[list[dict]]) -> list[dict]:
     with tempfile.TemporaryDirectory(prefix="sf-tray-batch-") as scratch:
         inputs = [{"conversation_id": CID, "steps": [{**s, "snapshot": True} for s in steps]}
                   for steps in examples]
-        return run_probe(core_probe, "queue", write_json(Path(scratch) / "batch.json", {"runs": inputs}))["runs"]
+        results = run_probe(core_probe, "queue", write_json(Path(scratch) / "batch.json", {"runs": inputs}))["runs"]
+        for result in results:
+            assert_no_flicker(result)
+        return results
 
 
 def queue_words(core_probe, **inputs) -> dict:
@@ -392,7 +406,9 @@ def test_c29_7_a_queued_failover_continuation_shows_under_its_message(core_probe
              {"receipts": [receipt("m2", 2, "queued", origin="failover", continues="m1")]}]
     result = run_queue(core_probe, steps)
     last = result["snapshots"][-1]
-    assert tray(last) == ["m3"]
+    # A repair learned later cannot send an already visible person message back.
+    assert tray(last) == [] and "person:m3" in ids(last)
+    assert last["timeline"]["turns"]["m3"]["queued_withdrawal"] == {"action": "cancel", "message_id": "m3"}
     assert shown(last, "person:m2")["type"] == "notice"
     assert ids(last).index("person:m2") > ids(last).index("text:m1:0")
 
