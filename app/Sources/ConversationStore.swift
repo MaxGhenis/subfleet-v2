@@ -467,6 +467,13 @@ struct ConversationStoreState: Equatable {
     var providerFilter: String?
     var grouping: SidebarGrouping = .recency
     var laneLabels: [String: String] = [:]
+    /// Suggested conversations by id (C-25.7, C-29.14): from `suggestion.list`, then
+    /// the watch feed, which carries each one as it changes.
+    var suggestions: [String: Suggestion] = [:]
+    /// The newest feed sequence each suggestion is known at: its last feed row's, or
+    /// the read of the newest answer that carried it (C-29.14). An answer read
+    /// earlier never drops or rewinds it.
+    var suggestionSeqs: [String: Int] = [:]
 
     /// The Dock badge.
     var pendingApprovalCount: Int { pendingApprovals.values.reduce(0, +) }
@@ -649,6 +656,12 @@ struct ConversationStoreState: Equatable {
         var applied = 0
         for change in page.changes.sorted(by: { $0.seq < $1.seq }) where change.seq > watchCursor {
             applied += 1
+            if let suggestion = change.suggestion { upsert(suggestion, seq: change.seq) }
+            if change.suggestion_id != nil && change.conversation_id.isEmpty {
+                // C-25.7: a suggestion with no origin; no conversation changed.
+                watchCursor = max(watchCursor, change.seq)
+                continue
+            }
             let cid = change.conversation_id
             let before = pendingApprovals[cid] ?? 0
             pendingApprovals[cid] = change.pending_approvals

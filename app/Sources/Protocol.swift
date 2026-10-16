@@ -134,11 +134,14 @@ enum Ops {
         approvalRespond.name, attachmentAdd.name,
         catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
         conversationHandoff.name, workspaceCheck.name, conversationWake.name,
+        suggestionCreate.name, suggestionList.name, suggestionStart.name, suggestionDismiss.name,
+        suggestionWithdraw.name,
     ]
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
     static let personOnly: Set<String> = [
         approvalGet.name, approvalRespond.name, messageResolve.name, conversationUnblock.name, messageSteer.name,
+        suggestionStart.name, suggestionDismiss.name,
     ]
 }
 
@@ -382,6 +385,12 @@ struct CapabilityLimits: Codable, Equatable {
     /// `diff.v1`: a diff's text and file-list bounds (C-26.14).
     var diff_bytes: Int?
     var diff_files: Int?
+    /// `suggestions.v1` (C-25.7): a suggestion's words and how many may stay open.
+    var suggestion_title_chars: Int? = nil
+    var suggestion_tldr_chars: Int? = nil
+    var suggestion_brief_bytes: Int? = nil
+    var suggestions_per_origin: Int? = nil
+    var suggestions_open: Int? = nil
 }
 
 struct ModelsListArgs: Codable, Equatable {
@@ -809,6 +818,10 @@ struct ConversationChange: Codable, Equatable {
     var steered_into: String?
     var title: String?
     var title_source: String?
+    /// C-25.7: a suggestion's row names it and carries it as it is now (its brief
+    /// cut to a preview). One with no origin is under conversation id "".
+    var suggestion_id: String? = nil
+    var suggestion: Suggestion? = nil
 }
 
 // MARK: - messages
