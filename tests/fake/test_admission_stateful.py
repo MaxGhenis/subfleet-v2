@@ -58,7 +58,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from hypothesis import HealthCheck, Phase, event, note, settings
+from hypothesis import HealthCheck, Phase, event, given, note, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, precondition, rule
 
@@ -156,7 +156,7 @@ WAIT_REASONS = {"capacity", "dependency", "approval", "uncertain", "workspace", 
 #: lane can never admit, and the machine and disk guards (C-6.13, C-6.17). A hold with `for_good` (no
 #: lane can ever admit the job, C-11.8) holds nobody either.
 HOLD_NOBODY = {"route", "approval", "uncertain", "workspace", "attempt-live", "lease-held", "pin-unadmittable",
-               "machine-busy", "disk", "conversation-blocked", "message-settled"}
+               "machine-busy", "disk", "conversation-blocked", "message-settled", "lanes-unadmittable"}
 #: C-6.9, C-6.11: holds that exist only in a pool with a count cap (C-6.4a's count per provider included).
 CAPPED_ONLY = {"behind-older-job", "fleet-full", "slot-kept", "parent-cap", "provider-cap", "provider-slot-kept"}
 #: One fleet: its caps, the reserve on or off, lanes whose names may collide, the capacity it starts
@@ -712,11 +712,14 @@ class AdmissionMachine(RuleBasedStateMachine):
                         "slot-kept": {"kept_for", "live", "max_active_attempts", "tier"},
                         "lease-held": {"leases"}, "route": {"error_type", "error", "deferrals", "next_check_at"},
                         "pin-unadmittable": {"lane_id", "reasons", "closures", "since", "fail_at"},
+                        "lanes-unadmittable": {"lane_id", "reasons", "closures", "since", "fail_at", "all_lanes"},
                         "route-moved": {"tries"},
                         # C-6.4a: "`why` and status name `providers.<provider>.max_active_attempts` and say
                         # `<provider>: N of N running`, or identify an older peer keeping a slot".
                         "provider-cap": {"provider", "live", "max_active_attempts", "key"},
                         "provider-slot-kept": {"provider", "live", "max_active_attempts", "key", "kept_for", "tier"}}
+            if reason == "lanes-unadmittable":
+                assert hold["all_lanes"] is True and hold["lane_id"] is None and hold["reasons"]
             missing = required.get(reason, set()) - set(hold)
             assert not missing, f"C-6.11: the {reason} hold on {job_id} lacks {sorted(missing)}: {hold}"
             if reason in ("provider-cap", "provider-slot-kept"):
@@ -1121,3 +1124,34 @@ class ProviderCapMachine(AdmissionMachine):
 
 ProviderCapMachine.TestCase.settings = PROFILE
 TestAdmissionPassProviderCaps = ProviderCapMachine.TestCase
+
+
+@settings(max_examples=1, deadline=None, database=None)
+@given(st.just(None))
+def test_a_permanently_excluded_retry_does_not_hold_a_younger_provider_peer(_):
+    """CI's minimized trace: two transients exclude the fleet's only lane.
+
+    C-11.8 lets the younger peer pass during the older retry's durable refusal
+    grace. C-6.9 still applies to every waiter that could use a lane.
+    """
+    machine = ProviderCapMachine()
+    job = {"tier": "standard", "model": None, "task": None, "pin": None,
+           "legacy": False, "authorize": False, "exclusions": "[]"}
+    try:
+        machine.fleet(cap=None, per_lane=None, reserve=False, claude=[], codex_email=None,
+                      second_codex=False, capacity=[], queue=[dict(job), dict(job)],
+                      probe="ok", prove=None, provider_caps={"codex": 1})
+        older, younger = sorted(machine.seq, key=machine.seq.get)
+        machine.fair()
+        machine.admission_pass()
+        for _ in range(2):
+            [attempt] = machine.live()
+            assert attempt["job_id"] == older
+            machine.finish(attempt, "transient")
+            machine.clock.advance(61)
+            machine.fair()
+            machine.admission_pass()
+        assert machine.service._holds[older]["reason"] == "lanes-unadmittable"
+        assert [attempt["job_id"] for attempt in machine.live()] == [younger]
+    finally:
+        machine.teardown()

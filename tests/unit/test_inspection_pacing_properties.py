@@ -222,7 +222,7 @@ def test_c5_12_inspection_pacing_holds_its_properties(world, monkeypatch, plans,
                 core.store.add_attempt(attempt_id=aid, job_id=job, seq=1, lane_id="codex-1", model_requested="astra",
                                        state="running", guardian_pid=guardians[aid], child_pid=guardians[aid] + 1,
                                        pgid=guardians[aid], boot_id="boot", proc_start=STARTED,
-                                       started_at="2026-09-26T00:00:00Z", evidence_json="{}")
+                                       started_at=daemon_module.utcnow(), evidence_json="{}")
                 attempt_dir(core.root, job, 1).mkdir(parents=True, exist_ok=True)
                 inserted.add(aid)
                 inserted_at[aid] = clock[0]

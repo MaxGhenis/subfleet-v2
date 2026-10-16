@@ -28,7 +28,7 @@ from subfleet.conversations.titles import (
 )
 from subfleet.conversations.turn import Frame, TurnSpec
 from subfleet.relay import Ack, FrameTooLarge, RelayError, RelayServer, read_log
-from tests.unit.test_conversation_service import SETTINGS, FakeDaemon, svc  # noqa: F401
+from tests.unit.test_conversation_service import SETTINGS, FakeDaemon, svc, turn_attempt  # noqa: F401
 from tests.unit.test_turn_runner import INIT_OK, MID, SID, STEER_CAPS, STEER_MID, claim_steer
 from tests.unit.test_title_review_regressions import Held
 
@@ -377,6 +377,7 @@ class TitleTurn:
         self.store.submit_message(conversation_id=self.cid, message_id=MID, after_message_id=None, text=text,
                                   attachments=[], settings=claude)
         self.store.set_state(MID, "starting", expect=("queued",))
+        turn_attempt(self.svc, MID, state="starting", n=0, job_id="job")
         self.claude = claude
         self.spec = TurnSpec(provider="claude", message_id=MID, text=text, model_id="opus[1m]",
                              permission="ask", native_session_id=None, new_session_id=SID, cwd=str(root))

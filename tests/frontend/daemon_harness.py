@@ -24,6 +24,7 @@ import logging
 import os
 from pathlib import Path
 import socket
+import struct
 import tempfile
 import threading
 import time
@@ -35,7 +36,7 @@ import uuid
 from subfleet import protocol
 from subfleet.conversations.claude_turn import ClaudeTurn
 from subfleet.conversations.codex_turn import CodexTurn
-from subfleet.conversations.peers import Verdict, peer_pid
+from subfleet.conversations.peers import AuditToken, Verdict, peer_token
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.turn import RUNNING, TurnSpec
 from subfleet.daemon import busy_answer
@@ -63,25 +64,33 @@ class ServiceHarness:
         self.workspace = self.root / "work"
         self.workspace.mkdir(exist_ok=True)
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
-        self.daemon = SimpleNamespace(root=self.root, policy=policy, store=_MainStore(), _notify=lambda: None,
+        self.cancels = []
+        self.peer = AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, os.getpid(), 0, 1))
+        self.daemon = SimpleNamespace(_request_cancel=self.request_cancel, root=self.root, policy=policy,
+                                      store=_MainStore(), _notify=lambda: None,
                                       requests=ThreadPoolExecutor(4), log=logging.getLogger("frontend-harness"))
         self.service = ConversationService(self.daemon)
         # Person-only operations are the peer check's (C-25.6), exercised live elsewhere.
-        self.service._person = lambda peer, what: Verdict(True, "frontend harness", peer)
+        self.service._person = lambda peer, what: Verdict(
+            True, "frontend harness", peer.pid if peer else None)
         self.store = self.service.store
 
     def close(self) -> None:
         self.service.close()
         self.daemon.requests.shutdown(wait=False)
 
+    def request_cancel(self, job_id, data, **options):
+        self.cancels.append((job_id, data, options))
+        return True
+
     def call(self, op: str, **args) -> dict:
-        return self.service.handle(op, args, os.getpid())
+        return self.service.handle(op, args, self.peer)
 
     def response_line(self, op: str, args: dict, request_id: str = "fixture") -> bytes:
         """The exact line the daemon writes for a request, errors included."""
         left, right = socket.socketpair()
         try:
-            self.service.respond(left, threading.Lock(), protocol.Request(op=op, args=args, id=request_id), os.getpid())
+            self.service.respond(left, threading.Lock(), protocol.Request(op=op, args=args, id=request_id), self.peer)
             with right.makefile("rb") as reader:
                 return reader.readline()
         finally:
@@ -412,7 +421,7 @@ class ServiceServer:
 
     def _connection(self, conn: socket.socket) -> None:
         lock = threading.Lock()
-        peer = peer_pid(conn)
+        peer = peer_token(conn)
         try:
             with conn.makefile("rb") as reader:
                 line = reader.readline(1024 * 1024 + 1)

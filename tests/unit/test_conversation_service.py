@@ -34,6 +34,7 @@ import pytest
 from subfleet import protocol, refusals
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
@@ -56,6 +57,13 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
 
 
 class FakeDaemon:
+    _job = Daemon._job
+    _running_s = Daemon._running_s
+    _request_cancel = Daemon._request_cancel
+    _cancel_requester = staticmethod(Daemon._cancel_requester)
+    _notice = Daemon._notice
+    _earlier_attempt = Daemon._earlier_attempt
+
     def __init__(self, root: Path):
         self.root = root
         self.log = logging.getLogger("test-conversations")
@@ -711,8 +719,8 @@ def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, 
 # --- compaction (C-25.4, review IR-6) --------------------------------------------
 
 
-def turn_attempt(svc, message_id: str, *, state: str, n: int) -> str:
-    job_id = f"turn-job-{n}"
+def turn_attempt(svc, message_id: str, *, state: str, n: int, job_id: str | None = None) -> str:
+    job_id = job_id or f"turn-job-{n}"
     svc.daemon.store.add_job(job_id=job_id, request_id=f"turn:{message_id}:{n}", payload_digest="d", kind="turn",
                              workdir="/w", prompt_path="/p", sandbox="read-only", state="running")
     attempt_id = f"{job_id}/a1"
