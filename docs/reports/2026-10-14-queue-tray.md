@@ -625,3 +625,117 @@ the UI build and four-case scroll hold are retried with SDK 26.5 using only
 job-local environment settings. Model mutants keep their already-working SDK
 27 environment. The original post-timeline release build passed before this
 SDK selection issue; the post-scroll release result is pending.
+
+<!-- validation3-latest -->
+
+#### Latest continuation checkpoint
+
+Generated 2026-10-16T06:37:13.096967+00:00. These per-file results supersede earlier queued-status tables. A retained prior pass is labeled; setup errors are not assertion passes.
+
+| File | Passed | Failed | Setup errors | Skipped | Status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `tests/frontend/test_app_cutover_start.py` | 13 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_conversation_view.py` | 6 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_approval_reach.py` | 41 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | prior pass; continuation recheck pending |
+| `tests/frontend/test_core_queue_tray.py` | 45 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_search.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | continuation |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | retained prior pass; unaffected row-only view |
+| `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_review_r219_probes.py` | 19 | 0 | 4 | 0 | continuation |
+| `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_report_hygiene.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_review_fixes.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_round_five.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_round_four.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_round_three.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_round_two.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_snapshots.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/frontend/test_visual_suggestions.py` | 0 | 0 | 0 | 0 | unrun |
+| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | continuation |
+| `tests/unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | continuation |
+| `tests/unit/test_steer_invariants.py` | 248 | 0 | 0 | 0 | continuation |
+| `tests/unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | continuation |
+
+#### Mutation checkpoint
+
+| Mutation | Named test | Result |
+| --- | --- | --- |
+| flicker | `tests/frontend/test_core_queue_tray.py::test_c29_7_an_idle_send_answered_queued_stays_in_the_timeline` | killed |
+| tombstone | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_send_withdrawn_before_its_receipt_keeps_its_line_after_a_tombstone` | unrun |
+| waiting-continuation | `tests/frontend/test_core_queue_tray.py::test_c29_7_a_person_send_waits_behind_a_queued_failover_continuation` | unrun |
+| expanded-sizing | `tests/frontend/test_queue_tray_view.py::test_c29_7_an_expanded_tray_whose_rows_fit_is_as_tall_as_its_rows` | unrun |
+| M17 | `tests/frontend/test_core_queue_engine.py::test_c29_7_a_message_that_became_its_own_live_turn_is_interrupted[waiting]` | unrun |
+| M19 | `tests/frontend/test_core_queue_engine.py::test_c29_7_stop_withdraw_gives_what_withdraw_send_gives[in-flight]` | unrun |
+| O1 | `tests/frontend/test_queue_tray_view.py::test_c29_7_a_row_being_withdrawn_cannot_be_steered` | unrun |
+| wake-ordering | `tests/frontend/test_core_queue_tray.py::test_c29_7_property_order_matches_the_real_daemons_next_dispatchable` | unrun |
+| steering-as-own-turn | `tests/frontend/test_core_queue_engine.py::test_c29_7_withdraw_of_a_message_in_another_turn_never_interrupts_its_host[steering]` | unrun |
+| steering-not-ahead | `tests/frontend/test_review_r219_probes.py::test_r3b_every_dispatcher_live_state_holds_the_tray[steering]` | unrun |
+| missed-steer-in-tray | `tests/frontend/test_review_r219_probes.py::test_r2_a_missed_steer_stays_in_the_timeline` | unrun |
+| deferred-without-withdraw | `tests/frontend/test_review_r219_probes.py::test_r7_a_deferred_head_has_its_reason_and_withdraw_in_the_tray` | unrun |
+
+#### Files not yet run in this continuation
+
+- `tests/frontend/test_core_client.py`
+- `tests/frontend/test_core_diff.py`
+- `tests/frontend/test_core_draft.py`
+- `tests/frontend/test_core_idle.py`
+- `tests/frontend/test_core_live.py`
+- `tests/frontend/test_core_live_failure.py`
+- `tests/frontend/test_core_markdown.py`
+- `tests/frontend/test_core_protocol.py`
+- `tests/frontend/test_core_question_card.py`
+- `tests/frontend/test_core_search.py`
+- `tests/frontend/test_core_suggestions.py`
+- `tests/frontend/test_core_suggestions_r1b.py`
+- `tests/frontend/test_core_text_scale.py`
+- `tests/frontend/test_core_titles.py`
+- `tests/frontend/test_disk_ruling.py`
+- `tests/frontend/test_menu_view.py`
+- `tests/frontend/test_pr124_fixes_ui.py`
+- `tests/frontend/test_pr124_recovery_properties.py`
+- `tests/frontend/test_pr124_review_r2_fixes_ui.py`
+- `tests/frontend/test_reading_view.py`
+- `tests/frontend/test_review_pr127_timeline.py`
+- `tests/frontend/test_status_model.py`
+- `tests/frontend/test_visual_progress.py`
+- `tests/frontend/test_visual_report_hygiene.py`
+- `tests/frontend/test_visual_review_fixes.py`
+- `tests/frontend/test_visual_round_five.py`
+- `tests/frontend/test_visual_round_four.py`
+- `tests/frontend/test_visual_round_three.py`
+- `tests/frontend/test_visual_round_two.py`
+- `tests/frontend/test_visual_snapshots.py`
+- `tests/frontend/test_visual_suggestions.py`
+
+The four opening-view cases require a successful post-fix full-source run; compiler setup errors do not verify them. Supplementary replay: end distance 0, offset-only Review 250.
+
+<!-- /validation3-latest -->
