@@ -754,13 +754,15 @@ The running-without-provider and reserved recovery controls passed.
 
 ### Validation status
 
-Fixed-source groups are in progress: **544 passed, 6 skipped across 16 files**.
+Fixed-source groups are in progress: **609 passed, 6 skipped across 19 files**.
 The wall hold passed 76 in 633.01 s (acquired 15:59:12 UTC); the conversation
 hold passed 205 with 6 skipped in 426.73 s (acquired 16:20:47 UTC). The table
 records completed runs. The daemon/inspection hold passed 195 in 114.40 s
 (acquired 16:55:41 UTC). The six legacy skips require real process identity
 inspection through the `process_inspection_available` prerequisite. The
 admission/refusal/salvage/replay hold passed 68 in 270.64 s (acquired 18:06:46 UTC).
+The native frontend hold passed 65 in 120.64 s (acquired 18:24:34 UTC); its
+short-path harness directories and module caches were tracked and removed.
 Each invocation has its own foreground `lockf -k` hold, waits without a lock
 acquisition timeout, uses no xdist, and has a 1,190 s execution bound inside
 its hold. The first hold acquired at 15:13:05 UTC. Python is 3.14.7 free-threaded;
@@ -788,9 +790,9 @@ stamp); the job ends by 21:03:33 UTC.
 | `tests/fake/test_retry_for_good_refusals.py` | 8 passed |
 | `tests/fake/test_salvage_finalization.py` | 47 passed |
 | `tests/fake/test_finalization_replay.py` | 10 passed |
-| `tests/frontend/test_core_protocol.py` | unrun |
-| `tests/frontend/test_core_outbox.py` | unrun |
-| `tests/frontend/test_core_steer.py` | unrun |
+| `tests/frontend/test_core_protocol.py` | 9 passed |
+| `tests/frontend/test_core_outbox.py` | 13 passed |
+| `tests/frontend/test_core_steer.py` | 43 passed |
 | `tests/fake/test_state_contract.py` | unrun |
 | `tests/unit/test_test_module_names.py` | unrun |
 
