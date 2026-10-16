@@ -226,8 +226,19 @@ def _launch_paths(env) -> list[str | None]:
 
 
 def _directory_spelling(directory: str, *, _fold_name=_fold_name) -> str:
-    directory = _fold_name(os.path.normpath(directory))
-    return directory.removeprefix("/system/volumes/data") or "/"
+    """A directory as C-20.6 compares it, by spelling only.
+
+    Leading slashes collapse (normpath keeps a POSIX `//`), dot segments resolve
+    lexically, case and Unicode fold, and the Data volume's firmlink prefix
+    goes. Symlinks and other aliases are not resolved.
+    """
+    if directory.startswith("/"):
+        directory = "/" + directory.lstrip("/")
+    folded = _fold_name(os.path.normpath(directory))
+    data = "/system/volumes/data"
+    if folded == data or folded.startswith(data + "/"):
+        return folded[len(data):] or "/"
+    return folded
 
 
 def _searches_system_first(search: str | None, base: str, system, safe, *,
@@ -235,6 +246,8 @@ def _searches_system_first(search: str | None, base: str, system, safe, *,
     """Whether a search of `search` from `base` meets a system directory before a
     recorder. None is an absent PATH, which the wrapper's default replaces."""
     for entry in (os.defpath if search is None else search).split(os.pathsep):
+        if entry.startswith("~"):
+            raise ValueError("bash expands ~ in a PATH entry")
         directory = os.path.join(base, entry)
         if not os.path.isabs(directory):
             # Only a relative entry reads the working directory.
