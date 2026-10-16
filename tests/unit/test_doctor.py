@@ -563,3 +563,16 @@ def test_c16_6_the_descriptor_rows_are_in_the_tables(daemon, root, stub_probes):
     live = {item["check"] for item in doctor.checks(root, live=True)}
     assert "launchd open-file limit" in names and "daemon descriptors" not in names
     assert "daemon descriptors" in live
+
+
+def test_daemon_lock_row_is_unknown_when_process_inspection_is_unavailable(root, monkeypatch):
+    """C-5.3: denied inspection proves neither a stale lock nor a live holder."""
+    from subfleet import client
+
+    (root / "daemon.sock").touch()
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan 1 00:00:00 2001"}))
+    monkeypatch.setattr(client, "_run", lambda argv: (-1, ""))
+    item = doctor.check_daemon_lock(root)
+    assert item["status"] == doctor.UNKNOWN
+    assert "could not report" in item["detail"]
