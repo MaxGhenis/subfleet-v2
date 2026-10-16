@@ -465,3 +465,63 @@ def test_r3_a_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, pinned):
     assert admit(daemon, later) is None
     assert daemon._holds[later]["reason"] == "behind-older-job"
     assert daemon._holds[later]["behind"] == older
+
+
+@pytest.mark.parametrize("pinned", [False, True], ids=["review", "opus-pin"])
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+def test_r5_due_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, monkeypatch, pinned, route_moves):
+    """Review r4c: a due look must judge standing refusals across the whole chain.
+
+    Pass 2 backs off one second; pass 3 is exactly due, with Astra temporarily
+    closed and only the older job's Opus lanes standing-refused. Exhausting the
+    reservation retries must preserve the same FIFO place as a settled look.
+    """
+    from subfleet import actions, capacity, ids, policy, scheduler, store, timers
+
+    instant = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    for module in (daemon_module, scheduler, capacity, store, timers, policy, actions, ids):
+        monkeypatch.setattr(module, "datetime", Clock)
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 2
+    for lane in daemon.store.list_lanes():
+        daemon.store.add_reading(Reading(lane.lane_id, "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
+    older = submit(daemon, harness, exclusions=["claude-2"])
+    refuse(daemon, admit(daemon, older))                         # pass 1
+    daemon.store.update_lane("claude-1", enabled=0)
+    assert admit(daemon, older) is None                        # pass 2
+    assert daemon.store.get_job(older)["next_check_at"] == after(1)
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, ASTRA, after(600), ClosureReason.PROVIDER_LIMIT,
+                                         ClockSource.REPORTED, "temporary test closure"))
+    later = submit(daemon, harness, pinned_model="opus" if pinned else None,
+                   task=None if pinned else "review")
+    instant += timedelta(seconds=1)
+    assert daemon.store.get_job(older)["next_check_at"] == utcnow()
+    assert daemon._capacity_steer(daemon.store.get_job(older), daemon.store.list_attempts(older))
+
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    placed = admit(daemon, later)                              # pass 3
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
+    assert all(decision.chain == ("opus",) for decision in checks)
+    if route_moves:
+        assert daemon._holds[older]["reason"] == "route-moved"
+    assert placed is None, daemon._holds
+    assert "for_good" not in daemon._holds[older]
+    assert daemon._holds[later]["reason"] == "behind-older-job"
+    assert daemon._holds[later]["behind"] == older
