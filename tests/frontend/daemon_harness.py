@@ -66,7 +66,8 @@ class ServiceHarness:
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
         self.cancels = []
         self.peer = AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, os.getpid(), 0, 1))
-        self.daemon = SimpleNamespace(_request_cancel=self.request_cancel, root=self.root, policy=policy, store=_MainStore(), _notify=lambda: None,
+        self.daemon = SimpleNamespace(_request_cancel=self.request_cancel, root=self.root, policy=policy,
+                                      store=_MainStore(), _notify=lambda: None,
                                       requests=ThreadPoolExecutor(4), log=logging.getLogger("frontend-harness"))
         self.service = ConversationService(self.daemon)
         # Person-only operations are the peer check's (C-25.6), exercised live elsewhere.
