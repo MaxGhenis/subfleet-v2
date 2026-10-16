@@ -519,3 +519,14 @@ The six-file conversation/timeline/outbox/store hold passed **80/80** in
 **546.90 seconds** of pytest time (**552.11 seconds** holding the lock):
 conversation view 6, core reading 15, app cutover 13, timeline 23, outbox 13,
 and store 10. No assertions or production code needed changing.
+
+The four-file daemon hold passed **400/400** in **277.79 seconds** of pytest
+time (**283.24 seconds** holding the lock): conversation service 98, steer
+service 45, steer invariants 248, and conversation status 9. No test or
+production change was needed.
+
+The earlier **15/15** tray-view result is retained without rerunning that hold:
+its offscreen probe constructs rows directly and does not exercise the changed
+nested timeline placement. Engine tests are rerun because they also assert
+the store's timeline projection. All remaining render exports use temporary
+test destinations rather than inherited optional export paths.
