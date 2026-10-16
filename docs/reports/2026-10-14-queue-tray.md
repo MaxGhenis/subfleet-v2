@@ -514,3 +514,8 @@ No queue production code changed for this expectation correction.
 The continuation's full release `app/build.sh` passes after the timeline fix,
 including plist validation and ad-hoc signing. Existing Sendable-capture and
 unnecessary-await warnings remain. No installed app or live state is touched.
+
+The six-file conversation/timeline/outbox/store hold passed **80/80** in
+**546.90 seconds** of pytest time (**552.11 seconds** holding the lock):
+conversation view 6, core reading 15, app cutover 13, timeline 23, outbox 13,
+and store 10. No assertions or production code needed changing.
