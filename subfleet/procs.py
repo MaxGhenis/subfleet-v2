@@ -425,11 +425,13 @@ _ATTEMPT_PREFIX, _ROOT_PREFIX = b"SUBFLEET_ATTEMPT=", b"SUBFLEET_ROOT="
 @dataclass(frozen=True)
 class KernelProcess:
     """What `proc_pidinfo` says of a live pid this process may inspect: whether it
-    has begun to exit and its unique id, which the kernel gives each new process
-    from one counter for the life of a boot. No command, environment or name."""
+    has begun to exit, its birth rendered as ps lstart, and its unique id, which
+    the kernel gives each new process from one counter for the life of a boot.
+    No command, environment or name."""
     pid: int
     exiting: bool
-    unique_id: int
+    unique_id: int | None
+    proc_start: str | None = None
 
 
 @dataclass(frozen=True)
@@ -545,8 +547,19 @@ class Darwin:
                 raise InspectionError(f"process inspection of pid {pid} described pid {shown}")
             if status == _SZOMB:
                 return None
+            # Birth and unique id belong to this very record. A later ps of a
+            # responsibility member might describe a new holder of its pid.
+            seconds = struct.unpack_from("=Q", info.raw, 120)[0]  # pbi_start_tvsec
+            born = time.gmtime(seconds)
+            weekday = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[born.tm_wday]
+            month = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+                     "Oct", "Nov", "Dec")[born.tm_mon - 1]
+            # ps runs with LC_ALL=C and TZ=UTC; ambient locale must not change
+            # these identities. Keep its space-padded day and second precision.
+            started = (f"{weekday} {month} {born.tm_mday:2d} {born.tm_hour:02d}:"
+                       f"{born.tm_min:02d}:{born.tm_sec:02d} {born.tm_year}") if seconds else None
             return KernelProcess(pid, bool(flags & _PROC_FLAG_INEXIT),
-                                 struct.unpack_from("=Q", info.raw, _UNIQUEID_OFFSET)[0])
+                                 struct.unpack_from("=Q", info.raw, _UNIQUEID_OFFSET)[0], started)
         if got <= 0 and failure in (errno.ESRCH, errno.EPERM):
             return None
         raise InspectionError(f"process inspection of pid {pid} unavailable")
@@ -631,13 +644,13 @@ def responsible_for(root: int) -> frozenset[int]:
 
 def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, bytes | None] | None,
                     root: ResponsibleRoot | None, ours: Callable[[KernelProcess], bool]
-                    ) -> tuple[set[int], set[int], list[str]]:
+                    ) -> tuple[set[int], dict[int, KernelProcess], list[str]]:
     """One pass over `candidates` for C-5.5's marker and responsibility sources:
-    (marked pids, pids whose responsible process is `root`, errors). `marker` None
+    (marked pids, records whose responsible process is `root`, errors). `marker` None
     skips the first, `root` None the second; `ours` says whether a process is
     recent enough to be the root's (`ResponsibleRoot`)."""
     marked: set[int] = set()
-    responsible: set[int] = set()
+    responsible: dict[int, KernelProcess] = {}
     errors: list[str] = []
     buffer = ctypes.create_string_buffer(_ARGS_BUFFER) if marker is not None else None
     # Read the holder before its purported members without adding another read.
@@ -681,8 +694,9 @@ def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, b
                 errors.append(f"responsibility read unavailable for pid {pid}")
                 continue
             if (boss == root.pid and ours(current)
-                    and (ceiling is None or root.unique_id <= current.unique_id < ceiling)):
-                responsible.add(pid)
+                    and (ceiling is None or current.unique_id is None
+                         or root.unique_id <= current.unique_id < ceiling)):
+                responsible[pid] = current
     return marked, responsible, errors
 
 
@@ -708,15 +722,17 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     The marker source reads each process's raw argument buffer in this process
     (`Darwin`), and so does the fourth source, every process whose responsible
     process is `responsible_root` (D-CEN1), for an attempt that recorded one.
-    Member identities come from the snapshot. A root without a recorded unique
-    id also needs matching start-time reads before and after the member scan
-    (C-5.12).
+    Responsibility members retain the birth identity from their kernel record;
+    other identities come from the snapshot. A root without a recorded unique
+    id needs a matching start-time read before the member scan. Every scanned
+    root's current holder is read in process afterwards (C-5.12).
     Commands and environments are never retained.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
     markers: set[int] = set()
     responsible: set[int] = set()
+    responsible_records: dict[int, KernelProcess] = {}
     errors: list[str] = []
     recycled: dict[int, dict[str, Any]] = {}
     checked: set[int] = set()
@@ -844,7 +860,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             order.append(match)
         if order[0] is False:
             return False
-        return (order[0] is None or responsible_root.unique_id is None
+        return (order[0] is None or responsible_root.unique_id is None or process.unique_id is None
                 or process.unique_id >= responsible_root.unique_id)
 
     # The table's start/boot comparison is stronger than unique-id ordering, and
@@ -856,7 +872,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     if source_root is not None and source_root.unique_id is None:
         # Without a kernel sequence, the snapshot alone cannot bound a new
         # holder's members. Reject an already-unavailable root before reading
-        # its members, then check again after the reads to catch later reuse.
+        # its members; the final kernel holder read bounds later reuse.
         known = recorded_identities.get(source_root.pid)
         try:
             root_matches = (live(source_root.pid) and known is not None and bool(known.proc_start)
@@ -868,11 +884,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
             source_root = None
     if wanted is not None or source_root is not None:
+        listed = True
         try:
             # The snapshot's pids and a listing taken after it, so a process born
             # since the snapshot is read too; a pid gone by then reads as gone.
             candidates = sorted(kernel.pids() | {pid for pid in table if live(pid)})
         except InspectionError:
+            listed = False
             candidates = []
             if wanted is not None:
                 errors.append("marker enumeration unavailable")
@@ -881,17 +899,35 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # Never retain or report what these reads return but the pids.
         found_marked, found_responsible, failed = _kernel_sources(
             kernel, candidates, wanted, source_root, ours)
-        if source_root is not None and source_root.unique_id is None:
+        if source_root is not None and listed and order != [False]:
+            # A successor cannot acquire the pid until R is reaped. Every real
+            # member read naming R therefore predates that successor. Apply
+            # this ceiling after the scan too, for known and unknown root ids.
+            holder_failed = False
             try:
-                root_matches = (proc_start(source_root.pid)
-                                == recorded_identities[source_root.pid].proc_start)
+                holder = kernel.process(source_root.pid)
             except InspectionError:
-                root_matches = False
+                holder = None
+                holder_failed = True
+            root_matches = holder is not None and (
+                holder.unique_id == source_root.unique_id if source_root.unique_id is not None
+                else holder.proc_start == recorded_identities[source_root.pid].proc_start)
             if not root_matches:
-                found_responsible.clear()
-                failed.append(f"responsibility root identity unavailable for pid {source_root.pid}")
+                if (holder is not None and holder.unique_id is not None
+                        and (source_root.unique_id is not None or holder.proc_start is not None)):
+                    found_responsible = {pid: member for pid, member in found_responsible.items()
+                                         if member.unique_id is None or member.unique_id < holder.unique_id}
+                # Without a readable successor ceiling, retaining a member
+                # only holds the attempt. It never grants signal authority.
+                # A known root already gone with no provisional observations
+                # is still a valid empty source; do not make it sticky.
+                if (source_root.unique_id is None or holder_failed
+                        or (holder is None and found_responsible)
+                        or (holder is not None and holder.unique_id is None)):
+                    failed.append(f"responsibility root identity unavailable for pid {source_root.pid}")
         markers |= found_marked
-        responsible |= found_responsible
+        responsible.update(found_responsible)
+        responsible_records.update(found_responsible)
         errors.extend(failed)
     for source, name in ((markers, "marker"), (responsible, "responsibility")):
         for pid in sorted(source):
@@ -906,11 +942,23 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers | responsible:
         try:
-            # The snapshot's own start time when it has one; a pid it could not
-            # describe (a marker spawned after the read) is asked about singly.
+            # Never repair a missing live snapshot start with a later read.
+            # Responsibility births come from the observed kernel records;
+            # the other sources use the snapshot, or a single-pid fallback.
             if seen is not None and seen.live(pid) and not table[pid][3]:
                 raise InspectionError("snapshot start identity is unavailable")
-            current = (seen.identity(pid) if seen is not None else None) or identity(pid)
+            if pid in responsible_records:
+                member = responsible_records[pid]
+                if not member.proc_start:
+                    raise InspectionError("responsibility member start identity is unavailable")
+                if pid in groups and member.proc_start != table[pid][3]:
+                    # The snapshot saw another incarnation in this group. A
+                    # new responsibility identity cannot inherit its signal
+                    # authority; only this source now establishes membership.
+                    groups.discard(pid)
+                current = ProcessIdentity(pid, seen.boot() if seen is not None else boot_id(), member.proc_start)
+            else:
+                current = (seen.identity(pid) if seen is not None else None) or identity(pid)
             if current is not None:
                 identities[pid] = current
             else:
