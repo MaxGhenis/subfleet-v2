@@ -183,9 +183,45 @@ def _env_search_path(argv: list[str], path: str | None) -> str | None:
     return path
 
 
+def _launch_paths(env) -> list[str | None]:
+    """Each PATH the child receives, or None when it has none.
+
+    Popen and os.posix_spawn encode every key, so a text and a bytes PATH key
+    both reach the child, which reads one of its own choosing: judge each.
+    """
+    if env is None:
+        return [os.environ.get("PATH")]
+    found = [os.fsdecode(value) for key, value in env.items() if os.fsencode(key) == b"PATH"]
+    return found or [None]
+
+
+def _directory_spelling(directory: str, *, _fold_name=_fold_name) -> str:
+    directory = _fold_name(os.path.normpath(directory))
+    return directory.removeprefix("/system/volumes/data") or "/"
+
+
+def _searches_system_first(search: str | None, base: str, system, safe, *,
+                           _spelling=_directory_spelling) -> bool:
+    """Whether a search of `search` from `base` meets a system directory before a
+    recorder. None is an absent PATH, which the wrapper's default replaces."""
+    for entry in (os.defpath if search is None else search).split(os.pathsep):
+        directory = os.path.join(base, entry)
+        if not os.path.isabs(directory):
+            # Only a relative entry reads the working directory.
+            directory = os.path.join(os.getcwd(), directory)
+        directory = _spelling(directory)
+        if directory in system:
+            return True
+        if directory in safe:
+            return False
+    return False
+
+
 def _unsafe_delegation(event: str, details: tuple, recorders, *,
-                       system_dirs=_SYSTEM_BINARY_DIRECTORIES,
-                       _fold_name=_fold_name, _env_path=_env_search_path, _family=_DELEGATING_PROGRAMS) -> bool:
+                       system_dirs=_SYSTEM_BINARY_DIRECTORIES, _fold_name=_fold_name,
+                       _env_path=_env_search_path, _family=_DELEGATING_PROGRAMS,
+                       _paths=_launch_paths, _first=_searches_system_first,
+                       _spelling=_directory_spelling) -> bool:
     if event == "os.system":
         name, argv, env, cwd = "sh", (), None, None
     else:
@@ -196,29 +232,21 @@ def _unsafe_delegation(event: str, details: tuple, recorders, *,
         name = _fold_name(os.path.basename(os.fsdecode(name)))
     if name not in _family:
         return False
-    # os.get_exec_path handles both string and bytes environments, and supplies
-    # the OS default when PATH is absent. env's resets use that default too.
-    path = os.pathsep.join(os.get_exec_path(env))
-    if name == "env":
-        path = _env_path([os.fsdecode(arg) for arg in argv], path)
-    path = os.defpath if path is None else path
-
-    def spelling(directory):
-        directory = _fold_name(os.path.normpath(directory))
-        return directory.removeprefix("/system/volumes/data") or "/"
-
-    system = {spelling(directory) for directory in system_dirs}
-    # Only wrappers need recorder identities. Direct Git/Python launches must
-    # not reopen every previous nested session's sentinel.
-    safe = {spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
-    base = os.getcwd() if cwd is None else os.fsdecode(cwd)
-    for directory in path.split(os.pathsep):
-        directory = spelling(os.path.join(base, directory))
-        if directory in system:
-            return True
-        if directory in safe:
-            return False
-    return False
+    try:
+        system = {_spelling(directory) for directory in system_dirs}
+        # Only wrappers need recorder identities. Direct Git/Python launches must
+        # not reopen every previous nested session's sentinel.
+        safe = {_spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
+        start = os.fsdecode(cwd) if cwd is not None else ""
+        for path in _paths(env):
+            if name == "env":
+                path = _env_path([os.fsdecode(arg) for arg in argv], path)
+            if _first(path, start, system, safe):
+                return True
+        return False
+    except Exception:
+        # A wrapper launch whose check cannot finish is refused (C-20.6).
+        return True
 
 
 def _guard_active(pins: list[tuple[str, str]], *, under_pytest=under_pytest,
