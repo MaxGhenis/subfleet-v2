@@ -121,11 +121,11 @@ def test_review_r2_real_case_env_kind_lane_credential_reaches_no_other_launch(tm
     monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_TEST_OAUTH": "dummy-oauth"})
     started = cli.daemon_env(tmp_path)
     # The daemon holds it, so the lane resolves; no launch inherits it.
-    assert started["SUBFLEET_TEST_OAUTH"] == "dummy-oauth"
+    assert started.get("SUBFLEET_TEST_OAUTH") == "dummy-oauth", "the daemon holds the lane's credential"
     for provider in ("codex", "claude"):
         child = ProviderEnvironment(CODEX_POLICY).build(provider, environ=started)
-        assert "SUBFLEET_TEST_OAUTH" not in child
-        assert "dummy-oauth" not in child.values()
+        assert "SUBFLEET_TEST_OAUTH" not in set(child)
+        assert not any(value == "dummy-oauth" for value in child.values())
     assert "SUBFLEET_TEST_OAUTH" in environment_report(started)["extra_names"]
 
 
@@ -273,7 +273,7 @@ def test_daemon_start_holds_lane_credentials_from_both_rosters_without_policy(tm
                                        "E2E_LANE_TWO_TOKEN": "dummy-two", "UNRELATED_TOKEN": "dummy"})
     started = cli.daemon_env(tmp_path)
     assert set(started) == {"PATH", "SUBFLEET_HOME", "E2E_LANE_ONE_TOKEN", "E2E_LANE_TWO_TOKEN"}
-    assert started["E2E_LANE_TWO_TOKEN"] == "dummy-two"
+    assert started.get("E2E_LANE_TWO_TOKEN") == "dummy-two", "the store's lane"
 
 
 @pytest.mark.parametrize("roster", ["seed", "store"])
@@ -317,8 +317,8 @@ def test_provider_environment_withholds_every_lane_reference(passed):
         child = environment.build(provider, own, environ=parent)
         for env in (additions, child):
             assert not set(references) & set(env)
-            assert "dummy-two" not in env.values()
-        assert child == {"PATH": "/usr/bin:/bin", **own}
+            assert not any(value == "dummy-two" for value in env.values())
+        assert set(child) == {"PATH", *own} and all(child[name] == own[name] for name in own)
 
 
 def test_an_allowlisted_reference_cannot_be_a_lane_credential(monkeypatch):

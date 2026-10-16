@@ -138,8 +138,8 @@ def test_review_r2_real_case_reaches_no_codex_guardian(routing_state, monkeypatc
     service, _ = routing_state
     argv, env = daemon_spawn_environment(routing_state, monkeypatch, "detached",
                                          extra={"SUBFLEET_TEST_OAUTH": "dummy-oauth"})
-    assert "SUBFLEET_TEST_OAUTH" not in env and "SUBFLEET_TEST_OAUTH" not in argv
-    assert "dummy-oauth" not in env.values()
+    assert "SUBFLEET_TEST_OAUTH" not in set(env) | set(argv)
+    assert not any(value == "dummy-oauth" for value in env.values())
     assert "SUBFLEET_TEST_OAUTH" in service.dispatch("daemon.status", {})["environment"]["extra_names"]
 
 
@@ -180,8 +180,8 @@ def test_env_kind_lane_credentials_reach_only_their_own_lane(routing_state, monk
 
     for env in launched(service.store.get_lane("codex-1")):
         assert not set(references) & set(env)
-        assert not set(values) & set(env.values())
-        assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+        assert not any(value in values for value in env.values())
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in set(env)
     for own, lane in enumerate(lanes):
         if channel == "harness":
             with pytest.raises(AdapterError) as error:
@@ -189,9 +189,9 @@ def test_env_kind_lane_credentials_reach_only_their_own_lane(routing_state, monk
             assert error.value.reason == "credential-env"
             continue
         for env in launched(lane):
-            assert env["CLAUDE_CODE_OAUTH_TOKEN"] == values[own]
+            assert env.get("CLAUDE_CODE_OAUTH_TOKEN") == values[own], "its own credential"
             assert not set(references) & set(env)
-            assert values[1 - own] not in env.values()
+            assert not any(value == values[1 - own] for value in env.values())
 
 
 def test_daemon_refuses_a_policy_passing_a_lane_credential(tmp_path, monkeypatch):
