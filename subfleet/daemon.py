@@ -7673,10 +7673,18 @@ class Daemon:
         # census saw is kept and seeds the walk afterwards, as a recorded survivor
         # does. It is evidence only: signal authority stays `owned_identities`.
         named = dict(a.get("responsible_identities") or evidence.get("responsible_identities") or {})
+        alternatives: dict[int, list[procs.ProcessIdentity]] = {}
         for pid, value in named.items():
-            recorded.setdefault(int(pid), procs.ProcessIdentity(**value))
+            ident = procs.ProcessIdentity(**value)
+            previous = recorded.setdefault(int(pid), ident)
+            if previous != ident:
+                alternatives.setdefault(int(pid), []).append(ident)
         if guardian and boot and began:
-            recorded[guardian] = procs.ProcessIdentity(guardian, boot, began)
+            ident = procs.ProcessIdentity(guardian, boot, began)
+            previous = recorded.get(guardian)
+            if previous is not None and previous != ident:
+                alternatives.setdefault(guardian, []).append(previous)
+            recorded[guardian] = ident
         # D-CEN1: an attempt whose guardian was started as a responsibility root
         # adds its fourth source; one recorded before (or without) it keeps three.
         rooted = a.get("responsible_root") or evidence.get("responsible_root")
@@ -7686,14 +7694,17 @@ class Daemon:
                                    a.get("child_pid") or receipt.get("child_pid"),
                                    a.get("attempt_id") or a["holder"], root=str(self.root),
                                    recorded_identities=recorded,
+                                   recorded_alternatives=alternatives,
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
                                    finished_at=receipt.get("finished_at"),
                                    responsible_root=responsible)
         fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
-                 if guardian not in census.recycled and pid not in census.recycled
+                 if guardian not in census.recycled
                  and pid != guardian and pid in census.identities
                  and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
+        # `recycled[pid]` excludes an older recorded birth, not a new member
+        # observed at the same pid. Its census evidence still must be saved.
         if fresh and a.get("attempt_id") and "evidence_json" in a:
             with self.store.transaction("attempt.responsible_recorded", job_id=a["job_id"],
                                         attempt_id=a["attempt_id"], data={"pids": sorted(map(int, fresh))}) as tx:
