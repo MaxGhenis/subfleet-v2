@@ -56,6 +56,10 @@ ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
 # CLAUDE_CONFIG_DIR stays a lane's own addition (C-12.4).
 TEST_SESSION_NAMES = frozenset({PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
                                 *SAFE_HOME_PATHS}) - ALLOWED_NAMES
+# The names home_paths.under_pytest reads to decide whether an environment is
+# in a live test session; selection reads these values and no others first.
+SESSION_PROBE_NAMES = frozenset({PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+                                 "PYTEST_CURRENT_TEST"})
 # Read only to say they are ignored: v1's state root and the retired API-lane
 # override. Never inherited, so doctor names them.
 RETIRED_NAMES = frozenset({"SUBFLEET_ALLOW_API_LANE", "SUBFLEET_STATE_DIR"})
@@ -121,8 +125,13 @@ def inherited_name(name: str) -> bool:
 
 
 def _selected(parent: Mapping[str, str]):
-    """The parent names the default selection admits, a live session's included."""
-    session = under_pytest(parent)
+    """The parent names the default selection admits, a live session's included.
+
+    Whether the parent is in a live session is decided from the probe's own
+    names alone, so no other parent value is read before its name is accepted.
+    """
+    probe = {name: parent[name] for name in parent if name in SESSION_PROBE_NAMES}
+    session = under_pytest(probe)
     return lambda name: allowed_name(name) or (session and session_name(name))
 
 

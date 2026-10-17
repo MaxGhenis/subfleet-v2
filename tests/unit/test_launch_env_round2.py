@@ -79,6 +79,29 @@ def test_selection_reads_values_only_after_accepting_names():
     assert environment_report(parent) == {"extra_names": ["OTHER", "SUBFLEET_TEST_TOKEN"]}
 
 
+def test_live_session_selection_reads_only_the_probe_and_accepted_values():
+    """The session probe reads only its own names, even in a live session (#222 CI at
+    fe5db7273: the probe's membership test read every value it looked up)."""
+    from collections.abc import Mapping
+    from subfleet.home_paths import PYTEST_MARKER, under_pytest
+    from subfleet.launch_env import SESSION_PROBE_NAMES, TEST_SESSION_NAMES
+    live = {name: os.environ[name] for name in SESSION_PROBE_NAMES if name in os.environ}
+    assert PYTEST_MARKER in live and under_pytest(live)
+    readable = set(live) | {"SUBFLEET_FAKE_SCENARIO"}
+    class Parent(Mapping):
+        def __iter__(self):
+            return iter((*live, "SUBFLEET_FAKE_SCENARIO", "SUBFLEET_TEST_TOKEN", "OTHER"))
+        def __len__(self):
+            return len(live) + 3
+        def __getitem__(self, name):
+            assert name in readable, f"rejected value was read: {name}"
+            return live.get(name, "dummy")
+    selected = build_environment(environ=Parent())
+    assert selected["SUBFLEET_FAKE_SCENARIO"] == "dummy"
+    assert set(live) & TEST_SESSION_NAMES <= set(selected)
+    assert not {"SUBFLEET_TEST_TOKEN", "OTHER"} & set(selected)
+
+
 def test_configuration_prefix_keeps_launch_markers_explicit():
     names = {"SUBFLEET_JOB", "SUBFLEET_ATTEMPT", "SUBFLEET_SESSION_ID", "SUBFLEET_TURN_JOB",
              "SUBFLEET_ROOT", "SUBFLEET_PROBE", "SUBFLEET_PUSH_BUNDLE", "SUBFLEET_RUN_DETACH",
