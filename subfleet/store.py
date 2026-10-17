@@ -186,7 +186,18 @@ class Store:
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
                     data: Mapping[str, Any] | None = None) -> Iterator[sqlite3.Connection]:
-        """C-3.2: serialize a mutation and its audit event; nested calls use savepoints."""
+        """C-3.2: serialize a mutation and its audit event; nested calls use savepoints.
+
+        The audit event is written only when the transaction changed something
+        other than inserting `events` rows. An event the transaction inserts
+        (`add_event`, a nested transaction's audit, a raw INSERT) is already its
+        events row; auditing that insert added an empty row of the same kind
+        beside every `add_event` payload, which a reader taking the newest row
+        of a kind then found first (2026-10-12, live store: 87,123
+        `timer.reservation` payloads and 87,123 empty `timer.reservation`
+        rows). Stores written before this change keep those rows, so readers
+        of a kind still pass over `{}` payloads.
+        """
         if self.read_only:
             raise sqlite3.OperationalError("store is read-only")
         with self._lock:
@@ -196,13 +207,23 @@ class Store:
             self._depth += 1
             before = self.connection.total_changes
             try:
+                # The write lock is held, so an events row above this mark when
+                # the body is done was inserted by it (or a transaction nested in
+                # it). One inserted after deleting the newest rows reuses a freed
+                # id at or below the mark and is counted as a change instead.
+                mark = self.connection.execute("SELECT COALESCE(MAX(event_id),0) FROM events").fetchone()[0]
                 yield self.connection
-                if self.connection.total_changes != before:
+                changed = self.connection.total_changes - before
+                # Each row above `mark` is one of those changes. Whatever is left
+                # over (a write to another table, an update, a delete, a rolled-back
+                # insert) is a change only an audit event can record.
+                if changed > self.connection.execute(
+                        "SELECT COUNT(*) FROM events WHERE event_id>?", (mark,)).fetchone()[0]:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
-                if depth == 0 and self.connection.total_changes != before:
+                if depth == 0 and changed:
                     self.generation += 1
             except BaseException:
                 if depth == 0:

@@ -159,8 +159,9 @@ def test_the_newest_recorded_desktop_identity_wins():
     assert last_desktop_identity([]) is None
     assert last_desktop_identity([{"event_id": 1, "kind": DESKTOP_IDENTITY_EVENT,
                                    "data_json": "not json"}]) is None
-    # C-3.2 writes an audit row of the same kind beside every payload; it carries
-    # no identity, and taking it for the newest one would lose the fallback.
+    # A store written before C-3.2's audit stopped covering event inserts holds an
+    # empty row of the same kind after every payload; it carries no identity, and
+    # taking it for the newest one would lose the fallback.
     audit = {"event_id": 12, "kind": DESKTOP_IDENTITY_EVENT, "data_json": "{}"}
     assert last_desktop_identity([*events, audit])["label"] == RULESATLAS_EMAIL
 

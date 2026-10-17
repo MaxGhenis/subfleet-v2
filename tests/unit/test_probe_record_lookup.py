@@ -80,7 +80,7 @@ PAYLOADS = st.builds(
                     max_size=3),
     st.booleans())
 WRITES = st.lists(st.tuples(st.sampled_from(["probe.state", "probe.state", "probe.state", "timer.run"]),
-                            PAYLOADS, st.booleans()),
+                            PAYLOADS, st.sampled_from(["add_event", "raw", "twinned"])),
                   max_size=40)
 
 
@@ -89,14 +89,17 @@ WRITES = st.lists(st.tuples(st.sampled_from(["probe.state", "probe.state", "prob
 def test_c5_7a_the_newest_record_for_any_holder_is_what_a_full_scan_finds(writes):
     """For any history of payloads a writer can make (json.dumps of a dict,
     NaN and Infinity included, holders that are not strings or are missing,
-    other kinds interleaved, `add_event`'s audit rows among them), the indexed
-    lookup returns exactly what the old walk of every probe.state event did."""
+    other kinds interleaved, and the empty row of the same kind `add_event`
+    left after each payload before 2026-10-12 among them), the indexed lookup
+    returns exactly what the old walk of every probe.state event did."""
     with fresh_store() as store:
-        for kind, payload, through_add_event in writes:
-            if through_add_event:
-                store.add_event(kind, data=payload)       # also writes an audit row of the same kind
-            else:
+        for kind, payload, how in writes:
+            if how == "raw":
                 insert(store, kind, _json(payload))
+            else:
+                store.add_event(kind, data=payload)
+                if how == "twinned":                      # as a store written before 2026-10-12 holds it
+                    insert(store, kind, "{}")
         probes = Probes(store)
         # The domain is a lease holder: `leases.holder TEXT NOT NULL`, or a
         # `probe:...` string minted beside it. Payload holders range wider (7,
@@ -108,12 +111,16 @@ def test_c5_7a_the_newest_record_for_any_holder_is_what_a_full_scan_finds(writes
 def test_asking_for_no_holder_is_outside_the_domain_and_finds_nothing():
     """Intended divergence, found by the property above and minimized to one
     payload: the old walk answered `None` with the newest payload that has no
-    `holder` key (`add_event`'s audit rows are all such), because `.get` gives
-    None; SQL's `= NULL` matches nothing. No caller asks it: every one passes a
-    lease's holder, which the schema makes NOT NULL, or a `probe:` string."""
+    `holder` key (in a store written before 2026-10-12, usually the empty row
+    `add_event` left after each payload), because `.get` gives None; SQL's
+    `= NULL` matches nothing. No caller asks it: every one passes a lease's
+    holder, which the schema makes NOT NULL, or a `probe:` string."""
     with fresh_store() as store:
         store.add_event("probe.state", data={"state": "no holder"})
-        assert old_probe_record(store, None) == {}                  # the audit row, newest
+        assert old_probe_record(store, None) == {"state": "no holder"}
+        assert Probes(store)._probe_record(None) is None
+        insert(store, "probe.state", "{}")                          # an older store's empty row
+        assert old_probe_record(store, None) == {}
         assert Probes(store)._probe_record(None) is None
 
 
