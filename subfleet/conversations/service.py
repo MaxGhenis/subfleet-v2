@@ -283,6 +283,12 @@ class ConversationService:
             if req.op in suggestions.SUGGESTION_OPS:
                 response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
                                          suggestions.error_fix(exc))
+            elif "workspace_status" in suggestions.error_details(exc):
+                # C-26.10: a checked folder status (an unreadable protected-path
+                # spelling) answers with the template `workspace.check` gives; its
+                # own words name the path and the OS error, for daemon.log only.
+                response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc), suggestions.error_fix(exc))
+                refusals.log_detail(self.log, req.op, exc)
             else:
                 response = protocol.fail(req.id, exc.code, suggestions.scrubbed_line(f"{exc.reason}: {exc}"),
                                          suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
@@ -1035,8 +1041,8 @@ class ConversationService:
                                     fix="name a folder, or leave it out for a new scratch folder")
         folder = folders.canonical(workspace)
         if suggestions.holds_secret(folder):
-            raise ConversationError("bad-workspace", "the folder's path holds a value shaped like a secret, which a "
-                                    "suggestion never shows (C-25.5)", fix="name another folder")
+            raise suggestions.SuggestionError("bad-workspace", "the folder's path holds a value shaped like a secret",
+                                              details={"workspace_status": "secret-shaped"})
         repository = self._git_toplevel(folder) if worktree else None
         kind = suggestions.WORKTREE if repository is not None else suggestions.IN_PLACE
         settings = validate_settings(provider, {"model": "suggestion", "permission": self._start_permission(provider)})
@@ -3250,9 +3256,11 @@ def _spelled_or_refused(path: str | Path, workspace: str) -> str:
         return spelled
     what = (f"what {workspace} contains" if os.fspath(path) == workspace
             else f"whether {workspace} contains {path}")
-    raise ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
-                            f"({doubt})", code=7,
-                            fix="make every directory above it searchable, or choose Ask or read-only")
+    error = ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
+                              f"({doubt})", code=7,
+                              fix="make every directory above it searchable, or choose Ask or read-only")
+    error.suggestion_details = {"workspace_status": "unreadable-spelling"}
+    raise error
 
 
 def _iso_ago(seconds: float) -> str:
