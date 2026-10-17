@@ -6,6 +6,8 @@ the hub when a sandbox denies hdiutil. No download or live state is involved.
 from pathlib import Path
 import ctypes
 import os
+import plistlib
+import re
 import subprocess
 import sys
 import time
@@ -60,14 +62,15 @@ def volume(request, tmp_path):
                               "-volname", "sf-identity", str(image)], capture_output=True, text=True)
     if created.returncode:
         pytest.skip(f"hdiutil create {request.param}: {created.stderr.strip()}")
-    attached = subprocess.run(["hdiutil", "attach", "-nobrowse", "-mountpoint", str(mount), str(image)],
+    attached = subprocess.run(["hdiutil", "attach", "-plist", "-nobrowse", "-mountpoint", str(mount), str(image)],
                               capture_output=True, text=True)
     if attached.returncode:
         pytest.skip(f"hdiutil attach {request.param}: {attached.stderr.strip()}")
+    device = _whole_disk(attached.stdout)
     try:
         yield request.param, mount
     finally:
-        _detach(mount)
+        _detach(device or mount, device)
 
 
 #: Spotlight or fseventsd can hold a volume for a moment after its files are
@@ -75,19 +78,51 @@ def volume(request, tmp_path):
 DETACH_TRIES, DETACH_PAUSE_S = 5, 2.0
 
 
-def _detach(mount):
-    """Detach a test image, waiting out a brief hold before forcing it; fail
-    only when even `-force` cannot detach it."""
+def _whole_disk(attach_plist: str) -> str | None:
+    """The image's whole-disk device (`/dev/diskN`) from `hdiutil attach -plist`;
+    None when the output names none."""
+    try:
+        entities = plistlib.loads(attach_plist.encode()).get("system-entities", [])
+        devices = [entity.get("dev-entry") or "" for entity in entities]
+    except Exception:                       # noqa: BLE001 - no device: detach by mount point
+        return None
+    return next((device for device in devices if re.fullmatch(r"/dev/disk[0-9]+", device)), None)
+
+
+def _still_attached(device: str) -> bool | None:
+    """Whether `hdiutil info` still lists `device`; None when it cannot say."""
+    info = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True, text=True)
+    if info.returncode:
+        return None
+    try:
+        images = plistlib.loads(info.stdout.encode()).get("images", [])
+        return any(entity.get("dev-entry") == device
+                   for image in images for entity in image.get("system-entities", []))
+    except Exception:                       # noqa: BLE001 - unreadable: keep trying
+        return None
+
+
+def _detach(target, device=None):
+    """Detach a test image, by its whole-disk device when known, waiting out a
+    brief hold before forcing it; fail only when even `-force` cannot detach it.
+
+    A busy eject can still unmount the volume, and then its mount point names
+    nothing: on 2026-10-17 every try after the first busy one, `-force`
+    included, said "No such file or directory". So the image is detached by its
+    device, and after a failed try it counts as detached once `hdiutil info` no
+    longer lists that device."""
     errors = []
     for attempt in range(DETACH_TRIES + 1):
         force = ["-force"] if attempt == DETACH_TRIES else []
-        detached = subprocess.run(["hdiutil", "detach", *force, str(mount)], capture_output=True, text=True)
+        detached = subprocess.run(["hdiutil", "detach", *force, str(target)], capture_output=True, text=True)
         if detached.returncode == 0:
             return
         errors.append(detached.stderr.strip())
+        if device and _still_attached(device) is False:
+            return
         if attempt < DETACH_TRIES:
             time.sleep(DETACH_PAUSE_S)
-    raise AssertionError(f"hdiutil detach {mount}: {errors}")
+    raise AssertionError(f"hdiutil detach {target}: {errors}")
 
 
 def test_real_files_agree_with_identity(volume):
@@ -144,3 +179,58 @@ def test_detach_waits_out_a_busy_volume_before_forcing(monkeypatch, tmp_path, bu
     assert len(calls) == min(busy, DETACH_TRIES) + 1
     # A pause follows every busy try before the forced one, and none follows the last.
     assert slept == [DETACH_PAUSE_S] * min(busy, DETACH_TRIES)
+
+
+ATTACH_PLIST = plistlib.dumps({"system-entities": [
+    {"dev-entry": "/dev/disk5s1", "mount-point": "/tmp/m", "content-hint": "Apple_HFS"},
+    {"dev-entry": "/dev/disk5", "content-hint": "GUID_partition_scheme"}]}).decode()
+
+
+def _info_plist(*devices):
+    return plistlib.dumps({"images": [{"image-path": "/tmp/v.dmg", "system-entities": [
+        {"dev-entry": device} for device in devices]}]}).decode()
+
+
+def test_the_whole_disk_is_read_from_attach_output():
+    assert _whole_disk(ATTACH_PLIST) == "/dev/disk5"
+    assert _whole_disk("") is None
+    assert _whole_disk("not a plist") is None
+    assert _whole_disk(plistlib.dumps({"system-entities": [{"dev-entry": "/dev/disk5s1"}]}).decode()) is None
+
+
+@pytest.mark.parametrize("info_rc, gone_after, expect_error", [
+    (0, 1, False),          # CI 10/17: busy once, then the mount point names nothing; the device is gone
+    (0, 3, False),          # gone after a few busy tries
+    (0, None, True),        # still listed after -force: the test fails
+    (1, None, True),        # info cannot say: every try is made, and the test fails
+])
+def test_a_busy_eject_that_still_detached_counts_as_detached(monkeypatch, info_rc, gone_after, expect_error):
+    """The 2026-10-17 shape: `couldn't eject "disk5" - Resource busy`, then "No such
+    file or directory" on every later try, `-force` included."""
+    detaches, infos, slept = [], [], []
+
+    def run(argv, **kwargs):
+        if argv[:2] == ["hdiutil", "info"]:
+            infos.append(argv)
+            listed = gone_after is None or len(detaches) < gone_after
+            return subprocess.CompletedProcess(argv, info_rc, _info_plist("/dev/disk5", "/dev/disk5s1") if listed
+                                               else _info_plist("/dev/disk9"), "")
+        detaches.append(argv)
+        stderr = ('hdiutil: couldn\'t eject "disk5" - Resource busy' if len(detaches) == 1
+                  else "hdiutil: detach failed - No such file or directory")
+        return subprocess.CompletedProcess(argv, 1, "", stderr)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(time, "sleep", slept.append)
+    if expect_error:
+        with pytest.raises(AssertionError, match="Resource busy"):
+            _detach("/dev/disk5", "/dev/disk5")
+        assert len(detaches) == DETACH_TRIES + 1 and "-force" in detaches[-1]
+    else:
+        _detach("/dev/disk5", "/dev/disk5")
+        assert len(detaches) == gone_after
+        assert not any("-force" in argv for argv in detaches)
+    assert all(argv[-1] == "/dev/disk5" for argv in detaches)
+    assert len(infos) == len(detaches)
+    # A pause follows every failed try but the last.
+    assert slept == [DETACH_PAUSE_S] * (len(detaches) - 1)
