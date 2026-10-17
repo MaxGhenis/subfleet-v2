@@ -40,10 +40,11 @@ def finish(core, result, *, attestation="attested", verdict="approve", transform
         text = text.replace('"findings":[]', '"findings":[{"severity":"high","location":"plan","description":"Add rollback"}]')
     if transform:
         text = transform(text)
+    body = text if isinstance(text, bytes) else text.encode()
     path = directory / "deliverable.md"
-    write_bytes(path, text.encode())
+    write_bytes(path, body)
     with core.store.transaction("fake-peer.accepted", job_id=job_id):
-        core.store.add_artifact(attempt["attempt_id"], "deliverable", str(path), hashlib.sha256(text.encode()).hexdigest(), len(text.encode()))
+        core.store.add_artifact(attempt["attempt_id"], "deliverable", str(path), hashlib.sha256(body).hexdigest(), len(body))
         core.store.update_attempt(attempt["attempt_id"], state="succeeded", rc=0,
             attestation=attestation, model_served=attempt["model_requested"], finished_at=utc_now())
         core.store.update_job(job_id, state="succeeded", accepted_attempt_id=attempt["attempt_id"], rc=0, finished_at=utc_now())
@@ -52,9 +53,11 @@ def finish(core, result, *, attestation="attested", verdict="approve", transform
 
 class FakeClient:
     """C-16.1: real daemon dispatcher, with a fixture-driven provider boundary."""
-    def __init__(self, core, *, on_round=None, attestation="attested", verdict="approve"):
+    def __init__(self, core, *, on_round=None, attestation="attested", verdict="approve",
+                 transforms=()):
         self.core, self.calls, self.jobs = core, [], []
         self.on_round, self.attestation, self.verdict = on_round, attestation, verdict
+        self.transforms = list(transforms)  # one per peer job, in order; then unchanged output
 
     def call(self, op, args, **kwargs):
         self.calls.append(op)
@@ -63,7 +66,9 @@ class FakeClient:
             self.jobs.append(result["job_id"])
             if self.on_round:
                 self.on_round(result)
-            finish(self.core, result, attestation=self.attestation, verdict=self.verdict)
+            transform = self.transforms.pop(0) if self.transforms else None
+            finish(self.core, result, attestation=self.attestation, verdict=self.verdict,
+                   transform=transform)
         return result
 
 
@@ -163,6 +168,45 @@ def test_c23_43_unattested_codex_round_counts_and_is_recorded(core, tmp_path):
     assert round_record["status"] == "approve" and round_record["peer_attestation"] == "unattested"
 
 
+def test_c23_9_cli_reasks_prose_wrapped_output_once_and_names_the_reask_job(core, tmp_path, capsys):
+    """C-17.1, C-23.9 (amended): the gate CLI follows the re-ask job to agreement and says why."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review me\n")
+    client = FakeClient(core, transforms=[lambda text: "Everything checks out.\n\n" + text])
+    assert gate_cli.run(arguments(plan), root=core.root, client=client, poll_interval=0) == 0
+    assert len(client.jobs) == 2 and len(core.store.list_jobs()) == 2
+    captured = capsys.readouterr()
+    announced = [line for line in captured.err.splitlines() if " peer job " in line]
+    assert [line.split(" peer job ")[1].split(" ")[0] for line in announced] == client.jobs
+    assert "re-asking the peer once for format" in announced[1]
+    assert "format re-ask" in captured.out
+    state = core._gate_service._load(next((core.root / "gates").iterdir()).name)
+    round_record, = state["rounds"]
+    assert round_record["status"] == "approve" and round_record["format_reask"]["peer_run_id"] == client.jobs[1]
+
+
+def test_c23_9_cli_blocks_after_two_format_failures(core, tmp_path, capsys):
+    """C-17.1, C-23.9 (amended): a failed re-ask exits 4 with no third dispatch."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review me\n")
+    prose = lambda text: "Summary first.\n" + text  # noqa: E731
+    client = FakeClient(core, transforms=[prose, prose])
+    assert gate_cli.run(arguments(plan), root=core.root, client=client, poll_interval=0) == 4
+    assert len(client.jobs) == 2 and len(core.store.list_jobs()) == 2
+    assert "format re-ask also failed" in capsys.readouterr().out
+
+
+def test_c23_9_cli_never_reasks_a_revision_mismatch(core, tmp_path, capsys):
+    """C-17.1, C-23.9 (amended): output bound to another revision exits 4 after one dispatch."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review me\n")
+    other = lambda text: "Prose too.\n" + text.replace('"kind": "plan"', '"kind": "plan", "other": 1')  # noqa: E731
+    client = FakeClient(core, transforms=[other])
+    assert gate_cli.run(arguments(plan), root=core.root, client=client, poll_interval=0) == 4
+    assert len(client.jobs) == 1 and len(core.store.list_jobs()) == 1
+    assert "different artifact revision" in capsys.readouterr().out
+
+
 def test_lost_round_lease_discards_previously_successful_output(core, tmp_path):
     """C-23.10: even valid attested output has no authority after lease loss."""
     plan = tmp_path / "plan.md"
@@ -254,6 +298,55 @@ def test_plan_peer_process_finalizes_through_real_daemon(daemon):
     assert Path(deliverable["path"]).read_text().startswith("---SUBFLEET-VERDICT-BEGIN---")
     assert daemon.rows("SELECT * FROM leases WHERE lease_key LIKE 'gate:%'") == []
     assert daemon.rows("SELECT * FROM actions") == []
+
+
+def test_c23_9_process_peer_prose_is_reasked_on_the_same_lane_through_real_daemon(daemon):
+    """C-5.2, C-23.9 (amended), C-23.10/43: a real guardian runs the re-ask job and it agrees."""
+    import os
+    import subprocess
+    import sys
+
+    from tests.fake.gate_peer import PROSE, PROSE_MARKER
+
+    daemon.start("--gate-peer")
+
+    def gates_ready():
+        return daemon.call("gate.poll", gate_id="test-readiness").get("code") == 2
+    daemon.until(gates_ready, timeout=5)
+    plan = daemon.workdir / "plan.md"
+    plan.write_text(f"A plan whose fixture peer summarizes first.\n{PROSE_MARKER}\n")
+    repository = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [sys.executable, "-m", "subfleet", "gate", "plan", str(plan), "--peer", "astra",
+         "--main-model", "fable", "--main-approve", "--expect-sha256",
+         hashlib.sha256(plan.read_bytes()).hexdigest(), "--json"],
+        cwd=repository, env={**os.environ, "SUBFLEET_HOME": str(daemon.root),
+                             "PYTHONPATH": str(repository)},
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20,
+    )
+    assert completed.returncode == 0, (completed.stdout, completed.stderr, daemon.log_text())
+    result = json.loads(completed.stdout)
+    assert result["code"] == 0 and "format re-ask" in result["message"]
+    jobs = daemon.rows("SELECT * FROM jobs WHERE kind='gate-review' ORDER BY created_at, job_id")
+    assert len(jobs) == 2 and all(job["state"] == "succeeded" for job in jobs)
+    first, retry = (daemon.attempts(job["job_id"])[0] for job in jobs)
+    assert first["attestation"] == retry["attestation"] == "attested"
+    assert first["lane_id"] == retry["lane_id"] == jobs[1]["pinned_lane"]
+    assert first["model_requested"] == retry["model_requested"] == "gpt-6-astra"
+    assert jobs[0]["round_lease"] == jobs[1]["round_lease"]
+    directory = daemon.root / "gates" / result["gate_id"]
+    rounds = list((directory / "rounds").iterdir())
+    assert len(rounds) == 1
+    assert (rounds[0] / "peer-output.md").read_text().startswith(PROSE)
+    assert (rounds[0] / "peer-output.retry1.md").read_text().startswith("---SUBFLEET-VERDICT-BEGIN---")
+    assert "Format re-ask from the gate" in (rounds[0] / "peer-prompt.retry1.md").read_text()
+    state = json.loads((directory / "gate.json").read_text())
+    record, = state["rounds"]
+    assert record["format_reask"]["first_attempt"]["peer_run_id"] == jobs[0]["job_id"]
+    assert record["peer_run_id"] == record["format_reask"]["peer_run_id"] == jobs[1]["job_id"]
+    certificate = json.loads((directory / "certificate.json").read_text())
+    assert certificate["peer_verdict"] == record["verdict"]
+    assert daemon.rows("SELECT * FROM leases WHERE lease_key LIKE 'gate:%'") == []
 
 
 def test_gate_fixture_child_publishes_only_its_explicit_synthetic_attestation(core, tmp_path):
