@@ -103,8 +103,9 @@ def _whole_disk(attach_plist: str) -> str | None:
 
 def _still_attached(device: str, image=None) -> bool | None:
     """Whether `hdiutil info` still lists `device`, a slice of it (`/dev/diskNs1`)
-    or `image`. False only when info's output has the expected shape and lists
-    none of them; None when it cannot say (a failed or unreadable info)."""
+    or `image`. False only when info's output has the expected shape (each
+    image record naming its file and its devices) and lists none of them; None
+    when it cannot say (a failed, unreadable or incomplete info)."""
     info = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True, text=True)
     if info.returncode:
         return None
@@ -115,12 +116,13 @@ def _still_attached(device: str, image=None) -> bool | None:
         if not isinstance(images, list):
             return None
         for entry in images:
-            path = entry.get("image-path")
-            if want and isinstance(path, str) and os.path.realpath(path) == want:
-                return True
-            entities = entry.get("system-entities", [])
-            if not isinstance(entities, list):
+            # Every record hdiutil writes names its image file and its devices; one
+            # that names neither is incomplete output, not evidence of absence.
+            path, entities = entry.get("image-path"), entry.get("system-entities")
+            if not isinstance(path, str) or not isinstance(entities, list):
                 return None
+            if want and os.path.realpath(path) == want:
+                return True
             for entity in entities:
                 listed = entity.get("dev-entry")
                 if listed is not None and not isinstance(listed, str):
@@ -273,15 +275,18 @@ def test_a_busy_eject_that_still_detached_counts_as_detached(monkeypatch, info_r
     (0, _info_plist("/dev/disk50", "/dev/disk50s1"), False),  # another disk, not a slice of this one
     (0, _info_plist(), False),
     (0, plistlib.dumps({"images": []}).decode(), False),
-    (0, plistlib.dumps({"images": [{"image-path": "/tmp/mine.dmg"}]}).decode(), True),  # the image, by path
+    (0, plistlib.dumps({"images": [{"image-path": "/tmp/mine.dmg", "system-entities": []}]}).decode(), True),  # the image, by path
+    (0, plistlib.dumps({"images": [{}]}).decode(), None),                      # review r2: an empty record
+    (0, plistlib.dumps({"images": [{"image-path": "/tmp/v.dmg"}]}).decode(), None),  # no devices named
+    (0, plistlib.dumps({"images": [{"system-entities": []}]}).decode(), None),  # no file named
     (0, plistlib.dumps({}).decode(), None),                  # review r1: no images key is no answer
     (0, "not a plist", None),                                 # review r1 P3: unreadable, rc 0
     (0, plistlib.dumps({"images": {"x": 1}}).decode(), None),
-    (0, plistlib.dumps({"images": [{"system-entities": [{"dev-entry": 5}]}]}).decode(), None),
+    (0, plistlib.dumps({"images": [{"image-path": "/tmp/v.dmg", "system-entities": [{"dev-entry": 5}]}]}).decode(), None),
     (0, plistlib.dumps({"images": ["x"]}).decode(), None),
     (1, "", None),
 ], ids=["whole-and-slice", "slice-only", "other-disk", "no-devices", "no-images", "image-path",
-      "no-images-key", "not-a-plist", "images-not-a-list", "device-not-a-string", "image-not-a-dict", "info-failed"])
+      "empty-record", "record-without-devices", "record-without-file", "no-images-key", "not-a-plist", "images-not-a-list", "device-not-a-string", "image-not-a-dict", "info-failed"])
 def test_info_says_detached_only_when_it_lists_nothing_of_the_image(monkeypatch, rc, stdout, expect):
     monkeypatch.setattr(subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, rc, stdout, ""))
     # `_info_plist` lists another image file (/tmp/v.dmg), so only the devices decide there.
@@ -342,3 +347,21 @@ def test_the_image_is_detached_when_the_block_fails(monkeypatch, tmp_path):
         with _attached("HFS+", tmp_path / "v.dmg", tmp_path / "mount"):
             raise RuntimeError("test body failed")
     assert calls[-1] == ["hdiutil", "detach", "/dev/disk5"]
+
+
+def test_an_incomplete_info_record_never_ends_the_retries(monkeypatch):
+    """Review r2: every detach busy, `info` exits 0 with `{"images": [{}]}`; the
+    retries go on to `-force` and the teardown fails."""
+    detaches = []
+
+    def run(argv, **kwargs):
+        if argv[:2] == ["hdiutil", "info"]:
+            return subprocess.CompletedProcess(argv, 0, plistlib.dumps({"images": [{}]}).decode(), "")
+        detaches.append(argv)
+        return subprocess.CompletedProcess(argv, 1, "", 'hdiutil: couldn\'t eject "disk5" - Resource busy')
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    with pytest.raises(AssertionError, match="Resource busy"):
+        _detach("/dev/disk5", "/dev/disk5", "/tmp/mine.dmg")
+    assert len(detaches) == DETACH_TRIES + 1 and "-force" in detaches[-1]
