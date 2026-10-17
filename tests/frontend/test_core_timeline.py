@@ -251,6 +251,37 @@ def test_replacement_approval_with_identical_display_cannot_take_the_stale_cards
     assert cards["perm-new"]["approval_id"] == approvals[0]["approval_id"]
 
 
+@pytest.mark.parametrize("stale", [False, True], ids=["both-waiting", "first-ended-unread"])
+def test_c27_5_two_turns_asking_under_one_request_id_each_answer_their_own(core_probe, tmp_path, harness, stale):
+    """Two turns of one conversation ask the same Bash command under the same request
+    id (a provider's request ids are unique only within its process). Through the real
+    Claude driver, store and `approval.list`, acting on each card answers its own
+    turn's approval. When the first turn has ended but the app has not read that yet,
+    acting on its card says it no longer waits, rather than answering the second's."""
+    cid = harness.create()["conversation_id"]
+    m1 = harness.submit(cid, "first")["message_id"]
+    m2 = harness.submit(cid, "second", after=m1)["message_id"]
+    turns = {mid: harness.attempt(cid, mid) for mid in (m1, m2)}
+    for mid, turn in turns.items():
+        turn.feed(claude_init(), replay(mid))
+        claude_approval(turn, mid, "perm-1")
+    asked = page(harness, cid)
+    receipts = harness.call("message.status", message_ids=[m1, m2])["messages"]
+    if stale:
+        turns[m1].feed(claude_result(ok=False, subtype="error_during_execution"))
+    approvals = harness.call("approval.list", conversation_id=cid)["approvals"]
+    assert {a["request_id"] for a in approvals} == {"perm-1"}
+    own = {a["message_id"]: a["approval_id"] for a in approvals}
+    assert sorted(own) == sorted([m2] if stale else [m1, m2])
+    for mid in (m1, m2):
+        row = f"approval:{mid}:perm-1"
+        result = fold(core_probe, tmp_path, cid, [{"receipts": receipts}, {"page": asked, "snapshot": True},
+                                                  {"resolve": row, "listed": approvals}])
+        card = next(item["card"] for item in result["snapshots"][0]["items"] if item["id"] == row)
+        assert card["state"] == "pending" and card["approval_id"] is None
+        assert result["results"][-1] == f"resolve:listed:{own.get(mid, 'none')}"
+
+
 @pytest.mark.parametrize("list_first", [False, True])
 def test_legacy_approval_list_without_request_ids_keeps_its_own_immutable_card(core_probe, tmp_path, harness,
                                                                                      list_first):
