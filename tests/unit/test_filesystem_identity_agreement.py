@@ -3,6 +3,7 @@
 Disk images are local 20 MB fixtures, automatically detached. Run this file on
 the hub when a sandbox denies hdiutil. No download or live state is involved.
 """
+from contextlib import contextmanager
 from pathlib import Path
 import ctypes
 import os
@@ -62,15 +63,8 @@ def volume(request, tmp_path):
                               "-volname", "sf-identity", str(image)], capture_output=True, text=True)
     if created.returncode:
         pytest.skip(f"hdiutil create {request.param}: {created.stderr.strip()}")
-    attached = subprocess.run(["hdiutil", "attach", "-plist", "-nobrowse", "-mountpoint", str(mount), str(image)],
-                              capture_output=True, text=True)
-    if attached.returncode:
-        pytest.skip(f"hdiutil attach {request.param}: {attached.stderr.strip()}")
-    device = _whole_disk(attached.stdout)
-    try:
+    with _attached(request.param, image, mount):
         yield request.param, mount
-    finally:
-        _detach(device or mount, device)
 
 
 #: Spotlight or fseventsd can hold a volume for a moment after its files are
@@ -78,39 +72,76 @@ def volume(request, tmp_path):
 DETACH_TRIES, DETACH_PAUSE_S = 5, 2.0
 
 
+@contextmanager
+def _attached(label, image, mount):
+    """Attach `image` at `mount` for the block; detach it afterwards, however the
+    block or the reading of attach's output ends."""
+    attached = subprocess.run(["hdiutil", "attach", "-plist", "-nobrowse", "-mountpoint", str(mount), str(image)],
+                              capture_output=True, text=True)
+    if attached.returncode:
+        pytest.skip(f"hdiutil attach {label}: {attached.stderr.strip()}")
+    device = None
+    try:
+        device = _whole_disk(attached.stdout)
+        yield
+    finally:
+        _detach(device or mount, device, image)
+
+
 def _whole_disk(attach_plist: str) -> str | None:
     """The image's whole-disk device (`/dev/diskN`) from `hdiutil attach -plist`;
-    None when the output names none."""
+    None when the output names none or cannot be read."""
     try:
-        entities = plistlib.loads(attach_plist.encode()).get("system-entities", [])
-        devices = [entity.get("dev-entry") or "" for entity in entities]
+        for entity in plistlib.loads(attach_plist.encode())["system-entities"]:
+            device = entity.get("dev-entry")
+            if isinstance(device, str) and re.fullmatch(r"/dev/disk[0-9]+", device):
+                return device
     except Exception:                       # noqa: BLE001 - no device: detach by mount point
-        return None
-    return next((device for device in devices if re.fullmatch(r"/dev/disk[0-9]+", device)), None)
+        pass
+    return None
 
 
-def _still_attached(device: str) -> bool | None:
-    """Whether `hdiutil info` still lists `device`; None when it cannot say."""
+def _still_attached(device: str, image=None) -> bool | None:
+    """Whether `hdiutil info` still lists `device`, a slice of it (`/dev/diskNs1`)
+    or `image`. False only when info's output has the expected shape and lists
+    none of them; None when it cannot say (a failed or unreadable info)."""
     info = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True, text=True)
     if info.returncode:
         return None
+    family = re.compile(re.escape(device) + r"(?:s[0-9]+)*")
+    want = os.path.realpath(image) if image else None
     try:
-        images = plistlib.loads(info.stdout.encode()).get("images", [])
-        return any(entity.get("dev-entry") == device
-                   for image in images for entity in image.get("system-entities", []))
+        images = plistlib.loads(info.stdout.encode())["images"]
+        if not isinstance(images, list):
+            return None
+        for entry in images:
+            path = entry.get("image-path")
+            if want and isinstance(path, str) and os.path.realpath(path) == want:
+                return True
+            entities = entry.get("system-entities", [])
+            if not isinstance(entities, list):
+                return None
+            for entity in entities:
+                listed = entity.get("dev-entry")
+                if listed is not None and not isinstance(listed, str):
+                    return None
+                if listed is not None and family.fullmatch(listed):
+                    return True
     except Exception:                       # noqa: BLE001 - unreadable: keep trying
         return None
+    return False
 
 
-def _detach(target, device=None):
+def _detach(target, device=None, image=None):
     """Detach a test image, by its whole-disk device when known, waiting out a
     brief hold before forcing it; fail only when even `-force` cannot detach it.
 
     A busy eject can still unmount the volume, and then its mount point names
     nothing: on 2026-10-17 every try after the first busy one, `-force`
     included, said "No such file or directory". So the image is detached by its
-    device, and after a failed try it counts as detached once `hdiutil info` no
-    longer lists that device."""
+    device, and after a failed try it counts as detached once `hdiutil info`,
+    read in its expected shape, lists neither that device, any slice of it, nor
+    the image."""
     errors = []
     for attempt in range(DETACH_TRIES + 1):
         force = ["-force"] if attempt == DETACH_TRIES else []
@@ -118,7 +149,7 @@ def _detach(target, device=None):
         if detached.returncode == 0:
             return
         errors.append(detached.stderr.strip())
-        if device and _still_attached(device) is False:
+        if device and _still_attached(device, image) is False:
             return
         if attempt < DETACH_TRIES:
             time.sleep(DETACH_PAUSE_S)
@@ -234,3 +265,80 @@ def test_a_busy_eject_that_still_detached_counts_as_detached(monkeypatch, info_r
     assert len(infos) == len(detaches)
     # A pause follows every failed try but the last.
     assert slept == [DETACH_PAUSE_S] * (len(detaches) - 1)
+
+
+@pytest.mark.parametrize("rc, stdout, expect", [
+    (0, _info_plist("/dev/disk5", "/dev/disk5s1"), True),
+    (0, _info_plist("/dev/disk5s1"), True),                  # review r1: a slice alone is still attached
+    (0, _info_plist("/dev/disk50", "/dev/disk50s1"), False),  # another disk, not a slice of this one
+    (0, _info_plist(), False),
+    (0, plistlib.dumps({"images": []}).decode(), False),
+    (0, plistlib.dumps({"images": [{"image-path": "/tmp/mine.dmg"}]}).decode(), True),  # the image, by path
+    (0, plistlib.dumps({}).decode(), None),                  # review r1: no images key is no answer
+    (0, "not a plist", None),                                 # review r1 P3: unreadable, rc 0
+    (0, plistlib.dumps({"images": {"x": 1}}).decode(), None),
+    (0, plistlib.dumps({"images": [{"system-entities": [{"dev-entry": 5}]}]}).decode(), None),
+    (0, plistlib.dumps({"images": ["x"]}).decode(), None),
+    (1, "", None),
+], ids=["whole-and-slice", "slice-only", "other-disk", "no-devices", "no-images", "image-path",
+      "no-images-key", "not-a-plist", "images-not-a-list", "device-not-a-string", "image-not-a-dict", "info-failed"])
+def test_info_says_detached_only_when_it_lists_nothing_of_the_image(monkeypatch, rc, stdout, expect):
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, rc, stdout, ""))
+    # `_info_plist` lists another image file (/tmp/v.dmg), so only the devices decide there.
+    assert _still_attached("/dev/disk5", "/tmp/mine.dmg") is expect
+
+
+def test_an_unreadable_info_never_ends_the_retries(monkeypatch):
+    """Review r1 P3: info exits 0 with output that is not a plist; every try is
+    made, `-force` last, and the teardown fails."""
+    detaches = []
+
+    def run(argv, **kwargs):
+        if argv[:2] == ["hdiutil", "info"]:
+            return subprocess.CompletedProcess(argv, 0, "not a plist", "")
+        detaches.append(argv)
+        return subprocess.CompletedProcess(argv, 1, "", 'hdiutil: couldn\'t eject "disk5" - Resource busy')
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    with pytest.raises(AssertionError, match="Resource busy"):
+        _detach("/dev/disk5", "/dev/disk5", "/tmp/v.dmg")
+    assert len(detaches) == DETACH_TRIES + 1 and "-force" in detaches[-1]
+
+
+@pytest.mark.parametrize("attach_stdout", [
+    plistlib.dumps({"system-entities": [{"dev-entry": 5}]}).decode(),   # review r1 P2: a non-string device
+    "not a plist",
+    ATTACH_PLIST,
+], ids=["device-not-a-string", "not-a-plist", "whole-disk"])
+def test_the_image_is_detached_however_its_attach_output_reads(monkeypatch, tmp_path, attach_stdout):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, attach_stdout if argv[1] == "attach" else "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with _attached("HFS+", tmp_path / "v.dmg", tmp_path / "mount"):
+        pass
+    detaches = [argv for argv in calls if argv[1] == "detach"]
+    assert detaches == [["hdiutil", "detach", "/dev/disk5" if attach_stdout == ATTACH_PLIST else str(tmp_path / "mount")]]
+
+
+def test_the_image_is_detached_when_reading_its_device_raises(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+    monkeypatch.setattr(sys.modules[__name__], "_whole_disk", lambda out: 1 / 0)
+    with pytest.raises(ZeroDivisionError):
+        with _attached("HFS+", tmp_path / "v.dmg", tmp_path / "mount"):
+            pass
+    assert [argv[1] for argv in calls] == ["attach", "detach"]
+
+
+def test_the_image_is_detached_when_the_block_fails(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 0, ATTACH_PLIST if argv[1] == "attach" else "", ""))
+    with pytest.raises(RuntimeError):
+        with _attached("HFS+", tmp_path / "v.dmg", tmp_path / "mount"):
+            raise RuntimeError("test body failed")
+    assert calls[-1] == ["hdiutil", "detach", "/dev/disk5"]
