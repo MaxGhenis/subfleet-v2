@@ -1,6 +1,7 @@
 """The ordinary doctor version probe uses the launch's root policy."""
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,12 +29,20 @@ def ca_values(env):
 @pytest.mark.parametrize("provider", ["codex", "claude"])
 def test_doctor_version_check_uses_root_policy_environment(tmp_path, bundle, monkeypatch, provider):
     from subfleet import doctor
-    for key in CA_SOURCES:
-        monkeypatch.delenv(key, raising=False)
+    baseline = {"HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin", "LANG": "C",
+                "SUBFLEET_FAKE_REPORT": str(tmp_path / "report")}
+    monkeypatch.setattr(os, "environ", {
+        **baseline, "LANE_METADATA_TOKEN": "dummy-authorized",
+        "LANE_METADATA_TOKEN_EXTRA": "dummy-denied", "UNRELATED_TOKEN": "dummy-denied",
+        "SUBFLEET_TEST_TOKEN": "dummy-denied", "SUBFLEET_ATTEMPT": "foreign/a1",
+        # Round 3: only listed configuration and harness hooks pass (D-ENV1).
+        "SUBFLEET_TEST_REPORT": str(tmp_path / "denied-report"),
+    })
     root = tmp_path / "state"
     root.mkdir()
     data = json.loads(DEFAULT_POLICY_PATH.read_text())
     data["providers"] = selected(bundle)["providers"]
+    data["env"] = {"pass": ["LANE_METADATA_TOKEN"]}
     (root / "policy.json").write_text(json.dumps(data))
     monkeypatch.setattr(doctor.shutil, "which", lambda binary: f"/fixture/{binary}")
     seen = []
@@ -45,10 +54,10 @@ def test_doctor_version_check_uses_root_policy_environment(tmp_path, bundle, mon
     rows = doctor.checks(root, settings=tmp_path / "settings.json")
     assert next(row for row in rows if row["check"] == f"{provider} --version")["status"] == doctor.PASS
     options = next(kwargs for argv, kwargs in seen if argv == [f"/fixture/{provider}", "--version"])
+    expected = {**baseline, "LANE_METADATA_TOKEN": "dummy-authorized"}
     if provider == "codex":
-        assert ca_values(options.get("env", {})) == {"SSL_CERT_FILE": bundle}
-    else:
-        assert "env" not in options
+        expected["SSL_CERT_FILE"] = bundle
+    assert options["env"] == expected
 
 
 @pytest.mark.parametrize("configured", ["custom", "null", "missing"])

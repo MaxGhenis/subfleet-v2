@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .contracts import Exit
+from .launch_env import build_environment
 
 PROG = "subfleet"
 
@@ -784,7 +785,7 @@ def delegate(argv: Sequence[str], *, stderr: Any = None,
               f"milestone that brings this verb to v2", file=stderr)
         return int(Exit.REFUSED)
     try:
-        done = runner([binary, *argv])
+        done = runner([binary, *argv], env=build_environment())
     except OSError as exc:
         print(f"{PROG}: cannot run {binary}: {exc}", file=stderr)
         return int(Exit.OPERATIONAL)

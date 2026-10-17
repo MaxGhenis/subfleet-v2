@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .launch_env import inherited_name, valid_name
 from .contracts import (
     CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -338,6 +339,27 @@ def _fraction(value: Any, maximum: float = 1) -> bool:
             and math.isfinite(value) and 0 <= value <= maximum)
 
 
+def check_lane_credentials(policy: Mapping[str, Any], references: Iterable[str], path: str | Path) -> None:
+    """D-ENV1: `env.pass` is for noncredential names. An env-kind lane's
+    reference is the daemon's alone and reaches only its own lane, resolved into
+    its credential, so a policy naming one is refused wherever the lanes are
+    known: `daemon start` and daemon startup (`credentials.env_references`).
+    So is a reference that launches inherit without policy (the default
+    allowlist, or a test session's names): it would reach every helper."""
+    references = frozenset(references)
+    for index, name in enumerate((policy.get("env") or {}).get("pass", ())):
+        if name in references:
+            raise PolicyError(path, f"env.pass[{index}]",
+                              "names a lane's credential reference, which reaches only its own lane; "
+                              "remove it (the daemon holds each lane's credential without it)")
+    inherited = sorted(name for name in references if inherited_name(name))
+    if inherited:
+        raise PolicyError(Path(path).parent / "lanes.json", "credential_ref",
+                          f"{', '.join(inherited)}: an env-kind lane's variable that every launch "
+                          "inherits cannot hold one lane's credential; store the lane's OAuth token "
+                          "under a daemon variable off the launch allowlist and point the lane at it")
+
+
 def load_policy(path: str | Path) -> dict[str, Any]:
     """C-11.1: validate routing data and retain the hash of the bytes evaluated.
 
@@ -362,6 +384,18 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for key in required:
         if key not in value:
             fail(key, "required key is missing")
+
+    if "env" in value:
+        environment = value["env"]
+        if not isinstance(environment, dict):
+            fail("env", "must be an object")
+        if "pass" in environment:
+            names = environment["pass"]
+            if not isinstance(names, list):
+                fail("env.pass", "must be a list of exact variable names")
+            for index, name in enumerate(names):
+                if not valid_name(name):
+                    fail(f"env.pass[{index}]", "must be an exact ASCII variable name; no globs")
 
     tiers = value["tiers"]
     if not isinstance(tiers, list) or not tiers:
