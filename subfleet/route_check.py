@@ -308,4 +308,4 @@ def as_now(decision: Decision, setup: Mapping[str, Any], replaced: list[set[str]
                             "evaluated_at": capacity._iso(instant)})
     lane, model = chosen or (None, None)
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations), lane, model,
-                    scheduler.decision_reason(evaluations, lane, instant), decision.policy_hash)
+                    scheduler.decision_reason(evaluations, lane, instant, setup["steered"]), decision.policy_hash)
