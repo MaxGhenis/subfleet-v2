@@ -9555,19 +9555,21 @@ def _dump_stop_stacks(fd: int, grace_s: float) -> None:
     """Managed frame references avoid the C watchdog's racy raw frame walk.
 
     No source lines or locals are read. Build the bounded snapshot before any
-    write releases the GIL, and use the descriptor reserved at startup. A GIL
+    write releases the GIL, and use the descriptor reserved at startup. JSON
+    is already loaded: a diagnostic codec lookup could need a new descriptor.
+    A GIL
     hog, allocation failure or blocked write is still covered by the independent
     C watchdog and kernel alarm.
     """
     frames = sys._current_frames()
-    names = {thread.ident: thread.name for thread in threading.enumerate()}
+    names = {thread.ident: thread.name[:100] for thread in threading.enumerate()}
     lines = [f"Timeout ({grace_s:g} s): Python thread stacks (most recent call first):\n"]
     for ident, frame in itertools.islice(frames.items(), 100):
         lines.append(f"Thread 0x{ident:x} [{names.get(ident, 'unknown')}]\n")
         for _ in range(100):
             code = frame.f_code
             filename = json.dumps(code.co_filename[:500], ensure_ascii=True)
-            name = code.co_name[:500].encode("unicode_escape").decode("ascii")
+            name = json.dumps(code.co_name[:500], ensure_ascii=True)[1:-1]
             lines.append(f"  File {filename}, line {frame.f_lineno} in {name}\n")
             frame = frame.f_back
             if frame is None:
