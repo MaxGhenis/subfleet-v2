@@ -1,17 +1,24 @@
 """D-ENV1: the actual daemon spawn sites cannot bypass environment selection."""
 
+import contextlib
+import io
 import json
 import os
+from pathlib import Path
+import signal
+import tempfile
 from types import SimpleNamespace
 
+from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
-from subfleet import daemon as daemon_module
+from subfleet import cli, daemon as daemon_module, scheduler
 from subfleet.adapters import registry
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.policy import PolicyError
 from subfleet.provider_env import ProviderEnvironment
+from subfleet.store import Store
 from tests.claude_code import claude_code_active
 from tests.fake.conftest import Harness
 from tests.fake.test_probe_recovery import reserved_probe
@@ -291,3 +298,340 @@ def test_daemon_status_lists_a_lane_variable_apart(tmp_path, monkeypatch):
         service.close()
     assert status == {"extra_names": ["GH_TOKEN"], "lane_credentials": ["SUBFLEET_TEST_OAUTH"]}
     assert "dummy" not in json.dumps(status)
+
+
+# --- review r4, P2-1: a refused lane is never stored, and a stored one is held ------------
+
+# Off the launch allowlist: "AUTH" is a credential word, so no launch inherits it.
+TOKEN = "SUBFLEET_TEST_OAUTH"
+# Review r4's two inputs: a harness hook and a listed name, each one every launch inherits.
+STEP_REFERENCES = ["SUBFLEET_FAKE_LANE_NINE", "HOME"]
+
+
+def nine_row(reference, account="claude:lane-9"):
+    return {"lane_id": "claude-9", "provider": "claude", "account_key": account,
+            "credential_kind": "env", "credential_ref": reference, "owner": "v2"}
+
+
+def roster(root):
+    return json.loads((root / "lanes.json").read_text())
+
+
+def write_roster(root, rows):
+    (root / "lanes.json").write_text(json.dumps(rows))
+
+
+def daemon_fixture(tmp_path, monkeypatch):
+    """As `routing_state` starts its daemon: no host identity, keychain or provider."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+    monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+    monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+    claude_code_active(monkeypatch, tmp_path / "claude")
+
+
+def nine_root(tmp_path, monkeypatch, reference):
+    """Review r4's root: the fake roster (`codex-1`) and env-kind `claude-9` on `reference`."""
+    root = tmp_path / "state"
+    root.mkdir()
+    harness = Harness(root)
+    daemon_fixture(tmp_path, monkeypatch)
+    write_roster(root, [*roster(root), nine_row(reference)])
+    if reference != "HOME":
+        monkeypatch.setenv(reference, "dummy-nine")
+    return root, harness
+
+
+def store_as_round_four_left_it(root):
+    """What a start at `b27681e16` left: it seeded every lanes.json row, claude-9
+    included, and only then refused (review r4, P2-1)."""
+    with Store(root / "state.sqlite3") as store:
+        for row in roster(root):
+            if store.get_lane(row["lane_id"]) is None:
+                store.put_lane(Lane(
+                    row["lane_id"], row["provider"], row["account_key"],
+                    Credential(row["provider"], row["credential_ref"], row["credential_kind"],
+                               row.get("credential_epoch", 1)),
+                    row.get("home"), LaneOwner(row.get("owner", "v2")),
+                    bool(row.get("desktop", False)), bool(row.get("enabled", True))))
+
+
+def stored(root):
+    """{lane id: (credential variable or home, credential epoch)}: names only."""
+    with Store(root / "state.sqlite3") as store:
+        return {lane.lane_id: (lane.credential.ref, lane.credential.epoch) for lane in store.list_lanes()}
+
+
+def launchd_start(root, monkeypatch, check=None):
+    """`daemon.main(["--state-root", root])`, launchd's path: (exit code, stderr, served).
+
+    `check(daemon)` runs where serving would begin, then the daemon closes. The
+    process's own SIGTERM and SIGINT handlers are put back afterwards.
+    """
+    served = []
+
+    def serve(self):
+        try:
+            served.append(check(self) if check else "served")
+        finally:
+            self.close()
+
+    monkeypatch.setattr(daemon_module.descriptors, "raise_open_file_limit", lambda: (256, 256, 256))
+    monkeypatch.setattr(daemon_module.Daemon, "serve_forever", serve)
+    monkeypatch.setattr(daemon_module, "watch_stop", lambda *args: (lambda: None))
+    monkeypatch.setattr(daemon_module, "stop_request", lambda *args: (lambda *signal_args: None))
+    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err):
+            code = daemon_module.main(["--state-root", str(root)])
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+    return code, err.getvalue(), served
+
+
+def cli_start(root, monkeypatch):
+    """`subfleet daemon start` up to a spawn that answers: (exit code, stderr, environments)."""
+    seen, alive = [], iter([False])
+
+    class Child:
+        pid, returncode = 4242, None
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(alive, True))
+    monkeypatch.setattr(cli.Client, "lock_info", lambda self: None)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: seen.append(kwargs["env"]) or Child())
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+        code = cli.cmd_daemon_start(SimpleNamespace(state_root=str(root)))
+    return code, err.getvalue(), seen
+
+
+def launch(service, harness, monkeypatch, **pins):
+    """Submit, admit and launch one job: (job id, the guardian spawns it reached)."""
+    seen = []
+    original_popen = daemon_module.subprocess.Popen
+
+    def stopped(argv, **kwargs):
+        if "subfleet.guardian" not in argv:
+            return original_popen(argv, **kwargs)
+        seen.append((argv, kwargs["env"]))
+        raise OSError("fake guardian spawn stopped")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(daemon_module.subprocess, "Popen", stopped)
+        patch.setattr(service, "_launch_failure", lambda *args, **kwargs: None)
+        job_id = service.dispatch("submit", harness.submit_args(**pins))["job_id"]
+        service._admit()
+        for attempt in service.store.list_attempts(job_id):
+            service._launch(attempt)
+    return job_id, seen
+
+
+def lane_launch_environment(service, harness, lane_id):
+    """A launch on one lane through the daemon's own seams: its credential, then its environment."""
+    lane = service.store.get_lane(lane_id)
+    prompt = harness.workdir / "prompt.md"
+    prompt.write_text("Reply OK")
+    credential = service._credential_environment(lane)
+    launch = FakeAdapter().build_launch(SimpleNamespace(workdir=str(harness.workdir)), "fake/a1",
+                                        harness.workdir, lane, credential, "fake", None, prompt, None)
+    return service._launch_environment(lane, launch)
+
+
+def other_lane_launches(service, harness, monkeypatch, reference):
+    """codex-1 launches with the parent's names; a refused variable is withheld only when
+    it is a harness hook, never a name every launch needs (HOME)."""
+    _, spawns = launch(service, harness, monkeypatch)
+    assert len(spawns) == 1, "codex-1 reached its guardian"
+    _, env = spawns[0]
+    assert "dummy-nine" not in env.values()
+    if reference == "HOME":
+        assert env["HOME"] == os.environ["HOME"], "every other lane keeps HOME"
+    else:
+        assert reference not in env
+
+
+@pytest.mark.parametrize("reference", STEP_REFERENCES)
+def test_review_r4_a_refused_first_start_stores_nothing(tmp_path, monkeypatch, reference):
+    """Step 1: launchd's start exits 2 naming the lane, its file and the variable,
+    before any lanes.json row is stored; `daemon start` refuses alike, before any spawn."""
+    root, _ = nine_root(tmp_path, monkeypatch, reference)
+    code, err, served = launchd_start(root, monkeypatch, lambda service: pytest.fail("a refused roster served"))
+    assert (code, served) == (2, [])
+    assert all(text in err for text in ("claude-9", reference, "lanes.json")), err
+    assert "Traceback" not in err and "dummy-nine" not in err
+    assert stored(root) == {}, "the check runs before lanes.json is seeded"
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused roster spawned"))
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(root))) == 2
+    assert all(text in err.getvalue() for text in ("claude-9", reference, "lanes.json"))
+    assert stored(root) == {}
+
+
+@pytest.mark.parametrize("reference", STEP_REFERENCES)
+def test_review_r4_a_fixed_variable_repairs_the_stored_lane(tmp_path, monkeypatch, reference):
+    """Step 2: lanes.json points claude-9 at a variable off the allowlist, as the
+    refusal advises. Both starts succeed; the stored lane takes the variable (a new
+    credential epoch), claude-9 launches with its own token, and codex-1 launches."""
+    root, harness = nine_root(tmp_path, monkeypatch, reference)
+    store_as_round_four_left_it(root)
+    assert stored(root)["claude-9"] == (reference, 1)
+    write_roster(root, [nine_row(TOKEN) if row["lane_id"] == "claude-9" else row for row in roster(root)])
+    monkeypatch.setenv(TOKEN, "dummy-lane-nine")
+    code, err, seen = cli_start(root, monkeypatch)
+    assert code == 0 and "claude-9" not in err, err
+    assert seen[0][TOKEN] == "dummy-lane-nine", "the daemon holds the lane's new variable"
+
+    def check(service):
+        assert service.store.get_lane("claude-9").credential == Credential("claude", TOKEN, "env", 2)
+        own = lane_launch_environment(service, harness, "claude-9")
+        assert own["CLAUDE_CODE_OAUTH_TOKEN"] == "dummy-lane-nine" and TOKEN not in own
+        other_lane_launches(service, harness, monkeypatch, reference)
+        return "served"
+
+    code, err, served = launchd_start(root, monkeypatch, check)
+    assert (code, served) == (0, ["served"]), err
+    assert stored(root)["claude-9"] == (TOKEN, 2)
+    with Store(root / "state.sqlite3") as store:
+        events = store.query("SELECT data_json FROM events WHERE kind='lane.reference_repaired' "
+                             "AND lane_id='claude-9' AND data_json != '{}'")
+    assert [json.loads(row["data_json"]) for row in events] == [{"from": reference, "to": TOKEN, "epoch": 2}]
+    # A second start finds nothing to repair.
+    code, err, _ = launchd_start(root, monkeypatch)
+    assert code == 0, err
+    assert stored(root)["claude-9"] == (TOKEN, 2)
+
+
+@pytest.mark.parametrize("reference", STEP_REFERENCES)
+def test_review_r4_a_removed_lane_is_held_and_never_blocks_startup(tmp_path, monkeypatch, reference):
+    """Step 3: with claude-9 gone from lanes.json, both starts succeed and say so,
+    naming the lane, the store and the variable; nothing launches on claude-9
+    (held for good, and resolution refuses it), and every other lane launches."""
+    root, harness = nine_root(tmp_path, monkeypatch, reference)
+    store_as_round_four_left_it(root)
+    write_roster(root, [row for row in roster(root) if row["lane_id"] != "claude-9"])
+    code, err, seen = cli_start(root, monkeypatch)
+    assert code == 0 and len(seen) == 1, err
+    assert all(text in err for text in ("claude-9", reference, "the store")) and "dummy-nine" not in err
+
+    def check(service):
+        lane = service.store.get_lane("claude-9")
+        assert lane.credential.ref == reference, "nothing in lanes.json repairs it"
+        job_id, spawns = launch(service, harness, monkeypatch, pinned_model="haiku", pinned_lane="claude-9")
+        assert spawns == [] and service.store.list_attempts(job_id) == []
+        held = service.store.query("SELECT data_json FROM events WHERE kind='job.pin_unadmittable' "
+                                   "AND job_id=? AND data_json != '{}'", (job_id,))
+        assert [json.loads(row["data_json"])["reasons"] for row in held] == [["credential-refused"]]
+        with pytest.raises(AdapterError) as refused:
+            service._credential_environment(lane)
+        assert refused.value.reason == "credential-env-inherited"
+        other_lane_launches(service, harness, monkeypatch, reference)
+        return "served"
+
+    code, err, served = launchd_start(root, monkeypatch, check)
+    assert (code, served) == (0, ["served"]), err
+    log = (root / "daemon.log").read_text()
+    assert all(text in log for text in ("claude-9", reference, "the store")) and "dummy-nine" not in log
+    # launchd's KeepAlive restart starts again, with the lane still held.
+    assert launchd_start(root, monkeypatch)[0] == 0
+    assert stored(root)["claude-9"] == (reference, 1)
+
+
+# --- invariant: stored lanes never refuse startup --------------------------------------
+
+REFUSED = ("HOME", "SUBFLEET_FAKE_LANE_NINE", "SUBFLEET_HOST_HOME")
+CREDENTIALS = ("SUBFLEET_TEST_OAUTH", "E2E_LANE_TWO_TOKEN")
+LANES = st.lists(st.tuples(st.sampled_from(["claude-7", "claude-8", "claude-9"]),
+                           st.sampled_from(REFUSED + CREDENTIALS),
+                           st.sampled_from(["claude:lane-a", "claude:lane-b"])),
+                 max_size=3, unique_by=lambda lane: lane[0])
+
+
+def expected_startup(roster_lanes, store_lanes, passed):
+    """The model, from the rule as review r4's decision states it, not from the code.
+
+    A lanes.json row is checked before anything is stored, and refuses startup if
+    its variable is refused. A stored lane whose variable is refused takes a
+    lanes.json row's variable for the same lane and account when that one is not
+    refused; otherwise it is held. `env.pass` may name no lane's credential.
+    """
+    refused = set(REFUSED).__contains__
+    before = {lane_id: (ref, account) for lane_id, ref, account in store_lanes}
+    repaired = {lane_id: ref for lane_id, ref, account in roster_lanes
+                if lane_id in before and refused(before[lane_id][0]) and not refused(ref)
+                and account == before[lane_id][1]}
+    effective = {lane_id: repaired.get(lane_id, ref) for lane_id, (ref, _) in before.items()}
+    credentials = ({ref for _, ref, _ in roster_lanes if not refused(ref)}
+                   | {ref for ref in effective.values() if not refused(ref)})
+    refuses = any(refused(ref) for _, ref, _ in roster_lanes) or bool(set(passed) & credentials)
+    return refuses, repaired, effective
+
+
+@pytest.fixture
+def startup_property(tmp_path, monkeypatch):
+    daemon_fixture(tmp_path, monkeypatch)
+    for name in REFUSED[1:] + CREDENTIALS:
+        monkeypatch.setenv(name, "dummy-" + name.lower())
+    policy = json.loads((Path(daemon_module.__file__).with_name("default_policy.json")).read_text())
+    policy.setdefault("reserve", {})["models"] = []
+    policy.setdefault("admission", {})["prove_idle_s"] = None
+    policy.setdefault("conversations", {})["catalog_interval_s"] = 0
+    return tmp_path, policy
+
+
+@settings(max_examples=25, deadline=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(roster_lanes=LANES, store_lanes=LANES,
+       passed=st.sets(st.sampled_from(["GIT_CONFIG_GLOBAL", "E2E_LANE_TWO_TOKEN", "HOME"])))
+def test_bounded_property_stored_lanes_never_refuse_startup(startup_property, roster_lanes, store_lanes, passed):
+    """Invariants (review r4, P2-1), for every lanes.json and store pair:
+    the daemon starts unless the policy or a lanes.json row is refused, whatever
+    the store holds; a refused lane never launches; no refused row is newly
+    stored; and `daemon start` reaches the same verdict before the daemon runs."""
+    base, policy = startup_property
+    root = Path(tempfile.mkdtemp(dir=base))
+    (root / "policy.json").write_text(json.dumps({**policy, "env": {"pass": sorted(passed)}}))
+    write_roster(root, [{**nine_row(ref, account), "lane_id": lane_id} for lane_id, ref, account in roster_lanes])
+    with Store(root / "state.sqlite3") as store:
+        for lane_id, ref, account in store_lanes:
+            store.put_lane(Lane(lane_id, "claude", account, Credential("claude", ref, "env"), None, LaneOwner.V2, False))
+    refuses, repaired, effective = expected_startup(roster_lanes, store_lanes, passed)
+    before = stored(root)
+    try:
+        cli.daemon_env(root)
+    except PolicyError:
+        assert refuses, "daemon start refused a startup the rule allows"
+    else:
+        assert not refuses, "daemon start allowed a startup the rule refuses"
+    try:
+        service = daemon_module.Daemon(root)
+    except PolicyError:
+        assert refuses, "the daemon refused a startup the rule allows"
+        assert stored(root) == before, "a refused startup stores and repairs nothing"
+        return
+    try:
+        assert not refuses, "the daemon started past a refused policy or lanes.json row"
+        rows = service.store.lane_rows()
+        after = {row["lane_id"]: row for row in rows}
+        new = {lane_id: ref for lane_id, ref, _ in roster_lanes if lane_id not in before}
+        assert set(after) == set(before) | set(new)
+        view = {"lanes": rows, "closures": [], "now": "2026-10-18T12:00:00Z"}
+        for lane_id, row in after.items():
+            ref = effective[lane_id] if lane_id in before else new[lane_id]
+            epoch = before[lane_id][1] + (lane_id in repaired) if lane_id in before else 1
+            assert (row["credential_ref"], row["credential_epoch"]) == (ref, epoch), lane_id
+            held = ref in REFUSED
+            assert not held or lane_id in before, "no refused row is newly stored"
+            stuck = scheduler.pin_unadmittable(service.policy, view, {"pinned_lane": lane_id, "pinned_model": "haiku"})
+            assert ("credential-refused" in ((stuck or {}).get("reasons") or ())) == held, lane_id
+            if held:
+                with pytest.raises(AdapterError):
+                    service._credential_environment(Store.lane_from_row(row))
+    finally:
+        service.close()
