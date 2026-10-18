@@ -20,7 +20,7 @@ from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
-from .credentials import env_references, resolve_credential
+from .credentials import resolve_credential, withheld_references
 from .sessions.transcripts import read_regular
 from .store import Store
 
@@ -456,7 +456,7 @@ class Timers:
 
     def _provider_environment(self) -> ProviderEnvironment:
         """The daemon's launch selection: no lane's credential reference (D-ENV1)."""
-        return ProviderEnvironment(self.policy, references=lambda: env_references(self.store.list_lanes()))
+        return ProviderEnvironment(self.policy, references=lambda: withheld_references(self.store.list_lanes()))
 
     def _card_sensor(self):
         if self._cards_sensor is None:

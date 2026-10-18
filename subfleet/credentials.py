@@ -10,7 +10,9 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from .launch_env import build_environment, inherited_name, valid_name
+from .launch_env import (
+    ROSTER, STORE, build_environment, harness_name, inherited_name, lane_reference, refused_reference,
+)
 from .adapters.base import AdapterError
 from .contracts import Credential, Lane
 from .home_paths import (
@@ -19,23 +21,60 @@ from .home_paths import (
 
 
 def env_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[str]:
-    """D-ENV1: the daemon variables env-kind lanes name, from lanes or roster rows.
+    """D-ENV1: the daemon variables env-kind lanes name as their credential, from
+    lanes or roster rows.
 
     The daemon alone holds them. Each lane receives only its own, resolved into
-    its credential; every launch withholds all of them by name.
+    its credential; every launch withholds all of them by name. A refused
+    variable (`launch_env.refused_reference`) is no lane's credential: its lane
+    is held instead, and the daemon is not handed it by name.
     """
-    references = set()
-    for lane in lanes:
-        if isinstance(lane, Mapping):
-            credential = lane.get("credential")
-            if not isinstance(credential, Mapping):
-                credential = {"kind": lane.get("credential_kind"), "ref": lane.get("credential_ref")}
-            kind, ref = credential.get("kind"), credential.get("ref")
-        else:
-            kind, ref = lane.credential.kind, lane.credential.ref
-        if kind == "env" and valid_name(ref):
-            references.add(ref)
-    return frozenset(references)
+    variables = (found[1] for found in map(lane_reference, lanes) if found)
+    return frozenset(ref for ref in variables if not refused_reference(ref))
+
+
+def withheld_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[str]:
+    """D-ENV1: the variables every launch withholds by name for the lanes.
+
+    Each lane's credential variable, and a held lane's harness hook: production
+    never reads one, so withholding it costs nothing and keeps whatever was put
+    there from every other lane. A held lane's listed or session name is not
+    withheld: every launch needs HOME or PATH, and a test's child its session.
+    """
+    variables = [found[1] for found in map(lane_reference, lanes) if found]
+    return frozenset(ref for ref in variables if not refused_reference(ref) or harness_name(ref))
+
+
+def reference_repair(stored: Lane | Mapping[str, Any], row: Mapping[str, Any]) -> str | None:
+    """Review r4, P2-1: the variable a lanes.json row gives a stored lane, or None.
+
+    Only a stored env-kind lane whose variable is refused takes one, and only
+    from a row for the same lane id, provider and account whose own env-kind
+    variable is not refused. Such a lane never held a credential this release
+    could resolve, so this binds it for the first time: nothing else changes
+    (C-1.3).
+    """
+    found, offered = lane_reference(stored), lane_reference(row)
+    if not found or not offered or found[0] != offered[0] or not refused_reference(found[1]):
+        return None
+    provider = stored.get("provider") if isinstance(stored, Mapping) else stored.provider
+    account = stored.get("account_key") if isinstance(stored, Mapping) else stored.account_key
+    if (row.get("provider"), row.get("account_key")) != (provider, account) or refused_reference(offered[1]):
+        return None
+    return offered[1]
+
+
+def startup_lanes(roster: Iterable[Mapping[str, Any]],
+                  stored: Iterable[Lane | Mapping[str, Any]]) -> list[tuple[Any, str, str]]:
+    """D-ENV1: each env-kind lane's (lane id, variable, source) as startup will
+    hold them: every lanes.json row, then each stored lane a row does not repair."""
+    roster = [row for row in roster if isinstance(row, Mapping)]
+    lanes = [(*found, ROSTER) for found in map(lane_reference, roster) if found]
+    for lane in stored:
+        found = lane_reference(lane)
+        if found and not any(reference_repair(lane, row) for row in roster):
+            lanes.append((*found, STORE))
+    return lanes
 
 
 _NATIVE_RUNNER = subprocess.run

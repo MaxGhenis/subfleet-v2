@@ -63,9 +63,9 @@ from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_I
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
-from .credentials import env_references
-from .launch_env import build_environment
-from .policy import PolicyError, check_lane_credentials, load_policy
+from .credentials import startup_lanes
+from .launch_env import build_environment, refused_reference
+from .policy import PolicyError, check_lane_credentials, held_lane_message, load_policy
 from .store import notice_fingerprint
 from .home_paths import home_path
 
@@ -497,6 +497,9 @@ def format_status(data: dict[str, Any]) -> str:
             # C-10.6: no percentage for this lane, and the reason beside it.
             if lane.get("identity_status") in ("mismatch", "unverified"):
                 flags.append(f"identity-{lane['identity_status']}")
+            # D-ENV1: held, since every launch inherits its variable (a name, never a value).
+            if lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref")):
+                flags.append(f"credential-refused={lane['credential_ref']}")
             lines.append(
                 f"{str(lane.get('lane_id') or '-'):<12.12} "
                 f"{str(lane.get('provider') or '-'):<8.8} "
@@ -2485,11 +2488,11 @@ STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 *GIT_LOCATION_ENV, "GIT_INDEX_FILE", *GIT_PATHSPEC_ENV)
 
 
-def _lane_credential_references(root: Path) -> frozenset[str]:
-    """D-ENV1: env-kind lane references from the seed roster and the store.
+def _startup_lanes(root: Path) -> list:
+    """D-ENV1: env-kind lanes from the seed roster and the store, as the daemon
+    will hold them once it has seeded `lanes.json` (`credentials.startup_lanes`).
 
-    The daemon seeds `lanes.json` into the store at startup, and the store may
-    hold lanes the file no longer lists; either may be absent.
+    The store may hold lanes the file no longer lists; either may be absent.
     """
     try:
         roster = json.loads((root / "lanes.json").read_bytes())
@@ -2498,16 +2501,25 @@ def _lane_credential_references(root: Path) -> frozenset[str]:
     if isinstance(roster, dict):
         roster = roster.get("lanes", [])
     rows = [row for row in roster if isinstance(row, dict)] if isinstance(roster, list) else []
-    return env_references([*rows, *(_lane_rows(root) or [])])
+    return startup_lanes(rows, _lane_rows(root) or [])
 
 
-def daemon_env(root: Path) -> dict[str, str]:
+def daemon_env(root: Path, *, notes: list[str] | None = None) -> dict[str, str]:
+    """The started daemon's environment, after the checks daemon startup runs too.
+
+    A refused policy or lanes.json row raises `PolicyError`. A stored lane the
+    check refuses is held, not fatal (review r4, P2-1): it is added to `notes`.
+    """
     policy_path = root / "policy.json"
     policy = load_policy(policy_path) if policy_path.exists() else {}
-    references = _lane_credential_references(root)
-    check_lane_credentials(policy, references, policy_path)
+    lanes = _startup_lanes(root)
+    held = check_lane_credentials(policy, policy_path, lanes)
+    if notes is not None:
+        notes.extend(held_lane_message(lane_id, name) for lane_id, name in held)
     # The daemon holds each env-kind lane credential so it can resolve it; every
-    # launch withholds them, and each lane receives only its own (D-ENV1).
+    # launch withholds them, and each lane receives only its own (D-ENV1). A held
+    # lane's variable is no credential, so it is not passed by name.
+    references = {name for _, name, _ in lanes if not refused_reference(name)}
     return build_environment({"SUBFLEET_HOME": str(root)},
                              pass_names=(*policy.get("env", {}).get("pass", ()), *sorted(references)))
 
@@ -2544,10 +2556,13 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
         os.chmod(root, 0o700)
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon start: cannot create {root}: {exc}")
+    held: list[str] = []
     try:
-        env = daemon_env(root)
+        env = daemon_env(root, notes=held)
     except PolicyError as exc:
         return fail(Exit.INVALID_INPUT, str(exc))
+    for text in held:
+        note(f"{PROG} daemon start: {text}")
     argv = _daemond_argv(root)
     log_path = root / LOG_NAME
     try:

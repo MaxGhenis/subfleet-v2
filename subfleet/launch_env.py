@@ -124,6 +124,33 @@ def inherited_name(name: str) -> bool:
     return allowed_name(name) or session_name(name)
 
 
+#: Where a lane the startup checks name came from (review r4, P2-1).
+ROSTER, STORE = "lanes.json", "the store"
+
+
+def refused_reference(name: object) -> bool:
+    """D-ENV1: an env-kind lane variable that can never hold that lane's credential.
+
+    Some launch inherits it without policy (the allowlist, a harness hook or a
+    test session's name), so it would reach every helper. Such a lane is refused
+    in lanes.json and held in the store; it is no lane's credential reference.
+    """
+    return valid_name(name) and inherited_name(name)
+
+
+def lane_reference(lane) -> tuple[str | None, str] | None:
+    """An env-kind lane's (lane id, variable), from a Lane, a store row or a
+    lanes.json row; None for any other kind or a variable that is no exact name."""
+    if isinstance(lane, Mapping):
+        credential = lane.get("credential")
+        if not isinstance(credential, Mapping):
+            credential = {"kind": lane.get("credential_kind"), "ref": lane.get("credential_ref")}
+        lane_id, kind, ref = lane.get("lane_id"), credential.get("kind"), credential.get("ref")
+    else:
+        lane_id, kind, ref = lane.lane_id, lane.credential.kind, lane.credential.ref
+    return (lane_id, ref) if kind == "env" and valid_name(ref) else None
+
+
 def _selected(parent: Mapping[str, str]):
     """The parent names the default selection admits, a live session's included.
 

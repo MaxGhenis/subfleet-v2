@@ -57,14 +57,15 @@ from .contracts import (
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
-from .credentials import env_references, resolve_credential
+from .credentials import env_references, reference_repair, resolve_credential, startup_lanes, withheld_references
 from .provider_env import ProviderEnvironment
 from .launch_env import environment_report, guardian_pass_args, helper_policy
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
-                     disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, resolve_model, turn_cap)
+                     disk_settings, flatten_chain, held_lane_message, load_policy, policy_hash, ramp_settings,
+                     resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
@@ -811,7 +812,7 @@ class Daemon:
         # D-ENV1: every launch withholds the lanes' credential references, read
         # from the store at each launch; a lane gets only its own, resolved.
         self._provider_environment = ProviderEnvironment(self.policy, log=self.log,
-                                                         references=self._lane_credential_references)
+                                                         references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
@@ -832,10 +833,9 @@ class Daemon:
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
-        self._seed_lanes()
-        # D-ENV1: policy validation that needs the lanes: env.pass may not name
-        # a lane's credential reference. `_released_on_failure` gives back the rest.
-        check_lane_credentials(self.policy, self._lane_credential_references(), policy_path)
+        # D-ENV1: policy validation that needs the lanes, run before lanes.json
+        # is seeded (review r4, P2-1). `_released_on_failure` gives back the rest.
+        self._open_lanes(policy_path)
         # 13: retention's pass (d635) can hold one worker for minutes; the other
         # twelve are what attempts, admission and exports had before.
         self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
@@ -1310,15 +1310,40 @@ class Daemon:
                 "limits_reported": data["reported_closure_ids"],
                 "lanes": view["lanes"], "closures": view["closures"]}
 
-    def _seed_lanes(self) -> None:
+    def _roster(self) -> list:
+        """`lanes.json`, the seed roster: a list of lane rows, or `{"lanes": [...]}`."""
         path = self.root / "lanes.json"
         if not path.exists():
             atomic_publish(path, b"[]\n")
         roster = json.loads(path.read_bytes())
         if isinstance(roster, dict):
             roster = roster.get("lanes", [])
+        return roster
+
+    def _open_lanes(self, policy_path: Path) -> None:
+        """D-ENV1 (review r4, P2-1): check, then seed, then name each held lane.
+
+        The check (`check_lane_credentials`) runs on lanes.json's rows and the
+        stored lanes before anything is written, so a refused row is never
+        stored. A stored lane whose variable every launch inherits does not stop
+        the daemon: it is held (the scheduler's `credential-refused`, and the
+        resolve guard's `credential-env-inherited` behind it), and daemon.log
+        names it with the fix. Seeding repairs it from a fixed lanes.json row.
+        """
+        roster = self._roster()
+        held = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
+        self._seed_lanes(roster)
+        for lane_id, name in held:
+            self.log.warning("%s", held_lane_message(lane_id, name))
+
+    def _seed_lanes(self, roster: list) -> None:
         for row in roster:
-            if self.store.get_lane(row["lane_id"]):
+            if (existing := self.store.get_lane(row["lane_id"])):
+                # A held lane takes the variable a fixed row names (C-1.3's one exception).
+                if (name := reference_repair(existing, row)):
+                    self.store.repair_lane_reference(existing.lane_id, existing.credential.ref, name)
+                    self.log.info("lane %s: credential variable %s from lanes.json replaces %s, which every "
+                                  "launch inherits", existing.lane_id, name, existing.credential.ref)
                 continue
             credential = row.get("credential") or {
                 "provider": row["provider"], "ref": row["credential_ref"],
@@ -3166,6 +3191,10 @@ class Daemon:
     def _lane_credential_references(self) -> frozenset[str]:
         """D-ENV1: the daemon variables env-kind lanes name; no launch inherits one."""
         return env_references(self.store.list_lanes())
+
+    def _withheld_references(self) -> frozenset[str]:
+        """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`)."""
+        return withheld_references(self.store.list_lanes())
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
