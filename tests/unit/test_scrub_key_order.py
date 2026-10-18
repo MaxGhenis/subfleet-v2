@@ -325,9 +325,13 @@ HEADER_VALUES_DRAWN = st.one_of(
 HEADER_PARTS = st.builds(lambda name, colon, value: "\n" + name + colon + value,
                          st.sampled_from(("Authorization", "Cookie", "Set-Cookie")),
                          st.sampled_from((": ", ":", ":\n", " : ")), HEADER_VALUES_DRAWN)
+#: An inline header carries a `Bearer` token: inline, a header's other values are the
+#: documented limitation below, and the name is a key whose plain value is `Bearer`.
+INLINE_HEADERS = st.builds(lambda quote, word, value: f"curl -H {quote}Authorization: {word} {value}{quote} https://x",
+                           st.sampled_from(("'", '"')), BEARER_WORDS, SECRETS)
 FILLER = st.sampled_from(("ok", "see the log", "x=1", "auth:", "  scheme: bearer", "token_type: Bearer",
                           "path/to/file.py:12", "a.b", "Bearer", "upstream said:", "# note"))
-PARTS = st.one_of(ASSIGNMENTS, FLAGS, BEARERS, HEADER_PARTS, FILLER)
+PARTS = st.one_of(ASSIGNMENTS, FLAGS, BEARERS, HEADER_PARTS, INLINE_HEADERS, FILLER)
 TEXTS = st.builds(lambda parts, joins: "".join(join + part for join, part in zip(joins, parts)).lstrip("\n"),
                   st.lists(PARTS, min_size=1, max_size=6), st.lists(st.sampled_from((" ", "\n", "\n  ")),
                                                                      min_size=6, max_size=6))
