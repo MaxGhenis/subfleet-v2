@@ -1946,3 +1946,61 @@ def test_stdin_wait_can_be_overridden(monkeypatch):
     """C-17.8 the environment can accommodate a slow producer."""
     monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "7.5")
     assert cli._ping_stdin_wait_s() == 7.5
+
+
+def test_ping_continuous_input_has_a_total_deadline(daemon, monkeypatch):
+    """C-17.8 a trickling writer cannot extend the read forever."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    reader, writer = socket.socketpair()
+    done = threading.Event()
+    writer.settimeout(0.1)
+
+    def produce():
+        try:
+            while not done.wait(0.01):
+                writer.sendall(b"x")
+        except OSError:
+            pass
+
+    producer = threading.Thread(target=produce)
+
+    def finish():
+        done.set()
+        producer.join(1)
+        writer.close()
+
+    try:
+        producer.start()
+        assert bounded_stdin_call(["ping"], reader.makefile("r"), finish, monkeypatch) == 0
+        assert server.args("ping")["text"].startswith("x")
+    finally:
+        finish()
+        reader.close()
+    assert not producer.is_alive()
+
+
+def test_ping_character_device_with_no_eof_is_bounded(daemon, monkeypatch):
+    """C-17.8 /dev/zero is readable forever; the finite read budget still applies."""
+    daemon({"ping": lambda request: {"pong": True}})
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
+    with open("/dev/zero", "rb") as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        started = time.monotonic()
+        assert run_cli(["ping"]) == int(Exit.INVALID_INPUT)
+        assert time.monotonic() - started < 0.75
+
+
+def test_select_failure_never_falls_back_to_an_unbounded_read(monkeypatch):
+    """C-17.8 a readiness failure refuses unread instead of hanging."""
+    read_fd, write_fd = os.pipe()
+
+    def broken(*args):
+        raise OSError("readiness unavailable")
+
+    try:
+        with os.fdopen(read_fd, "r") as stream:
+            monkeypatch.setattr(cli.select, "select", broken)
+            text, reason = cli._stdin_message(stream)
+            assert text is None and "readiness unavailable" in reason
+    finally:
+        os.close(write_fd)
