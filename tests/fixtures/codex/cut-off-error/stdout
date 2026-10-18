@@ -1,0 +1,4 @@
+{"type": "thread.started", "thread_id": "01991c18-2680-7000-8000-00000000f00d"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "I'm checking those cases through storage, wire replies, events, and retry logs before finishing the report."}}
+{"type": "error", "message": "error: invalid peer certificate: UnknownIssuer, url: wss://chatgpt.com/backend-api/codex/responses"}

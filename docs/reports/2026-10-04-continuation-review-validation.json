@@ -1,0 +1,1687 @@
+{
+  "pr_head": "7504f3b83e3d",
+  "base": "f832e6b812bb94ed59318344992d53437010649c",
+  "suites": {
+    "Named unit": {
+      "passed": 998,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0
+    },
+    "Fake-provider": {
+      "passed": 82,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "End-to-end": {
+      "passed": 2,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 83
+    },
+    "Frontend": {
+      "passed": 300,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 1
+    },
+    "Additional CLI / wait": {
+      "passed": 202,
+      "failed": 3,
+      "errors": 16,
+      "skipped": 0
+    },
+    "Additional store migration / readers": {
+      "passed": 34,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0
+    },
+    "Final Python 3.12 regressions": {
+      "passed": 84,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "Final Python 3.14 regressions": {
+      "passed": 84,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "slices": [
+    {
+      "slice": "unit-1",
+      "passed": 213,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 41.59,
+      "files": [
+        "tests.unit.test_conversation_fifo_reads",
+        "tests.unit.test_conversation_handoff",
+        "tests.unit.test_conversation_handoff_briefs",
+        "tests.unit.test_conversation_handoff_dispatch_races",
+        "tests.unit.test_conversation_history",
+        "tests.unit.test_conversation_peers_attachments",
+        "tests.unit.test_conversation_reconcile"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-0",
+      "passed": 68,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.03,
+      "files": [
+        "tests.unit.test_claude_conversation_mcp_scope",
+        "tests.unit.test_claude_turn"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-1",
+      "passed": 81,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 10.76,
+      "files": [
+        "tests.unit.test_cli_turns",
+        "tests.unit.test_codex_turn"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-2",
+      "passed": 33,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 33.05,
+      "files": [
+        "tests.unit.test_conversation_catalog",
+        "tests.unit.test_conversation_catalog_lifecycle"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_conversation_catalog_lifecycle::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+          "message": "PermissionError: [Errno 1] Operation not permitted: '/bin/ps'"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-3",
+      "passed": 48,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 74.73,
+      "files": [
+        "tests.unit.test_conversation_diff",
+        "tests.unit.test_conversation_redact"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-4",
+      "passed": 108,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 370.56,
+      "files": [
+        "tests.unit.test_conversation_service",
+        "tests.unit.test_conversation_state_reads"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_conversation_service::test_a_worktree_needs_a_repository_and_creates_nothing_without_one",
+          "message": "AssertionError: assert 'worktree-failed' == 'not-a-repository'\n  \n  - not-a-repository\n  + worktree-failed"
+        },
+        {
+          "test": "tests.unit.test_conversation_service::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-5",
+      "passed": 54,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 29.63,
+      "files": [
+        "tests.unit.test_conversation_status",
+        "tests.unit.test_conversation_steer_service"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-6",
+      "passed": 121,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 29.34,
+      "files": [
+        "tests.unit.test_conversation_store",
+        "tests.unit.test_conversation_titles"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-7",
+      "passed": 25,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 3.47,
+      "files": [
+        "tests.unit.test_conversation_wakes",
+        "tests.unit.test_desktop_ledger"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-8",
+      "passed": 100,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 16.09,
+      "files": [
+        "tests.unit.test_notice_rendering",
+        "tests.unit.test_operator_notices"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-9",
+      "passed": 14,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.04,
+      "files": [
+        "tests.unit.test_retention_turns",
+        "tests.unit.test_review_pr127_pr_wakes"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-10",
+      "passed": 23,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 5.08,
+      "files": [
+        "tests.unit.test_scheduler_turns",
+        "tests.unit.test_turn_attachment_replay"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-11",
+      "passed": 107,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 90.28,
+      "files": [
+        "tests.unit.test_turn_replay",
+        "tests.unit.test_turn_runner"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "remaining-12",
+      "passed": 2,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.4,
+      "files": [
+        "tests.unit.test_wake_cli"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "worktree-correction",
+      "passed": 1,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.54,
+      "files": [
+        "tests.unit.test_conversation_service"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "fake-0",
+      "passed": 65,
+      "failed": 1,
+      "errors": 2,
+      "skipped": 0,
+      "seconds": 428.09,
+      "files": [
+        "tests.fake.test_admission_liveness",
+        "tests.fake.test_conversation_pools",
+        "tests.fake.test_conversation_wakes_fake",
+        "tests.fake.test_notice_delivery",
+        "tests.fake.test_notice_header"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_admission_liveness::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass",
+          "message": "hypothesis.errors.FlakyStrategyDefinition: Inconsistent data generation! Data generation behaved differently between test cases. Is your data generation depending on external state?\n\nThe second run stopped drawing earlier than the first run, which continued to draw more data."
+        }
+      ],
+      "error_details": [
+        {
+          "test": "tests.fake.test_conversation_pools::test_c25_3_the_diffs_run_on_the_file_pool_and_never_hold_up_other_ops",
+          "message": "failed on setup with \"sqlite3.OperationalError: disk I/O error\""
+        },
+        {
+          "test": "tests.fake.test_conversation_pools::test_c25_3_a_worktree_create_cuts_its_worktree_on_the_file_pool",
+          "message": "failed on setup with \"sqlite3.OperationalError: disk I/O error\""
+        }
+      ],
+      "skip_details": []
+    },
+    {
+      "slice": "bounded-admission",
+      "passed": 1,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 23.93,
+      "files": [
+        "tests.fake.test_admission_liveness"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "fake-recheck",
+      "passed": 20,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 91.43,
+      "files": [
+        "tests.fake.test_admission_latency",
+        "tests.fake.test_conversation_pools",
+        "tests.fake.test_conversation_wakes_fake"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "final-fake",
+      "passed": 5,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 172.02,
+      "files": [
+        "tests.fake.test_admission_liveness",
+        "tests.fake.test_conversation_wakes_fake"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "e2e-0",
+      "passed": 2,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 83,
+      "seconds": 2.68,
+      "files": [
+        "tests.e2e.test_conversation_titles_e2e",
+        "tests.e2e.test_conversation_wakes_e2e",
+        "tests.e2e.test_conversations",
+        "tests.e2e.test_guard_and_isolation",
+        "tests.e2e.test_http_isolation",
+        "tests.e2e.test_legacy_cockpit",
+        "tests.e2e.test_milestone1_codex",
+        "tests.e2e.test_milestone2_claude",
+        "tests.e2e.test_notice_job_state",
+        "tests.e2e.test_recovery",
+        "tests.e2e.test_reserve",
+        "tests.e2e.test_stop_bound"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": [
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_claude_names_the_conversation_after_its_first_reply_in_the_turn_process",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_a_followup_sent_while_the_title_is_asked_goes_at_once",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_a_followup_never_regenerates_the_title",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_a_rename_wins_over_a_title_already_in_flight",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_a_persons_initial_title_is_never_generated",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_unavailable_claude_title_preserves_fallback_and_holds_the_turn_at_most_its_budget[title-error]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_unavailable_claude_title_preserves_fallback_and_holds_the_turn_at_most_its_budget[title-null]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_unavailable_claude_title_preserves_fallback_and_holds_the_turn_at_most_its_budget[title-timeout]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_titles_e2e::test_codex_uses_first_clause_fallback_without_a_claude_process",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_wakes_e2e::test_turn_dispatches_run_ends_and_completion_starts_exactly_one_new_turn[False]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_wakes_e2e::test_turn_dispatches_run_ends_and_completion_starts_exactly_one_new_turn[True]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_wakes_e2e::test_cli_at_reinvokes_after_five_minutes",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversation_wakes_e2e::test_cli_pr_event_uses_batched_gh_and_reinvokes",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_claude_conversation_streams_completes_and_continues_in_the_same_session",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_kit",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_denied_question_and_an_answered_question",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_multiple_question_answers_reach_the_provider_once_and_a_new_message_keeps_them_pending",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_tool_approval_obeys_an_explicit_timeout",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_interrupt_ends_a_running_turn_with_the_providers_own_stop",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_usage_limit_fails_over_with_a_labelled_continuation_never_a_resend",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_person_decides",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_codex_approval_and_limit",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_steer_joins_the_running_turn_once_without_its_own_job[claude]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_steer_joins_the_running_turn_once_without_its_own_job[codex]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_claude_steer_after_the_last_boundary_runs_in_the_same_process",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_codex_steer_that_misses_returns_to_its_original_queue_place",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_person_can_cancel_a_steer_before_handover",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_stopping_a_host_cancels_its_provider_queue_and_requeues_pending_steers",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_daemon_restart_with_a_steer_in_flight_replays_without_resending",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_worktree_conversation_runs_its_turns_in_its_own_worktree",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_the_daemon_keeps_the_catalog_and_the_list_reports_it",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_receipts_carry_the_persons_text_for_other_clients",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_stubborn_turn_is_stopped_by_sigint_through_the_relay_on_the_policy_clock",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_claude_turn_on_the_wrong_model_fails_model_mismatch",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_person_resolves_it",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_persons_stop_without_delivery_evidence_still_blocks_as_unknown",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_fast_unavailable_is_readmitted_at_most_max_readmits_times_then_fails",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_message_cancel_withdraws_a_queued_message_and_tombstones_an_unknown_one",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_codex_thread_with_an_active_turn_is_an_external_writer",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_person_who_resolves_a_claude_message_delivered_then_chooses_how_to_go_on",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_each_turn_and_the_whole_conversation_show_their_changes",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_running_turns_changes_are_live_until_it_ends",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_turns_that_cannot_show_changes_say_why",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_claude_conversation_hands_off_to_codex_with_its_pending_messages",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_codex_conversation_waiting_on_its_limited_lane_hands_off_to_claude",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_conversations::test_a_handoff_is_refused_while_the_source_has_a_live_turn",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_guard_and_isolation::test_changed_guard_trust_refuses_codex_with_the_fix",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_guard_and_isolation::test_provider_environment_isolated_in_each_sandbox[read-only-astra-success-codex]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_guard_and_isolation::test_provider_environment_isolated_in_each_sandbox[read-only-haiku-success-allowed-claude]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_guard_and_isolation::test_provider_environment_isolated_in_each_sandbox[workspace-write-astra-success-codex]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_guard_and_isolation::test_provider_environment_isolated_in_each_sandbox[workspace-write-haiku-success-allowed-claude]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_http_isolation::test_periodic_codex_usage_uses_local_transport_and_keeps_lanes_enabled",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_legacy_cockpit::test_imported_history_reopens_and_its_session_continues_without_resending_it",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_success_exports_by_rename_and_exposes_notices_and_artifacts",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_detached_cli_exit_does_not_end_provider_work",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_kill_slow_job_interrupts_attempt_and_records_owner",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_kill_dirty_allocated_worktree_publishes_salvage",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_decision_preview_dispatches_nothing[--dry-run]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_decision_preview_dispatches_nothing[--why]",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_tmp_workdir_without_allow_flag_is_refused",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_request_id_reuses_job_and_conflicting_payload_exits_two",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone1_codex::test_offline_reads_after_daemon_stop_and_run_names_start_command",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_allowed_readings_percentages_and_raw_stream",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_credits_rejection_closes_model_and_retry_explains_exclusion",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_limit_without_clock_is_guessed_one_hour",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_model_downgrade_persists_transcript_attestation",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_a_credential_that_belongs_to_another_account_yields_no_capacity",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_a_setup_token_lane_keeps_working_without_profile_scope",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_milestone2_claude::test_empty_result_with_zero_rc_is_unknown",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_notice_job_state::test_c9_2_c15_1_a_codex_job_cancelled_while_running_is_announced_cancelled",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_recovery::test_running_job_survives_daemon_sigkill_once",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_recovery::test_starting_without_receipt_waits_contains_and_retries",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_reserve::test_c11_7_opus_lands_on_the_lane_with_slack_and_the_reserved_lane_is_named",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_reserve::test_c11_7_no_slack_anywhere_holds_non_fable_work_and_says_why",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_reserve::test_c11_7_setup_token_lanes_stay_unmeasured_for_opus_while_fable_still_runs",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_reserve::test_c9_9_a_rate_limited_lane_is_left_alone_until_retry_after",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.e2e.test_stop_bound::test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock",
+          "message": "C-5.3 e2e requires permitted ps/sysctl inspection: macOS boot identity is unavailable"
+        }
+      ]
+    },
+    {
+      "slice": "frontend-0",
+      "passed": 82,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 1,
+      "seconds": 81.26,
+      "files": [
+        "tests.frontend.test_conversation_view",
+        "tests.frontend.test_core_approval_notification",
+        "tests.frontend.test_core_approval_reach",
+        "tests.frontend.test_core_client",
+        "tests.frontend.test_core_diff",
+        "tests.frontend.test_core_draft",
+        "tests.frontend.test_core_live"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": [
+        {
+          "test": "tests.frontend.test_core_live::test_the_app_core_drives_a_development_daemon",
+          "message": "the daemon's process checks need ps/sysctl: macOS boot identity is unavailable"
+        }
+      ]
+    },
+    {
+      "slice": "frontend-1",
+      "passed": 138,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 19.75,
+      "files": [
+        "tests.frontend.test_core_live_failure",
+        "tests.frontend.test_core_markdown",
+        "tests.frontend.test_core_outbox",
+        "tests.frontend.test_core_protocol",
+        "tests.frontend.test_core_question_card",
+        "tests.frontend.test_core_search",
+        "tests.frontend.test_core_steer"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "frontend-2",
+      "passed": 50,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 77.62,
+      "files": [
+        "tests.frontend.test_core_steer_properties",
+        "tests.frontend.test_core_store",
+        "tests.frontend.test_core_text_scale",
+        "tests.frontend.test_core_timeline",
+        "tests.frontend.test_core_titles",
+        "tests.frontend.test_menu_view",
+        "tests.frontend.test_reading_view"
+      ],
+      "failures": [
+        {
+          "test": "tests.frontend.test_core_steer_properties::test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says",
+          "message": "AssertionError: ('person:00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', ['person:00000000-0000-4000-8000-000000000002', 'person:00000000-0000-4000-8000-000000000000', 'person:00000000-0000-4000-8000-000000000001'])\nassert 2 < 0\n +  where 2 = <built-in method index of list object at 0x10c7b6500>('person:00000000-0000-4000-8000-000000000001')\n +    where <built-in method index of list object at 0x10c7b6500> = ['person:00000000-0000-4000-8000-000000000002', 'person:00000000-0000-4000-8000-000000000000', 'person:00000000-0000-4000-8000-000000000001'].index\n +  and   0 = <built-in method index of list object at 0x10c7b6500>('person:00000000-0000-4000-8000-000000000002')\n +    where <built-in method index of list object at 0x10c7b6500> = ['person:00000000-0000-4000-8000-000000000002', 'person:00000000-0000-4000-8000-000000000000', 'person:00000000-0000-4000-8000-000000000001'].index\nFailing test case: test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says(\n    # The test always failed when commented parts were varied together.\n    core_probe=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/build/review/pytest/frontend-2/subfleet-core0/probe'),\n    history=[('events',\n         [('steer.delivered',\n              '00000000-0000-4000-8000-000000000001',\n              '00000000-0000-4000-8000-000000000002')]),\n     ('receipts',\n         [(lambda m, state, reason, origin, host: {'message_id': m, 'conversation_id': CID, 'seq': MESSAGES.index(m) + 1, 'origin': origin, 'state': state, 'state_reason': reason.format(h=host) if reason else None})(\n              '00000000-0000-4000-8000-000000000000',\n              'queued',  # or any other generated value\n              None,  # or any other generated value\n              'person',  # or any other generated value\n              '00000000-0000-4000-8000-000000000000',  # or any other generated value\n          )]),\n     ('events',\n         [('steer.delivered',\n              '00000000-0000-4000-8000-000000000000',\n              '00000000-0000-4000-8000-000000000001')])],\n)"
+        },
+        {
+          "test": "tests.frontend.test_core_store::test_design_12_sidebar_groups_searches_and_filters",
+          "message": "AssertionError: assert ['Fix the par...ore the data'] == ['Fix the par...uild on main']\n  \n  Left contains one more item: 'explore the data'\n  Use -v to get more diff"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "frontend-3",
+      "passed": 29,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 49.25,
+      "files": [
+        "tests.frontend.test_review_pr127_timeline",
+        "tests.frontend.test_status_model"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "sidebar-recheck",
+      "passed": 1,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 22.24,
+      "files": [
+        "tests.frontend.test_core_store"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "extra-0",
+      "passed": 202,
+      "failed": 3,
+      "errors": 16,
+      "skipped": 0,
+      "seconds": 273.38,
+      "files": [
+        "tests.unit.test_cli",
+        "tests.unit.test_wait_hub"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_cli::test_a_lock_whose_holder_is_dead_is_no_daemon",
+          "message": "AssertionError: assert 0 == 69\n +  where 0 = run_cli(['run', '-m', 'opus', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr127-review-pm4naxaw/extra-0/test_a_lock_whose_holder_is_de0/repo', 'hi'])"
+        },
+        {
+          "test": "tests.unit.test_cli::test_an_identity_mismatch_names_the_rendering_trap",
+          "message": "assert \"not 'Sat Jan  1 00:00:00 2000' as recorded\" in 'subfleet: no daemon at /tmp/sf-fcdd0972/daemon.sock: [Errno 2] No such file or directory\\n  fix: subfleet daemon start\\n'"
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_stopping_daemon_answers_every_waiter",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        }
+      ],
+      "error_details": [
+        {
+          "test": "tests.unit.test_wait_hub::test_a_poked_wait_returns_at_once",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_an_unpoked_wait_returns_within_the_poll",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_waiting_costs_one_hub_read_per_commit_whatever_the_number_of_waiters",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_wait_on_several_jobs_waits_for_the_last",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_succeeded_job_is_returned_only_after_its_export",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_failed_job_with_an_output_lease_is_returned",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_an_unknown_job_is_an_error_at_once",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_job_that_disappears_while_waited_on_is_an_error",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_nothing_to_wait_for_returns_at_once",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_the_deadline_still_ends_a_wait",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[0]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[1]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[2]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[3]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[4]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[5]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        }
+      ],
+      "skip_details": []
+    },
+    {
+      "slice": "store-checks",
+      "passed": 33,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 200.84,
+      "files": [
+        "tests.unit.test_store_migration_2",
+        "tests.unit.test_store_readers"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_store_readers::test_a_read_does_not_wait_for_an_open_transaction",
+          "message": "assert (377883.0251165 - 377880.484147875) < 2\n +  where 377883.0251165 = <built-in function monotonic>()\n +    where <built-in function monotonic> = time.monotonic"
+        },
+        {
+          "test": "tests.unit.test_store_readers::test_the_daemon_answers_reads_while_a_transaction_is_open",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.unit.test_store_readers::test_capacity_views_hold_no_read_connection_while_they_build",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "reader-timing-recheck",
+      "passed": 1,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.96,
+      "files": [
+        "tests.unit.test_store_readers"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "final312b",
+      "passed": 84,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.73,
+      "files": [
+        "tests.unit.test_claude_conversation_mcp_scope",
+        "tests.unit.test_conversation_wakes",
+        "tests.unit.test_desktop_ledger",
+        "tests.unit.test_review_pr127_fixes",
+        "tests.unit.test_review_pr127_history",
+        "tests.unit.test_review_pr127_pr_wakes",
+        "tests.unit.test_review_pr127_report",
+        "tests.unit.test_review_pr127_requests",
+        "tests.unit.test_review_pr127_service"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "final314",
+      "passed": 84,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 7.67,
+      "files": [
+        "tests.unit.test_claude_conversation_mcp_scope",
+        "tests.unit.test_conversation_wakes",
+        "tests.unit.test_desktop_ledger",
+        "tests.unit.test_review_pr127_fixes",
+        "tests.unit.test_review_pr127_history",
+        "tests.unit.test_review_pr127_pr_wakes",
+        "tests.unit.test_review_pr127_report",
+        "tests.unit.test_review_pr127_requests",
+        "tests.unit.test_review_pr127_service"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    }
+  ],
+  "base_comparisons": [
+    {
+      "slice": "base-ci",
+      "passed": 13,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.21,
+      "files": [
+        "tests.unit.test_claude_conversation_mcp_scope",
+        "tests.unit.test_desktop_ledger",
+        "tests.unit.test_review_pr127_fixes"
+      ],
+      "failures": [],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "base-catalog",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 5.28,
+      "files": [
+        "tests.unit.test_conversation_catalog_lifecycle"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_conversation_catalog_lifecycle::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+          "message": "PermissionError: [Errno 1] Operation not permitted: '/bin/ps'"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "base-service-close",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.15,
+      "files": [
+        "tests.unit.test_conversation_service"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_conversation_service::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "base-pools",
+      "passed": 1,
+      "failed": 0,
+      "errors": 1,
+      "skipped": 0,
+      "seconds": 11.15,
+      "files": [
+        "tests.fake.test_conversation_pools"
+      ],
+      "failures": [],
+      "error_details": [
+        {
+          "test": "tests.fake.test_conversation_pools::test_c25_3_the_diffs_run_on_the_file_pool_and_never_hold_up_other_ops",
+          "message": "failed on setup with \"sqlite3.OperationalError: disk I/O error\""
+        }
+      ],
+      "skip_details": []
+    },
+    {
+      "slice": "base-frontend",
+      "passed": 0,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 81.71,
+      "files": [
+        "tests.frontend.test_core_steer_properties",
+        "tests.frontend.test_core_store"
+      ],
+      "failures": [
+        {
+          "test": "tests.frontend.test_core_steer_properties::test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says",
+          "message": "AssertionError: ('person:00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', ['person:00000000-0000-4000-8000-000000000002', 'person:00000000-0000-4000-8000-000000000000', 'person:00000000-0000-4000-8000-000000000001'])\nassert 2 < 0\n +  where 2 = <built-in method index of list object at 0x10b7c61c0>('person:00000000-0000-4000-8000-000000000001')\n +    where <built-in method index of list object at 0x10b7c61c0> = ['person:00000000-0000-4000-8000-000000000002', 'person:00000000-0000-4000-8000-000000000000', 'person:00000000-0000-4000-8000-000000000001'].index\n +  and   0 = <built-in method index of list object at 0x10b7c61c0>('person:00000000-0000-4000-8000-000000000002')\n +    where <built-in method index of list object at 0x10b7c61c0> = ['person:00000000-0000-4000-8000-000000000002', 'person:00000000-0000-4000-8000-000000000000', 'person:00000000-0000-4000-8000-000000000001'].index\nFailing test case: test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says(\n    core_probe=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/build/review/pytest/base-frontend/subfleet-core0/probe'),\n    history=[('events',\n         [('steer.delivered',\n              '00000000-0000-4000-8000-000000000001',\n              '00000000-0000-4000-8000-000000000002')]),\n     ('receipts',\n         [{'message_id': '00000000-0000-4000-8000-000000000000', 'conversation_id': 'cv-steer-properties', 'seq': 1, 'origin': 'person', 'state': 'queued', 'state_reason': None}]),\n     ('events',\n         [('steer.delivered',\n              '00000000-0000-4000-8000-000000000000',\n              '00000000-0000-4000-8000-000000000001')])],\n)"
+        },
+        {
+          "test": "tests.frontend.test_core_store::test_design_12_sidebar_groups_searches_and_filters",
+          "message": "AssertionError: assert ['Fix the par...ore the data'] == ['Fix the par...uild on main']\n  \n  Left contains one more item: 'explore the data'\n  Use -v to get more diff"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "base-cli-wait",
+      "passed": 27,
+      "failed": 3,
+      "errors": 16,
+      "skipped": 0,
+      "seconds": 107.49,
+      "files": [
+        "tests.unit.test_cli",
+        "tests.unit.test_wait_hub"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_cli::test_a_lock_whose_holder_is_dead_is_no_daemon",
+          "message": "AssertionError: assert 0 == 69\n +  where 0 = run_cli(['run', '-m', 'opus', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr127-review-pm4naxaw/base-cli-wait/test_a_lock_whose_holder_is_de0/repo', 'hi'])"
+        },
+        {
+          "test": "tests.unit.test_cli::test_an_identity_mismatch_names_the_rendering_trap",
+          "message": "assert \"not 'Sat Jan  1 00:00:00 2000' as recorded\" in 'subfleet: no daemon at /tmp/sf-vim52ij4/daemon.sock: [Errno 2] No such file or directory\\n  fix: subfleet daemon start\\n'"
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_stopping_daemon_answers_every_waiter",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        }
+      ],
+      "error_details": [
+        {
+          "test": "tests.unit.test_wait_hub::test_a_poked_wait_returns_at_once",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_an_unpoked_wait_returns_within_the_poll",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_waiting_costs_one_hub_read_per_commit_whatever_the_number_of_waiters",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_wait_on_several_jobs_waits_for_the_last",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_succeeded_job_is_returned_only_after_its_export",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_failed_job_with_an_output_lease_is_returned",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_an_unknown_job_is_an_error_at_once",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_a_job_that_disappears_while_waited_on_is_an_error",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_nothing_to_wait_for_returns_at_once",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_the_deadline_still_ends_a_wait",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[0]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[1]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[2]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[3]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[4]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        },
+        {
+          "test": "tests.unit.test_wait_hub::test_no_wake_up_is_lost[5]",
+          "message": "failed on setup with \"subfleet.procs.InspectionError: macOS boot identity is unavailable\""
+        }
+      ],
+      "skip_details": []
+    },
+    {
+      "slice": "base-store-readers",
+      "passed": 1,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 5.66,
+      "files": [
+        "tests.unit.test_store_readers"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_store_readers::test_the_daemon_answers_reads_while_a_transaction_is_open",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        },
+        {
+          "test": "tests.unit.test_store_readers::test_capacity_views_hold_no_read_connection_while_they_build",
+          "message": "subfleet.procs.InspectionError: macOS boot identity is unavailable"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    }
+  ],
+  "head_reproductions": [
+    {
+      "slice": "head-ci312",
+      "passed": 3,
+      "failed": 10,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.8,
+      "files": [
+        "tests.unit.test_claude_conversation_mcp_scope",
+        "tests.unit.test_desktop_ledger",
+        "tests.unit.test_review_pr127_fixes"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-ask]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-accept-edits]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-bypass]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-read-only]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-ask]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-accept-edits]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-bypass]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-read-only]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_desktop_ledger::test_milestone_9_clauses_are_all_cited",
+          "message": "AssertionError: ['C-24.10', 'C-24.11', 'C-24.12', 'C-24.4', 'C-25.2', 'C-26.12', ...]\nassert {'C-24.10', '...C-26.12', ...} <= {'C-24.4', 'C...'C-27.3', ...}\n  \n  Extra items in the left set:\n  'C-24.12'\n  'C-24.10'\n  'C-24.11'"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_history_before_first_catalog_pass",
+          "message": "assert ([])"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-ci314",
+      "passed": 3,
+      "failed": 10,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 35.89,
+      "files": [
+        "tests.unit.test_claude_conversation_mcp_scope",
+        "tests.unit.test_desktop_ledger",
+        "tests.unit.test_review_pr127_fixes"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-ask]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-accept-edits]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-bypass]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[new-session-read-only]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-ask]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-accept-edits]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-bypass]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_claude_conversation_mcp_scope::test_d714_keeps_every_conversation_permission_mode_argv_unchanged[resumed-session-read-only]",
+          "message": "AssertionError: assert {'CLAUDE_CODE...dddddddddddd'} == {'CLAUDE_CODE...MS': '120000'}\n  \n  Omitting 2 identical items, use -vv to show\n  Left contains 2 more items:\n  {'SUBFLEET_SESSION_ID': '0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd',\n   'SUBFLEET_TURN_JOB': 'turn-job'}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_desktop_ledger::test_milestone_9_clauses_are_all_cited",
+          "message": "AssertionError: ['C-24.10', 'C-24.11', 'C-24.12', 'C-24.4', 'C-25.2', 'C-26.12', ...]\nassert {'C-24.10', '...C-26.12', ...} <= {'C-24.4', 'C...'C-27.3', ...}\n  \n  Extra items in the left set:\n  'C-24.12'\n  'C-24.10'\n  'C-24.11'"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_history_before_first_catalog_pass",
+          "message": "assert ([])"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-pr",
+      "passed": 4,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 17.95,
+      "files": [
+        "tests.unit.test_review_pr127_pr_wakes"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_pr_wakes::test_property_unchanged_watched_pr_never_wakes",
+          "message": "AssertionError: assert [{'message_id...': None, ...}] == []\n  \n  Left contains one more item: {'message_id': '3fd54df4-b851-44c9-9b87-29d3c701bb7c', 'conversation_id': 'cv-1791139062318-d9467c38c0a9', 'seq': 1, 'after_message_id': None, ...}\n  Use -v to get more diff\nFailing test case: test_property_unchanged_watched_pr_never_wakes(\n    # The test always failed when commented parts were varied together.\n    svc=<subfleet.conversations.service.ConversationService object at 0x109182c30>,\n    monkeypatch=<_pytest.monkeypatch.MonkeyPatch object at 0x10910f740>,\n    state='OPEN',  # or any other generated value\n    checks=True,\n    cycles=1,  # or any other generated value\n)"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_pr_wakes::test_partial_graphql_error_does_not_silence_other_conversations[0]",
+          "message": "AssertionError: assert 0 == 1\n +  where 0 = len([])\n +    where [] = rows(<subfleet.conversations.service.ConversationService object at 0x10952d5b0>, 'cv-1791139064582-3bbbf0851fb1')"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_pr_wakes::test_partial_graphql_error_does_not_silence_other_conversations[1]",
+          "message": "AssertionError: assert 0 == 1\n +  where 0 = len([])\n +    where [] = rows(<subfleet.conversations.service.ConversationService object at 0x10952e5a0>, 'cv-1791139065064-6a18a2e1a985')"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-runs",
+      "passed": 1,
+      "failed": 6,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.36,
+      "files": [
+        "tests.unit.test_review_pr127_fixes"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_history_before_first_catalog_pass",
+          "message": "assert ([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_already_announced_run_request_is_satisfied_without_a_wake",
+          "message": "AssertionError: assert 2 == 1\n +  where 2 = len([{'message_id': 'd47e0834-7a14-42bf-99a7-c6a8445ef9ca', 'conversation_id': 'cv-1791139133950-d83245438259', 'seq': 1, ...-43ec-9c67-500841dc783f', 'conversation_id': 'cv-1791139133950-d83245438259', 'seq': 2, 'after_message_id': None, ...}])\n +    where [{'message_id': 'd47e0834-7a14-42bf-99a7-c6a8445ef9ca', 'conversation_id': 'cv-1791139133950-d83245438259', 'seq': 1, ...-43ec-9c67-500841dc783f', 'conversation_id': 'cv-1791139133950-d83245438259', 'seq': 2, 'after_message_id': None, ...}] = rows(<subfleet.conversations.service.ConversationService object at 0x1080e8320>, 'cv-1791139133950-d83245438259')"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_all_of_fanout_has_one_wake_and_one_throttle_charge",
+          "message": "AssertionError: assert [{'message_id...': None, ...}] == []\n  \n  Left contains one more item: {'message_id': '7b85a195-6d20-42c3-9503-90786eafdc96', 'conversation_id': 'cv-1791139134397-4ebc9c3f16c0', 'seq': 1, 'after_message_id': None, ...}\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_notice_repair_does_no_writes_for_already_delivered_history",
+          "message": "AssertionError: assert 10 == 0\n +  where 10 = <Mock id='4430531376'>.call_count"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_notice_job_lookup_uses_an_index",
+          "message": "AssertionError: [{'id': 2, 'parent': 0, 'notused': 216, 'detail': 'SCAN notices'}]\nassert False\n +  where False = any(<generator object test_notice_job_lookup_uses_an_index.<locals>.<genexpr> at 0x108126260>)"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_upgrade_does_not_automatically_announce_old_completions[False]",
+          "message": "AssertionError: assert 1 == 0\n +  where 1 = len([{'message_id': '16245996-a933-47cf-adaf-cca53d8552a0', 'conversation_id': 'cv-1791139136004-dffbf70e4eb7', 'seq': 1, 'after_message_id': None, ...}])\n +    where [{'message_id': '16245996-a933-47cf-adaf-cca53d8552a0', 'conversation_id': 'cv-1791139136004-dffbf70e4eb7', 'seq': 1, 'after_message_id': None, ...}] = rows(<subfleet.conversations.service.ConversationService object at 0x10814b3e0>, 'cv-1791139136004-dffbf70e4eb7')\n +  and   0 = int(False)"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-requests",
+      "passed": 6,
+      "failed": 10,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.69,
+      "files": [
+        "tests.unit.test_review_pr127_requests"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[WAKE-ME: runs= prs=o/r#121]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[- WAKE-ME: prs=o/r#121]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[**WAKE-ME:** prs=o/r#121]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[**WAKE-ME: prs=o/r#121**]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nDONE]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nWAITING ON MAX (d001)]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_final_request_forms_are_accepted[WAKE-ME: prs=o/r#121\\nHANDED TO hub]",
+          "message": "assert (0 == 1)\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_bad_final_line_does_not_discard_the_valid_line",
+          "message": "TypeError: 'NoneType' object is not subscriptable"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_timer_floor_is_checked_at_turn_start",
+          "message": "TypeError: 'NoneType' object is not subscriptable"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_only_top_level_final_requests_are_accepted[```\\nWAKE-ME: prs=o/r#1]",
+          "message": "assert [{'conversati...r#1\"]}', ...}] == []\n  \n  Left contains one more item: {'conversation_id': 'cv-1791139283968-b9cbf80bbad8', 'request_id': 'final:final:0', 'kind': 'pr', 'payload_json': '{\"note\": \"\", \"targets\": [\"o/r#1\"]}', ...}\n  Use -v to get more diff"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-service",
+      "passed": 0,
+      "failed": 6,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.95,
+      "files": [
+        "tests.unit.test_review_pr127_service"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_service::test_pr_poll_does_not_hold_person_dispatch",
+          "message": "AssertionError: a slow PR query held person dispatch\nassert False\n +  where False = wait(1)\n +    where wait = <threading.Event at 0x109f30a40: unset>.wait"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_service::test_open_is_not_queued_behind_worktree_and_diff",
+          "message": "TimeoutError"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_service::test_moot_block_writer_and_catalog_checks_are_paced",
+          "message": "AssertionError: assert 100 == 1\n +  where 100 = <Mock id='4462498576'>.call_count"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_service::test_resumed_codex_launch_preserves_its_own_session_marker",
+          "message": "ValueError: a Codex turn requires the verified hooks override"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_service::test_wait_acknowledges_only_finished_results_it_returns[succeeded-0]",
+          "message": "AssertionError: assert ['wait'] == ['wait', 'notice.ack']\n  \n  Right contains one more item: 'notice.ack'\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_service::test_wait_acknowledges_only_finished_results_it_returns[failed-1]",
+          "message": "AssertionError: assert ['wait'] == ['wait', 'notice.ack']\n  \n  Right contains one more item: 'notice.ack'\n  Use -v to get more diff"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-service-corrected",
+      "passed": 0,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.31,
+      "files": [
+        "tests.unit.test_review_pr127_service"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_service::test_resumed_codex_launch_preserves_its_own_session_marker",
+          "message": "KeyError: 'SUBFLEET_SESSION_ID'"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_service::test_wait_receipt_ack_prevents_a_second_conversation_wake",
+          "message": "AssertionError: assert 'pending' == 'acknowledged'\n  \n  - acknowledged\n  + pending"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-pacing",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.15,
+      "files": [
+        "tests.unit.test_review_pr127_service"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_service::test_control_loop_paces_completion_scans",
+          "message": "AssertionError: assert 100 == 1\n +  where 100 = <Mock id='4414655424'>.call_count"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-timeline",
+      "passed": 0,
+      "failed": 7,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 56.99,
+      "files": [
+        "tests.frontend.test_review_pr127_timeline",
+        "tests.unit.test_review_pr127_history"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_history::test_synthetic_user_row_preserves_owned_turn[extra0-[Request interrupted by user]]",
+          "message": "AssertionError: assert {'other-app', 'subfleet'} == {'subfleet'}\n  \n  Extra items in the left set:\n  'other-app'\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_history::test_synthetic_user_row_preserves_owned_turn[extra1-This session is being continued from a previous conversation that ran out of context.]",
+          "message": "AssertionError: assert {'other-app', 'subfleet'} == {'subfleet'}\n  \n  Extra items in the left set:\n  'other-app'\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.unit.test_review_pr127_history::test_synthetic_user_row_preserves_owned_turn[extra2-<task-notification><task-id>child</task-id></task-notification>]",
+          "message": "AssertionError: assert {'other-app', 'subfleet'} == {'subfleet'}\n  \n  Extra items in the left set:\n  'other-app'\n  Use -v to get more diff"
+        },
+        {
+          "test": "tests.frontend.test_review_pr127_timeline::test_mid_turn_markers_do_not_duplicate_or_relabel_the_answer[extra0-[Request interrupted by user]]",
+          "message": "AssertionError: ['Subfleet question', 'Made in another app', '[Request interrupted by user]', 'Subfleet answer', 'Subfleet answer', 'Made in another app', ...]\nassert 2 == 1\n +  where 2 = <built-in method count of list object at 0x106a2eb80>('Subfleet answer')\n +    where <built-in method count of list object at 0x106a2eb80> = ['Subfleet question', 'Made in another app', '[Request interrupted by user]', 'Subfleet answer', 'Subfleet answer', 'Made in another app', ...].count"
+        },
+        {
+          "test": "tests.frontend.test_review_pr127_timeline::test_mid_turn_markers_do_not_duplicate_or_relabel_the_answer[extra1-This session is being continued from a previous conversation that ran out of context.]",
+          "message": "AssertionError: ['Subfleet question', 'Made in another app', 'This session is being continued from a previous conversation that ran out of context.', 'Subfleet answer', 'Subfleet answer', 'Made in another app', ...]\nassert 2 == 1\n +  where 2 = <built-in method count of list object at 0x106a2ef00>('Subfleet answer')\n +    where <built-in method count of list object at 0x106a2ef00> = ['Subfleet question', 'Made in another app', 'This session is being continued from a previous conversation that ran out of context.', 'Subfleet answer', 'Subfleet answer', 'Made in another app', ...].count"
+        },
+        {
+          "test": "tests.frontend.test_review_pr127_timeline::test_mid_turn_markers_do_not_duplicate_or_relabel_the_answer[extra2-<task-notification><task-id>child</task-id></task-notification>]",
+          "message": "AssertionError: ['Subfleet question', 'Made in another app', '<task-notification><task-id>child</task-id></task-notification>', 'Subfleet answer', 'Subfleet answer', 'Made in another app', ...]\nassert 2 == 1\n +  where 2 = <built-in method count of list object at 0x10664cb40>('Subfleet answer')\n +    where <built-in method count of list object at 0x10664cb40> = ['Subfleet question', 'Made in another app', '<task-notification><task-id>child</task-id></task-notification>', 'Subfleet answer', 'Subfleet answer', 'Made in another app', ...].count"
+        },
+        {
+          "test": "tests.frontend.test_review_pr127_timeline::test_invalid_wake_request_is_visible_in_the_timeline",
+          "message": "assert False\n +  where False = any(<generator object test_invalid_wake_request_is_visible_in_the_timeline.<locals>.<genexpr> at 0x106a4aa80>)"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-report",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 8.6,
+      "files": [
+        "tests.unit.test_review_pr127_report"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_report::test_moot_block_report_uses_the_implemented_mtime_criterion",
+          "message": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/build/review/head/docs/reports/2026-10-04-continuation-pr-body.md'"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-request-replay",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 29.48,
+      "files": [
+        "tests.unit.test_review_pr127_requests"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_requests::test_expanded_grammar_replay_preserves_legacy_timer_identity",
+          "message": "assert 0 == 1\n +  where 0 = len([])\n +    where [] = query(\"SELECT * FROM wake_requests WHERE state='pending' AND kind='pr'\")\n +      where query = <subfleet.conversations.store.ConversationStore object at 0x10baa6b40>.query\n +        where <subfleet.conversations.store.ConversationStore object at 0x10baa6b40> = <subfleet.conversations.service.ConversationService object at 0x10baa64e0>.store"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-upgrade-inflight",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.68,
+      "files": [
+        "tests.unit.test_review_pr127_fixes"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_upgrade_keeps_runs_that_complete_after_activation",
+          "message": "AssertionError: assert [{'message_id...': None, ...}] == []\n  \n  Left contains one more item: {'message_id': '84891a68-25d2-4687-8162-2e8b5410fcfb', 'conversation_id': 'cv-1791146101257-83b2be94aec0', 'seq': 1, 'after_message_id': None, ...}\n  Use -v to get more diff"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    },
+    {
+      "slice": "head-activation-precision",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.84,
+      "files": [
+        "tests.unit.test_review_pr127_fixes"
+      ],
+      "failures": [
+        {
+          "test": "tests.unit.test_review_pr127_fixes::test_existing_completion_and_new_completion_in_one_second",
+          "message": "AssertionError: assert [{'message_id...': None, ...}] == []\n  \n  Left contains one more item: {'message_id': 'e1304054-217e-4db1-aad2-ea3aa2fd0bef', 'conversation_id': 'cv-1791149316567-08239fff8067', 'seq': 1, 'after_message_id': None, ...}\n  Use -v to get more diff"
+        }
+      ],
+      "error_details": [],
+      "skip_details": []
+    }
+  ],
+  "collection": {
+    "total": 8424,
+    "unit": 7134,
+    "fake": 836,
+    "e2e": 85,
+    "frontend": 302,
+    "process": 62,
+    "live": 5,
+    "errors": 0
+  },
+  "app_build": {
+    "command": "app/build.sh",
+    "exit_code": 0,
+    "foreground_limit_seconds": 900,
+    "output": "build/review/app/Subfleet.app",
+    "installed": false
+  },
+  "mutation_count": 30,
+  "mutation_survivors": 0
+}

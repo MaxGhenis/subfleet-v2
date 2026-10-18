@@ -104,6 +104,73 @@ def test_c6_9_a_job_that_passes_a_waiter_leaves_it_a_slot(fleet):
     assert admitted(service, passer)
 
 
+def test_c6_16_a_waiting_priority_job_holds_back_competing_jobs_of_every_tier(fleet):
+    """C-6.16 review of PR #147: a waiting hard-tier priority job held back only
+    hard-tier jobs, so later standard and trivial jobs for its model took the
+    slots it waited for. It holds back every competing detached job now,
+    priority or not, and still nothing it does not compete with."""
+    service, harness = fleet
+    service.policy["admission"]["priority_callers"] = ["CHOSEN"]
+    older = submit(service, harness, pinned_model="astra", tier="hard", caller_session="chosen")
+    trivial = submit(service, harness, pinned_model="astra", tier="trivial", caller_session="other")
+    standard = submit(service, harness, pinned_model="astra", tier="standard", caller_session="chosen")
+    terra = submit(service, harness, pinned_model="terra", tier="trivial", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert admitted(service, terra)
+    for held in (trivial, standard):
+        assert not service.store.list_attempts(held)
+        assert service._holds[held]["reason"] == "behind-older-job"
+        assert service._holds[held]["behind"] == older
+
+
+def test_c6_16_a_job_passing_a_priority_waiter_of_another_tier_leaves_it_the_last_slot(fleet):
+    """C-6.16 review of PR #147: with a cap, a later trivial job took the last
+    slot a waiting hard-tier priority job needed. It keeps that slot now."""
+    service, harness = fleet
+    service.policy["caps"]["max_active_attempts"] = 2
+    service.policy["admission"]["priority_callers"] = ["chosen"]
+    running = submit(service, harness, pinned_model="terra", tier="trivial")
+    service._admit()
+    assert admitted(service, running)
+    older = submit(service, harness, pinned_model="astra", tier="hard", caller_session="CHOSEN")
+    passer = submit(service, harness, pinned_model="terra", tier="trivial", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(passer)                 # 1 live + the kept slot = the cap of 2
+    assert service.store.get_job(passer)["state"] == "waiting"
+    service.store.update_job(older, state="cancelled")
+    service.store.update_job(passer, next_check_at=utcnow())
+    service._admit()
+    assert admitted(service, passer)
+
+
+def test_c6_16_a_detached_tier_named_like_a_turn_queue_is_still_held(fleet):
+    """C-6.16 review r2 of PR #147: a valid detached tier spelled `…#turn` was
+    skipped by a name check and passed a waiting priority job."""
+    service, harness = fleet
+    service.policy["tiers"] = [*service.policy["tiers"], "trivial#turn"]
+    service.policy["admission"]["priority_callers"] = ["chosen"]
+    older = submit(service, harness, pinned_model="astra", tier="hard", caller_session="chosen")
+    oddly = submit(service, harness, pinned_model="astra", tier="trivial#turn", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert not service.store.list_attempts(oddly)
+    assert service._holds[oddly]["behind"] == older
+
+
+def test_c6_16_only_a_priority_waiter_crosses_tiers(fleet):
+    """C-4.1 a waiter that is not priority still holds back only its own tier:
+    the pass looks at a trivial waiter first, and it holds no later hard job."""
+    service, harness = fleet
+    service.policy["admission"]["priority_callers"] = ["chosen"]
+    older = submit(service, harness, pinned_model="astra", tier="trivial", caller_session="other")
+    hard = submit(service, harness, pinned_model="astra", tier="hard", caller_session="other")
+    wait_on_capacity(service, older)
+    service._admit()
+    assert admitted(service, hard)
+
+
 def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     """C-6.4 at `max_active_attempts` nothing later is evaluated, whatever it competes for."""
     service, harness = fleet
@@ -125,6 +192,8 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
     ({"task": "review", "tier": None}, {"opus", "astra"}),                       # no tier is `standard`
     ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "astra"}),
     ({"task": "authored-prose", "tier": "hard"}, {"fable"}),
+    ({"task": "review", "tier": "standard", "pinned_lane": "claude-3"}, {"opus"}),   # a pinned job walks one model
+    ({"task": "sweep", "tier": "hard", "pinned_lane": "codex-1"}, {"astra"}),
     ({"pinned_lane": "claude-3"}, None),
     ({"task": "not-a-task", "tier": "standard"}, None),
 ])
@@ -174,8 +243,13 @@ def test_c6_9_a_waiter_pinned_to_one_lane_does_not_hold_a_job_pinned_to_another(
 
 @pytest.mark.parametrize("case", ["same-lane", "newer-unpinned", "older-unpinned", "newer-unknown-pin"])
 def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case):
-    """C-6.9 only two different pins are disjoint; a free choice, a shared pin, or an unresolvable pin competes."""
+    """C-6.9 only two different pins are disjoint; a free choice or a shared pin competes.
+
+    A pin that names no lane no longer waits behind the older job (intended,
+    C-11.8): no lane can ever admit it, so it is held `pin-unadmittable`
+    before it is compared with anyone, and it holds nobody back either."""
     service, harness = pinned_fleet
+    service.policy["caps"]["max_active_attempts"] = 4               # C-6.9 holds back only in a capped pool
     older_pin, newer_pin = {"same-lane": ("claude-a", "claude-a"), "newer-unpinned": ("claude-a", None),
                             "older-unpinned": (None, "claude-b"), "newer-unknown-pin": ("claude-a", None)}[case]
     older = submit(service, harness, pinned_model="fable", pinned_lane=older_pin)
@@ -185,7 +259,13 @@ def test_c6_9_lane_pins_that_could_share_a_lane_still_compete(pinned_fleet, case
     wait_on_capacity(service, older)
     service._admit()
     assert not service.store.list_attempts(newer)
-    assert service.store.get_job(newer)["state"] == "queued"
+    if case == "newer-unknown-pin":
+        hold = service._holds[newer]
+        assert (hold["reason"], hold["reasons"]) == ("pin-unadmittable", ["unknown"])
+        assert service.store.get_job(newer)["state"] == "waiting"
+    else:
+        assert service._holds[newer] == {"reason": "behind-older-job", "behind": older, "tier": "standard"}
+        assert service.store.get_job(newer)["state"] == "queued"
 
 
 def test_c6_9_demand_lanes_resolves_a_pin_to_its_lane_id():

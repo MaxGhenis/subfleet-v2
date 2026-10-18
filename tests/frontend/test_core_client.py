@@ -204,7 +204,7 @@ def test_c29_4_the_refused_development_build_never_connects(core_probe, tmp_path
         home.rmdir()
 
 
-# --- a daemon at its connection cap (C-16.1) ----------------------------------
+# --- a daemon at its connection cap (C-16.7) ----------------------------------
 
 def test_c16_1_a_busy_answer_sent_before_the_request_is_read_still_arrives(core_probe, tmp_path, short_dir):
     """Past its cap the daemon answers before it reads the request, and closes. A
@@ -219,7 +219,7 @@ def test_c16_1_a_busy_answer_sent_before_the_request_is_read_still_arrives(core_
         server.close()
     for answer in answers:
         assert answer["error"]["kind"] == "daemon", answer
-        assert answer["error"]["code"] == 69 and answer["error"]["fix"] == "try again shortly"
+        assert answer["error"]["code"] == 69 and answer["error"]["fix"].startswith("try again shortly")
 
 
 def test_c29_2_a_busy_daemon_is_busy_not_incompatible(core_probe, tmp_path, short_dir):

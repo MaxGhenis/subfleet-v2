@@ -193,7 +193,7 @@ READERS = {
         runner = TurnRunner(store=store, attempt={{"attempt_id": "job/a1", "lane_id": "claude-1"}}, spec=spec,
                             conversation_id="cv-x", attempt_dir=tmp / "a1", control_socket=str(tmp / "none.sock"),
                             on_outcome=lambda r: None, on_contain=lambda a: None, clocks=Clocks())
-        report(**outcome(lambda: runner._read_attachment(path)))
+        report(**outcome(lambda: runner._read_attachment(spec.images[0])))
         """, {"error": "NotRegularFile"}),
     "relay.read_log": ("""
         from subfleet import relay

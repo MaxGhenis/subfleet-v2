@@ -44,8 +44,10 @@ raise SystemExit(main(sys.argv[1:]))
     env = {key: value for key, value in os.environ.items()
            if key not in ("CODEX_HOME", "SUBFLEET_NO_AUTOPICK", "SUBFLEET_ALLOW_API_LANE",
                           "CODEX_API_KEY", "OPENAI_API_KEY")}
+    # D-ST1: this shell needs the session recorder before its minimal tool PATH.
+    recorder = Path(os.environ["SUBFLEET_PYTEST_SESSION"]) / "keychain-bin"
     env.update(HOME=str(home), PICK_OUTPUT=str(picked), CHILD_LOG=str(child_log), CALL_LOG=str(call_log),
-               PATH="/usr/bin:/bin")
+               PATH=f"{recorder}:/usr/bin:/bin")
     def run(*args, **values):
         return subprocess.run(["/bin/bash", str(SHIM), *args], env={**env, **values},
                               input="prompt on stdin\n", capture_output=True, text=True, timeout=5)

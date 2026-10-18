@@ -9,7 +9,8 @@ below the floor, and a reported closure on the reserved model that ends turns
 its lane's probe-gated slack into `unmeasured` (C-11.7).
 
 The property, over generated fleets: readings fresh, stale, not yet observed,
-at or past their reset; closures ending in seconds or days, reported or
+at or past their reset (weekly and five-hour, including windows already stale
+when they reset); closures ending in seconds or days, reported or
 guessed, on the account, the reserved model or another; overrides ending in
 seconds or days; attempts filling slots. `scheduler.evaluate` on the same rows
 gives the same decision (lane, model, whether it needs a probe, every
@@ -62,13 +63,13 @@ def fleet(rng: random.Random) -> dict:
     for lane_id, provider in LANES:
         scopes = ("account", MODEL_IDS["fable"], MODEL_IDS["opus"]) if provider == "claude" else ("account",)
         for _ in range(rng.randrange(0, 4)):
-            resets = rng.choice((None, None, T0 + timedelta(seconds=rng.choice((2, 5, 3600, 86400))),
+            resets = rng.choice((None, None, T0 + timedelta(seconds=rng.choice((0, 2, 5, 3600, 86400))),
                                  T0 - timedelta(seconds=1)))
             readings.append({
                 "reading_id": len(readings) + 1, "lane_id": lane_id, "scope": rng.choice(scopes),
                 "window": rng.choice(("seven_day", "seven_day", "five_hour")),
                 "utilization": rng.choice((.1, .5, .9, .96, .99, 1.0)),
-                "label": rng.choice(("provider", "provider", "provider", "unknown")),
+                "label": rng.choice(("provider", "provider", "provider", "stale-provider", "unknown")),
                 "source": rng.choice(("oauth-usage", "rate_limit_event", "fixture")),
                 "attempt_id": rng.choice((None, "a1")),
                 "observed_at": iso(T0 - timedelta(seconds=300 if quiet else rng.choice(
@@ -120,8 +121,24 @@ def decision(case: dict, instant: datetime) -> tuple:
 def clocks(case: dict, instant: datetime) -> tuple:
     """Every clock the evaluation reads, at `instant`."""
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]),
+            tuple(window_not_renewed(row, instant) for row in case["readings"]),
+            tuple(recent_evidence(row, instant) for row in case["readings"]),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant for row in case["closures"]),
             tuple(end > instant for end in case["overrides"].values()))
+
+
+def window_not_renewed(row: dict, instant: datetime) -> bool:
+    """The independent C-11.3 uncertainty clock starts at observation and ends at TTL."""
+    return not bool(row.get("label") in ("provider", "stale-provider")
+                    and row.get("utilization") is not None and row.get("resets_at")
+                    and 0 <= (instant - capacity._time(row["observed_at"])).total_seconds() <= TTL
+                    and capacity._time(row["resets_at"]) <= max(instant, capacity._time(row["observed_at"])))
+
+
+def recent_evidence(row: dict, instant: datetime) -> bool:
+    """The explanatory reading timestamp uses recent evidence, even without a reset."""
+    return bool(row.get('label') in ('provider', 'stale-provider') and row.get('utilization') is not None
+                and 0 <= (instant - capacity._time(row['observed_at'])).total_seconds() <= TTL)
 
 
 def test_the_clock_alone_changes_no_decision_before_its_horizon():
@@ -188,15 +205,18 @@ def test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane():
 def test_a_reading_not_yet_observed_is_a_horizon_only_if_it_will_be_fresh():
     """A reading observed after the view's clock (another host's clock ahead of
     this one) turns fresh at its `observed_at`, and can show the lane below the
-    floor; one that will not be fresh then (past its reset, or not a provider
-    reading) moves nothing."""
+    floor; a non-provider reading moves nothing."""
     row = {"reading_id": 1, "lane_id": "codex-1", "scope": "account", "window": "seven_day",
            "utilization": .99, "resets_at": None, "label": "provider", "source": "fixture",
            "observed_at": iso(T0 + timedelta(seconds=2))}
     view = {"now": iso(T0), "readings": [row], "closures": []}
     assert capacity.decision_horizon(view, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
-    for inert in ({**row, "label": "unknown"}, {**row, "resets_at": iso(T0 + timedelta(seconds=1))}):
-        assert capacity.decision_horizon({**view, "readings": [inert]}, reading_ttl_s=TTL) is None
+    inert = {**row, "label": "unknown"}
+    assert capacity.decision_horizon({**view, "readings": [inert]}, reading_ttl_s=TTL) is None
+    # An observation already past its reset cannot supply admission freshness,
+    # but begins ranking uncertainty when its observation time is reached.
+    expired = {**row, "resets_at": iso(T0 + timedelta(seconds=1))}
+    assert capacity.decision_horizon({**view, "readings": [expired]}, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
 
 
 def judgements(case: dict, instant: datetime) -> dict:
@@ -219,6 +239,8 @@ def lane_clocks(case: dict, lane_id: str, instant: datetime) -> tuple:
     """The clocks a lane's own judgement reads, at `instant`."""
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]
                   if row["lane_id"] == lane_id),
+            tuple(window_not_renewed(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
+            tuple(recent_evidence(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant
                   for row in case["closures"] if row["lane_id"] == lane_id))
 
@@ -249,3 +271,61 @@ def test_the_clock_alone_changes_no_lane_before_its_own_horizon():
             if {key: later[key] for key in mine} != mine:
                 reached["moved"] += 1
     assert reached["lanes"] > 300 and reached["moved"] > 50 and reached["others-earlier"] > 100, reached
+
+
+def rank_keys(case: dict, instant: datetime, lane_id: str | None = None) -> dict:
+    """Compare the entire returned key, including any future comparator fields."""
+    view, _ = view_at(case, instant)
+    setup = scheduler.prepare(POLICY, view, case["job"])
+    found = {}
+    for lane_row in setup["lanes"]:
+        identity = lane_row["lane_id"]
+        if lane_id is not None and identity != lane_id:
+            continue
+        readings = [row for row in view["readings"] if row["lane_id"] == identity]
+        closures = [row for row in view["closures"] if row["lane_id"] == identity]
+        for short, model in POLICY["models"].items():
+            if model["provider"] == lane_row["provider"]:
+                _, detail = scheduler.judge_lane(setup, short, lane_row, readings, closures,
+                    in_flight=setup["in_flight"].get(identity, 0), unavailable={})
+                found[(identity, short)] = scheduler.rank_key(setup, short, identity, detail)
+    return found
+
+
+def test_every_rank_key_is_constant_before_its_lanes_horizon():
+    for seed in range(600):
+        case = fleet(random.Random(seed))
+        case["overrides"] = {}
+        view, _ = view_at(case, T0)
+        horizons = capacity.lane_horizons(view, reading_ttl_s=TTL)
+        first = rank_keys(case, T0)
+        for lane_id, _ in LANES:
+            mine = {key: value for key, value in first.items() if key[0] == lane_id}
+            until = horizons.get(lane_id)
+            instants = ([T0 + (until - T0) * step for step in (0, .3, .7, .999)] if until else
+                        [T0 + delta for delta in (timedelta(seconds=1), timedelta(minutes=5), timedelta(days=3))])
+            for instant in instants:
+                later = rank_keys(case, instant, lane_id)
+                assert {key: later[key] for key in mine} == mine, (seed, lane_id, instant, until)
+
+
+def test_weekly_and_five_hour_resets_bound_only_recent_ranking():
+    for window in ("seven_day", "five_hour"):
+        for age in (0, TTL + 1):
+            row = {"lane_id": "codex-1", "scope": "account", "window": window,
+                   "utilization": .9, "label": "provider", "observed_at": iso(T0 - timedelta(seconds=age)),
+                   "resets_at": iso(T0 + timedelta(seconds=2))}
+            case = {"lanes": [lane("codex-1", "codex")], "readings": [row,
+                    {**row, "window": "seven_day", "scope": MODEL_IDS["astra"], "utilization": .2,
+                     "observed_at": iso(T0), "resets_at": iso(T0 + timedelta(days=1))}],
+                    "closures": [], "attempts": [], "jobs": [], "overrides": {},
+                    "job": {"pinned_model": "astra", "sandbox": "read-only"}}
+            view, _ = view_at(case, T0)
+            until = T0 + timedelta(seconds=2 if age == 0 else TTL)
+            assert capacity.lane_horizons(view, reading_ttl_s=TTL) == {"codex-1": until}
+            assert capacity.decision_horizon(view, reading_ttl_s=TTL) == until
+            assert rank_keys(case, until - timedelta(microseconds=1)) == rank_keys(case, T0)
+            if age == 0:
+                assert rank_keys(case, until) != rank_keys(case, T0)
+            else:
+                assert rank_keys(case, T0 + timedelta(seconds=3)) == rank_keys(case, T0)

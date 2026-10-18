@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -31,7 +32,7 @@ BY_ID = {case["id"]: case for case in CASES}
 #: top-level `show` are in this set as C-17.1's own additions rather than as v1
 #: spellings — neither string exists anywhere in the v1 tree.
 PERMANENT_HEADS = {"status", "capacity", "runs", "jobs", "show", "wait", "kill",
-                   "resume", "resume-codex", "notify", "ping", "run", "lanes",
+                   "resume", "resume-codex", "notify", "ping", "notices", "run", "lanes",
                    "why", "daemon", "doctor", "hook", "gate", "enroll", "pick", "_api-lane-check",
                    "errors", "brief", "watch", "keepalive", "reset", "login", "_canonical-model", "_session-hook",
                    # milestone 6: the sessions kit. `sessions` and `handoff` are
@@ -239,7 +240,7 @@ def test_no_v1_mirror_flag_is_unaccounted_for():
     `add_argument` lines instead, and each one must be on `sessions mirror` or
     in `V1_ONLY_FLAGS["mirror"]`.
     """
-    script = Path("~/chief-of-staff/subfleet/bin/subfleet-mirror").expanduser()
+    script = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff/subfleet/bin/subfleet-mirror"
     if not script.exists():
         pytest.skip("the v1 install is not present on this machine")
     options = set(re.findall(r'add_argument\(\s*"(--[a-z-]+)"', script.read_text()))
@@ -268,7 +269,7 @@ def _v2_option_map() -> dict[str, set[str]]:
 
 def _v1_option_map() -> dict[str, list[str]] | None:
     """C-17.1: inspect v1 source as data; never import or invoke its commands."""
-    root = Path("~/chief-of-staff/subfleet/subfleet").expanduser()
+    root = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff/subfleet/subfleet"
     if not (root / "cli.py").is_file():
         return None
     tree = ast.parse((root / "cli.py").read_text())
@@ -693,7 +694,7 @@ def test_every_v1_verb_has_a_home():
     v1_verbs = {
         "status", "capacity", "runs", "pick", "run", "codex", "claude", "mirror",
         "login", "errors", "watch", "keepalive", "brief", "enroll", "reset",
-        "wait", "kill", "sessions", "notify", "hooks", "tickle", "muster",
+        "wait", "kill", "sessions", "notify", "notices", "hooks", "tickle", "muster",
         "revive", "resume-codex", "handoff", "gate",
         "_record-lane-run", "_record-run", "_canonical-model", "_api-lane-check",
         "_record-codex-cooldown", "_session-hook", "_tickle",

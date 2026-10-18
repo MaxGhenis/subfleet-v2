@@ -11,6 +11,7 @@ from typing import Any
 
 from .capacity import desktop_excluded, identity_blocked
 from .guardian import atomic_publish
+from .quota_projection import weekly_projections
 
 
 def instant(value: str | datetime | None = None) -> datetime:
@@ -48,6 +49,10 @@ def dispatchable(lane: Mapping[str, Any]) -> bool:
     if (not lane.get("enabled", True) or lane.get("owner", "v2") != "v2"
             or lane.get("canonical") is False or lane.get("duplicate_of")
             or lane.get("provider") == "claude" and desktop_excluded(lane)):
+        return False
+    if lane.get("probe_state") is not None:
+        # C-5.7a, C-18.1: a probe holds this lane's slot, and admission places
+        # nothing here until its lease is released, however fresh the readings.
         return False
     if "dispatchable" in lane:
         return bool(lane["dispatchable"])
@@ -258,6 +263,37 @@ def _conversations(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             "truncated": bool(summary.get("truncated")), "turns": turn_counts}
 
 
+#: C-18.4: what `status.json` says of each alert in force.
+ALERT_FIELDS = ("key", "severity", "subject", "body", "since", "last_sent")
+
+
+def _alerts(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """C-18.4: the alerts in force, in the order `Alerts.active` gives them."""
+    return [{field: row.get(field) for field in ALERT_FIELDS}
+            for row in snapshot.get("alerts") or () if isinstance(row, Mapping) and row.get("key")]
+
+
+#: C-9.10: what `status.json` says of each account's cards and credits. No
+#: identity, token or path: the menu needs what is at risk and when.
+CARD_ACCOUNT_FIELDS = ("login", "lanes", "lanes_by", "status", "detail", "read_at", "unused_cards", "plan",
+                       "plan_ends_at", "credits", "cloud_credit_claim", "claimable", "recently_lost",
+                       "cards_unlisted")
+
+
+def _cards(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """C-9.10: Claude limit-reset cards and promotional credits, read and never redeemed."""
+    view = snapshot.get("claude_cards") or {}
+    accounts = []
+    for account in view.get("accounts") or ():
+        if not isinstance(account, Mapping):
+            continue
+        row = {field: account.get(field) for field in CARD_ACCOUNT_FIELDS}
+        row["cards"] = list(((account.get("cards") or {}).get("grants")) or [])
+        accounts.append(row)
+    return {"read_at": view.get("read_at"), "disabled": bool(view.get("disabled")), "accounts": accounts,
+            "warnings": [dict(row) for row in view.get("warnings") or () if isinstance(row, Mapping)]}
+
+
 def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = None) -> dict[str, Any]:
     """C-18.1: retain Swift's Codex/Claude JSON shape with explicit evidence labels.
 
@@ -265,7 +301,9 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     Claude account (every provider-reported window keyed by scope and window),
     `claude.earliest_reset`, `kind` on every job row, and `conversations`.
     `snapshot["model_names"]` (policy model id to short name) labels the
-    model-scoped windows; without it they carry only their scope.
+    model-scoped windows; without it they carry only their scope. C-18.4 adds
+    `alerts`, the alerts in force; the section is always present.
+    C-9.10 adds `claude.cards`, every login's reset cards and credits.
     """
     at = instant(now or snapshot.get("now"))
     model_names = snapshot.get("model_names") or {}
@@ -276,7 +314,10 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
         verdict, windows = lane_verdict(lane), _windows(lane)
         common = {"lane_id": lane["lane_id"], "verdict": verdict,
                   "enabled": bool(lane.get("enabled", True)), "owner": lane.get("owner", "v2"),
-                  "dispatchable": dispatchable(lane)}
+                  "dispatchable": dispatchable(lane),
+                  # C-18.1: the probe holding this lane's slot, if one does.
+                  "probe_state": lane.get("probe_state"), "probe_holder": lane.get("probe_holder")}
+        common["weekly_projections"] = weekly_projections(lane, now=at, samples=snapshot.get("weekly_samples"))
         if lane.get("identity_status") is not None:
             common["identity_status"] = lane["identity_status"]
         email = lane.get("email") or str(lane.get("account_key", "unknown")).partition(":")[2] or lane.get("account_key", "unknown")
@@ -329,13 +370,21 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
     credits = (sum(credit_counts) if credit_counts and all(isinstance(count, int) and not isinstance(count, bool) and count >= 0
                                        for count in credit_counts) else None)
     return {"generated_at": timestamp(at), "offline": bool(snapshot.get("offline", False)),
-            "jobs": _jobs(snapshot), "conversations": _conversations(snapshot),
+            "jobs": _jobs(snapshot), "conversations": _conversations(snapshot), "alerts": _alerts(snapshot),
             "codex": {"homes": codex, "fleet": {"total_homes": len(codex), "dispatchable_now": len(available),
                        "best_home": available[0]["home"] if available else None,
-                       "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits}},
+                       "earliest_reset": min(reset_times, default=None), "reset_credits_remaining": credits,
+                       "probe_held": _probe_held(codex)}},
             "claude": {"accounts": claude, "earliest_reset": claude_earliest_reset(claude, at),
                        "lanes": {"enrolled": sum(row["enrolled"] for row in claude),
-                                 "dispatchable_now": sum(row["dispatchable"] for row in claude)}}}
+                                 "dispatchable_now": sum(row["dispatchable"] for row in claude),
+                                 "probe_held": _probe_held(claude)},
+                       "cards": _cards(snapshot)}}
+
+
+def _probe_held(rows: list[dict[str, Any]]) -> int:
+    """C-18.1: how many of a section's lanes a probe holds."""
+    return sum(row["probe_state"] is not None for row in rows)
 
 
 def write_status(root: str | Path, snapshot: Mapping[str, Any], *,

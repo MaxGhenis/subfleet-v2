@@ -37,6 +37,16 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    # All process reads share a synthetic table. The caller running a registry
+    # fixture is live; unlisted guardians are absent. Keep real three-way
+    # liveness so tests overriding identity can exercise writer protection.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda:
+                        daemon_module.procs.ProcessTable({
+                            os.getpid(): (1, os.getpgrp(), "S", "unit-test-start")
+                        }, "unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "identity",
+                        lambda pid: daemon_module.procs.snapshot().identity(pid))
+    monkeypatch.setattr(daemon_module.procs, "group_members", lambda *args: {})
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
@@ -94,6 +104,29 @@ def test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one(state_daemon
     with pytest.raises(AdapterError, match="max_child_jobs"):
         daemon.dispatch("submit", harness.submit_args(parent_job_id=parent))
 
+
+
+def test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock(state_daemon, monkeypatch):
+    """C-7.3: the family is cancelled atomically, so every member carries the same
+    `cancel_requested_at` and `finished_at` even when the clock ticks between rows
+    (a loaded CI runner did, 2026-10-06: two cancel times in one family)."""
+    from subfleet import daemon as daemon_module
+    daemon, harness = state_daemon
+
+    def submit(**extra):
+        return daemon.dispatch("submit", harness.submit_args(**extra))["job_id"]
+
+    parent = submit()
+    child = submit(parent_job_id=parent)
+    grandchild = submit(parent_job_id=child)
+    ticks = iter(range(1000))
+    real = daemon_module.utcnow
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: real()[:-3] + f"{next(ticks) % 60:02d}Z")   # a new second every call
+    daemon.dispatch("kill", {"job_id": parent})
+    family = [daemon.store.get_job(job) for job in (parent, child, grandchild)]
+    assert {job["state"] for job in family} == {"cancelled"}
+    assert len({job["cancel_requested_at"] for job in family}) == 1
+    assert len({job["finished_at"] for job in family}) == 1
 
 def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon):
     """C-7.3, C-7.4 cancelling a queued parent atomically cancels dependent descendants only."""
@@ -186,19 +219,17 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 
 def admitted_reader(daemon, conn):
-    """A reader thread for `conn`, registered as `_admit_connection` registers one.
-
-    Since F1 (C-16.1) `_connection` serves only a connection admission counted,
-    so a test that hands it a socket pair registers the pair first.
-    """
+    """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
+    `_connection` lets it go when its last reply is out. Its peer is read from the
+    socket as the accept loop reads it (C-25.6), before the reader starts."""
+    from subfleet.conversations.peers import peer_token
     with daemon._connection_lock:
-        daemon._reading.add(conn)
         daemon._connections.add(conn)
-    return threading.Thread(target=daemon._connection, args=(conn,))
+    return threading.Thread(target=daemon._connection, args=(conn, peer_token(conn)))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
-    """C-16.1 malformed input returns code 2 while the same socket handler accepts another line."""
+    """C-16.1, C-16.7 malformed input returns code 2 while the same socket handler accepts another line."""
     daemon, _ = state_daemon
     server, client = socket.socketpair()
     server.settimeout(2)
@@ -235,6 +266,10 @@ def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     (adir / "stdout").write_bytes(stdout)
     (adir / "stderr").write_bytes(b"")
     (adir / "lane.log").write_bytes(b"")
+    if not (adir / "launch.json").exists():
+        # No real adapter launch was staged: this is an exited generic fake,
+        # whose success must carry the daemon's detached Codex completion proof.
+        (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n' if rc == 0 else '')
     receipt = {"rc": rc, "signal": None, "wall_s": .1, "child_pid": None,
                "finished_at": daemon_module.utcnow()}
     (adir / "exit.json").write_text(json.dumps(receipt))
@@ -316,9 +351,11 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, monkeypatch):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
