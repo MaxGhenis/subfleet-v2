@@ -330,8 +330,16 @@ class ConversationService:
 
     def _person(self, peer: AuditToken | None, what: str):
         """C-25.6: refuse agents Subfleet launched; accept only the app (D-PB1: a
-        terminal is not enough)."""
+        terminal is not enough).
+
+        The app's chain that could not be read decides nothing: the check failed,
+        not the caller (C-17.3 exit 1, which the app may send again as it is).
+        Every caller checks before it changes anything, and checks once."""
         verdict = judge(peer, root=str(self.root), allowed_paths=self._allowed_app_paths)
+        if verdict.unreadable:
+            self.log.warning("person check for %s could not run (pid %s): %s", what, verdict.pid, verdict.reason)
+            raise ConversationError("person-check-failed", f"{what} is a person's decision, and {verdict.reason}",
+                                    code=1, fix="nothing was done; try again")
         if not verdict.person:
             raise ConversationError("person-only", f"{what} is a person's decision: {verdict.reason}", code=7,
                                     fix="answer it in the Subfleet app")
@@ -767,13 +775,18 @@ class ConversationService:
         conversation = self.store.conversation(args["conversation_id"])
         after = validate_settings(conversation["provider"], {**conversation["settings"], **(args.get("settings") or {})})
         fields: dict[str, Any] = {"settings": after}
-        if widens(conversation["settings"], after):
-            self._person(peer, "widening a conversation's permissions")
-            if args.get("confirm_widen") is not True:
-                raise ConversationError("confirm-widen", "a wider policy needs confirm_widen: true")
-        if "allow_main" in args and bool(args["allow_main"]) != conversation["allow_main"]:
-            if args["allow_main"]:
-                self._person(peer, "working on main")
+        widening = widens(conversation["settings"], after)
+        main_changes = "allow_main" in args and bool(args["allow_main"]) != conversation["allow_main"]
+        # C-25.6: one person check however many person-only changes the request
+        # makes, so it reads the caller's chain once, within one budget.
+        what = " and ".join(name for name, needed in (("widening a conversation's permissions", widening),
+                                                      ("working on main", main_changes and bool(args["allow_main"])))
+                            if needed)
+        if what:
+            self._person(peer, what)
+        if widening and args.get("confirm_widen") is not True:
+            raise ConversationError("confirm-widen", "a wider policy needs confirm_widen: true")
+        if main_changes:
             fields["allow_main"] = bool(args["allow_main"])
         self._check_codex_policy(conversation["provider"], after)
         self._check_workspace(conversation["provider"], conversation["workspace"], after)

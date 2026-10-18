@@ -205,6 +205,8 @@ ERROR_MESSAGES = {
     "bad-workspace": "workspace must be an existing directory",
     "bad-settings": "start settings must use the documented model and permission values",
     "person-only": "starting or dismissing a suggestion is a person's decision",
+    "person-check-failed": "starting or dismissing a suggestion is a person's decision, and the caller's process "
+                           "chain could not be read",
     "confirm-widen": "a policy above Ask needs confirm_widen: true",
     "codex-read-only": "Codex conversations are read-only until the never-rules hook is shown firing in a live app-server turn",
     "protected-workspace": "the folder is protected from writable conversations",
@@ -230,6 +232,7 @@ ERROR_FIXES = {
     "unknown-model": "pick a model from models.list",
     "bad-model": "pick a model from models.list",
     "person-only": "answer it in the Subfleet app",
+    "person-check-failed": "nothing was done; try again",
     "confirm-widen": "confirm the permission in the Subfleet app",
     "worktree-failed": "start again to finish the suggestion",
     "git-unavailable": "try again",

@@ -65,6 +65,13 @@ if Path(sys.argv[0]).name == "subfleetd":
                 time.sleep(publish_delay)
             return original_publish(self, path, data)
         ConversationStore._publish = slow_publish
+    if os.environ.get("SUBFLEET_E2E_PS"):
+        # C-25.6: the peer check's `ps`, a wrapper that runs the real one unless
+        # a test makes it hang; its clocks shortened so a test need not wait 10 s.
+        from subfleet.conversations import peers
+        peers.PS = os.environ["SUBFLEET_E2E_PS"]
+        peers.PS_TIMEOUT_S = float(os.environ.get("SUBFLEET_E2E_PS_TIMEOUT_S", peers.PS_TIMEOUT_S))
+        peers.CHAIN_BUDGET_S = float(os.environ.get("SUBFLEET_E2E_CHAIN_BUDGET_S", peers.CHAIN_BUDGET_S))
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)

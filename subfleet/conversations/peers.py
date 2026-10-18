@@ -37,6 +37,19 @@ therefore separates the app from Subfleet's own launched processes only as
 far as those processes do not replace their image with the app before the
 first token read. The follow-up, an app-held credential that proves each
 person-only request, is what closes this remaining case.
+
+The chain is read with `ps`, which a loaded machine can slow. Each `ps` gets
+`PS_TIMEOUT_S` and one more try when it does not answer, cannot start, or
+answers nothing, and no `ps` starts after `CHAIN_BUDGET_S` or runs past it (only
+the time the system takes to launch one, or to reap one stopped at the deadline,
+can add to that). A read that fails,
+or a walk that does not reach launchd (a parent missing from the table, a loop,
+more than 64 processes), leaves the chain unreadable: an ancestor that was not
+read is never taken to be free of the markers. A caller whose image is not the
+app is then refused all the same, since the vetoes could only refuse it too.
+The app itself is neither accepted nor refused: the request fails closed with
+the cause named (the service's `person-check-failed`, exit 1), nothing is done,
+and asking again is safe.
 """
 
 from __future__ import annotations
@@ -46,6 +59,7 @@ import os
 import socket
 import struct
 import subprocess
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -53,6 +67,24 @@ MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
 APP_EXECUTABLES = ("/Applications/Subfleet.app/Contents/MacOS/Subfleet",)
 #: `ps -o tty` for a process with no controlling terminal.
 NO_TERMINAL = ("??", "-", "")
+PS = "/bin/ps"
+#: Each `ps` answers within this, or is tried once more.
+PS_TIMEOUT_S = 5.0
+#: No `ps` of a chain read starts after this or runs past it, however long the
+#: chain: well inside the 15 s the app waits for a person-only op's answer
+#: (`DaemonOperation.timeout`), so the app hears the cause instead of timing
+#: out. Only the system's time to launch a `ps`, or to reap one stopped at the
+#: deadline, can add to it.
+CHAIN_BUDGET_S = 10.0
+#: A chain longer than this is not followed to its end, so it is unreadable.
+MAX_CHAIN = 64
+#: The pause before a second try, for a `ps` that could not start (EAGAIN).
+RETRY_PAUSE_S = 0.1
+_PS_ENV = {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"}
+
+
+class ChainUnreadable(Exception):
+    """The caller's process chain could not be read in time (C-25.6)."""
 
 
 @dataclass(frozen=True)
@@ -99,6 +131,7 @@ class Verdict:
     person: bool
     reason: str
     pid: int | None
+    unreadable: bool = False      # the app's chain could not be read: the check failed, not the caller
 
 
 def peer_token(conn: socket.socket) -> AuditToken | None:
@@ -113,9 +146,56 @@ def peer_pid(conn: socket.socket) -> int | None:
     return token.pid if token else None
 
 
-def _ps(argv: list[str]) -> str:
-    env = {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"}
-    return subprocess.run(argv, capture_output=True, text=True, timeout=5, env=env, check=False).stdout
+def _seconds(value: float) -> str:
+    return f"{value:.1f}".removesuffix(".0")
+
+
+class PsReader:
+    """`ps` for one chain read: each call is tried at most twice, no try starts
+    after one deadline, `budget_s` from when the reader is made, and none is
+    allowed to run past it (`subprocess.run`'s timeout counts from the launch,
+    and a `ps` stopped at it is reaped before the try ends)."""
+
+    def __init__(self, budget_s: float | None = None, *, run: Callable = subprocess.run,
+                 clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
+        self.budget_s = CHAIN_BUDGET_S if budget_s is None else budget_s
+        self.run, self.clock, self.sleep = run, clock, sleep
+        self.deadline = clock() + self.budget_s
+
+    def __call__(self, args: list[str]) -> str:
+        """`ps <args>`'s output. An answer with nothing in it is a failed try: the
+        process table is never empty, and a live process always has a command
+        line. Raises `ChainUnreadable`."""
+        shown = "`ps " + " ".join(args) + "`"
+        failures: list[str] = []
+        for attempt in range(2):
+            if attempt:
+                self.sleep(max(0.0, min(RETRY_PAUSE_S, self.deadline - self.clock())))
+            remaining = self.deadline - self.clock()
+            if remaining <= 0:
+                break
+            timeout = min(PS_TIMEOUT_S, remaining)
+            try:
+                done = self.run([PS, *args], capture_output=True, text=True, errors="replace", timeout=timeout,
+                                env=_PS_ENV, check=False)
+            except subprocess.TimeoutExpired:
+                failures.append(f"did not answer within {_seconds(timeout)} s")
+                continue
+            except OSError as exc:
+                failures.append(f"could not start ({exc.strerror or exc})")
+                continue
+            if not (done.stdout or "").strip():
+                failures.append(f"answered nothing (exit {done.returncode})")
+                continue
+            return done.stdout or ""
+        budget = f"the check's {_seconds(self.budget_s)} s"
+        if not failures:
+            raise ChainUnreadable(f"{budget} ran out before {shown} could run")
+        if len(failures) == 1:
+            raise ChainUnreadable(f"{shown} {failures[0]}, and {budget} ran out before a second try")
+        if failures[0] == failures[1]:
+            raise ChainUnreadable(f"{shown} {failures[0]}, twice")
+        raise ChainUnreadable(f"{shown} {failures[0]}, then {failures[1]}")
 
 
 def executable_path(pid: int) -> str | None:
@@ -146,26 +226,36 @@ def executable_path_for_token(token: AuditToken) -> str | None:
     return buffer.value.decode("utf-8", "replace") if length > 0 else None
 
 
-def process_chain(pid: int) -> list[Proc]:
+def process_chain(pid: int, *, read: Callable[..., str] | None = None) -> list[Proc]:
     """The caller and its ancestors, each with its environment (read in memory,
-    never stored)."""
+    never stored), up to launchd. Raises `ChainUnreadable` when `ps` cannot
+    answer in time or the walk does not reach launchd: part of a chain says
+    nothing about the ancestors not read. A caller missing from the table (it
+    has exited) has no chain: `[]`."""
+    read = read or PsReader()
     table: dict[int, tuple[int, str]] = {}
-    for line in _ps(["/bin/ps", "-axo", "pid=,ppid=,tty="]).splitlines():
+    for line in read(["-axo", "pid=,ppid=,tty="]).splitlines():
         parts = line.split()
         if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
             table[int(parts[0])] = (int(parts[1]), parts[2])
     chain: list[Proc] = []
     seen: set[int] = set()
     current = pid
-    while current and current not in seen and current in table and len(chain) < 64:
+    while current and current not in seen and current in table and len(chain) < MAX_CHAIN:
         seen.add(current)
         ppid, tty = table[current]
-        command = _ps(["/bin/ps", "-Ewwp", str(current), "-o", "command="]).strip()
+        command = read(["-Ewwp", str(current), "-o", "command="]).strip()
         chain.append(Proc(current, ppid, tty, command))
         if current == 1:
-            break
+            return chain
         current = ppid
-    return chain
+    if not chain:
+        return chain
+    if current in seen:
+        raise ChainUnreadable(f"the process table loops at pid {current}")
+    if len(chain) >= MAX_CHAIN:
+        raise ChainUnreadable(f"the chain is longer than {MAX_CHAIN} processes")
+    raise ChainUnreadable(f"pid {current}, the parent of pid {chain[-1].pid}, is not in the process table")
 
 
 def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = process_chain,
@@ -186,7 +276,17 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
             return Verdict(False, "the caller's process/image changed between accept and the person-only request "
                                   "(audit token pid or pid version differs); "
                                   "reconnect from the Subfleet app", pid)
-    procs = chain(pid)
+    try:
+        procs = chain(pid)
+    except ChainUnreadable as exc:
+        # The vetoes could only refuse, so a caller that is not the app is
+        # refused whatever its chain holds; only the app's own request waits on it.
+        path = executable(peer)
+        if not path:
+            return _unverified_image(pid)
+        if path not in allowed_paths:
+            return _not_the_app(pid)
+        return Verdict(False, f"the caller's process chain could not be read: {exc}", pid, unreadable=True)
     if not procs:
         return Verdict(False, "the caller's process could not be inspected", pid)
     root_marker = f"SUBFLEET_ROOT={root}" if root else None
@@ -198,13 +298,21 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
     caller = procs[0]
     path = executable(peer)
     if not path:
-        return Verdict(False, "the caller's connection-time image could not be verified through its audit token "
-                              "(lookup failed or unavailable; process may have exec'd, exited or its pid been reused); "
-                              "reconnect from the Subfleet app", pid)
+        return _unverified_image(pid)
     if path in allowed_paths:
         return Verdict(True, "the Subfleet app", pid)
     if caller.tty not in NO_TERMINAL:
         return Verdict(False, f"this needs the Subfleet app; a terminal ({caller.tty}) is not enough, "
                               "because a process an agent started can hold one; "
                               "if an update moved the running app bundle, restart the app", pid)
+    return _not_the_app(pid)
+
+
+def _unverified_image(pid: int) -> Verdict:
+    return Verdict(False, "the caller's connection-time image could not be verified through its audit token "
+                          "(lookup failed or unavailable; process may have exec'd, exited or its pid been reused); "
+                          "reconnect from the Subfleet app", pid)
+
+
+def _not_the_app(pid: int) -> Verdict:
     return Verdict(False, "this needs the Subfleet app; if an update moved its running bundle, restart the app", pid)
