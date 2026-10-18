@@ -34,7 +34,13 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   For Codex the account id is the `account_id` from the home's `auth.json` claims when present, else the email;
   For Claude it is `<account_uuid>:<org_uuid>` as returned by the provider profile endpoint (C-10.6) for the lane's own credential;
   the email is a display label and never the key.
-- **C-1.5** A request id is a caller-supplied string or a CLI-generated UUID4, at most 128 characters, printed back on submission.
+- **C-1.5** A submission request id is a nonempty caller-supplied string of at most 128 characters or a CLI-generated UUID4, printed back on submission.
+  A valid caller id reaches the payload unchanged;
+  validation never rewrites it.
+  Recognized credentials are refused, exit 2, before the CLI stages a prompt or contacts the daemon, without printing the rejected value.
+  The id is read whole and from just after each `-` and `_` (`ids.holds_credential`), since the C-23.14 scrubber starts no token straight after either.
+  The protocol correlation `id` has its own token rule (C-25.7);
+  a submission key outside that alphabet uses a separate correlation token.
 - **C-1.6** Providers are exactly `codex` and `claude`.
   Model names in policy are short names (`astra`, `opus`) mapped to provider model ids in `policy.json`.
 - **C-1.7** Timestamps in the store are ISO 8601 UTC with a `Z` suffix and second precision unless a column says otherwise.
@@ -174,7 +180,8 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   A cached `ok` remains subject to C-9.2 completion proof and C-12.6 captured-content checks before acceptance.
 - **C-4.4** A job whose final attempt ends without an rc is `lost`, never `succeeded`.
 - **C-4.5** `max_attempts` default 3;
-  a new attempt is admitted only for classes `limited` (next candidate), `transient` (same lane after 60 s, once, then next candidate), `lost` on a read-only job, and a lane fault (next candidate).
+  a new attempt is admitted only for classes `limited` (next candidate), `transient` (same lane after 60 s, once, then next candidate;
+  a model's capacity refusal that steers its job, C-9.5: at the next pass, that model skipped while its steer lasts), `lost` on a read-only job, and a lane fault (next candidate).
   A lane fault is an `auth-dead` attempt (C-9.3) of a job with no lane pin, that is no conversation turn (its conversation decides a turn's failover, C-26.7), and that left its workspace as it found it: the job is read-only, or it is writable, its model never answered (`model_answered` false in the attempt's evidence, C-6.14: a writable attempt runs with permissions skipped, and what its model pushed, commented or wrote outside the worktree no tree shows;
   where an adapter cannot say, or read no event of the stream, so recorded `model_answered` null, it is taken to have answered), and its salvage at finalization (C-13.1) found the end tree equal to the attempt's start snapshot (no ref written, nothing left out, no error) and HEAD where the attempt began.
   Its lane is disabled as C-23.44 says, and the job moves on to the next candidate as for `limited`;
@@ -196,6 +203,24 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
 ## 5. Process ownership and containment
 
 - **C-5.1** The daemon spawns each attempt through `subfleet-guardian`, which calls `os.setsid()` so it leads a new session and process group, then spawns the provider command as its child with the same pgid, stdout and stderr redirected to the attempt directory, and an environment that contains the lane credential, the provider home, `SUBFLEET_ATTEMPT=<attempt id>`, `SUBFLEET_JOB=<job id>`, and `SUBFLEET_ROOT=<state root>`.
+  At startup the daemon checks whether its own responsible pid equals its pid.
+  Only when that read succeeds and it is self-responsible does it start all three kinds of guardian with `posix_spawn` and responsibility disclaimed, using its own `sys.executable`: each guardian becomes its own responsible process and remains the responsible process for the provider and its descendants.
+  Only the guardian is disclaimed;
+  the provider retains the guardian as its macOS privacy (TCC) identity, the same running interpreter and code-signing identity as the launchd daemon.
+  A framework Python launcher re-execs Python.app at the same pid before provider launch;
+  the running interpreter is the identity compared, rather than the temporary launcher path.
+  A daemon started under a terminal or app keeps that inherited responsibility and privacy attribution by using Popen, records no root, and uses three census sources.
+  An unavailable startup responsibility read takes that same path.
+  The spawn uses `POSIX_SPAWN_CLOEXEC_DEFAULT`, file actions opening standard streams on `/dev/null`, explicitly inheriting the launch fd, changing cwd, and the given environment.
+  The daemon records `responsible_root: {pid, unique_id}` beside the guardian identity (attempt evidence, or the probe/re-enrolment record).
+  The unique id orders process creation within the recorded boot independently of wall-clock corrections.
+  Without a recorded unique id, a matching live snapshot and fresh start-time read are required before responsibility member reads.
+  An early rejection skips that source and makes the census unverifiable.
+  After the scan, both kinds of root use the current holder's kernel record to exclude members born at or after a readable successor;
+  unavailable final identity preserves collected provisional members as evidence with an unverifiable result;
+  a known-id root already gone without provisional members can still verify empty (C-5.5).
+  A successful disclaimed spawn always records a root, even if its metadata read fails.
+  If the SPI symbols are missing at import, or startup does not authorize disclaiming, the daemon uses its existing subprocess spawn, records no root, and logs once.
   The guardian never receives a secret in argv.
   It starts the provider only after it reads the byte `1` from its launch gate, the read end of a pipe the daemon passes it above descriptor 2, where the guardian's /dev/null standard streams cannot replace it.
   The daemon writes that byte only after it has recorded the guardian's identity;
@@ -208,6 +233,13 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   `SUBFLEET_PROVIDER_QOS=inherit` in the daemon's environment runs providers at the guardian's QoS instead, as does a host without taskpolicy.
 - **C-5.2** Before spawning the provider, the guardian writes `start.json` = {`guardian_pid`, `pgid`, `boot_id`, `proc_start`, `started_at`} via temp file and rename.
   After the provider exits it writes `exit.json` = {`rc`, `signal`, `finished_at`, `wall_s`, `child_pid`} the same way, then exits with the provider's rc.
+  A guardian that is its own responsibility root first waits until no other live process names it as responsible, taking its first look immediately, then polling every 0.1 s through the daemon's `exit_settle_s` window (default 3 s), before increasing delays capped at 2 s.
+  Each empty look re-lists until it adds no unread pid, reading every new pid, to close a fork-and-exit race;
+  exhausting eight rounds is an unavailable look, never emptiness.
+  Provider and receipt exceptions also pass through this wait in a `finally` block.
+  Failed reads prove nothing and are retried;
+  a guardian without responsibility support, or proven not to be a root, exits as before.
+  This wait follows the exit receipt, so C-5.9 still begins when the provider ends.
   If the provider cannot be spawned, `exit.json` carries `rc: 127` and `spawn_error`.
 - **C-5.3** Boot id is the stable `kern.bootsessionuuid` from `sysctl`;
   legacy receipts may carry `kern.boottime` seconds.
@@ -219,10 +251,47 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   a responsive daemon socket remains usable.
   Absent processes, reused start identities, and differing boot-session UUIDs still establish death.
 - **C-5.4** The daemon may signal only a process group it recorded, and only after confirming the group leader's identity by C-5.3.
-- **C-5.5** Containment enumeration collects live, non-zombie pids from three sources: the members of process group `<pgid>`;
+- **C-5.5** Containment enumeration collects live, non-zombie pids from four sources for attempts that recorded a responsibility root, and three for legacy or in-flight attempts without one: the members of process group `<pgid>`;
   a walk of parent links descending from the guardian pid and the recorded child pid;
-  and `ps -axEww -o pid=,command=` filtered on processes whose environment carries both `SUBFLEET_ATTEMPT=<attempt id>` and `SUBFLEET_ROOT=<state root>`.
-  The walk seeds the guardian pid, the recorded child pid, and every pid in `owned_identities` unless a comparable recorded identity proves that pid recycled.
+  whole NUL-delimited strings anywhere after the executable path in each candidate's raw `KERN_PROCARGS2` buffer that equal `SUBFLEET_ATTEMPT=<attempt id>` and, when a root is supplied, `SUBFLEET_ROOT=<state root>` exactly;
+  and every live same-uid pid whose `responsibility_get_pid_responsible_for_pid` equals the recorded guardian root.
+  The marker also counts a matching argv string, which can only over-include.
+  Candidates are the snapshot's live pids union a kernel pid listing taken afterwards, so processes born since the snapshot are read too.
+  Other users' processes denied with EPERM are skipped, as `ps -E` skipped them;
+  a failed read of a same-uid live process makes the census unverifiable.
+  A full buffer or ENOMEM retries with the in-process `KERN_ARGMAX` sysctl when that maximum exceeds the initial allocation.
+  A read still filling the kernel maximum may be truncated and remains an error.
+  In particular, a near-maximum argv/environment plus the executable path and kernel-added strings can exceed the readable maximum: that same-uid process keeps every census unverifiable while it lives (the kernel refuses buffers larger than its maximum).
+  A refused argument read is checked against fresh kernel state: a gone process, zombie, or process already exiting runs no further code and is skipped.
+  A failed responsibility read for an attempt with a root prevents release.
+  A root proven recycled by the census disables the responsibility source entirely.
+  For any other root recorded without a unique id, this source requires the snapshot to show its pid live with its recorded start time and one fresh start-time read before the kernel member reads to match.
+  A missing, changed or unreadable early identity skips responsibility reads with `responsibility root identity unavailable for pid <pid>`, preventing verified emptiness.
+  The scan reads the holder first;
+  a different holder's readable unique id bounds members of a known-id root.
+  Immediately after the scan, one in-process `kernel.process(root.pid)` read checks the holder again for both kinds of root.
+  A matching recorded unique id, or matching start when no unique id was recorded, retains every observed member.
+  A different holder with a readable unique id excludes only observed members whose unique ids are at or above the successor's;
+  a real member observed naming the living root was born before any successor could acquire its reaped pid.
+  Members with unreadable unique ids are retained.
+  An absent or unreadable final holder, or a successor without a readable unique id, retains collected provisional members and records the identity diagnostic, making the pass unverifiable.
+  A known-id root already gone with no provisional members needs no such diagnostic and can verify empty;
+  a failed final inspection still prevents verification.
+  A changed final start for a root without a recorded unique id also records that diagnostic, even when a readable successor supplies a ceiling.
+  These retained identities are evidence only: they seed later walks and can hold an attempt, but never authorize signals or establish verified emptiness.
+  A responsibility member created before the recorded root is excluded using kernel unique-id order in the same boot;
+  a proven different boot excludes all members of that old root, and unavailable ordering keeps candidates.
+  Every discovered responsibility member with a captured birth identity that survives the birth-order bounds is persisted as `responsible_identities` and seeds later walks, because the kernel drops the responsibility link when the guardian dies.
+  Its live state and start are captured from the same kernel record as its unique id, with the start rendered using ps's C-locale, UTC, second precision;
+  neither an older snapshot row nor a later `identity(pid)` supplies a different holder's state or birth to this observation.
+  A stale zombie row cannot discard the observed live member.
+  A live snapshot row without a start still makes that pass unverifiable, while an independently captured kernel birth is persisted.
+  Snapshot shapes from a different birth are omitted.
+  The walk seeds the guardian pid, the recorded child pid, and every pid in `owned_identities` or `responsible_identities`.
+  When those sources describe different births at one pid, all are retained as alternatives: the walk excludes that pid only when every recorded birth is provably different;
+  any matching or incomparable birth retains the seed.
+  Recycling an older owned birth cannot discard a newly observed responsibility birth.
+  These alternatives do not change `owned_identities` or signal authority.
   An absent or zombie seed remains a parent-link anchor, since `ps` may collect a child's row before the parent exits;
   matching recorded survivors remain counted even when reparented to init in a separate session after an ancestor dies or is recycled.
   The guardian uses the attempt's guardian pid, boot id and process start;
@@ -234,22 +303,46 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   An absent leader leaves its surviving group members included.
   Unknown identity, including a shifted legacy boot timestamp, retains the root and group;
   a failed or unknown comparison makes the census unverifiable.
-  The environment-marker source is unchanged.
+  The raw-buffer source finds markers hidden from `ps -E` by NUL-filled argv, and responsibility lineage finds a process that erased its markers altogether while the root remains live (D-CEN1).
+  A previously unseen member whose root died cannot be discovered by this source, and a process a member starts with responsibility disclaimed can escape it;
+  if it also leaves the group and parent links and erases its markers, the census cannot find it.
+  Members already recorded, including those observed just before root death in that same pass, remain walk seeds afterwards.
+  A root without a recorded unique id cannot distinguish same-second reuse by start alone (C-5.3).
+  Kernel member and responsibility reads are not an atomic snapshot.
+  Reuse between a member's metadata read and its separate responsibility read can misattribute or miss that member's identity;
+  the after-member-read identity race is closed, but this earlier handoff remains an observation limit.
+  A successor ceiling bounds the holder observed at that read;
+  an intervening holder may leave older strangers below a later holder's ceiling, and unavailable ordering may also retain strangers, including when a successor lives and disappears entirely during the scan.
+  Such evidence still grants no signal authority.
+  A member whose identity cannot be captured makes that pass unverifiable;
+  persistence requires a readable identity.
   Attempt ids are a timestamp and a slug, so two daemons on one machine (or two test state roots) can mint the same id in the same second;
   the root is what tells their processes apart (incident: 2026-09-05, sleeping fakes from an earlier test quarantined a later test's attempt).
-  "Verified empty" means all three returned zero live pids and no comparison was unverifiable;
+  "Verified empty" means all applicable sources returned zero live pids and no comparison was unverifiable;
   it is impossible while any process matching a recorded identity is alive.
   Counting a newly found process never adds signal ownership;
   C-5.4 and C-5.6 still require previously recorded ownership and fresh identity checks.
-  If any `ps` call fails, the result is "unverifiable".
+  When a responsibility observation supplies a different birth from a pid's snapshot group row, that old group membership is excluded;
+  the new identity cannot inherit its signal authority.
+  If any required process-table, kernel listing, marker, responsibility or identity read fails, the result is "unverifiable".
   The group and the walk are read from one `ps -axo pid=,ppid=,pgid=,stat=,lstart=` snapshot, so a process cannot be present in one of them and absent from the other because it exited between two reads.
   A live row without `lstart` is retained and makes the census unverifiable.
-  The snapshot's readable `lstart` is each live pid's start identity (C-5.3), so a census is two `ps` reads however many processes it finds, and a boot-identity read when a live pid or a recorded root/leader comparison needs one;
-  a cached boot-session mismatch is read afresh before establishing death (C-5.12);
-  a pid the snapshot cannot describe (a marked process born after it) is asked about singly, and leaves the census if it is gone.
-  A pid the snapshot does describe is not asked about again, so a census can include a process that exited just after the snapshot, where each used to be read again and dropped if gone.
+  The snapshot's readable `lstart` supplies identities outside the responsibility source (C-5.3);
+  responsibility observations use their own kernel birth records.
+  A census uses one process-table `ps` read, plus an in-process pid listing, state/unique-id/birth and raw-buffer read per accessible live candidate, and a responsibility read per candidate when the root is eligible.
+  Every applicable responsibility scan also reads its root's current holder once in process afterwards;
+  a proven other boot needs no final holder check.
+  A boot-identity read is needed when a live pid or a recorded root/leader comparison needs one;
+  a cached boot-session mismatch is read afresh before establishing death (C-5.12).
+  A root without a recorded unique id adds one fresh start-time `ps` read when a live snapshot row matches its recorded start, including when that early read rejects it;
+  known-id roots add no root-start `ps`.
+  A pid outside the responsibility source that the snapshot cannot describe is asked about singly, and leaves the census if it is gone.
+  Responsibility members reuse their captured kernel live state and birth even when absent from the snapshot or when its row describes an older holder;
+  no single-pid ps is needed for those observations.
+  Except for the root checks and the kernel candidate reads, pids the snapshot does describe are not asked about again, so a census can include a process that exited just after the snapshot, where each used to be read again and dropped if gone.
   That errs only toward holding on: the kill protocol and C-5.9 read the census again until it empties, `--confirm-dead` can be repeated, and start grace, which reads it once, reads the receipts again after it (C-4.2).
-  The census records each live pid's parent, group, and state as evidence, and `recycled` entries name each excluded root or leader with its recorded identity, available current identity and reason;
+  The census records each source's pid set (including `responsible_pids`), captured identities and available snapshot shapes that do not contradict a responsibility birth.
+  Its `recycled` entries name each excluded seed or leader with its recorded identity (and `also_recorded` alternatives when present), available current identity and reason;
   excluded identities are also persisted in the attempt's evidence for `runs show --json`, including on verified-empty success.
   It never records commands or environments.
 - **C-5.6** Kill protocol: mark the cancel request;
@@ -266,7 +359,7 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   `subfleet runs show` prints the evidence.
   Resolution is `subfleet kill <job> --confirm-dead` after the operator checks, which re-runs C-5.5 and releases only on verified empty, or `--force-release` which records the operator's override in `events`.
 - **C-5.9** After `exit.json` is read, a census that is not verified empty does not quarantine at once.
-  The daemon allows `exit_settle_s` (3), measured from the first such census, for the guardian, which writes the receipt just before it exits, and for processes it already reaped to leave the process table, re-running the census on each tick.
+  The daemon allows `exit_settle_s` (3), measured from the first such census, for the guardian, which writes the receipt before C-5.2's responsibility wait and exits after that wait, and for processes it already reaped to leave the process table, re-running the census on each tick.
   Survivors or an unverifiable census past the window quarantine the attempt with detail `writers remain after exit receipt`.
 - **C-5.8** The daemon holds an exclusive `fcntl.flock` on `daemon.lock` and writes its pid, boot id, proc start, and version there.
   A second daemon exits 69.
@@ -353,18 +446,20 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   An abnormal guardian death is seen by the first table read that begins after it, which begins by the first tick one interval after the death that finds a free worker, or as the read then running ends if that read (`ps`, then the boot identity) is slower than that, once that read and one fresh read (below) have run.
   A read that failed is rationed like one that worked, and an inspection given a failed read asks nothing singly and decides nothing, as a guardian that cannot be inspected decides nothing (C-4.2), so that a `ps` outage costs at most one capped read per interval rather than one per running attempt.
   The table says that the recorded guardian is alive (C-5.3), when it is, and lists the members of its group, whose identities are recorded as owned (C-5.6) only while that same table shows the recorded guardian alive and leading the recorded group;
-  the environment scan is not run for this, because only group members are recorded.
+  neither the raw-buffer marker scan nor responsibility scan is run for this, because only group members are recorded.
   A shared table may say "alive" and nothing else, and says it only where `liveness` would (C-5.3): on an exact match of pid and start, and of the boot identity or, for a guardian recorded with a legacy boot timestamp (its UUID `sysctl` failed once as it started), a timestamp that C-5.3 matches to the table's `kern.boottime` seconds.
   A table reads those seconds the first time a legacy record needs them and keeps them for its life, failed or not, so every legacy attempt given the shared table shares one `sysctl`, and one that asks while it runs waits for it.
   A guardian it does not show alive is asked about afresh (C-5.3's own reads) before anything follows, and one that the fresh reads find alive has its group recorded from a table read for it alone, one `ps` outside the shared read (rare, since a table read after the guardian started shows it);
-  and every census that decides (start grace, a dead guardian, the kill protocol and its settle window, C-5.9's window, quarantine resolution, probe containment) is read fresh, never from the shared table.
+  and every census that decides (one fresh process-table `ps`, one fresh root start-time `ps` read when no unique id was recorded and a live snapshot row matches its recorded start, a kernel pid listing, state/unique-id/birth and `KERN_PROCARGS2` reads per accessible live pid, responsibility reads when the root is eligible, captured kernel state and birth instead of per-member ps for responsibility observations, and one in-process root-holder read after each applicable responsibility scan for either kind of root (none after early rejection, a failed listing or proven other boot);
+  start grace, a dead guardian, the kill protocol and its settle window, C-5.9's window, quarantine resolution, probe containment) is read fresh, never from the shared table.
   The shared table's reader reads its boot identity just after `ps`, and a census's table the first time a live pid needs it;
   each reads it once, whatever the answer: every attempt given the shared table shares that read, and when it fails no attempt asks singly and nothing is decided, as for a failed `ps`;
   a UUID read that fell back to `kern.boottime` seconds has failed for every attempt recorded with the UUID, which C-5.3 could only call unknown against them.
   One boot-identity read is reused for 5 s, and only a boot session UUID is: a failed read is not remembered, and neither are the `kern.boottime` seconds that a failed UUID read falls back to, against which every process recorded with the UUID would compare as unknown and so could not be signalled;
   a process whose start matches is never called dead on a boot-identity mismatch until a fresh read agrees.
   `procs` starts `ps` and `sysctl` without `fork` (`close_fds=False`, the condition under which CPython uses `posix_spawn` on macOS), because a fork costs in proportion to the daemon's memory;
-  the daemon's other process starts (`git`, the guardian) still fork.
+  the daemon's `git` starts still fork;
+  guardians use the in-process disclaimed `posix_spawn` helper (C-5.1), with the existing subprocess fallback when its symbols are unavailable or the daemon is not verified self-responsible at startup.
   Every descriptor the daemon opens is close-on-exec, but macOS has no `pipe2` and no `SOCK_CLOEXEC`, so a pipe or socket that another thread is creating at that instant can be inherited, by a `ps` or `sysctl` only, which holds it until it exits within its 10 s cap: the most that follows is a close seen that much later (`close_fds=True` would close it, but CPython on macOS then forks).
   The one descriptor this package hands down on purpose, the guardian's launch gate, is closed by the guardian before it inspects anything.
   The per-tick check for exports to retry is one query driven from `leases`, and the desktop login hint (C-10.3) is parsed only when `stat` says the file changed.
@@ -388,6 +483,9 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
 - **C-6.2** The payload digest is SHA-256 over the canonical JSON of: prompt bytes (as base64), resolved workdir, git head of the workdir or null, task, tier, pinned model, pinned lane, sandbox, sorted exclusions, resolved `-o` path or null, `allow_desktop`, policy hash.
   A repeated request id with the same digest returns the existing job id (exit 0);
   with a different digest, exit 2.
+  Submission request ids are opaque nonempty strings of at most 128 characters, preserved unchanged, including colons, other punctuation and Unicode;
+  recognized credentials are refused without echoing them.
+  The protocol correlation `id` is a separate field with its own token validation (C-25.7).
 - **C-6.3** Admission of an attempt is one transaction that: chooses the lane and model from the decision (section 11), takes the lane slot lease `lane:<lane id>:slot:<n>` (a turn's is `lane:<lane id>:slot:turn-<n>`, C-26.9), takes the output lease `out:<resolved path>` if `-o` is set and not already held by this job, takes the worktree lease if writable (on the write target, C-6.5: `worktree:<target>` for a detached writer, and for a conversation turn a row of its own, `worktree-turn:<target>:<job id>`, beside which it needs `worktree:<target>` free, C-24.5;
   a session is not a place and takes no lease), inserts the attempt as `reserved`, and records the decision.
   Launch happens after commit.
@@ -596,11 +694,16 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   the hold lasted as long as the lease, a whole retirement or a whole turn).
   A job no lane can admit (C-11.8) holds back none: one whose lane pin names a lane that refuses it for a standing reason, or one that every lane of every model of its chain refuses for one.
   It waits for no slot another job could take, so no later job is held behind it, kept out of a slot for it, or queued behind it for a lease.
+  With a live capacity steer, standing refusal is judged on the whole original chain, including the steered models, both while its clock runs and at a due look or after exhausted route retries;
+  a steer that ends is not a standing refusal (C-9.5).
   Admission asks this on every pass, not only at a look: a pin before the job is compared with any other, a job without one as it is put among the waiters or keeps a lease's place (`scheduler.unadmittable` on its clock, in a pool with a hold-back or for a job holding a lease's place;
   `scheduler.refused_for_good` of a decision with no lane).
   So a job put on its clock by a path that is not a look (a transient retry's 60 s) or whose lanes turned since its last look holds nobody while no lane can take it (incident: 2026-09-29 ~21:53Z, a job pinned to claude-9 when an account switch made claude-9 the desktop login held 38 younger standard Opus jobs `held behind` it while claude-7 was open).
   Two jobs compete when some model could serve both: a pinned job's models are its one pin;
-  a task job's are its chain from its tier upward, exactly the chain routing walks (C-11.2);
+  a task job's are its chain from its tier upward, exactly the chain routing walks (C-11.2), excluding models whose capacity steers are live for that job (C-9.5).
+  Such a model holds back no later job for that model;
+  its demand and FIFO place return at steer expiry.
+  If a later job could use a model steered away from the waiter, their model competition is checked against its selected model before reservation: it may pass on the skipped model, and still waits behind the older job if it selects a model that waiter continues to demand;
   a job whose models cannot be told (a lane pin with no model) competes with every job.
   Lane pins narrow it further: two jobs pinned to different lanes never compete, whatever their models, because neither can take a slot the other waits for;
   a job with no lane pin, or a pin that cannot be resolved, could use any lane and so competes on models alone (incident: 2026-09-22, three Fable gate reviews pinned to three lanes;
@@ -1200,6 +1303,35 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
 - **C-9.5** `transient` covers 5xx, stream disconnects, DNS and TLS failures, and "model at capacity" messages.
   It never writes a closure;
   it allows one same-lane retry after 60 s.
+  A provider's refusal of the model itself for want of capacity (Codex: "Selected model is at capacity.
+  Please try a different model.";
+  `codex.MODEL_CAPACITY_MESSAGE_RE`, C-9.2) counts only when the provider message itself starts, after optional whitespace and `ERROR:`, with `model [is|was] [currently] at capacity` (bracketed words optional;
+  spaces within this phrase may be underscores), optionally preceded by `Selected ` or `The `, or with `error code: model_at_capacity` (case-insensitive;
+  trailing provider details allowed).
+  The message is an `error.message` or `turn.failed.error.message` (also an error event's nested `error.message`), a direct stderr refusal, or the message of a non-tool `codex_core::...` tracing record.
+  A phrase embedded after any other prefix, including `Tool execution failed ... Captured stderr:` or `Captured tool output:`, never counts.
+  Tool diagnostics and their following quoted lines, even `ERROR:` payloads, stay within that record;
+  a new tracing record (`[ISO timestamp ]TRACE/DEBUG/INFO/WARN/ERROR codex_core::<target>: <message>`) is classified independently, so a non-tool record ends the previous tool diagnostic's context.
+  Model text and tool output never count (C-9.2).
+  A qualifying refusal stays `transient` and records `model_capacity: true` in its classification, with that failure, not an earlier reconnect it recovered from, as `admission`;
+  authentication, an old CLI, content and quota still answer first, and a verified success supersedes it.
+  It is not an account's limit and not a lane's fault: the account, the lane and other jobs are untouched, with no closure, no lane disabled and no lane excluded (D-CAP1, 2026-10-13).
+  On a job with no model pin and no lane pin that is no conversation turn, resume or revive (`scheduler.capacity_steerable`: a pin is the operator's choice and evaluates one model, C-11.2;
+  a turn's failover is its conversation's, C-26.7;
+  a resume or revive continues one native session, C-12.3) such an attempt steers the job.
+  Its evidence records `capacity_steer`, the model id and `until`, `MODEL_CAPACITY_STEER_S` (900 s) after the attempt finished;
+  it sets no same-lane retry (`Daemon._retry_pin`), and the job is due at the next pass rather than 60 s on.
+  Until `until`, each admission look reads the job's own live steers once (`Daemon._capacity_steer`, so the look's evaluation and its reservation's check consult the same recorded steers at their own clocks, C-6.3) and its route excludes those models while their steers are live (`scheduler.prepare`, C-11.2).
+  The first admissible unsteered model in chain order takes the job.
+  If none can, including a chain whose every model is steered, it waits as a capacity wait (C-6.10), with a recheck no later than the earliest live steer's end.
+  When a steer ends its model is eligible again.
+  The decision's reason names each such model (`<model>: at capacity for this job until <t>, skipped by capacity steer (C-9.5)`).
+  The attempt is never success, counts toward `max_attempts`, and its partial output and salvage follow C-4.5 and C-13 as any `transient` attempt's;
+  a second one on the same lane still excludes that lane (C-4.5).
+  A job pinned to the model, or to a lane, keeps the same-lane retry after 60 s.
+  Why the steer is the job's and not the fleet's, and why 15 minutes: the provider served most attempts of the model meanwhile (`docs/reports/2026-10-13-model-capacity-steer.md`).
+  [owner unit, fake, e2e;
+  module `subfleet/adapters/codex.py`, `subfleet/scheduler.py`, `subfleet/daemon.py`]
 - **C-9.6** A closure is (lane, scope, until, reason, clock source, source event).
   A new closure on the same lane and scope extends `until` but never shortens it.
   Holds and limits never share a row (2026-10-13, D-HOLD1): an `operator-hold` closure and an `auth-dead` closure each keep a row of their own, and a limit (`provider-limit`, `credits`, `cooldown`) never extends, replaces or releases a hold's row, nor a hold a limit's.
@@ -1371,6 +1503,9 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   The file's SHA-256 is the policy hash on every job.
 - **C-11.2** A chain entry is a short model name or a non-empty list of distinct known, non-retired short model names in preference order.
   Evaluation for a `--task`/`--tier` job flattens the entries from the tier's index upward, removes duplicates keeping the first occurrence, and walks that list in order.
+  A model the job's own attempt found at capacity is excluded from that list while its steer lasts (C-9.5).
+  The remaining models keep their order;
+  an empty list waits for capacity, and expiry makes the model eligible again.
   Within a tier, earlier models are preferred: a later model is tried only when no lane of an earlier model admits the job.
   Order across tiers is unchanged, and `fallback: upward-only` never uses an entry below the job's tier.
   For each model, candidates are lanes of the model's provider that are enabled, `owner: v2`, not `desktop` while Claude Code uses the desktop login (unless allowed, C-10.3), not in the job's exclusions, not under an unexpired closure for scope `account` or the model id, and with a free slot (C-6.4;
@@ -1681,6 +1816,10 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   See `docs/private-guard-overlay.md` for installation and old-launch preservation.
 - **C-14.2** Before the first executable Codex job on each lane home, `doctor` and the daemon run the trust preflight: the installed `codex` version, the hooks trust hash the guard relies on, and the override string are checked against `TRUST`;
   a mismatch refuses Codex launches with exit 7 and names the fix.
+  Only a `trust` verdict asks to verify hook SHA-256, TRUST and the pinned Codex version.
+  `environment` and `config` verdicts establish no trust mismatch and instead ask to restore required directories and binaries or correct the preflight configuration;
+  `version` asks for the supported Codex version.
+  Each public repair names `subfleet doctor`.
   The preflight's version and app-server subprocesses use C-10.8's same CA environment, including operator overrides and the configured policy, so it checks the trust path the lanes take.
   A verdict is keyed on the codex version, the home, the override string, the seeded-config fingerprint (C-23.5), and the selected CA variable names and values;
   a re-picked lane whose key differs is verified again before launch.
@@ -2053,6 +2192,20 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   This file starts a line at each sentence and after each semicolon (`python3 tools/contract_layout.py --write`), because Git merges line by line and conflicts on adjacent lines: of the 185 merges from 2026-10-01 to 2026-10-14 in which both sides changed this file, 128 conflicted on it, and in this layout, with the history moved out, 37 would have (`docs/reports/2026-10-14-d-mrg3-contract-replay.md`).
   `tests/unit/test_contract_history.py` and `tests/unit/test_contract_layout.py` check both, and `tools/contract_merge.py` merges a branch that still lists its changes here.
 
+- **C-20.6** (D-ST1, test isolation) Guard production code, and fixtures that wrap or replace `subprocess`, `os` and file APIs, against accidental access to the person's live stores or keychain reader, including fixture undo.
+  Before collection, `tests/conftest.py` gives every test an isolated HOME in a temporary session directory, sets safe store overrides and puts a recording reader first on PATH;
+  those baselines survive fixture undo and are restored only at session cleanup.
+  A test needing its own HOME selects a temporary directory with `monkeypatch.setenv("HOME", str(tmp_path / "home"))`, never the account home.
+  The audit guard folds bare reader names and refuses sh, bash, zsh, dash, env, xargs, nice, nohup and taskpolicy launches whose child PATH reaches a system binary directory before a live session recorder;
+  missing PATH and env resets use the wrapper default.
+  A legitimate wrapper test keeps the recorder first on its child PATH.
+  Deliberate shell strings naming the reader's absolute path, `DirEntry.stat` and native file access through `sqlite3` are out of scope and require isolated inputs.
+  The filesystem test trap checks Python path APIs, including firmlink spellings, `io.FileIO` and `os.chdir`;
+  it is not a native I/O fence.
+  Tests may read non-store account-home paths (v1 source, the home directory's spelling) using `pwd`, and the original `UV_CACHE_DIR` is carried before HOME changes.
+  [owner unit;
+  modules `tests/conftest.py`, `tests/live_store_trap.py`, `subfleet/credentials.py`, `subfleet/home_paths.py`]
+
 ## 21. Milestone acceptance
 
 | Milestone | Accepted when these tests pass |
@@ -2165,6 +2318,11 @@ Proposal numbers `P-23.n` in the gaps document are these clauses' `C-23.n`.
   module `subfleet/actions.py`]
 - **C-23.14** (what a handoff may carry) A handoff excerpt is scrubbed before it is written: private keys, JWTs, prefixed API tokens, and `Bearer` values are replaced, encoded binary is omitted, and the result of any tool call whose input matches a credential-reading pattern (`agent-secret get`, a keychain read, `env` or `printenv`, `auth.json`, `.env`, a credentials file) is omitted by pattern rather than redacted.
   Ordinary code, commands, and tool output are retained verbatim.
+  A secret assignment's key may be bare or quoted, with its closing quote escaped by a run of backslashes (a repr's `\'password\'`, or JSON encoded more than once: `\"password\"`, `\\\"password\\\"`), before a `:` or `=` with any whitespace around it.
+  A value whose opening quote such a run escapes closes at the next quote of its kind escaped by a run of the same length (on its line, except in a whole-text scrub), so the text after it on its line is kept;
+  a value with no closing quote is redacted through the end of its line or record, so a missing closing quote never leaves the value visible.
+  Overlapping assignments are masked as one union in whole-text and excerpt scrubs alike, so a first value that pairs with a later assignment's opening quote (`PASSWORD='a TOKEN='b`) hides both;
+  in an excerpt a union spans a line break only between a key and its value, where no excerpt is cut.
   Secret assignments and flags are scanned by identifier in linear time, with quoted spans and removed values scanned without repeated suffix searches.
   No rule but those for blocks that span lines runs over more than 262,144 characters at once.
   In a longer block, reminders, private keys and data URIs are first resolved over all of it, exactly as in a scrub of the whole block, by scans whose work is linear in its length;
@@ -2375,6 +2533,8 @@ Proposal numbers `P-23.n` in the gaps document are these clauses' `C-23.n`.
   its invariants (convergence, change wins both ways, idempotence, cancellation safety, no lost update, all or nothing, base agreement, intent wins) are checked over every reachable state of its executable twin `tests/mirror_flags_model.py` (TLC has not been run on the spec), and the mirror is held to that model on random interleavings, including writes between two of a publish's writes.
   They hold while the app saves only what it has seen, and while no copy the app could not read either becomes readable again with an old value;
   an app save from memory that predates the mirror's write, or such a copy, reads as the user's change and wins (`docs/reports/2026-09-25-mirror-consistency.md`).
+  After the 2026-10-12 monkeypatch.undo() incident, the C-20.6 (D-ST1) harness guards accidental access to the person's store or log even after a test undoes its own patches: session-level safe overrides survive undo, and path resolvers refuse personal fallbacks under pytest.
+  C-20.6 defines the guarded APIs, exclusions and isolated HOME.
   [rows 159 (`keep`, ops-hygiene);
   milestone 6;
   owner unit;
@@ -2834,10 +2994,10 @@ Every clause in sections 24 to 30 names its owner layer and module in the traile
   [milestone 9;
   owner unit;
   module `subfleet/protocol.py`]
-- **C-25.2** (the ops) The conversation ops are `capabilities`, `conversation.list`, `conversation.open`, `conversation.create`, `conversation.settings`, `conversation.unblock`, `conversation.history`, `conversation.events`, `conversation.watch`, `message.submit`, `message.status`, `message.cancel`, `message.steer`, `turn.interrupt`, `message.resolve`, `approval.list`, `approval.get`, `approval.respond`, `attachment.add`, `catalog.refresh`, `models.list`, `conversation.runs`, `turn.diff`, `conversation.diff` and `workspace.check`, listed in `subfleet/protocol.py` (`CONVERSATION_OPS`) and answered by `subfleet/conversations/service.py`, with the arguments and results of design §5.
+- **C-25.2** (the ops) The conversation ops are `capabilities`, `conversation.list`, `conversation.open`, `conversation.create`, `conversation.settings`, `conversation.unblock`, `conversation.history`, `conversation.events`, `conversation.watch`, `message.submit`, `message.status`, `message.cancel`, `message.steer`, `turn.interrupt`, `message.resolve`, `approval.list`, `approval.get`, `approval.respond`, `attachment.add`, `catalog.refresh`, `models.list`, `conversation.runs`, `turn.diff`, `conversation.diff`, `workspace.check`, and the suggestion ops `suggestion.create`, `suggestion.list`, `suggestion.start`, `suggestion.dismiss` and `suggestion.withdraw` (C-25.7), listed in `subfleet/protocol.py` (`CONVERSATION_OPS`) and answered by `subfleet/conversations/service.py`, with the arguments and results of design §5.
   Receipts from `conversation.open` and `message.status` carry the message's `text` (at most 20,000 characters, `text_truncated` when cut), so a client that did not send a message can show it.
   Errors are `ok: false` with an `Exit` code.
-  An op added to this list is advertised by a `capabilities` name (`diff.v1` for the two diff ops, `runs.v1` for `conversation.runs`), not by a new `conversation_schema`.
+  An op added to this list is advertised by a `capabilities` name (`diff.v1` for the two diff ops, `runs.v1` for `conversation.runs`, `suggestions.v1` for the suggestion ops), not by a new `conversation_schema`.
   `steer.v1` advertises `message.steer {message_id, into?}` and `steer_providers: ["claude", "codex"]`;
   `into`, when sent, is the host the steer was meant for.
   Its person-only result is a Receipt, idempotent for `steering`/`steered`;
@@ -2849,7 +3009,7 @@ Every clause in sections 24 to 30 names its owner layer and module in the traile
   module `subfleet/protocol.py`]
 - **C-25.3** (handlers never wait) A conversation op handler validates, writes at most one transaction per store (a worktree conversation's create writes its row, then its worktree), wakes the control loop, and returns.
   It never waits on a provider, a probe, `ps`, git, or a catalog scan (C-16.4), with two exceptions: `turn.diff` and `conversation.diff` run git (C-26.14), and `conversation.create` of a worktree conversation runs git to cut its worktree (C-26.10, design D-16).
-  Those three ops (`conversation.create` whatever its workspace kind), `workspace.check` (the same bounded folder and git admission checks), file copies and transcript reads run on a dedicated bounded pool (the file pool), never on the pool the other ops and the session hooks use.
+  Those three ops (`conversation.create` whatever its workspace kind), `workspace.check` (the same bounded folder and git admission checks), `suggestion.create` and `suggestion.start` (the same checks, and a start's worktree, C-25.7), file copies and transcript reads run on a dedicated bounded pool (the file pool), never on the pool the other ops and the session hooks use.
   The conversation service's `close()` lets the file ops already running finish before it returns, while the state root and the conversation store are still there, drops the ones not yet started, and the pool accepts none after.
   A file op writes into the state root as it stands and never creates it: with the root gone it fails `state-root-gone` (exit 1).
   The conversation service (its ops, its control-loop steps and its turn runners) opens every file it reads only as a regular file, and never blocks in `open()`: what it reads of a native session (a Claude transcript, a Codex rollout, Codex's `session_index.jsonl`, a Claude session-registry file), a workspace's `PROGRESS.md`, the real `.git/index` a diff copies, and in the state root an admission job's `manifest.json`, a message's text, an attachment's stored copy, an approval's request, `catalog.json`, `catalog.lock`, `conversations/models.json` and an attempt's files (`stdout`, `stdin.jsonl`, `turn.json`, the JSON records).
@@ -2903,7 +3063,7 @@ Every clause in sections 24 to 30 names its owner layer and module in the traile
   [milestone 9;
   owner unit;
   module `subfleet/conversations/redact.py`]
-- **C-25.6** (person-only operations) `approval.respond`, `approval.get`, `message.resolve`, `message.steer`, `conversation.unblock`, any settings change that widens the permission policy or sets `allow_main`, and `conversation.create` or `conversation.handoff` of a conversation above Ask or on main (IR-21) are refused (exit 7) when the caller (whose pid is word 5 of the `LOCAL_PEERTOKEN` audit token saved immediately after accept) or an ancestor is a live guardian's descendant or carries the C-5.1 markers, and accepted only from the installed app's executable (the kernel's canonical path for the process/image instance described by the saved token, read with `proc_pidpath_audittoken`, never a split command line or a later bare-pid lookup);
+- **C-25.6** (person-only operations) `approval.respond`, `approval.get`, `message.resolve`, `message.steer`, `conversation.unblock`, `suggestion.start`, `suggestion.dismiss` (C-25.7), any settings change that widens the permission policy or sets `allow_main`, and `conversation.create` or `conversation.handoff` of a conversation above Ask or on main (IR-21) are refused (exit 7) when the caller (whose pid is word 5 of the `LOCAL_PEERTOKEN` audit token saved immediately after accept) or an ancestor is a live guardian's descendant or carries the C-5.1 markers, and accepted only from the installed app's executable (the kernel's canonical path for the process/image instance described by the saved token, read with `proc_pidpath_audittoken`, never a split command line or a later bare-pid lookup);
   a daemon on any state root other than `~/.subfleet` also accepts the development build that `SUBFLEET_DEV_APP_EXECUTABLE` named when it started (design D-21).
   The daemon saves the 32-byte token as its first work after accept, before logging, connection admission or starting the reader, including its pid version (word 7).
   After the full request line is read and before acting on a person-only operation, it re-reads the token and requires the same pid and pid version;
@@ -2925,6 +3085,103 @@ Every clause in sections 24 to 30 names its owner layer and module in the traile
   owner process;
   module `subfleet/conversations/peers.py`;
   design D-8]
+- **C-25.7** (suggested conversations) An agent proposes a separate conversation, an out-of-scope follow-up worth a session of its own, with `subfleet suggest --title T --tldr S (--brief-file F | --brief -) [--workspace DIR | --no-workspace] [--worktree] [--provider claude|codex] [--model M] [--request-id UUID]` (op `suggestion.create`, capability `suggestions.v1`, its limits in `capabilities`).
+  A person starts it (`suggestion.start`) or dismisses it (`suggestion.dismiss`), both person-only (C-25.6);
+  a refused start or dismiss, including a reparented caller with its own terminal, says `person-only: starting or dismissing a suggestion is a person's decision` and leaves an open suggestion open;
+  the conversation or session that made it may withdraw it while it is open (`suggestion.withdraw`;
+  anyone else is refused, exit 7 `not-creator`);
+  and `suggestion.list` returns the open ones newest first, then the 50 most recently closed, each brief cut to at most its first 2,000 characters, never inside what scrubbing put in, unless the request names the suggestion (`suggestion_ids`, at most 50), with `watch_seq`, the `conversation.watch` sequence the rows were read at (every feed row up to it is in them).
+  Only a caller C-25.6 accepts starts a suggestion's conversation;
+  `suggestion.create`, `suggestion.withdraw` and every other op open to agents never start one.
+  A suggestion is a row of `conversations.sqlite3`, in an additive table as the wake tables are (the store stays schema 2, C-26.14), holding its id;
+  its request id and the digest of what it stands for (a retry with the same id and words answers `created: false`;
+  other words are exit 2 `suggestion-id-conflict`);
+  its origin conversation and message (inside a turn, from the calling turn job the CLI sends from `SUBFLEET_TURN_JOB`, C-26.13;
+  else the conversation a calling session is bound to, C-26.3;
+  else none) and the caller's session and job;
+  the title (one line, 1 to 60 characters), the summary `tldr` (one line, 1 to 300) and the brief (1 byte to 32 KiB of UTF-8, its newlines normalized as a message's text is read back, C-24.3), each scrubbed when it is made (C-25.5, C-23.14), with complete raw text scrubbed before whitespace folding or newline normalization, and folded title/summary text and newline-normalized brief text scrubbed again before any cut so what a person is shown is what Start sends, with the count of values scrubbed returned;
+  the folder, checked then as `conversation.create` checks one (C-26.10) for the start it would make (Ask, or read-only for Codex while Codex conversations are, C-26.11), none being a new private scratch folder made at the start and named apart from those `conversation.create` makes;
+  `worktree`, what the agent asked for;
+  where it starts, decided then and kept (`workspace_kind`: `worktree`, with the checkout's top level as `repository`, when `worktree` is set and the folder is a git checkout, otherwise `in-place`);
+  the provider (the origin's by default, else Claude) and a model hint, one this fleet routes for that provider and has not retired (C-26.1, C-26.8;
+  a policy short name becomes the value `models.list` names;
+  none is the provider's default model at the start);
+  and its state, `open`, `starting`, `started`, `dismissed` or `withdrawn`, which never moves back.
+  At most 20 suggestions are open (`open` or `starting`) per origin (per creating session when there is no origin, and one bound for callers with neither) and 200 in all, counted in the transaction that would add one;
+  past either a create is refused, exit 7 `too-many-suggestions`, and closing one frees its place.
+  `starting` is a person's claim: the transaction that takes it from `open` also writes a new conversation's row and chooses its first message's id, a random UUID no view carries until that message is accepted.
+  The conversation has no request id: the suggestion's `started_conversation_id`, written in that transaction, is its only link, and Start never adopts a conversation found by any key;
+  request ids beginning `suggestion:` are refused to `conversation.create` and `conversation.handoff` (exit 2 `reserved-request-id`).
+  It has the suggestion's title and its hinted or default model at Ask unless the person names a permission, one above Ask only with `confirm_widen: true`;
+  it is a worktree conversation when `workspace_kind` is `worktree`, otherwise in place, and a worktree start whose folder is no longer a git checkout is refused (exit 7 `not-a-repository`, the suggestion staying open), never run in place.
+  So a suggestion that has a conversation can no longer be dismissed or withdrawn (exit 7 `too-late`), and one dismissed or withdrawn never gets a conversation (`suggestion.start` refuses it, exit 7 `not-open`).
+  Until its brief is accepted the conversation takes no other message: every write of a message (`message.submit`, a wake's, a continuation's, an unblock note, a tombstone, legacy history) checks in its own transaction that no `starting` suggestion names the conversation, and is otherwise refused (exit 7 `conversation-starting`), whatever its id, text or predecessor.
+  The start then cuts the worktree (C-26.10) and submits the brief as the conversation's first message with `message.submit`'s rules (C-24.2, C-24.3: its text published before its row, its digest, and no job until the dispatcher makes one) under the id the claim chose, into the empty conversation, in the transaction that records `started`, so `started` holds exactly when that message exists, and it is the conversation's first.
+  Every step is idempotent: a retry, a second click or a restart finishes the same start with the same conversation and the same message (`created: false` once started).
+  A start that fails after its claim keeps the claim and records why (`start_error`: a fixed diagnostic).
+  Every client-visible and persisted suggestion error (wire message and repair field, stored suggestion row, view, list, feed, event, card, app notice, CLI output and retry log) is built only from our own message templates, fixed exception class names, validated errno numbers and their `os.strerror` text, and values we validated ourselves (ids, enum members and counts).
+  Caller text, exception text, exception arguments and filenames never reach those error channels: no `str(exc)` or `repr(exc)` is used to construct them, including for structured arguments, byte filenames and Unicode failures.
+  Model hints must be known aliases or model ids this fleet routes, with invalid and retired values refused without echoing them.
+  The CLI accepts daemon error reasons only by exact matching against this finite template vocabulary and renders its own templates;
+  optional exception repair fields are never echoed.
+  Its argument parser, brief-read and workspace-resolution errors follow the same rule.
+  The generic protocol layer applies the same structural rule to framing, envelope and argument refusals for every operation: a fixed template names the field and reason, without quoting its rejected value, parsing exception or repair text.
+  A handler's refusal (a `ProtocolError` or `AdapterError` an operation raises, a `lanes transfer` refusal included) is not an argument refusal: it reads its own fixed template, chosen by a closed reason (`subfleet/refusals.py`), which names only values checked against their form or a closed set (a job id or lane id of its form holding no recognized credential, read as C-1.5 reads a request id, so `20261013-000000-sk-…` is left out, the job's task, a known isolation variable or Codex configuration layer, a branch, a provider, a count, a checkout refusal and its fixed repair, a preflight verdict kind, a resume/revive verb, or an errno name).
+  Suggestion refusal templates separately check protected-folder labels, folder and checkout statuses (`gone`, `no-longer-repository`, `secret-shaped`), and the `unreadable-spelling` protected-path status.
+  An existing folder refused for its secret-shaped path says the path cannot be used because it looks like it holds a secret, without echoing the path, and asks for another folder or a new scratch folder.
+  An unreadable protected-path spelling asks to make every directory above it searchable, or choose Ask or read-only;
+  `workspace.check` and `conversation.create` give the same repair.
+  The guard template names SHA-256, TRUST and the pinned Codex version only for `trust`;
+  `environment` asks to restore the required directories and binaries, `config` asks to correct the preflight configuration, and `version` asks for the supported Codex version;
+  each keeps the doctor repair.
+  So the different-payload refusal names its job (C-16.3), a job that writes by policy outside git keeps the fix `-s read-only` (C-11.1), an isolation refusal names its variable or layer (C-23.3), and an unknown job is named.
+  A value that fails its check is left out, never quoted, by a less specific form of the same refusal, which keeps its repair;
+  a writer's refusal of a job that writes by policy keeps its own reason and adds `(<task> jobs write by policy)` and `pass -s read-only`;
+  and a refusal with no known reason reads `operation: request was refused`, without its exception's text or repair.
+  Conversation refusals outside suggestions keep their `reason: text` form through the C-25.5 scrubber: the text is our own and may name the ids, states and paths the request or the store holds, and errno text, but no exception's text, and neither an approval's decision nor a handoff's native session id is quoted.
+  A message's `state_reason` after a turn submit the daemon refused (`not-delivered: …`) or put off (`deferred: …`), which `message.status`, `conversation.open` and `conversation.watch` show, is a conversation refusal's reason, a request or handler refusal's template message (an argument check's exception keeps its own words for its direct callers only), or an exception's class with, for an OS error, its errno and `os.strerror` text.
+  Correlation ids are admitted before routing as ASCII letter/digit/`-_` tokens of at most 128 characters (nonnegative decimal integers are accepted for older clients;
+  empty or missing means no correlation), and an id holding a recognizable credential, read as C-1.5 reads a request id, is refused even within that alphabet;
+  an invalid id receives an exit-2 refusal with the id omitted.
+  Retained suggestion events are normalized on every read, preserving their recorded state and admitted content while allowing only current public fields and exact diagnostic templates;
+  legacy free-form `start_error` becomes a fixed fallback.
+  This is a read boundary, with no stored-data migration.
+  Existing scrubbing, whitespace folding and marker-safe 500-character bounds remain defence in depth;
+  the guarantee comes from excluding caller and exception text, rather than recognizing every possible secret format.
+  If details are needed for diagnosis, they go only to the daemon's local `<state root>/daemon.log`, never to a client-visible or suggestion-persisted channel.
+  A refusal's details reach it through `refusals.detail_line` (the request responders' refusals, a job's and a turn submit's), scrubbed whole (C-23.14), including credential assignments whose key or value has escaped or repr-escaped quotes or whose value lacks a closing quote;
+  that scrubbing is a guarantee for those refusal details, not for every line daemon.log holds.
+  A job's records follow the same rule: its notice and failure event, a `workspace` hold and the error of a `conversation-blocked` one (`why`, `status`, a turn's `state_reason`), C-6.8's workspace record (`job.workspace_deferred`, `job.workspace_failed`, `show`), an attempt's detail and launch receipt (`spawn_error`), a salvage receipt and the evidence that carries it (C-13.1), and a turn's end-snapshot record, which `turn.diff` shows (C-26.14).
+  A handler refusal there (at admission, a push workspace's build or launch) reads its template, as on the wire;
+  a guard preflight that timed out or could not probe says trust is unverified, not mismatched (C-14.2).
+  A git failure there names git's verb and its cap, exit status or signal;
+  an OS error, its class, errno and `os.strerror` text;
+  any other exception, its class;
+  with the ids and paths the store holds.
+  What git printed (a repository's own hooks and filters print there: a `post-checkout` hook on `git worktree add`, a clean filter on `git add`), an exception's message, args and filename, and a handler refusal's own words and repair go to daemon.log only, scrubbed whole;
+  git's words still decide whether a failure waits (C-6.8).
+  Outside this rule, as before: C-6.12's route records (a route hold, a route refusal's notice and event, `why`), which keep the scheduler's message or the evaluation error's class and text;
+  host-push results (the job's `push_error` and the notice's push line), which keep `host_push`'s own messages and may name the pushed branch and paths in the pushed tree;
+  an attempt's outcome as its adapter reads the provider's output;
+  a workspace completion SQLite could not record, which keeps SQLite's message;
+  C-6.17's `disk` hold, which keeps its reading's OS error for the policy's path;
+  a quarantine's containment record;
+  and `gate.*` results.
+  Responder, retry and control-loop errors otherwise use fixed diagnostics;
+  Start again finishes it, and so does the daemon, on the file pool and never on the control loop, once the claim is 30 s old and then after 2, 4, ... s, at most every 5 minutes.
+  Every change of state writes, in its transaction, one `conversation.watch` row (C-29.9) naming the suggestion (`suggestion_id`) and carrying its view as it is now (`suggestion`, its brief cut as a listing's), under its origin, or under conversation id "" when it has none, which a client older than this clause reads as a list to refresh;
+  and, for one with an origin, one `suggestion` event in that conversation on the turn's message (C-25.4), carrying the view and the whole brief where the 64 KiB row allows it.
+  A view holds only what C-25.5 lets a person see: the agent's scrubbed words, where and how it would start, who decided and when, and what it started;
+  never its request id, digest, start settings, calling job or, before it is accepted, its first message's id.
+  A folder path, caller session or calling job the C-25.5 scrubber would change is refused when the suggestion is made (exit 2 `bad-workspace`, `bad-session-id`, `bad-calling-job`), and a character cut that would split any redaction marker (a title's, a summary's, an error's, a Start's recorded verdict's or a listed brief's) retreats to the marker's start;
+  if the remaining text is a recognizable sensitive assignment fragment, it retreats by words while preserving whole markers at each cut, so no string in a suggestion's row, view, feed row or event is one the scrubber recognizes.
+  An agent inside a conversation turn learns of the verb from the `SessionStart` hook (C-15.2), which adds one stable line naming `subfleet suggest` and when to use it (`hooks.SUGGEST_HINT`) to the session's context when the session is new, cleared or compacted, and only inside a turn (`SUBFLEET_TURN_JOB`): a turn's command line, environment and frames are unchanged (C-24.9's recording, d714's argv).
+  Codex turns have no such channel that leaves their verified frames and hooks override unchanged;
+  their agents find the verb in `subfleet --help`.
+  The caller's turn job and session are taken as the caller states them, as `conversation.wake` takes them: a process that names another conversation's turn can withdraw that conversation's open suggestions, never start one.
+  [milestone 9;
+  owner fake;
+  module `subfleet/conversations/suggestions.py`, `subfleet/conversations/service.py`, `subfleet/conversations/store.py`, `subfleet/cli.py`, `subfleet/hooks.py`, `subfleet/protocol.py`, `subfleet/daemon.py`, `subfleet/refusals.py`, `subfleet/ids.py`, `subfleet/salvage.py`]
 
 ## 26. Turns under admission
 
@@ -3088,6 +3345,8 @@ Every clause in sections 24 to 30 names its owner layer and module in the traile
 - **C-26.10** (attended workspaces) A conversation's workspace may be outside git.
   A checkout on `main` or `master` requires the conversation's `allow_main`, set by a person (C-25.6).
   A writable turn (Claude `accept-edits` or `bypass`, a writable Codex turn) is refused (exit 7) when its workspace equals or contains the state root, `~/.claude`, `~/.codex`, an enrolled lane home, or the guard hook's directory, each side compared in its one spelling (`folders.canonical`, C-6.5), so a workspace or a `HOME` typed in another case than the volume stores is still seen to contain it (review of 5e9f2fbd, P3-4).
+  `workspace.check` and `conversation.create` (as does any conversation op that refuses it on the wire) both refuse an unreadable protected-path spelling with the same checked template, `protected-workspace: the folder cannot be checked because a protected path's spelling cannot be read`, and the repair "make every directory above it searchable, or choose Ask or read-only", selected by checked status without exposing the unreadable path or error;
+  a refusing op's own words, which name both, go to daemon.log only, scrubbed.
   Turn jobs write no salvage ref, at finalization or when a quarantined turn is released (C-5.7);
   the receipt records HEAD before and after, and a writable turn's working tree is written as tree objects at its start and end, with no ref (C-26.14).
   C-13.1 and C-13.2 keep binding every job that is not a turn.
@@ -3397,6 +3656,26 @@ Every clause in sections 24 to 30 names its owner layer and module in the traile
   [milestone 9;
   owner frontend;
   module `app/Sources/TextScale.swift`, `app/Sources/UIReading.swift`]
+- **C-29.14** (suggested conversations in the app) Against a daemon that advertises `suggestions.v1` (C-25.1), the app shows suggested conversations (C-25.7) in two places: a card in the timeline of the conversation that suggested one, on the turn that suggested it, one card per suggestion folded from its `suggestion` events and updated in place;
+  and a Suggested section at the top of the sidebar listing every open or starting suggestion, with or without an origin, newest first, under the sidebar's provider filter and search, with a count of all of them.
+  A card shows the title, the summary, where Start will run it as the daemon decided (`workspace_kind`): a new worktree of its folder's checkout on its own branch, its folder in place (saying so, and that there is no worktree, when the agent asked for one in a folder that is no checkout), or a new scratch folder;
+  then the provider and model;
+  the brief behind Show the brief (its whole text, which the card fetches by id when a listing cut it), and, while it is open, Dismiss and Start.
+  Start starts it at Ask, or read-only for a Codex suggestion while Codex conversations are;
+  its menu offers the wider permissions, each behind a confirmation that the agent will act without asking from its first message.
+  Start opens the new conversation.
+  A sidebar row opens the card in the detail column, naming the conversation it came from.
+  A person-only refusal of Start or Dismiss keeps the suggestion open and displays C-25.7's fixed reason;
+  a refused secret-shaped folder is never echoed.
+  A card says Starting… while a start is under way, why a start cut short has not finished, with Start again, Started with a link to the conversation, Dismissed, or Withdrawn by the agent that suggested it.
+  Cards and the section follow the watch feed's suggestion rows without another read and never move a suggestion back to an earlier state, and a listing's preview never replaces a whole brief already read;
+  an answer read at a feed sequence (`watch_seq`) older than a suggestion's latest feed row neither removes that suggestion nor replaces it, and a whole listing as new as that row removes one that closed and aged out of it;
+  `suggestion.list` is read on connecting and with the conversation list.
+  A row with no origin changes no conversation.
+  Their text is set as C-29.13 sets conversation text.
+  [milestone 9;
+  owner frontend;
+  module `app/Sources/Suggestions.swift`, `app/Sources/UISuggestions.swift`, `app/Sources/Timeline.swift`, `app/Sources/ConversationStore.swift`, `app/Sources/UIModel.swift`, `app/Sources/UIWindow.swift`]
 
 ## 30. Catalog and legacy continuity
 

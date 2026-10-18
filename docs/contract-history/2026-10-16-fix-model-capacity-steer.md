@@ -1,0 +1,1 @@
+C-6.9, C-9.5 (2026-10-16, D-CAP1, #207 review r4c, fix round 5): a steered waiter is judged for standing refusal on its whole original chain, including the steered models, both on its clock and when due or after exhausted route retries. A bounded capacity steer cannot make a temporary wait permanently unadmittable.

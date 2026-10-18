@@ -13,6 +13,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -24,13 +25,16 @@ import subprocess
 import threading
 import time
 import uuid
+import zlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import descriptors, protocol
+from .. import descriptors, protocol, refusals
+from ..home_paths import codex_app_home, production_state_root, protected_provider_homes
 from ..adapters.base import AdapterError
 from ..contracts import Exit
+from ..ids import holds_credential
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
 from ..relay import FRAME_MAX as RELAY_FRAME_MAX
 from ..retention_git import discard_registration
@@ -41,7 +45,7 @@ from . import claude_turn, codex_turn, reconcile
 from . import diff as turn_diff
 from ..sessions import handoff as session_handoff
 from ..sessions import registry, transcripts
-from . import codex_brief, waits
+from . import codex_brief, suggestions, waits
 from .. import folders, resource_leases
 from .classify import TurnAdapter, read_turn
 from .launch import TURN_MANIFEST_KEY, claude_launch, codex_launch, lane_email, spec_from_manifest
@@ -58,6 +62,20 @@ from .turn import (
     STARTING, STEERING, STEERED, TERMINAL_STATES, WAITING,
 )
 
+
+def _suggestion_errors(handler):
+    """Keep direct suggestion refusals inside the public template vocabulary too."""
+    @functools.wraps(handler)
+    def checked(self, args, peer):
+        try:
+            return handler(self, args, peer)
+        except ConversationError as exc:
+            reason = suggestions.error_reason(exc) or "suggestion-failed"
+            raise suggestions.SuggestionError(reason, suggestions.scrub_error(exc), code=suggestions.error_code(exc),
+                                              fix=suggestions.error_fix(exc),
+                                              details=suggestions.error_details(exc)) from None
+    return checked
+
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
 # default; `status.json` rows carry `kind` (C-18.2, C-26.12, C-29.6).
 #: C-25.1, C-25.2: the version of the conversation ops' argument and result shapes
@@ -66,19 +84,22 @@ from .turn import (
 CONVERSATION_SCHEMA = 1
 CAPABILITIES = ("conversations.v1", "events.v1", "approvals.v1", "attachments.v1", "catalog.v1", "watch.v1",
                 protocol.JOBS_KIND_CAPABILITY, "diff.v1", "steer.v1", "runs.v1",
-                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY)
+                "handoff.v1", "workspace.check.v1", "wake.v1", protocol.PUSH_CAPABILITY, suggestions.CAPABILITY)
 # `relay_frame_bytes` is the relay's own cap (review IR-27), one definition in `relay.py`.
 LIMITS = {"message_bytes": 1_048_576, "attachment_bytes": 20 * 1024 * 1024, "attachments_per_message": 8,
           "events_page_bytes": 262_144, "events_wait_s": 50, "relay_frame_bytes": RELAY_FRAME_MAX,
-          "diff_bytes": turn_diff.DIFF_BYTES, "diff_files": turn_diff.DIFF_FILES}
+          "diff_bytes": turn_diff.DIFF_BYTES, "diff_files": turn_diff.DIFF_FILES, **suggestions.LIMITS}
 OPS = frozenset(protocol.CONVERSATION_OPS)
 POLL_OPS = frozenset({"conversation.events", "conversation.watch"})
 # C-25.3: file copies, transcript reads and git (the diffs, and the worktree a
 # worktree conversation's create cuts) run here, never on a request thread.
+# A suggestion's create and start check its folder as `conversation.create` does, and a
+# start cuts a worktree conversation's worktree (C-25.7).
 FILE_OPS = frozenset({"attachment.add", "conversation.history", "turn.diff", "conversation.diff",
-                      "conversation.create", "conversation.handoff", "workspace.check"})
+                      "conversation.create", "conversation.handoff", "workspace.check",
+                      "suggestion.create", "suggestion.start"})
 PERSON_ONLY = frozenset({"approval.get", "approval.respond", "message.resolve", "conversation.unblock",
-                         "message.steer"})
+                         "message.steer", "suggestion.start", "suggestion.dismiss"})
 MAX_WAIT_S = 50.0
 RECEIPT_TEXT_CHARS = 20_000
 
@@ -122,6 +143,11 @@ HANDOFF_KEEPS = ("unblock-note",)
 # The source's `blocked_by` from just before a handoff cancels a waiting message's
 # job until its commit: `handoff:<request id>` (C-30.3, D-18).
 HANDOFF_FENCE = "handoff:"
+# C-25.7: a start a person claimed that has not finished (a crash, git failing) is
+# finished by the daemon once its claim is this old, then after 2, 4, ... s, at most
+# every 5 minutes, on the file pool.
+SUGGESTION_RESUME_AFTER_S = 30.0
+SUGGESTION_STRIPES = 16
 
 
 class ConversationService:
@@ -176,6 +202,12 @@ class ConversationService:
         self._noted: dict[str, tuple[str, float]] = {}    # job id -> (hold signature, look again after)
         self._note_seq = 0                                  # the newest turn pass whose notes were written
         self._note_lock = threading.Lock()
+        self.suggestions = suggestions.Suggestions(self.store)
+        # C-25.7: one start of a suggestion at a time (a person's, or the daemon's
+        # finishing of one cut short), striped by id; and the starts the daemon has
+        # submitted to the file pool, with when it may try each again.
+        self._suggestion_stripes = tuple(threading.Lock() for _ in range(SUGGESTION_STRIPES))
+        self._resuming: dict[str, tuple[int, float]] = {}
         self._closed = False
 
     def close(self) -> None:
@@ -248,13 +280,32 @@ class ConversationService:
         try:
             response = protocol.ok(req.id, self.handle(req.op, req.args, peer, client_gone=gone))
         except ConversationError as exc:
-            response = protocol.fail(req.id, exc.code, f"{exc.reason}: {exc}", exc.fix)
+            if req.op in suggestions.SUGGESTION_OPS:
+                response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
+                                         suggestions.error_fix(exc))
+            elif "workspace_status" in suggestions.error_details(exc):
+                # C-26.10: a checked folder status (an unreadable protected-path
+                # spelling) answers with the template `workspace.check` gives; its
+                # own words name the path and the OS error, for daemon.log only.
+                response = protocol.fail(req.id, exc.code, suggestions.scrub_error(exc), suggestions.error_fix(exc))
+                refusals.log_detail(self.log, req.op, exc)
+            else:
+                response = protocol.fail(req.id, exc.code, suggestions.scrubbed_line(f"{exc.reason}: {exc}"),
+                                         suggestions.scrubbed_line(exc.fix) if exc.fix is not None else None)
         except (protocol.ProtocolError, AdapterError) as exc:
-            response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
+            if req.op in suggestions.SUGGESTION_OPS:
+                response = protocol.fail(req.id, suggestions.error_code(exc), suggestions.scrub_error(exc),
+                                         suggestions.error_fix(exc))
+            else:
+                response = protocol.refuse(req.id, exc)
+                refusals.log_detail(self.log, req.op, exc)
         except (ValueError, TypeError, KeyError) as exc:
-            response = protocol.fail(req.id, 2, f"invalid arguments: {exc}")
+            message = (suggestions.scrub_error(exc, prefix="invalid arguments: ")
+                       if req.op in suggestions.SUGGESTION_OPS else
+                       protocol.REFUSAL_MESSAGES["invalid-args"])
+            response = protocol.fail(req.id, 2, message)
         except Exception as exc:
-            self.log.error("conversation op %s failed: %s: %s", req.op, type(exc).__name__, exc)
+            self.log.error("%s", suggestions.scrub_error(exc))
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         descriptors.send_reply(conn, write_lock, response, end_stream=getattr(self.daemon, "_end_stream", None))
 
@@ -273,7 +324,7 @@ class ConversationService:
         """C-25.6, D-21: the installed app. A development daemon (any state root but
         ~/.subfleet) also accepts the development build named when it started."""
         dev = os.environ.get("SUBFLEET_DEV_APP_EXECUTABLE")
-        if dev and self.root.resolve() != (Path.home() / ".subfleet").resolve():
+        if dev and self.root.resolve() != production_state_root():
             return (*APP_EXECUTABLES, dev)
         return APP_EXECUTABLES
 
@@ -546,11 +597,21 @@ class ConversationService:
                 raise ConversationError("native-held", f"native session is held by live job {live['job_id']}",
                                         code=7, fix="wait for that job to finish")
 
-    def op_conversation_create(self, args, peer) -> dict:
-        provider = args.get("provider") or "claude"
-        request_id = args.get("request_id")
+    @staticmethod
+    def _check_request_id(request_id: Any) -> str:
+        """A create's or handoff's request id: 1 to 128 characters, never in the
+        namespace a suggestion's Start once named its conversation by (C-25.7)."""
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
+        if request_id.startswith(suggestions.RESERVED_REQUEST_PREFIX):
+            raise ConversationError("reserved-request-id", f"request ids beginning "
+                                    f"{suggestions.RESERVED_REQUEST_PREFIX!r} are reserved for suggested conversations",
+                                    fix="use a new UUID")
+        return request_id
+
+    def op_conversation_create(self, args, peer) -> dict:
+        provider = args.get("provider") or "claude"
+        request_id = self._check_request_id(args.get("request_id"))
         settings = validate_settings(provider, args.get("settings"))
         allow_main = bool(args.get("allow_main"))
         if allow_main or settings["permission"] in ("accept-edits", "bypass"):
@@ -602,7 +663,9 @@ class ConversationService:
                                                  kind=kind, allow_main=bool(args.get("allow_main")), planned=planned)
             return {"ok": True, "reason": None, "fix": None, "workspace": workspace}
         except ConversationError as exc:
-            return {"ok": False, "reason": f"{exc.reason}: {exc}", "fix": exc.fix, "workspace": workspace}
+            return {"ok": False, "reason": suggestions.scrub_error(exc, prefix=f"{exc.reason}: "),
+                    "fix": suggestions.error_fix(exc),
+                    "workspace": workspace}
 
     def _validate_workspace(self, provider: str, workspace: str | None, settings: dict, *,
                             kind: str, allow_main: bool, planned: bool = False) -> str:
@@ -618,7 +681,8 @@ class ConversationService:
             raise ConversationError("bad-workspace", "workspace_kind is in-place or worktree")
         self._check_workspace(provider, workspace, settings)
         if kind == "worktree" and self._git_toplevel(workspace) is None:
-            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository")
+            raise ConversationError("not-a-repository", "a worktree conversation needs a git repository",
+                                    fix=suggestions.ERROR_FIXES["not-a-repository"])
         if kind == "in-place" and settings["permission"] != "read-only" and not allow_main:
             from ..salvage import validate_writable_workdir
             try:
@@ -627,9 +691,10 @@ class ConversationService:
                     existing = existing.parent
                 validate_writable_workdir(str(existing), timeout_s=self._git_timeout_s())
             except AdapterError as exc:
-                raise ConversationError("protected-branch", str(exc), code=exc.code, fix=exc.fix) from exc
+                raise ConversationError("protected-branch", suggestions.ERROR_MESSAGES["protected-branch"],
+                                        code=suggestions.error_code(exc), fix="choose another branch") from exc
             except SalvageError as exc:
-                raise ConversationError("git-unavailable", f"could not inspect {workspace}: {exc}", code=1,
+                raise ConversationError("git-unavailable", suggestions.ERROR_MESSAGES["git-unavailable"], code=1,
                                         fix="try again") from exc
         return workspace
 
@@ -638,7 +703,7 @@ class ConversationService:
         try:
             return git_toplevel(directory, timeout_s=self._git_timeout_s())
         except SalvageError as exc:
-            raise ConversationError("git-unavailable", f"could not inspect {directory}: {exc}", code=1,
+            raise ConversationError("git-unavailable", suggestions.ERROR_MESSAGES["git-unavailable"], code=1,
                                     fix="try again") from exc
 
     def _git_timeout_s(self, key: str = "workspace_git_timeout_s") -> float:
@@ -664,7 +729,7 @@ class ConversationService:
                 return subprocess.run(["git", "-C", str(cwd), *argv], capture_output=True, text=True,
                                       errors="backslashreplace", timeout=cap)
             except (OSError, subprocess.SubprocessError) as exc:
-                raise ConversationError("worktree-failed", f"git {argv[0]} did not finish: {exc}", code=1,
+                raise ConversationError("worktree-failed", suggestions.ERROR_MESSAGES["worktree-failed"], code=1,
                                         fix="repeat conversation.create with the same request_id") from exc
 
         adopted = False
@@ -684,7 +749,9 @@ class ConversationService:
             argv = ["worktree", "add", str(target), branch] if has_branch else ["worktree", "add", "-b", branch, str(target)]
             made = git(*argv, cap=self._git_timeout_s("worktree_add_timeout_s"))
             if made.returncode:
-                raise ConversationError("worktree-failed", made.stderr.strip()[-300:] or "git worktree add failed",
+                # Details belong only in the local daemon.log, scrubbed whole.
+                self.log.warning("%s", suggestions.scrubbed_line("git worktree add diagnostic: " + made.stderr))
+                raise ConversationError("worktree-failed", "git worktree add failed",
                                         code=1, fix="repeat conversation.create with the same request_id")
             os.chmod(target, 0o700)
         base = git("rev-parse", "--verify", "HEAD", cwd=target)
@@ -886,6 +953,307 @@ class ConversationService:
             # Older completion intents must register before this newer re-arm.
             self._replay_final_wakes()
             return self.wakes.register(conversation["conversation_id"], request_id, spec)
+
+    # --- ops: suggested conversations (C-25.7) ---------------------------------
+
+    def _suggestion_caller(self, args: dict) -> tuple[dict | None, str | None, str | None, str | None]:
+        """Who is suggesting: (the origin conversation, the turn's message, the caller's
+        session, the calling job). Inside a turn (C-26.13's markers; the CLI sends
+        `SUBFLEET_TURN_JOB`) the origin is that turn's conversation and message; else a
+        session bound to a conversation (C-26.3) is that conversation's; else there is
+        no origin, and the caller's session, if it has one, is recorded."""
+        job_id = args.get("calling_job")
+        job_id = job_id if isinstance(job_id, str) and 0 < len(job_id) <= 200 else None
+        session = args.get("session_id")
+        session = canonical_native(session.strip()) if isinstance(session, str) and 0 < len(session.strip()) <= 200 else None
+        origin = message = None
+        if job_id:
+            job = self.daemon.store.one("SELECT name, request_id FROM jobs WHERE job_id=? AND kind='turn'", (job_id,))
+            name = str(job["name"] or "") if job else ""
+            if name.startswith("turn-"):
+                origin = self.store.one("SELECT conversation_id, provider FROM conversations WHERE conversation_id=?",
+                                        (name[len("turn-"):],))
+                parts = str(job["request_id"] or "").split(":")
+                if origin and len(parts) == 3 and parts[0] == "turn" and self.store.one(
+                        "SELECT 1 FROM messages WHERE message_id=? AND conversation_id=?",
+                        (parts[1], origin["conversation_id"])):
+                    message = parts[1]
+        if origin is None and session:
+            origin = self.bound_session(session)
+        return origin, message, session, job_id
+
+    @staticmethod
+    def _suggestion_id(args: dict) -> str:
+        sid = args.get("suggestion_id")
+        if not isinstance(sid, str) or not sid or len(sid) > 64:
+            raise ConversationError("bad-suggestion-id", "suggestion_id must name a suggestion")
+        return sid
+
+    @contextlib.contextmanager
+    def _suggestion_lock(self, suggestion_id: str):
+        """One start of a suggestion at a time: a person's, a second click's, or the
+        daemon's finishing of one cut short (`_resume_suggestions`)."""
+        stripe = self._suggestion_stripes[zlib.crc32(suggestion_id.encode()) % len(self._suggestion_stripes)]
+        with stripe:
+            yield
+
+    def _start_permission(self, provider: str) -> str:
+        """What a start runs at unless the person names another: Ask, or read-only for
+        Codex while Codex conversations are (C-26.11)."""
+        return "read-only" if provider == "codex" and not self._codex_writable() else "ask"
+
+    def _suggestion_model(self, provider: str, value: Any) -> str | None:
+        """A model hint checked as a turn's model is (C-26.1, C-26.8): one this fleet
+        routes for the provider and has not retired. A catalog value or model id is
+        kept as given; a policy short name becomes the value `models.list` names."""
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str) or len(value) > 80:
+            raise ConversationError("bad-model", "model must name a model in at most 80 characters")
+        short = policy_model(self.daemon.policy, provider, value)
+        entry = next((m for m in self.op_models_list({"provider": provider}, None)["models"] if m["short"] == short),
+                     None)
+        if entry is None or entry["retired"]:
+            raise ConversationError("unknown-model", "model must name an active model this fleet routes",
+                                    fix="pick a model from models.list")
+        return entry["value"] if value == short and value != entry["id"] else value
+
+    def _default_model(self, provider: str) -> str:
+        listed = self.op_models_list({"provider": provider}, None)
+        model_id = listed["default_models"].get(provider)
+        entry = next((m for m in listed["models"] if m["id"] == model_id), None)
+        if entry is None:
+            raise ConversationError("no-model", f"this fleet routes no {provider} model", code=7)
+        return entry["value"]
+
+    def _suggestion_workspace(self, provider: str, workspace: Any,
+                              worktree: bool) -> tuple[str | None, str, str | None]:
+        """Where a suggestion would start, decided now and kept: (the folder, the kind
+        of start, the repository a worktree start cuts from). The folder is checked as
+        `conversation.create` checks one (C-26.10) for the start it would make
+        (`_start_permission`); a worktree when one is asked for and the folder is a
+        git checkout, else in place. No folder is a new scratch folder, made when it
+        starts. A path the C-25.5 scrubber would change is refused: a card shows it."""
+        if workspace is None or workspace == "":
+            return None, suggestions.IN_PLACE, None
+        if not isinstance(workspace, str) or not os.path.isdir(folders.canonical(workspace)):
+            raise ConversationError("bad-workspace", "workspace must be an existing directory",
+                                    fix="name a folder, or leave it out for a new scratch folder")
+        folder = folders.canonical(workspace)
+        if suggestions.holds_secret(folder):
+            raise suggestions.SuggestionError("bad-workspace", "the folder's path holds a value shaped like a secret",
+                                              details={"workspace_status": "secret-shaped"})
+        repository = self._git_toplevel(folder) if worktree else None
+        kind = suggestions.WORKTREE if repository is not None else suggestions.IN_PLACE
+        settings = validate_settings(provider, {"model": "suggestion", "permission": self._start_permission(provider)})
+        return self._validate_workspace(provider, folder, settings, kind=kind, allow_main=False), kind, repository
+
+    @_suggestion_errors
+    def op_suggestion_create(self, args, peer) -> dict:
+        """An agent proposes a conversation (C-25.7). Any caller may: what it makes is a
+        card for a person; nothing starts until a person's `suggestion.start`."""
+        try:
+            request_id = canonical_uuid(args.get("request_id"))
+        except ConversationError:
+            raise ConversationError("bad-request-id", "request_id must be a canonical lowercase UUID") from None
+        origin, message, session, job = self._suggestion_caller(args)
+        if session is not None and suggestions.holds_secret(session):
+            raise ConversationError("bad-session-id", "session_id holds a value shaped like a secret, which a "
+                                    "suggestion never shows (C-25.5)")
+        if job is not None and (suggestions.holds_secret(job) or holds_credential(job)):
+            raise ConversationError("bad-calling-job", "calling_job holds a value shaped like a secret, which a "
+                                    "suggestion never keeps (C-25.5)")
+        provider = args.get("provider") or (origin["provider"] if origin else "claude")
+        if provider not in PROVIDERS:
+            raise ConversationError("bad-provider", "provider is claude or codex")
+        words, scrubbed = suggestions.normalize(args.get("title"), args.get("tldr"), args.get("brief"))
+        model = self._suggestion_model(provider, args.get("model"))
+        worktree = args.get("worktree", False)
+        if not isinstance(worktree, bool):
+            raise ConversationError("bad-worktree", "worktree must be true or false")
+        workspace, kind, repository = self._suggestion_workspace(provider, args.get("workspace"), worktree)
+        row, created = self.suggestions.add(
+            request_id=request_id, words=words, origin=origin["conversation_id"] if origin else None,
+            origin_message=message, creator_session=session, creator_job=job, workspace=workspace,
+            worktree=worktree, provider=provider, model=model, workspace_kind=kind, repository=repository,
+            per_origin=suggestions.PER_ORIGIN_OPEN, open_max=suggestions.OPEN_MAX)
+        return {"suggestion": suggestions.view(row, full_brief=True), "created": created, "scrubbed": scrubbed}
+
+    @_suggestion_errors
+    def op_suggestion_list(self, args, peer) -> dict:
+        """Open suggestions newest first, then the most recently closed (C-25.7); with
+        `suggestion_ids`, those, each with its whole brief. `watch_seq` is the watch
+        feed's sequence the rows were read at (C-29.14): a client that has a
+        suggestion from a later feed row keeps that, and drops nothing it has."""
+        ids = args.get("suggestion_ids")
+        cid = args.get("conversation_id") or None
+        if ids is not None:
+            if not isinstance(ids, list) or len(ids) > 50 or not all(isinstance(i, str) for i in ids):
+                raise ConversationError("bad-args", "suggestion_ids is a list of at most 50 ids")
+            rows, seq = self.suggestions.named(ids)
+            views = [suggestions.view(row, full_brief=True) for row in rows]
+            _, total, _ = self.suggestions.listing(conversation_id=cid, limit=0, closed_limit=0)
+        else:
+            limit = max(0, min(int(args.get("limit") if args.get("limit") is not None else suggestions.OPEN_MAX),
+                               suggestions.OPEN_MAX))
+            closed = args.get("closed_limit")
+            closed = max(0, min(int(closed if closed is not None else suggestions.CLOSED_LISTED), 200))
+            rows, total, seq = self.suggestions.listing(conversation_id=cid, limit=limit, closed_limit=closed)
+            views = [suggestions.view(row) for row in rows]
+        return {"suggestions": views, "open": total, "limits": suggestions.LIMITS, "watch_seq": seq}
+
+    @_suggestion_errors
+    def op_suggestion_start(self, args, peer) -> dict:
+        """A person starts a suggestion (C-25.6, C-25.7): a conversation made as
+        `conversation.create` makes one, where the suggestion said it would start
+        (`workspace_kind`), with the brief as its first message. Idempotent: the same
+        suggestion has one conversation and one message."""
+        verdict = self._person(peer, "starting a suggested conversation")
+        sid = self._suggestion_id(args)
+        with self._suggestion_lock(sid):
+            row = self.suggestions.get(sid)
+            if row["state"] == suggestions.OPEN:
+                conversation = self._start_fields(row, args)
+                row, _ = self.suggestions.claim(sid, by=verdict.reason, conversation=conversation)
+            elif row["state"] not in (suggestions.STARTING, suggestions.STARTED):
+                raise suggestions.SuggestionError("not-open", "the suggestion cannot start", code=7,
+                                                  details={"state": row["state"]})
+            return self._finish_start(row)
+
+    def _start_fields(self, row: dict, args: dict) -> dict:
+        """The conversation a start makes, checked as `conversation.create` checks one,
+        where the suggestion's card says: its kept `workspace_kind`, never re-decided.
+        A worktree start whose folder is no longer a git checkout is refused, not run
+        in place."""
+        provider = row["provider"]
+        settings = validate_settings(provider, {
+            "model": row["model"] or self._default_model(provider), "effort": None, "fast": False,
+            "permission": args.get("permission") or self._start_permission(provider), "auto_continue": True})
+        if settings["permission"] in ("accept-edits", "bypass") and args.get("confirm_widen") is not True:
+            raise ConversationError("confirm-widen", "a policy above Ask needs confirm_widen: true")
+        self._check_codex_policy(provider, settings)
+        if row["workspace"] is None:
+            # No folder: a private scratch folder, the same one on every retry, in a
+            # namespace no `conversation.create` names its scratch folders in.
+            with self.store.writing():
+                workspace = str(self.store.subdirectory(Path("conversations/workspaces")
+                                                        / suggestions.scratch_name(row["suggestion_id"])))
+            kind = suggestions.IN_PLACE
+        else:
+            workspace = row["workspace"]
+            if not os.path.isdir(workspace):
+                raise suggestions.SuggestionError("bad-workspace", "the suggestion's folder is gone",
+                                                  details={"workspace_status": "gone"})
+            kind = row["workspace_kind"]
+            if kind is None:                    # a row an earlier build made decided nothing
+                kind = (suggestions.WORKTREE if row["worktree"] and self._git_toplevel(workspace) is not None
+                        else suggestions.IN_PLACE)
+            elif kind == suggestions.WORKTREE and self._git_toplevel(workspace) is None:
+                raise suggestions.SuggestionError("not-a-repository", "the suggestion's folder is no longer a "
+                                                  "git checkout, and it was to start in a worktree of its own", code=7,
+                                                  details={"workspace_status": "no-longer-repository"})
+        workspace = self._validate_workspace(provider, workspace, settings, kind=kind, allow_main=False)
+        return {"provider": provider, "workspace": workspace, "workspace_kind": kind, "settings": settings,
+                "origin": "new", "title": row["title"]}
+
+    def _finish_start(self, row: dict) -> dict:
+        """A claimed start, finished: the worktree a worktree conversation needs, then
+        the brief as its first message, under the id the claim chose, accepted with
+        `message.submit`'s rules (C-24.2, C-24.3) in the transaction that records
+        `started`. Until then the conversation takes no other message
+        (`suggestions.admit_message`). Each step is idempotent, so a retry, or the
+        daemon after a restart, finishes the same start. What a failure says is
+        recorded (and logged, `_resume_start`; returned, `op_suggestion_start`) only
+        from the fixed vocabulary in `suggestions.scrub_error`."""
+        sid = row["suggestion_id"]
+        if row["state"] == suggestions.STARTED:
+            return self._start_result(row, created=False)
+        conversation = self.store.conversation(row["started_conversation_id"])
+        mid = row["start_message_id"] or self.suggestions.message_id(sid)
+        try:
+            if conversation["workspace_kind"] == "worktree" and not conversation.get("worktree"):
+                conversation = self._cut_worktree(conversation)
+            _, created = self.store.submit_message(
+                conversation_id=conversation["conversation_id"], message_id=mid, after_message_id=None,
+                text=row["brief"], attachments=[], settings=row["start_settings"] or conversation["settings"],
+                on_accept=lambda tx: self.suggestions.finish_in(tx, sid, mid), starts_suggestion=sid)
+        except Exception as exc:
+            if not self._closed:
+                with contextlib.suppress(Exception):
+                    self.suggestions.note_error(sid, exc)
+            raise
+        if not created:
+            self.suggestions.finish(sid, mid)       # accepted by a start cut short after it
+        self.daemon._notify()
+        return self._start_result(self.suggestions.get(sid), created=created)
+
+    def _start_result(self, row: dict, *, created: bool) -> dict:
+        conversation = self.store.conversation(row["started_conversation_id"])
+        message = self.store.find_message(row["started_message_id"]) if row["started_message_id"] else None
+        return {"suggestion": suggestions.view(row, full_brief=True), "conversation": self._view(conversation),
+                "message": self._receipt(message, text=True) if message else None, "created": created}
+
+    @_suggestion_errors
+    def op_suggestion_dismiss(self, args, peer) -> dict:
+        """A person dismisses a suggestion (C-25.6, C-25.7), only while it is open."""
+        verdict = self._person(peer, "dismissing a suggestion")
+        row, changed = self.suggestions.close(self._suggestion_id(args), suggestions.DISMISSED, by=verdict.reason)
+        return {"suggestion": suggestions.view(row, full_brief=True), "changed": changed}
+
+    @_suggestion_errors
+    def op_suggestion_withdraw(self, args, peer) -> dict:
+        """Whoever suggested it withdraws it while it is open (C-25.7): a turn of the
+        conversation it came from, or the session that made it."""
+        sid = self._suggestion_id(args)
+        origin, _, session, _ = self._suggestion_caller(args)
+        row = self.suggestions.get(sid)
+        mine = (row["origin_conversation_id"] is not None and origin is not None
+                and origin["conversation_id"] == row["origin_conversation_id"]) or (
+                row["creator_session"] is not None and session == row["creator_session"])
+        if not mine:
+            raise ConversationError("not-creator", "only the conversation or session that suggested it may withdraw it",
+                                    code=7, fix="dismiss it in the Subfleet app")
+        row, changed = self.suggestions.close(sid, suggestions.WITHDRAWN, by="creator")
+        return {"suggestion": suggestions.view(row, full_brief=True), "changed": changed}
+
+    def _resume_suggestions(self) -> None:
+        """C-25.7: finish starts a person claimed that did not finish (the daemon stopped
+        mid-start, git failed), each on the file pool, never on the control loop."""
+        if self._closed:
+            return
+        rows = self.suggestions.resumable(older_than=_iso_ago(SUGGESTION_RESUME_AFTER_S))
+        live = {row["suggestion_id"] for row in rows}
+        now = self.clock()
+        with self._lock:
+            self._resuming = {sid: value for sid, value in self._resuming.items() if sid in live}
+        for row in rows:
+            sid = row["suggestion_id"]
+            with self._lock:
+                tries, after = self._resuming.get(sid, (0, 0.0))
+                if after is None or now < after:
+                    continue                    # running now (None), or backing off
+                self._resuming[sid] = (tries + 1, None)
+            try:
+                self.files.submit(self._resume_start, sid, tries + 1, now)
+            except RuntimeError:                # close() shut the pool meanwhile
+                return
+
+    def _resume_start(self, sid: str, tries: int, began: float) -> None:
+        try:
+            with self._suggestion_lock(sid):
+                row = self.suggestions.get(sid)
+                if row["state"] == suggestions.STARTING:
+                    self._finish_start(row)
+                    self.log.info("finished the start of suggestion %s a person claimed earlier", sid)
+        except Exception as exc:
+            if not self._closed:
+                attempt = f" (try {tries})" if type(tries) is int and 0 < tries < 65536 else ""
+                self.log.warning("%s", suggestions.scrubbed_line(
+                    "finishing the start of a suggestion failed" + attempt + ": " + suggestions.scrub_error(exc)))
+        finally:
+            with self._lock:
+                # The n-th try failing waits 2, 4, 8, ... s, at most DEFER_MAX_S (C-25.7).
+                self._resuming[sid] = (tries, began + min(DEFER_MAX_S, DEFER_BASE_S * 2 ** (tries - 1)))
 
     def op_message_status(self, args, peer) -> dict:
         """Each message's receipt; `unknown` only for an id the store has no message
@@ -1204,7 +1572,7 @@ class ConversationService:
             raise ConversationError("stale-approval", "the approval shown is not the one pending")
         decision = args.get("decision")
         if decision not in approval["options"]:
-            raise ConversationError("bad-decision", f"{decision!r} is not offered here")
+            raise ConversationError("bad-decision", "decision is not offered here")
         answers = args.get("answers")
         if decision == "answer" and not (isinstance(answers, dict) and answers):
             # Refused here, not by the driver after the answer is recorded (and its
@@ -1287,7 +1655,7 @@ class ConversationService:
         except turn_diff.Unavailable as exc:
             return _unavailable(exc.reason, str(exc))
         except SalvageError as exc:
-            raise ConversationError("diff-failed", str(exc), code=1,
+            raise ConversationError("diff-failed", "the workspace diff could not be read", code=1,
                                     fix="try again" if exc.transient else "check the workspace's repository")
         return {"available": True, "path": path, "from": start, "to": end, **result}
 
@@ -1383,9 +1751,7 @@ class ConversationService:
         the source under the guard `message.cancel` uses (IR-28); a source with a
         live turn is refused. Idempotent by `request_id`: the same request returns
         the same conversation, a different request under that id is exit 2."""
-        request_id = args.get("request_id")
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
-            raise ConversationError("bad-request-id", "request_id must be 1 to 128 characters")
+        request_id = self._check_request_id(args.get("request_id"))
         source_arg, target = args.get("from"), args.get("to")
         if not isinstance(source_arg, dict) or not isinstance(target, dict):
             raise ConversationError("bad-args", "a handoff needs `from` and `to` objects")
@@ -1603,8 +1969,8 @@ class ConversationService:
         try:
             session_id = (session_handoff.canonical_session_id(session_id) if provider == "claude"
                           else codex_brief.canonical_thread_id(session_id))
-        except session_handoff.HandoffError as exc:
-            raise ConversationError("bad-native", str(exc)) from exc
+        except session_handoff.HandoffError:
+            raise ConversationError("bad-native", "native session_id is invalid") from None
         return self.store.by_native(provider, session_id), provider, session_id, native.get("home")
 
     def _handoff_history(self, conversation: dict | None, provider: str, session_id: str,
@@ -1615,7 +1981,8 @@ class ConversationService:
                 return self._claude_source(conversation, session_id)
             return self._codex_source(conversation, session_id, home)
         except session_handoff.HandoffError as exc:
-            raise ConversationError("handoff-source", str(exc), code=exc.code, fix=exc.fix) from exc
+            raise ConversationError("handoff-source", "the native handoff history could not be read",
+                                    code=exc.code, fix="check the source session and try again") from None
 
     def _claude_source(self, conversation: dict | None, session_id: str) -> dict:
         path = transcripts.transcript_path(session_id)
@@ -1638,7 +2005,7 @@ class ConversationService:
             homes = [(Path(r["home"]), r["lane_id"]) for r in lanes if r["lane_id"] == conversation["lane_id"]]
         else:
             allowed = [(Path(r["home"]).expanduser().resolve(), r["lane_id"]) for r in lanes]
-            allowed.append(((Path.home() / ".codex").resolve(), None))
+            allowed.append((codex_app_home().resolve(), None))
             if home:
                 wanted = Path(str(home)).expanduser().resolve()
                 homes = [pair for pair in allowed if pair[0] == wanted]
@@ -1731,7 +2098,8 @@ class ConversationService:
             return build(source["native_session_id"], Path(source["transcript"]), Path(workspace),
                          source["source_cwd"], caps, repository=False)
         except session_handoff.HandoffError as exc:
-            raise ConversationError("handoff-source", str(exc), code=exc.code, fix=exc.fix) from exc
+            raise ConversationError("handoff-source", "the native handoff brief could not be built",
+                                    code=exc.code, fix="check the source session and try again") from None
 
     def _cancelled_by(self, job_id: str, marker: dict) -> bool:
         """Did the cancel recorded for this job carry `marker` (a handoff's own)?"""
@@ -1770,18 +2138,25 @@ class ConversationService:
         writable = settings["permission"] in ("accept-edits", "bypass") or (provider == "codex" and settings["permission"] != "read-only")
         if not writable:
             return
-        protected = [self.root, Path.home() / ".claude", Path.home() / ".codex"]
-        protected += [Path(row["home"]) for row in self.daemon.store.lane_rows() if row.get("home")]
+        # D-ST1: provider homes come from protected_provider_homes() (isolated under pytest);
+        # C-29.14: each carries the public label suggestions.PROTECTED_FOLDERS allows.
+        codex_home = codex_app_home()
+        protected = [(self.root, "state root")]
+        protected += [(home, ".codex" if home == codex_home or home.name == ".codex" else ".claude")
+                      for home in protected_provider_homes()]
+        protected += [(Path(row["home"]), "lane home") for row in self.daemon.store.lane_rows() if row.get("home")]
         # Both sides spelled one way (`folders.spelling`): on a case-insensitive volume
         # `~/.CLAUDE` is `~/.claude`, and a comparison of the spellings as typed missed
         # it (review of 5e9f2fbd, P3-4). A side whose spelling cannot be established is
         # refused, never compared as typed (review of b0033e5d, P2).
         real = Path(_spelled_or_refused(workspace, workspace))
-        for path in protected:
+        for path, name in protected:
             p = Path(_spelled_or_refused(path, workspace))
             if real == p or real in p.parents:
-                raise ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
-                                        fix="choose a narrower directory, or Ask or read-only")
+                error = ConversationError("protected-workspace", f"{workspace} contains {p}", code=7,
+                                          fix="choose a narrower directory, or Ask or read-only")
+                error.suggestion_details = {"protected_folder": name}
+                raise error
 
     # --- the control loop ------------------------------------------------------
 
@@ -1790,7 +2165,7 @@ class ConversationService:
         step is independent: one that fails is logged and the others still run."""
         # A handoff's fence is lifted before anything is dispatched (C-30.3, D-18).
         for step in (self._lift_stale_fences, self._catalog_tick, self._moot_blocks, self._replay_final_wakes,
-                     self.wakes.control_tick, self._dispatch, self._adopt_runners,
+                     self.wakes.control_tick, self._resume_suggestions, self._dispatch, self._adopt_runners,
                      self._replay_unsettled, self._settle_unstarted, self._close_ended_windows, self._reap_runners,
                      self._compact):
             if self._closed:
@@ -1798,12 +2173,15 @@ class ConversationService:
             try:
                 step()
             except Exception as exc:
+                # A control-loop error's fixed diagnostic (C-25.7): the step's name, the
+                # error's class and an OS error's errno. `suggestions.scrub_error` dropped
+                # the step, as a prefix it does not know, and with it which step it was.
                 if self._closed:
                     # close() overtook the step (its store now refuses): no failure of the step's own.
-                    self.log.info("conversation tick step %s stopped: the service closed (%s: %s)", step.__name__,
-                                  type(exc).__name__, exc)
+                    self.log.info("conversation tick step %s stopped: the service closed (%s)", step.__name__,
+                                  refusals.fixed_error(exc))
                     return
-                self.log.error("conversation tick step %s failed: %s: %s", step.__name__, type(exc).__name__, exc)
+                self.log.error("conversation tick step %s failed: %s", step.__name__, refusals.fixed_error(exc))
 
     # --- the catalog timer (C-30.1, design D-23) --------------------------------
 
@@ -2160,7 +2538,7 @@ class ConversationService:
             except Exception as exc:            # one message never holds up the others
                 if self._closed:
                     raise                       # close() overtook: the tick logs the step as stopped
-                self.log.error("dispatch of %s failed: %s: %s", message["message_id"], type(exc).__name__, exc)
+                self.log.error("dispatch of %s failed: %s", message["message_id"], refusals.scrubbed_words(exc))
 
     def _dispatch_one(self, message: dict) -> None:
         mid = message["message_id"]
@@ -2223,8 +2601,14 @@ class ConversationService:
                 job = self._submit_turn(conversation, message)
             except Exception as exc:
                 permanent, why = _refusal(exc)
+                # What `why` leaves out, for daemon.log only, scrubbed whole (C-25.7).
+                words = (refusals.detail_line(f"submit of {mid}", exc, subject="turn")
+                         if isinstance(exc, (protocol.ProtocolError, AdapterError))
+                         else None if isinstance(exc, ConversationError) else refusals.scrubbed_words(exc))
                 if permanent:
                     # The daemon refused the turn outright: it never reached a provider.
+                    if words:
+                        self.log.info("%s", words)
                     with self._lock:
                         self._deferred.pop(mid, None)
                     self.store.set_state(mid, FAILED, reason=f"not-delivered: {why}"[:200], expect=(QUEUED, WAITING),
@@ -2238,10 +2622,10 @@ class ConversationService:
                         self.store.set_state(mid, back, reason=(prior_reason or f"deferred: {why}"[:200])
                                              if back == WAITING else self._missed_mark(mid, prior_reason),
                                              expect=(WAITING,), unbound=True, expect_turn_seq=message["turn_seq"])
-                    self._defer(self.store.message(mid), why)
+                    self._defer(self.store.message(mid), why, words=words)
                     if not isinstance(exc, (protocol.ProtocolError, AdapterError, ConversationError, OSError,
                                             sqlite3.Error)):
-                        self.log.error("turn submit for %s failed: %s: %s", mid, type(exc).__name__, exc)
+                        self.log.error("turn submit for %s failed: %s", mid, words)
                 return
         with self._lock:
             self._deferred.pop(mid, None)
@@ -2309,9 +2693,10 @@ class ConversationService:
             prior_reason = row["state_reason"] if row else None
         return prior_reason if (prior_reason or "").startswith(MISSED_STEER) else None
 
-    def _defer(self, message: dict, why: str) -> None:
+    def _defer(self, message: dict, why: str, *, words: str | None = None) -> None:
         """A submit refused before any provider saw the message: it keeps waiting,
-        says why, and is not submitted again until its backoff passes."""
+        says why, and is not submitted again until its backoff passes. `words`, the
+        refusal's own scrubbed words (`_dispatch_one`), are logged in place of `why`."""
         mid = message["message_id"]
         with self._lock:
             count = self._deferred.get(mid, (0, 0.0))[0] + 1
@@ -2327,7 +2712,7 @@ class ConversationService:
             self.store.set_state(mid, message["state"], reason=reason, expect=(message["state"],))
         if count & (count - 1) == 0:            # 1, 2, 4, 8, ...: the log stays bounded
             self.log.warning("turn submit for %s deferred (%d in a row, next try in %g s): %s",
-                             mid, count, delay, why)
+                             mid, count, delay, words or why)
 
     def _resubmittable(self) -> list[dict]:
         """Waiting messages with no job bound: re-admitted after a failure that
@@ -2793,12 +3178,13 @@ class ConversationService:
         manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
         turn = manifest.get(TURN_MANIFEST_KEY)
         if not turn:
-            raise AdapterError("turn job has no turn manifest", fix="the dispatcher creates turn jobs")
+            raise AdapterError("turn job has no turn manifest", fix="the dispatcher creates turn jobs",
+                               reason="turn-manifest")
         if lane.provider == "claude":
             return claude_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                                  credential_env=credential_env, model_id=model_id)
         if guard_result is None or not guard_result.override:
-            raise AdapterError("a Codex turn needs the verified never-rules guard", code=7)
+            raise AdapterError("a Codex turn needs the verified never-rules guard", code=7, reason="turn-guard")
         launch = codex_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                               credential_env=credential_env, model_id=model_id,
                               executable=guard_result.executable or "codex", override=guard_result.override,
@@ -2832,7 +3218,7 @@ def policy_model(policy: dict, provider: str, value: str) -> str:
     for short, entry in models.items():
         if entry["provider"] == provider and entry["id"] == base:
             return short
-    raise ConversationError("unknown-model", f"{value!r} is not a {provider} model this fleet routes",
+    raise ConversationError("unknown-model", "model must name a known alias or model id this fleet routes",
                             fix="pick a model from models.list")
 
 
@@ -2845,12 +3231,20 @@ def _refusal(exc: BaseException) -> tuple[bool, str]:
     Everything else (an operational failure, exit 1, such as git timing out while
     inspecting the workspace; a store or file error; a defect) may pass on a later
     try, so the message waits.
+
+    `why` becomes the message's `state_reason`, which `message.status`,
+    `conversation.open` and `conversation.watch` show, so it is fixed text
+    (C-25.7): a conversation refusal's reason, a request or handler refusal's
+    public message (`protocol.refusal_text`), or an exception's class with an OS
+    error's errno (`refusals.fixed_error`). Never the exception's own words, which
+    keep an argument check's filename (76d3e2c1c; review r6 of #181, P1): the
+    caller logs those, scrubbed.
     """
     if isinstance(exc, ConversationError):
         return exc.code != int(Exit.OPERATIONAL), exc.reason
     if isinstance(exc, (AdapterError, protocol.ProtocolError)):
-        return int(exc.code) != int(Exit.OPERATIONAL), str(exc) or type(exc).__name__
-    return False, f"{type(exc).__name__}: {exc}"
+        return int(exc.code) != int(Exit.OPERATIONAL), protocol.refusal_text(exc)[0]
+    return False, refusals.fixed_error(exc)
 
 
 def _spelled_or_refused(path: str | Path, workspace: str) -> str:
@@ -2862,9 +3256,11 @@ def _spelled_or_refused(path: str | Path, workspace: str) -> str:
         return spelled
     what = (f"what {workspace} contains" if os.fspath(path) == workspace
             else f"whether {workspace} contains {path}")
-    raise ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
-                            f"({doubt})", code=7,
-                            fix="make every directory above it searchable, or choose Ask or read-only")
+    error = ConversationError("protected-workspace", f"cannot tell {what}: its spelling on the volume cannot be read "
+                              f"({doubt})", code=7,
+                              fix="make every directory above it searchable, or choose Ask or read-only")
+    error.suggestion_details = {"workspace_status": "unreadable-spelling"}
+    raise error
 
 
 def _iso_ago(seconds: float) -> str:

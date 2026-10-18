@@ -201,6 +201,21 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
     results["conversation.wake"] = harness.call("conversation.wake", session_id="s-runs", request_id=str(uuid.uuid4()),
                                                 prs=["owner/repo#1"], note="Inspect the merge")
+    # C-25.7: suggestions made from the conversation bound to "s-runs"; one started,
+    # one dismissed, one withdrawn by its creator, and the list after.
+    def suggest(title):
+        return harness.call("suggestion.create", request_id=str(uuid.uuid4()), title=title, tldr="Out of scope here",
+                            brief="Port the importer.\n\nRun its tests.", workspace=str(harness.workspace),
+                            session_id="s-runs")
+    results["suggestion.create"] = suggest("Port the importer")
+    results["suggestion.start"] = harness.call(
+        "suggestion.start", suggestion_id=results["suggestion.create"]["suggestion"]["suggestion_id"])
+    results["suggestion.dismiss"] = harness.call("suggestion.dismiss",
+                                                 suggestion_id=suggest("Dismiss me")["suggestion"]["suggestion_id"])
+    results["suggestion.withdraw"] = harness.call("suggestion.withdraw", session_id="s-runs",
+                                                  suggestion_id=suggest("Withdraw me")["suggestion"]["suggestion_id"])
+    suggest("Still open")
+    results["suggestion.list"] = harness.call("suggestion.list")
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)

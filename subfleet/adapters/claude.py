@@ -379,13 +379,15 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
-def _keychain_blob(service: str, *, security_bin: str = "security") -> str | None:
+def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
+    from ..credentials import keychain_command
+    execute = runner or subprocess.run
     try:
-        done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
-                              capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
+        done = execute(keychain_command(service, security_bin, runner=execute),
+                       capture_output=True, text=True, timeout=15)
+    except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
@@ -524,7 +526,7 @@ class ClaudeAdapter(Adapter):
         self,
         *,
         claude_bin: str = "claude",
-        runner: Callable[..., Any] = subprocess.run,
+        runner: Callable[..., Any] | None = None,
         now: Callable[[], datetime] | None = None,
         new_session_id: Callable[[], str] | None = None,
         projects_dir: str | Path | None = None,
@@ -534,7 +536,7 @@ class ClaudeAdapter(Adapter):
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
-        self._runner = runner
+        self._runner = runner or subprocess.run
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -559,7 +561,7 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
         except (OSError, subprocess.SubprocessError):
@@ -567,6 +569,7 @@ class ClaudeAdapter(Adapter):
                 f"claude: could not read the keychain item {ref}",
                 code=5,
                 fix=f"agent-secret get {ref}",
+                reason="claude-keychain-read",
             ) from None
         if getattr(done, "returncode", 1) != 0:
             raise AdapterError(
@@ -576,12 +579,14 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store "
                     f"it as the keychain item {ref}"
                 ),
+                reason="claude-keychain-missing",
             )
         payload = (done.stdout or "").strip()
         if not payload:
             raise AdapterError(
                 f"claude: the keychain item {ref} is empty", code=5,
                 fix=f"re-enrol the lane: claude setup-token, then store it as {ref}",
+                reason="claude-keychain-empty",
             )
         # v1 stores Claude Code's own OAuth blob under one item name and a bare
         # setup-token under the per-lane `claude-quota-<email>` item. Accept both.
@@ -601,10 +606,10 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
-        except (OSError, subprocess.SubprocessError):
+        except (AdapterError, OSError, subprocess.SubprocessError):
             return None
         if getattr(done, "returncode", 1) != 0:
             return None
@@ -635,6 +640,7 @@ class ClaudeAdapter(Adapter):
             f"claude: unknown credential kind {credential.kind!r}",
             code=7,
             fix="a Claude lane is either kind 'keychain-token' or kind 'home'",
+            reason="claude-credential-kind",
         )
 
     # --- identity (C-1.4, C-10.6) --------------------------------------------
@@ -863,6 +869,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"claude: credential is for provider {credential.provider!r}", code=2,
                 fix="enrol a Claude credential with the Claude adapter",
+                reason="claude-credential-provider",
             )
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
@@ -878,6 +885,7 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store it "
                     f"as the keychain item {credential.ref}"
                 ),
+                reason="claude-authenticate",
             )
         if ORG_BLOCK_RE.search(corpus):
             raise AdapterError(
@@ -885,7 +893,7 @@ class ClaudeAdapter(Adapter):
                 "for this account",
                 code=5,
                 fix="ask the account's admin to enable Claude Code access",
-            )
+             reason="claude-org-disabled")
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
         account = self.account_from_reference(credential)
@@ -896,6 +904,7 @@ class ClaudeAdapter(Adapter):
                 f"into {observed}",
                 code=7,
                 fix="rebind the lane to the account its credential really holds (C-1.3)",
+                reason="claude-account-mismatch",
             )
         account = account or observed
         if not account:
@@ -906,6 +915,7 @@ class ClaudeAdapter(Adapter):
                     "name the keychain item claude-quota-<email>, or point the lane at a "
                     "home whose .claude.json carries oauthAccount.emailAddress"
                 ),
+                reason="claude-account-missing",
             )
 
         plan = (
@@ -926,7 +936,7 @@ class ClaudeAdapter(Adapter):
                     "retry enrolment; if it persists, the credential is not a Claude "
                     "Code OAuth token and cannot be bound to an account (C-10.6)"
                 ),
-            )
+             reason="claude-profile-account")
         if profile.ok:
             # C-1.4: the account key is the identity, and the email is a label.
             identity, label = profile.identity, profile.email
@@ -1264,6 +1274,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"the job's MCP config cannot give the servers it names ({', '.join(names)}): {exc}",
                 code=7, fix="submit the job again with --mcp naming servers its workdir offers",
+                reason="claude-mcp-config",
             ) from None
         path = Path(attempt_dir) / ATTEMPT_MCP_CONFIG
         _atomic_write_text(path, json.dumps({"mcpServers": {name: servers[name] for name in names}},
@@ -1287,7 +1298,9 @@ class ClaudeAdapter(Adapter):
         config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
             "CLAUDE_CONFIG_DIR"
         )
-        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        from ..home_paths import home_path
+        base = Path(config).expanduser() if config else Path(home_path(
+            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude", expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
@@ -1407,7 +1420,7 @@ class ClaudeAdapter(Adapter):
         argv += ["--output-format", "stream-json", "--verbose"]
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Claude session",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove

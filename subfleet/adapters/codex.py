@@ -66,6 +66,12 @@ OLD_CLI_RE = re.compile(
     r"(?:unsupported|unrecognized|unexpected|unknown) (?:argument|option|flag)|"
     r"minimum.{0,30}(?:codex|cli|version)|requires? (?:codex )?version", re.I,
 )
+#: C-9.5, D-CAP1: the provider refusing the model itself for want of capacity: "Selected model is
+#: at capacity. Please try a different model." (gpt-6.1-sol, an `error` event and then the
+#: `turn.failed` that ended the turn, 84 attempts from 2026-10-01 to 2026-10-13). Still
+#: `transient`, never a closure: the account and the lane are fine, and so is the model for most
+#: jobs meanwhile. A server's or a gateway's capacity is not the model's.
+MODEL_CAPACITY_RE = re.compile(r"\bmodel(?:[ _](?:is|was))?(?:[ _]currently)?[ _]at[ _]capacity\b", re.I)
 TRANSIENT_RE = re.compile(
     r"\b5\d\d\b|capacity|disconnect|overloaded|timed? ?out|temporarily|"
     r"rate limit|too many requests|\b429\b|\b401\b|unauthorized|"
@@ -73,6 +79,44 @@ TRANSIENT_RE = re.compile(
     r"\bTLS\b|\bSSL\b|certificate verify|connection (?:reset|refused|closed)|"
     r"error sending request|stream.{0,30}(?:closed|ended|failed)", re.I,
 )
+
+
+# Capacity must be the message itself, not a phrase inside captured tool output.
+MODEL_CAPACITY_MESSAGE_RE = re.compile(
+    r"^\s*(?:ERROR:\s*)?(?:(?:Selected |The )?" + MODEL_CAPACITY_RE.pattern
+    + r"|error code:\s*model_at_capacity\b)", re.I,
+)
+# Codex tracing records delimit multiline diagnostic payloads. A plain ERROR:
+# inside a tool record remains quoted; a separate provider record ends it.
+CODEX_RECORD_RE = re.compile(
+    r"^\s*(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+"
+    r"(?P<target>codex_core::[\w:]+):\s*(?P<message>.*)$",
+)
+TOOL_OUTPUT_PREFIX_RE = re.compile(r"^\s*(?:ERROR:\s*)?(?:Tool\b|Captured\b|Quoted output\b)", re.I)
+
+
+def _capacity_signals(failures: list[dict], stderr: str) -> Iterator[tuple[dict, str]]:
+    """C-9.5: refusal at message start; tool payload stays within its own record."""
+    for event in failures:
+        message = event.get("message")
+        error = event.get("error")
+        if not isinstance(message, str) and isinstance(error, dict):
+            message = error.get("message")
+        if isinstance(message, str) and MODEL_CAPACITY_MESSAGE_RE.match(message):
+            yield event, message
+    tool_diagnostic = False
+    for line in stderr.splitlines():
+        record = CODEX_RECORD_RE.match(line)
+        if record:
+            tool_diagnostic = record["target"].startswith("codex_core::tools::") or bool(
+                TOOL_OUTPUT_PREFIX_RE.match(record["message"]))
+            if not tool_diagnostic and MODEL_CAPACITY_MESSAGE_RE.match(record["message"]):
+                yield {}, line
+            continue
+        if "codex_core::tools::" in line or TOOL_OUTPUT_PREFIX_RE.match(line):
+            tool_diagnostic = True
+        if not tool_diagnostic and MODEL_CAPACITY_MESSAGE_RE.match(line):
+            yield {}, line
 
 
 class _NoConsumeRedirect(urllib.request.HTTPRedirectHandler):
@@ -331,24 +375,24 @@ class CodexAdapter(Adapter):
 
     def enroll(self, credential: Credential) -> LaneInfo:
         if credential.provider != self.provider or credential.kind != "home":
-            raise AdapterError("Codex enrollment requires a subscription home", fix="Use a Codex home signed into a paid ChatGPT subscription.")
+            raise AdapterError("Codex enrollment requires a subscription home", fix="Use a Codex home signed into a paid ChatGPT subscription.", reason="codex-enroll-home")
         home = Path(credential.ref).expanduser().resolve()
         raw = _read_auth(home)
         fix = f"Sign into a paid ChatGPT subscription in CODEX_HOME={home} and enroll again."
         if _api_key(raw):
-            raise AdapterError("API-key Codex homes are refused", code=7, fix=fix)
+            raise AdapterError("API-key Codex homes are refused", code=7, fix=fix, reason="codex-api-key")
         identity = _identity(raw)
         if not identity["token"]:
-            raise AdapterError("Codex home has no readable subscription token", fix=fix)
+            raise AdapterError("Codex home has no readable subscription token", fix=fix, reason="codex-token-missing")
         if str(identity["plan"]).strip().lower() == "free":
-            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
+            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix, reason="codex-free-plan")
         payload = self._payload(raw)
         plan = payload.get("plan_type") or identity["plan"]
         if str(plan).strip().lower() == "free":
-            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
+            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix, reason="codex-free-plan")
         account = identity["account_id"] or identity["email"] or payload.get("email")
         if not account:
-            raise AdapterError("Codex home has no account id or email", fix=fix)
+            raise AdapterError("Codex home has no account id or email", fix=fix, reason="codex-account-missing")
         # Enrollment precedes lane allocation; the daemon rebinds these readings to its lane id.
         return LaneInfo(f"codex:{account}", plan, str(home), self._readings(payload, ""))
 
@@ -493,10 +537,10 @@ class CodexAdapter(Adapter):
                 model_id: str | None, effort: str | None, session_id: str | None) -> Launch:
         sandbox = Sandbox(job.sandbox)
         if sandbox == Sandbox.WORKSPACE_WRITE and not guard_override:
-            raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.")
+            raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.", reason="codex-guard-required")
         home = lane.home or lane.credential.ref
         if not home or (credential_env.get("CODEX_HOME") and Path(credential_env["CODEX_HOME"]).expanduser().resolve() != Path(home).expanduser().resolve()):
-            raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.")
+            raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.", reason="codex-home-mismatch")
         argv = [self.codex_bin, "exec", "--json"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
@@ -560,9 +604,9 @@ class CodexAdapter(Adapter):
         # thread already holds its resolved model (see below).
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Codex thread",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-codex")
         if not native_session_id or native_session_id.startswith("-"):
-            raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.")
+            raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.", reason="codex-thread-id")
         # Job pins are policy aliases; the native thread already holds its resolved model.
         return self._launch(job, attempt_id, attempt_dir, lane, credential_env, prompt_path,
                             guard_override, None, None, native_session_id)
@@ -660,6 +704,13 @@ class CodexAdapter(Adapter):
                               source, json.dumps(event, ensure_ascii=False) if event else text)
             evidence.update(scope=scope, clock_source=source.value, resets_at=until)
             return result(OutcomeClass.LIMITED, "Codex subscription limit reached", closure)
+        # C-9.5, D-CAP1: the model's capacity refusal before any other transient text, so the
+        # failure that ended the turn answers admission, not a reconnect it recovered from first.
+        for event, text in _capacity_signals(failures, stderr):
+            if MODEL_CAPACITY_RE.search(text):
+                evidence["admission"] = event or text
+                evidence["model_capacity"] = True
+                return result(OutcomeClass.TRANSIENT, "Codex model at capacity: the provider asked for a different model")
         # Exit 0 and even last.md can survive a cut-off turn (C-9.2, D-SHUT1).
         # Keep terminal failures and the signal classes above as before.
         if exit_info.rc == 0 and not turn_completed and not terminal and not exit_info.spawn_error:

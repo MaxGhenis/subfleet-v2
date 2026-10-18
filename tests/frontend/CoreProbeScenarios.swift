@@ -517,6 +517,9 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
         return try runOutbox(socket: arguments[2], journal: arguments[3], stepsData: readFile(arguments[4]))
     case "store":
         return try runStore(readFile(arguments[2]))
+    case "suggestions":
+        // suggestions <input.json>: the Suggested section and the timeline's cards (C-29.14)
+        return try runSuggestions(readFile(arguments[2]))
     case "stage":
         // stage <image> <directory>
         do {

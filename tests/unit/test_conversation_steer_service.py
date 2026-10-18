@@ -566,7 +566,7 @@ def test_a_missed_steer_still_runs_next_when_its_own_turn_is_deferred(svc, live,
     svc.runners.clear()
     if crashed:                                      # claimed, then the daemon stopped before its job existed
         assert svc.store.set_state(missed, "waiting", reason=CLAIMED, expect=("queued",), unbound=True)
-    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1, reason="inspect-workdir")
     for _ in range(2):
         svc._dispatch()
         row = svc.store.message(missed)

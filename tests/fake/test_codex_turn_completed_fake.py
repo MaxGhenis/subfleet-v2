@@ -355,11 +355,14 @@ def test_cached_auth_reconciliation_requires_all_success_evidence(state_daemon, 
     assert (adir / "finalization.json").read_text() == frozen
 
 
-@pytest.mark.parametrize("verdict", (OutcomeClass.TRANSIENT, OutcomeClass.AUTH_DEAD, OutcomeClass.UNKNOWN))
+@pytest.mark.parametrize("verdict,model_capacity", [
+    (OutcomeClass.TRANSIENT, False), (OutcomeClass.AUTH_DEAD, False), (OutcomeClass.UNKNOWN, False),
+    (OutcomeClass.TRANSIENT, True),
+])
 @pytest.mark.parametrize("recorder", ("this-daemon", "older-daemon"))
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
 def test_replay_keeps_this_daemons_verdict_and_reconciles_only_an_older_one(
-        state_daemon, monkeypatch, verdict, recorder, restart):
+        state_daemon, monkeypatch, verdict, model_capacity, recorder, restart):
     """CI at 8fb1a8239: a retry whose salvage timed out (C-13.1) is finalized again,
     and reconciling its own cached `transient` with the completed stream made it
     succeed. A verdict this daemon classified is now replayed as its first pass
@@ -368,13 +371,18 @@ def test_replay_keeps_this_daemons_verdict_and_reconciles_only_an_older_one(
     daemon, harness = state_daemon
     out = harness.root / "out.md"
     out.write_text("previous output\n")
-    job_id, attempt, adir = reserve(daemon, harness, out_path=str(out))
+    # The unmeasured fixture can admit read-only standard work without a probe.
+    job_id, attempt, adir = reserve(daemon, harness, out_path=str(out),
+                                    **({"pinned_model": None, "task": "review", "tier": "standard"}
+                                       if model_capacity else {}))
     adapter = CodexAdapter()
     monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
     launch, finalizing = stage_fixture(daemon, adapter, attempt, adir, "success")
     proven = adapter.classify(adir, launch, ExitInfo(0, None, .1, None, None))
     assert proven.cls == OutcomeClass.OK  # The stream proves verified success.
-    monkeypatch.setattr(adapter, "classify", lambda *args: replace(proven, cls=verdict, detail="fixture verdict"))
+    monkeypatch.setattr(adapter, "classify", lambda *args: replace(
+        proven, cls=verdict, detail="fixture verdict",
+        evidence={**proven.evidence, **({"model_capacity": True} if model_capacity else {})}))
     observed = []
     answered = Daemon._answered
 
@@ -424,6 +432,12 @@ def test_replay_keeps_this_daemons_verdict_and_reconciles_only_an_older_one(
                                                     "killed_by": None}
             assert out.read_bytes() == (adir / "deliverable.md").read_bytes()
         assert evidence["classification"]["turn_completed"] is True
+        if model_capacity:
+            assert evidence["classification"]["model_capacity"] is True
+            assert ("capacity_steer" in evidence) == (recorder == "this-daemon")
+            if recorder == "this-daemon":
+                assert daemon._retry_pin(job)[2] is None
+                assert evidence["capacity_steer"]["model_id"] == attempt["model_requested"]
     finally:
         if successor is not None:
             successor.close()

@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import resource_leases
+from . import refusals, resource_leases
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
@@ -51,7 +51,7 @@ from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
-    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -67,13 +67,21 @@ from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
-    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, path_text, pin_baseline, salvage, transient_os_error,
-    utf8_text, validate_writable_workdir, working_tree,
+    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
+    salvage, transient_os_error, utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs
+
+
+def spawn_guardian(command: list[str], *, disclaim: bool, **options):
+    """The injectable guardian launch boundary, with Popen's actual options."""
+    if disclaim:
+        return procs.spawn_disclaimed(command, env=options["env"], cwd=options["cwd"],
+                                     pass_fds=options["pass_fds"])
+    return subprocess.Popen(command, **options)
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -275,6 +283,16 @@ def _lane_fault_of(evidence_json: str | None) -> dict | None:
         return None
     fault = evidence.get("lane_fault") if isinstance(evidence, dict) else None
     return fault if isinstance(fault, dict) else None
+
+
+def _capacity_steer_of(evidence_json: str | None) -> dict | None:
+    """C-9.5: the capacity steer an attempt's evidence records (`Daemon._finalize`), or None.
+    `_retry_pin` asks on every pass, so evidence that cannot hold one is not parsed."""
+    if not isinstance(evidence_json, str) or '"capacity_steer"' not in evidence_json:
+        return None
+    steer = _evidence_key(evidence_json, "capacity_steer")
+    return (steer if isinstance(steer, dict) and isinstance(steer.get("model_id"), str)
+            and isinstance(steer.get("until"), str) else None)
 
 
 def _evidence_key(evidence_json: str | None, key: str) -> Any:
@@ -543,7 +561,8 @@ def _written_by_policy(exc: AdapterError, task: str | None) -> AdapterError:
     """d261: a writer's refusal of a job the caller did not ask to write: say who
     did, and the way out."""
     return AdapterError(f"{exc} ({task or 'these'} jobs write by policy)", code=exc.code,
-                        fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only")
+                        fix=(exc.fix + "; or " if exc.fix else "") + "pass -s read-only",
+                        reason=exc.reason, details=refusals.by_policy(exc.details, task))
 
 
 def _git_prefix(workdir: str, cap: float) -> str | None:
@@ -672,7 +691,10 @@ class Daemon:
         self._busy_lock = threading.Lock()
         self._busy: set[str] = set()
         self._launches: dict[str, Launch] = {}
-        self._children: dict[str, subprocess.Popen] = {}
+        # Guardians this daemon started (`procs.spawn_disclaimed`), by attempt id.
+        self._children: dict[str, procs.Spawned | subprocess.Popen] = {}
+        self._unrooted_logged = False        # D-CEN1: said once that guardians start without a root
+        self._disclaim_guardians = procs.guardian_disclaim_allowed()
         self._starting_deadlines: dict[str, float] = {}
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
@@ -1039,7 +1061,7 @@ class Daemon:
         text = (a.credential or "").strip()
         if not text:
             raise protocol.ProtocolError("lanes enroll: name a credential (a home directory or a "
-                                         "claude-quota-<email> keychain item)", Exit.INVALID_INPUT)
+                                         "claude-quota-<email> keychain item)", Exit.INVALID_INPUT, reason="enroll-name")
         path = Path(text).expanduser()
         if path.is_dir():
             path = path.resolve()
@@ -1050,11 +1072,11 @@ class Daemon:
         else:
             raise protocol.ProtocolError(
                 f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
-                Exit.INVALID_INPUT)
+                Exit.INVALID_INPUT, reason="enroll-credential")
         try:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
-            raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT) from None
+            raise protocol.ProtocolError("lanes enroll: owner must be v1 or v2", Exit.INVALID_INPUT, reason="enroll-owner") from None
         bindings = self.store.query("SELECT * FROM lanes WHERE credential_ref=? ORDER BY created_at,rowid", (credential.ref,))
         existing = bindings[-1] if bindings else None
         enrollment_holder = None
@@ -1062,11 +1084,12 @@ class Daemon:
             if any(row['enabled'] for row in bindings):
                 raise protocol.ProtocolError(
                     f"lanes enroll: {credential.ref} is already lane {existing['lane_id']}",
-                    Exit.INVALID_INPUT, "subfleet lanes list")
+                    Exit.INVALID_INPUT, "subfleet lanes list", reason="enroll-bound",
+                    details={"lane_id": existing['lane_id']})
             if existing['desktop'] or existing['owner'] != 'v2':
-                raise protocol.ProtocolError('re-enrollment requires a non-desktop v2-owned lane', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment requires a non-desktop v2-owned lane', Exit.REFUSED, reason="reenroll-desktop")
             if a.owner is not None and a.owner != existing['owner']:
-                raise protocol.ProtocolError('re-enrollment cannot change ownership; use lanes transfer', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment cannot change ownership; use lanes transfer', Exit.REFUSED, reason="reenroll-owner")
             owner = LaneOwner(existing['owner'])
             credential = dataclasses.replace(credential, epoch=max(row['credential_epoch'] for row in bindings) + 1)
             enrollment_holder = 'probe:timer:enroll:' + str(uuid4())
@@ -1076,12 +1099,12 @@ class Daemon:
                     for row in bindings:
                         current = self.store.get_lane(row['lane_id'])
                         if current.enabled or current.desktop or current.owner != owner:
-                            raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                            raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED, reason="reenroll-changed")
                         if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
                                           "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
-                            raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                            raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED, reason="reenroll-live-attempt")
                         if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ?", (f"lane:{row['lane_id']}:slot:%",)):
-                            raise protocol.ProtocolError('lane still has an execution lease', Exit.REFUSED)
+                            raise protocol.ProtocolError('lane still has an execution lease', Exit.REFUSED, reason="reenroll-lease")
                     for row in bindings:
                         self.store.acquire_lease(f"lane:{row['lane_id']}:slot:0", enrollment_holder)
             except BaseException:
@@ -1098,12 +1121,13 @@ class Daemon:
                                 existing['lane_id'], enrollment_holder, argv, **kwargs))
                 info = adapter.enroll(credential)
             except AdapterError as exc:
-                raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+                raise protocol.ProtocolError(str(exc), exc.code, exc.fix,
+                                             reason=exc.reason, details=exc.details) from None
             if existing and existing.get('identity') and (
                     info.identity_status != 'verified' or info.identity != existing['identity']):
-                raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment could not verify the existing account identity', Exit.REFUSED, reason="reenroll-identity")
             if existing and info.account_key != existing['account_key']:
-                raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED)
+                raise protocol.ProtocolError('re-enrollment found a different account; use a separate credential reference', Exit.REFUSED, reason="reenroll-account")
             lane_id = self._next_lane_id(credential.provider)
             lane = Lane(lane_id, credential.provider, info.account_key, credential,
                         info.home or (str(path) if credential.kind == "home" else None), owner, False, True,
@@ -1119,13 +1143,13 @@ class Daemon:
                     if (current is None or current.enabled or current.desktop or current.owner != owner
                             or current.account_key != row['account_key'] or current.identity != row['identity']
                             or current.credential.ref != credential.ref):
-                        raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED)
+                        raise protocol.ProtocolError('lane changed during re-enrollment', Exit.REFUSED, reason="reenroll-changed")
                     if self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
                                       "('reserved','starting','running','finalizing','quarantined')", (row['lane_id'],)):
-                        raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED)
+                        raise protocol.ProtocolError('lane still has a live or quarantined attempt', Exit.REFUSED, reason="reenroll-live-attempt")
                     if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ? AND holder!=?",
                                       (f"lane:{row['lane_id']}:slot:%", enrollment_holder)):
-                        raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED)
+                        raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED, reason="reenroll-leased")
                 self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
                 for reading in info.readings:
                     self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
@@ -1175,9 +1199,7 @@ class Daemon:
                    '--launch-fd', str(read_fd), '--', *argv]
         child = None
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -1187,6 +1209,8 @@ class Daemon:
                 raise procs.InspectionError('enrollment guardian identity is absent')
             record.update(state='starting', guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if root:
+                record['responsible_root'] = root      # D-CEN1, beside the identity
             self._save_probe(record)
             if not self.stopping.is_set():
                 os.write(write_fd, b'1')
@@ -1195,9 +1219,9 @@ class Daemon:
             os.close(write_fd)
         safe, receipt = self._await_probe(record, child)
         if not safe:
-            raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7)
+            raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7, reason="enroll-quarantined")
         if not receipt:
-            raise AdapterError('enrollment ended without an exit receipt', code=5)
+            raise AdapterError('enrollment ended without an exit receipt', code=5, reason="enroll-receipt")
         rc = receipt.get('rc')
         if rc is None:
             rc = -receipt['signal'] if receipt.get('signal') else 1
@@ -1213,14 +1237,15 @@ class Daemon:
         `until`, and its release leaves any limit on the lane in force."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
-                                         Exit.INVALID_INPUT, "subfleet lanes list")
+                                         Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
+                                         details={"action": a.action, "lane_id": a.lane_id})
         if a.action == "hold":
             until = (a.until or "").strip()
             try:
                 instant = datetime.fromisoformat(until.replace("Z", "+00:00"))
             except ValueError:
                 raise protocol.ProtocolError("lanes hold: --until must be an ISO 8601 instant",
-                                             Exit.INVALID_INPUT) from None
+                                             Exit.INVALID_INPUT, reason="hold-until") from None
             if instant.tzinfo is None:
                 instant = instant.replace(tzinfo=timezone.utc)
             until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1241,10 +1266,11 @@ class Daemon:
         """C-9.6: lift guessed clocks only, recording the operator's grounds."""
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes release --limits: unknown lane {a.lane_id!r}",
-                                         Exit.INVALID_INPUT, "subfleet lanes list")
+                                         Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
+                                         details={"action": "release --limits", "lane_id": a.lane_id})
         note = (a.note or "").strip()
         if not note:
-            raise protocol.ProtocolError("lanes release --limits: --note is required", Exit.INVALID_INPUT)
+            raise protocol.ProtocolError("lanes release --limits: --note is required", Exit.INVALID_INPUT, reason="release-limits-note")
         data = {"note": note, "closure_ids": [], "reported_closure_ids": []}
         with self.store.transaction("lane.limits_released", lane_id=a.lane_id, data=data) as tx:
             now = utcnow()
@@ -1253,12 +1279,12 @@ class Daemon:
                               "AND until_at>? ORDER BY closure_id", (a.lane_id, now)).fetchall()
             if not rows:
                 raise protocol.ProtocolError("lanes release --limits: no open provider-limit or credits closures",
-                                             Exit.INVALID_INPUT)
+                                             Exit.INVALID_INPUT, reason="release-limits-none")
             data["closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "guessed"]
             data["reported_closure_ids"] = [row["closure_id"] for row in rows if row["clock_source"] == "reported"]
             if not data["closure_ids"]:
                 raise protocol.ProtocolError("lanes release --limits: reported clock; provider clocks cannot "
-                                             "be released by hand", Exit.INVALID_INPUT)
+                                             "be released by hand", Exit.INVALID_INPUT, reason="release-limits-reported")
             tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? "
                        "AND reason IN ('provider-limit','credits') AND clock_source='guessed' "
                        "AND released_at IS NULL AND until_at>?", (now, a.lane_id, now))
@@ -1306,7 +1332,12 @@ class Daemon:
     def _job(self, job_id: str) -> dict:
         row = self.store.get_job(job_id)
         if row is None:
-            raise protocol.ProtocolError(f"unknown job {job_id}")
+            # An id holding a credential is not named, even to daemon.log
+            # (`refusals.log_detail`), whose scrubber reads it whole only (review r6,
+            # P2). `holds_credential` reads from each hyphen, so the length is bounded.
+            named = isinstance(job_id, str) and len(job_id) <= 200 and not ids.holds_credential(job_id)
+            raise protocol.ProtocolError(f"unknown job {job_id}" if named else "unknown job", reason="unknown-job",
+                                         details={"job_id": job_id})
         return row
 
     def _spec(self, job: dict, **overrides: Any) -> JobSpec:
@@ -1913,10 +1944,11 @@ class Daemon:
         demand = []
         for job in scheduler.ordered_jobs(self.policy, rows):
             try:
-                _, exclusions, retry = self._retry_pin(job)
+                previous, exclusions, retry = self._retry_pin(job)
                 if retry and self._retry_waits_on_a_slot(retry, exclusions, desktop):
                     continue
-                decision = self._pick(job, extra_exclusions=exclusions, desktop=desktop)
+                # C-9.5: as admission routes it, its capacity steer included.
+                decision = self._pick(self._route_job(job, previous), extra_exclusions=exclusions, desktop=desktop)
             except (*ROUTE_ERRORS, Unroutable):
                 continue            # C-6.12: a route that cannot be evaluated is no demand
             demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
@@ -1964,7 +1996,11 @@ class Daemon:
         A `limited` attempt excludes its lane, and so does a second `transient`
         one. After a first `transient` attempt the job is tried once more on the
         same lane and model (C-9.5), while that pair can run at all
-        (`_retry_pair_routable`); the pin is a job dict carrying the pair.
+        (`_retry_pair_routable`); the pin is a job dict carrying the pair. An
+        attempt whose model refused the job for capacity and steered it
+        (`capacity_steer`, C-9.5) sets no pin: the same model on any lane would
+        refuse it the same, and the job is routed as submitted, the model skipped
+        while its steer lasts (`_capacity_steer`).
         """
         previous = self.store.list_attempts(job["job_id"])
         roster = self._pin_roster() if previous else []
@@ -1982,8 +2018,32 @@ class Daemon:
         last = previous[-1] if previous else None
         pin = ({**job, "pinned_lane": last["lane_id"], "pinned_model": last["model_requested"]}
                if last and last["outcome_class"] == "transient" and transient[lane_of[last["lane_id"]]] == 1
-               and self._retry_pair_routable(last) else None)
+               and not _capacity_steer_of(last["evidence_json"]) and self._retry_pair_routable(last) else None)
         return previous, exclusions, pin
+
+    def _capacity_steer(self, job: dict, previous: list[dict], now: datetime | None = None) -> dict[str, str]:
+        """C-9.5, D-CAP1: the models this job's own attempts found at capacity whose steer has not
+        ended at `now` (default: the wall clock), model id to the end of its steer: what admission
+        hands `scheduler.prepare` as the job's `capacity_steer`, read once per look so a job's
+        early evaluation and its reservation's check consult the same recorded steers at their own
+        clocks (C-6.3). Empty for a job no
+        steer applies to (`scheduler.capacity_steerable`). Only the job's own `transient` attempts
+        count: one job's refusal moves no other job, and no lane or account is touched."""
+        if not scheduler.capacity_steerable(job):
+            return {}
+        now = now or datetime.now(timezone.utc)
+        steer: dict[str, str] = {}
+        for attempt in previous:
+            found = _capacity_steer_of(attempt.get("evidence_json")) if attempt.get("outcome_class") == "transient" else None
+            if found is None or _epoch(found["until"]) is None or _epoch(found["until"]) <= now.timestamp():
+                continue
+            steer[found["model_id"]] = max(steer.get(found["model_id"], ""), found["until"])
+        return steer
+
+    def _route_job(self, job: dict, previous: list[dict]) -> dict:
+        """C-9.5: `job` as admission routes it, carrying its live capacity steer when it has one."""
+        steer = self._capacity_steer(job, previous)
+        return {**job, "capacity_steer": steer} if steer else job
 
     def _retry_waits_on_a_slot(self, retry: dict, exclusions: tuple[str, ...], desktop) -> bool:
         """C-4.5, C-6.12: is the retry's lane refusing it only for want of a slot?
@@ -2071,17 +2131,17 @@ class Daemon:
         # Called on a filesystem worker, never on the socket reader pool.
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
-            raise AdapterError("a turn job needs its conversation's turn block", code=7)
+            raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
         if args.push_branch is not None and args.kind != "dispatch":
             raise AdapterError("host push is supported for dispatch jobs", code=7,
-                               fix="submit a dispatch with --push-branch")
+                               fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
         with self._submit_lock:
             reason = args.unmeasured_reserve_reason
             if reason is not None:
                 if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
-                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence")
+                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence", reason="reserve-reason")
                 if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
-                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model")
+                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model", reason="reserve-dispatch")
             batch = self._batch_label(args.batch)
             resume = None
             # C-26.13: a resume or revive continues a native session, and a
@@ -2149,11 +2209,11 @@ class Daemon:
                         raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
                     if self.root not in workdir.parents or git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None:
                         raise AdapterError("gate review cwd must be a neutral directory under the state root",
-                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository")
+                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository", reason="gate-review-cwd")
                 elif args.round_lease:
                     raise ValueError("round_lease is reserved for gate-review jobs")
                 if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
-                    raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir")
+                    raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir", reason="workdir-tmp")
                 # Only a regular file, never waiting in open(): a FIFO (or a device, which
                 # never ends) named here held this submit, `_submit_lock` and every submit after.
                 prompt = read_regular(Path(args.prompt_path).expanduser())
@@ -2165,14 +2225,14 @@ class Daemon:
                     if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
                         raise
                     raise AdapterError(f"cannot resolve output path: {exc}", code=7,
-                                       fix="remove the symlink loop or choose a different -o path") from exc
+                                       fix="remove the symlink loop or choose a different -o path", reason="output-path") from exc
                 if out and not Path(out).parent.is_dir():
                     raise ValueError("output directory must exist")
                 push_remote = push_default = push_head = push_current = push_top = None
                 if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
                     # C-8.5: the job writes its bundle in its own workspace.
                     raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
-                                       code=7, fix="pass -s workspace-write, or omit --push-branch")
+                                       code=7, fix="pass -s workspace-write, or omit --push-branch", reason="push-read-only")
                 if args.push_branch is not None:
                     push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
                         workdir, args.push_branch, self.policy, self.root,
@@ -2180,7 +2240,7 @@ class Daemon:
                 if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
                     if push_current in ("main", "master"):
                         raise AdapterError("writable in-place jobs require a feature branch", code=7,
-                                           fix="choose a feature branch or omit --in-place")
+                                           fix="choose a feature branch or omit --in-place", reason="push-in-place-main")
                 elif sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
                     # C-13.2: the refusal is about where the job writes. A job that
                     # is not in place writes in a detached worktree the daemon cuts
@@ -2198,8 +2258,9 @@ class Daemon:
                                  else "this directory is not a git repository")
                         raise AdapterError(f"{args.task or 'these'} jobs write by policy, and {where}",
                                            fix="commit a baseline or run it from a repository, or pass -s read-only "
-                                               "to run it here without writing")
-                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline")
+                                               "to run it here without writing", reason="policy-workdir",
+                                           details={"repository": where, "task": args.task})
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline", reason="writable-repository")
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
                 # spelled one way (`folders.canonical`, as a conversation's workspace
@@ -2297,16 +2358,19 @@ class Daemon:
                 # `rev-parse` must not read as "not a repository" or "not on main".
                 self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
-                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
+                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
-                raise protocol.ProtocolError(str(exc)) from exc
+                # An argument refusal: the wire reads its template (C-25.7); the
+                # words stay with the exception for its direct callers.
+                raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
             existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
             if existing:
                 if existing["payload_digest"] != digest:
                     # Named, so a caller settling a lost answer (C-16.3) learns
                     # which job holds the id without another round trip.
                     raise protocol.ProtocolError("request id already used with a different "
-                                                 f"payload by job {existing['job_id']}")
+                                                 f"payload by job {existing['job_id']}", reason="different-payload",
+                                                 details={"job_id": existing['job_id']})
                 return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
                         **self._where_it_writes(existing["job_id"], existing["sandbox"])}
             if fence and accepted:
@@ -2359,7 +2423,7 @@ class Daemon:
                 # Only a retry of an accepted request gets here without entries
                 # (`_mcp_entries`), and only when its job was pruned meanwhile.
                 raise AdapterError(f"--mcp {', '.join(mcp_servers)}: the workdir no longer offers them",
-                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id")
+                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id", reason="mcp-workdir-changed")
             jobdir.mkdir(mode=0o700)
             self._publish("prompt", jobdir / "prompt.md", prompt)
             if mcp_servers:
@@ -2392,7 +2456,7 @@ class Daemon:
                     shutil.rmtree(jobdir, ignore_errors=True)
                     self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
                     raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
-                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow") from exc
+                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
                 prefix = (None if args.push_branch is not None else _git_prefix(str(workdir), cap)) or os.path.relpath(os.path.realpath(workdir),
                                                                             os.path.realpath(top))
                 if _outside(prefix):
@@ -2522,14 +2586,15 @@ class Daemon:
             raise ValueError("a conversation turn names no MCP servers; its settings decide them (C-12.9)")
         if sandbox != Sandbox.WORKSPACE_WRITE:
             raise AdapterError(f"--mcp {listed}: a read-only job starts no MCP servers (C-12.9)",
-                               fix="pass -s workspace-write for a job that needs them, or drop --mcp")
+                               fix="pass -s workspace-write for a job that needs them, or drop --mcp", reason="mcp-read-only")
         provider = lane.provider if lane else (self.policy["models"][task_model]["provider"] if task_model else None)
         if provider != scheduler.MCP_PROVIDER:
             where = (f"this job runs on {provider}" if provider
                      else "this job's chain from its tier has no Claude model")
             raise AdapterError(f"--mcp {listed}: only a Claude launch starts MCP servers, and {where} (C-12.9)",
                                fix="pin a Claude model (-m opus, -m sonnet) or a --tier whose chain has one, "
-                                   "or drop --mcp")
+                                   "or drop --mcp", reason="mcp-provider" if provider else "mcp-chain",
+                               details={"provider": provider})
 
     def _mcp_entries(self, args: protocol.SubmitArgs, names: tuple[str, ...], workdir: Path,
                      resume: dict | None) -> dict | None:
@@ -2558,7 +2623,7 @@ class Daemon:
                 raise ValueError("an entry is not an object")
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise AdapterError(f"resume: the MCP servers {source_id} named ({', '.join(names)}) cannot be read "
-                               f"from {path}: {exc}", fix="submit a fresh job naming them with --mcp") from None
+                               f"from {path}: {exc}", fix="submit a fresh job naming them with --mcp", reason="resume-mcp-unreadable") from None
         recorded = (self._read_json(self.root / "jobs" / source_id / "manifest.json") or {}).get("mcp")
         recorded = recorded if isinstance(recorded, dict) else {}
         return {"document": claude_mcp.config_document(entries),
@@ -2583,14 +2648,15 @@ class Daemon:
             row = tx.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
             if row:
                 raise AdapterError(f"resume refused: {args.parent_job_id} is being archived by retention",
-                                   code=int(Exit.OPERATIONAL), fix="retry in a minute")
+                                   code=int(Exit.OPERATIONAL), fix="retry in a minute", reason="resume-retention",
+                                   details={"job_id": args.parent_job_id})
             tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
         return key, holder
 
     def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
         """Resolve the native session on its original lane before persisting a resume."""
         if not args.parent_job_id:
-            raise protocol.ProtocolError("resume requires its source parent_job_id")
+            raise protocol.ProtocolError("resume requires its source parent_job_id", reason="resume-parent")
         source = self._job(args.parent_job_id)
         if source["kind"] == "turn":
             # C-26.3, C-26.13: a turn's session is its conversation's; the next
@@ -2598,23 +2664,23 @@ class Daemon:
             raise AdapterError(
                 f"resume refused: {source['job_id']} is a conversation turn, and a "
                 "conversation's session continues only in its conversation",
-                code=7, fix=CONVERSATION_FIX)
+                code=7, fix=CONVERSATION_FIX, reason="resume-conversation", details={"job_id": source['job_id']})
         if source["state"] not in TERMINAL or self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                 "('reserved','starting','running','finalizing','quarantined')", (source["job_id"],)):
             raise AdapterError("source job is still active or quarantined",
-                               fix="wait for its completion or resolve containment before resuming")
+                               fix="wait for its completion or resolve containment before resuming", reason="resume-source-active")
         if source["isolated_review"]:
             raise AdapterError("isolated review cannot resume a contextual session",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume")
         attempt = (self.store.get_attempt(source["accepted_attempt_id"])
                    if source["accepted_attempt_id"] else self.store.one(
                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (source["job_id"],)))
         if not attempt:
-            raise AdapterError("source job has no provider attempt", fix="submit a fresh job")
+            raise AdapterError("source job has no provider attempt", fix="submit a fresh job", reason="resume-no-attempt")
         native = attempt["native_session_id"] or self._legacy_resume_identity(attempt)
         if not native:
-            raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job")
+            raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job", reason="resume-no-session")
         # C-26.13: a detached job's session a person has since opened as a
         # conversation (`conversation.open` with `native`) is the conversation's.
         # `submit` refuses it, after C-6.2's retry check (`_accepted_request`).
@@ -2628,11 +2694,11 @@ class Daemon:
         try:
             asked = claude_mcp.validate_names(args.mcp_servers or ())
         except ValueError as exc:
-            raise protocol.ProtocolError(str(exc)) from exc
+            raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
         if asked and asked != recorded:
             raise AdapterError(f"a resume starts its source's MCP servers ({', '.join(recorded) or 'none'}), "
                                f"not {', '.join(asked)} (C-12.9)",
-                               fix="resume without --mcp, or submit a fresh job naming the servers it needs")
+                               fix="resume without --mcp, or submit a fresh job naming the servers it needs", reason="resume-mcp-mismatch")
         source_manifest = self._read_json(self.root / "jobs" / source["job_id"] / "manifest.json") or {}
         preamble = source_manifest.get("preamble")
         if preamble is None:
@@ -2696,16 +2762,16 @@ class Daemon:
         if value is None:
             return None
         if not isinstance(value, dict):
-            raise protocol.ProtocolError("batch must be an object with id, label, index and size")
+            raise protocol.ProtocolError("batch must be an object with id, label, index and size", reason="batch-object")
         ident, label = value.get("id"), value.get("label")
         index, size = value.get("index"), value.get("size")
         if not isinstance(ident, str) or not 1 <= len(ident) <= 128:
-            raise protocol.ProtocolError("batch.id must contain 1 to 128 characters")
+            raise protocol.ProtocolError("batch.id must contain 1 to 128 characters", reason="batch-id")
         if not isinstance(label, str) or not 1 <= len(label) <= 80:
-            raise protocol.ProtocolError("batch.label must contain 1 to 80 characters")
+            raise protocol.ProtocolError("batch.label must contain 1 to 80 characters", reason="batch-label")
         if (not all(isinstance(n, int) and not isinstance(n, bool) for n in (index, size))
                 or not 1 <= index <= size <= 256):
-            raise protocol.ProtocolError("batch.index and batch.size must satisfy 1 <= index <= size <= 256")
+            raise protocol.ProtocolError("batch.index and batch.size must satisfy 1 <= index <= size <= 256", reason="batch-index")
         return {"id": ident, "label": label, "index": index, "size": size}
 
     def _batches(self, job_ids: list[str]) -> dict[str, dict]:
@@ -2924,10 +2990,12 @@ class Daemon:
                             held.add(git_toplevel(row["worktree"] or row["workdir"], timeout_s=cap) or row["workdir"])
                 except SalvageError as exc:
                     raise AdapterError(f"could not inspect the worktree of {row['job_id']}: {exc}",
-                                       code=int(Exit.OPERATIONAL), fix="submit again") from exc
+                                       code=int(Exit.OPERATIONAL), fix="submit again", reason="inspect-writer",
+                                       details={"job_id": row['job_id']}) from exc
                 if write_target in held:
                     raise AdapterError(f"worktree {write_target} is held by a live writable job ({row['job_id']})",
-                                       fix="wait for the current writer or choose another worktree")
+                                       fix="wait for the current writer or choose another worktree", reason="worktree-writer",
+                                       details={"job_id": row['job_id']})
         session = job.get("caller_session")
         if not session:
             return frozenset()
@@ -2937,13 +3005,15 @@ class Daemon:
             if job.get("kind") == "revive" or row["kind"] == "revive":
                 # C-23.54: a revive IS another instance of the session it continues.
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and a revive is a second instance of it",
-                                   fix=f"wait for {holder}, or kill it before reviving or dispatching")
+                                   fix=f"wait for {holder}, or kill it before reviving or dispatching", reason="revive-writer",
+                                   details={"job_id": holder})
             theirs = recorded[holder].get("caller_instance")
             if instance is not None and theirs == instance:
                 continue
             if instance is None:
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and the submitting instance cannot be identified",
-                                   fix=f"submit from the session's own shell (CLAUDE_PID), or wait for {holder}")
+                                   fix=f"submit from the session's own shell (CLAUDE_PID), or wait for {holder}",
+                                   reason="unidentified-writer", details={"job_id": holder})
             alive = self._instance_alive(theirs) if theirs else None
             if (alive is True and instance.get("pid") == theirs.get("pid")
                     and instance.get("proc_start") == theirs.get("proc_start")):
@@ -2952,11 +3022,13 @@ class Daemon:
                 continue        # its instance is gone: a resumed session is one instance, not two
             who = f"another live instance (pid {theirs['pid']})" if alive else "an instance that cannot be identified"
             raise AdapterError(f"session {session} already has a live writable job ({holder}) from {who}",
-                               fix=f"dispatch from that instance, or wait for or kill {holder}")
+                               fix=f"dispatch from that instance, or wait for or kill {holder}", reason="other-writer",
+                               details={"job_id": holder})
         limit = policy_cap(self.policy["caps"], "max_writable_per_session")       # C-6.4: none by default
         if limit is not None and len(mine) >= limit:
             raise AdapterError(f"session {session} already holds {len(mine)} live writable jobs (caps.max_writable_per_session {limit})",
-                               fix="wait for one to finish, or raise the cap in policy.json")
+                               fix="wait for one to finish, or raise the cap in policy.json", reason="writer-cap",
+                               details={"count": len(mine), "limit": limit})
         return frozenset(row["job_id"] for row in mine)
 
     def _refuse_second_revive(self, job: dict) -> None:
@@ -2976,7 +3048,8 @@ class Daemon:
                 holder = leases[0][1] if leases else live["job_id"]
                 raise AdapterError(
                     f"session {session} already has a live revive ({holder})", code=7,
-                    fix=f"subfleet runs show {holder}, or kill it before reviving again")
+                    fix=f"subfleet runs show {holder}, or kill it before reviving again", reason="revive-held",
+                    details={"job_id": holder})
 
     def _read_only_clears(self, job: dict, write_target: str | None,
                           output_claim: resource_leases.OutputClaim | None = None) -> bool:
@@ -3000,17 +3073,17 @@ class Daemon:
                 (len(prefix), prefix, job["job_id"]))
             if (lease and lease["holder"] != f"gate-round:{job['job_id']}") or active:
                 raise AdapterError("gate already has a reserved peer round",
-                                   fix="wait for or explicitly abandon the existing gate round")
+                                   fix="wait for or explicitly abandon the existing gate round", reason="gate-round-held")
         if job.get("parent_job_id"):
             parent = self._job(job["parent_job_id"])
             if parent["cancel_requested_at"] and not job.get("independent"):
-                raise AdapterError("parent is cancelled", fix="submit an independent job")
+                raise AdapterError("parent is cancelled", fix="submit an independent job", reason="parent-cancelled")
             limit = policy_cap(self.policy["caps"], "max_child_jobs")                 # C-6.4: none by default
             count = (self.store.one("SELECT count(*) AS n FROM jobs WHERE parent_job_id=?", (parent["job_id"],))["n"]
                      if limit is not None else 0)
             if limit is not None and count >= limit:
                 raise AdapterError("parent child budget exhausted (caps.max_child_jobs)",
-                                   fix="use a new parent job, or raise or remove the cap in policy.json")
+                                   fix="use a new parent job, or raise or remove the cap in policy.json", reason="parent-child-cap")
         self._refuse_second_revive(job)
         conflicts: list[tuple[str, Any, str]] = []
         if job.get("out_path"):
@@ -3018,15 +3091,15 @@ class Daemon:
                 assert not self.store._holds_writer(), "output identity must be prepared outside the transaction"
                 output_claim = resource_leases.OutputClaim.prepare(self.store.query, job["out_path"], census=True)
             if output_claim.holds(self.store.query):
-                raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine")
+                raise AdapterError("output path is held by another job", fix="use a different -o path or resolve quarantine", reason="out-path-held")
             if output_claim.live_jobs(self.store.query):
-                raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner")
+                raise AdapterError("out_path is held by a live job", fix="use a different -o path or wait for its owner", reason="out-path-live")
         if job["sandbox"] == "workspace-write":
             if job.get("in_place"):
                 conflicts.append(("workdir", job["workdir"], "wait for the current writer or choose another worktree"))
                 for folder in {job["workdir"], write_target or job["workdir"]}:
                     if self.store.one("SELECT * FROM leases WHERE lease_key=?", (folders.exclusive_key(folder),)):
-                        raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace")
+                        raise AdapterError("worktree has a lease", fix="resolve its owner before reusing the workspace", reason="worktree-lease")
                     # C-6.5, C-24.5: a writable conversation turn holds its folder with a
                     # row of its own (one live after its job ended, while its attempt is
                     # quarantined, too); a detached writer never joins it there.
@@ -3034,7 +3107,8 @@ class Daemon:
                     if turns:
                         raise AdapterError(f"worktree {folder} is being written by a conversation turn ({turns[0][1]})",
                                            fix="wait for the conversation's turn to end, or run the job in its own "
-                                               "worktree (without --in-place)")
+                                               "worktree (without --in-place)", reason="conversation-writer",
+                                           details={"job_id": turns[0][1]})
             if job.get("caller_session"):
                 # C-6.5, SQL only (C-3.3): `_writable_precheck` judged every job
                 # in `cleared`; one that is not there was never judged.
@@ -3045,12 +3119,13 @@ class Daemon:
                         (*params, job["job_id"])):
                     if row["job_id"] not in cleared:
                         raise AdapterError(f"session {job['caller_session']} has a live writable job ({row['job_id']}) this submission was not checked against",
-                                           fix="submit again")
+                                           fix="submit again", reason="writer-changed",
+                                           details={"job_id": row['job_id']})
         for column, value, fix in conflicts:
             writable = " AND sandbox='workspace-write'" if column != "out_path" else ""
             if self.store.one(f"SELECT job_id FROM jobs WHERE {column}=? AND state NOT IN "
                               f"('succeeded','failed','cancelled','lost'){writable}", (value,)):
-                raise AdapterError(f"{column} is held by a live job", fix=fix)
+                raise AdapterError(f"{column} is held by a live job", fix=fix, reason="path-lease")
 
     @staticmethod
     def _validate_home(lane: Lane) -> None:
@@ -3063,7 +3138,7 @@ class Daemon:
             auth = None                                            # none there, as `is_file()` had said
         if auth is not None:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
-                raise AdapterError("API-key home refused", fix="log this lane into a subscription account")
+                raise AdapterError("API-key home refused", fix="log this lane into a subscription account", reason="api-key-home")
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
@@ -3090,10 +3165,10 @@ class Daemon:
         if lane.provider != "codex" or binary is None:
             return None
         try:
-            from .guard.preflight import preflight
+            from .guard.preflight import PROBE, TIMEOUT, preflight
         except ImportError:
             raise AdapterError("Codex guard preflight is not installed", code=7,
-                               fix="install the Codex adapter and reviewed guard files") from None
+                               fix="install the Codex adapter and reviewed guard files", reason="guard-missing") from None
         options = {"state_root": state_root} if state_root is not None else {}
         if env is not None:
             options["env"] = env
@@ -3101,7 +3176,11 @@ class Daemon:
         if recorder is not None:
             recorder(result)
         if not result.ok or not result.override:
-            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor")
+            # A timeout or an unusable probe is not a mismatch: its template says so (C-14.2).
+            raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor",
+                               reason=("guard-preflight-timeout" if result.kind == TIMEOUT else
+                                       "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"),
+                               details={"guard_kind": result.kind})
         return result if full else result.override
 
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
@@ -3152,7 +3231,7 @@ class Daemon:
             if (args.get("kind") == "turn" or str(args.get("request_id") or "").startswith("turn:")
                     or "turn" in args):
                 raise AdapterError("conversation turns are created by the daemon, not submitted", code=7,
-                                   fix="send a message with message.submit")
+                                   fix="send a message with message.submit", reason="turn-submit")
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
             a = protocol.coerce_args(protocol.ListArgs, args)
@@ -3170,16 +3249,16 @@ class Daemon:
             # (C-16.3), so the turn default does not apply to it.
             if a.kind is not None:
                 if not isinstance(a.kind, str) or not a.kind:
-                    raise protocol.ProtocolError("kind must name a job kind")
+                    raise protocol.ProtocolError("kind must name a job kind", reason="list-kind")
                 sql += " AND kind=?"; params.append(a.kind)
             elif not isinstance(a.include_turns, bool):
-                raise protocol.ProtocolError("include_turns must be true or false")
+                raise protocol.ProtocolError("include_turns must be true or false", reason="list-include-turns")
             elif not a.include_turns and a.request_id is None:
                 sql += " AND kind<>'turn'"
             sql += " ORDER BY created_at DESC, rowid DESC"
             if a.last is not None:
                 if not isinstance(a.last, int) or a.last < 0:
-                    raise protocol.ProtocolError("last must be a nonnegative integer")
+                    raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
             jobs = self.store.query(sql, params)
             batches = self._batches([row["job_id"] for row in jobs])
@@ -3220,7 +3299,8 @@ class Daemon:
                         self.store, self.root, a.lane_id, a.owner,
                         dry_run=bool(a.dry_run), confirm_v1_edit=bool(a.confirm_v1_edit))
                 except lanes_transfer.TransferError as exc:
-                    raise protocol.ProtocolError(str(exc), exc.code, exc.fix) from None
+                    raise protocol.ProtocolError(str(exc), exc.code, exc.fix, reason=exc.reason,
+                                                 details=exc.details) from None
                 return {"transfer": result,
                         "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
             if a.action == "enroll":
@@ -3262,9 +3342,9 @@ class Daemon:
                 if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
                     raise protocol.ProtocolError(
                         f"notice.ack: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
-                        "give one per id, or none")
+                        "give one per id, or none", reason="notice-ack-fingerprints")
                 if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
-                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it")
+                    raise protocol.ProtocolError("notice.ack: every fingerprint is a string, as the listing gives it", reason="notice-ack-fingerprint-type")
                 unique: dict = {}                       # a repeated id: once, with its first fingerprint
                 for index, notice_id in enumerate(a.notice_ids):
                     unique.setdefault(notice_id, a.fingerprints[index] if a.fingerprints else None)
@@ -3291,7 +3371,7 @@ class Daemon:
                 # an offer read before a hook surfaced the notice cannot put it
                 # back where the next hook would surface it again.
                 if a.state not in ("offered", "surfaced", "acknowledged"):
-                    raise protocol.ProtocolError(f"unknown notice state {a.state!r}")
+                    raise protocol.ProtocolError(f"unknown notice state {a.state!r}", reason="notice-state")
                 below = NOTICE_LADDER[:NOTICE_LADDER.index(a.state) + 1]
                 movable = tuple(state for state in below if state != "acknowledged")
                 stamp = utcnow()
@@ -3312,7 +3392,7 @@ class Daemon:
             text = args.get("text")
             text = "" if text is None else text
             if not isinstance(text, str):
-                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)")
+                raise protocol.ProtocolError(f"ping: text must be a string, not {type(text).__name__} (C-15.8)", reason="ping-text")
             # C-15.8: a notice goes to the session named, else to the configured
             # operator session; there is no default inbox nobody reads. A blank
             # or non-string session names none, and whitespace is no text.
@@ -3325,7 +3405,7 @@ class Daemon:
                     raise protocol.ProtocolError(
                         "ping: no session named, and alerts.operator_session is not set; "
                         "a notice addressed to no session is never read (C-15.8)",
-                        fix="name the session: subfleet ping --session <id> TEXT")
+                        fix="name the session: subfleet ping --session <id> TEXT", reason="ping-session")
                 with self.store.transaction("notice.pending", data={"session_id": session}) as tx:
                     cursor = tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES(?,?,'pending',?)",
                                         (session, text, utcnow()))
@@ -3348,7 +3428,7 @@ class Daemon:
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
-        raise protocol.ProtocolError(f"unknown op {op}")
+        raise protocol.request_error("unknown-op")
 
     def _disk_rows(self) -> list[dict]:
         # C-3.7: only live attempts and the tiny budget, never their full evidence.
@@ -3632,7 +3712,7 @@ class Daemon:
             raise AdapterError(
                 f"{verb} refused: session {session_id} belongs to {binding}, and a "
                 "conversation's session continues only in its conversation",
-                code=7, fix=CONVERSATION_FIX)
+                code=7, fix=CONVERSATION_FIX, reason="conversation-session", details={"session_verb": verb})
 
     def sessions(self, args: protocol.SessionsArgs) -> dict:
         action = args.action or "state"
@@ -3663,7 +3743,8 @@ class Daemon:
                     "conversation_sessions": self._conversation_session_ids()}
         if action == "revived":
             if not args.session_id:
-                raise protocol.ProtocolError("sessions revived: session_id is required")
+                raise protocol.ProtocolError("sessions revived: session_id is required", reason="sessions-id",
+                                             details={"action": "revived"})
             # C-23.39: retain the operator's model substitution as history.
             # Admission remains governed by the live lease (C-23.55).
             data = {"session_id": args.session_id, "dedupe_key": args.dedupe_key,
@@ -3674,7 +3755,8 @@ class Daemon:
             return {"session_id": args.session_id, "recorded": True}
         if action in ("retire", "unretire"):
             if not args.session_id:
-                raise protocol.ProtocolError(f"sessions {action}: session_id is required")
+                raise protocol.ProtocolError(f"sessions {action}: session_id is required", reason="sessions-id",
+                                             details={"action": action})
             kind = RETIRE_EVENT if action == "retire" else UNRETIRE_EVENT
             data = {"session_id": args.session_id, "reason": args.reason, **args.detail}
             with self.store.transaction(audit_kind(kind), data=data) as tx:
@@ -3683,7 +3765,8 @@ class Daemon:
             return {"session_id": args.session_id, "action": action, "recorded": True}
         if action == "nudged":
             if not args.session_id:
-                raise protocol.ProtocolError("sessions nudged: session_id is required")
+                raise protocol.ProtocolError("sessions nudged: session_id is required", reason="sessions-id",
+                                             details={"action": "nudged"})
             if self._conversation_binding(args.session_id):
                 # C-26.3, C-26.13, D-17: a nudge would be a second writer in the
                 # session of a conversation, or of a turn that ran there before its
@@ -3718,7 +3801,7 @@ class Daemon:
                            (utcnow(), NUDGE_EVENT, json.dumps(data, sort_keys=True)))
             return {"recorded": True, "session_id": args.session_id,
                     "dedupe_key": args.dedupe_key, "kind": args.kind}
-        raise protocol.ProtocolError(f"unknown sessions action {action!r}")
+        raise protocol.ProtocolError(f"unknown sessions action {action!r}", reason="sessions-action")
 
     def wait(self, args: protocol.WaitArgs, arrived: float | None = None, *,
              client_gone: Callable[[], bool] | None = None) -> dict:
@@ -3730,7 +3813,7 @@ class Daemon:
             deadline = (time.monotonic() if arrived is None else arrived) + max(
                 0, min(float(args.deadline_s), WAIT_POLL_MAX_S))
         except (TypeError, ValueError):
-            raise protocol.ProtocolError("deadline_s must be a number") from None
+            raise protocol.ProtocolError("deadline_s must be a number", reason="wait-deadline") from None
         job_ids = args.job_ids
         if not job_ids:
             job_ids = [j["job_id"] for j in self.dispatch("list", {"mine": args.mine, "last": 1 if args.last else None})["jobs"]]
@@ -4070,13 +4153,13 @@ class Daemon:
             raise protocol.ProtocolError(
                 f"notice.withdraw: {len(jobs)} job notice(s) named (ids {jobs[:5]}); a job's notice is its "
                 "terminal record and is acknowledged, never withdrawn (C-15.8)",
-                fix=f"subfleet notices --session {a.session_id} --ack")
+                fix=f"subfleet notices --session {a.session_id} --ack", reason="notice-withdraw-job")
         if a.fingerprints and len(a.fingerprints) != len(a.notice_ids):
             raise protocol.ProtocolError(
                 f"notice.withdraw: {len(a.fingerprints)} fingerprints for {len(a.notice_ids)} ids; "
-                "give one per id, or none")
+                "give one per id, or none", reason="notice-withdraw-fingerprints")
         if any(not isinstance(fingerprint, str) for fingerprint in a.fingerprints):
-            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it")
+            raise protocol.ProtocolError("notice.withdraw: every fingerprint is a string, as the listing gives it", reason="notice-withdraw-fingerprint-type")
         listed: dict = {}
         for index, notice_id in enumerate(a.notice_ids):          # a repeated id: its first fingerprint
             if a.fingerprints:
@@ -4422,7 +4505,7 @@ class Daemon:
             try:
                 ready = not future.cancelled() and future.result()
             except AdapterError as exc:
-                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                 ready = False
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
@@ -4494,8 +4577,7 @@ class Daemon:
             if not ready:
                 error = (future.exception() if future is not None and future.done()
                          and not future.cancelled() else None)
-                holds[job_id] = ({"reason": "workspace", "error_type": type(error).__name__,
-                                  "error": str(error)[:200]} if error
+                holds[job_id] = ({"reason": "workspace", **self._hold_error(error)} if error
                                  else {"reason": "workspace", "preparing": True})
                 skipped.add(job_id)
                 if future is not None and not future.done():
@@ -4625,11 +4707,19 @@ class Daemon:
                     self._discard_worktree(job["workdir"], workdir, cap)
                     # A git killed by a signal did not finish, as a timed-out one did not.
                     killed = _failure("worktree", result) if result.returncode < 0 else None
-                    error = "could not allocate worktree: " + (
-                        str(killed) if killed else result.stderr.strip()[-300:] or f"git exited {result.returncode}")
-                    if killed or _transient_git(result.stderr):
-                        raise SalvageError(error, transient=True)
-                    raise AdapterError(error, fix="check repository and state-root permissions")
+                    if killed:
+                        raise SalvageError(f"could not allocate worktree: {killed}", transient=True)
+                    # What it printed can be the repository's own: a `post-checkout`
+                    # hook's stderr, or a smudge filter's. It goes to daemon.log only,
+                    # scrubbed whole; the job's records say how git ended (C-25.7;
+                    # review r6 of #181, P1). Its words still say whether to wait (C-6.8).
+                    self.log.warning("job %s: %s", job["job_id"], refusals.scrubbed_line(
+                        f"git worktree add exited {result.returncode}: {result.stderr}"))
+                    if _transient_git(result.stderr):
+                        raise SalvageError(f"could not allocate worktree: git worktree add exited {result.returncode}; "
+                                           "daemon.log has its output", transient=True)
+                    raise AdapterError("could not allocate the worktree; daemon.log has git's output",
+                                       fix="check repository and state-root permissions", reason="workspace-prepare")
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -4889,9 +4979,7 @@ class Daemon:
         command += ["--", *launch.argv]
         child = None
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             identity_deadline = time.monotonic() + 2
             started = procs.proc_start(child.pid)
             while not started and child.poll() is None and time.monotonic() < identity_deadline:
@@ -4901,6 +4989,8 @@ class Daemon:
                 raise procs.InspectionError("probe guardian identity is absent")
             record.update(state="starting", guardian_pid=child.pid, pgid=child.pid,
                           boot_id=procs.boot_id(), proc_start=started)
+            if root:
+                record["responsible_root"] = root      # D-CEN1, beside the identity
             self._save_probe(record)
             # Ownership has committed. Serialize the gate decision and byte with
             # cancellation too: a completed queued cancel must start no provider.
@@ -5578,6 +5668,10 @@ class Daemon:
         # #147: a waiting hard-tier priority job let later standard and trivial
         # jobs take the slots it was waiting for).
         priority_waiters: list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]] = []
+        # A waiter may still demand another model in its chain. A later job
+        # trying a model this waiter is steered away from is compared again
+        # on its actual selection, before any reservation.
+        steered_demands: dict[str, frozenset[str]] = {}
 
         def wait(tier, klass, waiter):
             waiters.setdefault(tier, []).append(waiter)
@@ -5660,16 +5754,17 @@ class Daemon:
                 except Exception as exc:            # C-6.12: anything else is this job's, never the pass's
                     if self._turn_check_errors.get(job["job_id"]) != type(exc).__name__:
                         self.log.warning("admission: job %s: its conversation could not be checked: %s",
-                                         job["job_id"], type(exc).__name__)
+                                         job["job_id"], refusals.scrubbed_words(exc))
                     self._turn_check_errors[job["job_id"]] = type(exc).__name__
                     try:
                         manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json")
                     except (OSError, ValueError):
                         manifest = None
                     turn = manifest.get("turn") if isinstance(manifest, dict) else None
+                    # The turn's `state_reason` and `why` read the hold (C-25.7): its words are logged above.
                     hold = {"reason": "conversation-blocked",
                             "conversation_id": turn.get("conversation_id") if isinstance(turn, dict) else None,
-                            "error_type": type(exc).__name__, "error": str(exc)[:200]}
+                            "error_type": refusals.class_name(exc), "error": "its text is in daemon.log"}
                 if hold:
                     holds[job["job_id"]] = hold
                     continue
@@ -5709,7 +5804,15 @@ class Daemon:
             verdict = self._retry_verdicts.get(job["job_id"])
             let_go = bool(retry and verdict and verdict[0] == previous[-1]["attempt_id"] and not verdict[1]
                           and job["next_check_at"] and job["next_check_at"] > utcnow())
-            models = scheduler.demand_models(self.policy, job if let_go else retry or job)
+            # C-6.9, C-9.5: FIFO must see the same live steer as routing,
+            # including when a backed-off waiter is not due for evaluation.
+            routed_job = self._route_job(job, previous)
+            models = scheduler.demand_models(self.policy, routed_job if let_go else retry or routed_job)
+            if routed_job.get("capacity_steer"):
+                original = scheduler.demand_models(self.policy, job)
+                remaining = scheduler.demand_models(self.policy, routed_job)
+                if original is not None and remaining is not None:
+                    steered_demands[job["job_id"]] = original - remaining
             lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
             pool = "turn" if job["kind"] == "turn" else "detached"
             pool_cap = turns_cap if pool == "turn" else cap
@@ -5744,7 +5847,7 @@ class Daemon:
                 job has run (review of PR #72)."""
                 return not (waiter[3] and waiter[3] & own_leases())
 
-            def ahead(models, lanes):
+            def ahead(models, lanes, *, chosen=None):
                 """The oldest waiter this job may not pass (C-6.9), or None: only one
                 waiting for a slot. A waiter on a lease waits for no slot this job
                 could take; its lease keeps its place in `lease_queue`, and the last
@@ -5755,9 +5858,19 @@ class Daemon:
                 waited for the other until `max_wall_s`)."""
                 if fifo_scope is None:
                     return None
+
+                def compared_models(waiter):
+                    skipped = steered_demands.get(waiter[0], frozenset())
+                    if skipped and models is not None and skipped & models:
+                        # The later job may run on a model the waiter cannot use.
+                        # Defer only this comparison until selection; if it selects
+                        # the waiter's remaining model, FIFO still applies.
+                        return frozenset({chosen}) if chosen else frozenset()
+                    return models
+
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
-                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and scheduler.competes(compared_models(waiter), waiter[1], lanes, waiter[2])
                              and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
 
             def unadmittable_now():
@@ -5944,7 +6057,7 @@ class Daemon:
                     prepared = job.get("worktree") or str(self.root / "worktrees" / job["job_id"])
                     if not Path(prepared).is_dir():
                         raise AdapterError("host push workspace disappeared after preparation", code=7,
-                                           fix="resubmit the job to rebuild its checkout")
+                                           fix="resubmit the job to rebuild its checkout", reason="push-workspace-gone")
                     # Readiness may race cancellation or removal. This local
                     # ownership snapshot keeps _workspace's direct-call fallback
                     # out of admission even if the directory disappears now.
@@ -5957,7 +6070,7 @@ class Daemon:
                     native_session = (manifest.get("resume") or {}).get("native_session_id")
                     if not native_session:
                         raise AdapterError("resume source identity is missing",
-                                           fix="resubmit the resume from the original job")
+                                           fix="resubmit the resume from the original job", reason="resume-identity-missing")
                 if native_session and job["kind"] in ("resume", "revive"):
                     # C-26.13: the session became a conversation's after this job
                     # was submitted (a person opened it in the app). Refused, not
@@ -5965,13 +6078,12 @@ class Daemon:
                     # with the conversation.
                     self._refuse_conversation_session(native_session, job["kind"])
             except AdapterError as exc:
-                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                 continue
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
                 self._workspace_failed(job, exc)
                 self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
-                holds[job["job_id"]] = {"reason": "workspace", "error_type": type(exc).__name__,
-                                        "error": str(exc)[:200]}
+                holds[job["job_id"]] = {"reason": "workspace", **self._hold_error(exc)}
                 continue
             write_target = self._write_target(job, workspace) if job["sandbox"] == "workspace-write" else None
             # C-8.4: a read-only turn's Git hold, which may differ from its cwd.
@@ -6019,7 +6131,9 @@ class Daemon:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
-            decision_job = job
+            # Keep the steers read for FIFO above, with the job's current workspace
+            # fields. Each evaluation checks their expiry against its own clock.
+            decision_job = {**job, "capacity_steer": routed_job.get("capacity_steer", {})}
             turn_block = None
             if job["kind"] == "turn":
                 turn_block = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}
@@ -6037,7 +6151,7 @@ class Daemon:
                     # C-4.5 "then next candidate": the pair's lane refuses it for
                     # something a slot will not end, so the job routes as submitted,
                     # and as submitted it keeps C-6.9's place behind older jobs.
-                    models = scheduler.demand_models(self.policy, job)
+                    models = scheduler.demand_models(self.policy, decision_job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = None if defer_fifo else ahead(models, lanes)
                     # C-6.12: exclusions that cannot be merged are its route's problem, so such a
@@ -6181,7 +6295,7 @@ class Daemon:
                             try:
                                 self._refuse_conversation_session(native_session, job["kind"])
                             except AdapterError as exc:
-                                self._fail_queued(job, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+                                self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                                 status = "settled"
                                 break
                         if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
@@ -6262,7 +6376,9 @@ class Daemon:
                                                    if models is not None else frozenset(
                                                        name for name, model in self.policy["models"].items()
                                                        if model["provider"] == provider))
-                                fifo_behind = ahead(selected_models, lanes)
+                                fifo_behind = ahead(selected_models, lanes, chosen=decision.chosen_model)
+                            elif steered_demands:
+                                fifo_behind = ahead(models, lanes, chosen=decision.chosen_model)
                             provider_limit = scheduler.provider_cap(self.policy, provider)
                             if provider_limit is not None:
                                 # C-6.4: both pools share this count. Check inside the
@@ -6290,6 +6406,13 @@ class Daemon:
                             for_good = (None if decision.chosen_lane or rotation
                                         else scheduler.refused_for_good(self.policy, decision, decision_job,
                                                                         pin_view()["lanes"]))
+                            if (not decision.chosen_lane and not rotation
+                                    and decision_job.get("capacity_steer")
+                                    and (not decision.evaluations or for_good)):
+                                # C-6.9, C-9.5: a steer ends, so standing refusal must
+                                # cover the whole chain, as while the job's clock runs.
+                                # A fully steered chain has no refusal evaluations.
+                                for_good = unadmittable_now()[0]
                             if not for_good:
                                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
@@ -6338,7 +6461,8 @@ class Daemon:
                             # recorded an unchanged verdict again on each fleet turnover.
                             rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
-                            waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
+                            waiting = scheduler.waiting_metadata(
+                                decision, rechecks=rechecks, capacity_steer=decision_job.get("capacity_steer"))
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
@@ -6614,7 +6738,12 @@ class Daemon:
                 self._count_route(deferred=1)
                 # C-11.8: never from a decision with rotation's lanes left out, which read
                 # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
-                if rotation or not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):
+                moved_for_good = None if rotation else scheduler.refused_for_good(
+                    self.policy, decision, decision_job, pin_view()["lanes"])
+                if (not rotation and decision_job.get("capacity_steer")
+                        and (not decision.evaluations or moved_for_good)):
+                    moved_for_good = unadmittable_now()[0]      # C-6.9, C-9.5: whole chain, as above
+                if not moved_for_good:
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
@@ -7106,8 +7235,13 @@ class Daemon:
     def _workspace_error(exc: BaseException) -> tuple[bool, dict]:
         """(transient, record) for a workspace preparation failure (C-6.8).
 
-        The text is git's verb, cap and stderr, or the `OSError`: a path and an
-        errno, never a credential, so unlike a provider error it is recorded.
+        The record reaches the job's events, its hold (`why`, `status`, a turn's
+        `state_reason`), `runs show` and its notice, so it holds only our own words
+        (C-25.7): git's verb, its cap and how it ended, an OS error's errno and
+        `os.strerror` text, and the paths the store holds. What git printed (a
+        repository's own hooks and filters print there too) and any exception's own
+        text go to daemon.log only, scrubbed (`refusals.scrubbed_words`; review r6 of
+        #181, P1); a `SalvageError` that quotes them says what may be shown (`public`).
         """
         cause = exc.__cause__ if isinstance(exc, SalvageError) and exc.__cause__ else exc
         transient = (isinstance(exc, subprocess.TimeoutExpired) or transient_os_error(exc)
@@ -7116,12 +7250,31 @@ class Daemon:
             command = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
             verb = next((part for part in command[3:] if not str(part).startswith("-")), "git")
             message = f"git {verb} timed out after {exc.timeout:g} s"
-        else:
+        elif isinstance(exc, SalvageError):
             # Valid UTF-8, as C-13.1's: the record reaches an event and the job's notice,
-            # which SQLite writes as strict UTF-8 (review of cda4c161, N1; a `SalvageError`
-            # already is, and this holds for any other error's text).
-            message = utf8_text(str(exc)) or type(exc).__name__
-        return transient, {"error_type": type(cause).__name__, "error": message[:500]}
+            # which SQLite writes as strict UTF-8 (review of cda4c161, N1).
+            message = exc.public if exc.public is not None else str(exc)
+        elif isinstance(exc, OSError):
+            message = refusals.errno_text(exc) or refusals.class_name(exc)
+        elif isinstance(exc, subprocess.CalledProcessError) and type(exc.returncode) is int:
+            message = f"exit {exc.returncode}"
+        else:
+            message = "its text is in daemon.log"
+        return transient, {"error_type": refusals.class_name(cause), "error": message[:500]}
+
+    def _hold_error(self, exc: BaseException) -> dict:
+        """What a `workspace` hold says of the failure that made it: a handler
+        refusal's public text (`refusals.refusal_detail`), else the C-6.8 record."""
+        if isinstance(exc, AdapterError):
+            return {"error_type": refusals.class_name(exc), "error": refusals.refusal_detail(exc)[:500]}
+        return self._workspace_error(exc)[1]
+
+    def _refused_job(self, job_id: str, exc: BaseException) -> str:
+        """A handler refusal as the job's records keep it (its notice, an attempt's
+        detail): the public text the wire would show; its own words go to daemon.log
+        only, scrubbed whole (C-25.7; review r6 of #181, P1)."""
+        refusals.log_detail(self.log, job_id, exc, subject="job")
+        return refusals.refusal_detail(exc)
 
     def _workspace_failed(self, job: dict, exc: BaseException) -> None:
         """C-6.8: a transient failure waits with backoff; anything else, or a
@@ -7130,6 +7283,12 @@ class Daemon:
         count = self._workspace_deferrals.get(job["job_id"], 0) + 1
         limit = self.policy["caps"]["workspace_retry_max"]
         detail = f"{record['error_type']}: {record['error']}"
+        # What the record leaves out, for daemon.log only: the cause's class, as the
+        # record names it, and the error's own words, scrubbed whole.
+        try:
+            words = refusals.scrubbed_line(f"{record['error_type']}: {exc}")
+        except Exception:                           # noqa: BLE001 - what cannot be rendered is not logged
+            words = detail
         if transient and count <= limit:
             delay = min(WORKSPACE_RETRY_CEILING_S, WORKSPACE_RETRY_BASE_S * 2 ** (count - 1))
             next_check = after(delay)
@@ -7140,11 +7299,11 @@ class Daemon:
                            (next_check, job["job_id"]))
             self._workspace_deferrals[job["job_id"]] = count
             self.log.warning("job %s workspace preparation deferred %d/%d, next check in %d s: %s",
-                             job["job_id"], count, limit, delay, detail)
+                             job["job_id"], count, limit, delay, words)
             self._notify()
             return
         record.update(transient=transient, deferrals=count - 1)
-        self.log.error("job %s workspace preparation failed: %s", job["job_id"], detail)
+        self.log.error("job %s workspace preparation failed: %s", job["job_id"], words)
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
@@ -7158,7 +7317,8 @@ class Daemon:
         `caps.workspace_retry_max` tries (a tree another tool held aside comes back,
         one that was removed does not)."""
         error = SalvageError(f"its folder {folder} is not there now "
-                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True)
+                             f"({missing.strerror or missing}: {missing.filename or folder})", transient=True,
+                             public=f"its folder {folder} is not there now ({os_error_text(missing)})")
         error.__cause__ = missing
         self._workspace_failed(job, error)
         self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
@@ -7237,7 +7397,7 @@ class Daemon:
                 resume = manifest.get("resume")
                 if not resume or not self._resume_lane(resume["lane_id"], lane) or resume["model_id"] != model["id"]:
                     raise AdapterError("resume source identity is missing or does not match this attempt",
-                                       fix="resubmit the resume from the original job")
+                                       fix="resubmit the resume from the original job", reason="resume-identity-mismatch")
             if turn_block is not None:
                 pass
             elif resume or (job["kind"] == "revive" and job["caller_session"]):
@@ -7253,12 +7413,13 @@ class Daemon:
                 if launch is None:
                     raise AdapterError(
                         f"{lane.provider} cannot resume a session in place", code=7,
-                        fix="use `subfleet sessions handoff` to continue this session")
+                        fix="use `subfleet sessions handoff` to continue this session", reason="resume-provider",
+                        details={"provider": lane.provider})
             else:
                 launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
                                               model["id"], model.get("effort"), prompt_path, guard_override)
         except AdapterError as exc:
-            self._launch_failure(a, str(exc) + (f"; fix: {exc.fix}" if exc.fix else ""), rc=exc.code)
+            self._launch_failure(a, self._refused_job(a["job_id"], exc), rc=exc.code)
             return
         except SalvageError as exc:
             # C-6.8: the main/master re-check did not finish. Launching anyway
@@ -7270,11 +7431,13 @@ class Daemon:
             # (`_defer_after_launch`).
             # As a spawn error it was classified `unknown`, which is never
             # retried, and ended the job (review of ceacf18b, P3-5).
-            self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], exc)
+            # The attempt's detail and notice keep C-6.8's record; git's words go to daemon.log only.
+            self.log.error("attempt %s workdir branch check failed: %s", a["attempt_id"], refusals.scrubbed_words(exc))
+            said = self._workspace_error(exc)[1]["error"]
             if exc.transient:
-                self._unlaunched(a, f"{LAUNCH_CHECK_UNFINISHED} {exc}", deferred=exc)
+                self._unlaunched(a, f"{LAUNCH_CHECK_UNFINISHED} {said}", deferred=exc)
             else:
-                self._launch_failure(a, f"workdir branch check failed: {exc}", rc=int(Exit.OPERATIONAL))
+                self._launch_failure(a, f"workdir branch check failed: {said}", rc=int(Exit.OPERATIONAL))
             return
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
@@ -7302,9 +7465,7 @@ class Daemon:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
         command += ["--", *launch.argv]
         try:
-            child = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     pass_fds=(read_fd,), close_fds=True, cwd=package_root)
+            child, root = self._spawn_guardian(command, env, read_fd, package_root)
             self._children[a["attempt_id"]] = child
             # ps can miss a pid for a few milliseconds after fork, and it is
             # slow under load; retry briefly while the guardian is alive. The
@@ -7324,12 +7485,26 @@ class Daemon:
                     raise procs.InspectionError("cancelled during launch")
                 tx.execute("UPDATE attempts SET state='starting',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,native_session_id=? WHERE attempt_id=? AND state='reserved'",
                            (child.pid, child.pid, boot, started, launch.native_session_id, a["attempt_id"]))
+                if root:
+                    # D-CEN1: committed with the identity, before the gate opens, so
+                    # every census of this attempt, after a restart too, has its root.
+                    row = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=? AND state='starting'",
+                                     (a["attempt_id"],)).fetchone()
+                    if row is not None:
+                        evidence = json.loads(row[0] or "{}")
+                        evidence["responsible_root"] = root
+                        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                                   (json.dumps(evidence), a["attempt_id"]))
             os.write(write_fd, b"1")
         except (OSError, procs.InspectionError) as exc:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
             os.close(write_fd)
             write_fd = -1
-            self._unlaunched(a, f"guardian-identity-unavailable: {type(exc).__name__}: {exc}")
+            # The attempt's detail and notice name an OS error by class and errno
+            # (C-25.7); procs' own messages are ours. Its words go to daemon.log.
+            self.log.error("attempt %s guardian identity unavailable: %s", a["attempt_id"], refusals.scrubbed_words(exc))
+            said = refusals.fixed_error(exc) if isinstance(exc, OSError) else f"{refusals.class_name(exc)}: {exc}"
+            self._unlaunched(a, f"guardian-identity-unavailable: {said}")
             return
         finally:
             os.close(read_fd)
@@ -7525,6 +7700,35 @@ class Daemon:
             self._lost(a)
         return True
 
+    def _spawn_guardian(self, command: list[str], env: dict[str, str], read_fd: int, package_root: str):
+        """C-5.1, D-CEN1: start a guardian (an attempt's, a probe's or a re-enrolment's) as
+        its own responsible process, and return it with the root to record beside its
+        identity: `{"pid", "unique_id"}`, or None when this macOS cannot disclaim, in
+        which case its censuses keep three sources. Only the guardian is disclaimed: the
+        provider it starts names it. Disclaim only from a self-responsible daemon;
+        terminal-started daemons preserve their inherited privacy attribution."""
+        env = {**env, "SUBFLEET_EXIT_SETTLE_S": str(getattr(self, "exit_settle_s", EXIT_SETTLE_S))}
+        child = spawn_guardian(command, disclaim=getattr(self, "_disclaim_guardians", True),
+                               env=env, cwd=package_root, pass_fds=(read_fd,),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, close_fds=True)
+        root = None
+        if isinstance(child, procs.Spawned):
+            try:
+                root = procs.responsibility_root(child.pid)
+            except procs.InspectionError:
+                pass
+            if root is None:
+                # posix_spawn accepted the disclaim attribute. A failed metadata
+                # read must not silently downgrade this attempt to three sources.
+                root = {"pid": child.pid, "unique_id": None}
+        if root is None and not self._unrooted_logged:
+            self._unrooted_logged = True
+            self.log.warning("guardian %s started without a responsibility root (disclaim available: %s); "
+                             "censuses of what it starts read three sources (C-5.5, D-CEN1)",
+                             child.pid, procs.disclaim_available())
+        return child, root
+
     def _contain(self, a: dict):
         """C-5.5: one identity/bounds path for every deciding census, probes too."""
         directory = (Path(a["directory"]) if a.get("directory") else
@@ -7537,15 +7741,54 @@ class Daemon:
         guardian = a.get("guardian_pid") or start.get("guardian_pid")
         boot = a.get("boot_id") or start.get("boot_id")
         began = a.get("proc_start") or start.get("proc_start")
+        # D-CEN1: a process seen naming the root stops naming it once the root is
+        # gone (the kill protocol's SIGKILL reaches the guardian), so each one a
+        # census saw is kept and seeds the walk afterwards, as a recorded survivor
+        # does. It is evidence only: signal authority stays `owned_identities`.
+        named = dict(a.get("responsible_identities") or evidence.get("responsible_identities") or {})
+        alternatives: dict[int, list[procs.ProcessIdentity]] = {}
+        for pid, value in named.items():
+            ident = procs.ProcessIdentity(**value)
+            previous = recorded.setdefault(int(pid), ident)
+            if previous != ident:
+                alternatives.setdefault(int(pid), []).append(ident)
         if guardian and boot and began:
-            recorded[guardian] = procs.ProcessIdentity(guardian, boot, began)
+            ident = procs.ProcessIdentity(guardian, boot, began)
+            previous = recorded.get(guardian)
+            if previous is not None and previous != ident:
+                alternatives.setdefault(guardian, []).append(previous)
+            recorded[guardian] = ident
+        # D-CEN1: an attempt whose guardian was started as a responsibility root
+        # adds its fourth source; one recorded before (or without) it keeps three.
+        rooted = a.get("responsible_root") or evidence.get("responsible_root")
+        responsible = (procs.ResponsibleRoot(guardian, boot, rooted.get("unique_id"))
+                       if isinstance(rooted, dict) and guardian and rooted.get("pid") == guardian else None)
         census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
                                    a.get("child_pid") or receipt.get("child_pid"),
                                    a.get("attempt_id") or a["holder"], root=str(self.root),
                                    recorded_identities=recorded,
+                                   recorded_alternatives=alternatives,
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
-                                   finished_at=receipt.get("finished_at"))
+                                   finished_at=receipt.get("finished_at"),
+                                   responsible_root=responsible)
+        fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
+                 if guardian not in census.recycled
+                 and pid != guardian and pid in census.identities
+                 and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
+        # `recycled[pid]` excludes an older recorded birth, not a new member
+        # observed at the same pid. Its census evidence still must be saved.
+        if fresh and a.get("attempt_id") and "evidence_json" in a:
+            with self.store.transaction("attempt.responsible_recorded", job_id=a["job_id"],
+                                        attempt_id=a["attempt_id"], data={"pids": sorted(map(int, fresh))}) as tx:
+                actual = self.store.get_attempt(a["attempt_id"]) or a
+                current = json.loads(actual.get("evidence_json") or "{}")
+                current["responsible_identities"] = {**current.get("responsible_identities", {}), **fresh}
+                a["evidence_json"] = json.dumps(current)
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                           (a["evidence_json"], a["attempt_id"]))
+        elif fresh:
+            a["responsible_identities"] = {**named, **fresh}      # a probe's record, saved by its caller
         if census.recycled and a.get("attempt_id"):
             excluded = census.to_dict()["recycled"]
             if any(evidence.get("recycled", {}).get(pid) != value for pid, value in excluded.items()):
@@ -7789,6 +8032,9 @@ class Daemon:
             # C-13.1, C-15.1: a quarantined retry names the attempt before it.
             earlier = self._earlier_attempt(tx, job, before=a["seq"])
             self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + detail + earlier)
+        # Terminal attempts are no longer polled. Dropping a running Spawned
+        # hands it to procs._abandoned, which a later spawn polls and reaps.
+        self._children.pop(a["attempt_id"], None)
         self._notify()
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
@@ -7894,14 +8140,15 @@ class Daemon:
                 transient = getattr(exc, "transient", False) or transient_os_error(exc)
                 if retry and transient and failures < SALVAGE_TRIES:
                     raise
-                # git's own words: paths and refs, never a credential. A snapshot
-                # already written stands when only reading HEAD after it failed.
-                # Valid UTF-8 whatever it quotes, or the receipt could not be
-                # written, on this try or any other (N1; a `SalvageError` already
-                # is, and this holds for any other error's text).
+                # The receipt reaches the attempt's evidence (`runs show`) and the
+                # job's notice, so it says how git ended, as C-6.8's record does:
+                # what git printed (a repository's own filters print there) goes to
+                # daemon.log only, scrubbed (C-25.7). A snapshot already written
+                # stands when only reading HEAD after it failed. Valid UTF-8, or the
+                # receipt could not be written, on this try or any other (N1).
                 stage = "checkpoint" if result else "salvage"
-                error = utf8_text(f"{stage} failed: {exc}")[:500]
-                self.log.warning("attempt %s %s", a["attempt_id"], error)
+                error = utf8_text(f"{stage} failed: {self._workspace_error(exc)[1]['error']}")[:500]
+                self.log.warning("attempt %s %s failed: %s", a["attempt_id"], stage, refusals.scrubbed_words(exc))
             self._salvage_failures.pop(a["attempt_id"], None)
             # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
             # `os.fsdecode` carries a name that is not UTF-8 in, and a receipt that
@@ -8051,7 +8298,9 @@ class Daemon:
                     transient = getattr(exc, "transient", False) or transient_os_error(exc)
                     if retry and transient and failures < TURN_TREE_TRIES:
                         raise
-                    receipt["error"] = utf8_text(f"end snapshot failed: {exc}")[:500]     # as `_salvage`'s
+                    # As `_salvage`'s: `turn.diff` shows it, so git's own words are logged only.
+                    receipt["error"] = utf8_text(f"end snapshot failed: {self._workspace_error(exc)[1]['error']}")[:500]
+                    self.log.warning("attempt %s end snapshot failed: %s", a["attempt_id"], refusals.scrubbed_words(exc))
             self._tree_failures.pop(a["attempt_id"], None)
             receipt["at"] = utcnow()
             self._publish("trees", path, json_bytes(receipt))
@@ -8281,9 +8530,19 @@ class Daemon:
                 evidence["lane_fault"] = fault
             if again:
                 evidence["auth_dead_again"] = {"lane_id": a["lane_id"], "lane_left_enabled": True}
+            finished = actual.get("finished_at") or utcnow()
+            # C-9.5, D-CAP1: the provider refused this job's model for capacity. A job a steer
+            # applies to walks that model last until MODEL_CAPACITY_STEER_S after this attempt
+            # finished, and is due at the next pass rather than on the same pair 60 s on; a job
+            # pinned to the model keeps that retry. No closure, no lane disabled or excluded.
+            steered = (not lost and outcome.cls == OutcomeClass.TRANSIENT
+                       and outcome.evidence.get("model_capacity") is True and scheduler.capacity_steerable(job))
+            if steered:
+                evidence["capacity_steer"] = {"model_id": a["model_requested"],
+                                              "until": _later(finished, MODEL_CAPACITY_STEER_S)}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
-                        outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
+                        outcome.native_session_id, outcome.transcript_path, finished, a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
@@ -8300,7 +8559,8 @@ class Daemon:
                 job_rc = {OutcomeClass.LIMITED: 4,  # C-17.3: a final limited attempt reports 4, pinned or not
                           OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
             accepted = a["attempt_id"] if ok and not cancel else None
-            next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
+            next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
+                               else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
             if accepted and job.get("push_branch") is not None:
@@ -8642,9 +8902,10 @@ class Daemon:
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone))
         except (protocol.ProtocolError, AdapterError) as exc:
-            response = protocol.fail(req.id, exc.code, str(exc), exc.fix)
+            response = protocol.refuse(req.id, exc)
+            refusals.log_detail(self.log, req.op, exc)
         except (ValueError, TypeError, KeyError) as exc:
-            response = protocol.fail(req.id, 2, f"invalid arguments: {exc}")
+            response = protocol.refuse(req.id, exc)
         except Exception as exc:
             self.log.error("request %s failed: %s", req.op, type(exc).__name__)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
@@ -8655,17 +8916,16 @@ class Daemon:
         """One framed line as a request, or None after answering why it is not one."""
         try:
             if line is descriptors.OVERSIZED:
-                raise protocol.ProtocolError("request exceeds 1 MiB")
+                raise protocol.request_error("request-size")
             return protocol.decode_request(line)
         except (protocol.ProtocolError, ValueError, RecursionError) as exc:
             # C-16.7: a malformed line is answered, never left to end the reader:
             # ValueError covers bad UTF-8 and an integer past
             # sys.int_max_str_digits, RecursionError nesting that parses but is
-            # too deep to render in an error message (as #55 on main).
-            message = (str(exc) if isinstance(exc, (protocol.ProtocolError, UnicodeDecodeError))
-                       else "malformed request: nested too deeply" if isinstance(exc, RecursionError)
-                       else f"malformed request: {exc}")
-            if not send_reply(conn, write_lock, protocol.fail("", 2, message), end_stream=self._end_stream):
+            # too deep to encode (#55). Only fixed templates reach the wire.
+            reason = ("bad-encoding" if isinstance(exc, UnicodeDecodeError) else
+                      "nested-request" if isinstance(exc, RecursionError) else "malformed-request")
+            if not send_reply(conn, write_lock, protocol.refuse("", exc, reason=reason), end_stream=self._end_stream):
                 raise OSError("the reply to an undecodable request failed part way")
             return None
 
@@ -8816,15 +9076,15 @@ class Daemon:
             self._readers.add(reader)
         try:
             reader.start()
-        except RuntimeError as exc:               # no thread could start
+        except RuntimeError:                     # no thread could start
             with self._connection_lock:
                 self._readers.discard(reader)
                 self._connections.discard(conn)
             # Nothing was read, so the answer is busy, and the client may try again.
             # Logged through the refusal count (1st, 2nd, 4th ...), not once per
             # connection: out of threads, every client would add a line.
-            self._refuse(conn, f"the daemon is busy: it could not start a thread for this connection ({exc})",
-                         f"connection no reader thread could start for ({exc})")
+            self._refuse(conn, "the daemon is busy: it could not start a thread for this connection",
+                         "connection no reader thread could start for")
 
     def _read_connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         try:
@@ -9389,8 +9649,11 @@ def stop_request(stopping: threading.Event, arm: Callable[[], bool | None]) -> C
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="subfleet supervised daemon")
     parser.add_argument("--foreground", action="store_true")
-    parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
+    parser.add_argument("--state-root", default=None)
     args = parser.parse_args(argv)
+    if args.state_root is None:
+        from .home_paths import home_path
+        args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet", accept_empty=True)
     limits = descriptors.raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
