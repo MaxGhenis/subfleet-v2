@@ -28,12 +28,16 @@ from __future__ import annotations
 import argparse
 import functools
 import hashlib
+import io
 import json
+import math
 import os
 import plistlib
 import re
+import select
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -89,6 +93,12 @@ LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
 DAEMON_STATUS_PING_TIMEOUT_S = 5.0
+# C-17.8: one total read budget, including a pipe's first byte and every
+# subsequent byte. The finite size bound also covers endless character devices.
+PING_STDIN_WAIT_S = 2.0
+PING_STDIN_WAIT_MAX_S = 86400.0
+PING_STDIN_WAIT_ENV = "SUBFLEET_PING_STDIN_WAIT_S"
+STDIN_MAX_BYTES = 8 * 1024 * 1024
 WAIT_BACKOFF_MAX_S = 5.0        # cap on the pause after an immediate long poll
 PLIST_LABEL = "com.subfleet.daemon"
 PLIST_PATH = "~/Library/LaunchAgents/com.subfleet.daemon.plist"
@@ -197,8 +207,10 @@ def cmd_suggest(args: argparse.Namespace) -> int:
                 with open(args.brief_file, encoding="utf-8") as stream:
                     brief = stream.read()
             else:
-                brief = sys.stdin.read()
-        except (OSError, UnicodeDecodeError) as exc:
+                brief, reason = _stdin_message()
+                if brief is None:
+                    raise ValueError(reason)
+        except (OSError, ValueError) as exc:
             return fail(Exit.INVALID_INPUT, scrub_error(exc, prefix="cannot read the brief: "))
         try:
             workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
@@ -2347,6 +2359,80 @@ def cmd_why(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+def _ping_stdin_wait_s(env: dict[str, str] | None = None) -> float:
+    """C-17.8: a finite, selectable deadline, with the original #35 override."""
+    env = os.environ if env is None else env
+    try:
+        value = float((env.get(PING_STDIN_WAIT_ENV) or "").strip())
+    except ValueError:
+        return PING_STDIN_WAIT_S
+    if not math.isfinite(value) or not 0 <= value <= PING_STDIN_WAIT_MAX_S:
+        return PING_STDIN_WAIT_S
+    return value
+
+
+def _stdin_bytes(stream: Any, wait_s: float) -> bytes | str:
+    """Read stdin through EOF or a pipe's deadline, never waiting for its writer.
+
+    A total deadline also bounds continuous writers. Files are read directly;
+    other accepted descriptors must be readable before each read. A readiness
+    error propagates instead of authorizing an unbounded fallback read.
+    """
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        if not isinstance(stream, (io.StringIO, io.BytesIO)):
+            raise ValueError("stdin has no readable file descriptor") from None
+        data = stream.read(STDIN_MAX_BYTES + 1)
+        if len(data) > STDIN_MAX_BYTES:
+            raise ValueError(f"stdin exceeds {STDIN_MAX_BYTES} bytes/characters")
+        return data
+    mode = os.fstat(fd).st_mode
+    regular = stat.S_ISREG(mode)
+    pipe = stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode)
+    if not (regular or pipe or stat.S_ISCHR(mode)):
+        raise ValueError("stdin is neither a pipe, socket, regular file nor character device")
+    deadline = time.monotonic() + wait_s
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 and chunks:
+            if pipe:
+                break
+            raise ValueError(f"stdin did not reach EOF within {wait_s:g}s")
+        if not regular and not select.select([fd], [], [], max(0.0, remaining))[0]:
+            if chunks:
+                break
+            raise TimeoutError(f"stdin is an open pipe or device with no data within {wait_s:g}s")
+        chunk = os.read(fd, min(65536, STDIN_MAX_BYTES + 1 - size))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > STDIN_MAX_BYTES:
+            raise ValueError(f"stdin exceeds {STDIN_MAX_BYTES} bytes")
+    return b"".join(chunks)
+
+
+def _stdin_message(stream: Any = None, wait_s: float | None = None) -> tuple[str | None, str | None]:
+    """C-17.8: a finite stdin message, or the reason it could not be read.
+
+    Empty EOF remains an empty message: release's ping uses it as a health
+    check. The caller decides whether an empty message is useful to its verb.
+    """
+    stream = sys.stdin if stream is None else stream
+    if stream is None:
+        return None, "stdin is closed"
+    try:
+        if stream.isatty():
+            return None, "stdin is a terminal"
+        data = _stdin_bytes(stream, _ping_stdin_wait_s() if wait_s is None else wait_s)
+    except (AttributeError, OSError, ValueError, OverflowError) as exc:
+        return None, f"stdin could not be read: {exc}"
+    return (data.decode("utf-8", "replace") if isinstance(data, bytes) else data), None
+
+
 def cmd_ping(args: argparse.Namespace) -> int:
     """C-15.8: the session named, else this Claude session, else none: the daemon
     then addresses `alerts.operator_session`, or refuses text addressed to no one.
@@ -2357,10 +2443,10 @@ def cmd_ping(args: argparse.Namespace) -> int:
     elif sys.stdin is None or sys.stdin.isatty():
         text = ""                                   # at a prompt: a liveness question, not a wait
     else:
-        try:
-            text = sys.stdin.buffer.read().decode("utf-8", "replace")
-        except (OSError, ValueError) as exc:
-            return fail(Exit.INVALID_INPUT, f"ping: cannot read the message: {exc}")
+        text, reason = _stdin_message()
+        if text is None:
+            return fail(Exit.INVALID_INPUT, f"ping: cannot read the message: {reason}",
+                        "subfleet ping [--session ID] TEXT; subfleet daemon status checks daemon health")
     if not text.strip():
         text = ""
     try:
@@ -2383,8 +2469,8 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if result.get("delivered"):
         out(f"delivered to {recipient}")
         return int(Exit.OK)
-    out(f"parked for {recipient}")
-    note(f"  {result.get('reason') or 'the session has no live inbox'}")
+    notice = result.get("notice_id")
+    out(f"queued notice {notice} for {recipient}" if notice is not None else f"queued for {recipient}")
     return int(Exit.OK)
 
 
