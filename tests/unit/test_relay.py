@@ -184,3 +184,88 @@ def test_status_reports_what_was_applied_and_the_cap_without_logging(server, tmp
     assert [r["seq"] for r in read_log(tmp_path / "stdin.jsonl")] == [1, 2, 3]
     # A numbered "status" is a malformed frame, not a status request.
     assert relay.apply({"seq": 4, "op": "status", "sha256": line_sha256(None)})["error"] == "bad-frame"
+
+
+@pytest.mark.parametrize("op", ["close", "status"])
+def test_stop_finishes_the_exchange_already_read(server, monkeypatch, op):
+    """C-26.4: child exit between apply and reply cannot discard the answer."""
+    import socket
+    import threading
+
+    relay, read_end = server
+    peer, conn = socket.socketpair()
+    peer.settimeout(5)
+    applied = threading.Event()
+    real_apply = relay.apply
+
+    def apply_then_child_exits(frame):
+        answer = real_apply(frame)
+        applied.set()
+        assert relay._stop.wait(5), "guardian did not observe the child's exit"
+        return answer
+
+    monkeypatch.setattr(relay, "apply", apply_then_child_exits)
+    relay._conn = conn
+    relay._thread = threading.Thread(target=relay._serve_connection, args=(conn,))
+    relay._thread.start()
+    frame = F(1, "close") if op == "close" else {"op": "status"}
+    try:
+        peer.sendall((json.dumps(frame) + "\n").encode())
+        assert applied.wait(5), "relay did not apply the request"
+        relay.stop()
+        with peer.makefile("rb") as reader:
+            raw = reader.readline()
+        assert raw, "child exit discarded a request the relay had already read"
+        answer = json.loads(raw)
+        assert answer["ok"]
+        if op == "close":
+            assert answer["seq"] == 1 and os.read(read_end, 1) == b""
+            assert read_log(relay.log_path)[0]["status"] == "written"
+        else:
+            assert answer["status"]["applied"] == 0
+            assert not relay.log_path.exists()
+        assert not relay._thread.is_alive()
+    finally:
+        conn.shutdown(socket.SHUT_RDWR)
+        peer.close()
+        relay._thread.join(5)
+        conn.close()
+
+
+def test_stop_covers_a_connection_accepted_before_it_was_published(server, monkeypatch):
+    """Stop during peer checking must not leave an unregistered reader blocked."""
+    import socket
+    import threading
+
+    relay, _ = server
+    peer, conn = socket.socketpair()
+    checking = threading.Event()
+
+    class Listener:
+        def accept(self):
+            return conn, None
+
+        def close(self):
+            pass
+
+    def allowed(_pid):
+        checking.set()
+        assert relay._stop.wait(5)
+        return True
+
+    relay._server = Listener()
+    relay._allowed_peer = allowed
+    relay._thread = threading.Thread(target=relay._accept_loop)
+    relay._thread.start()
+    try:
+        assert checking.wait(5)
+        relay.stop()
+        assert not relay._thread.is_alive(), "accepted connection escaped stop's wakeup"
+    finally:
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        peer.close()
+        relay._thread.join(5)
+        conn.close()
